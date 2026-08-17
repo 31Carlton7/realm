@@ -2,6 +2,7 @@ import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
 import { z } from "zod";
 import { RpcServer } from "./server";
+import { NotFoundError } from "../store/rows";
 
 let server: RpcServer;
 afterEach(async () => { await server?.close(); });
@@ -31,7 +32,7 @@ describe("RpcServer", () => {
 
   it("maps thrown errors with a code and broadcasts events to all clients", async () => {
     server = new RpcServer();
-    server.register("boom", z.object({}), async () => { throw Object.assign(new Error("nope"), { code: "NOT_FOUND" }); });
+    server.register("boom", z.object({}), async () => { throw new NotFoundError("thing", "x"); });
     const port = await server.listen(0);
     const a = await connect(port); const b = await connect(port);
     a.send(JSON.stringify({ id: "1", method: "boom", params: {} }));
@@ -41,5 +42,20 @@ describe("RpcServer", () => {
     expect(await pa).toEqual({ event: "spaces.changed", payload: { profileId: "x" } });
     expect(await pb).toEqual({ event: "spaces.changed", payload: { profileId: "x" } });
     a.close(); b.close();
+  });
+
+  it("does not leak codes from plain errors: non-RpcError throws map to INTERNAL", async () => {
+    server = new RpcServer();
+    server.register("plain", z.object({}), async () => { throw Object.assign(new Error("db exploded"), { code: "SQLITE_BUSY" }); });
+    server.register("weird", z.object({}), async () => { throw "not an error object"; });
+    const port = await server.listen(0);
+    const ws = await connect(port);
+    ws.send(JSON.stringify({ id: "1", method: "plain", params: {} }));
+    const r1 = (await nextMessage(ws)) as { ok: boolean; error: { code: string; message: string } };
+    expect(r1.ok).toBe(false); expect(r1.error.code).toBe("INTERNAL"); expect(r1.error.message).toBe("db exploded");
+    ws.send(JSON.stringify({ id: "2", method: "weird", params: {} }));
+    const r2 = (await nextMessage(ws)) as { error: { code: string } };
+    expect(r2.error.code).toBe("INTERNAL");
+    ws.close();
   });
 });

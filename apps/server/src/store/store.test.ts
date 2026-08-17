@@ -7,6 +7,8 @@ import { ProfilesStore } from "./profiles";
 import { SpacesStore } from "./spaces";
 import { ProjectsStore } from "./projects";
 import { ItemsStore } from "./items";
+import { TerminalsStore } from "./terminals";
+import { NotFoundError } from "./rows";
 import { emptyLayout } from "@realm/contracts";
 
 let db: Db; let home: string;
@@ -63,6 +65,42 @@ describe("SpacesStore", () => {
     spaces.delete(sp.id);
     expect(projects.list(sp.id)).toEqual([]);
     expect(items.list(sp.id)).toEqual([]);
+  });
+});
+
+describe("SpacesStore layout robustness", () => {
+  it("returns layout null (and still lists) when layout_json is corrupt", () => {
+    const profiles = new ProfilesStore(db); const spaces = new SpacesStore(db, home);
+    const p = profiles.create({ name: "W", icon: "x", color: "#000" });
+    const sp = spaces.create({ profileId: p.id, name: "S", icon: "f" });
+    db.prepare("UPDATE spaces SET layout_json = ? WHERE id = ?").run(JSON.stringify({ type: "split", id: "x", dir: "row", sizes: [100], children: [] }), sp.id);
+    expect(spaces.get(sp.id)?.layout).toBeNull();
+    expect(spaces.list(p.id)).toHaveLength(1);
+    db.prepare("UPDATE spaces SET layout_json = ? WHERE id = ?").run("{not json", sp.id);
+    expect(spaces.list(p.id)[0]!.layout).toBeNull();
+  });
+});
+
+describe("parent checks", () => {
+  it("items.create and projects.create throw NotFoundError for unknown space", () => {
+    const items = new ItemsStore(db); const projects = new ProjectsStore(db);
+    const bogus = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    expect(() => items.create({ spaceId: bogus, kind: "terminal", title: "t", refId: bogus })).toThrow(NotFoundError);
+    expect(() => projects.create({ spaceId: bogus, name: "r", rootPath: "/tmp", defaultBranch: "main" })).toThrow(NotFoundError);
+  });
+});
+
+describe("TerminalsStore", () => {
+  it("inserts, lists by space, deletes idempotently", () => {
+    const profiles = new ProfilesStore(db); const spaces = new SpacesStore(db, home); const terms = new TerminalsStore(db);
+    const p = profiles.create({ name: "W", icon: "x", color: "#000" });
+    const sp = spaces.create({ profileId: p.id, name: "S", icon: "f" });
+    terms.insert({ id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId: sp.id, cwd: sp.folderPath, shell: "/bin/sh" });
+    terms.insert({ id: "01ARZ3NDEKTSV4RRFFQ69G5FAW", spaceId: sp.id, cwd: sp.folderPath, shell: "/bin/sh" });
+    expect(terms.listBySpace(sp.id).map((t) => t.id).sort()).toEqual(["01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"]);
+    terms.delete("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    expect(() => terms.delete("01ARZ3NDEKTSV4RRFFQ69G5FAV")).not.toThrow();
+    expect(terms.listBySpace(sp.id)).toHaveLength(1);
   });
 });
 

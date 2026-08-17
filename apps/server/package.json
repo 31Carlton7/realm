@@ -9,6 +9,7 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "//node-pty": "pinned to 1.2.0-beta.15: 1.1.0 prebuild ships non-executable spawn-helper",
   "dependencies": {
     "@realm/contracts": "workspace:*",
     "node-pty": "1.2.0-beta.15",

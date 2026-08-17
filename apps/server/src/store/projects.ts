@@ -14,6 +14,7 @@ export class ProjectsStore {
     const r = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as Row | undefined; return r ? toProject(r) : null;
   }
   create(input: { spaceId: string; name: string; rootPath: string; defaultBranch: string }): Project {
+    if (!this.db.prepare("SELECT 1 FROM spaces WHERE id = ?").get(input.spaceId)) throw new NotFoundError("space", input.spaceId);
     const id = newId(); const t = now();
     this.db.prepare("INSERT INTO projects (id, space_id, name, root_path, default_branch, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(id, input.spaceId, input.name, input.rootPath, input.defaultBranch, t, t);

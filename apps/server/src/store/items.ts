@@ -10,10 +10,14 @@ export class ItemsStore {
   list(spaceId: string): Item[] {
     return (this.db.prepare("SELECT * FROM items WHERE space_id = ? ORDER BY pinned DESC, sort_order, created_at").all(spaceId) as Row[]).map(toItem);
   }
+  findByRefId(refId: string): Item | null {
+    const r = this.db.prepare("SELECT * FROM items WHERE ref_id = ?").get(refId) as Row | undefined; return r ? toItem(r) : null;
+  }
   get(id: string): Item | null {
     const r = this.db.prepare("SELECT * FROM items WHERE id = ?").get(id) as Row | undefined; return r ? toItem(r) : null;
   }
   create(input: { spaceId: string; kind: ItemKind; title: string; refId: string }): Item {
+    if (!this.db.prepare("SELECT 1 FROM spaces WHERE id = ?").get(input.spaceId)) throw new NotFoundError("space", input.spaceId);
     const max = (this.db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM items WHERE space_id = ?").get(input.spaceId) as { m: number }).m;
     const id = newId(); const t = now();
     this.db.prepare("INSERT INTO items (id, space_id, kind, title, sort_order, pinned, ref_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)")

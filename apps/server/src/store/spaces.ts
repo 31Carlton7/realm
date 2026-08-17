@@ -6,9 +6,14 @@ import { NotFoundError, now, slugify } from "./rows";
 
 type Row = { id: string; profile_id: string; name: string; icon: string; sort_order: number; folder_path: string;
   layout_json: string | null; active_item_id: string | null; created_at: number; updated_at: number };
+/** Corrupt or outdated layout JSON degrades to null rather than breaking the whole space. */
+function parseLayout(json: string | null): Layout | null {
+  if (!json) return null;
+  try { const p = LayoutSchema.safeParse(JSON.parse(json)); return p.success ? p.data : null; } catch { return null; }
+}
 const toSpace = (r: Row): Space => ({
   id: r.id, profileId: r.profile_id, name: r.name, icon: r.icon, sortOrder: r.sort_order, folderPath: r.folder_path,
-  layout: r.layout_json ? LayoutSchema.parse(JSON.parse(r.layout_json)) : null,
+  layout: parseLayout(r.layout_json),
   activeItemId: r.active_item_id, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 

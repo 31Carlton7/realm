@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp, type App } from "../app";
+import { waitFor } from "../test-utils";
 
 let app: App;
 afterEach(async () => { await app?.close(); });
@@ -13,15 +14,25 @@ async function client(port: number) {
   const pending = new Map<string, (v: any) => void>(); const events: any[] = [];
   ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); else events.push(m); });
   let n = 0;
-  const call = (method: string, params: unknown) => new Promise<any>((res) => { const id = String(++n); pending.set(id, res); ws.send(JSON.stringify({ id, method, params })); });
+  const call = (method: string, params: unknown) => new Promise<any>((res, rej) => {
+    const id = String(++n);
+    const timer = setTimeout(() => { pending.delete(id); rej(new Error(`rpc ${method} (#${id}) timed out`)); }, 5000);
+    pending.set(id, (v) => { clearTimeout(timer); res(v); });
+    ws.send(JSON.stringify({ id, method, params }));
+  });
   return { call, events, close: () => ws.close() };
+}
+
+async function boot() {
+  const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+  app = await createApp({ home, port: 0 });
+  const c = await client(app.port);
+  return { home, c };
 }
 
 describe("rpc methods", () => {
   it("full flow: profile → space → item → layout, with change events", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
-    app = await createApp({ home, port: 0 });
-    const c = await client(app.port);
+    const { home, c } = await boot();
     const prof = (await c.call("profiles.create", { name: "Work" })).result;
     expect(prof.icon).toBe("user");
     const space = (await c.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
@@ -32,26 +43,90 @@ describe("rpc methods", () => {
     expect(updated.layout).toEqual(layout);
     const listed = (await c.call("spaces.list", { profileId: prof.id })).result;
     expect(listed).toHaveLength(1);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(c.events.map((e) => e.event)).toEqual(expect.arrayContaining(["profiles.changed", "spaces.changed", "items.changed"]));
+    await waitFor(() => ["profiles.changed", "spaces.changed", "items.changed"].every((e) => c.events.some((x) => x.event === e)));
     const info = (await c.call("system.info", {})).result;
     expect(info.realmHome).toBe(home);
     c.close();
   });
 
+  it("returns NOT_FOUND for items.create with a bogus spaceId", async () => {
+    const { c } = await boot();
+    const r = await c.call("items.create", { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", kind: "terminal", title: "t", refId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+
   it("terminals.create makes an item and streams data events", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
-    app = await createApp({ home, port: 0 });
-    const c = await client(app.port);
+    const { c } = await boot();
     const prof = (await c.call("profiles.create", { name: "W" })).result;
     const space = (await c.call("spaces.create", { profileId: prof.id, name: "S" })).result;
     const { terminalId, itemId } = (await c.call("terminals.create", { spaceId: space.id })).result;
     expect(itemId).toBeTruthy();
+    const items = (await c.call("items.list", { spaceId: space.id })).result;
+    expect(items.map((i: any) => i.id)).toEqual([itemId]);
+    expect(items[0].refId).toBe(terminalId);
     await c.call("terminals.write", { terminalId, data: "echo REALM_RPC_OK\n" });
-    await new Promise((r) => setTimeout(r, 500));
-    const data = c.events.filter((e) => e.event === "terminal.data").map((e) => e.payload.data).join("");
-    expect(data).toContain("REALM_RPC_OK");
+    const termData = () => c.events.filter((e) => e.event === "terminal.data").map((e) => e.payload.data).join("");
+    await waitFor(() => termData().includes("REALM_RPC_OK"));
     await c.call("terminals.close", { terminalId });
+    c.close();
+  });
+
+  it("closing a terminal removes its item and pty", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "S" })).result;
+    const { terminalId, itemId } = (await c.call("terminals.create", { spaceId: space.id })).result;
+    expect(app.terminals.has(terminalId)).toBe(true);
+    const r = await c.call("terminals.close", { terminalId });
+    expect(r.ok).toBe(true);
+    expect(app.terminals.has(terminalId)).toBe(false);
+    const items = (await c.call("items.list", { spaceId: space.id })).result;
+    expect(items.map((i: any) => i.id)).not.toContain(itemId);
+    // second close → NOT_FOUND
+    expect((await c.call("terminals.close", { terminalId })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+
+  it("items.delete on a terminal item closes the pty", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "S" })).result;
+    const { terminalId, itemId } = (await c.call("terminals.create", { spaceId: space.id })).result;
+    expect((await c.call("items.delete", { id: itemId })).ok).toBe(true);
+    expect(app.terminals.has(terminalId)).toBe(false);
+    expect((await c.call("items.list", { spaceId: space.id })).result).toEqual([]);
+    c.close();
+  });
+
+  it("deleting a space closes its terminals", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "S" })).result;
+    const a = (await c.call("terminals.create", { spaceId: space.id })).result;
+    const b = (await c.call("terminals.create", { spaceId: space.id })).result;
+    expect(app.terminals.has(a.terminalId)).toBe(true);
+    expect((await c.call("spaces.delete", { id: space.id })).ok).toBe(true);
+    expect(app.terminals.has(a.terminalId)).toBe(false);
+    expect(app.terminals.has(b.terminalId)).toBe(false);
+    expect((await c.call("spaces.list", { profileId: prof.id })).result).toEqual([]);
+    c.close();
+  });
+
+  it("when the shell exits on its own the item survives (UI shows exited) and terminal.exit is broadcast", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "S" })).result;
+    const { terminalId, itemId } = (await c.call("terminals.create", { spaceId: space.id })).result;
+    await c.call("terminals.write", { terminalId, data: "exit\n" });
+    await waitFor(() => c.events.some((e) => e.event === "terminal.exit" && e.payload.terminalId === terminalId));
+    expect(app.terminals.has(terminalId)).toBe(false);
+    const items = (await c.call("items.list", { spaceId: space.id })).result;
+    expect(items.map((i: any) => i.id)).toContain(itemId);
+    // closing after exit still cleans up the item
+    expect((await c.call("terminals.close", { terminalId })).ok).toBe(true);
+    expect((await c.call("items.list", { spaceId: space.id })).result).toEqual([]);
     c.close();
   });
 });

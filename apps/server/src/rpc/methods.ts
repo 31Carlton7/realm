@@ -1,22 +1,25 @@
-import { Methods } from "@realm/contracts";
+import { Methods, type MethodName, type MethodResult } from "@realm/contracts";
+import type { z } from "zod";
 import type { RpcServer } from "./server";
 import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { ProjectsStore } from "../store/projects";
 import type { ItemsStore } from "../store/items";
-import type { TerminalManager } from "../terminals/manager";
-import type { Db } from "../db/database";
-import { newId } from "@realm/contracts";
+import type { TerminalService } from "../terminals/service";
+
+/** Parsed (post-default) params, i.e. what the handler actually receives. */
+type Params<M extends MethodName> = z.infer<(typeof Methods)[M]["params"]>;
+type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
-  rpc: RpcServer; db: Db; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; terminals: TerminalManager;
+  rpc: RpcServer; home: string; version: string;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; terminals: TerminalService;
 };
 
 export function registerMethods(d: Deps): void {
   const { rpc } = d;
-  const reg = <M extends keyof typeof Methods>(name: M, fn: (p: import("zod").infer<(typeof Methods)[M]["params"]>) => Promise<import("zod").infer<(typeof Methods)[M]["result"]>> | import("zod").infer<(typeof Methods)[M]["result"]>) =>
-    rpc.register(name, Methods[name].params, async (p) => fn(p as never));
+  const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
+    rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
   reg("system.info", () => ({ realmHome: d.home, version: d.version }));
 
@@ -29,7 +32,13 @@ export function registerMethods(d: Deps): void {
   reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", { profileId: r.profileId }); return r; });
   reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", { profileId: r.profileId }); return r; });
   reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", { profileId: r.profileId }); return r; });
-  reg("spaces.delete", (p) => { const s = d.spaces.get(p.id); d.spaces.delete(p.id); if (s) rpc.broadcast("spaces.changed", { profileId: s.profileId }); return { ok: true as const }; });
+  reg("spaces.delete", (p) => {
+    const s = d.spaces.get(p.id);
+    if (s) d.terminals.closeAllInSpace(p.id);
+    d.spaces.delete(p.id);
+    if (s) rpc.broadcast("spaces.changed", { profileId: s.profileId });
+    return { ok: true as const };
+  });
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
@@ -38,21 +47,16 @@ export function registerMethods(d: Deps): void {
   reg("items.list", (p) => d.items.list(p.spaceId));
   reg("items.create", (p) => { const r = d.items.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
   reg("items.update", (p) => { const r = d.items.update(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
-  reg("items.delete", (p) => { const it = d.items.get(p.id); d.items.delete(p.id); if (it) rpc.broadcast("items.changed", { spaceId: it.spaceId }); return { ok: true as const }; });
-
-  reg("terminals.create", (p) => {
-    const space = d.spaces.get(p.spaceId); if (!space) throw Object.assign(new Error("space not found"), { code: "NOT_FOUND" });
-    const cwd = p.cwd ?? space.folderPath;
-    const terminalId = d.terminals.create({ cwd, cols: p.cols, rows: p.rows });
-    const t = Date.now();
-    d.db.prepare("INSERT INTO terminals (id, space_id, cwd, shell, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(terminalId, p.spaceId, cwd, process.env.SHELL ?? "/bin/zsh", t, t);
-    const item = d.items.create({ spaceId: p.spaceId, kind: "terminal", title: "Terminal", refId: terminalId });
-    rpc.broadcast("items.changed", { spaceId: p.spaceId });
-    return { terminalId, itemId: item.id };
+  reg("items.delete", (p) => {
+    const it = d.items.get(p.id);
+    if (it?.kind === "terminal") { d.terminals.close(it.refId); return { ok: true as const }; } // closes pty + row + item, broadcasts
+    d.items.delete(p.id);
+    if (it) rpc.broadcast("items.changed", { spaceId: it.spaceId });
+    return { ok: true as const };
   });
+
+  reg("terminals.create", (p) => d.terminals.open(p));
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });
-  reg("terminals.close", (p) => { d.terminals.close(p.terminalId); d.db.prepare("DELETE FROM terminals WHERE id = ?").run(p.terminalId); return { ok: true as const }; });
-  void newId;
+  reg("terminals.close", (p) => { d.terminals.close(p.terminalId); return { ok: true as const }; });
 }
