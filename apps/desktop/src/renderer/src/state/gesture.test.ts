@@ -25,6 +25,17 @@ describe("drag swipe (timer fallback — no phase source)", () => {
     expect(t.wheel(-30, 0, ts + 300, BOUNDS)).toEqual({ type: "move", offset: -30 }); // re-armed
   });
 
+  it("fallback: a deliberate swipe back during the momentum tail starts a new gesture immediately", () => {
+    const t = mk();
+    let ts = 0; let r;
+    do { r = t.wheel(9, 0, (ts += 50), BOUNDS); } while (r.type !== "commit");
+    expect(r).toEqual({ type: "commit", dir: "next" });
+    // momentum tail (same direction) is swallowed…
+    expect(t.wheel(30, 0, ts + 16, BOUNDS)).toEqual({ type: "ignore" });
+    // …but a real opposite-direction delta re-arms and follows right away
+    expect(t.wheel(-12, 0, ts + 32, BOUNDS)).toEqual({ type: "move", offset: -12 });
+  });
+
   it("a fast flick commits without reaching half the width", () => {
     const t = mk();
     expect(t.wheel(20, 0, 0, BOUNDS).type).toBe("move");

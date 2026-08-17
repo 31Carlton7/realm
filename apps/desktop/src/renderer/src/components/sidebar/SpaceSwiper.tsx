@@ -6,7 +6,7 @@ import { PinnedGrid } from "./PinnedGrid";
 import { ItemList } from "./ItemList";
 import { NewItemMenu } from "./NewItemMenu";
 
-const IDLE_MS = 220;
+const IDLE_MS = 320;
 const EASE = "transform 380ms cubic-bezier(.2,.85,.2,1)";
 
 /** Map the native helper's (phase, momentum) pair to the tracker's phase vocabulary. */

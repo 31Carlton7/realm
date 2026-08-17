@@ -28,13 +28,14 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
   const commitPx = () => Math.max(48, opts.width * (opts.commitFraction ?? 0.5));
   const flickVelocity = opts.flickVelocity ?? 0.9; // px/ms
   const flickMinPx = opts.flickMinPx ?? 32;
-  const idleMs = opts.idleMs ?? 220;
+  const idleMs = opts.idleMs ?? 320;
   const rubber = opts.rubber ?? 0.35;
 
   let acc = 0;               // raw accumulated horizontal delta (px, + = towards next)
   let shown = 0;             // rubber-adjusted offset actually shown
   let locked = false;        // after a commit / during momentum: swallow deltas
   let dragging = false;
+  let lastCommitDir: "next" | "prev" | null = null;
   let fingersDown = false;   // only meaningful with native phases
   let hasPhases = false;     // once we've seen any phase, timers stop deciding
   let lastTs = -Infinity;
@@ -56,7 +57,7 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
     const flick = Math.abs(acc) >= flickMinPx && Math.abs(v) >= flickVelocity && Math.sign(v) === Math.sign(acc);
     if (!wall && (Math.abs(acc) >= commitPx() || flick)) {
       const dir = acc > 0 ? "next" : "prev";
-      acc = 0; shown = 0; samples = []; locked = true;
+      acc = 0; shown = 0; samples = []; locked = true; lastCommitDir = dir;
       return { type: "commit", dir };
     }
     const had = shown !== 0;
@@ -69,7 +70,12 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
       lastBounds = bounds;
       if (!hasPhases && ts - lastTs > idleMs) reset(); // fallback: long gap = new gesture
       lastTs = ts;
-      if (locked) return { type: "ignore" };
+      if (locked) {
+        // Fallback only: a deliberate swipe *back* during the momentum tail (opposite sign, real
+        // magnitude) is a new gesture — don't make the user wait for the tail to die out.
+        if (!hasPhases && lastCommitDir && Math.sign(dx) === (lastCommitDir === "next" ? -1 : 1) && Math.abs(dx) >= 6) { reset(); }
+        else return { type: "ignore" };
+      }
       if (!dragging && Math.abs(dy) > Math.abs(dx)) return { type: "ignore" }; // vertical scroll
       dragging = true;
       acc += dx;
@@ -84,7 +90,7 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
         const flick = Math.abs(acc) >= flickMinPx && Math.abs(v) >= flickVelocity && Math.sign(v) === Math.sign(acc);
         if (Math.abs(acc) >= commitPx() || flick) {
           const dir = acc > 0 ? "next" : "prev";
-          acc = 0; shown = 0; samples = []; locked = true;
+          acc = 0; shown = 0; samples = []; locked = true; lastCommitDir = dir;
           return { type: "commit", dir };
         }
       }

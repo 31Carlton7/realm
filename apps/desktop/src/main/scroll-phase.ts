@@ -39,13 +39,17 @@ export function startScrollPhaseStream(win: BrowserWindow): { stop(): void } {
       if (!line) continue;
       try {
         const msg = JSON.parse(line) as ScrollPhaseMessage | { ready: true };
-        if ("ready" in msg) continue;
+        if ("ready" in msg) { console.log("[scrollphase] native trackpad phases: ON"); continue; }
         if (!win.isDestroyed()) win.webContents.send(SCROLL_PHASE_CHANNEL, msg);
       } catch { /* ignore malformed line */ }
     }
   });
   child.stderr!.on("data", (d: Buffer) => { const s = d.toString().trim(); if (s) console.warn("[scrollphase]", s); });
-  child.on("exit", (code) => { if (code && code !== 0) console.warn(`[scrollphase] exited with ${code}`); child = null; });
+  child.on("exit", (code) => {
+    if (code === 2) console.warn("[scrollphase] native trackpad phases: OFF — event tap unavailable (grant Input Monitoring to the app that launched Realm), using timer fallback");
+    else if (code && code !== 0) console.warn(`[scrollphase] exited with ${code}; using timer fallback`);
+    child = null;
+  });
   return {
     stop() { try { child?.stdin?.end(); child?.kill(); } catch { /* ignore */ } child = null; },
   };
