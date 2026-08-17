@@ -3,3 +3,24 @@
 html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
 input { font: inherit; }
+.app { display: flex; height: 100%; }
+.sidebar { width: 240px; flex: none; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--border); padding-top: 38px; -webkit-app-region: drag; }
+.sidebar button, .sidebar input { -webkit-app-region: no-drag; }
+.profile-strip { display: flex; gap: 6px; padding: 0 12px 10px; border-bottom: 1px solid var(--border); }
+.profile-dot { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: color-mix(in srgb, var(--dot, #666) 25%, transparent); color: var(--fg); opacity: .7; }
+.profile-dot.active { opacity: 1; outline: 2px solid var(--dot, var(--accent)); }
+.profile-dot.ghost { background: transparent; border: 1px dashed var(--border); }
+.spaces { flex: 1; overflow: auto; padding: 8px; }
+.spaces-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.space-row, .item-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border-radius: 6px; color: var(--fg); }
+.space-row:hover, .item-row:hover { background: rgba(255,255,255,.05); }
+.space.active > .space-row { background: rgba(255,255,255,.08); font-weight: 600; }
+.items { padding-left: 14px; }
+.item { display: flex; align-items: center; }
+.item.active .item-row { color: var(--accent); }
+.item-close { opacity: 0; padding: 4px; color: var(--muted); }
+.item:hover .item-close { opacity: 1; }
+.item-row.add { color: var(--muted); }
+.inline-form input { width: 100%; padding: 6px 8px; margin: 4px 0; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
