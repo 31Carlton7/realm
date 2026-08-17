@@ -18,7 +18,12 @@ export class TerminalManager {
       env: { ...process.env, ...opts.env, TERM_PROGRAM: "Realm" } as Record<string, string>,
     });
     p.onData((d) => this.cb.onData(id, d));
-    p.onExit(({ exitCode }) => { this.terms.delete(id); this.cb.onExit(id, exitCode); });
+    p.onExit(({ exitCode }) => {
+      // Only spontaneous exits notify; after an explicit close() the id is already gone and callers
+      // (and possibly the DB) have moved on.
+      if (!this.terms.delete(id)) return;
+      this.cb.onExit(id, exitCode);
+    });
     this.terms.set(id, p);
     return { id, shell };
   }

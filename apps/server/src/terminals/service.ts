@@ -13,12 +13,16 @@ import { TerminalManager } from "./manager";
  */
 export class TerminalService {
   readonly manager: TerminalManager;
+  private closed = false;
   constructor(private d: { db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; terminals: TerminalsStore }) {
     this.manager = new TerminalManager({
       onData: (terminalId, data) => d.rpc.broadcast("terminal.data", { terminalId, data }),
       onExit: (terminalId, exitCode) => {
+        if (this.closed) return; // shutting down: DB may already be closed
         // Row goes; item stays so the UI can show the pane as exited until the user removes it.
-        d.terminals.delete(terminalId);
+        try { d.terminals.delete(terminalId); } catch (e) {
+          if ((e as { code?: string }).code !== "ERR_INVALID_STATE") throw e;
+        }
         d.rpc.broadcast("terminal.exit", { terminalId, exitCode });
       },
     });
@@ -38,7 +42,11 @@ export class TerminalService {
       itemId = this.d.items.create({ spaceId: p.spaceId, kind: "terminal", title: "Terminal", refId: terminalId }).id;
       this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell });
       this.d.db.exec("COMMIT");
-    } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
+    } catch (e) {
+      this.d.db.exec("ROLLBACK");
+      if (this.manager.has(terminalId)) { try { this.manager.close(terminalId); } catch { /* best effort */ } }
+      throw e;
+    }
     this.d.rpc.broadcast("items.changed", { spaceId: p.spaceId });
     return { terminalId, itemId };
   }
@@ -68,5 +76,6 @@ export class TerminalService {
     for (const id of ids) { try { this.close(id); } catch (e) { if (!(e instanceof NotFoundError)) throw e; } }
   }
 
-  closeAll(): void { this.manager.closeAll(); }
+  /** Shutdown: kill ptys but intentionally keep rows/items (unlike close(), which removes them). */
+  closeAll(): void { this.closed = true; this.manager.closeAll(); }
 }
