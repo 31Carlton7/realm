@@ -9,7 +9,7 @@ export function Sheet({ title, onClose, children, width = 420 }: { title: string
   useEffect(() => {
     const el = panel.current; if (!el) return;
     const prev = document.activeElement as HTMLElement | null;
-    (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus();
+    ((el.querySelector(".sheet-body") ?? el).querySelector<HTMLElement>(FOCUSABLE) ?? el).focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
       if (e.key !== "Tab") return;
