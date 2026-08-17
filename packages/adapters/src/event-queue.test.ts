@@ -11,3 +11,17 @@ describe("AsyncQueue", () => {
     q.push("x"); expect((await next).value).toBe("x"); q.close(); expect((await it.next()).done).toBe(true);
   });
 });
+describe("AsyncQueue edge cases", () => {
+  it("drops pushes after close", async () => {
+    const q = new AsyncQueue<number>(); q.close(); q.push(1);
+    expect(q.isClosed).toBe(true);
+    expect((await q[Symbol.asyncIterator]().next()).done).toBe(true);
+  });
+  it("close with buffered items drains them, then reports done", async () => {
+    const q = new AsyncQueue<number>(); q.push(1); q.push(2); q.close();
+    const it = q[Symbol.asyncIterator]();
+    expect(await it.next()).toEqual({ value: 1, done: false });
+    expect(await it.next()).toEqual({ value: 2, done: false });
+    expect((await it.next()).done).toBe(true);
+  });
+});

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"; import { readFileSync } from "nod
 import { createSdkMapper } from "./map-sdk-message";
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(readFileSync(join(here, "fixtures", "turn.json"), "utf8")) as unknown[];
+const asst = (content: unknown[], parent: string | null = null, id = "msg_x") => ({ type: "assistant", session_id: "s", parent_tool_use_id: parent, uuid: "u", message: { id, type: "message", role: "assistant", model: "m", content, stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } } });
 describe("map-sdk-message", () => {
   it("maps a recorded turn to normalized events", () => {
     const m = createSdkMapper(); const out = fixture.flatMap((msg) => m.map(msg as never));
@@ -11,5 +12,30 @@ describe("map-sdk-message", () => {
     const call = out.find((e) => e.type === "tool_call")!; expect(call.type === "tool_call" && call.payload.name).toBe("Read");
     const res = out.find((e) => e.type === "tool_result")!; expect(res.type === "tool_result" && res.payload.toolUseId).toBe("toolu_01");
     const usage = out.find((e) => e.type === "usage")!; expect(usage.type === "usage" && usage.payload.numTurns).toBe(2);
+    expect(types).not.toContain("error");
+  });
+  it("delta and final text share a messageId", () => {
+    const m = createSdkMapper(); const out = fixture.flatMap((msg) => m.map(msg as never));
+    const delta = out.find((e) => e.type === "assistant_delta")!; const text = out.find((e) => e.type === "assistant_text")!;
+    expect(delta.type === "assistant_delta" && text.type === "assistant_text" && delta.payload.messageId === text.payload.messageId).toBe(true);
+  });
+  it("maps thinking blocks", () => {
+    const out = createSdkMapper().map(asst([{ type: "thinking", thinking: "hmm", signature: "x" }, { type: "text", text: "ok" }]) as never);
+    expect(out.map((e) => e.type)).toEqual(["thinking", "assistant_text"]);
+    expect(out[0]!.type === "thinking" && out[0]!.payload.text).toBe("hmm");
+  });
+  it("drops subagent assistant/delta output (parent_tool_use_id set) but keeps its tool calls", () => {
+    const m = createSdkMapper();
+    const sub = m.map(asst([{ type: "text", text: "inner" }, { type: "tool_use", id: "t2", name: "Grep", input: {} }], "toolu_parent") as never);
+    expect(sub.map((e) => e.type)).toEqual(["tool_call"]);
+    const d = m.map({ type: "stream_event", session_id: "s", parent_tool_use_id: "toolu_parent", uuid: "u", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "x" } } } as never);
+    expect(d).toEqual([]);
+  });
+  it("result with is_error emits usage then error, and resets text dedupe", () => {
+    const m = createSdkMapper();
+    m.map(asst([{ type: "text", text: "same" }], null, "m1") as never);
+    const r = m.map({ type: "result", subtype: "error_during_execution", session_id: "s", uuid: "u", is_error: true, num_turns: 1, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, modelUsage: {}, permission_denials: [], errors: ["boom"] } as never);
+    expect(r.map((e) => e.type)).toEqual(["usage", "error"]);
+    expect(m.map(asst([{ type: "text", text: "same" }], null, "m1") as never).map((e) => e.type)).toEqual(["assistant_text"]);
   });
 });

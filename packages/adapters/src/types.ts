@@ -11,6 +11,8 @@ export type StartOptions = {
   mcpServers: McpStdioConfig[];
   resume?: string | null;
   env?: Record<string, string>;
+  /** Diagnostic sink for provider stderr / log lines. */
+  onLog?: (line: string) => void;
 };
 
 export type UserMessage = { text: string; attachments: { path: string; mime: string }[] };
@@ -18,7 +20,8 @@ export type PermissionDecision = "allow" | "allow_always" | "deny";
 
 export interface AgentHandle {
   readonly events: AsyncIterable<SessionEvent>;
-  send(message: UserMessage): void;
+  /** Resolves once the message has been accepted (attachments read and enqueued); errors are reported as `error` events. */
+  send(message: UserMessage): Promise<void>;
   respondPermission(requestId: string, decision: PermissionDecision): void;
   interrupt(): Promise<void>;
   setOptions(opts: { model?: string; permissionMode?: string }): Promise<void>;

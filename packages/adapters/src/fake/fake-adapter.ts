@@ -4,7 +4,8 @@ import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartO
 
 export type FakeStep =
   | { kind: "text"; text: string }
-  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; result: string };
+  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; result: string }
+  | { kind: "throw"; message: string };
 export type FakeScript = { on: string; emit: FakeStep[] }[];
 
 /** Scripted adapter for tests and UI development. Messages matching `on` replay the scripted steps; others echo. */
@@ -19,15 +20,26 @@ export class FakeAdapter implements AgentAdapter {
     const pending = new Map<string, (d: PermissionDecision) => void>();
     const delay = this.cfg.delayMs ?? 0;
     const sleep = () => new Promise((r) => setTimeout(r, delay));
+    let disposed = false;
 
     q.push(sessionEvent("init", { providerSessionId: `fake-${newId()}`, model: opts.model ?? "fake", tools: ["Bash", "Read"], cwd: opts.cwd }));
     q.push(sessionEvent("status", { status: "idle" }));
+
+    const resolvePermission = (requestId: string, decision: PermissionDecision) => {
+      const res = pending.get(requestId); if (!res) return;
+      pending.delete(requestId);
+      q.push(sessionEvent("permission_response", { requestId, decision }));
+      res(decision);
+    };
+    const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
 
     const run = async (msg: UserMessage) => {
       q.push(sessionEvent("status", { status: "running" }));
       const step = this.cfg.script.find((s) => msg.text.includes(s.on));
       for (const st of step?.emit ?? [{ kind: "text", text: `echo: ${msg.text}` } as FakeStep]) {
+        if (disposed) return;
         await sleep();
+        if (st.kind === "throw") throw new Error(st.message);
         if (st.kind === "text") {
           const id = newId();
           for (const ch of st.text) q.push(sessionEvent("assistant_delta", { messageId: id, delta: ch }));
@@ -40,7 +52,7 @@ export class FakeAdapter implements AgentAdapter {
             q.push(sessionEvent("status", { status: "waiting_permission" }));
             q.push(sessionEvent("permission_request", { requestId, toolName: st.name, input: st.input, title: `Allow ${st.name}?`, suggestions: [] }));
             const decision = await new Promise<PermissionDecision>((res) => pending.set(requestId, res));
-            q.push(sessionEvent("permission_response", { requestId, decision }));
+            if (disposed) return;
             q.push(sessionEvent("status", { status: "running" }));
             if (decision === "deny") { q.push(sessionEvent("assistant_text", { messageId: newId(), text: "Okay, I won't run that." })); continue; }
           }
@@ -54,11 +66,24 @@ export class FakeAdapter implements AgentAdapter {
     let chain = Promise.resolve();
     return {
       events: q,
-      send: (m) => { chain = chain.then(() => run(m)); },
-      respondPermission: (id, d) => { pending.get(id)?.(d); pending.delete(id); },
-      interrupt: async () => { q.push(sessionEvent("status", { status: "idle" })); },
+      send: async (m) => {
+        if (disposed) { q.push(sessionEvent("error", { message: "session ended" })); return; }
+        chain = chain.then(() => run(m)).catch((e: unknown) => {
+          q.push(sessionEvent("error", { message: (e as Error).message ?? String(e) }));
+          q.push(sessionEvent("status", { status: "idle" }));
+        });
+      },
+      respondPermission: resolvePermission,
+      interrupt: async () => { denyAllPending(); q.push(sessionEvent("status", { status: "idle" })); },
       setOptions: async () => {},
-      dispose: async () => { q.push(sessionEvent("status", { status: "ended" })); q.close(); },
+      dispose: async () => {
+        if (disposed) return;
+        disposed = true;
+        denyAllPending();
+        await chain;
+        q.push(sessionEvent("status", { status: "ended" }));
+        q.close();
+      },
     };
   }
 }

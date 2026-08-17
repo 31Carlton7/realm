@@ -34,7 +34,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("init"),
 ]);
 
-export type SessionEvent = { [T in SessionEventType]: { type: T; ts: number; payload: z.infer<(typeof P)[T]> } }[SessionEventType];
+export type SessionEvent = z.infer<typeof SessionEventSchema>;
 export type SessionEventOf<T extends SessionEventType> = Extract<SessionEvent, { type: T }>;
 export type SessionEventPayload<T extends SessionEventType> = z.infer<(typeof P)[T]>;
 

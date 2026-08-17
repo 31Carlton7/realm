@@ -6,10 +6,10 @@ import { ClaudeAdapter } from "../src/claude/claude-adapter";
 const adapter = new ClaudeAdapter();
 console.log("probe:", await adapter.probe());
 
-const h = adapter.start({ cwd: tmpdir(), mcpServers: [], model: process.env.REALM_SMOKE_MODEL ?? null });
+const h = adapter.start({ cwd: tmpdir(), mcpServers: [], model: process.env.REALM_SMOKE_MODEL ?? null, onLog: (l) => console.error("[stderr]", l) });
 const timer = setTimeout(() => { console.error("timeout"); void h.dispose().then(() => process.exit(2)); }, 90_000);
 
-h.send({ text: "Reply with exactly: REALM_OK", attachments: [] });
+await h.send({ text: "Reply with exactly: REALM_OK", attachments: [] });
 let sawOk = false;
 for await (const e of h.events) {
   const summary = e.type === "assistant_delta" ? JSON.stringify(e.payload.delta) : JSON.stringify(e.payload).slice(0, 200);
