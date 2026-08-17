@@ -1,0 +1,10 @@
+{
+  "name": "@realm/contracts",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": { "build": "tsc -p tsconfig.json --noEmit", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": { "zod": "^3.24.0", "ulid": "^2.3.0" }
+}
