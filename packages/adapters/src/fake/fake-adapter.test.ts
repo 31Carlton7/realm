@@ -28,6 +28,15 @@ describe("FakeAdapter lifecycle", () => {
     await h.send({ text: "x", attachments: [] }); await c;
     expect(decisions).toEqual(["deny"]); expect(types.at(-1)).toBe("status"); expect(types).not.toContain("tool_result");
   });
+  it("interrupt stops the running script without pushing idle itself; the turn ends naturally", async () => {
+    const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "tool", name: "Bash", input: {}, needsPermission: true, result: "never" }, { kind: "text", text: "after" }] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] }); const got: string[] = []; const st: string[] = [];
+    const c = (async () => { for await (const e of h.events) { got.push(e.type); if (e.type === "status") st.push(e.payload.status); if (e.type === "permission_request") void h.interrupt(); if (e.type === "status" && e.payload.status === "idle" && got.includes("permission_response")) break; } })();
+    await h.send({ text: "x", attachments: [] }); await c;
+    expect(got).not.toContain("tool_result"); expect(got).not.toContain("assistant_text"); expect(got).toContain("usage");
+    expect(st).toEqual(["idle", "running", "waiting_permission", "idle"]);
+    await h.dispose();
+  });
   it("send after dispose emits an error and does not run", async () => {
     const a = new FakeAdapter(); const h = a.start({ cwd: "/tmp", mcpServers: [] });
     await h.dispose();

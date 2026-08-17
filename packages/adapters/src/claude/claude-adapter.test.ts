@@ -14,6 +14,8 @@ type FakeOpts = {
   errorResult?: boolean;
   /** never end the generator after the turn (wait for input close) */
   hang?: boolean;
+  /** like the real SDK: reject iteration when options.abortController aborts */
+  abortable?: boolean;
 };
 function fakeQuery(opts: FakeOpts, calls: string[] = []) {
   return ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: Record<string, unknown> }) => {
@@ -30,6 +32,10 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
         }
         if ((m as { type: string }).type === "result" && opts.errorResult) { yield { ...(m as object), subtype: "error_during_execution", is_error: true, errors: ["turn failed"] }; break; }
         yield m;
+      }
+      if (opts.abortable) {
+        const signal = (options.abortController as AbortController).signal;
+        await new Promise<void>((_, rej) => signal.addEventListener("abort", () => rej(Object.assign(new Error("Claude Code process aborted by user"), { name: "AbortError" })), { once: true }));
       }
       if (opts.hang) { for await (const _ of { [Symbol.asyncIterator]: () => it }) { /* drain until input closes */ } }
     })();
@@ -114,6 +120,17 @@ describe("ClaudeAdapter", () => {
     await d; await c;
     expect(types(seen).filter((t) => t !== "status")).toEqual(["error"]);
     expect(statuses(seen)).not.toContain("running");
+  });
+  it("dispose on a live handle whose SDK rejects with AbortError yields ended with no error", async () => {
+    const a = new ClaudeAdapter({ query: fakeQuery({ abortable: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, () => false);
+    await h.send({ text: "hi", attachments: [] });
+    await new Promise((r) => setTimeout(r, 10)); // let the turn finish; the fake is now parked on the abort signal
+    await h.dispose(); const got = await c;
+    expect(types(got)).not.toContain("error");
+    expect(statuses(got)).not.toContain("error");
+    expect(statuses(got).at(-1)).toBe("ended");
   });
   it("dispose denies pending permissions and resolves only after ended", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", hang: true }) as never });

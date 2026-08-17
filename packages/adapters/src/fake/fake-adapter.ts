@@ -21,6 +21,7 @@ export class FakeAdapter implements AgentAdapter {
     const delay = this.cfg.delayMs ?? 0;
     const sleep = () => new Promise((r) => setTimeout(r, delay));
     let disposed = false;
+    let interrupted = false;
 
     q.push(sessionEvent("init", { providerSessionId: `fake-${newId()}`, model: opts.model ?? "fake", tools: ["Bash", "Read"], cwd: opts.cwd }));
     q.push(sessionEvent("status", { status: "idle" }));
@@ -34,10 +35,12 @@ export class FakeAdapter implements AgentAdapter {
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
 
     const run = async (msg: UserMessage) => {
+      interrupted = false;
       q.push(sessionEvent("status", { status: "running" }));
       const step = this.cfg.script.find((s) => msg.text.includes(s.on));
       for (const st of step?.emit ?? [{ kind: "text", text: `echo: ${msg.text}` } as FakeStep]) {
         if (disposed) return;
+        if (interrupted) break; // like the real adapter: interrupt stops the turn; the turn's natural end still emits usage + idle
         await sleep();
         if (st.kind === "throw") throw new Error(st.message);
         if (st.kind === "text") {
@@ -53,6 +56,7 @@ export class FakeAdapter implements AgentAdapter {
             q.push(sessionEvent("permission_request", { requestId, toolName: st.name, input: st.input, title: `Allow ${st.name}?`, suggestions: [] }));
             const decision = await new Promise<PermissionDecision>((res) => pending.set(requestId, res));
             if (disposed) return;
+            if (interrupted) break;
             q.push(sessionEvent("status", { status: "running" }));
             if (decision === "deny") { q.push(sessionEvent("assistant_text", { messageId: newId(), text: "Okay, I won't run that." })); continue; }
           }
@@ -74,7 +78,7 @@ export class FakeAdapter implements AgentAdapter {
         });
       },
       respondPermission: resolvePermission,
-      interrupt: async () => { denyAllPending(); q.push(sessionEvent("status", { status: "idle" })); },
+      interrupt: async () => { interrupted = true; denyAllPending(); },
       setOptions: async () => {},
       dispose: async () => {
         if (disposed) return;

@@ -102,7 +102,8 @@ export class ClaudeAdapter implements AgentAdapter {
         // Generator ended on its own: abnormal unless we asked for it or it ended cleanly between turns.
         if (!disposed && (running || !sawResult)) failure = "agent process ended unexpectedly";
       } catch (e) {
-        failure = (e as Error).message ?? String(e);
+        // The SDK rejects iteration with "Claude Code process aborted by user" when our abortController fires in dispose(); not an error.
+        if (!disposed && !abort.signal.aborted) failure = (e as Error).message ?? String(e);
       } finally {
         denyAllPending();
         if (failure !== null) {
