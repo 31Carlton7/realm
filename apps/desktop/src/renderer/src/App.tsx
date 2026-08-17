@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar } from "./components/sidebar/Sidebar";
+import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { PaneHost } from "./components/PaneHost";
 import { LayoutMenu } from "./components/LayoutMenu";
 import { StoreContext, createAppStore, useApp } from "./state/store";
@@ -29,6 +30,14 @@ function ErrorBar() {
   );
 }
 
+/** Renders whichever modal sheet the store says is open. */
+function SheetHost() {
+  const sheet = useApp((s) => s.sheet);
+  if (!sheet) return null;
+  if (sheet.kind === "new-space") return <NewSpaceSheet />;
+  return null;
+}
+
 function Main() {
   const layout = useApp((s) => s.layout);
   const items = useApp((s) => s.items);
@@ -39,16 +48,16 @@ function Main() {
   const applyPreset = useApp((s) => s.applyPreset);
   const resizeSplit = useApp((s) => s.resizeSplit);
   const run = useApp((s) => s.run);
-  if (!spaceId) return <><ErrorBar /><div className="pane-placeholder muted">Create or pick a space.</div></>;
+  if (!spaceId) return <div className="content-card"><ErrorBar /><div className="pane-placeholder muted">Create a space with the + in the sidebar.</div></div>;
   return (
-    <>
-      <div className="topbar"><LayoutMenu onPick={(p) => run(() => applyPreset(p))} /></div>
+    <div className="content-card">
+      <div className="card-topbar"><LayoutMenu onPick={(p) => run(() => applyPreset(p))} /></div>
       <ErrorBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items}
         onActivate={(id) => run(() => activateTab(id))} onClose={(id) => run(() => closeItem(id))}
         onSplit={(leafId, dir) => run(() => split(leafId, dir))}
         onResize={resizeSplit} />
-    </>
+    </div>
   );
 }
 
@@ -68,6 +77,7 @@ export function App() {
     <StoreContext.Provider value={store}>
       <ThemeBridge />
       <div className="app"><Sidebar /><main className="main"><Main /></main></div>
+      <SheetHost />
     </StoreContext.Provider>
   );
 }
