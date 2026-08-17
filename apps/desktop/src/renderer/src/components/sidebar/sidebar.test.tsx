@@ -61,11 +61,13 @@ describe("Arc sidebar", () => {
     expect(screen.getByRole("button", { name: "Build" })).toBeInTheDocument();
   });
 
-  it("New… menu creates a terminal; session and browser entries are disabled", async () => {
+  it("New… menu creates a terminal; Session… opens the sheet; browser entry is disabled", async () => {
     const { store } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "New item" }));
-    expect(screen.getByRole("menuitem", { name: /Session/ })).toBeDisabled();
     expect(screen.getByRole("menuitem", { name: /Browser tab/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Session/ }));
+    expect(store.getState().sheet).toEqual({ kind: "new-session" });
+    fireEvent.click(screen.getByRole("button", { name: "New item" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Terminal" }));
     await waitFor(() => expect(store.getState().items).toHaveLength(2));
   });

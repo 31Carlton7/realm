@@ -34,7 +34,7 @@ describe("CommandPalette", () => {
     expect(store.getState().paletteOpen).toBe(false);
   });
 
-  it("New terminal action creates a terminal; theme actions set the pref; disabled entries do nothing", async () => {
+  it("New terminal action creates a terminal; theme actions set the pref; New session opens the sheet", async () => {
     const { store } = await mount();
     const input = screen.getByRole("combobox");
     fireEvent.change(input, { target: { value: "new terminal" } }); fireEvent.keyDown(input, { key: "Enter" });
@@ -44,9 +44,9 @@ describe("CommandPalette", () => {
     await waitFor(() => expect(store.getState().themePref).toBe("dark"));
     act(() => store.setState({ paletteOpen: true }));
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "new session" } });
-    expect(screen.getByRole("option", { name: /New session/ })).toHaveAttribute("aria-disabled", "true");
     fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
-    expect(store.getState().paletteOpen).toBe(true); // disabled entry: stays open
+    expect(store.getState().sheet).toEqual({ kind: "new-session" });
+    expect(store.getState().paletteOpen).toBe(false);
   });
 
   it("⌘K toggles the palette", () => {

@@ -4,6 +4,8 @@ import {
   ComputerTerminal01Icon, GlobeIcon, SmartPhone01Icon, File01Icon, BrainIcon, LayoutGridIcon,
   Settings01Icon, MoreHorizontalIcon, ChatIcon, Search01Icon, PinIcon, PinOffIcon, ArrowLeft01Icon, ArrowRight01Icon,
   Tick01Icon, Delete02Icon, PencilEdit02Icon, Sun03Icon, Moon02Icon,
+  SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowDown02Icon, Loading03Icon, CheckmarkCircle02Icon, CancelCircleIcon,
+  Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 
 export const icons = {
@@ -12,6 +14,8 @@ export const icons = {
   artifact: File01Icon, context: BrainIcon, layout: LayoutGridIcon, settings: Settings01Icon, more: MoreHorizontalIcon,
   session: ChatIcon, search: Search01Icon, pin: PinIcon, unpin: PinOffIcon, chevronLeft: ArrowLeft01Icon, chevronRight: ArrowRight01Icon,
   check: Tick01Icon, trash: Delete02Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
+  send: SentIcon, stop: StopIcon, sparkles: SparklesIcon, chevronDown: ArrowDown01Icon, arrowDown: ArrowDown02Icon, spinner: Loading03Icon,
+  checkCircle: CheckmarkCircle02Icon, errorCircle: CancelCircleIcon, alert: Alert02Icon, bot: BotIcon, tool: Wrench01Icon, code: CodeIcon, idea: IdeaIcon,
 } as const;
 export type IconName = keyof typeof icons;
 export function isIconName(x: string): x is IconName { return Object.prototype.hasOwnProperty.call(icons, x); }

@@ -52,7 +52,7 @@ function PaletteBody() {
     ...spaces.map<Entry>((sp) => ({ id: `space:${sp.id}`, label: `Switch to ${sp.name}`, hint: sp.id === activeSpaceId ? "current" : "space", icon: <Icon name={sp.icon} size={15} />, run: () => run(() => selectSpace(sp.id)) })),
     ...items.map<Entry>((it) => ({ id: `item:${it.id}`, label: `Open ${it.title}`, hint: it.kind, icon: <Icon name={it.kind} size={15} />, run: () => run(() => activateTab(it.id)) })),
     { id: "act:new-terminal", label: "New terminal", hint: "action", icon: <Icon name="terminal" size={15} />, run: () => run(() => newTerminal()) },
-    { id: "act:new-session", label: "New session…", hint: "soon", icon: <Icon name="session" size={15} />, run: () => {}, disabled: true },
+    { id: "act:new-session", label: "New session…", hint: "action", icon: <Icon name="session" size={15} />, run: () => openSheet({ kind: "new-session" }) },
     { id: "act:new-space", label: "New space…", hint: "action", icon: <Icon name="add" size={15} />, run: () => openSheet({ kind: "new-space" }) },
     ...(activeSpaceId ? [{ id: "act:space-settings", label: "Space settings…", hint: "action", icon: <Icon name="settings" size={15} />, run: () => openSheet({ kind: "space-settings", spaceId: activeSpaceId }) }] : []),
     ...THEMES.map<Entry>((t) => ({ id: `theme:${t}`, label: `Theme: ${t[0]!.toUpperCase()}${t.slice(1)}`, hint: themePref === t ? "current" : "theme", icon: <Icon name={t === "dark" ? "moon" : "sun"} size={15} />, run: () => run(() => setThemePref(t)) })),
