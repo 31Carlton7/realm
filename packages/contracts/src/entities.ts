@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { LayoutSchema } from "./layout";
+import { IdSchema } from "./ids";
+export { IdSchema } from "./ids";
 
 const Timestamps = { createdAt: z.number().int(), updatedAt: z.number().int() };
-export const IdSchema = z.string().length(26);
 
 export const ProfileSchema = z.object({
   id: IdSchema, name: z.string().min(1), icon: z.string(), color: z.string(),

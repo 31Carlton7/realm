@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { RpcRequestSchema, RpcResponseSchema, RpcEventSchema, parseWireMessage } from "./rpc";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { RpcRequestSchema, RpcResponseSchema, RpcEventSchema, parseWireMessage, type MethodParams } from "./rpc";
 
 describe("rpc envelope", () => {
   it("parses a request", () => {
@@ -16,5 +16,9 @@ describe("rpc envelope", () => {
   it("rejects garbage", () => {
     expect(() => parseWireMessage("{}")).toThrow();
     expect(RpcRequestSchema.safeParse({ id: 1 }).success).toBe(false);
+  });
+  it("MethodParams<profiles.create> allows omitting defaulted icon/color", () => {
+    expectTypeOf({ name: "Work" }).toMatchTypeOf<MethodParams<"profiles.create">>();
+    expectTypeOf({ name: "Work", icon: "user", color: "#000" }).toMatchTypeOf<MethodParams<"profiles.create">>();
   });
 });

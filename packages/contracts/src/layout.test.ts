@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   emptyLayout, addTab, splitLeaf, removeTab, findLeafOfTab, allTabs, gridPreset, setActiveTab,
+  LayoutSchema, type Layout,
 } from "./layout";
 
 describe("layout ops", () => {
@@ -78,5 +79,114 @@ describe("layout ops", () => {
     const l = gridPreset("one", ["A", "B"]);
     expect(l.type).toBe("leaf");
     expect(allTabs(l)).toEqual(["A", "B"]);
+  });
+
+  it("removeTab of the last tab preserves the original leaf id", () => {
+    const l = addTab(emptyLayout(), null, "A");
+    const l2 = removeTab(l, "A");
+    expect(l2.type).toBe("leaf");
+    expect(l2.id).toBe(l.id);
+    expect(allTabs(l2)).toEqual([]);
+  });
+
+  it("removeTab of the last tab in a split preserves the first leaf id", () => {
+    const l = addTab(emptyLayout(), null, "A");
+    const l2 = splitLeaf(l, l.id, "row", "B");
+    const l3 = removeTab(removeTab(l2, "B"), "A");
+    expect(l3.type).toBe("leaf");
+    expect(l3.id).toBe(l.id);
+  });
+
+  it("removeTab of a middle active tab activates the right neighbor", () => {
+    let l = addTab(emptyLayout(), null, "A");
+    l = addTab(l, null, "B");
+    l = addTab(l, null, "C");
+    l = setActiveTab(l, "B");
+    l = removeTab(l, "B");
+    expect(allTabs(l)).toEqual(["A", "C"]);
+    expect(findLeafOfTab(l, "A")?.activeTab).toBe("C");
+  });
+
+  it("removeTab inside a nested row-in-col split renormalizes that split's sizes", () => {
+    const leaf = (id: string, tab: string): Layout => ({ type: "leaf", id, tabs: [tab], activeTab: tab });
+    const l: Layout = {
+      type: "split", id: "col", dir: "col", sizes: [40, 60],
+      children: [
+        { type: "split", id: "row", dir: "row", sizes: [20, 30, 50], children: [leaf("la", "A"), leaf("lb", "B"), leaf("lc", "C")] },
+        leaf("ld", "D"),
+      ],
+    };
+    const l2 = removeTab(l, "B");
+    if (l2.type !== "split") throw new Error();
+    expect(l2.sizes).toEqual([40, 60]);
+    const row = l2.children[0]!;
+    if (row.type !== "split") throw new Error();
+    expect(row.children.map((c) => c.id)).toEqual(["la", "lc"]);
+    expect(row.sizes[0]).toBeCloseTo((20 / 70) * 100);
+    expect(row.sizes[1]).toBeCloseTo((50 / 70) * 100);
+    expect(row.sizes.reduce((a, b) => a + b, 0)).toBeCloseTo(100);
+  });
+
+  it("addTab moves a tab that already lives in another leaf", () => {
+    const l = addTab(emptyLayout(), null, "A");
+    const l2 = splitLeaf(l, l.id, "row", "B");
+    const target = findLeafOfTab(l2, "B")!;
+    const l3 = addTab(l2, target.id, "A");
+    expect(allTabs(l3)).toEqual(["B", "A"]);
+    expect(allTabs(l3).filter((t) => t === "A")).toHaveLength(1);
+    expect(findLeafOfTab(l3, "A")?.id).toBe(target.id);
+    expect(findLeafOfTab(l3, "A")?.activeTab).toBe("A");
+    expect(findLeafOfTab(l3, "A")?.tabs).toEqual(["B", "A"]);
+  });
+
+  it("addTab of a tab already in the target leaf just activates it", () => {
+    let l = addTab(emptyLayout(), null, "A");
+    l = addTab(l, null, "B");
+    const l2 = addTab(l, null, "A");
+    expect(allTabs(l2)).toEqual(["A", "B"]);
+    expect(findLeafOfTab(l2, "A")?.activeTab).toBe("A");
+  });
+
+  it("gridPreset with fewer items than leaves leaves the extra leaves empty", () => {
+    const l = gridPreset("two-col", ["A"]);
+    if (l.type !== "split") throw new Error();
+    expect(l.children).toHaveLength(2);
+    expect(allTabs(l)).toEqual(["A"]);
+    const second = l.children[1]!;
+    if (second.type !== "leaf") throw new Error();
+    expect(second.tabs).toEqual([]);
+    expect(second.activeTab).toBeNull();
+  });
+});
+
+describe("LayoutSchema", () => {
+  it("rejects a split with fewer than 2 children", () => {
+    const bad = { type: "split", id: "s", dir: "row", sizes: [100],
+      children: [{ type: "leaf", id: "l", tabs: [], activeTab: null }] };
+    expect(LayoutSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("rejects a split whose sizes length differs from children length", () => {
+    const bad = { type: "split", id: "s", dir: "row", sizes: [50, 50, 0], children: [
+      { type: "leaf", id: "a", tabs: [], activeTab: null },
+      { type: "leaf", id: "b", tabs: [], activeTab: null },
+    ] };
+    expect(LayoutSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("rejects an invalid split nested deep inside a valid tree", () => {
+    const bad = { type: "split", id: "s", dir: "col", sizes: [50, 50], children: [
+      { type: "leaf", id: "a", tabs: [], activeTab: null },
+      { type: "split", id: "inner", dir: "row", sizes: [100], children: [
+        { type: "leaf", id: "b", tabs: [], activeTab: null },
+      ] },
+    ] };
+    expect(LayoutSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("round-trips a valid nested tree", () => {
+    const l = gridPreset("grid-3x3", ["A", "B", "C", "D"]);
+    const parsed = LayoutSchema.parse(JSON.parse(JSON.stringify(l)));
+    expect(parsed).toEqual(l);
   });
 });

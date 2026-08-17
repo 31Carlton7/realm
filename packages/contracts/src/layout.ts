@@ -5,14 +5,28 @@ export type Layout =
   | { type: "split"; id: string; dir: "row" | "col"; sizes: number[]; children: Layout[] }
   | { type: "leaf"; id: string; tabs: string[]; activeTab: string | null };
 
-export const LayoutSchema: z.ZodType<Layout> = z.lazy(() =>
+const LayoutBaseSchema: z.ZodType<Layout> = z.lazy(() =>
   z.discriminatedUnion("type", [
     z.object({ type: z.literal("split"), id: z.string(), dir: z.enum(["row", "col"]),
-      sizes: z.array(z.number()), children: z.array(LayoutSchema) }),
+      sizes: z.array(z.number()), children: z.array(LayoutBaseSchema) }),
     z.object({ type: z.literal("leaf"), id: z.string(), tabs: z.array(z.string()),
       activeTab: z.string().nullable() }),
   ]),
 );
+
+/** Structural invariants: every split has >= 2 children and one size per child. */
+function validateLayout(node: Layout, ctx: z.RefinementCtx, path: (string | number)[] = []): void {
+  if (node.type === "leaf") return;
+  if (node.children.length < 2) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, "children"], message: "split must have at least 2 children" });
+  }
+  if (node.sizes.length !== node.children.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, "sizes"], message: "sizes.length must equal children.length" });
+  }
+  node.children.forEach((c, i) => validateLayout(c, ctx, [...path, "children", i]));
+}
+
+export const LayoutSchema: z.ZodType<Layout> = LayoutBaseSchema.superRefine((l, ctx) => validateLayout(l, ctx));
 
 export type LayoutLeaf = Extract<Layout, { type: "leaf" }>;
 export type LayoutSplit = Extract<Layout, { type: "split" }>;
@@ -39,12 +53,15 @@ function mapLeaves(l: Layout, fn: (leaf: LayoutLeaf) => Layout): Layout {
   return l.type === "leaf" ? fn(l) : { ...l, children: l.children.map((c) => mapLeaves(c, fn)) };
 }
 
+/** Add a tab to a leaf and activate it. Tabs are globally unique: if the tab already lives in
+ *  another leaf it is moved; if it is already in the target leaf it is just activated. */
 export function addTab(l: Layout, leafId: string | null, tabId: string): Layout {
   const target = leafId ?? firstLeaf(l).id;
-  return mapLeaves(l, (leaf) =>
-    leaf.id === target && !leaf.tabs.includes(tabId)
-      ? { ...leaf, tabs: [...leaf.tabs, tabId], activeTab: tabId }
-      : leaf,
+  const existing = findLeafOfTab(l, tabId);
+  if (existing?.id === target) return setActiveTab(l, tabId);
+  const base = existing ? removeTab(l, tabId) : l;
+  return mapLeaves(base, (leaf) =>
+    leaf.id === target ? { ...leaf, tabs: [...leaf.tabs, tabId], activeTab: tabId } : leaf,
   );
 }
 
@@ -60,10 +77,11 @@ export function splitLeaf(l: Layout, leafId: string, dir: "row" | "col", newTabI
   });
 }
 
-/** Remove a tab everywhere; prune empty leaves (except the last one); unwrap single-child splits. */
+/** Remove a tab everywhere; prune empty leaves (except the last one); unwrap single-child splits.
+ *  If the whole tree empties, the original first leaf survives (same id) with no tabs. */
 export function removeTab(l: Layout, tabId: string): Layout {
   const pruned = prune(l);
-  return pruned ?? emptyLayout();
+  return pruned ?? { ...firstLeaf(l), tabs: [], activeTab: null };
 
   function prune(n: Layout): Layout | null {
     if (n.type === "leaf") {
@@ -83,7 +101,8 @@ export function removeTab(l: Layout, tabId: string): Layout {
   }
 }
 
-/** Build a preset layout from an ordered list of item ids. Extra items become tabs on leaves round-robin. */
+/** Build a preset layout from an ordered list of item ids. Items are dealt to leaves round-robin:
+ *  extra items become additional tabs; if there are fewer items than leaves, the remaining leaves stay empty. */
 export function gridPreset(name: PresetName, items: string[]): Layout {
   const shape: { rows: number; cols: number } =
     name === "one" ? { rows: 1, cols: 1 } : name === "two-col" ? { rows: 1, cols: 2 }
