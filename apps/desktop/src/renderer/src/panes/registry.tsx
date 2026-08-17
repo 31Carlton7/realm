@@ -9,3 +9,5 @@ export function PaneFor(props: PaneProps) {
   const C = registry[props.item.kind] ?? PlaceholderPane;
   return <C {...props} />;
 }
+import { TerminalPane } from "./TerminalPane";
+registerPane("terminal", TerminalPane);
