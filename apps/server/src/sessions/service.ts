@@ -8,6 +8,14 @@ import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
 
 const AGENT_LABELS: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", "acp:gemini": "Gemini", "acp:cursor": "Cursor", fake: "Fake agent" };
+const defaultTitle = (kind: AgentKind) => `${AGENT_LABELS[kind]} session`;
+export const TITLE_MAX = 40;
+/** First line of the message, whitespace-collapsed, clipped to TITLE_MAX. */
+export function titleFromMessage(text: string): string {
+  const line = text.trim().split("\n").find((l) => l.trim()) ?? "";
+  const one = line.replace(/\s+/g, " ").trim();
+  return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1).trimEnd()}…` : one;
+}
 
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; model: string | null; effort: string | null; permissionMode: string; title?: string };
 type Live = { handle: AgentHandle; pump: Promise<void> };
@@ -37,7 +45,7 @@ export class SessionService {
     const project = input.projectId ? this.d.projects.get(input.projectId) : null;
     if (input.projectId && !project) throw new NotFoundError("project", input.projectId);
     const cwd = project?.rootPath ?? space.folderPath;
-    const title = input.title?.trim() || `${AGENT_LABELS[input.agentKind]} session`;
+    const title = input.title?.trim() || defaultTitle(input.agentKind);
     const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode: input.permissionMode, cwd, title });
     const item = this.d.items.create({ spaceId: input.spaceId, kind: "session", title, refId: session.id });
     this.d.rpc.broadcast("items.changed", { spaceId: input.spaceId });
@@ -47,6 +55,7 @@ export class SessionService {
   /** Emits `user_message` (persisted + broadcast) and hands the message to the adapter, starting it if needed. */
   async send(id: string, msg: UserMessage): Promise<void> {
     const handle = this.ensureLive(id);
+    this.maybeTitleFrom(id, msg.text);
     this.onEvent(id, sessionEvent("user_message", msg));
     await handle.send(msg);
   }
@@ -86,6 +95,16 @@ export class SessionService {
     await l.handle.dispose();
     await l.pump; // pump ends when the adapter closes its event stream (right after `ended`)
     this.live.delete(id);
+  }
+
+  /** The first message names an untitled session (and its sidebar item). */
+  private maybeTitleFrom(id: string, text: string): void {
+    const s = this.d.sessions.get(id); if (!s || s.title !== defaultTitle(s.agentKind)) return;
+    if (this.d.events.hasType(id, "user_message")) return;
+    const title = titleFromMessage(text); if (!title) return;
+    this.d.sessions.update({ id, title });
+    const item = this.d.items.findByRefId(id);
+    if (item) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
   }
 
   private ensureLive(id: string): AgentHandle {

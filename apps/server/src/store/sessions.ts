@@ -59,6 +59,9 @@ export class SessionEventsStore {
       .run(sessionId, event.ts, event.type, JSON.stringify(event.payload));
     return { seq: Number(r.lastInsertRowid), sessionId, event };
   }
+  hasType(sessionId: string, type: SessionEvent["type"]): boolean {
+    return !!this.db.prepare("SELECT 1 FROM session_events WHERE session_id = ? AND type = ? LIMIT 1").get(sessionId, type);
+  }
   /** Events with seq > afterSeq, ascending. Rows that fail schema validation (e.g. from an older build) are skipped. */
   listAfter(sessionId: string, afterSeq: number, limit: number): StoredSessionEvent[] {
     const rows = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?").all(sessionId, afterSeq, limit) as EventRow[];

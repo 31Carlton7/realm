@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, space } from "../../state/store.test-fakes";
@@ -22,6 +22,17 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: /Homework/ })).toBeInTheDocument());
     expect(store.getState().activeSpaceId).toBe("s2");
     expect(screen.queryByRole("button", { name: "Terminal" })).not.toBeInTheDocument();
+  });
+
+  it("session items show a status dot that follows sessionStatus (pulsing state exposed via data-status)", async () => {
+    const { store } = await mount(fakeApi({ items: { s1: [item("i1", "s1", { title: "Terminal" }), item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] } }));
+    const row = () => screen.getByRole("button", { name: "Fix the build" });
+    expect(row().querySelector(".status-dot")).toBeNull(); // no status known yet
+    act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
+    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
+    act(() => store.getState().applySessionStatus("se1", "idle"));
+    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "idle");
+    expect(screen.getByRole("button", { name: "Terminal" }).querySelector(".status-dot")).toBeNull();
   });
 
   it("pinned items render as tiles, unpinned in the list", async () => {

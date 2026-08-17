@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeAdapter } from "@realm/adapters";
 import { createApp, type App } from "../app";
+import { titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
 let app: App;
@@ -79,6 +80,25 @@ describe("SessionService over rpc", () => {
     expect(app.sessions.isLive(session.id)).toBe(false);
     expect((await c.call("items.list", { spaceId: sp.id })).result).toEqual([]);
     expect((await c.call("sessions.get", { id: session.id })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+
+  it("the first message titles the session and its item (clipped); later messages and custom titles are left alone", async () => {
+    const { c, sp } = await boot();
+    const long = "Please refactor the   authentication module\nand add tests for everything";
+    const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: long });
+    const title = titleFromMessage(long);
+    expect(title).toBe("Please refactor the authentication modu…"); // first line only, spaces collapsed, ≤ TITLE_MAX
+    expect(title.length).toBeLessThanOrEqual(TITLE_MAX);
+    expect((await c.call("sessions.get", { id: session.id })).result.title).toBe(title);
+    expect((await c.call("items.list", { spaceId: sp.id })).result.find((i: Any) => i.id === itemId).title).toBe(title);
+    await waitFor(() => c.eventTypes(session.id).includes("usage"));
+    await c.call("sessions.send", { id: session.id, text: "second message" });
+    expect((await c.call("sessions.get", { id: session.id })).result.title).toBe(title);
+    const custom = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", title: "Mine" })).result;
+    await c.call("sessions.send", { id: custom.session.id, text: "hello there" });
+    expect((await c.call("sessions.get", { id: custom.session.id })).result.title).toBe("Mine");
     c.close();
   });
 
