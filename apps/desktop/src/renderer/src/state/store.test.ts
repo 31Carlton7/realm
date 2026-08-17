@@ -1,65 +1,121 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, PERSIST_DEBOUNCE_MS, type Api } from "./store";
-import { emptyLayout, allTabs, findLeafOfTab, type Profile, type Space, type Item, type Project } from "@realm/contracts";
+import { createAppStore, PERSIST_DEBOUNCE_MS } from "./store";
+import { emptyLayout, allTabs, findLeafOfTab } from "@realm/contracts";
+import { fakeApi, item, type FakeApi } from "./store.test-fakes";
 
-const P = (id: string, name: string): Profile => ({ id, name, icon: "user", color: "#000", sortOrder: 0, createdAt: 0, updatedAt: 0 });
-const S = (id: string, profileId: string, name: string): Space => ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 });
-const I = (id: string, spaceId: string): Item => ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0 });
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-type Fake = Api & { calls: string[]; disposed: string[]; delays: Record<string, number>; onCreateTerminal: (() => void) | null };
-function fakeApi(): Fake {
-  const calls: string[] = [];
-  const disposed: string[] = [];
-  const profiles = [P("p1", "Work"), P("p2", "School")];
-  const spaces: Record<string, Space[]> = { p1: [S("s1", "p1", "Versed")], p2: [S("s2", "p2", "Homework")] };
-  const items: Record<string, Item[]> = { s1: [I("i1", "s1")], s2: [I("i2", "s2")] };
-  const projects: Record<string, Project[]> = {};
-  let n = 100;
-  const api: Fake = {
-    calls, disposed, delays: {}, onCreateTerminal: null,
-    listProfiles: async () => { calls.push("listProfiles"); return profiles; },
-    listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return Object.values(spaces).flat(); },
-    listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return items[sid] ?? []; },
-    listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return projects[sid] ?? []; },
-    createProfile: async (name) => { const p = P(`p${profiles.length + 1}`, name); profiles.push(p); return p; },
-    createSpace: async (pid, name) => { const s = S(`s${++n}`, pid, name); (spaces[pid] ??= []).push(s); return s; },
-    createProject: async (spaceId, name, rootPath) => { const pr: Project = { id: `pr${++n}`, spaceId, name, rootPath, defaultBranch: "main", createdAt: 0, updatedAt: 0 }; (projects[spaceId] ??= []).push(pr); return pr; },
-    setLayout: async (sid, layout) => { calls.push(`setLayout:${sid}`); return { ...S(sid, "p1", "x"), layout }; },
-    createTerminal: async (sid) => { const it = I(`i${++n}`, sid); (items[sid] ??= []).push(it); api.onCreateTerminal?.(); await wait("createTerminal"); return { terminalId: it.refId, itemId: it.id }; },
-    deleteItem: async (id) => { calls.push(`deleteItem:${id}`); for (const k of Object.keys(items)) items[k] = items[k]!.filter((i) => i.id !== id); },
-    pickFolder: async () => "/tmp/picked-repo",
-    disposeTerminal: (id) => { disposed.push(id); },
-  };
-  const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
-  return api;
-}
-
 describe("app store", () => {
-  let api: Fake;
+  let api: FakeApi;
   beforeEach(() => { api = fakeApi(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it("boot loads profiles, selects first, loads its spaces and first space's items", async () => {
+  it("boot loads profiles and all spaces, selects the first space and loads its items", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
     const s = store.getState();
     expect(s.profiles.map((p) => p.name)).toEqual(["Work", "School"]);
-    expect(s.activeProfileId).toBe("p1");
-    expect(s.spaces.map((x) => x.name)).toEqual(["Versed"]);
+    expect(s.spaces.map((x) => x.name)).toEqual(["Versed", "Homework"]);
     expect(s.activeSpaceId).toBe("s1");
+    expect(s.activeSpace()?.name).toBe("Versed"); expect(s.activeIndex()).toBe(0);
     expect(s.items.map((i) => i.id)).toEqual(["i1"]);
+    expect(s.themePref).toBe("system");
     // a null layout is materialized with all items as tabs
     expect(s.layout?.type).toBe("leaf");
   });
 
-  it("selectProfile switches spaces list", async () => {
+  it("boot selects the setting-persisted active space, else the first", async () => {
+    const store = createAppStore({ ...api, getSetting: async (k) => (k === "ui.activeSpaceId" ? "s2" : null) });
+    await store.getState().boot();
+    expect(store.getState().activeSpaceId).toBe("s2");
+    const store2 = createAppStore({ ...api, getSetting: async (k) => (k === "ui.activeSpaceId" ? "gone" : null) });
+    await store2.getState().boot();
+    expect(store2.getState().activeSpaceId).toBe("s1");
+  });
+
+  it("boot reads the theme pref; garbage falls back to system", async () => {
+    const a = createAppStore({ ...api, getSetting: async (k) => (k === "ui.theme" ? "dark" : null) });
+    await a.getState().boot(); expect(a.getState().themePref).toBe("dark");
+    const b = createAppStore({ ...api, getSetting: async (k) => (k === "ui.theme" ? { mode: "x" } : null) });
+    await b.getState().boot(); expect(b.getState().themePref).toBe("system");
+  });
+
+  it("selectSpace persists the choice under ui.activeSpaceId", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
-    await store.getState().selectProfile("p2");
-    expect(store.getState().spaces.map((s) => s.id)).toEqual(["s2"]);
+    await store.getState().selectSpace("s2");
     expect(store.getState().activeSpaceId).toBe("s2");
-    expect(store.getState().items.map((i) => i.id)).toEqual(["i2"]);
+    expect(store.getState().items).toEqual([]);
+    expect(api.calls).toContain("setSetting:ui.activeSpaceId=s2");
+  });
+
+  it("nextSpace/prevSpace cycle with clamping and persist the choice", async () => {
+    const set: string[] = [];
+    const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
+    await store.getState().boot();                 // s1 active (first)
+    await store.getState().nextSpace(); expect(store.getState().activeSpaceId).toBe("s2");
+    await store.getState().nextSpace(); expect(store.getState().activeSpaceId).toBe("s2"); // clamp
+    await store.getState().prevSpace(); expect(store.getState().activeSpaceId).toBe("s1");
+    await store.getState().prevSpace(); expect(store.getState().activeSpaceId).toBe("s1"); // clamp
+    expect(set).toContain("ui.activeSpaceId=s2");
+  });
+
+  it("createSpace appends and activates; updateSpace merges; deleteSpace moves to neighbor", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().createSpace({ name: "New", icon: "folder", profileId: "p1" });
+    expect(store.getState().activeSpace()?.name).toBe("New");
+    expect(store.getState().spaces.map((s) => s.name)).toEqual(["Versed", "Homework", "New"]);
+    await store.getState().updateSpace({ id: store.getState().activeSpaceId!, color: "#ff0000" });
+    expect(store.getState().activeSpace()?.color).toBe("#ff0000");
+    await store.getState().deleteSpace(store.getState().activeSpaceId!);
+    expect(store.getState().activeSpaceId).toBe("s2");
+    expect(store.getState().spaces.map((s) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("deleteSpace of the first (active) space selects the new first; deleting a non-active space keeps selection", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().deleteSpace("s2");
+    expect(store.getState().activeSpaceId).toBe("s1");
+    await store.getState().deleteSpace("s1");
+    expect(store.getState().activeSpaceId).toBeNull();
+    expect(store.getState().layout).toBeNull();
+  });
+
+  it("reorderSpaces reorders optimistically and calls the api", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().reorderSpaces(["s2", "s1"]);
+    expect(store.getState().spaces.map((s) => s.id)).toEqual(["s2", "s1"]);
+    expect(api.calls).toContain("reorderSpaces:s2,s1");
+    expect(store.getState().activeIndex()).toBe(1);
+  });
+
+  it("refreshSpaces falls back to the first space when the active one disappeared", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().selectSpace("s2");
+    api.data.spaces = api.data.spaces.filter((s) => s.id !== "s2");
+    await store.getState().refreshSpaces();
+    expect(store.getState().activeSpaceId).toBe("s1");
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]);
+  });
+
+  it("themePref persists", async () => {
+    const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
+    await store.getState().boot(); await store.getState().setThemePref("dark");
+    expect(store.getState().themePref).toBe("dark"); expect(set).toContain("ui.theme=dark");
+  });
+
+  it("updateItem merges the returned item (pin/rename)", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().updateItem({ id: "i1", pinned: true, title: "GitHub" });
+    expect(store.getState().items[0]).toMatchObject({ id: "i1", pinned: true, title: "GitHub" });
+  });
+
+  it("palette and sheet flags toggle", async () => {
+    const store = createAppStore(api);
+    store.getState().setPaletteOpen(true); expect(store.getState().paletteOpen).toBe(true);
+    store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
+    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1" });
+    store.getState().closeSheet(); expect(store.getState().sheet).toBeNull();
   });
 
   it("newTerminal creates item, adds tab to layout, persists layout", async () => {
@@ -152,17 +208,16 @@ describe("app store", () => {
   });
 
   describe("staleness guards", () => {
-    it("select A then B quickly: final state is B's data only (spaces, items, projects)", async () => {
+    it("select A then B quickly: final state is B's data only (items, projects)", async () => {
+      api.data.items["s2"] = [item("i2", "s2")];
       const store = createAppStore(api);
       await store.getState().boot();
-      api.delays["listSpaces"] = 30; api.delays["listItems:s1"] = 30; api.delays["listProjects:s1"] = 30;
-      const a = store.getState().selectProfile("p1");
-      const b = store.getState().selectProfile("p2");
+      api.delays["listItems:s1"] = 30; api.delays["listProjects:s1"] = 30;
+      const a = store.getState().selectSpace("s1");
+      const b = store.getState().selectSpace("s2");
       await Promise.all([a, b]);
       await new Promise((r) => setTimeout(r, 60));
       const s = store.getState();
-      expect(s.activeProfileId).toBe("p2");
-      expect(s.spaces.map((x) => x.id)).toEqual(["s2"]);
       expect(s.activeSpaceId).toBe("s2");
       expect(s.items.map((i) => i.id)).toEqual(["i2"]);
       expect(allTabs(s.layout!)).toEqual(["i2"]);
@@ -171,7 +226,7 @@ describe("app store", () => {
     it("selectSpace A then B: slow A responses are dropped", async () => {
       const store = createAppStore(api);
       await store.getState().boot();
-      await store.getState().createSpace("Second"); // s? under p1
+      await store.getState().createSpace({ name: "Second", icon: "folder", profileId: "p1" });
       const s2id = store.getState().activeSpaceId!;
       api.delays["listItems:s1"] = 30; api.delays["listProjects:s1"] = 30;
       const a = store.getState().selectSpace("s1");
@@ -213,7 +268,7 @@ describe("app store", () => {
       const splitId = store.getState().layout!.id;
       const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
       store.getState().resizeSplit(splitId, [10, 90]);
-      await store.getState().selectProfile("p2");
+      await store.getState().selectSpace("s2");
       expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before + 1);
     });
   });

@@ -1,0 +1,94 @@
+/** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
+import type { Item, Profile, Project, Space } from "@realm/contracts";
+import type { Api } from "./store";
+
+export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
+  ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
+export const space = (id: string, profileId: string, name: string, extra: Partial<Space> = {}): Space =>
+  ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", layout: null, activeItemId: null, createdAt: 0, updatedAt: 0, ...extra });
+export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): Item =>
+  ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
+
+export type FakeData = {
+  profiles?: Profile[]; spaces?: Space[];
+  items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
+  settings?: Record<string, unknown>;
+};
+
+export type FakeApi = Api & {
+  /** Method-call log, e.g. `listItems:s1`, `setLayout:s1`, `setSetting:ui.theme=dark`. */
+  calls: string[];
+  disposed: string[];
+  /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
+  delays: Record<string, number>;
+  onCreateTerminal: (() => void) | null;
+  /** Live views of the fake's data (mutable). */
+  data: Required<FakeData>;
+};
+
+/** Defaults: profiles p1 "Work" / p2 "School"; spaces s1 "Versed" (p1, #7c6cff) / s2 "Homework" (p2, #3ddc97);
+ *  items: s1 has one terminal (i1). Pass `overrides` to replace any of these. */
+export function fakeApi(overrides: FakeData = {}): FakeApi {
+  const calls: string[] = [];
+  const disposed: string[] = [];
+  const data: Required<FakeData> = {
+    profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
+    spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p2", "Homework", { color: "#3ddc97" })],
+    items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
+    projects: overrides.projects ?? {},
+    settings: overrides.settings ?? {},
+  };
+  let n = 100;
+  const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
+  const api: FakeApi = {
+    calls, disposed, delays: {}, onCreateTerminal: null, data,
+    listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
+    listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return [...data.spaces]; },
+    listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
+    listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
+    createSpace: async (input) => {
+      const s = space(`s${++n}`, input.profileId, input.name, { icon: input.icon, color: input.color ?? "#ffb454", sortOrder: data.spaces.length });
+      data.spaces.push(s); return s;
+    },
+    updateSpace: async (input) => {
+      const i = data.spaces.findIndex((x) => x.id === input.id); if (i < 0) throw new Error(`no space ${input.id}`);
+      const { id: _id, ...patch } = input;
+      const s = { ...data.spaces[i]!, ...patch }; data.spaces[i] = s; return s;
+    },
+    reorderSpaces: async (ids) => {
+      calls.push(`reorderSpaces:${ids.join(",")}`);
+      data.spaces.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+    },
+    deleteSpace: async (id) => { calls.push(`deleteSpace:${id}`); data.spaces = data.spaces.filter((s) => s.id !== id); },
+    createProject: async (spaceId, name, rootPath) => {
+      const pr: Project = { id: `pr${++n}`, spaceId, name, rootPath, defaultBranch: "main", createdAt: 0, updatedAt: 0 };
+      (data.projects[spaceId] ??= []).push(pr); return pr;
+    },
+    setLayout: async (sid, layout) => {
+      calls.push(`setLayout:${sid}`);
+      const i = data.spaces.findIndex((x) => x.id === sid);
+      const s = { ...(i >= 0 ? data.spaces[i]! : findSpace(sid)), layout };
+      if (i >= 0) data.spaces[i] = s;
+      return s;
+    },
+    createTerminal: async (sid) => {
+      const it = item(`i${++n}`, sid, { title: "Terminal" }); (data.items[sid] ??= []).push(it);
+      api.onCreateTerminal?.(); await wait("createTerminal");
+      return { terminalId: it.refId, itemId: it.id };
+    },
+    updateItem: async (input) => {
+      for (const list of Object.values(data.items)) {
+        const i = list.findIndex((x) => x.id === input.id);
+        if (i >= 0) { const { id: _id, ...patch } = input; const it = { ...list[i]!, ...patch }; list[i] = it; return it; }
+      }
+      throw new Error(`no item ${input.id}`);
+    },
+    deleteItem: async (id) => { calls.push(`deleteItem:${id}`); for (const k of Object.keys(data.items)) data.items[k] = data.items[k]!.filter((i) => i.id !== id); },
+    getSetting: async (key) => { calls.push(`getSetting:${key}`); return data.settings[key] ?? null; },
+    setSetting: async (key, value) => { calls.push(`setSetting:${key}=${String(value)}`); data.settings[key] = value; },
+    pickFolder: async () => "/tmp/picked-repo",
+    disposeTerminal: (id) => { disposed.push(id); },
+  };
+  const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
+  return api;
+}

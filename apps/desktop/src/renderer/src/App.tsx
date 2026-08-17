@@ -6,7 +6,16 @@ import { StoreContext, createAppStore, useApp } from "./state/store";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
 import { emptyLayout } from "@realm/contracts";
+import { useApplyTheme } from "./theme/useTheme";
 import "./panes";
+
+/** Writes the active space's palette to :root; lives under the store provider so it can read state. */
+function ThemeBridge() {
+  const color = useApp((s) => s.activeSpace()?.color ?? null);
+  const pref = useApp((s) => s.themePref);
+  useApplyTheme(color, pref);
+  return null;
+}
 
 function ErrorBar() {
   const error = useApp((s) => s.error);
@@ -57,6 +66,7 @@ export function App() {
   }, [store]);
   return (
     <StoreContext.Provider value={store}>
+      <ThemeBridge />
       <div className="app"><Sidebar /><main className="main"><Main /></main></div>
     </StoreContext.Provider>
   );
