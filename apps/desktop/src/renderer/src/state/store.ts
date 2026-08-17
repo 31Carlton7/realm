@@ -3,8 +3,6 @@ import {
   addTab, allTabs, emptyLayout, gridPreset, removeTab, setActiveTab, splitLeaf, updateSizes,
   type Item, type Layout, type PresetName, type Profile, type Project, type Space,
 } from "@realm/contracts";
-import { rpc } from "../rpc/client";
-import { getTerminalHub } from "../panes/terminal-hub";
 import { createContext, useContext } from "react";
 
 /** Everything the store needs from the outside world: realm-server RPC plus the two platform
@@ -27,20 +25,6 @@ export type Api = {
   disposeTerminal(terminalId: string): void;
 };
 
-export const liveApi = (): Api => ({
-  listProfiles: () => rpc().call("profiles.list", {}),
-  listSpaces: (profileId) => rpc().call("spaces.list", { profileId }),
-  listItems: (spaceId) => rpc().call("items.list", { spaceId }),
-  listProjects: (spaceId) => rpc().call("projects.list", { spaceId }),
-  createProfile: (name) => rpc().call("profiles.create", { name }),
-  createSpace: (profileId, name) => rpc().call("spaces.create", { profileId, name }),
-  createProject: (spaceId, name, rootPath) => rpc().call("projects.create", { spaceId, name, rootPath }),
-  setLayout: (id, layout) => rpc().call("spaces.setLayout", { id, layout }),
-  createTerminal: (spaceId) => rpc().call("terminals.create", { spaceId }),
-  deleteItem: async (id) => { await rpc().call("items.delete", { id }); },
-  pickFolder: () => window.realm.pickFolder(),
-  disposeTerminal: (terminalId) => getTerminalHub().dispose(terminalId),
-});
 
 export const PERSIST_DEBOUNCE_MS = 300;
 
@@ -118,7 +102,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async selectProfile(id) {
         await flushPersist();
-        set({ activeProfileId: id, activeSpaceId: null, items: [], layout: null, projects: [] });
+        set({ activeProfileId: id, activeSpaceId: null, items: [], layout: null, projects: [], error: null });
         await get().refreshSpaces();
         if (get().activeProfileId !== id) return; // superseded by a later selection
         const first = get().spaces[0];
@@ -127,7 +111,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async selectSpace(id) {
         await flushPersist();
         const space = get().spaces.find((s) => s.id === id);
-        set({ activeSpaceId: id, layout: space?.layout ?? null, items: [], projects: [] });
+        set({ activeSpaceId: id, layout: space?.layout ?? null, items: [], projects: [], error: null });
         await Promise.all([get().refreshProjects(), get().refreshItems()]);
       },
       async refreshSpaces() {

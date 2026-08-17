@@ -77,7 +77,9 @@ export class TerminalHub {
     const host = this.doc.createElement("div");
     host.className = "terminal-host";
     const buf = this.buffer(terminalId);
-    const call = (method: MethodName, params: MethodParams<MethodName>) => { void this.transport.call(method, params).catch(() => { /* surfaced by server logs; pane stays usable */ }); };
+    const call = (method: MethodName, params: MethodParams<MethodName>) => {
+      void this.transport.call(method, params).catch((e: unknown) => console.warn(`[terminal ${terminalId}] ${method} failed:`, e));
+    };
     const entry = {
       terminalId, host, term, fit, opened: false,
       subs: [] as { dispose(): void }[],
