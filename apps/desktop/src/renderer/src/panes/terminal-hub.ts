@@ -34,8 +34,14 @@ export type HubEntry = {
   detach(): void;
 };
 
+/** Terminal background from the `--rl-terminal-bg` token (read once, at hub creation). */
+export function terminalBackground(doc: Document = document): string {
+  const v = doc.defaultView?.getComputedStyle(doc.documentElement).getPropertyValue("--rl-terminal-bg").trim();
+  return v || "#17181b";
+}
+
 const defaultFactory: TerminalFactory = () => {
-  const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "ui-monospace, Menlo, monospace", theme: { background: "#17181b" }, allowProposedApi: true });
+  const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "ui-monospace, Menlo, monospace", theme: { background: terminalBackground() }, allowProposedApi: true });
   const fit = new FitAddon(); term.loadAddon(fit);
   return { term, fit };
 };

@@ -21,10 +21,16 @@ describe("entities", () => {
   });
   it("SpaceSchema accepts null layout", () => {
     const s = SpaceSchema.parse({
-      id: newId(), profileId: newId(), name: "Versed", icon: "folder", sortOrder: 0,
+      id: newId(), profileId: newId(), name: "Versed", icon: "folder", color: "#7c6cff", sortOrder: 0,
       folderPath: "/tmp/x", layout: null, activeItemId: null, createdAt: 1, updatedAt: 1,
     });
     expect(s.layout).toBeNull();
+  });
+  it("SpaceSchema requires a #rrggbb color", () => {
+    const base = { id: newId(), profileId: newId(), name: "V", icon: "folder", sortOrder: 0, folderPath: "/tmp/x", layout: null, activeItemId: null, createdAt: 1, updatedAt: 1 };
+    expect(SpaceSchema.safeParse({ ...base, color: "#ABCDEF" }).success).toBe(true);
+    expect(SpaceSchema.safeParse({ ...base, color: "#abc" }).success).toBe(false);
+    expect(SpaceSchema.safeParse({ ...base, color: "red" }).success).toBe(false);
   });
   it("ItemSchema rejects unknown kind", () => {
     expect(() => ItemSchema.parse({

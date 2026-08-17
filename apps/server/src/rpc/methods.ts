@@ -5,7 +5,9 @@ import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { ProjectsStore } from "../store/projects";
 import type { ItemsStore } from "../store/items";
+import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
+import type { SessionService } from "../sessions/service";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
 type Params<M extends MethodName> = z.infer<(typeof Methods)[M]["params"]>;
@@ -13,7 +15,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; terminals: TerminalService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -28,17 +30,20 @@ export function registerMethods(d: Deps): void {
   reg("profiles.update", (p) => { const r = d.profiles.update(p); rpc.broadcast("profiles.changed", {}); return r; });
   reg("profiles.delete", (p) => { d.profiles.delete(p.id); rpc.broadcast("profiles.changed", {}); return { ok: true as const }; });
 
-  reg("spaces.list", (p) => d.spaces.list(p.profileId));
-  reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", { profileId: r.profileId }); return r; });
-  reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", { profileId: r.profileId }); return r; });
-  reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", { profileId: r.profileId }); return r; });
-  reg("spaces.delete", (p) => {
-    const s = d.spaces.get(p.id);
-    if (s) d.terminals.closeAllInSpace(p.id);
+  reg("spaces.list", () => d.spaces.listAll());
+  reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.reorder", (p) => { d.spaces.reorder(p.ids); rpc.broadcast("spaces.changed", {}); return { ok: true as const }; });
+  reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.delete", async (p) => {
+    if (d.spaces.get(p.id)) { d.terminals.closeAllInSpace(p.id); await d.sessions.deleteAllInSpace(p.id); }
     d.spaces.delete(p.id);
-    if (s) rpc.broadcast("spaces.changed", { profileId: s.profileId });
+    rpc.broadcast("spaces.changed", {});
     return { ok: true as const };
   });
+
+  reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
+  reg("settings.set", (p) => { d.settings.set(p.key, p.value); return { ok: true as const }; });
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
@@ -47,9 +52,10 @@ export function registerMethods(d: Deps): void {
   reg("items.list", (p) => d.items.list(p.spaceId));
   reg("items.create", (p) => { const r = d.items.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
   reg("items.update", (p) => { const r = d.items.update(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
-  reg("items.delete", (p) => {
+  reg("items.delete", async (p) => {
     const it = d.items.get(p.id);
     if (it?.kind === "terminal") { d.terminals.close(it.refId); return { ok: true as const }; } // closes pty + row + item, broadcasts
+    if (it?.kind === "session") { await d.sessions.delete(it.refId); return { ok: true as const }; } // disposes handle + row + item, broadcasts
     d.items.delete(p.id);
     if (it) rpc.broadcast("items.changed", { spaceId: it.spaceId });
     return { ok: true as const };
@@ -59,4 +65,15 @@ export function registerMethods(d: Deps): void {
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });
   reg("terminals.close", (p) => { d.terminals.close(p.terminalId); return { ok: true as const }; });
+
+  reg("agents.probe", () => d.sessions.probeAll());
+  reg("sessions.list", (p) => d.sessions.list(p.spaceId));
+  reg("sessions.get", (p) => d.sessions.get(p.id));
+  reg("sessions.create", (p) => d.sessions.create(p));
+  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments }); return { ok: true as const }; });
+  reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
+  reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision); return { ok: true as const }; });
+  reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode }));
+  reg("sessions.events", (p) => d.sessions.events(p.id, p.afterSeq, p.limit));
+  reg("sessions.delete", async (p) => { await d.sessions.delete(p.id); return { ok: true as const }; });
 }

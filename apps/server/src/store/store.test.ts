@@ -66,6 +66,17 @@ describe("SpacesStore", () => {
     expect(projects.list(sp.id)).toEqual([]);
     expect(items.list(sp.id)).toEqual([]);
   });
+  it("assigns a color on create, lists globally in sort order, reorders", () => {
+    const profiles = new ProfilesStore(db); const spaces = new SpacesStore(db, home);
+    const p = profiles.create({ name: "W", icon: "x", color: "#000" });
+    const a = spaces.create({ profileId: p.id, name: "A", icon: "f" });
+    const b = spaces.create({ profileId: p.id, name: "B", icon: "f" });
+    expect(a.color).toMatch(/^#/);
+    expect(spaces.listAll().map((s) => s.id)).toEqual([a.id, b.id]);
+    spaces.reorder([b.id, a.id]);
+    expect(spaces.listAll().map((s) => s.id)).toEqual([b.id, a.id]);
+    expect(spaces.update({ id: a.id, color: "#ff0000" }).color).toBe("#ff0000");
+  });
 });
 
 describe("SpacesStore layout robustness", () => {

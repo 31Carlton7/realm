@@ -5,12 +5,16 @@ import { startServer } from "./server-process";
 let serverChild: import("node:child_process").ChildProcess | null = null;
 
 async function createWindow(info: { port: number; home: string }) {
+  // macOS: translucent sidebar material behind the (mostly transparent) renderer; the renderer keys
+  // its glass styles off `--realm-vibrancy=1` and falls back to an opaque gradient elsewhere.
+  const vibrancy = process.platform === "darwin";
   const win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
     titleBarStyle: "hiddenInset", trafficLightPosition: { x: 12, y: 14 },
+    ...(vibrancy ? { vibrancy: "sidebar" as const, visualEffectState: "active" as const, backgroundColor: "#00000000" } : {}),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
-      additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`] },
+      additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, ...(vibrancy ? ["--realm-vibrancy=1"] : [])] },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
