@@ -34,7 +34,7 @@ body[data-vibrancy] .app {
 .search span { flex: 1; } .search kbd { opacity: .7; }
 
 .swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
-.swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; transition: transform 220ms var(--ease); }
+.swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; } /* transitions are set inline by SpaceSwiper (none while dragging, ease on commit/settle) */
 .space-page { flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 12px 8px; overflow: hidden; }
 .space-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 
@@ -82,9 +82,8 @@ body[data-vibrancy] .app {
 .strip-space[data-active] .strip-dot { opacity: 1; }
 
 /* Menus */
-.menu { position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; min-width: 160px; padding: 4px; display: flex; flex-direction: column;
+.menu { z-index: 100; min-width: 160px; padding: 4px; display: flex; flex-direction: column; /* positioned inline (fixed, portal) by Menu.tsx */
   background: var(--rl-surface); color: var(--rl-fg); border: 1px solid var(--rl-border); border-radius: 9px; box-shadow: var(--rl-card-shadow); }
-.menu-right { left: auto; right: 0; }
 .menu [role="menuitem"] { text-align: left; padding: 6px 10px; border-radius: 6px; display: flex; align-items: center; gap: 8px; }
 .menu [role="menuitem"]:hover:not(:disabled) { background: var(--rl-surface2); }
 .menu [role="menuitem"].checked::after { content: "✓"; margin-left: auto; color: var(--rl-accent); }
@@ -115,7 +114,6 @@ body[data-vibrancy] .app {
 .layout-menu { position: relative; }
 .layout-menu > button { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--rl-muted); }
 .layout-menu > button:hover { background: var(--rl-surface2); color: var(--rl-fg); }
-.layout-menu .menu { left: auto; right: 0; }
 .layout-menu .menu button { text-align: left; padding: 6px 10px; border-radius: 6px; } .layout-menu .menu button:hover { background: var(--rl-surface2); }
 .terminal-pane { flex: 1; min-width: 0; min-height: 0; padding: 6px; background: var(--rl-terminal-bg); display: flex; }
 .terminal-pane .xterm { height: 100%; }
