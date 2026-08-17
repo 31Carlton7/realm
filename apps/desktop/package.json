@@ -6,9 +6,11 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "node scripts/build-native.mjs && electron-vite build",
     "preview": "electron-vite preview",
-    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit"
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "build:native": "node scripts/build-native.mjs",
+    "predev": "node scripts/build-native.mjs"
   },
   "dependencies": {
     "@realm/contracts": "workspace:*",
