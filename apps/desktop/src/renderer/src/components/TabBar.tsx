@@ -8,10 +8,11 @@ export function TabBar({ tabs, activeTab, onActivate, onClose, onSplit }: {
   return (
     <div className="tabbar" role="tablist">
       {tabs.map((t) => (
-        <div key={t.id} role="tab" aria-selected={t.id === activeTab} aria-label={t.title}
-          className={"tab" + (t.id === activeTab ? " active" : "")} onClick={() => onActivate(t.id)}>
-          <Icon name={t.kind} size={13} /><span className="tab-title">{t.title}</span>
-          <button className="tab-close" aria-label={`Close ${t.title}`} onClick={(e) => { e.stopPropagation(); onClose(t.id); }}><Icon name="close" size={11} /></button>
+        <div key={t.id} className={"tab" + (t.id === activeTab ? " active" : "")}>
+          <button role="tab" aria-selected={t.id === activeTab} aria-label={t.title} className="tab-main" onClick={() => onActivate(t.id)}>
+            <Icon name={t.kind} size={13} /><span className="tab-title">{t.title}</span>
+          </button>
+          <button className="tab-close" aria-label={`Close ${t.title}`} onClick={() => onClose(t.id)}><Icon name="close" size={11} /></button>
         </div>
       ))}
       <div className="tab-actions">

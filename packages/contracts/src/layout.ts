@@ -74,12 +74,23 @@ export function setActiveTab(l: Layout, tabId: string): Layout {
   return mapLeaves(l, (leaf) => (leaf.tabs.includes(tabId) ? { ...leaf, activeTab: tabId } : leaf));
 }
 
+/** Split a leaf, putting `newTabId` alone in the new sibling leaf. Tabs are globally unique: if the tab
+ *  already lives somewhere it is removed first. If that removal pruned the target leaf (or the leaf id is
+ *  unknown), the first leaf is split instead, so the tab always ends up in exactly one leaf. */
 export function splitLeaf(l: Layout, leafId: string, dir: "row" | "col", newTabId: string): Layout {
-  return mapLeaves(l, (leaf) => {
-    if (leaf.id !== leafId) return leaf;
+  const base = findLeafOfTab(l, newTabId) ? removeTab(l, newTabId) : l;
+  const target = hasLeaf(base, leafId) ? leafId : firstLeaf(base).id;
+  return mapLeaves(base, (leaf) => {
+    if (leaf.id !== target) return leaf;
     const fresh: LayoutLeaf = { type: "leaf", id: newId(), tabs: [newTabId], activeTab: newTabId };
     return { type: "split", id: newId(), dir, sizes: [50, 50], children: [leaf, fresh] };
   });
+}
+
+/** Replace the sizes of the split with `splitId`; every other node is returned unchanged. */
+export function updateSizes(l: Layout, splitId: string, sizes: number[]): Layout {
+  if (l.type === "leaf") return l;
+  return l.id === splitId ? { ...l, sizes } : { ...l, children: l.children.map((c) => updateSizes(c, splitId, sizes)) };
 }
 
 /** Remove a tab everywhere; prune empty leaves (except the last one); unwrap single-child splits.

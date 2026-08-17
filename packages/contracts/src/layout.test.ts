@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  emptyLayout, addTab, splitLeaf, removeTab, findLeafOfTab, allTabs, gridPreset, setActiveTab, firstLeaf,
+  emptyLayout, addTab, splitLeaf, removeTab, findLeafOfTab, allTabs, gridPreset, setActiveTab, firstLeaf, updateSizes,
   LayoutSchema, type Layout,
 } from "./layout";
 
@@ -44,6 +44,47 @@ describe("layout ops", () => {
     expect(l2.children).toHaveLength(2);
     expect(l2.sizes).toEqual([50, 50]);
     expect(allTabs(l2)).toEqual(["A", "B"]);
+  });
+
+  it("splitLeaf moves a tab that already lives elsewhere into the new leaf (no duplicates)", () => {
+    // Simulates items.changed reconciling the new item into the first leaf before splitLeaf runs.
+    const l = addTab(addTab(emptyLayout(), null, "A"), null, "B");
+    const l2 = splitLeaf(l, l.id, "row", "B");
+    expect(l2.type).toBe("split");
+    if (l2.type !== "split") throw new Error();
+    expect(allTabs(l2)).toEqual(["A", "B"]);
+    expect(l2.children[0]).toMatchObject({ id: l.id, tabs: ["A"], activeTab: "A" });
+    expect(l2.children[1]).toMatchObject({ tabs: ["B"], activeTab: "B" });
+  });
+
+  it("splitLeaf falls back to the first leaf when removing the moved tab pruned the target", () => {
+    const l = addTab(emptyLayout(), null, "A");
+    const split = splitLeaf(l, l.id, "row", "B");
+    if (split.type !== "split") throw new Error();
+    const bLeaf = split.children[1]!;
+    // Splitting the leaf that only holds B with newTabId B: B is removed (pruning that leaf), then the first leaf is split.
+    const l2 = splitLeaf(split, bLeaf.id, "col", "B");
+    if (l2.type !== "split") throw new Error();
+    expect(allTabs(l2)).toEqual(["A", "B"]);
+    expect(l2.dir).toBe("col");
+    expect(l2.children[0]).toMatchObject({ id: l.id, tabs: ["A"] });
+    expect(l2.children[1]).toMatchObject({ tabs: ["B"] });
+  });
+
+  it("updateSizes replaces sizes on the matching split only", () => {
+    const l = addTab(emptyLayout(), null, "A");
+    const outer = splitLeaf(l, l.id, "row", "B");
+    if (outer.type !== "split") throw new Error();
+    const inner = splitLeaf(outer, outer.children[1]!.id, "col", "C");
+    if (inner.type !== "split") throw new Error();
+    const innerSplit = inner.children[1]!;
+    if (innerSplit.type !== "split") throw new Error();
+    const l2 = updateSizes(inner, innerSplit.id, [30, 70]);
+    if (l2.type !== "split") throw new Error();
+    expect(l2.sizes).toEqual([50, 50]);
+    expect(l2.children[1]).toMatchObject({ id: innerSplit.id, sizes: [30, 70] });
+    expect(updateSizes(inner, "nope", [1, 2])).toEqual(inner);
+    expect(updateSizes(l, l.id, [1])).toEqual(l);
   });
 
   it("removeTab removes tab; empty leaves collapse; single-child splits unwrap", () => {

@@ -34,11 +34,11 @@ export function PaneHost(p: PaneHostProps) {
       );
     }
     return (
-      <PanelGroup direction={n.dir === "row" ? "horizontal" : "vertical"} onLayout={(sizes) => p.onResize?.(n.id, sizes)}>
+      <PanelGroup id={n.id} direction={n.dir === "row" ? "horizontal" : "vertical"} onLayout={(sizes) => p.onResize?.(n.id, sizes)}>
         {n.children.map((c, i) => (
           <Fragment key={c.id}>
             {i > 0 && <PanelResizeHandle className="resize-handle" />}
-            <Panel defaultSize={n.sizes[i] ?? 100 / n.children.length} minSize={10}>{renderNode(c)}</Panel>
+            <Panel id={c.id} order={i} defaultSize={n.sizes[i] ?? 100 / n.children.length} minSize={10}>{renderNode(c)}</Panel>
           </Fragment>
         ))}
       </PanelGroup>

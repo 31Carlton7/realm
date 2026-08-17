@@ -42,6 +42,10 @@ input { font: inherit; }
 .layout-menu { position: relative; }
 .menu { position: absolute; right: 0; top: 28px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; min-width: 140px; z-index: 10; }
 .menu button { text-align: left; padding: 6px 10px; border-radius: 6px; } .menu button:hover { background: rgba(255,255,255,.06); }
-.terminal-pane { flex: 1; min-width: 0; min-height: 0; padding: 6px; background: #17181b; }
+.terminal-pane { flex: 1; min-width: 0; min-height: 0; padding: 6px; background: #17181b; display: flex; }
 .terminal-pane .xterm { height: 100%; }
 .projects { padding: 2px 0 6px; } .project-row { display:flex; gap:8px; align-items:center; padding: 4px 8px; color: var(--muted); }
+.tab-main { display: flex; align-items: center; gap: 6px; height: 100%; padding: 0; color: inherit; }
+.error-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 4px; padding: 6px 10px; border: 1px solid #7a3b3b; border-radius: var(--radius); background: #3a1d1d; color: #ffb4b4; font-size: 12px; }
+.error-bar button { color: inherit; padding: 2px 6px; }
+.terminal-host { flex: 1; min-width: 0; min-height: 0; height: 100%; }

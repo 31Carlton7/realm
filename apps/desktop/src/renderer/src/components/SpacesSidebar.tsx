@@ -1,4 +1,5 @@
 import { Icon } from "@realm/ui";
+import type { Layout } from "@realm/contracts";
 import { useApp } from "../state/store";
 import { useState } from "react";
 
@@ -12,7 +13,8 @@ export function SpacesSidebar() {
   const activateTab = useApp((s) => s.activateTab);
   const newTerminal = useApp((s) => s.newTerminal);
   const closeItem = useApp((s) => s.closeItem);
-  const projects = useApp((s) => s.projects); const linkProject = useApp((s) => s.linkProject);
+  const projects = useApp((s) => s.projects); const pickAndLinkProject = useApp((s) => s.pickAndLinkProject);
+  const run = useApp((s) => s.run);
   const [adding, setAdding] = useState(false); const [name, setName] = useState("");
   const activeTabs = new Set(collectActive(layout));
   return (
@@ -20,27 +22,27 @@ export function SpacesSidebar() {
       <div className="spaces-header"><span className="label">Spaces</span>
         <button aria-label="New space" title="New space" onClick={() => setAdding(true)}><Icon name="add" size={14} /></button></div>
       {adding && (
-        <form className="inline-form" onSubmit={(e) => { e.preventDefault(); if (name.trim()) void createSpace(name.trim()); setName(""); setAdding(false); }}>
+        <form className="inline-form" onSubmit={(e) => { e.preventDefault(); if (name.trim()) run(() => createSpace(name.trim())); setName(""); setAdding(false); }}>
           <input autoFocus placeholder="Space name" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setAdding(false)} />
         </form>
       )}
       {spaces.map((sp) => (
         <div key={sp.id} className={"space" + (sp.id === activeSpaceId ? " active" : "")}>
-          <button className="space-row" onClick={() => void selectSpace(sp.id)}><Icon name={sp.icon} size={14} /><span>{sp.name}</span></button>
+          <button className="space-row" onClick={() => run(() => selectSpace(sp.id))}><Icon name={sp.icon} size={14} /><span>{sp.name}</span></button>
           {sp.id === activeSpaceId && (
             <div className="items">
               <div className="projects">
                 {projects.map((pr) => <div key={pr.id} className="project-row" title={pr.rootPath}><Icon name="folder" size={13} /><span>{pr.name}</span></div>)}
-                <button className="item-row add" onClick={() => void (async () => { const p = await window.realm.pickFolder(); if (p) await linkProject(p); })()}>
+                <button className="item-row add" onClick={() => run(pickAndLinkProject)}>
                   <Icon name="add" size={13} /><span>Link project…</span></button>
               </div>
               {items.map((it) => (
                 <div key={it.id} className={"item" + (activeTabs.has(it.id) ? " active" : "")}>
-                  <button className="item-row" onClick={() => void activateTab(it.id)}><Icon name={it.kind} size={13} /><span>{it.title}</span></button>
-                  <button className="item-close" aria-label={`Close ${it.title}`} onClick={() => void closeItem(it.id)}><Icon name="close" size={12} /></button>
+                  <button className="item-row" onClick={() => run(() => activateTab(it.id))}><Icon name={it.kind} size={13} /><span>{it.title}</span></button>
+                  <button className="item-close" aria-label={`Close ${it.title}`} onClick={() => run(() => closeItem(it.id))}><Icon name="close" size={12} /></button>
                 </div>
               ))}
-              <button className="item-row add" onClick={() => void newTerminal()}><Icon name="add" size={13} /><span>New terminal</span></button>
+              <button className="item-row add" onClick={() => run(() => newTerminal())}><Icon name="add" size={13} /><span>New terminal</span></button>
             </div>
           )}
         </div>
@@ -49,7 +51,7 @@ export function SpacesSidebar() {
   );
 }
 
-function collectActive(l: import("@realm/contracts").Layout | null): string[] {
+function collectActive(l: Layout | null): string[] {
   if (!l) return [];
   return l.type === "leaf" ? (l.activeTab ? [l.activeTab] : []) : l.children.flatMap(collectActive);
 }

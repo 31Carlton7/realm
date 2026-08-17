@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore, type Api } from "../state/store";
 
@@ -8,9 +8,9 @@ const api: Api = {
                               { id: "p2", name: "School", icon: "cap", color: "#000", sortOrder: 1, createdAt: 0, updatedAt: 0 }],
   listSpaces: async (pid) => pid === "p1" ? [{ id: "s1", profileId: "p1", name: "Versed", icon: "folder", sortOrder: 0, folderPath: "/", layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 }] : [],
   listItems: async () => [{ id: "i1", spaceId: "s1", kind: "terminal", title: "Terminal", sortOrder: 0, pinned: false, refId: "t1", createdAt: 0, updatedAt: 0 }],
-  createProfile: vi.fn(), createSpace: vi.fn(), setLayout: vi.fn(async (id, layout) => ({ id, layout } as never)),
-  createTerminal: vi.fn(), deleteItem: vi.fn(), closeTerminal: vi.fn(),
-  listProjects: async () => [], createProject: vi.fn(),
+  listProjects: async () => [],
+  createProfile: vi.fn(), createSpace: vi.fn(), createProject: vi.fn(), setLayout: vi.fn(async (id, layout) => ({ id, layout } as never)),
+  createTerminal: vi.fn(), deleteItem: vi.fn(), pickFolder: vi.fn(async () => null), disposeTerminal: vi.fn(),
 };
 
 describe("Sidebar", () => {
@@ -28,7 +28,6 @@ describe("Sidebar", () => {
     await store.getState().boot();
     render(<StoreContext.Provider value={store}><Sidebar /></StoreContext.Provider>);
     fireEvent.click(screen.getByRole("button", { name: /School/ }));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByText("Versed")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Versed")).not.toBeInTheDocument());
   });
 });

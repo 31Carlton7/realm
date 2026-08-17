@@ -5,6 +5,19 @@ import { LayoutMenu } from "./components/LayoutMenu";
 import { StoreContext, createAppStore, liveApi, useApp } from "./state/store";
 import { rpc } from "./rpc/client";
 import { emptyLayout } from "@realm/contracts";
+import "./panes";
+
+function ErrorBar() {
+  const error = useApp((s) => s.error);
+  const clearError = useApp((s) => s.clearError);
+  if (!error) return null;
+  return (
+    <div className="error-bar" role="alert">
+      <span>{error}</span>
+      <button aria-label="Dismiss error" onClick={clearError}>✕</button>
+    </div>
+  );
+}
 
 function Main() {
   const layout = useApp((s) => s.layout);
@@ -14,30 +27,31 @@ function Main() {
   const closeItem = useApp((s) => s.closeItem);
   const split = useApp((s) => s.splitWithNewTerminal);
   const applyPreset = useApp((s) => s.applyPreset);
-  const setLayoutLocal = useApp((s) => s.setLayoutLocal);
-  const persistLayout = useApp((s) => s.persistLayout);
-  if (!spaceId) return <div className="pane-placeholder muted">Create or pick a space.</div>;
+  const resizeSplit = useApp((s) => s.resizeSplit);
+  const run = useApp((s) => s.run);
+  if (!spaceId) return <><ErrorBar /><div className="pane-placeholder muted">Create or pick a space.</div></>;
   return (
     <>
-      <div className="topbar"><LayoutMenu onPick={(p) => void applyPreset(p)} /></div>
+      <div className="topbar"><LayoutMenu onPick={(p) => run(() => applyPreset(p))} /></div>
+      <ErrorBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items}
-        onActivate={(id) => void activateTab(id)} onClose={(id) => void closeItem(id)}
-        onSplit={(leafId, dir) => void split(leafId, dir)}
-        onResize={(splitId, sizes) => { const l = layout; if (!l) return; setLayoutLocal(updateSizes(l, splitId, sizes)); void persistLayout(); }} />
+        onActivate={(id) => run(() => activateTab(id))} onClose={(id) => run(() => closeItem(id))}
+        onSplit={(leafId, dir) => run(() => split(leafId, dir))}
+        onResize={resizeSplit} />
     </>
   );
-}
-function updateSizes(l: import("@realm/contracts").Layout, splitId: string, sizes: number[]): import("@realm/contracts").Layout {
-  if (l.type === "leaf") return l;
-  return l.id === splitId ? { ...l, sizes } : { ...l, children: l.children.map((c) => updateSizes(c, splitId, sizes)) };
 }
 
 export function App() {
   const store = useMemo(() => createAppStore(liveApi()), []);
   useEffect(() => {
-    void store.getState().boot();
-    const offS = rpc().on("spaces.changed", () => void store.getState().refreshSpaces());
-    const offI = rpc().on("items.changed", ({ spaceId }) => { if (spaceId === store.getState().activeSpaceId) void store.getState().refreshItems(); });
+    const s = store.getState();
+    s.run(() => s.boot());
+    const offS = rpc().on("spaces.changed", () => store.getState().run(() => store.getState().refreshSpaces()));
+    const offI = rpc().on("items.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (spaceId === st.activeSpaceId) st.run(() => st.refreshItems());
+    });
     return () => { offS(); offI(); };
   }, [store]);
   return (
