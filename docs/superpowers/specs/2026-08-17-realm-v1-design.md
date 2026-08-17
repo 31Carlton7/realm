@@ -31,6 +31,18 @@ Reference points:
 | Mobile | Not in v1; architecture keeps UI ↔ server over WebSocket so a mobile client is a later client |
 | Icons | Hugeicons (Pro, license key via env / `.npmrc`, never committed) |
 
+### Amendment 2026-08-17 (after Plan 1): Arc-style spaces, adaptive theme
+
+Supersedes the "Navigation" row above and the ProfileStrip UI from Plan 1:
+
+- **Space is the swipe unit.** The sidebar shows exactly one space at a time. Spaces are icons in a bottom strip (+ "new space"); a two-finger horizontal swipe on the sidebar (or clicking a strip icon) slides to the previous/next space. Each space has an `icon` and a `color`; the color drives the sidebar tint (light and dark palettes derived from it).
+- **Profile is an attribute of a space** (Arc's per-space profile), shown as a small account pill next to the space name and changeable in space settings. There is no profile strip. Credentials, accounts, and context pool still scope by profile; profiles are managed in Settings.
+- **Flat sidebar, no trees.** Top: window controls + ⌘K "Ask or search" field. Then pinned items as icon tiles (Arc favorites). Then the space's items (sessions/terminals/tabs/artifacts/context) as a flat list with status dots (session running/waiting). Divider, then "New session · terminal · tab".
+- **Projects leave the sidebar.** Linked repos appear in the New Session sheet (agent + project picker) and as a chip on a session header.
+- **Adaptive theme.** Follows macOS appearance with an in-app override; both palettes derive from the active space color; content renders as a floating rounded card on the tinted sidebar (Arc), transcript/composer/panel styled after T3 Code (dark) and Universe/Claude Desktop (light).
+
+Data-model impact: `Space` gains `color`; `Item.pinned` items render as tiles; the `Profile` table stays but `Profile.icon/color/sortOrder` become secondary. `spaces.list` becomes global (all spaces, ordered) rather than per-profile.
+
 ## 2. Architecture
 
 Four kinds of process on the user's Mac.
