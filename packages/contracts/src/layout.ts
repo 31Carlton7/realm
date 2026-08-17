@@ -53,10 +53,15 @@ function mapLeaves(l: Layout, fn: (leaf: LayoutLeaf) => Layout): Layout {
   return l.type === "leaf" ? fn(l) : { ...l, children: l.children.map((c) => mapLeaves(c, fn)) };
 }
 
+function hasLeaf(l: Layout, leafId: string): boolean {
+  return l.type === "leaf" ? l.id === leafId : l.children.some((c) => hasLeaf(c, leafId));
+}
+
 /** Add a tab to a leaf and activate it. Tabs are globally unique: if the tab already lives in
- *  another leaf it is moved; if it is already in the target leaf it is just activated. */
+ *  another leaf it is moved; if it is already in the target leaf it is just activated.
+ *  A null or unknown leafId targets the first leaf, so a tab can never silently vanish. */
 export function addTab(l: Layout, leafId: string | null, tabId: string): Layout {
-  const target = leafId ?? firstLeaf(l).id;
+  const target = leafId !== null && hasLeaf(l, leafId) ? leafId : firstLeaf(l).id;
   const existing = findLeafOfTab(l, tabId);
   if (existing?.id === target) return setActiveTab(l, tabId);
   const base = existing ? removeTab(l, tabId) : l;

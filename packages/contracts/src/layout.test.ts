@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  emptyLayout, addTab, splitLeaf, removeTab, findLeafOfTab, allTabs, gridPreset, setActiveTab,
+  emptyLayout, addTab, splitLeaf, removeTab, findLeafOfTab, allTabs, gridPreset, setActiveTab, firstLeaf,
   LayoutSchema, type Layout,
 } from "./layout";
 
@@ -21,6 +21,18 @@ describe("layout ops", () => {
   it("addTab with no leafId uses first leaf", () => {
     const l2 = addTab(emptyLayout(), null, "A");
     expect(allTabs(l2)).toEqual(["A"]);
+  });
+
+  it("addTab with unknown leafId falls back to first leaf", () => {
+    const l = addTab(emptyLayout(), null, "A");
+    const first = firstLeaf(l);
+    // Moving a tab to a leaf that doesn't exist must not lose it.
+    const l2 = addTab(l, "does-not-exist", "A");
+    expect(allTabs(l2)).toEqual(["A"]);
+    const l3 = addTab(l2, "does-not-exist", "B");
+    expect(allTabs(l3)).toEqual(["A", "B"]);
+    expect(findLeafOfTab(l3, "B")?.id).toBe(first.id);
+    expect(findLeafOfTab(l3, "B")?.activeTab).toBe("B");
   });
 
   it("splitLeaf creates a split with old leaf and new leaf holding new tab", () => {
