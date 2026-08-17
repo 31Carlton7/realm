@@ -26,4 +26,17 @@ export const migrations: string[] = [
   `,
   // v2
   `ALTER TABLE spaces ADD COLUMN color TEXT NOT NULL DEFAULT '#7c6cff';`,
+  // v3
+  `
+  CREATE TABLE sessions (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE, project_id TEXT,
+    agent_kind TEXT NOT NULL, model TEXT, effort TEXT, permission_mode TEXT NOT NULL DEFAULT 'default', cwd TEXT NOT NULL,
+    status TEXT NOT NULL, provider_session_id TEXT, title TEXT NOT NULL, last_event_seq INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX sessions_space ON sessions(space_id);
+  CREATE TABLE session_events (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+  CREATE INDEX session_events_session ON session_events(session_id, seq);
+  `,
 ];
