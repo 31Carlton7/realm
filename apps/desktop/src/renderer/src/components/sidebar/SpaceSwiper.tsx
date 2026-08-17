@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type WheelEvent } from "react";
+import { memo, useEffect, useRef, useState, type WheelEvent } from "react";
 import { useApp } from "../../state/store";
 import { createSwipeTracker } from "../../state/gesture";
 import { SpaceHeader } from "./SpaceHeader";
@@ -18,7 +18,8 @@ export function SpaceSwiper() {
   const nextSpace = useApp((s) => s.nextSpace);
   const prevSpace = useApp((s) => s.prevSpace);
   const run = useApp((s) => s.run);
-  const tracker = useRef(createSwipeTracker(SWIPE));
+  const trackerRef = useRef<ReturnType<typeof createSwipeTracker> | null>(null);
+  const tracker = (trackerRef.current ??= createSwipeTracker(SWIPE));
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [preview, setPreview] = useState(0);
   const index = Math.max(0, spaces.findIndex((s) => s.id === activeSpaceId));
@@ -26,12 +27,12 @@ export function SpaceSwiper() {
   useEffect(() => () => { if (idle.current) clearTimeout(idle.current); }, []);
 
   const onWheel = (e: WheelEvent) => {
-    const dir = tracker.current.wheel(e.deltaX, e.deltaY, performance.now());
+    const dir = tracker.wheel(e.deltaX, e.deltaY, performance.now());
     if (dir) {
       setPreview(0);
       run(() => (dir === "next" ? nextSpace() : prevSpace()));
     } else {
-      let off = tracker.current.offset();
+      let off = tracker.offset();
       const atEnd = (off > 0 && index >= spaces.length - 1) || (off < 0 && index <= 0);
       if (atEnd) off *= 0.3; // rubber-band: resist beyond the first/last space
       setPreview(clamp(off, PREVIEW_MAX));
@@ -44,7 +45,7 @@ export function SpaceSwiper() {
     <div className="swiper" data-swiper onWheel={onWheel}>
       <div className="swiper-track" style={{ transform: `translateX(calc(${-index * 100}% - ${preview}px))`, transition: preview === 0 ? undefined : "none" }}>
         {spaces.map((sp) => (
-          <div key={sp.id} className="space-page" data-space-page={sp.id} aria-hidden={sp.id !== activeSpaceId || undefined}>
+          <div key={sp.id} className="space-page" data-space-page={sp.id} aria-hidden={sp.id !== activeSpaceId || undefined} inert={sp.id !== activeSpaceId || undefined}>
             <SpaceHeader space={sp} />
             {sp.id === activeSpaceId && <ActiveSpaceBody />}
           </div>
@@ -54,7 +55,7 @@ export function SpaceSwiper() {
   );
 }
 
-function ActiveSpaceBody() {
+const ActiveSpaceBody = memo(function ActiveSpaceBody() {
   const items = useApp((s) => s.items);
   const pinned = items.filter((i) => i.pinned), rest = items.filter((i) => !i.pinned);
   return (
@@ -64,4 +65,4 @@ function ActiveSpaceBody() {
       <NewItemMenu />
     </div>
   );
-}
+});

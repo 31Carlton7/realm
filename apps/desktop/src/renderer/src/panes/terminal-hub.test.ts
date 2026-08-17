@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TerminalHub, type HubTransport, type TerminalLike } from "./terminal-hub";
+import { terminalBackground, TerminalHub, type HubTransport, type TerminalLike } from "./terminal-hub";
 
 type Listener = (payload: unknown) => void;
 function fakeTransport() {
@@ -115,5 +115,14 @@ describe("TerminalHub", () => {
     // acquiring again yields a fresh instance with the post-dispose data only
     hub.acquire("t1").attach(c);
     expect(terms[1]!.writes).toEqual(["ghost"]);
+  });
+});
+
+describe("terminalBackground", () => {
+  it("reads --rl-terminal-bg from :root, defaulting to #17181b", () => {
+    expect(terminalBackground()).toBe("#17181b");
+    document.documentElement.style.setProperty("--rl-terminal-bg", "#101010");
+    expect(terminalBackground()).toBe("#101010");
+    document.documentElement.style.removeProperty("--rl-terminal-bg");
   });
 });

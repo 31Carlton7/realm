@@ -10,7 +10,12 @@ type Entry = { id: string; label: string; hint?: string; icon: ReactNode; run: (
 export function usePaletteHotkey(store: StoreApi<AppState>) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); const s = store.getState(); s.setPaletteOpen(!s.paletteOpen); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        const s = store.getState();
+        if (s.sheet) return; // a modal sheet owns the keyboard
+        s.setPaletteOpen(!s.paletteOpen);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

@@ -16,8 +16,11 @@ export function SpaceStrip() {
   const drop = (targetId: string) => {
     const from = dragId; setDragId(null); setOverId(null);
     if (!from || from === targetId) return;
-    const ids = spaces.map((s) => s.id).filter((id) => id !== from);
-    ids.splice(ids.indexOf(targetId), 0, from);
+    const ids = spaces.map((s) => s.id);
+    const fromIdx = ids.indexOf(from), toIdx = ids.indexOf(targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    // Drop takes the target's slot: before it when dragging left, after it when dragging right.
+    ids.splice(fromIdx, 1); ids.splice(toIdx, 0, from);
     run(() => reorderSpaces(ids));
   };
   const onDragOver = (id: string) => (e: DragEvent) => { if (dragId) { e.preventDefault(); if (overId !== id) setOverId(id); } };

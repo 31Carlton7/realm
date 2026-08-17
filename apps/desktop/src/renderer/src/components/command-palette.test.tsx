@@ -58,5 +58,8 @@ describe("CommandPalette", () => {
     expect(store.getState().paletteOpen).toBe(false);
     fireEvent.keyDown(window, { key: "k" });
     expect(store.getState().paletteOpen).toBe(false);
+    store.getState().openSheet({ kind: "new-space" });
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(store.getState().paletteOpen).toBe(false); // ignored while a sheet is open
   });
 });

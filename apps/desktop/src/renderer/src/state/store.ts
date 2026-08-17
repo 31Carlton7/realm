@@ -189,21 +189,29 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         mergeSpace(await api.updateSpace(input));
       },
       async deleteSpace(id) {
-        await api.deleteSpace(id);
+        // Decide the successor before awaiting so a concurrent spaces.changed refresh can't move the goalposts.
         const before = get().spaces; const idx = before.findIndex((s) => s.id === id);
-        const spaces = before.filter((s) => s.id !== id);
-        set({ spaces });
+        const wasActive = get().activeSpaceId === id;
+        const neighbor = before.filter((s) => s.id !== id)[Math.max(0, idx - 1)] ?? null;
+        // A pending debounced persist would setLayout on a space that is about to be gone.
+        if (wasActive && persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+        await api.deleteSpace(id);
+        set({ spaces: get().spaces.filter((s) => s.id !== id) });
+        if (!wasActive) return;
+        // refreshSpaces (spaces.changed) may already have moved the selection; keep its choice.
         if (get().activeSpaceId !== id) return;
-        const neighbor = spaces[Math.max(0, idx - 1)];
-        if (neighbor) await get().selectSpace(neighbor.id);
+        if (neighbor && get().spaces.some((s) => s.id === neighbor.id)) await get().selectSpace(neighbor.id);
+        else if (get().spaces[0]) await get().selectSpace(get().spaces[0]!.id);
         else set({ activeSpaceId: null, items: [], layout: null, projects: [] });
       },
       async reorderSpaces(ids) {
-        const byId = new Map(get().spaces.map((s) => [s.id, s]));
+        const prev = get().spaces;
+        const byId = new Map(prev.map((s) => [s.id, s]));
         const ordered = ids.map((id) => byId.get(id)).filter((s): s is Space => !!s);
-        const rest = get().spaces.filter((s) => !ids.includes(s.id));
-        set({ spaces: [...ordered, ...rest] }); // optimistic; spaces.changed re-syncs from the server
-        await api.reorderSpaces(ids);
+        const rest = prev.filter((s) => !ids.includes(s.id));
+        set({ spaces: [...ordered, ...rest] }); // optimistic; the server broadcasts spaces.changed only on success
+        try { await api.reorderSpaces(ids); }
+        catch (e) { set({ spaces: prev }); throw e; }
       },
       async setThemePref(pref) {
         set({ themePref: pref });

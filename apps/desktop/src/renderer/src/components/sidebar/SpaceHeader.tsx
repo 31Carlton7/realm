@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { Space } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { Menu } from "../Menu";
@@ -15,6 +15,7 @@ export function SpaceHeader({ space }: { space: Space }) {
   const newTerminal = useApp((s) => s.newTerminal);
   const run = useApp((s) => s.run);
   const [menu, setMenu] = useState(false);
+  const closeMenu = useCallback(() => setMenu(false), []);
   const openSettings = () => openSheet({ kind: "space-settings", spaceId: space.id });
   return (
     <div className="space-header">
@@ -24,7 +25,7 @@ export function SpaceHeader({ space }: { space: Space }) {
         <div className="menu-anchor">
           <button className="icon-btn" aria-label="Space menu" title="More" onClick={() => setMenu((o) => !o)}><Icon name="more" size={15} /></button>
           {menu && (
-            <Menu align="right" label="Space menu" onClose={() => setMenu(false)} items={[
+            <Menu align="right" label="Space menu" onClose={closeMenu} items={[
               { label: "Space settings…", onSelect: openSettings },
               { label: "New terminal", onSelect: () => run(() => newTerminal()) },
               { kind: "separator" },

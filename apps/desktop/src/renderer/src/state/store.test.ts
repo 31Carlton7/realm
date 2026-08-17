@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, PERSIST_DEBOUNCE_MS } from "./store";
 import { emptyLayout, allTabs, findLeafOfTab } from "@realm/contracts";
-import { fakeApi, item, type FakeApi } from "./store.test-fakes";
+import { fakeApi, item, space, type FakeApi } from "./store.test-fakes";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -87,6 +87,42 @@ describe("app store", () => {
     expect(store.getState().spaces.map((s) => s.id)).toEqual(["s2", "s1"]);
     expect(api.calls).toContain("reorderSpaces:s2,s1");
     expect(store.getState().activeIndex()).toBe(1);
+  });
+
+  it("reorderSpaces rolls back the optimistic order when the api rejects", async () => {
+    const store = createAppStore({ ...api, reorderSpaces: async () => { throw new Error("nope"); } }); await store.getState().boot();
+    await expect(store.getState().reorderSpaces(["s2", "s1"])).rejects.toThrow("nope");
+    expect(store.getState().spaces.map((s) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("deleteSpace: a spaces.changed refresh landing mid-delete still ends on the neighbor", async () => {
+    api.data.spaces.push(space("s3", "p1", "Third"));
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().selectSpace("s3");
+    // Server removes the row and broadcasts before the delete call resolves; the handler refreshes.
+    const store2 = store;
+    api.deleteSpace = async (id) => {
+      api.data.spaces = api.data.spaces.filter((s) => s.id !== id);
+      await store2.getState().refreshSpaces();
+      await new Promise((r) => setTimeout(r, 10));
+    };
+    await store.getState().deleteSpace("s3");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(store.getState().spaces.map((s) => s.id)).toEqual(["s1", "s2"]);
+    expect(["s1", "s2"]).toContain(store.getState().activeSpaceId);
+    expect(store.getState().activeSpaceId).toBe("s1"); // refreshSpaces fell back to the first; deleteSpace keeps that choice
+  });
+
+  it("deleteSpace of the active space drops a pending debounced persist instead of saving a deleted layout", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().newTerminal(); await store.getState().applyPreset("two-col");
+    const splitId = store.getState().layout!.id;
+    const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+    store.getState().resizeSplit(splitId, [10, 90]); // schedules a persist
+    await store.getState().deleteSpace("s1");
+    await new Promise((r) => setTimeout(r, PERSIST_DEBOUNCE_MS + 50));
+    expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before);
+    expect(store.getState().activeSpaceId).toBe("s2");
   });
 
   it("refreshSpaces falls back to the first space when the active one disappeared", async () => {

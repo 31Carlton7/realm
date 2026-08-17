@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item } from "../../state/store.test-fakes";
+import { fakeApi, item, space } from "../../state/store.test-fakes";
 
 async function mount(api = fakeApi()) {
   const store = createAppStore(api); await store.getState().boot();
@@ -80,6 +80,31 @@ describe("Arc sidebar", () => {
     fireEvent.drop(versed, { dataTransfer: dt });
     await waitFor(() => expect(store.getState().spaces.map((s) => s.id)).toEqual(["s2", "s1"]));
     expect(api.calls).toContain("reorderSpaces:s2,s1");
+  });
+
+  it("dragging the first strip icon onto the last moves it to the end ([A,B,C] → [B,C,A])", async () => {
+    const api = fakeApi({ spaces: [space("a", "p1", "A"), space("b", "p1", "B"), space("c", "p1", "C")], items: {} });
+    const { store } = await mount(api);
+    const dt = { effectAllowed: "", setData: () => {}, getData: () => "a" };
+    fireEvent.dragStart(screen.getByRole("button", { name: /switch to space A$/i }), { dataTransfer: dt });
+    fireEvent.drop(screen.getByRole("button", { name: /switch to space C$/i }), { dataTransfer: dt });
+    await waitFor(() => expect(store.getState().spaces.map((s) => s.id)).toEqual(["b", "c", "a"]));
+    // and back to the front (leftward drag lands before the target)
+    fireEvent.dragStart(screen.getByRole("button", { name: /switch to space A$/i }), { dataTransfer: dt });
+    fireEvent.drop(screen.getByRole("button", { name: /switch to space B$/i }), { dataTransfer: dt });
+    await waitFor(() => expect(store.getState().spaces.map((s) => s.id)).toEqual(["a", "b", "c"]));
+  });
+
+  it("inactive swiper pages are inert (their controls are not reachable)", async () => {
+    const { container } = await mount();
+    const pages = container.querySelectorAll<HTMLElement>(".space-page");
+    expect(pages).toHaveLength(2);
+    expect(pages[0]!.hasAttribute("inert")).toBe(false);
+    expect(pages[1]!.hasAttribute("inert")).toBe(true);
+    expect(pages[1]!.getAttribute("aria-hidden")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
+    await waitFor(() => expect(pages[1]!.hasAttribute("inert")).toBe(false));
+    expect(pages[0]!.hasAttribute("inert")).toBe(true);
   });
 
   it("the profile pill opens the space settings sheet and + opens the new-space sheet", async () => {
