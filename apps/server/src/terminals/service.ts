@@ -1,4 +1,5 @@
 import { newId } from "@realm/contracts";
+import { existsSync } from "node:fs";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -29,6 +30,24 @@ export class TerminalService {
   }
 
   has(terminalId: string): boolean { return this.manager.has(terminalId); }
+
+  /** Boot: respawn a pty for every persisted terminal row. Rows whose cwd vanished or whose spawn fails
+   *  are deleted (the item stays, so the UI can show the pane as not running). Returns ids restored. */
+  restoreAll(): string[] {
+    const restored: string[] = [];
+    for (const row of this.d.terminals.listAll()) {
+      if (this.manager.has(row.id)) continue;
+      try {
+        if (!existsSync(row.cwd)) throw new Error(`cwd missing: ${row.cwd}`);
+        this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols: 80, rows: 24 });
+        restored.push(row.id);
+      } catch (e) {
+        console.error(`[terminals] not restoring ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
+        this.d.terminals.delete(row.id);
+      }
+    }
+    return restored;
+  }
 
   open(p: { spaceId: string; cwd?: string; cols: number; rows: number }): { terminalId: string; itemId: string } {
     const space = this.d.spaces.get(p.spaceId); if (!space) throw new NotFoundError("space", p.spaceId);

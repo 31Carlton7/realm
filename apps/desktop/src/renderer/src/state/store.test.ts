@@ -72,6 +72,14 @@ describe("app store", () => {
     expect(s.layout && s.layout.type === "leaf" ? s.layout.tabs.length : 0).toBe(2);
   });
 
+  it("persist merges the returned Space so a later selectSpace seeds from the newest layout", async () => {
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().newTerminal();
+    const { activeSpaceId, layout, spaces } = store.getState();
+    expect(spaces.find((s) => s.id === activeSpaceId)!.layout).toEqual(layout);
+  });
+
   it("closeItem deletes the item (server closes the pty), removes the tab, disposes the local terminal", async () => {
     const store = createAppStore(api);
     await store.getState().boot();

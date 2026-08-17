@@ -77,8 +77,16 @@ export class TerminalHub {
     const host = this.doc.createElement("div");
     host.className = "terminal-host";
     const buf = this.buffer(terminalId);
+    let announcedDead = false;
     const call = (method: MethodName, params: MethodParams<MethodName>) => {
-      void this.transport.call(method, params).catch((e: unknown) => console.warn(`[terminal ${terminalId}] ${method} failed:`, e));
+      void this.transport.call(method, params).catch((e: unknown) => {
+        if ((e as { code?: string })?.code === "NOT_FOUND") {
+          // The server has no pty for this id (e.g. exited or not restored) — say so once, in the pane.
+          if (!announcedDead) { announcedDead = true; buf.push("\r\n[terminal is not running]\r\n"); }
+          return;
+        }
+        console.warn(`[terminal ${terminalId}] ${method} failed:`, e);
+      });
     };
     const entry = {
       terminalId, host, term, fit, opened: false,

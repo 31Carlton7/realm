@@ -22,6 +22,7 @@ export async function createApp(opts: { home: string; port: number }): Promise<A
     rpc, home: opts.home, version: SERVER_VERSION,
     profiles: new ProfilesStore(db), spaces, projects: new ProjectsStore(db), items, terminals,
   });
+  terminals.restoreAll();
   const port = await rpc.listen(opts.port);
   return { port, db, terminals, close: async () => { terminals.closeAll(); await rpc.close(); db.close(); } };
 }

@@ -88,6 +88,21 @@ describe("TerminalHub", () => {
     expect(terms[0]!.writes.at(-1)).toContain("exited with code 0");
   });
 
+  it("announces a dead terminal once when the server answers NOT_FOUND", async () => {
+    const t = fakeTransport();
+    const err = Object.assign(new Error("terminal x not found"), { code: "NOT_FOUND" });
+    t.transport.call = async () => { throw err; };
+    const terms: ReturnType<typeof fakeTerm>[] = [];
+    const hub = new TerminalHub(t.transport, () => { const term = fakeTerm(); terms.push(term); return { term, fit: { fit() {} } }; });
+    const c = document.createElement("div"); document.body.appendChild(c);
+    hub.acquire("dead").attach(c); // initial resize rejects
+    await new Promise((r) => setTimeout(r, 0));
+    expect(terms[0]!.writes.filter((w) => w.includes("[terminal is not running]"))).toHaveLength(1);
+    terms[0]!.typed("ls\r"); // write rejects too — no second banner
+    await new Promise((r) => setTimeout(r, 0));
+    expect(terms[0]!.writes.filter((w) => w.includes("[terminal is not running]"))).toHaveLength(1);
+  });
+
   it("dispose tears down xterm, host and buffer; re-acquire starts from a fresh instance", () => {
     const { hub, emit, terms } = setup();
     const c = document.createElement("div"); document.body.appendChild(c);

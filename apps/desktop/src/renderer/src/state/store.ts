@@ -82,7 +82,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const persist = async () => {
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
       const { activeSpaceId, layout } = get();
-      if (activeSpaceId && layout) await api.setLayout(activeSpaceId, layout);
+      if (!activeSpaceId || !layout) return;
+      const saved = await api.setLayout(activeSpaceId, layout);
+      // Keep the cached Space current so a later selectSpace seeds from the newest layout.
+      set({ spaces: get().spaces.map((x) => (x.id === saved.id ? saved : x)) });
     };
     const schedulePersist = () => {
       if (persistTimer) clearTimeout(persistTimer);

@@ -16,6 +16,9 @@ export class TerminalsStore {
   get(id: string): TerminalRow | null {
     const r = this.db.prepare("SELECT * FROM terminals WHERE id = ?").get(id) as Row | undefined; return r ? toRow(r) : null;
   }
+  listAll(): TerminalRow[] {
+    return (this.db.prepare("SELECT * FROM terminals ORDER BY created_at").all() as Row[]).map(toRow);
+  }
   listBySpace(spaceId: string): TerminalRow[] {
     return (this.db.prepare("SELECT * FROM terminals WHERE space_id = ? ORDER BY created_at").all(spaceId) as Row[]).map(toRow);
   }
