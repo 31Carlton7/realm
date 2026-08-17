@@ -24,3 +24,21 @@ input { font: inherit; }
 .item-row.add { color: var(--muted); }
 .inline-form input { width: 100%; padding: 6px 8px; margin: 4px 0; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar { height: 38px; flex: none; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px; -webkit-app-region: drag; }
+.topbar button { -webkit-app-region: no-drag; }
+.panehost { flex: 1; min-height: 0; display: flex; }
+.panehost > * { flex: 1; min-width: 0; min-height: 0; }
+.leaf { display: flex; flex-direction: column; height: 100%; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin: 4px; background: var(--panel); }
+.tabbar { display: flex; align-items: center; height: 32px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 100%; color: var(--muted); cursor: default; white-space: nowrap; border-right: 1px solid var(--border); }
+.tab.active { color: var(--fg); background: rgba(255,255,255,.04); }
+.tab-close { opacity: 0; padding: 2px; } .tab:hover .tab-close { opacity: 1; }
+.tab-actions { margin-left: auto; display: flex; gap: 2px; padding: 0 6px; color: var(--muted); }
+.leaf-body { flex: 1; min-height: 0; position: relative; display: flex; }
+.pane-slot { flex: 1; min-width: 0; min-height: 0; }
+.pane-placeholder { flex: 1; display: grid; place-content: center; text-align: center; gap: 4px; color: var(--fg); }
+.muted { color: var(--muted); }
+.resize-handle { flex: 0 0 4px; background: transparent; } .resize-handle:hover, .resize-handle[data-resize-handle-active] { background: var(--accent); }
+.layout-menu { position: relative; }
+.menu { position: absolute; right: 0; top: 28px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; min-width: 140px; z-index: 10; }
+.menu button { text-align: left; padding: 6px 10px; border-radius: 6px; } .menu button:hover { background: rgba(255,255,255,.06); }
