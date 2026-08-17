@@ -40,7 +40,7 @@ export class RpcServer {
 
   private async handle(ws: WebSocket, raw: string): Promise<void> {
     let id = "?";
-    const send = (r: RpcResponse) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(r));
+    const send = (r: RpcResponse): void => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(r)); };
     try {
       const wire = parseWireMessage(raw);
       if (wire.kind !== "request") return;
