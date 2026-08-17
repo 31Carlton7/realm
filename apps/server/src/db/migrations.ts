@@ -24,4 +24,6 @@ export const migrations: string[] = [
     cwd TEXT NOT NULL, shell TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
   CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
   `,
+  // v2
+  `ALTER TABLE spaces ADD COLUMN color TEXT NOT NULL DEFAULT '#7c6cff';`,
 ];

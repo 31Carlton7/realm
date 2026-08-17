@@ -32,9 +32,10 @@ export const Methods = {
   "profiles.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: z.string().optional(), sortOrder: z.number().int().optional() }), result: ProfileSchema },
   "profiles.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
-  "spaces.list":   { params: z.object({ profileId: IdSchema }), result: z.array(SpaceSchema) },
-  "spaces.create": { params: z.object({ profileId: IdSchema, name: z.string().min(1), icon: z.string().default("folder") }), result: SpaceSchema },
-  "spaces.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), sortOrder: z.number().int().optional(), activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
+  "spaces.list":   { params: z.object({}), result: z.array(SpaceSchema) },
+  "spaces.create": { params: z.object({ profileId: IdSchema, name: z.string().min(1), icon: z.string().default("folder"), color: z.string().optional() }), result: SpaceSchema },
+  "spaces.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: z.string().optional(), profileId: IdSchema.optional(), sortOrder: z.number().int().optional(), activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
+  "spaces.reorder": { params: z.object({ ids: z.array(IdSchema) }), result: z.object({ ok: z.literal(true) }) },
   "spaces.setLayout": { params: z.object({ id: IdSchema, layout: LayoutSchema }), result: SpaceSchema },
   "spaces.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
@@ -52,6 +53,9 @@ export const Methods = {
   "terminals.resize": { params: z.object({ terminalId: IdSchema, cols: z.number().int(), rows: z.number().int() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.close":  { params: z.object({ terminalId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
+  "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
+  "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
+
   "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string() }) },
 } as const;
 
@@ -61,7 +65,7 @@ export type MethodResult<M extends MethodName> = z.infer<(typeof Methods)[M]["re
 
 export const Events = {
   "profiles.changed": z.object({}),
-  "spaces.changed":   z.object({ profileId: IdSchema }),
+  "spaces.changed":   z.object({}),
   "items.changed":    z.object({ spaceId: IdSchema }),
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),

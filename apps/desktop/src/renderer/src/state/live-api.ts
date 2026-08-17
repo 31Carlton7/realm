@@ -6,7 +6,7 @@ import type { Api } from "./store";
  *  Kept out of store.ts so the store (and its tests) never pull in xterm or the rpc singleton. */
 export const liveApi = (): Api => ({
   listProfiles: () => rpc().call("profiles.list", {}),
-  listSpaces: (profileId) => rpc().call("spaces.list", { profileId }),
+  listSpaces: () => rpc().call("spaces.list", {}),
   listItems: (spaceId) => rpc().call("items.list", { spaceId }),
   listProjects: (spaceId) => rpc().call("projects.list", { spaceId }),
   createProfile: (name) => rpc().call("profiles.create", { name }),

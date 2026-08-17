@@ -4,6 +4,7 @@ import { ProfilesStore } from "./store/profiles";
 import { SpacesStore } from "./store/spaces";
 import { ProjectsStore } from "./store/projects";
 import { ItemsStore } from "./store/items";
+import { SettingsStore } from "./store/settings";
 import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
 import { RpcServer } from "./rpc/server";
@@ -20,7 +21,7 @@ export async function createApp(opts: { home: string; port: number }): Promise<A
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db) });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles: new ProfilesStore(db), spaces, projects: new ProjectsStore(db), items, terminals,
+    profiles: new ProfilesStore(db), spaces, projects: new ProjectsStore(db), items, settings: new SettingsStore(db), terminals,
   });
   terminals.restoreAll();
   const port = await rpc.listen(opts.port);

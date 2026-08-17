@@ -9,7 +9,8 @@ import { createContext, useContext } from "react";
  *  seams (native folder picker, local terminal disposal). Tests substitute a fake. */
 export type Api = {
   listProfiles(): Promise<Profile[]>;
-  listSpaces(profileId: string): Promise<Space[]>;
+  /** Global list across all profiles, in user sort order. */
+  listSpaces(): Promise<Space[]>;
   listItems(spaceId: string): Promise<Item[]>;
   listProjects(spaceId: string): Promise<Project[]>;
   createProfile(name: string): Promise<Profile>;
@@ -119,7 +120,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshSpaces() {
         const pid = get().activeProfileId; if (!pid) return;
-        const spaces = await api.listSpaces(pid);
+        // spaces.list is global; the profile filter stays client-side until the Arc-style rework (Plan 2 Task 4).
+        const spaces = (await api.listSpaces()).filter((s) => s.profileId === pid);
         if (get().activeProfileId === pid) set({ spaces });
       },
       async refreshItems() {

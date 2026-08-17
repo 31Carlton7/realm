@@ -21,7 +21,7 @@ describe("entities", () => {
   });
   it("SpaceSchema accepts null layout", () => {
     const s = SpaceSchema.parse({
-      id: newId(), profileId: newId(), name: "Versed", icon: "folder", sortOrder: 0,
+      id: newId(), profileId: newId(), name: "Versed", icon: "folder", color: "#7c6cff", sortOrder: 0,
       folderPath: "/tmp/x", layout: null, activeItemId: null, createdAt: 1, updatedAt: 1,
     });
     expect(s.layout).toBeNull();

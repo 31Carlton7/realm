@@ -41,7 +41,7 @@ describe("rpc methods", () => {
     const layout = { type: "leaf", id: "L1", tabs: [item.id], activeTab: item.id };
     const updated = (await c.call("spaces.setLayout", { id: space.id, layout })).result;
     expect(updated.layout).toEqual(layout);
-    const listed = (await c.call("spaces.list", { profileId: prof.id })).result;
+    const listed = (await c.call("spaces.list", {})).result;
     expect(listed).toHaveLength(1);
     await waitFor(() => ["profiles.changed", "spaces.changed", "items.changed"].every((e) => c.events.some((x) => x.event === e)));
     const info = (await c.call("system.info", {})).result;
@@ -110,7 +110,7 @@ describe("rpc methods", () => {
     expect((await c.call("spaces.delete", { id: space.id })).ok).toBe(true);
     expect(app.terminals.has(a.terminalId)).toBe(false);
     expect(app.terminals.has(b.terminalId)).toBe(false);
-    expect((await c.call("spaces.list", { profileId: prof.id })).result).toEqual([]);
+    expect((await c.call("spaces.list", {})).result).toEqual([]);
     c.close();
   });
 
@@ -127,6 +127,20 @@ describe("rpc methods", () => {
     // closing after exit still cleans up the item
     expect((await c.call("terminals.close", { terminalId })).ok).toBe(true);
     expect((await c.call("items.list", { spaceId: space.id })).result).toEqual([]);
+    c.close();
+  });
+  it("spaces.list is global and spaces.reorder + settings work over rpc", async () => {
+    const home = mkdtempSync(join(tmpdir(), "realm-home-")); app = await createApp({ home, port: 0 });
+    const c = await client(app.port);
+    const p1 = (await c.call("profiles.create", { name: "Work" })).result;
+    const p2 = (await c.call("profiles.create", { name: "School" })).result;
+    const a = (await c.call("spaces.create", { profileId: p1.id, name: "A" })).result;
+    const b = (await c.call("spaces.create", { profileId: p2.id, name: "B" })).result;
+    expect((await c.call("spaces.list", {})).result.map((s: { id: string }) => s.id)).toEqual([a.id, b.id]);
+    await c.call("spaces.reorder", { ids: [b.id, a.id] });
+    expect((await c.call("spaces.list", {})).result.map((s: { id: string }) => s.id)).toEqual([b.id, a.id]);
+    await c.call("settings.set", { key: "ui.activeSpaceId", value: b.id });
+    expect((await c.call("settings.get", { key: "ui.activeSpaceId" })).result).toEqual({ value: b.id });
     c.close();
   });
 });

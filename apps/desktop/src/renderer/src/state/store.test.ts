@@ -3,7 +3,7 @@ import { createAppStore, PERSIST_DEBOUNCE_MS, type Api } from "./store";
 import { emptyLayout, allTabs, findLeafOfTab, type Profile, type Space, type Item, type Project } from "@realm/contracts";
 
 const P = (id: string, name: string): Profile => ({ id, name, icon: "user", color: "#000", sortOrder: 0, createdAt: 0, updatedAt: 0 });
-const S = (id: string, profileId: string, name: string): Space => ({ id, profileId, name, icon: "folder", sortOrder: 0, folderPath: "/tmp", layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 });
+const S = (id: string, profileId: string, name: string): Space => ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 });
 const I = (id: string, spaceId: string): Item => ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0 });
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -19,7 +19,7 @@ function fakeApi(): Fake {
   const api: Fake = {
     calls, disposed, delays: {}, onCreateTerminal: null,
     listProfiles: async () => { calls.push("listProfiles"); return profiles; },
-    listSpaces: async (pid) => { calls.push(`listSpaces:${pid}`); await wait(`listSpaces:${pid}`); return spaces[pid] ?? []; },
+    listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return Object.values(spaces).flat(); },
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return items[sid] ?? []; },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return projects[sid] ?? []; },
     createProfile: async (name) => { const p = P(`p${profiles.length + 1}`, name); profiles.push(p); return p; },
@@ -155,7 +155,7 @@ describe("app store", () => {
     it("select A then B quickly: final state is B's data only (spaces, items, projects)", async () => {
       const store = createAppStore(api);
       await store.getState().boot();
-      api.delays["listSpaces:p1"] = 30; api.delays["listItems:s1"] = 30; api.delays["listProjects:s1"] = 30;
+      api.delays["listSpaces"] = 30; api.delays["listItems:s1"] = 30; api.delays["listProjects:s1"] = 30;
       const a = store.getState().selectProfile("p1");
       const b = store.getState().selectProfile("p2");
       await Promise.all([a, b]);

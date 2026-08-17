@@ -5,6 +5,7 @@ import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { ProjectsStore } from "../store/projects";
 import type { ItemsStore } from "../store/items";
+import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -13,7 +14,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; terminals: TerminalService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; settings: SettingsStore; terminals: TerminalService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -28,17 +29,20 @@ export function registerMethods(d: Deps): void {
   reg("profiles.update", (p) => { const r = d.profiles.update(p); rpc.broadcast("profiles.changed", {}); return r; });
   reg("profiles.delete", (p) => { d.profiles.delete(p.id); rpc.broadcast("profiles.changed", {}); return { ok: true as const }; });
 
-  reg("spaces.list", (p) => d.spaces.list(p.profileId));
-  reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", { profileId: r.profileId }); return r; });
-  reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", { profileId: r.profileId }); return r; });
-  reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", { profileId: r.profileId }); return r; });
+  reg("spaces.list", () => d.spaces.listAll());
+  reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.reorder", (p) => { d.spaces.reorder(p.ids); rpc.broadcast("spaces.changed", {}); return { ok: true as const }; });
+  reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.delete", (p) => {
-    const s = d.spaces.get(p.id);
-    if (s) d.terminals.closeAllInSpace(p.id);
+    if (d.spaces.get(p.id)) d.terminals.closeAllInSpace(p.id);
     d.spaces.delete(p.id);
-    if (s) rpc.broadcast("spaces.changed", { profileId: s.profileId });
+    rpc.broadcast("spaces.changed", {});
     return { ok: true as const };
   });
+
+  reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
+  reg("settings.set", (p) => { d.settings.set(p.key, p.value); return { ok: true as const }; });
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
