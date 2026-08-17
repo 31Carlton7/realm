@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { createAppStore, type Api } from "./store";
-import { emptyLayout, type Profile, type Space, type Item } from "@realm/contracts";
+import { emptyLayout, type Profile, type Space, type Item, type Project } from "@realm/contracts";
 
 const P = (id: string, name: string): Profile => ({ id, name, icon: "user", color: "#000", sortOrder: 0, createdAt: 0, updatedAt: 0 });
 const S = (id: string, profileId: string, name: string): Space => ({ id, profileId, name, icon: "folder", sortOrder: 0, folderPath: "/tmp", layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 });
@@ -22,6 +22,8 @@ function fakeApi(): Api & { calls: string[] } {
     createTerminal: async (sid) => { const it = I(`i${Date.now()}`, sid); (items[sid] ??= []).push(it); return { terminalId: it.refId, itemId: it.id }; },
     deleteItem: async (id) => { for (const k of Object.keys(items)) items[k] = items[k]!.filter((i) => i.id !== id); },
     closeTerminal: async () => {},
+    listProjects: async () => [],
+    createProject: async (spaceId, name, rootPath) => ({ id: "pr", spaceId, name, rootPath, defaultBranch: "main", createdAt: 0, updatedAt: 0 }),
   };
 }
 
@@ -74,6 +76,16 @@ describe("app store", () => {
     await store.getState().newTerminal();
     await store.getState().applyPreset("two-col");
     expect(store.getState().layout?.type).toBe("split");
+  });
+
+  it("linkProject adds a project to the active space", async () => {
+    const projects: Project[] = [];
+    const store = createAppStore({ ...api,
+      listProjects: async () => projects,
+      createProject: async (spaceId, name, rootPath) => { const pr: Project = { id: "pr1", spaceId, name, rootPath, defaultBranch: "main", createdAt: 0, updatedAt: 0 }; projects.push(pr); return pr; } });
+    await store.getState().boot();
+    await store.getState().linkProject("/tmp/versed");
+    expect(store.getState().projects.map((p) => p.name)).toEqual(["versed"]);
   });
 
   void emptyLayout;

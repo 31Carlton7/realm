@@ -10,6 +10,7 @@ const api: Api = {
   listItems: async () => [{ id: "i1", spaceId: "s1", kind: "terminal", title: "Terminal", sortOrder: 0, pinned: false, refId: "t1", createdAt: 0, updatedAt: 0 }],
   createProfile: vi.fn(), createSpace: vi.fn(), setLayout: vi.fn(async (id, layout) => ({ id, layout } as never)),
   createTerminal: vi.fn(), deleteItem: vi.fn(), closeTerminal: vi.fn(),
+  listProjects: async () => [], createProject: vi.fn(),
 };
 
 describe("Sidebar", () => {

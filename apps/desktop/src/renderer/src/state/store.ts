@@ -1,7 +1,7 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   addTab, allTabs, emptyLayout, gridPreset, removeTab, setActiveTab, splitLeaf,
-  type Item, type Layout, type PresetName, type Profile, type Space,
+  type Item, type Layout, type PresetName, type Profile, type Project, type Space,
 } from "@realm/contracts";
 import { rpc } from "../rpc/client";
 import { createContext, useContext } from "react";
@@ -16,6 +16,8 @@ export type Api = {
   createTerminal(spaceId: string): Promise<{ terminalId: string; itemId: string }>;
   deleteItem(id: string): Promise<void>;
   closeTerminal(terminalId: string): Promise<void>;
+  listProjects(spaceId: string): Promise<Project[]>;
+  createProject(spaceId: string, name: string, rootPath: string): Promise<Project>;
 };
 
 export const liveApi = (): Api => ({
@@ -28,12 +30,15 @@ export const liveApi = (): Api => ({
   createTerminal: (spaceId) => rpc().call("terminals.create", { spaceId }),
   deleteItem: async (id) => { await rpc().call("items.delete", { id }); },
   closeTerminal: async (terminalId) => { await rpc().call("terminals.close", { terminalId }); },
+  listProjects: (spaceId) => rpc().call("projects.list", { spaceId }),
+  createProject: (spaceId, name, rootPath) => rpc().call("projects.create", { spaceId, name, rootPath }),
 });
 
 export type AppState = {
   profiles: Profile[]; activeProfileId: string | null;
   spaces: Space[]; activeSpaceId: string | null;
   items: Item[]; layout: Layout | null;
+  projects: Project[];
   boot(): Promise<void>;
   selectProfile(id: string): Promise<void>;
   selectSpace(id: string): Promise<void>;
@@ -48,6 +53,8 @@ export type AppState = {
   applyPreset(name: PresetName): Promise<void>;
   setLayoutLocal(layout: Layout): void;
   persistLayout(): Promise<void>;
+  linkProject(rootPath: string): Promise<void>;
+  refreshProjects(): Promise<void>;
 };
 
 /** Ensure every item is present in the layout exactly once and no stale tabs remain. */
@@ -64,7 +71,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
   return createStore<AppState>((set, get) => {
     const persist = async () => { const { activeSpaceId, layout } = get(); if (activeSpaceId && layout) await api.setLayout(activeSpaceId, layout); };
     return {
-      profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, items: [], layout: null,
+      profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, items: [], layout: null, projects: [],
 
       async boot() {
         const profiles = await api.listProfiles();
@@ -80,6 +87,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async selectSpace(id) {
         const space = get().spaces.find((s) => s.id === id);
         set({ activeSpaceId: id, layout: space?.layout ?? null, items: [] });
+        await get().refreshProjects();
         await get().refreshItems();
       },
       async refreshSpaces() {
@@ -136,6 +144,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       setLayoutLocal(layout) { set({ layout }); },
       persistLayout: persist,
+      async refreshProjects() { const sid = get().activeSpaceId; if (!sid) return; set({ projects: await api.listProjects(sid) }); },
+      async linkProject(rootPath) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const name = rootPath.replace(/\/+$/, "").split("/").pop() ?? rootPath;
+        await api.createProject(sid, name, rootPath);
+        await get().refreshProjects();
+      },
     };
   });
 }

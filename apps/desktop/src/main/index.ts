@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { join } from "node:path";
 import { startServer } from "./server-process";
 
@@ -25,6 +25,11 @@ async function createWindow(info: { port: number; home: string }) {
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
 }
+
+ipcMain.handle("pick-folder", async () => {
+  const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
+  return r.canceled ? null : r.filePaths[0] ?? null;
+});
 
 app.whenReady().then(async () => {
   try {

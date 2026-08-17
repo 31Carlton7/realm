@@ -12,6 +12,7 @@ export function SpacesSidebar() {
   const activateTab = useApp((s) => s.activateTab);
   const newTerminal = useApp((s) => s.newTerminal);
   const closeItem = useApp((s) => s.closeItem);
+  const projects = useApp((s) => s.projects); const linkProject = useApp((s) => s.linkProject);
   const [adding, setAdding] = useState(false); const [name, setName] = useState("");
   const activeTabs = new Set(collectActive(layout));
   return (
@@ -28,6 +29,11 @@ export function SpacesSidebar() {
           <button className="space-row" onClick={() => void selectSpace(sp.id)}><Icon name={sp.icon} size={14} /><span>{sp.name}</span></button>
           {sp.id === activeSpaceId && (
             <div className="items">
+              <div className="projects">
+                {projects.map((pr) => <div key={pr.id} className="project-row" title={pr.rootPath}><Icon name="folder" size={13} /><span>{pr.name}</span></div>)}
+                <button className="item-row add" onClick={() => void (async () => { const p = await window.realm.pickFolder(); if (p) await linkProject(p); })()}>
+                  <Icon name="add" size={13} /><span>Link project…</span></button>
+              </div>
               {items.map((it) => (
                 <div key={it.id} className={"item" + (activeTabs.has(it.id) ? " active" : "")}>
                   <button className="item-row" onClick={() => void activateTab(it.id)}><Icon name={it.kind} size={13} /><span>{it.title}</span></button>

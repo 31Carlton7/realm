@@ -44,3 +44,4 @@ input { font: inherit; }
 .menu button { text-align: left; padding: 6px 10px; border-radius: 6px; } .menu button:hover { background: rgba(255,255,255,.06); }
 .terminal-pane { flex: 1; min-width: 0; min-height: 0; padding: 6px; background: #17181b; }
 .terminal-pane .xterm { height: 100%; }
+.projects { padding: 2px 0 6px; } .project-row { display:flex; gap:8px; align-items:center; padding: 4px 8px; color: var(--muted); }
