@@ -12,8 +12,9 @@ export const icons = {
   session: ChatIcon,
 } as const;
 export type IconName = keyof typeof icons;
+export function isIconName(x: string): x is IconName { return Object.prototype.hasOwnProperty.call(icons, x); }
 
-export function Icon({ name, size = 16, className }: { name: IconName | string; size?: number; className?: string }) {
-  const icon = (icons as Record<string, (typeof icons)[IconName]>)[name] ?? icons.folder;
+export function Icon({ name, size = 16, className }: { name: IconName | (string & {}); size?: number; className?: string }) {
+  const icon = isIconName(name) ? icons[name] : icons.folder;
   return <HugeiconsIcon icon={icon} size={size} className={className} strokeWidth={1.5} />;
 }
