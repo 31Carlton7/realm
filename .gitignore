@@ -1,0 +1,7 @@
+.superpowers/
+node_modules/
+dist/
+.env
+.env.*
+.npmrc
+.DS_Store
