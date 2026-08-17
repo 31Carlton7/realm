@@ -83,6 +83,14 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(store.getState().items).toHaveLength(2));
   });
 
+  it("menus render in a portal with fixed positioning so ancestor overflow can't clip them (regression: the swiper's overflow:clip was hiding the New… menu)", async () => {
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "New item" }));
+    const menu = screen.getByRole("menu", { name: "New item" });
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu.style.position).toBe("fixed");
+  });
+
   it("dragging a strip icon onto another reorders spaces", async () => {
     const { store, api } = await mount();
     const versed = screen.getByRole("button", { name: /switch to space Versed/i });

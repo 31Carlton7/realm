@@ -4,6 +4,9 @@ import { startServer } from "./server-process";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
 
+// Dev affordance: REALM_DEVTOOLS_PORT=9223 exposes the Chrome DevTools protocol for tooling.
+if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugging-port", process.env.REALM_DEVTOOLS_PORT);
+
 async function createWindow(info: { port: number; home: string }) {
   // macOS: translucent sidebar material behind the (mostly transparent) renderer; the renderer keys
   // its glass styles off `--realm-vibrancy=1` and falls back to an opaque gradient elsewhere.
