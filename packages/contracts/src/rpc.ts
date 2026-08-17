@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema } from "./entities";
 import { LayoutSchema } from "./layout";
+import { StoredSessionEventSchema } from "./session-events";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -57,6 +58,17 @@ export const Methods = {
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
   "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string() }) },
+
+  "agents.probe": { params: z.object({}), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable() })) },
+  "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
+  "sessions.get":    { params: z.object({ id: IdSchema }), result: SessionSchema },
+  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().default("default"), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string().min(1), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ ok: z.literal(true) }) },
+  "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]) }), result: z.object({ ok: z.literal(true) }) },
+  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional() }), result: SessionSchema },
+  "sessions.events":  { params: z.object({ id: IdSchema, afterSeq: z.number().int().default(0), limit: z.number().int().default(2000) }), result: z.array(StoredSessionEventSchema) },
+  "sessions.delete":  { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 } as const;
 
 export type MethodName = keyof typeof Methods;
@@ -69,6 +81,9 @@ export const Events = {
   "items.changed":    z.object({ spaceId: IdSchema }),
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
+  /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
+  "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
+  "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),
 } as const;
 export type EventName = keyof typeof Events;
 export type EventPayload<E extends EventName> = z.infer<(typeof Events)[E]>;
