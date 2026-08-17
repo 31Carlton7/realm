@@ -5,3 +5,5 @@ dist/
 .env.*
 .npmrc
 .DS_Store
+out/
+*.tsbuildinfo
