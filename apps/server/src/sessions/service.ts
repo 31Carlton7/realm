@@ -1,5 +1,6 @@
-import { PERSISTED_EVENT_TYPES, sessionEvent, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_META, PERSISTED_EVENT_TYPES, sessionEvent, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, UserMessage } from "@realm/adapters";
+import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
 import type { ProjectsStore } from "../store/projects";
@@ -7,8 +8,7 @@ import type { SessionsStore, SessionEventsStore, SessionUpdate } from "../store/
 import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
 
-const AGENT_LABELS: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", "acp:gemini": "Gemini", "acp:cursor": "Cursor", fake: "Fake agent" };
-const defaultTitle = (kind: AgentKind) => `${AGENT_LABELS[kind]} session`;
+const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
 export const TITLE_MAX = 40;
 /** First line of the message, whitespace-collapsed, clipped to TITLE_MAX. */
 export function titleFromMessage(text: string): string {
@@ -28,10 +28,14 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; adapters: AdapterRegistry }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; adapters: AdapterRegistry }) {}
 
-  probeAll(): Promise<ProbeResult[]> {
-    return Promise.all(Object.values(this.d.adapters).map((a) => a.probe()));
+  /** One adapter's probe throwing must not hide the others; it reports as unavailable with the reason. */
+  async probeAll(): Promise<ProbeResult[]> {
+    const adapters = Object.values(this.d.adapters);
+    const results = await Promise.allSettled(adapters.map((a) => a.probe()));
+    return results.map((r, i) => r.status === "fulfilled" ? r.value
+      : { kind: adapters[i]!.kind, available: false, version: null, loggedIn: null, reason: r.reason instanceof Error ? r.reason.message : String(r.reason) });
   }
 
   isLive(id: string): boolean { return this.live.has(id); }
@@ -60,7 +64,12 @@ export class SessionService {
     await handle.send(msg);
   }
   async interrupt(id: string): Promise<void> { this.get(id); await this.live.get(id)?.handle.interrupt(); }
-  respondPermission(id: string, requestId: string, decision: PermissionDecision): void { this.get(id); this.live.get(id)?.handle.respondPermission(requestId, decision); }
+  respondPermission(id: string, requestId: string, decision: PermissionDecision): void {
+    this.get(id);
+    const l = this.live.get(id);
+    if (!l) throw new RpcError("SESSION_NOT_LIVE", "the agent is not running; the request is stale (send a message to resume)");
+    l.handle.respondPermission(requestId, decision);
+  }
   async setOptions(id: string, o: { model?: string; effort?: string; permissionMode?: string }): Promise<Session> {
     const s = this.d.sessions.update({ id, ...o });
     await this.live.get(id)?.handle.setOptions({ model: o.model, permissionMode: o.permissionMode });
@@ -85,9 +94,18 @@ export class SessionService {
     this.closing = true;
     for (const id of [...this.live.keys()]) await this.stop(id);
   }
-  /** Boot: a session can't still be running after a restart; only `error` is worth keeping. */
+  /**
+   * Boot: no adapter survives a restart. Live statuses become idle; `ended` (an adapter that exited — after `error` on a
+   * crash) is resumable when we hold a providerSessionId, otherwise it stays terminal. A permission the user never
+   * answered is closed with a synthetic persisted deny so clients don't render a stale card.
+   */
   markStaleOnBoot(): void {
-    for (const s of this.d.sessions.listAll()) if (s.status === "running" || s.status === "waiting_permission" || s.status === "ended") this.d.sessions.update({ id: s.id, status: "idle" });
+    for (const s of this.d.sessions.listAll()) {
+      const requestId = this.d.events.findDanglingPermission(s.id);
+      if (requestId) this.persist(s.id, sessionEvent("permission_response", { requestId, decision: "deny" }));
+      const resumable = s.status === "running" || s.status === "waiting_permission" || (s.status === "ended" && s.providerSessionId !== null);
+      if (resumable) this.d.sessions.update({ id: s.id, status: "idle" });
+    }
   }
 
   private async stop(id: string): Promise<void> {
@@ -95,6 +113,17 @@ export class SessionService {
     await l.handle.dispose();
     await l.pump; // pump ends when the adapter closes its event stream (right after `ended`)
     this.live.delete(id);
+  }
+
+  /** Append + bump last_event_seq atomically. */
+  private persist(id: string, ev: SessionEvent): StoredSessionEvent {
+    this.d.db.exec("BEGIN");
+    try {
+      const stored = this.d.events.append(id, ev);
+      this.d.sessions.setLastEventSeq(id, stored.seq);
+      this.d.db.exec("COMMIT");
+      return stored;
+    } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
   }
 
   /** The first message names an untitled session (and its sidebar item). */
@@ -132,8 +161,7 @@ export class SessionService {
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });
     }
     if (PERSISTED_EVENT_TYPES.includes(ev.type)) {
-      const stored = this.d.events.append(id, ev);
-      this.d.sessions.update({ id, lastEventSeq: stored.seq });
+      const stored = this.persist(id, ev);
       this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
     } else {
       this.d.rpc.broadcast("session.event", { seq: -1, sessionId: id, event: ev, ephemeral: true });

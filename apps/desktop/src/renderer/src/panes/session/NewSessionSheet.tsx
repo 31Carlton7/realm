@@ -1,11 +1,8 @@
-import { AGENT_MODELS, PERMISSION_MODES, type AgentKind } from "@realm/contracts";
+import { AGENT_META, AGENT_MODELS, PERMISSION_MODES, type AgentKind } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { useApp } from "../../state/store";
 import { Sheet } from "../../components/Sheet";
-import { AGENT_ICON } from "./SessionPane";
-
-const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", "acp:gemini": "Gemini", "acp:cursor": "Cursor", fake: "Fake agent" };
 
 /** Pick an agent (from the probe), a working directory (space folder or a project), a model and a permission mode. */
 export function NewSessionSheet() {
@@ -21,8 +18,15 @@ export function NewSessionSheet() {
   const [model, setModel] = useState<string>("");
   const [permissionMode, setPermissionMode] = useState<string>("default");
   const [probing, setProbing] = useState(true);
+  const [probeError, setProbeError] = useState<string | null>(null);
 
-  useEffect(() => { let alive = true; probeAgents().catch(() => {}).finally(() => { if (alive) setProbing(false); }); return () => { alive = false; }; }, [probeAgents]);
+  useEffect(() => {
+    let alive = true;
+    run(() => probeAgents()
+      .catch((e: unknown) => { if (alive) setProbeError(e instanceof Error ? e.message : String(e)); throw e; })
+      .finally(() => { if (alive) setProbing(false); }));
+    return () => { alive = false; };
+  }, [probeAgents, run]);
   useEffect(() => { if (!agent) { const first = probe.find((p) => p.available); if (first) setAgent(first.kind); } }, [probe, agent]);
 
   const models = agent ? (AGENT_MODELS[agent] as ReadonlyArray<{ id: string; label: string }>) : [];
@@ -39,12 +43,13 @@ export function NewSessionSheet() {
         <div className="field"><span>Agent</span>
           <div className="agent-list" role="radiogroup" aria-label="Agent">
             {probing && probe.length === 0 && <div className="muted">Checking installed agents…</div>}
-            {!probing && probe.length === 0 && <div className="muted">No agents available.</div>}
+            {probeError && <div className="agent-error" role="alert">Couldn't check agents: {probeError}</div>}
+            {!probing && !probeError && probe.length === 0 && <div className="muted">No agents available.</div>}
             {probe.map((p) => (
               <button type="button" key={p.kind} role="radio" aria-checked={agent === p.kind} className="agent-choice" data-selected={agent === p.kind || undefined}
                 disabled={!p.available} title={p.reason ?? undefined} onClick={() => { setAgent(p.kind); setModel(""); }}>
-                <Icon name={AGENT_ICON[p.kind]} size={16} />
-                <span className="agent-name">{AGENT_LABEL[p.kind]}</span>
+                <Icon name={AGENT_META[p.kind].icon} size={16} />
+                <span className="agent-name">{AGENT_META[p.kind].label}</span>
                 <span className="agent-hint muted">{p.available ? (p.version ?? "") : (p.reason ?? "unavailable")}</span>
               </button>
             ))}

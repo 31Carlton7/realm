@@ -44,6 +44,10 @@ export class SessionsStore {
         input.permissionMode ?? cur.permissionMode, now(), input.id);
     return this.get(input.id)!;
   }
+  /** Hot path (every persisted event): touch only the seq column. */
+  setLastEventSeq(id: string, seq: number): void {
+    this.db.prepare("UPDATE sessions SET last_event_seq = ?, updated_at = ? WHERE id = ?").run(seq, now(), id);
+  }
   delete(id: string): void {
     if (!this.get(id)) throw new NotFoundError("session", id);
     this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
@@ -61,6 +65,17 @@ export class SessionEventsStore {
   }
   hasType(sessionId: string, type: SessionEvent["type"]): boolean {
     return !!this.db.prepare("SELECT 1 FROM session_events WHERE session_id = ? AND type = ? LIMIT 1").get(sessionId, type);
+  }
+  /** The requestId of the newest permission_request that has no permission_response, or null. */
+  findDanglingPermission(sessionId: string): string | null {
+    const rows = this.db.prepare("SELECT type, payload_json FROM session_events WHERE session_id = ? AND type IN ('permission_request', 'permission_response') ORDER BY seq").all(sessionId) as Pick<EventRow, "type" | "payload_json">[];
+    const open = new Set<string>();
+    for (const r of rows) {
+      let requestId: unknown; try { requestId = (JSON.parse(r.payload_json) as { requestId?: unknown }).requestId; } catch { continue; }
+      if (typeof requestId !== "string") continue;
+      if (r.type === "permission_request") open.add(requestId); else open.delete(requestId);
+    }
+    return [...open].at(-1) ?? null;
   }
   /** Events with seq > afterSeq, ascending. Rows that fail schema validation (e.g. from an older build) are skipped. */
   listAfter(sessionId: string, afterSeq: number, limit: number): StoredSessionEvent[] {

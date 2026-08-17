@@ -303,7 +303,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const items = get().items.filter((i) => i.id !== itemId);
         set({ items, layout: removeTab(get().layout ?? emptyLayout(), itemId) });
         if (it?.kind === "terminal") api.disposeTerminal(it.refId);
-        if (it?.kind === "session") { dropTranscript(it.refId); loading.delete(it.refId); }
+        if (it?.kind === "session") {
+          dropTranscript(it.refId); loading.delete(it.refId);
+          const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
+          set({ sessionStatus, sessions });
+        }
         await persist();
       },
       async activateTab(itemId) {
@@ -330,7 +334,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sid = get().activeSpaceId; if (!sid) return;
         const list = await api.listSessions(sid);
         if (!isSpace(sid)) return;
-        const sessions: Record<string, Session> = {}; const sessionStatus = { ...get().sessionStatus };
+        // Statuses are rebuilt from the list: entries for other spaces are kept only if still known there.
+        const sessions: Record<string, Session> = {}; const sessionStatus: Record<string, SessionStatus> = {};
+        for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
         for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; }
         set({ sessions, sessionStatus });
       },
@@ -340,6 +346,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         try {
           const prev = get().transcripts[id] ?? { lastSeq: 0, t: emptyTranscript() };
           const [session, events] = await Promise.all([get().sessions[id] ? null : api.getSession(id), api.sessionEvents(id, prev.lastSeq)]);
+          if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           let { lastSeq, t } = get().transcripts[id] ?? prev;
           for (const e of [...events, ...(loading.get(id) ?? [])]) if (e.seq > lastSeq) { t = reduceTranscript(t, e.event); lastSeq = e.seq; }

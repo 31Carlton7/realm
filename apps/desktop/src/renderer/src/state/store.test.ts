@@ -423,14 +423,34 @@ describe("app store", () => {
       expect(store.getState().sessions.se1?.permissionMode).toBe("plan");
     });
 
-    it("probeAgents stores the probe; closeItem on a session drops its transcript", async () => {
+    it("probeAgents stores the probe; closeItem on a session drops its transcript, status and session", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().probeAgents();
       expect(store.getState().agentProbe).toEqual([expect.objectContaining({ kind: "fake", available: true })]);
       await store.getState().openSession("se1");
       await store.getState().closeItem("i2");
       expect(store.getState().transcripts.se1).toBeUndefined();
+      expect(store.getState().sessionStatus.se1).toBeUndefined();
+      expect(store.getState().sessions.se1).toBeUndefined();
       expect(api.calls).toContain("deleteItem:i2");
+    });
+
+    it("closing the item while openSession is fetching leaves no transcript behind", async () => {
+      api = seed(); api.delays["sessionEvents:se1"] = 20;
+      const store = createAppStore(api); await store.getState().boot();
+      const p = store.getState().openSession("se1");
+      await store.getState().closeItem("i2");
+      await p;
+      expect(store.getState().transcripts.se1).toBeUndefined();
+    });
+
+    it("refreshSessions rebuilds statuses from the list (a deleted session's status disappears)", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      store.getState().applySessionStatus("se1", "running");
+      api.data.sessions = api.data.sessions.filter((s) => s.id !== "se1");
+      await store.getState().refreshSessions();
+      expect(store.getState().sessionStatus.se1).toBeUndefined();
+      expect(store.getState().sessions.se1).toBeUndefined();
     });
   });
 

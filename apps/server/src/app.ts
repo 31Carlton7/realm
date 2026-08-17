@@ -30,7 +30,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const items = new ItemsStore(db);
   const projects = new ProjectsStore(db);
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db) });
-  const sessions = new SessionService({ rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, adapters: opts.adapters ?? defaultAdapters() });
+  const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, adapters: opts.adapters ?? defaultAdapters() });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
     profiles: new ProfilesStore(db), spaces, projects, items, settings: new SettingsStore(db), terminals, sessions,

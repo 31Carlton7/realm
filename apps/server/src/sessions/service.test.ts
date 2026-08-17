@@ -102,9 +102,25 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
-  it("agents.probe lists registered adapters", async () => {
+  it("agents.probe lists registered adapters; a throwing probe reports unavailable with the reason", async () => {
     const { c } = await boot();
     expect((await c.call("agents.probe", {})).result).toEqual([{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]);
+    c.close(); await app.close();
+    class BadProbe extends FakeAdapter { override async probe(): Promise<never> { throw new Error("probe exploded"); } }
+    const home = mkdtempSync(join(tmpdir(), "realm-"));
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }), claude: Object.assign(new BadProbe({ script: [] }), { kind: "claude" as const }) } });
+    const c2 = await client(app.port);
+    expect((await c2.call("agents.probe", {})).result).toEqual([
+      { kind: "fake", available: true, version: "fake", loggedIn: true, reason: null },
+      { kind: "claude", available: false, version: null, loggedIn: null, reason: "probe exploded" },
+    ]);
+    c2.close();
+  });
+
+  it("respondPermission without a live handle is SESSION_NOT_LIVE", async () => {
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    expect((await c.call("sessions.respondPermission", { id: session.id, requestId: "r1", decision: "allow" })).error.code).toBe("SESSION_NOT_LIVE");
     c.close();
   });
 
@@ -138,7 +154,7 @@ describe("SessionService over rpc", () => {
   });
 
   it("interrupt, setOptions, and error events from the adapter", async () => {
-    const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "boom", emit: [{ kind: "throw", message: "kaboom" }] }, { on: "slow", emit: [{ kind: "text", text: "a" }, { kind: "text", text: "b" }, { kind: "text", text: "c" }] }], delayMs: 30 }));
+    const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "boom", emit: [{ kind: "throw", message: "kaboom" }] }, { on: "slow", emit: [{ kind: "text", text: "a" }, { kind: "text", text: "b" }, { kind: "text", text: "c" }, { kind: "text", text: "d" }, { kind: "text", text: "e" }] }], delayMs: 80 }));
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", model: "fake" })).result;
     await c.call("sessions.send", { id: session.id, text: "boom" });
     await waitFor(() => c.eventTypes(session.id).includes("error"));
@@ -150,7 +166,7 @@ describe("SessionService over rpc", () => {
     await waitFor(() => c.eventTypes(session.id).filter((t) => t === "assistant_text").length >= 1);
     expect((await c.call("sessions.interrupt", { id: session.id })).ok).toBe(true);
     await waitFor(() => c.eventTypes(session.id).includes("usage"));
-    expect(c.eventTypes(session.id).filter((t) => t === "assistant_text").length).toBeLessThan(3);
+    expect(c.eventTypes(session.id).filter((t) => t === "assistant_text").length).toBeLessThan(5);
 
     const updated = (await c.call("sessions.setOptions", { id: session.id, permissionMode: "acceptEdits", effort: "high" })).result;
     expect(updated).toMatchObject({ permissionMode: "acceptEdits", effort: "high", model: "fake" });
@@ -158,30 +174,59 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
-  it("survives a restart: statuses reset on boot, events are replayed, a new send resumes with providerSessionId", async () => {
+  it("survives a restart: statuses reset on boot, dangling permission denied, events replayed, a new send resumes with providerSessionId", async () => {
     const started: Array<{ resume?: string | null }> = [];
+    const script = [{ on: "go", emit: [{ kind: "tool" as const, name: "Bash", input: { command: "ls" }, needsPermission: true, result: "x" }] }];
     class SpyFake extends FakeAdapter { override start(o: Parameters<FakeAdapter["start"]>[0]) { started.push({ resume: o.resume }); return super.start(o); } }
-    const { home, c, sp } = await boot(new SpyFake({ script: [] }));
+    const { home, c, sp } = await boot(new SpyFake({ script }));
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
     await c.call("sessions.send", { id: session.id, text: "hello" });
     await waitFor(() => c.eventTypes(session.id).includes("usage"));
+    // a turn that stops at a permission prompt, then a "crash": close the app while the row says waiting_permission
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => c.eventTypes(session.id).includes("permission_request"));
+    expect((await c.call("sessions.get", { id: session.id })).result.status).toBe("waiting_permission");
     const before = (await c.call("sessions.events", { id: session.id })).result;
     const provider = (await c.call("sessions.get", { id: session.id })).result.providerSessionId;
-    // simulate a crash mid-run: force the row to look running, then restart on the same home
-    app.db.prepare("UPDATE sessions SET status = 'running' WHERE id = ?").run(session.id);
+    const req = before.find((s: Any) => s.event.type === "permission_request").event.payload.requestId;
+    // the graceful close disposes the adapter (which denies + ends); undo the resulting status writes so boot sees a real crash
     c.close(); await app.close();
-    app = await createApp({ home, port: 0, adapters: { fake: new SpyFake({ script: [] }) } });
+    const raw = new (await import("node:sqlite")).DatabaseSync(join(home, "realm.db"));
+    raw.prepare("DELETE FROM session_events WHERE session_id = ? AND seq > ?").run(session.id, before.at(-1).seq);
+    raw.prepare("UPDATE sessions SET status = 'waiting_permission', last_event_seq = ? WHERE id = ?").run(before.at(-1).seq, session.id);
+    raw.close();
+    app = await createApp({ home, port: 0, adapters: { fake: new SpyFake({ script }) } });
     const c2 = await client(app.port);
     const got = (await c2.call("sessions.get", { id: session.id })).result;
     expect(got.status).toBe("idle"); expect(got.providerSessionId).toBe(provider);
-    expect((await c2.call("sessions.events", { id: session.id })).result).toEqual(before);
+    const replayed = (await c2.call("sessions.events", { id: session.id })).result;
+    expect(replayed.slice(0, before.length)).toEqual(before);
+    expect(replayed.slice(before.length).map((s: Any) => s.event)).toMatchObject([{ type: "permission_response", payload: { requestId: req, decision: "deny" } }]);
+    expect(got.lastEventSeq).toBe(replayed.at(-1).seq);
     expect(app.sessions.isLive(session.id)).toBe(false);
+    expect((await c2.call("sessions.respondPermission", { id: session.id, requestId: req, decision: "allow" })).error.code).toBe("SESSION_NOT_LIVE");
     await c2.call("sessions.send", { id: session.id, text: "again" });
     await waitFor(() => c2.eventTypes(session.id).includes("usage"));
     expect(started.at(-1)?.resume).toBe(provider);
-    const after = (await c2.call("sessions.events", { id: session.id, afterSeq: before.at(-1).seq })).result;
+    const after = (await c2.call("sessions.events", { id: session.id, afterSeq: replayed.at(-1).seq })).result;
     expect(after.map((s: Any) => s.event.type)).toContain("user_message");
-    expect(after[0].seq).toBeGreaterThan(before.at(-1).seq);
+    expect(after[0].seq).toBeGreaterThan(replayed.at(-1).seq);
+    c2.close();
+  });
+
+  it("boot: `ended` stays terminal without a providerSessionId, becomes idle with one; error is kept", async () => {
+    const { home, c, sp } = await boot(new FakeAdapter({ script: [] }));
+    const mk = async () => (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session.id as string;
+    const [a, b, e] = [await mk(), await mk(), await mk()];
+    app.db.prepare("UPDATE sessions SET status = 'ended' WHERE id = ?").run(a);
+    app.db.prepare("UPDATE sessions SET status = 'ended', provider_session_id = 'p-b' WHERE id = ?").run(b);
+    app.db.prepare("UPDATE sessions SET status = 'error' WHERE id = ?").run(e);
+    c.close(); await app.close();
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) } });
+    const c2 = await client(app.port);
+    expect((await c2.call("sessions.get", { id: a })).result.status).toBe("ended");
+    expect((await c2.call("sessions.get", { id: b })).result.status).toBe("idle");
+    expect((await c2.call("sessions.get", { id: e })).result.status).toBe("error");
     c2.close();
   });
 });

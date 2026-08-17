@@ -20,8 +20,8 @@ function Thinking({ text }: { text: string }) {
 }
 
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill. */
-export function Transcript({ transcript, sessionStatus, onDecide, empty }: {
-  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (d: PermissionDecision) => void; empty?: React.ReactNode;
+export function Transcript({ transcript, sessionStatus, onDecide, empty, visible = true }: {
+  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (d: PermissionDecision) => void; empty?: React.ReactNode; visible?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -29,6 +29,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, empty }: {
   const count = transcript.blocks.length;
   const lastText = transcript.blocks.at(-1);
   const lastLen = lastText && "text" in lastText ? lastText.text.length : 0;
+  // A permission card only makes sense while the adapter is actually waiting; a stale request (crash, restart) is closed server-side.
+  const permission = sessionStatus === "waiting_permission" ? transcript.pendingPermission : null;
 
   const onScroll = () => {
     const el = ref.current; if (!el) return;
@@ -40,13 +42,13 @@ export function Transcript({ transcript, sessionStatus, onDecide, empty }: {
   useLayoutEffect(() => {
     if (atBottom.current) { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; }
     else if (count > 0) setPill(true);
-  }, [count, lastLen, transcript.pendingPermission]);
+  }, [count, lastLen, permission, visible]);
   useEffect(() => { scrollToBottom(); }, []); // first paint of a restored transcript starts at the end
 
   return (
     <div className="transcript-wrap">
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
-        {count === 0 && !transcript.pendingPermission && empty}
+        {count === 0 && !permission && empty}
         {transcript.blocks.map((b, i) => {
           switch (b.kind) {
             case "user": return <div key={i} className="msg-user-row"><div className="msg-user">{b.text}</div></div>;
@@ -56,7 +58,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, empty }: {
             case "error": return <div key={i} className="msg-error" role="alert"><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
           }
         })}
-        {transcript.pendingPermission && <PermissionCard permission={transcript.pendingPermission} onDecide={onDecide} />}
+        {permission && <PermissionCard permission={permission} onDecide={onDecide} />}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><Icon name="spinner" size={13} className="spin" /> Working…</div>}
       </div>
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={13} /> New messages</button>}

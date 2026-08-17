@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { sessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
@@ -72,6 +72,15 @@ describe("SessionPane", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
 
+  it("a pending permission is only shown while the session is waiting_permission (stale after crash/relaunch)", async () => {
+    const { store } = await mount("idle");
+    expect(screen.queryByRole("group", { name: /Permission request/ })).toBeNull();
+    act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
+    expect(screen.getByRole("group", { name: /Permission request/ })).toBeInTheDocument();
+    act(() => store.getState().applySessionStatus("se1", "running"));
+    expect(screen.queryByRole("group", { name: /Permission request/ })).toBeNull();
+  });
+
   it("idle session with an unresolved tool shows no spinner; error blocks render", async () => {
     await mount("idle", reduceAll([
       sessionEvent("tool_call", { toolUseId: "t1", name: "Read", input: { file_path: "/a/b.ts" }, parentToolUseId: null }),
@@ -100,6 +109,16 @@ describe("markdown + summaries", () => {
 });
 
 describe("NewSessionSheet", () => {
+  it("shows a probe failure inline and in the error bar; Create stays disabled", async () => {
+    const api = fakeApi();
+    api.probeAgents = async () => { throw new Error("server down"); };
+    const store = createAppStore(api); await store.getState().boot();
+    render(<StoreContext.Provider value={store}><NewSessionSheet /></StoreContext.Provider>);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("server down"));
+    expect(store.getState().error).toBe("server down");
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+  });
+
   it("probes agents on open, lists projects, and creates a session with the chosen options", async () => {
     const api = fakeApi({ projects: { s1: [{ id: "pr1", spaceId: "s1", name: "repo", rootPath: "/r", defaultBranch: "main", createdAt: 0, updatedAt: 0 }] } });
     api.probeAgents = async () => { api.calls.push("probeAgents"); return [

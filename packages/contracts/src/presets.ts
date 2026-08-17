@@ -8,3 +8,9 @@ export const AGENT_MODELS = {
 } as const;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const PERMISSION_MODES = [{ id: "default", label: "Ask" }, { id: "acceptEdits", label: "Accept edits" }, { id: "plan", label: "Plan" }, { id: "bypassPermissions", label: "Full access" }] as const;
+
+/** Display metadata per agent kind (icon names come from @realm/ui's icon set). */
+export const AGENT_META = {
+  claude: { label: "Claude", icon: "sparkles" }, codex: { label: "Codex", icon: "bot" }, "acp:gemini": { label: "Gemini", icon: "bot" },
+  "acp:cursor": { label: "Cursor", icon: "bot" }, fake: { label: "Fake agent", icon: "bot" },
+} as const satisfies Record<import("./entities").AgentKind, { label: string; icon: string }>;
