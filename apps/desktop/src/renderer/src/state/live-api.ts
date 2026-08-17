@@ -22,4 +22,13 @@ export const liveApi = (): Api => ({
   setSetting: async (key, value) => { await rpc().call("settings.set", { key, value }); },
   pickFolder: () => window.realm.pickFolder(),
   disposeTerminal: (terminalId) => getTerminalHub().dispose(terminalId),
+  listSessions: (spaceId) => rpc().call("sessions.list", { spaceId }),
+  getSession: (id) => rpc().call("sessions.get", { id }),
+  createSession: (input) => rpc().call("sessions.create", input),
+  sendMessage: async (id, text) => { await rpc().call("sessions.send", { id, text }); },
+  interruptSession: async (id) => { await rpc().call("sessions.interrupt", { id }); },
+  respondPermission: async (id, requestId, decision) => { await rpc().call("sessions.respondPermission", { id, requestId, decision }); },
+  setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),
+  sessionEvents: (id, afterSeq) => rpc().call("sessions.events", { id, afterSeq }),
+  probeAgents: () => rpc().call("agents.probe", {}),
 });

@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { Item, Profile, Project, Space } from "@realm/contracts";
+import type { Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
 import type { Api } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -8,11 +8,15 @@ export const space = (id: string, profileId: string, name: string, extra: Partia
   ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", layout: null, activeItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): Item =>
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
+export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
+  ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", cwd: "/tmp", status: "idle",
+    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, createdAt: 0, updatedAt: 0, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
   settings?: Record<string, unknown>;
+  sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
 };
 
 export type FakeApi = Api & {
@@ -37,6 +41,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
     projects: overrides.projects ?? {},
     settings: overrides.settings ?? {},
+    sessions: overrides.sessions ?? [],
+    sessionEvents: overrides.sessionEvents ?? {},
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -88,6 +94,25 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     setSetting: async (key, value) => { calls.push(`setSetting:${key}=${String(value)}`); data.settings[key] = value; },
     pickFolder: async () => "/tmp/picked-repo",
     disposeTerminal: (id) => { disposed.push(id); },
+    listSessions: async (sid) => { calls.push(`listSessions:${sid}`); return data.sessions.filter((s) => s.spaceId === sid); },
+    getSession: async (id) => { calls.push(`getSession:${id}`); const s = data.sessions.find((x) => x.id === id); if (!s) throw new Error(`no session ${id}`); return s; },
+    createSession: async (input) => {
+      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, projectId: input.projectId ?? null, model: input.model ?? null, effort: input.effort ?? null, permissionMode: input.permissionMode ?? "default", title: input.title ?? "Fake agent session" });
+      data.sessions.push(s);
+      const it = item(`i${++n}`, input.spaceId, { kind: "session", title: s.title, refId: s.id }); (data.items[input.spaceId] ??= []).push(it);
+      calls.push(`createSession:${input.agentKind}`);
+      return { session: s, itemId: it.id };
+    },
+    sendMessage: async (id, text) => { calls.push(`sendMessage:${id}=${text}`); },
+    interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
+    respondPermission: async (id, requestId, decision) => { calls.push(`respondPermission:${id}:${requestId}:${decision}`); },
+    setSessionOptions: async (id, o) => {
+      calls.push(`setSessionOptions:${id}`);
+      const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
+      const s = { ...data.sessions[i]!, ...o }; data.sessions[i] = s; return s;
+    },
+    sessionEvents: async (id, afterSeq) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq); },
+    probeAgents: async () => { calls.push("probeAgents"); return [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]; },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

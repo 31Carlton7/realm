@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, PERSIST_DEBOUNCE_MS } from "./store";
-import { emptyLayout, allTabs, findLeafOfTab } from "@realm/contracts";
-import { fakeApi, item, space, type FakeApi } from "./store.test-fakes";
+import { emptyLayout, allTabs, findLeafOfTab, sessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { fakeApi, item, session, space, type FakeApi } from "./store.test-fakes";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -319,6 +319,119 @@ describe("app store", () => {
     store.getState().clearError();
     expect(store.getState().error).toBeNull();
     spy.mockRestore();
+  });
+
+  describe("sessions", () => {
+    const stored = (sessionId: string, seq: number, event: StoredSessionEvent["event"]): StoredSessionEvent => ({ seq, sessionId, event });
+    const seed = () => fakeApi({
+      items: { s1: [item("i1", "s1", { title: "Terminal" }), item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+      sessions: [session("se1", "s1", { status: "running" }), session("se9", "s2")],
+      sessionEvents: { se1: [
+        stored("se1", 1, sessionEvent("user_message", { text: "hi", attachments: [] })),
+        stored("se1", 2, sessionEvent("assistant_text", { messageId: "m1", text: "hello" })),
+      ] },
+    });
+
+    it("selectSpace loads the space's sessions and their statuses", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      expect(Object.keys(store.getState().sessions)).toEqual(["se1"]);
+      expect(store.getState().sessionStatus.se1).toBe("running");
+      await store.getState().selectSpace("s2");
+      expect(Object.keys(store.getState().sessions)).toEqual(["se9"]);
+      expect(store.getState().sessionStatus.se1).toBe("running"); // statuses are global (sidebar dots survive switching)
+    });
+
+    it("openSession fetches events after the known seq and reduces them; a second open only fetches the tail", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openSession("se1");
+      const e = store.getState().transcripts.se1!;
+      expect(e.lastSeq).toBe(2);
+      expect(e.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant"]);
+      expect(api.calls).toContain("sessionEvents:se1:0");
+      api.data.sessionEvents.se1!.push(stored("se1", 3, sessionEvent("error", { message: "x" })));
+      await store.getState().openSession("se1");
+      expect(api.calls).toContain("sessionEvents:se1:2");
+      expect(store.getState().transcripts.se1!.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant", "error"]);
+      expect(api.calls.filter((c) => c.startsWith("getSession:"))).toEqual([]);
+    });
+
+    it("openSession for a session outside the loaded space fetches the session too", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openSession("se9");
+      expect(api.calls).toContain("getSession:se9");
+      expect(store.getState().sessions.se9?.id).toBe("se9");
+      expect(store.getState().sessionStatus.se9).toBe("idle");
+    });
+
+    it("applySessionEvent appends persisted events once (by seq), applies ephemeral deltas, ignores unopened sessions", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      store.getState().applySessionEvent({ ...stored("se1", 5, sessionEvent("error", { message: "early" })), ephemeral: false });
+      expect(store.getState().transcripts.se1).toBeUndefined();
+      await store.getState().openSession("se1");
+      store.getState().applySessionEvent({ ...stored("se1", 2, sessionEvent("assistant_text", { messageId: "m1", text: "dup" })), ephemeral: false });
+      expect(store.getState().transcripts.se1!.t.blocks).toHaveLength(2);
+      store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m2", delta: "st" })), ephemeral: true });
+      store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m2", delta: "ream" })), ephemeral: true });
+      expect(store.getState().transcripts.se1!.t.blocks.at(-1)).toMatchObject({ kind: "assistant", text: "stream", streaming: true });
+      expect(store.getState().transcripts.se1!.lastSeq).toBe(2);
+      store.getState().applySessionEvent({ ...stored("se1", 3, sessionEvent("assistant_text", { messageId: "m2", text: "stream" })), ephemeral: false });
+      expect(store.getState().transcripts.se1!.t.blocks.at(-1)).toMatchObject({ kind: "assistant", text: "stream", streaming: false });
+      expect(store.getState().transcripts.se1!.lastSeq).toBe(3);
+    });
+
+    it("events arriving while openSession is fetching are applied after the fetched ones, in order", async () => {
+      api = seed(); api.delays["sessionEvents:se1"] = 20;
+      const store = createAppStore(api); await store.getState().boot();
+      const p = store.getState().openSession("se1");
+      store.getState().applySessionEvent({ ...stored("se1", 3, sessionEvent("error", { message: "live" })), ephemeral: false });
+      store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "zz", delta: "dropped" })), ephemeral: true });
+      await p;
+      const t = store.getState().transcripts.se1!;
+      expect(t.lastSeq).toBe(3);
+      expect(t.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant", "error"]);
+    });
+
+    it("applySessionStatus updates the status map and the cached session", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      store.getState().applySessionStatus("se1", "waiting_permission");
+      expect(store.getState().sessionStatus.se1).toBe("waiting_permission");
+      expect(store.getState().sessions.se1?.status).toBe("waiting_permission");
+      store.getState().applySessionStatus("unknown", "idle");
+      expect(store.getState().sessionStatus.unknown).toBe("idle");
+    });
+
+    it("newSession creates, adds the tab, persists, and opens the transcript", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().newSession({ agentKind: "fake", model: "fake" });
+      const s = store.getState();
+      expect(api.calls).toContain("createSession:fake");
+      const created = Object.values(s.sessions).find((x) => x.id !== "se1")!;
+      expect(created.model).toBe("fake");
+      expect(s.items.some((i) => i.kind === "session" && i.refId === created.id)).toBe(true);
+      expect(allTabs(s.layout!)).toContain(s.items.find((i) => i.refId === created.id)!.id);
+      expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
+      expect(s.transcripts[created.id]).toEqual({ lastSeq: 0, t: expect.objectContaining({ blocks: [] }) });
+    });
+
+    it("sendMessage / interrupt / respondPermission / setSessionOptions call the api; options merge into the session", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().sendMessage("se1", "go");
+      await store.getState().interruptSession("se1");
+      await store.getState().respondPermission("se1", "r1", "allow_always");
+      await store.getState().setSessionOptions("se1", { permissionMode: "plan" });
+      expect(api.calls).toEqual(expect.arrayContaining(["sendMessage:se1=go", "interrupt:se1", "respondPermission:se1:r1:allow_always", "setSessionOptions:se1"]));
+      expect(store.getState().sessions.se1?.permissionMode).toBe("plan");
+    });
+
+    it("probeAgents stores the probe; closeItem on a session drops its transcript", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().probeAgents();
+      expect(store.getState().agentProbe).toEqual([expect.objectContaining({ kind: "fake", available: true })]);
+      await store.getState().openSession("se1");
+      await store.getState().closeItem("i2");
+      expect(store.getState().transcripts.se1).toBeUndefined();
+      expect(api.calls).toContain("deleteItem:i2");
+    });
   });
 
   void emptyLayout;

@@ -91,9 +91,11 @@ export function App() {
     const offS = rpc().on("spaces.changed", () => store.getState().run(() => store.getState().refreshSpaces()));
     const offI = rpc().on("items.changed", ({ spaceId }) => {
       const st = store.getState();
-      if (spaceId === st.activeSpaceId) st.run(() => st.refreshItems());
+      if (spaceId === st.activeSpaceId) { st.run(() => st.refreshItems()); st.run(() => st.refreshSessions()); }
     });
-    return () => { offS(); offI(); };
+    const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
+    const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
+    return () => { offS(); offI(); offE(); offT(); };
   }, [store]);
   return (
     <StoreContext.Provider value={store}>

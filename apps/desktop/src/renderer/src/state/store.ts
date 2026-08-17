@@ -1,14 +1,22 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   addTab, allTabs, emptyLayout, gridPreset, removeTab, setActiveTab, splitLeaf, updateSizes,
-  type Item, type Layout, type PresetName, type Profile, type Project, type Space,
+  type AgentKind, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionStatus, type Space, type StoredSessionEvent,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
+import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
+export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
+export type PermissionDecision = "allow" | "allow_always" | "deny";
+export type AgentProbe = MethodResult<"agents.probe">[number];
+/** A `session.event` broadcast: persisted rows carry their seq; ephemeral ones (deltas) have seq -1. */
+export type LiveSessionEvent = StoredSessionEvent & { ephemeral: boolean };
+export type TranscriptEntry = { lastSeq: number; t: Transcript };
 
 /** Everything the store needs from the outside world: realm-server RPC plus the two platform
  *  seams (native folder picker, local terminal disposal). Tests substitute a fake. */
@@ -34,6 +42,16 @@ export type Api = {
   pickFolder(): Promise<string | null>;
   /** Drop the renderer-side xterm instance/scrollback for a closed terminal. */
   disposeTerminal(terminalId: string): void;
+  listSessions(spaceId: string): Promise<Session[]>;
+  getSession(id: string): Promise<Session>;
+  createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
+  sendMessage(id: string, text: string): Promise<void>;
+  interruptSession(id: string): Promise<void>;
+  respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
+  setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
+  /** Persisted events with seq > afterSeq, ascending. */
+  sessionEvents(id: string, afterSeq: number): Promise<StoredSessionEvent[]>;
+  probeAgents(): Promise<AgentProbe[]>;
 };
 
 export const PERSIST_DEBOUNCE_MS = 300;
@@ -55,6 +73,12 @@ export type AppState = {
   error: string | null;
   paletteOpen: boolean;
   sheet: Sheet | null;
+  /** Sessions of the active space, by id. */
+  sessions: Record<string, Session>;
+  sessionStatus: Record<string, SessionStatus>;
+  /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
+  transcripts: Record<string, TranscriptEntry>;
+  agentProbe: AgentProbe[];
   activeSpace(): Space | undefined;
   activeIndex(): number;
   boot(): Promise<void>;
@@ -84,6 +108,18 @@ export type AppState = {
   setPaletteOpen(open: boolean): void;
   openSheet(sheet: Sheet): void;
   closeSheet(): void;
+  refreshSessions(): Promise<void>;
+  /** Load (or catch up) a session's transcript: fetch events after the last known seq and reduce them. */
+  openSession(id: string): Promise<void>;
+  applySessionEvent(ev: LiveSessionEvent): void;
+  applySessionStatus(sessionId: string, status: SessionStatus): void;
+  /** Create a session in the active space, add its tab, and open its transcript. */
+  newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null): Promise<void>;
+  sendMessage(id: string, text: string): Promise<void>;
+  interruptSession(id: string): Promise<void>;
+  respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
+  setSessionOptions(id: string, o: SessionOptions): Promise<void>;
+  probeAgents(): Promise<void>;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
   clearError(): void;
@@ -127,10 +163,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const flushPersist = async () => { if (persistTimer) await persist(); };
     const isSpace = (sid: string) => get().activeSpaceId === sid;
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
+    const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status } });
+    /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
+    const loading = new Map<string, StoredSessionEvent[]>();
+    const setTranscript = (id: string, entry: TranscriptEntry) => set({ transcripts: { ...get().transcripts, [id]: entry } });
+    const dropTranscript = (id: string) => { const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
+    /** Add a freshly created item's tab (or split) and persist; mirrors newTerminal. */
+    const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
+      const items = await api.listItems(sid);
+      if (!isSpace(sid)) return;
+      // Read layout only now: an items.changed refresh may already have reconciled the item in.
+      const layout = addTab(get().layout ?? emptyLayout(), targetLeafId, itemId);
+      set({ items, layout: reconcileLayout(layout, items) });
+      await persist();
+    };
 
     return {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", items: [], layout: null, projects: [], error: null,
       paletteOpen: false, sheet: null,
+      sessions: {}, sessionStatus: {}, transcripts: {}, agentProbe: [],
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
@@ -146,9 +197,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async selectSpace(id) {
         await flushPersist();
         const space = get().spaces.find((s) => s.id === id);
-        set({ activeSpaceId: id, layout: space?.layout ?? null, items: [], projects: [], error: null });
+        set({ activeSpaceId: id, layout: space?.layout ?? null, items: [], projects: [], sessions: {}, error: null });
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
-        await Promise.all([get().refreshProjects(), get().refreshItems()]);
+        await Promise.all([get().refreshProjects(), get().refreshItems(), get().refreshSessions()]);
       },
       async nextSpace() {
         const { spaces } = get(); const i = get().activeIndex();
@@ -230,12 +281,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async newTerminal(targetLeafId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
         const { itemId } = await api.createTerminal(sid);
-        const items = await api.listItems(sid);
-        if (!isSpace(sid)) return;
-        // Read layout only now: an items.changed refresh may already have reconciled the item in.
-        const layout = addTab(get().layout ?? emptyLayout(), targetLeafId, itemId);
-        set({ items, layout: reconcileLayout(layout, items) });
-        await persist();
+        await adoptItem(sid, itemId, targetLeafId);
       },
       async splitWithNewTerminal(leafId, dir) {
         const sid = get().activeSpaceId; if (!sid) return;
@@ -257,6 +303,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const items = get().items.filter((i) => i.id !== itemId);
         set({ items, layout: removeTab(get().layout ?? emptyLayout(), itemId) });
         if (it?.kind === "terminal") api.disposeTerminal(it.refId);
+        if (it?.kind === "session") { dropTranscript(it.refId); loading.delete(it.refId); }
         await persist();
       },
       async activateTab(itemId) {
@@ -279,6 +326,51 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       setPaletteOpen(open) { set({ paletteOpen: open }); },
       openSheet(sheet) { set({ sheet }); },
       closeSheet() { set({ sheet: null }); },
+      async refreshSessions() {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const list = await api.listSessions(sid);
+        if (!isSpace(sid)) return;
+        const sessions: Record<string, Session> = {}; const sessionStatus = { ...get().sessionStatus };
+        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; }
+        set({ sessions, sessionStatus });
+      },
+      async openSession(id) {
+        if (loading.has(id)) return;
+        loading.set(id, []);
+        try {
+          const prev = get().transcripts[id] ?? { lastSeq: 0, t: emptyTranscript() };
+          const [session, events] = await Promise.all([get().sessions[id] ? null : api.getSession(id), api.sessionEvents(id, prev.lastSeq)]);
+          if (session) mergeSession(session);
+          let { lastSeq, t } = get().transcripts[id] ?? prev;
+          for (const e of [...events, ...(loading.get(id) ?? [])]) if (e.seq > lastSeq) { t = reduceTranscript(t, e.event); lastSeq = e.seq; }
+          setTranscript(id, { lastSeq, t });
+        } finally { loading.delete(id); }
+      },
+      applySessionEvent(ev) {
+        const buf = loading.get(ev.sessionId);
+        if (buf) { if (!ev.ephemeral) buf.push(ev); return; } // deltas are dropped while loading; the final text is persisted anyway
+        const cur = get().transcripts[ev.sessionId];
+        if (!cur) return; // not opened yet: openSession fetches everything later
+        if (ev.ephemeral) { setTranscript(ev.sessionId, { lastSeq: cur.lastSeq, t: reduceTranscript(cur.t, ev.event) }); return; }
+        if (ev.seq <= cur.lastSeq) return;
+        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(cur.t, ev.event) });
+      },
+      applySessionStatus(sessionId, status) {
+        const s = get().sessions[sessionId];
+        set({ sessionStatus: { ...get().sessionStatus, [sessionId]: status }, ...(s ? { sessions: { ...get().sessions, [sessionId]: { ...s, status } } } : {}) });
+      },
+      async newSession(input, targetLeafId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const { session, itemId } = await api.createSession({ ...input, spaceId: sid });
+        if (isSpace(sid)) mergeSession(session);
+        await adoptItem(sid, itemId, targetLeafId);
+        await get().openSession(session.id);
+      },
+      async sendMessage(id, text) { await api.sendMessage(id, text); },
+      async interruptSession(id) { await api.interruptSession(id); },
+      async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },
+      async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
+      async probeAgents() { set({ agentProbe: await api.probeAgents() }); },
       run(action) {
         action().catch((e: unknown) => {
           console.error(e);
