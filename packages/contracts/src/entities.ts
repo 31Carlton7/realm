@@ -4,6 +4,7 @@ import { IdSchema } from "./ids";
 export { IdSchema } from "./ids";
 
 const Timestamps = { createdAt: z.number().int(), updatedAt: z.number().int() };
+export const HexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i, "expected #rrggbb");
 
 export const ProfileSchema = z.object({
   id: IdSchema, name: z.string().min(1), icon: z.string(), color: z.string(),
@@ -12,7 +13,7 @@ export const ProfileSchema = z.object({
 export type Profile = z.infer<typeof ProfileSchema>;
 
 export const SpaceSchema = z.object({
-  id: IdSchema, profileId: IdSchema, name: z.string().min(1), icon: z.string(), color: z.string(),
+  id: IdSchema, profileId: IdSchema, name: z.string().min(1), icon: z.string(), color: HexColorSchema,
   sortOrder: z.number().int(), folderPath: z.string(),
   layout: LayoutSchema.nullable(), activeItemId: IdSchema.nullable(), ...Timestamps,
 });

@@ -141,6 +141,9 @@ describe("rpc methods", () => {
     expect((await c.call("spaces.list", {})).result.map((s: { id: string }) => s.id)).toEqual([b.id, a.id]);
     await c.call("settings.set", { key: "ui.activeSpaceId", value: b.id });
     expect((await c.call("settings.get", { key: "ui.activeSpaceId" })).result).toEqual({ value: b.id });
+    await c.call("settings.set", { key: "ui.activeSpaceId" });
+    expect((await c.call("settings.get", { key: "ui.activeSpaceId" })).result).toEqual({ value: null });
+    expect((await c.call("spaces.update", { id: a.id, color: "red" })).ok).toBe(false);
     c.close();
   });
 });

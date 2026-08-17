@@ -27,7 +27,7 @@ export function hslToHex({ h, s, l }: Hsl): string {
   return `#${to(f(0))}${to(f(8))}${to(f(4))}`;
 }
 
-const at = (base: Hsl, s: number, l: number) => hslToHex({ h: base.h, s, l });
+const at = (h: number, s: number, l: number) => hslToHex({ h, s, l });
 
 export type Palette = {
   mode: Mode; accent: string;
@@ -39,13 +39,16 @@ export type Palette = {
 /** Derive the full UI palette from a space's accent color. Sidebar tints follow the hue; content surfaces stay neutral. */
 export function paletteFromColor(hex: string, mode: Mode): Palette {
   const b = hexToHsl(hex);
+  // Near-gray accents (black, white, grays) get neutral sidebar tints instead of an arbitrary hue.
+  const k = Math.min(1, b.s / 30);
+  const h2 = (b.h + 40) % 360;
   if (mode === "light") return {
-    mode, accent: hex, sidebarBg: at(b, 70, 90), sidebarBg2: at({ h: (b.h + 40) % 360, s: 60, l: 92 }, 60, 92), sidebarFg: "#1d1d1f", sidebarMuted: "#5c5c66",
+    mode, accent: hex, sidebarBg: at(b.h, 70 * k, 90), sidebarBg2: at(h2, 60 * k, 92), sidebarFg: "#1d1d1f", sidebarMuted: "#5c5c66",
     sidebarItemHover: "rgba(255,255,255,0.45)", sidebarItemActive: "rgba(255,255,255,0.85)", surface: "#ffffff", surface2: "#f6f6f8", border: "#e6e6ec", fg: "#1d1d1f", muted: "#6b6b76",
     cardShadow: "0 8px 30px rgba(20,20,40,0.12)", toolBg: "#fafafb", userBubble: "#f1f1f5", danger: "#dc2626", success: "#16a34a", warning: "#d97706",
   };
   return {
-    mode, accent: hex, sidebarBg: at(b, 45, 16), sidebarBg2: at({ h: (b.h + 40) % 360, s: 40, l: 12 }, 40, 12), sidebarFg: "#ecebf3", sidebarMuted: "#a7a5b8",
+    mode, accent: hex, sidebarBg: at(b.h, 45 * k, 16), sidebarBg2: at(h2, 40 * k, 12), sidebarFg: "#ecebf3", sidebarMuted: "#a7a5b8",
     sidebarItemHover: "rgba(255,255,255,0.08)", sidebarItemActive: "rgba(255,255,255,0.16)", surface: "#141416", surface2: "#1b1b1f", border: "#2a2a30", fg: "#e8e8ea", muted: "#8b8f98",
     cardShadow: "0 8px 30px rgba(0,0,0,0.45)", toolBg: "#1a1a1e", userBubble: "#1e1e22", danger: "#f87171", success: "#6ee7a0", warning: "#fbbf24",
   };

@@ -26,6 +26,12 @@ describe("entities", () => {
     });
     expect(s.layout).toBeNull();
   });
+  it("SpaceSchema requires a #rrggbb color", () => {
+    const base = { id: newId(), profileId: newId(), name: "V", icon: "folder", sortOrder: 0, folderPath: "/tmp/x", layout: null, activeItemId: null, createdAt: 1, updatedAt: 1 };
+    expect(SpaceSchema.safeParse({ ...base, color: "#ABCDEF" }).success).toBe(true);
+    expect(SpaceSchema.safeParse({ ...base, color: "#abc" }).success).toBe(false);
+    expect(SpaceSchema.safeParse({ ...base, color: "red" }).success).toBe(false);
+  });
   it("ItemSchema rejects unknown kind", () => {
     expect(() => ItemSchema.parse({
       id: newId(), spaceId: newId(), kind: "nope", title: "x", sortOrder: 0, pinned: false,

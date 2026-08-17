@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { applyTheme, paletteFromColor, type Mode } from "@realm/ui";
 
 export type ThemePref = "system" | "light" | "dark";
@@ -20,6 +20,7 @@ export function useSystemMode(): Mode {
 export function useApplyTheme(color: string | null, pref: ThemePref): Mode {
   const sys = useSystemMode();
   const mode: Mode = pref === "system" ? sys : pref;
-  useEffect(() => { applyTheme(paletteFromColor(color ?? "#7c6cff", mode)); }, [color, mode]);
+  // Layout effect so the first paint already carries the palette (no flash of default vars).
+  useLayoutEffect(() => { applyTheme(paletteFromColor(color ?? "#7c6cff", mode)); }, [color, mode]);
   return mode;
 }
