@@ -24,12 +24,13 @@ export type SwipePhase = "began" | "changed" | "ended" | "cancelled" | "momentum
  *
  * Pure state machine — time is injected, no DOM, no timers.
  */
-export function createDragSwipe(opts: { width: number; commitFraction?: number; flickVelocity?: number; flickMinPx?: number; idleMs?: number; rubber?: number }) {
+export function createDragSwipe(opts: { width: number; commitFraction?: number; flickVelocity?: number; flickMinPx?: number; idleMs?: number; rubber?: number; staleMs?: number }) {
   const commitPx = () => Math.max(48, opts.width * (opts.commitFraction ?? 0.5));
   const flickVelocity = opts.flickVelocity ?? 0.9; // px/ms
   const flickMinPx = opts.flickMinPx ?? 32;
   const idleMs = opts.idleMs ?? 320;
   const rubber = opts.rubber ?? 0.35;
+  const staleMs = opts.staleMs ?? 4000;
 
   let acc = 0;               // raw accumulated horizontal delta (px, + = towards next)
   let shown = 0;             // rubber-adjusted offset actually shown
@@ -76,6 +77,7 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
         if (!hasPhases && lastCommitDir && Math.sign(dx) === (lastCommitDir === "next" ? -1 : 1) && Math.abs(dx) >= 6) { reset(); }
         else return { type: "ignore" };
       }
+      if (hasPhases && !fingersDown) return { type: "ignore" }; // stray delta after lift (e.g. momentum) — never displaces
       if (!dragging && Math.abs(dy) > Math.abs(dx)) return { type: "ignore" }; // vertical scroll
       dragging = true;
       acc += dx;
@@ -125,9 +127,13 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
       }
     },
 
-    /** Timer fallback: host calls this ~idleMs after the last wheel event. No-op once phases are flowing. */
+    /** Timer fallback: host calls this ~idleMs after the last wheel event. With native phases it only
+     *  guards against a missed 'ended' (no events at all for `staleMs` while displaced → settle). */
     idle(ts: number): SwipeUpdate {
-      if (hasPhases) return { type: "ignore" };
+      if (hasPhases) {
+        if (shown !== 0 && ts - lastTs >= staleMs) { reset(); fingersDown = false; return { type: "settle" }; }
+        return { type: "ignore" };
+      }
       if (ts - lastTs < idleMs) return { type: "ignore" };
       const had = shown !== 0;
       reset();

@@ -127,6 +127,21 @@ describe("drag swipe (native phases — macOS Spaces feel)", () => {
     expect(t.phase("ended", ts + 10)).toEqual({ type: "settle" });
   });
 
+  it("deltas that arrive after the lift never displace the content (no stuck offsets)", () => {
+    const t = mk();
+    t.phase("began", 0); t.wheel(20, 0, 60, BOUNDS);
+    expect(t.phase("ended", 400)).toEqual({ type: "settle" });
+    expect(t.wheel(30, 0, 410, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.offset()).toBe(0);
+  });
+
+  it("a missed 'ended' can't hold the page forever: stale-hold safety settles after staleMs", () => {
+    const t = createDragSwipe({ width: 240, staleMs: 4000 });
+    t.phase("began", 0); t.wheel(30, 0, 50, BOUNDS);
+    expect(t.idle(2000)).toEqual({ type: "ignore" });  // a real hold
+    expect(t.idle(4100)).toEqual({ type: "settle" });  // nothing for 4s → probably lifted; settle
+  });
+
   it("phase 'cancelled' settles", () => {
     const t = mk();
     t.phase("began", 0); t.wheel(30, 0, 10, BOUNDS);

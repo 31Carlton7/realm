@@ -42,6 +42,7 @@ export function SpaceSwiper() {
   const indexRef = useRef(index); indexRef.current = index;
   const countRef = useRef(spaces.length); countRef.current = spaces.length;
   const hoverRef = useRef(false);
+  const nativeRef = useRef(false); // once the native helper streams, it is the single source (deltas + phases)
 
   const base = (i: number) => `translateX(${-i * 100}%)`;
   const setTransform = (t: string, ease: boolean) => {
@@ -62,27 +63,40 @@ export function SpaceSwiper() {
   useLayoutEffect(() => { setTransform(base(index), true); }, [index, spaces.length]);
   useLayoutEffect(() => () => { if (idleTimer.current) clearTimeout(idleTimer.current); }, []);
 
-  // Native phases (macOS): decide hold/settle/commit exactly on finger lift.
+  const bounds = () => { const i = indexRef.current; return { canPrev: i > 0, canNext: i < countRef.current - 1 }; };
+  const armIdle = (ms: number) => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => apply(tracker().idle(performance.now())), ms);
+  };
+
+  // Native stream (macOS): phases AND deltas come from the helper, in order, so 'ended' can never
+  // overtake the gesture's own deltas (which happens if we mix in DOM wheel events). Once it's flowing,
+  // DOM wheel is ignored entirely.
   useEffect(() => {
     const sub = window.realm?.onScrollPhase;
     if (!sub) return;
     return sub((m) => {
+      nativeRef.current = true;
       const p = toSwipePhase(m);
-      if (!p) return;
-      // Only gestures that started over the sidebar drive the swiper; a phase 'began' elsewhere is ignored,
-      // but 'ended'/momentum always reach the tracker so a gesture that left the sidebar still resolves.
-      if (p === "began" && !hoverRef.current) return;
-      apply(tracker().phase(p, performance.now()));
+      const now = performance.now();
+      const t = tracker();
+      if (p) {
+        // Only gestures that begin over the sidebar drive the swiper; ended/momentum always reach the
+        // tracker so a gesture that wandered off still resolves.
+        if (p === "began" && !hoverRef.current) return;
+        apply(t.phase(p, now));
+      }
+      // Deltas ride on 'changed' (and 'began'); tap deltas are in points with the opposite sign of DOM wheel.
+      if ((m.phase === "changed" || m.phase === "began") && (m.dx !== 0 || m.dy !== 0)) apply(t.wheel(-m.dx, -m.dy, now, bounds()));
+      armIdle(4200); // stale-hold safety only
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onWheel = (e: WheelEvent) => {
-    const i = indexRef.current;
-    apply(tracker().wheel(e.deltaX, e.deltaY, performance.now(), { canPrev: i > 0, canNext: i < countRef.current - 1 }));
-    // Fallback only (no-op once native phases are flowing).
-    if (idleTimer.current) clearTimeout(idleTimer.current);
-    idleTimer.current = setTimeout(() => apply(tracker().idle(performance.now())), IDLE_MS + 20);
+    if (nativeRef.current) return; // native stream owns the gesture
+    apply(tracker().wheel(e.deltaX, e.deltaY, performance.now(), bounds()));
+    armIdle(IDLE_MS + 20); // fallback: quiet gap = release
   };
 
   return (
