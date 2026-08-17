@@ -23,7 +23,8 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 /**
  * Owns the session trio: DB row + sidebar item + live adapter handle. Adapter handles are started lazily on the
  * first `send` (and restarted with `resume` after they end), so a persisted session survives server restarts.
- * Every adapter event is persisted (except deltas) with a per-session seq and broadcast as `session.event`.
+ * Every adapter event (except deltas) is persisted with a global, monotonically increasing seq (unique across sessions;
+ * clients page per session with `afterSeq`) and broadcast as `session.event`.
  */
 export class SessionService {
   private live = new Map<string, Live>();
@@ -96,13 +97,12 @@ export class SessionService {
   }
   /**
    * Boot: no adapter survives a restart. Live statuses become idle; `ended` (an adapter that exited — after `error` on a
-   * crash) is resumable when we hold a providerSessionId, otherwise it stays terminal. A permission the user never
-   * answered is closed with a synthetic persisted deny so clients don't render a stale card.
+   * crash) is resumable when we hold a providerSessionId, otherwise it stays terminal. Permissions the user never
+   * answered are closed with synthetic persisted denies so clients don't render stale cards.
    */
   markStaleOnBoot(): void {
     for (const s of this.d.sessions.listAll()) {
-      const requestId = this.d.events.findDanglingPermission(s.id);
-      if (requestId) this.persist(s.id, sessionEvent("permission_response", { requestId, decision: "deny" }));
+      for (const requestId of this.d.events.findDanglingPermissions(s.id)) this.persist(s.id, sessionEvent("permission_response", { requestId, decision: "deny" }));
       const resumable = s.status === "running" || s.status === "waiting_permission" || (s.status === "ended" && s.providerSessionId !== null);
       if (resumable) this.d.sessions.update({ id: s.id, status: "idle" });
     }

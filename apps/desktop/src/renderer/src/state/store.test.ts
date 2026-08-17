@@ -355,6 +355,17 @@ describe("app store", () => {
       expect(api.calls.filter((c) => c.startsWith("getSession:"))).toEqual([]);
     });
 
+    it("openSession pages through long histories until a short page arrives", async () => {
+      api = seed();
+      api.data.sessionEvents.se1 = Array.from({ length: 2500 }, (_, i) => stored("se1", i + 1, sessionEvent("assistant_text", { messageId: `m${i}`, text: String(i) })));
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openSession("se1");
+      const e = store.getState().transcripts.se1!;
+      expect(e.lastSeq).toBe(2500);
+      expect(e.t.blocks).toHaveLength(2500);
+      expect(api.calls.filter((c) => c.startsWith("sessionEvents:se1:"))).toEqual(["sessionEvents:se1:0", "sessionEvents:se1:1000", "sessionEvents:se1:2000"]);
+    });
+
     it("openSession for a session outside the loaded space fetches the session too", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().openSession("se9");

@@ -44,6 +44,7 @@ export function NewSessionSheet() {
           <div className="agent-list" role="radiogroup" aria-label="Agent">
             {probing && probe.length === 0 && <div className="muted">Checking installed agents…</div>}
             {probeError && <div className="agent-error" role="alert">Couldn't check agents: {probeError}</div>}
+            {probe.some((p) => p.kind === "claude") && <div className="agent-hint-text muted">Claude uses your <code>claude</code> login — run <code>claude auth login</code> if sessions fail to authenticate.</div>}
             {!probing && !probeError && probe.length === 0 && <div className="muted">No agents available.</div>}
             {probe.map((p) => (
               <button type="button" key={p.kind} role="radio" aria-checked={agent === p.kind} className="agent-choice" data-selected={agent === p.kind || undefined}

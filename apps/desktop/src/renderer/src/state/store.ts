@@ -49,14 +49,15 @@ export type Api = {
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
-  /** Persisted events with seq > afterSeq, ascending. */
-  sessionEvents(id: string, afterSeq: number): Promise<StoredSessionEvent[]>;
+  /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
+  sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
   probeAgents(): Promise<AgentProbe[]>;
 };
 
 export const PERSIST_DEBOUNCE_MS = 300;
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
 export const SETTING_THEME = "ui.theme";
+export const EVENTS_PAGE = 1000;
 
 export type Sheet =
   | { kind: "space-settings"; spaceId: string }
@@ -345,7 +346,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         loading.set(id, []);
         try {
           const prev = get().transcripts[id] ?? { lastSeq: 0, t: emptyTranscript() };
-          const [session, events] = await Promise.all([get().sessions[id] ? null : api.getSession(id), api.sessionEvents(id, prev.lastSeq)]);
+          const fetchAll = async () => {
+            const all: StoredSessionEvent[] = []; let after = prev.lastSeq;
+            for (;;) {
+              const page = await api.sessionEvents(id, after, EVENTS_PAGE);
+              all.push(...page);
+              if (page.length < EVENTS_PAGE || !loading.has(id)) return all;
+              after = page.at(-1)!.seq;
+            }
+          };
+          const [session, events] = await Promise.all([get().sessions[id] ? null : api.getSession(id), fetchAll()]);
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           let { lastSeq, t } = get().transcripts[id] ?? prev;

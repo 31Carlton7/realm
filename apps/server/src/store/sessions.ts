@@ -66,8 +66,8 @@ export class SessionEventsStore {
   hasType(sessionId: string, type: SessionEvent["type"]): boolean {
     return !!this.db.prepare("SELECT 1 FROM session_events WHERE session_id = ? AND type = ? LIMIT 1").get(sessionId, type);
   }
-  /** The requestId of the newest permission_request that has no permission_response, or null. */
-  findDanglingPermission(sessionId: string): string | null {
+  /** requestIds of every permission_request without a permission_response, oldest first. */
+  findDanglingPermissions(sessionId: string): string[] {
     const rows = this.db.prepare("SELECT type, payload_json FROM session_events WHERE session_id = ? AND type IN ('permission_request', 'permission_response') ORDER BY seq").all(sessionId) as Pick<EventRow, "type" | "payload_json">[];
     const open = new Set<string>();
     for (const r of rows) {
@@ -75,7 +75,7 @@ export class SessionEventsStore {
       if (typeof requestId !== "string") continue;
       if (r.type === "permission_request") open.add(requestId); else open.delete(requestId);
     }
-    return [...open].at(-1) ?? null;
+    return [...open];
   }
   /** Events with seq > afterSeq, ascending. Rows that fail schema validation (e.g. from an older build) are skipped. */
   listAfter(sessionId: string, afterSeq: number, limit: number): StoredSessionEvent[] {

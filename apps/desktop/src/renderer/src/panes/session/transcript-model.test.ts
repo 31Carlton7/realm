@@ -14,11 +14,11 @@ describe("transcript model", () => {
     expect(t.blocks).toHaveLength(2);
     t = reduceTranscript(t, sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "ls" }, parentToolUseId: null }));
     t = reduceTranscript(t, sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }));
-    expect(t.pendingPermission?.requestId).toBe("r1");
-    t = reduceTranscript(t, sessionEvent("permission_response", { requestId: "other", decision: "allow" }));
-    expect(t.pendingPermission?.requestId).toBe("r1");
+    expect(t.pendingPermissions.map((p) => p.requestId)).toEqual(["r1"]);
+    const same = reduceTranscript(t, sessionEvent("permission_response", { requestId: "other", decision: "allow" }));
+    expect(same).toBe(t);
     t = reduceTranscript(t, sessionEvent("permission_response", { requestId: "r1", decision: "allow" }));
-    expect(t.pendingPermission).toBeNull();
+    expect(t.pendingPermissions).toEqual([]);
     t = reduceTranscript(t, sessionEvent("tool_result", { toolUseId: "t1", content: "a b", isError: false }));
     const tool = t.blocks.find((b) => b.kind === "tool")!;
     expect(tool.kind === "tool" && tool.result?.content).toBe("a b");
@@ -29,6 +29,18 @@ describe("transcript model", () => {
     const before = t;
     t = reduceTranscript(t, sessionEvent("status", { status: "idle" }));
     expect(t).toBe(before);
+  });
+  it("tracks concurrent permission requests and resolves them in either order", () => {
+    const req = (id: string) => sessionEvent("permission_request", { requestId: id, toolName: "Bash", input: { command: id }, title: `Run ${id}?`, suggestions: [] });
+    const res = (id: string) => sessionEvent("permission_response", { requestId: id, decision: "allow" });
+    let t = reduceAll([req("r1"), req("r2")]);
+    expect(t.pendingPermissions.map((p) => p.requestId)).toEqual(["r1", "r2"]);
+    const a = reduceAll([res("r2"), res("r1")], t);
+    expect(a.pendingPermissions).toEqual([]);
+    const b = reduceTranscript(t, res("r1"));
+    expect(b.pendingPermissions.map((p) => p.requestId)).toEqual(["r2"]);
+    t = reduceTranscript(b, req("r2")); // duplicate request id replaces, doesn't double
+    expect(t.pendingPermissions.map((p) => p.requestId)).toEqual(["r2"]);
   });
   it("assistant_delta after final text starts a new block", () => {
     let t = emptyTranscript();

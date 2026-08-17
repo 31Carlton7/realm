@@ -11,12 +11,13 @@ export type PendingPermission = { requestId: string; toolName: string; input: Re
 export type Usage = { costUsd: number; inputTokens: number; outputTokens: number; numTurns: number };
 export type Transcript = {
   blocks: Block[];
-  pendingPermission: PendingPermission | null;
+  /** Open permission requests, oldest first (an agent may ask for several tools at once). */
+  pendingPermissions: PendingPermission[];
   usage: Usage;
   init: { model: string; tools: string[]; providerSessionId: string } | null;
 };
 
-export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermission: null, usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null });
+export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null });
 
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
 
@@ -45,8 +46,14 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError } };
       return { ...t, blocks };
     }
-    case "permission_request": return { ...t, pendingPermission: { requestId: e.payload.requestId, toolName: e.payload.toolName, input: e.payload.input, title: e.payload.title } };
-    case "permission_response": return t.pendingPermission?.requestId === e.payload.requestId ? { ...t, pendingPermission: null } : t;
+    case "permission_request": {
+      const p = { requestId: e.payload.requestId, toolName: e.payload.toolName, input: e.payload.input, title: e.payload.title };
+      return { ...t, pendingPermissions: [...t.pendingPermissions.filter((x) => x.requestId !== p.requestId), p] };
+    }
+    case "permission_response": {
+      if (!t.pendingPermissions.some((p) => p.requestId === e.payload.requestId)) return t;
+      return { ...t, pendingPermissions: t.pendingPermissions.filter((p) => p.requestId !== e.payload.requestId) };
+    }
     case "error": blocks.push({ kind: "error", message: e.payload.message, ts: e.ts }); return { ...t, blocks };
     case "usage": return { ...t, usage: e.payload };
     case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId } };

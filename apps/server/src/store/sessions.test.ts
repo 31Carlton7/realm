@@ -53,18 +53,19 @@ describe("SessionsStore + SessionEventsStore", () => {
     ev.append(sess.id, sessionEvent("error", { message: "e" }));
     expect(ev.listAfter(sess.id, 0, 10).map((e) => e.event.type)).toEqual(["error"]);
   });
-  it("setLastEventSeq touches only the seq; findDanglingPermission reports the newest unanswered request", () => {
+  it("setLastEventSeq touches only the seq; findDanglingPermissions reports every unanswered request", () => {
     const { db, space } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
     const sess = s.create(input(space.id));
     s.setLastEventSeq(sess.id, 42);
     expect(s.get(sess.id)).toMatchObject({ lastEventSeq: 42, status: "idle", title: "New session" });
-    expect(ev.findDanglingPermission(sess.id)).toBeNull();
+    expect(ev.findDanglingPermissions(sess.id)).toEqual([]);
     const req = (id: string) => sessionEvent("permission_request", { requestId: id, toolName: "Bash", input: {}, title: "?", suggestions: [] });
     ev.append(sess.id, req("r1"));
     ev.append(sess.id, sessionEvent("permission_response", { requestId: "r1", decision: "allow" }));
-    expect(ev.findDanglingPermission(sess.id)).toBeNull();
-    ev.append(sess.id, req("r2"));
-    expect(ev.findDanglingPermission(sess.id)).toBe("r2");
+    expect(ev.findDanglingPermissions(sess.id)).toEqual([]);
+    ev.append(sess.id, req("r2")); ev.append(sess.id, req("r3")); ev.append(sess.id, req("r4"));
+    ev.append(sess.id, sessionEvent("permission_response", { requestId: "r3", decision: "deny" }));
+    expect(ev.findDanglingPermissions(sess.id)).toEqual(["r2", "r4"]);
     expect(ev.hasType(sess.id, "permission_request")).toBe(true);
     expect(ev.hasType(sess.id, "usage")).toBe(false);
   });

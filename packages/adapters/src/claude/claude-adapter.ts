@@ -52,16 +52,22 @@ export class ClaudeAdapter implements AgentAdapter {
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
 
+    // Several tools may ask at once (parallel tool calls): status flips to waiting_permission on the first open request
+    // and back only when the last one is answered.
     const canUseTool: NonNullable<Options["canUseTool"]> = async (toolName, toolInput, o) => {
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
-      events.push(sessionEvent("status", { status: "waiting_permission" }));
+      if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
       events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[] }));
       const result = await new Promise<PermissionResult>((resolve) => {
         pending.set(requestId, { resolve, suggestions });
-        o.signal.addEventListener("abort", () => { if (pending.delete(requestId)) resolve({ behavior: "deny", message: "aborted" }); }, { once: true });
+        o.signal.addEventListener("abort", () => {
+          if (!pending.delete(requestId)) return;
+          events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));
+          resolve({ behavior: "deny", message: "aborted" });
+        }, { once: true });
       });
-      events.push(sessionEvent("status", { status: running ? "running" : "idle" }));
+      if (pending.size === 0) events.push(sessionEvent("status", { status: running ? "running" : "idle" }));
       return result;
     };
 

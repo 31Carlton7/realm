@@ -261,4 +261,5 @@ body[data-vibrancy] .app {
 .agent-choice { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--rl-border); background: var(--rl-surface2); text-align: left; }
 .agent-choice[data-selected] { border-color: var(--rl-accent); box-shadow: 0 0 0 1px var(--rl-accent); }
 .agent-error { font-size: 12px; color: var(--rl-danger); }
+.agent-hint-text { font-size: 11px; } .agent-hint-text code { font: 11px ui-monospace, Menlo, monospace; }
 .agent-name { font-weight: 550; } .agent-hint { margin-left: auto; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }

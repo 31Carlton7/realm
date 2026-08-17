@@ -193,7 +193,10 @@ describe("SessionService over rpc", () => {
     c.close(); await app.close();
     const raw = new (await import("node:sqlite")).DatabaseSync(join(home, "realm.db"));
     raw.prepare("DELETE FROM session_events WHERE session_id = ? AND seq > ?").run(session.id, before.at(-1).seq);
-    raw.prepare("UPDATE sessions SET status = 'waiting_permission', last_event_seq = ? WHERE id = ?").run(before.at(-1).seq, session.id);
+    // a second, concurrent request that also never got an answer
+    raw.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, 'permission_request', ?)").run(session.id, Date.now(),
+      JSON.stringify({ requestId: "r-extra", toolName: "Read", input: { file_path: "/x" }, title: "Read x?", suggestions: [] }));
+    raw.prepare("UPDATE sessions SET status = 'waiting_permission', last_event_seq = ? WHERE id = ?").run(before.at(-1).seq + 1, session.id);
     raw.close();
     app = await createApp({ home, port: 0, adapters: { fake: new SpyFake({ script }) } });
     const c2 = await client(app.port);
@@ -201,7 +204,11 @@ describe("SessionService over rpc", () => {
     expect(got.status).toBe("idle"); expect(got.providerSessionId).toBe(provider);
     const replayed = (await c2.call("sessions.events", { id: session.id })).result;
     expect(replayed.slice(0, before.length)).toEqual(before);
-    expect(replayed.slice(before.length).map((s: Any) => s.event)).toMatchObject([{ type: "permission_response", payload: { requestId: req, decision: "deny" } }]);
+    expect(replayed.slice(before.length).map((s: Any) => s.event)).toMatchObject([
+      { type: "permission_request", payload: { requestId: "r-extra" } },
+      { type: "permission_response", payload: { requestId: req, decision: "deny" } },
+      { type: "permission_response", payload: { requestId: "r-extra", decision: "deny" } },
+    ]);
     expect(got.lastEventSeq).toBe(replayed.at(-1).seq);
     expect(app.sessions.isLive(session.id)).toBe(false);
     expect((await c2.call("sessions.respondPermission", { id: session.id, requestId: req, decision: "allow" })).error.code).toBe("SESSION_NOT_LIVE");

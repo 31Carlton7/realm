@@ -43,7 +43,7 @@ export function SessionPane({ item, visible }: PaneProps) {
         </span>
       </div>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible}
-        onDecide={(d) => { const p = transcript.pendingPermission; if (p) run(() => respondPermission(id, p.requestId, d)); }}
+        onDecide={(requestId, d) => run(() => respondPermission(id, requestId, d))}
         empty={<div className="transcript-empty muted"><Icon name={AGENT_META[session.agentKind].icon} size={28} /><div>Say something to start the session.</div></div>} />
       <Composer session={session} status={status} project={project}
         onSend={(text) => run(() => sendMessage(id, text))}

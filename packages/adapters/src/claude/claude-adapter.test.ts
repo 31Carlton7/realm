@@ -6,6 +6,10 @@ const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.u
 
 type FakeOpts = {
   permissionOnTool?: string;
+  /** ask canUseTool this many times concurrently (default 1) */
+  concurrentPermissions?: number;
+  /** abort the canUseTool signal instead of waiting for a response */
+  abortPermission?: boolean;
   /** throw from the generator after this many fixture messages */
   throwAfter?: number;
   /** write these lines to options.stderr before the first message */
@@ -23,11 +27,16 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
       for (const l of opts.stderr ?? []) (options.stderr as (d: string) => void)(l);
       const it = prompt[Symbol.asyncIterator](); const first = await it.next();
       if (first.done) return;
-      let n = 0;
+      let n = 0; let asked = false;
       for (const m of fixture) {
         if (opts.throwAfter !== undefined && n++ >= opts.throwAfter) throw new Error("sdk exploded");
-        if ((m as { type: string }).type === "assistant" && opts.permissionOnTool && options.canUseTool) {
-          const r = await (options.canUseTool as (n: string, i: unknown, o: unknown) => Promise<{ behavior: string }>)(opts.permissionOnTool, { file_path: "a" }, { signal: new AbortController().signal, title: "Read a?" });
+        if ((m as { type: string }).type === "assistant" && opts.permissionOnTool && options.canUseTool && !asked) {
+          asked = true;
+          const cut = options.canUseTool as (n: string, i: unknown, o: unknown) => Promise<{ behavior: string }>;
+          const ac = new AbortController();
+          const asks = Array.from({ length: opts.concurrentPermissions ?? 1 }, (_, i) => cut(opts.permissionOnTool!, { file_path: `a${i}` }, { signal: ac.signal, title: `Read a${i}?` }));
+          if (opts.abortPermission) setTimeout(() => ac.abort(), 5);
+          const rs = await Promise.all(asks); const r = rs[0]!;
           if (r.behavior === "deny") { yield { type: "result", subtype: "success", session_id: "sess_1", uuid: "r", duration_ms: 1, duration_api_ms: 1, is_error: false, num_turns: 1, result: "denied", stop_reason: "end_turn", total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 }, modelUsage: {}, permission_denials: [] }; break; }
         }
         if ((m as { type: string }).type === "result" && opts.errorResult) { yield { ...(m as object), subtype: "error_during_execution", is_error: true, errors: ["turn failed"] }; break; }
@@ -70,6 +79,24 @@ describe("ClaudeAdapter", () => {
     expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
     const resp = got.find((e) => e.type === "permission_response");
     expect(resp?.type === "permission_response" && resp.payload.decision).toBe("deny");
+  });
+  it("concurrent canUseTool calls: one waiting_permission → running transition for the whole batch", async () => {
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", concurrentPermissions: 2 }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).filter((t) => t === "permission_response").length === 2,
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    expect(types(got).filter((t) => t === "permission_request")).toHaveLength(2);
+    expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
+  });
+  it("an aborted canUseTool signal emits permission_response(deny) and restores status", async () => {
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", abortPermission: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"));
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const resp = got.find((e) => e.type === "permission_response");
+    expect(resp?.type === "permission_response" && resp.payload.decision).toBe("deny");
+    expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
   });
   it("generator throw -> error, status error, ended, queue closed; stderr tail attached", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ throwAfter: 2, stderr: ["warn: one\n", "warn: two\n"] }) as never });

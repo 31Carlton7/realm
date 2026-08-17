@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { sessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
@@ -79,6 +79,20 @@ describe("SessionPane", () => {
     expect(screen.getByRole("group", { name: /Permission request/ })).toBeInTheDocument();
     act(() => store.getState().applySessionStatus("se1", "running"));
     expect(screen.queryByRole("group", { name: /Permission request/ })).toBeNull();
+  });
+
+  it("renders one card per open permission request and answers the right one", async () => {
+    const t = reduceAll([
+      sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }),
+      sessionEvent("permission_request", { requestId: "r2", toolName: "Read", input: { file_path: "/x" }, title: "Read x?", suggestions: [] }),
+    ]);
+    const { api } = await mount("waiting_permission", t);
+    const decided: string[] = []; api.respondPermission = async (_i, r, d) => { decided.push(`${r}:${d}`); };
+    const cards = screen.getAllByRole("group", { name: /Permission request/ });
+    expect(cards).toHaveLength(2);
+    fireEvent.click(within(cards[1]!).getByRole("button", { name: /^Deny$/ }));
+    fireEvent.click(within(cards[0]!).getByRole("button", { name: /^Allow$/ }));
+    expect(decided).toEqual(["r2:deny", "r1:allow"]);
   });
 
   it("idle session with an unresolved tool shows no spinner; error blocks render", async () => {
