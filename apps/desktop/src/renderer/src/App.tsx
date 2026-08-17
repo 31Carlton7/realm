@@ -1,6 +1,10 @@
 import { useEffect, useMemo } from "react";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
+import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
+import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
+import { Icon } from "@realm/ui";
+import { activeTabIds } from "./components/sidebar/active-tabs";
 import { PaneHost } from "./components/PaneHost";
 import { LayoutMenu } from "./components/LayoutMenu";
 import { StoreContext, createAppStore, useApp } from "./state/store";
@@ -35,7 +39,24 @@ function SheetHost() {
   const sheet = useApp((s) => s.sheet);
   if (!sheet) return null;
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
+  if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
   return null;
+}
+
+/** `<space icon> <space name> / <active tab title>` — the first active tab found in the layout. */
+function Breadcrumb() {
+  const space = useApp((s) => s.activeSpace());
+  const items = useApp((s) => s.items);
+  const layout = useApp((s) => s.layout);
+  if (!space) return null;
+  const firstActive = [...activeTabIds(layout)][0];
+  const tab = items.find((i) => i.id === firstActive);
+  return (
+    <div className="breadcrumb" aria-label="Location">
+      <Icon name={space.icon} size={14} /><span className="crumb">{space.name}</span>
+      {tab && <><span className="crumb-sep">/</span><span className="crumb muted">{tab.title}</span></>}
+    </div>
+  );
 }
 
 function Main() {
@@ -51,7 +72,7 @@ function Main() {
   if (!spaceId) return <div className="content-card"><ErrorBar /><div className="pane-placeholder muted">Create a space with the + in the sidebar.</div></div>;
   return (
     <div className="content-card">
-      <div className="card-topbar"><LayoutMenu onPick={(p) => run(() => applyPreset(p))} /></div>
+      <div className="card-topbar"><Breadcrumb /><LayoutMenu onPick={(p) => run(() => applyPreset(p))} /></div>
       <ErrorBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items}
         onActivate={(id) => run(() => activateTab(id))} onClose={(id) => run(() => closeItem(id))}
@@ -63,6 +84,7 @@ function Main() {
 
 export function App() {
   const store = useMemo(() => createAppStore(liveApi()), []);
+  usePaletteHotkey(store);
   useEffect(() => {
     const s = store.getState();
     s.run(() => s.boot());
@@ -78,6 +100,7 @@ export function App() {
       <ThemeBridge />
       <div className="app"><Sidebar /><main className="main"><Main /></main></div>
       <SheetHost />
+      <CommandPalette />
     </StoreContext.Provider>
   );
 }
