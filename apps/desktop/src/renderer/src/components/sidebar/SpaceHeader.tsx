@@ -11,6 +11,8 @@ export function SpaceHeader({ space }: { space: Space }) {
   const profile = useApp((s) => s.profiles.find((p) => p.id === space.profileId));
   const themePref = useApp((s) => s.themePref);
   const setThemePref = useApp((s) => s.setThemePref);
+  const swipeInvert = useApp((s) => s.swipeInvert);
+  const setSwipeInvert = useApp((s) => s.setSwipeInvert);
   const openSheet = useApp((s) => s.openSheet);
   const newTerminal = useApp((s) => s.newTerminal);
   const run = useApp((s) => s.run);
@@ -30,6 +32,8 @@ export function SpaceHeader({ space }: { space: Space }) {
               { label: "New terminal", onSelect: () => run(() => newTerminal()) },
               { kind: "separator" },
               ...THEMES.map((t) => ({ label: `Theme: ${t.label}`, checked: themePref === t.pref, onSelect: () => run(() => setThemePref(t.pref)) })),
+              { kind: "separator" as const },
+              { label: "Invert swipe direction", checked: swipeInvert, onSelect: () => run(() => setSwipeInvert(!swipeInvert)) },
           ]} />
         )}
       </div>

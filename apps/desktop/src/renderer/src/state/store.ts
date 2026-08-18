@@ -57,6 +57,7 @@ export type Api = {
 export const PERSIST_DEBOUNCE_MS = 300;
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
 export const SETTING_THEME = "ui.theme";
+const SETTING_SWIPE_INVERT = "ui.swipeInvert";
 export const EVENTS_PAGE = 1000;
 
 export type Sheet =
@@ -69,6 +70,8 @@ export type AppState = {
   /** All spaces across profiles, in user sort order. Exactly one is active at a time. */
   spaces: Space[]; activeSpaceId: string | null;
   themePref: ThemePref;
+  /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
+  swipeInvert: boolean;
   items: Item[]; layout: Layout | null;
   projects: Project[];
   error: string | null;
@@ -91,6 +94,7 @@ export type AppState = {
   deleteSpace(id: string): Promise<void>;
   reorderSpaces(ids: string[]): Promise<void>;
   setThemePref(pref: ThemePref): Promise<void>;
+  setSwipeInvert(v: boolean): Promise<void>;
   refreshSpaces(): Promise<void>;
   refreshItems(): Promise<void>;
   refreshProjects(): Promise<void>;
@@ -180,7 +184,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
 
     return {
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", items: [], layout: null, projects: [], error: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, projects: [], error: null,
       paletteOpen: false, sheet: null,
       sessions: {}, sessionStatus: {}, transcripts: {}, agentProbe: [],
 
@@ -188,10 +192,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme] = await Promise.all([
-          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
+        const [profiles, spaces, saved, theme, swipeInvert] = await Promise.all([
+          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT),
         ]);
-        set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system" });
+        set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
       },
@@ -268,6 +272,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setThemePref(pref) {
         set({ themePref: pref });
         await api.setSetting(SETTING_THEME, pref);
+      },
+      async setSwipeInvert(v) {
+        set({ swipeInvert: v });
+        await api.setSetting(SETTING_SWIPE_INVERT, v);
       },
       async linkProject(rootPath) {
         const sid = get().activeSpaceId; if (!sid) return;

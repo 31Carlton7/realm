@@ -7,6 +7,7 @@ import { ItemList } from "./ItemList";
 import { NewItemMenu } from "./NewItemMenu";
 
 const IDLE_MS = 320;
+const DEBUG = () => { try { return localStorage.getItem("realm.debugSwipe") === "1"; } catch { return false; } };
 const EASE = "transform 380ms cubic-bezier(.2,.85,.2,1)";
 
 /** Map the native helper's (phase, momentum) pair to the tracker's phase vocabulary. */
@@ -34,6 +35,8 @@ export function SpaceSwiper() {
   const nextSpace = useApp((s) => s.nextSpace);
   const prevSpace = useApp((s) => s.prevSpace);
   const run = useApp((s) => s.run);
+  const swipeInvert = useApp((s) => s.swipeInvert);
+  const invertRef = useRef(swipeInvert); invertRef.current = swipeInvert;
   const trackRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const trackerRef = useRef<ReturnType<typeof createDragSwipe> | null>(null);
@@ -54,6 +57,7 @@ export function SpaceSwiper() {
 
   const apply = (r: SwipeUpdate) => {
     const i = indexRef.current;
+    if (DEBUG() && r.type !== "ignore") console.debug("[swipe]", r.type, r.type === "move" ? r.offset.toFixed(1) : r.type === "commit" ? r.dir : "", "idx", i);
     if (r.type === "move") setTransform(`translateX(calc(${-i * 100}% - ${r.offset}px))`, false);
     else if (r.type === "settle") setTransform(base(i), true);
     else if (r.type === "commit") run(() => (r.dir === "next" ? nextSpace() : prevSpace())); // layout effect eases to the new page
@@ -78,6 +82,7 @@ export function SpaceSwiper() {
     return sub((m) => {
       nativeRef.current = true;
       const p = toSwipePhase(m);
+      if (DEBUG() && (p || m.dx)) console.debug("[swipe:native]", m.phase, m.momentum, "dx", m.dx, "→", p ?? "-", "hover", hoverRef.current);
       const now = performance.now();
       const t = tracker();
       if (p) {
@@ -88,15 +93,18 @@ export function SpaceSwiper() {
       }
       // Deltas ride on 'changed' (and 'began'). The tap's point deltas are opposite to DOM wheel: fingers left → -dx,
       // and Arc convention is fingers-left → next (the space to the right), so negate.
-      if ((m.phase === "changed" || m.phase === "began") && (m.dx !== 0 || m.dy !== 0)) apply(t.wheel(-m.dx, -m.dy, now, bounds()));
+      const sgn = invertRef.current ? 1 : -1;
+      if ((m.phase === "changed" || m.phase === "began") && (m.dx !== 0 || m.dy !== 0)) apply(t.wheel(sgn * m.dx, sgn * m.dy, now, bounds()));
       armIdle(4200); // stale-hold safety only
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onWheel = (e: WheelEvent) => {
+    if (DEBUG()) console.debug("[swipe:dom]", e.deltaX, e.deltaY, "native?", nativeRef.current);
     if (nativeRef.current) return; // native stream owns the gesture
-    apply(tracker().wheel(e.deltaX, e.deltaY, performance.now(), bounds()));
+    const sgn = invertRef.current ? -1 : 1;
+    apply(tracker().wheel(sgn * e.deltaX, sgn * e.deltaY, performance.now(), bounds()));
     armIdle(IDLE_MS + 20); // fallback: quiet gap = release
   };
 
