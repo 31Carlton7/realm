@@ -23,15 +23,13 @@ let kMomentumPhase = CGEventField(rawValue: 123)!       // kCGScrollWheelEventMo
 let kPointDeltaAxis1 = CGEventField(rawValue: 96)!      // vertical  (kCGScrollWheelEventPointDeltaAxis1)
 let kPointDeltaAxis2 = CGEventField(rawValue: 97)!      // horizontal(kCGScrollWheelEventPointDeltaAxis2)
 
-// NSEventPhase bit flags → names (matches NSEvent.Phase raw values)
+// CGScrollPhase (NOT NSEventPhase bit flags): 1 began, 2 changed, 4 ended, 8 cancelled, 128 mayBegin.
 func phaseName(_ v: Int64) -> String {
-  if v & 1 != 0 { return "began" }
-  if v & 2 != 0 { return "stationary" }
-  if v & 4 != 0 { return "changed" }
-  if v & 8 != 0 { return "ended" }
-  if v & 16 != 0 { return "cancelled" }
-  if v & 32 != 0 { return "mayBegin" }
-  return "none"
+  switch v { case 1: return "began"; case 2: return "changed"; case 4: return "ended"; case 8: return "cancelled"; case 128: return "mayBegin"; default: return "none" }
+}
+// CGMomentumScrollPhase: 0 none, 1 began, 2 continue, 3 ended.
+func momentumName(_ v: Int64) -> String {
+  switch v { case 1: return "began"; case 2: return "changed"; case 3: return "ended"; default: return "none" }
 }
 
 // Watch stdin: when the parent closes it, quit.
@@ -47,7 +45,7 @@ guard let tap = CGEvent.tapCreate(
   callback: { _, type, event, _ in
     if type == .scrollWheel {
       let ph = phaseName(event.getIntegerValueField(kScrollPhase))
-      let mo = phaseName(event.getIntegerValueField(kMomentumPhase))
+      let mo = momentumName(event.getIntegerValueField(kMomentumPhase))
       if ph != "none" || mo != "none" { // trackpad-style only; plain mouse wheels have neither
         let dx = event.getDoubleValueField(kPointDeltaAxis2)
         let dy = event.getDoubleValueField(kPointDeltaAxis1)

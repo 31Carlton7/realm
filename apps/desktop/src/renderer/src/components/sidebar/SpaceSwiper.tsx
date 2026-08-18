@@ -86,8 +86,8 @@ export function SpaceSwiper() {
         if (p === "began" && !hoverRef.current) return;
         apply(t.phase(p, now));
       }
-      // Deltas ride on 'changed' (and 'began'); tap deltas are in points with the opposite sign of DOM wheel.
-      if ((m.phase === "changed" || m.phase === "began") && (m.dx !== 0 || m.dy !== 0)) apply(t.wheel(-m.dx, -m.dy, now, bounds()));
+      // Deltas ride on 'changed' (and 'began'); the tap's point deltas share the DOM wheel sign (fingers left → +dx → next).
+      if ((m.phase === "changed" || m.phase === "began") && (m.dx !== 0 || m.dy !== 0)) apply(t.wheel(m.dx, m.dy, now, bounds()));
       armIdle(4200); // stale-hold safety only
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
