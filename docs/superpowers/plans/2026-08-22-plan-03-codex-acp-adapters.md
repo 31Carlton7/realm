@@ -8,6 +8,12 @@
 
 **Tech Stack:** No new runtime dependencies. Raw ndjson JSON-RPC rather than `@zed-industries/agent-client-protocol`, because (a) Codex has no SDK at all so the transport must exist regardless, (b) both protocols' shipped types were verified to *lag the live wire* (Codex's `availableDecisions`, Cursor's `sessionCapabilities`), so permissive hand-written types are the correct posture, and (c) the ACP SDK is ESM-only with a Web-Streams argument order that silently hangs when reversed.
 
+> **Status: SHIPPED.** All 12 tasks are implemented and merged. Several tasks deviated from the code blocks
+> below during implementation and review — most notably Task 4's routing rule (the plan's `buffer.has` branch was
+> a bug that made the `-32601` reject path unreachable), Task 4's `onGone(reason, disposed)` signature, and Task
+> 5's/Task 9's refcount and shutdown shapes. **Where this plan and the source disagree, the source is
+> authoritative.** See the follow-up list at the end of this document.
+
 **Protocol references — read these before starting.** They are captured from live processes and are the source of truth for every shape in this plan:
 - `docs/dev/codex-app-server-protocol.md`
 - `docs/dev/acp-protocol.md`
@@ -2720,3 +2726,49 @@ Commit anything the verification turned up, then use `superpowers:finishing-a-de
 - ACP `plan`, `available_commands_update`, and `current_mode_update` are parsed and dropped.
 - ACP sessions emit no `usage`, so the Codex/Claude token display will be blank for them.
 - Gemini is registered but cannot open a session on this machine until an API key or Vertex credentials are configured.
+
+
+---
+
+## Plan 3 follow-ups (recorded, not done)
+
+From the final pre-merge review. None block the merge; all are real.
+
+**Correctness / UX**
+- **Map Realm's permission modes onto ACP's `modes.availableModes`** returned by `session/new`, and apply one at
+  session start. Today `AcpAdapter` ignores `opts.permissionMode` entirely, so the Permissions picker is hidden
+  for `acp:*` kinds (`AGENT_SUPPORTS_PERMISSION_MODES`) rather than wrong. Cursor exposes `agent`/`plan`/`ask`.
+- **Surface ACP's `models` in the model picker.** `session/new` returns ~35 entries for Cursor, including
+  `claude-opus-5`. `AGENT_MODELS["acp:*"]` is `[]`, so these sessions run on the agent's default. Model ids
+  encode options in brackets and must be treated as opaque.
+- **Extend `toolSummary`/`toolIcon`** (`panes/session/tool-summary.ts`) to Codex (`exec_command`, `apply_patch`)
+  and ACP tool titles. They currently fall through to the generic Claude heuristics.
+- **Decide whether Codex's `costUsd: 0` should render blank** rather than `$0.000` — Codex reports no cost, and
+  `$0.000` reads as "free" rather than "unknown". ACP emits no `usage` at all, which is the better behaviour.
+
+**Robustness**
+- **Close the post-detach buffering hole in `CodexConnection`**: `threads.size === 0` is used as the proxy for
+  "startup race", but a detached last thread also leaves size 0, so a late approval for a dead thread is queued
+  rather than refused. Track detached ids or a `hasEverAttached` flag.
+- **Replace peer JSON-RPC ids with `newId()` for `permission_request.requestId`** in both new adapters. Peer ids
+  restart at 0 per process, so persisted ids repeat across restarts. Claude uses `newId()`; no live bug today
+  because the dangling-permission queries are order-based, but it is a latent hazard.
+- **Codex's residual orphan window**: if `dispose()` times out while `CodexConnection.open` is still pending, the
+  child survives until the boot timeout (≤30s). Bounded and leak-free, but closing it fully needs a cancellation
+  path in `open()`.
+- **SIGKILL escalation** in `apps/desktop/src/main/index.ts` — the server is currently sent a bare SIGTERM on quit.
+- **Per-session `env` and the shared Codex process**: the shared `codex app-server` binds `cwd`/`env` from
+  whichever session spawned it. Moot today (`SessionService` never passes `env`) but wrong the moment it does.
+
+**Hygiene**
+- Add `scripts/` to `apps/server/tsconfig.json` so `live-agent-check.ts` is typechecked, and declare `tsx` as a
+  dependency of `@realm/server` (it is currently only a devDependency of `@realm/adapters`).
+- `AGENT_LOGIN_HINTS` renders literal markdown backticks as text; the line it replaced used real `<code>`
+  elements. It also duplicates the copy in each `AcpAgentSpec.loginHint` — two sources that will drift.
+- Dead/asymmetric exports: `AcpCall.kind` is written but never read; `titleOf`/`onUnroutedReply` are test-only
+  hooks on production types; `createCodexMapper` is exported from `index.ts` but `createAcpMapper` is not.
+
+**Known external constraint, not ours to fix**
+- `cursor-agent acp` sits silent for a **fixed ~60s** after `session/prompt` before streaming its first chunk
+  (six samples, 59.97–60.66s, reproducible with a bare JSON-RPC client and unaffected by declared capabilities;
+  `cursor-agent -p` answers in ~2s). Every Cursor turn in Realm will feel a minute slow until Cursor changes this.
