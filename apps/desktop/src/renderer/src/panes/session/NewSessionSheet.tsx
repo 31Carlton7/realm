@@ -1,4 +1,4 @@
-import { AGENT_META, AGENT_MODELS, PERMISSION_MODES, type AgentKind } from "@realm/contracts";
+import { AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, PERMISSION_MODES, type AgentKind } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { useApp } from "../../state/store";
@@ -44,7 +44,6 @@ export function NewSessionSheet() {
           <div className="agent-list" role="radiogroup" aria-label="Agent">
             {probing && probe.length === 0 && <div className="muted">Checking installed agents…</div>}
             {probeError && <div className="agent-error" role="alert">Couldn't check agents: {probeError}</div>}
-            {probe.some((p) => p.kind === "claude") && <div className="agent-hint-text muted">Claude uses your <code>claude</code> login — run <code>claude auth login</code> if sessions fail to authenticate.</div>}
             {!probing && !probeError && probe.length === 0 && <div className="muted">No agents available.</div>}
             {probe.map((p) => (
               <button type="button" key={p.kind} role="radio" aria-checked={agent === p.kind} className="agent-choice" data-selected={agent === p.kind || undefined}
@@ -55,6 +54,7 @@ export function NewSessionSheet() {
               </button>
             ))}
           </div>
+          {agent && <div className="agent-hint-text muted">{AGENT_LOGIN_HINTS[agent]}</div>}
         </div>
         <label className="field"><span>Working directory</span>
           <select aria-label="Working directory" value={projectId} onChange={(e) => setProjectId(e.target.value)}>

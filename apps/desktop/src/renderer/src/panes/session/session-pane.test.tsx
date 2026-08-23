@@ -154,4 +154,22 @@ describe("NewSessionSheet", () => {
     expect(store.getState().sheet).toBeNull();
     expect(store.getState().items.some((i) => i.kind === "session" && i.refId === s.id)).toBe(true);
   });
+
+  it("shows a login hint for the selected agent only, and it switches when the selection changes", async () => {
+    const api = fakeApi();
+    api.probeAgents = async () => [
+      { kind: "fake", available: true, version: "fake", loggedIn: true, reason: null },
+      { kind: "claude", available: true, version: "1.0", loggedIn: true, reason: null },
+    ];
+    const store = createAppStore(api); await store.getState().boot();
+    store.getState().openSheet({ kind: "new-session" });
+    render(<StoreContext.Provider value={store}><NewSessionSheet /></StoreContext.Provider>);
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Fake agent/ })).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByText(/Scripted offline agent used for development\./)).toBeInTheDocument();
+    expect(screen.queryByText(/claude auth login/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /Claude/ }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Claude/ })).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByText(/claude auth login/)).toBeInTheDocument();
+    expect(screen.queryByText(/Scripted offline agent used for development\./)).not.toBeInTheDocument();
+  });
 });
