@@ -5,7 +5,7 @@ import { CodexAdapter, codexPolicyFor, pickCodexDecision } from "./codex-adapter
 import type { AgentHandle, StartOptions } from "../types";
 
 const FAKE = fileURLToPath(new URL("./fixtures/fake-codex-server.mjs", import.meta.url));
-const newAdapter = () => new CodexAdapter({ bin: process.execPath, args: [FAKE] });
+const newAdapter = (o: { bootTimeoutMs?: number } = {}) => new CodexAdapter({ bin: process.execPath, args: [FAKE], ...o });
 const startOpts = (o: Partial<StartOptions> = {}): StartOptions => ({ cwd: process.cwd(), mcpServers: [], ...o });
 
 /** Drains the handle's event stream into an array the assertions poll with `vi.waitFor`. */
@@ -566,6 +566,63 @@ describe("CodexAdapter", () => {
     // An unanswered request leaves a dangling card in the UI and wedges that thread on a shared process.
     expect(of(evs, "permission_response")[0]!.payload).toMatchObject({ requestId: of(evs, "permission_request")[0]!.payload.requestId, decision: "deny" });
     expect(statuses(evs).at(-1)).toBe("ended");
+  });
+
+  it("bounds thread/start so a child that spawns and then answers nothing cannot hang the session", async () => {
+    // No timeout here and boot stays pending forever: dispose() -> App.close() never returns and the desktop
+    // main process SIGTERMs the server out from under its agent children.
+    const adapter = newAdapter({ bootTimeoutMs: 200 });
+    const handle = adapter.start(startOpts({ env: { FAKE_CODEX_MUTE_THREAD_START: "1" } }));
+    const conn = adapter.connection!;
+    const { evs, done } = drain(handle);
+    // send() awaits boot too, so a bounded boot is what stops it hanging the WebSocket call as well.
+    await expect(handle.send({ text: "hi", attachments: [] })).resolves.toBeUndefined();
+    await done;
+    expect(of(evs, "error")[0]!.payload.message).toMatch(/thread\/start within 200ms/);
+    expect(statuses(evs)).toEqual(["error", "ended"]);
+    expect(adapter.processCount).toBe(0);
+    expect(adapter.sessionCount).toBe(0);
+    expect((await conn).alive).toBe(false); // and the child it already spawned is gone with it
+    await handle.dispose();
+  });
+
+  it("bounds thread/resume the same way", async () => {
+    const adapter = newAdapter({ bootTimeoutMs: 200 });
+    const handle = adapter.start(startOpts({ resume: "th_old", env: { FAKE_CODEX_MUTE_THREAD_START: "1" } }));
+    const { evs, done } = drain(handle);
+    await done;
+    expect(of(evs, "error")[0]!.payload.message).toMatch(/thread\/resume within 200ms/);
+    expect(adapter.processCount).toBe(0);
+  });
+
+  it("completes dispose even when the boot itself never settles", async () => {
+    // The boot timeout is deliberately far longer than DISPOSE_TIMEOUT_MS here, so the only thing that can
+    // resolve this dispose is the race in dispose() itself.
+    const adapter = newAdapter({ bootTimeoutMs: 60_000 });
+    const handle = adapter.start(startOpts({ env: { FAKE_CODEX_MUTE_THREAD_START: "1" } }));
+    const conn = adapter.connection!;
+    const { done } = drain(handle);
+    const t0 = Date.now();
+    await handle.dispose();
+    expect(Date.now() - t0).toBeLessThan(10_000);
+    await done;
+    expect((await conn).alive).toBe(false); // the ref was handed back, so the shared process really died
+    expect(adapter.processCount).toBe(0);
+    expect(adapter.sessionCount).toBe(0);
+  });
+
+  it("hands the shared process back when the boot lands after dispose gave up waiting for it", async () => {
+    // The window the dispose race opens: shutdown() runs before acquire() resolves, so the ref start() already
+    // took is still outstanding when the process finally comes up — and nothing else will ever return it.
+    const adapter = newAdapter({ bootTimeoutMs: 60_000 });
+    const handle = adapter.start(startOpts({ env: { FAKE_CODEX_INITIALIZE_DELAY_MS: "3500" } }));
+    const conn = adapter.connection!;
+    const { done } = drain(handle);
+    await handle.dispose();
+    await done;
+    await vi.waitFor(() => expect(adapter.processCount).toBe(0), { timeout: 10_000, interval: 25 });
+    expect(adapter.sessionCount).toBe(0);
+    expect((await conn).alive).toBe(false);
   });
 
   it("fails a send once the session is gone instead of throwing at the caller", async () => {

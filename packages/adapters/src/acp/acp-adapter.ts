@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import { sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
-import { JsonRpcCallError, StdioJsonRpc, type JsonRpcId } from "../jsonrpc/stdio";
+import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
 import { probeAcp } from "./probe";
 import type { AgentAdapter, AgentHandle, McpStdioConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
@@ -23,7 +23,16 @@ export type AcpAgentSpec = {
   /** What the user should run out of band to log in — Realm never calls `authenticate` itself (§2.2). */
   loginHint: string;
   env?: Record<string, string>;
+  /** Overridable for tests. Bounds every boot call: initialize, session/new and session/load. */
+  bootTimeoutMs?: number;
 };
+
+/** Copies ClaudeAdapter: app quit awaits every dispose(), so no dispose may depend on a healthy child. */
+const DISPOSE_TIMEOUT_MS = 3000;
+/** `initialize` is a local handshake. */
+const INITIALIZE_TIMEOUT_MS = 10_000;
+/** `session/new`/`session/load` can go to the network — Cursor signs in and spins up session services here. */
+const SESSION_TIMEOUT_MS = 30_000;
 
 /** `RequestError.authRequired`. Gemini uses it on `session/new`; Cursor returns a generic -32603 instead (§7). */
 const AUTH_REQUIRED = -32000;
@@ -256,10 +265,18 @@ export class AcpAdapter implements AgentAdapter {
         });
         rpc = transport;
 
-        const init = obj(await transport.request("initialize", {
+        // Bounded: ACP gives none of these calls a deadline, and a child that spawns and then answers nothing
+        // would otherwise leave `boot` — and every send()/setOptions()/dispose() behind it — pending for the
+        // life of the process.
+        const ask = (method: string, params: Bag, fallbackMs: number): Promise<unknown> => {
+          const ms = spec.bootTimeoutMs ?? fallbackMs;
+          return withTimeout(transport.request(method, params), ms, `${spec.label} did not answer ${method} within ${ms}ms`);
+        };
+
+        const init = obj(await ask("initialize", {
           protocolVersion: 1,
           clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
-        }));
+        }, INITIALIZE_TIMEOUT_MS));
         const caps = obj(init.agentCapabilities);
         imagesAllowed = obj(caps.promptCapabilities).image === true;
         authMethods = Array.isArray(init.authMethods) ? init.authMethods : [];
@@ -273,7 +290,7 @@ export class AcpAdapter implements AgentAdapter {
           try {
             // The whole prior conversation arrives as session/update notifications before this resolves (§2.3).
             // Realm has already persisted every one of them, so they are dropped rather than appended.
-            session = obj(await transport.request("session/load", { sessionId: opts.resume, cwd: opts.cwd, mcpServers }));
+            session = obj(await ask("session/load", { sessionId: opts.resume, cwd: opts.cwd, mcpServers }, SESSION_TIMEOUT_MS));
             id = opts.resume;
           } catch (e) {
             log(`session/load failed (${message(e)}); starting a new session instead`);
@@ -282,7 +299,7 @@ export class AcpAdapter implements AgentAdapter {
           }
         }
         if (id === null) {
-          session = obj(await transport.request("session/new", { cwd: opts.cwd, mcpServers }));
+          session = obj(await ask("session/new", { cwd: opts.cwd, mcpServers }, SESSION_TIMEOUT_MS));
           id = str(session.sessionId);
           if (!id) throw new Error(`${spec.label} did not return a session id`);
         }
@@ -362,7 +379,14 @@ export class AcpAdapter implements AgentAdapter {
         if (o.model !== undefined) await attempt("session/set_model", { sessionId, modelId: o.model });
       },
       dispose: async () => {
-        await boot; // never tear down a half-open connection behind a dispose that raced the boot
+        // Waiting for boot keeps a dispose that raced it from tearing down a half-open connection — but the
+        // wait is bounded, because SessionService.closeAll() -> App.close() -> app quit is what is behind it.
+        // An unbounded wait here is how the desktop main process ends up SIGTERMing a server that still owns
+        // live agent children. shutdown() closes the transport either way: `rpc` is assigned before the
+        // handshake, so the child dies even when the timeout is what got us here.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([boot, new Promise<void>((res) => { timer = setTimeout(res, DISPOSE_TIMEOUT_MS); })]);
+        clearTimeout(timer);
         await shutdown();
       },
     };

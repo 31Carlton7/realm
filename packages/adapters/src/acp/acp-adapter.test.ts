@@ -624,6 +624,59 @@ describe("AcpAdapter", () => {
     expect(errors(evs)).toEqual([]); // the stream is closed; nothing can be pushed onto it any more
   });
 
+  it("bounds initialize so a child that spawns and answers nothing cannot hang the session", async () => {
+    // No timeout here and boot stays pending forever: dispose() -> App.close() never returns and the desktop
+    // main process SIGTERMs the server out from under its agent children.
+    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const marker = join(dir, "child-exited");
+    const adapter = newAdapter({ bootTimeoutMs: 200, env: { FAKE_ACP_MUTE_INITIALIZE: "1", FAKE_ACP_EXIT_MARKER: marker } });
+    const handle = adapter.start(startOpts());
+    const { evs, done } = drain(handle);
+    // send() and setOptions() await boot too, so a bounded boot is what stops them hanging the WebSocket
+    // call as well — neither has a timeout of its own.
+    await expect(handle.send({ text: "hi", attachments: [] })).resolves.toBeUndefined();
+    await expect(handle.setOptions({ model: "x" })).resolves.toBeUndefined();
+    await done;
+    expect(errors(evs)[0]).toMatch(/initialize within 200ms/);
+    expect(statuses(evs)).toEqual(["error", "ended"]);
+    expect(existsSync(marker)).toBe(true); // and the child it already spawned is gone with it
+    await handle.dispose();
+  });
+
+  it("bounds session/new the same way", async () => {
+    const adapter = newAdapter({ bootTimeoutMs: 200, env: { FAKE_ACP_MUTE_SESSION_NEW: "1" } });
+    const { evs, done } = drain(adapter.start(startOpts()));
+    await done;
+    expect(errors(evs)[0]).toMatch(/session\/new within 200ms/);
+    expect(statuses(evs)).toEqual(["error", "ended"]);
+  });
+
+  it("falls back to a new session when session/load never answers", async () => {
+    const logs: string[] = [];
+    const adapter = newAdapter({ bootTimeoutMs: 200, env: { FAKE_ACP_MUTE_SESSION_LOAD: "1" } });
+    const handle = adapter.start(startOpts({ resume: "sess_prev", onLog: (l) => logs.push(l) }));
+    const { evs } = drain(handle);
+    await vi.waitFor(() => expect(types(evs)).toContain("init"), { timeout: 10_000, interval: 25 });
+    expect(of(evs, "init")[0]!.payload.providerSessionId).toBe("sess_0");
+    expect(logs.join("\n")).toMatch(/session\/load within 200ms/);
+    await handle.dispose();
+  });
+
+  it("completes dispose even when the boot itself never settles", async () => {
+    // The boot timeout is deliberately far longer than DISPOSE_TIMEOUT_MS here, so the only thing that can
+    // resolve this dispose is the race in dispose() itself.
+    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const marker = join(dir, "child-exited");
+    const adapter = newAdapter({ bootTimeoutMs: 60_000, env: { FAKE_ACP_MUTE_SESSION_NEW: "1", FAKE_ACP_EXIT_MARKER: marker } });
+    const handle = adapter.start(startOpts());
+    const { done } = drain(handle);
+    const t0 = Date.now();
+    await handle.dispose();
+    expect(Date.now() - t0).toBeLessThan(10_000);
+    await done;
+    expect(existsSync(marker)).toBe(true);
+  });
+
   it("serves fs callbacks during a replay but cancels permission requests raised by it", async () => {
     const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
     const path = join(dir, "REPLAY.txt");

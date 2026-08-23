@@ -12,6 +12,20 @@ export class JsonRpcCallError extends Error {
   }
 }
 
+/**
+ * Rejects with `message` if `p` has not settled within `ms`.
+ *
+ * The underlying request is NOT cancelled — JSON-RPC has no cancel — it is simply abandoned; the peer's late
+ * answer lands on an already-settled promise. Every unbounded call into a child process goes through this:
+ * a child that spawns and then answers nothing must never leave a promise pending forever.
+ */
+export function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    p.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
 const STDERR_TAIL_LINES = 50;
 const DISPOSE_KILL_TIMEOUT_MS = 2000;
 

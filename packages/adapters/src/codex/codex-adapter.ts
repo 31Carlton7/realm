@@ -11,6 +11,11 @@ const obj = (v: unknown): Bag => (v && typeof v === "object" ? (v as Bag) : {});
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+/** Copies ClaudeAdapter: app quit awaits every dispose(), so no dispose may depend on a healthy child. */
+const DISPOSE_TIMEOUT_MS = 3000;
+/** thread/start loads config, resolves the model and checks auth — slower than initialize, never unbounded. */
+const BOOT_TIMEOUT_MS = 30_000;
+
 const APPROVAL_METHODS: Record<string, { toolName: string; title: string }> = {
   "item/commandExecution/requestApproval": { toolName: "exec_command", title: "Run this command?" },
   "item/fileChange/requestApproval": { toolName: "apply_patch", title: "Apply these edits?" },
@@ -74,12 +79,15 @@ export class CodexAdapter implements AgentAdapter {
   readonly kind = "codex" as const;
   private readonly bin?: string;
   private readonly args?: string[];
+  /** Overridable for tests. Bounds every boot call: initialize, thread/start and thread/resume. */
+  private readonly bootTimeoutMs?: number;
   private conn: Promise<CodexConnection> | null = null;
   private refs = 0;
 
-  constructor(deps: { bin?: string; args?: string[] } = {}) {
+  constructor(deps: { bin?: string; args?: string[]; bootTimeoutMs?: number } = {}) {
     this.bin = deps.bin;
     this.args = deps.args;
+    this.bootTimeoutMs = deps.bootTimeoutMs;
   }
 
   /** Visible for tests: 0 or 1 — the whole point of the refcount is that it never exceeds one. */
@@ -110,6 +118,7 @@ export class CodexAdapter implements AgentAdapter {
       cwd: opts.cwd,
       env: opts.env,
       onLog: opts.onLog,
+      initializeTimeoutMs: this.bootTimeoutMs,
     }));
     try {
       return await pending;
@@ -139,11 +148,25 @@ export class CodexAdapter implements AgentAdapter {
     let threadId: string | null = null;
     let activeTurnId: string | null = null;
     let acquired = false;
+    let released = false;
     let disposed = false;
 
     const fail = (text: string) => {
       events.push(sessionEvent("error", { message: text }));
       events.push(sessionEvent("status", { status: "error" }));
+    };
+
+    /**
+     * Hands the shared process back exactly once.
+     *
+     * `acquire()` takes the ref synchronously inside `start()`, but this closure only learns it succeeded when
+     * the open resolves — and dispose() no longer waits for that. So whichever of shutdown() and boot gets here
+     * once `acquired` is set is the one that releases; the other is a no-op.
+     */
+    const releaseOnce = async (): Promise<void> => {
+      if (!acquired || released) return;
+      released = true;
+      await this.release();
     };
 
     const respond = (requestId: string, decision: PermissionDecision) => {
@@ -168,7 +191,7 @@ export class CodexAdapter implements AgentAdapter {
       for (const e of mapper.closeOpenTools("session closed")) events.push(e);
       events.push(sessionEvent("status", { status: "ended" }));
       events.close();
-      if (acquired) { acquired = false; await this.release(); }
+      await releaseOnce();
     };
 
     const listener: ThreadListener = {
@@ -214,7 +237,9 @@ export class CodexAdapter implements AgentAdapter {
       try {
         const c = await this.acquire(opts);
         acquired = true;
-        if (disposed) return; // disposed while the process was still coming up; shutdown() releases the ref
+        // Disposed while the process was still coming up. shutdown() has already run and found nothing to hand
+        // back (it no longer waits for a boot that may never settle), so the ref is returned here instead.
+        if (disposed) { await releaseOnce(); return; }
         conn = c;
         const { approvalPolicy, sandbox } = codexPolicyFor(opts.permissionMode);
         const config = mcpConfig(opts.mcpServers);
@@ -227,9 +252,13 @@ export class CodexAdapter implements AgentAdapter {
           ...(opts.model ? { model: opts.model } : {}),
           ...(config ? { config } : {}),
         };
+        // Bounded: neither call has a protocol-level deadline, and a child that spawns and then answers
+        // nothing would otherwise leave `boot` — and every send()/setOptions()/dispose() behind it — pending
+        // for the life of the process.
+        const bootMs = this.bootTimeoutMs ?? BOOT_TIMEOUT_MS;
         const res = obj(opts.resume
-          ? await c.request("thread/resume", { threadId: opts.resume, ...common })
-          : await c.request("thread/start", { ...common, sessionStartSource: "startup" }));
+          ? await c.request("thread/resume", { threadId: opts.resume, ...common }, bootMs)
+          : await c.request("thread/start", { ...common, sessionStartSource: "startup" }, bootMs));
         if (disposed) return;
         const id = str(obj(res.thread).id) || str(opts.resume);
         if (!id) throw new Error("codex did not return a thread id");
@@ -304,7 +333,13 @@ export class CodexAdapter implements AgentAdapter {
         opts.onLog?.(`[codex] ${parts.join(" ")} recorded; codex fixes these at thread start, so it applies the next time this session starts`);
       },
       dispose: async () => {
-        await boot; // never leave a half-attached thread behind a dispose that raced the boot
+        // Waiting for boot keeps a dispose that raced it from leaving a half-attached thread behind — but the
+        // wait is bounded, because SessionService.closeAll() -> App.close() -> app quit is what is behind it.
+        // An unbounded wait here is how the desktop main process ends up SIGTERMing a server that still owns
+        // live agent children.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([boot, new Promise<void>((res) => { timer = setTimeout(res, DISPOSE_TIMEOUT_MS); })]);
+        clearTimeout(timer);
         await shutdown();
       },
     };

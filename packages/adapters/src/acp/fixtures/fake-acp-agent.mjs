@@ -31,6 +31,7 @@
  * fail -32603 with data (Cursor's shape), FAKE_ACP_LOADFAIL=1 makes session/load fail, FAKE_ACP_NOLOAD=1 drops
  * the loadSession capability, FAKE_ACP_NOIMAGE=1 drops the image prompt capability, FAKE_ACP_ALLOWONLY=1 offers no reject option, and FAKE_ACP_LOAD_ASKS=1
  * makes session/load call fs/read_text_file and session/request_permission back on us mid-replay.
+ * FAKE_ACP_MUTE_INITIALIZE=1, FAKE_ACP_MUTE_SESSION_NEW=1 and FAKE_ACP_MUTE_SESSION_LOAD=1 leave that request unanswered forever.
  * FAKE_ACP_IGNORE_EOF=1 keeps the child alive after its stdin closes, FAKE_ACP_NOSESSIONID=1 answers session/new without a sessionId, FAKE_ACP_BADAUTH=1 sends a non-array
  * `authMethods`, and FAKE_ACP_EXIT_MARKER=<path> writes that file when our stdin closes.
  */
@@ -169,6 +170,8 @@ async function loadSession(id, params) {
 function handleRequest(id, method, params) {
   switch (method) {
     case "initialize":
+      // Spawned and mute: an unbounded initialize leaves boot pending forever.
+      if (process.env.FAKE_ACP_MUTE_INITIALIZE) return;
       journal.calls.push({ method, params });
       ok(id, {
         protocolVersion: 1,
@@ -182,6 +185,7 @@ function handleRequest(id, method, params) {
       });
       return;
     case "session/new":
+      if (process.env.FAKE_ACP_MUTE_SESSION_NEW) return; // handshakes, then never opens a session
       if (process.env.FAKE_ACP_AUTHFAIL) { fail(id, -32000, "This client is no longer supported for individuals."); return; }
       if (process.env.FAKE_ACP_STARTFAIL) { fail(id, -32603, "Internal error", { message: "Failed to initialize session services", details: "[unauthenticated] Error" }); return; }
       journal.newParams = params;
@@ -189,6 +193,7 @@ function handleRequest(id, method, params) {
       ok(id, { sessionId: `sess_${nextSessionN++}`, models: { currentModelId: "fake-model-1", availableModels: [{ modelId: "fake-model-1", name: "Fake 1" }] } });
       return;
     case "session/load":
+      if (process.env.FAKE_ACP_MUTE_SESSION_LOAD) return; // never replies: the resume has to time out and fall back
       if (process.env.FAKE_ACP_LOADFAIL) { fail(id, -32603, "no such session on disk"); return; }
       void loadSession(id, params);
       return;

@@ -1,4 +1,4 @@
-import { StdioJsonRpc, type JsonRpcId } from "../jsonrpc/stdio";
+import { StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 
 export type ThreadListener = {
   onNotification: (method: string, params: unknown) => void;
@@ -29,13 +29,6 @@ const threadIdOf = (params: unknown): string | null => {
 };
 
 const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
-function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
-    p.then(resolve, reject).finally(() => clearTimeout(timer));
-  });
-}
 
 /**
  * One `codex app-server` process, shared by every Codex session and fanned out by `threadId`.
@@ -109,7 +102,11 @@ export class CodexConnection {
   /** Visible for tests: frames queued for a thread that has not attached yet. */
   bufferedCount(threadId: string): number { return this.buffer.get(threadId)?.length ?? 0; }
 
-  request<T = unknown>(method: string, params?: unknown): Promise<T> { return this.rpc.request<T>(method, params); }
+  /** `timeoutMs` bounds the wait; without it the call is only settled by an answer or the process dying. */
+  request<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T> {
+    const p = this.rpc.request<T>(method, params);
+    return timeoutMs === undefined ? p : withTimeout(p, timeoutMs, `codex app-server did not answer ${method} within ${timeoutMs}ms`);
+  }
   respond(id: JsonRpcId, result: unknown): void { this.rpc.respond(id, result); }
   respondError(id: JsonRpcId, code: number, message: string): void { this.rpc.respondError(id, code, message); }
 

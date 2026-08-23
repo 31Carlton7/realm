@@ -32,8 +32,9 @@
  * an intentional dispose), `model: "explode"` fails `thread/start` with the revoked-login error shape,
  * `model: "reflect"` echoes the whole `thread/start`/`thread/resume` params object back as the model string
  * (the only field of the start response the adapter surfaces), a resumed thread id containing "busy" rejoins a
- * turn that is already running, and FAKE_CODEX_MUTE_INITIALIZE=1 makes
- * `initialize` go unanswered.
+ * turn that is already running, FAKE_CODEX_MUTE_INITIALIZE=1 makes
+ * `initialize` go unanswered, FAKE_CODEX_INITIALIZE_DELAY_MS=<ms> delays the answer, and FAKE_CODEX_MUTE_THREAD_START=1 makes `thread/start`/`thread/resume` go
+ * unanswered (a child that spawns and handshakes but never opens a thread).
  */
 
 let nextThreadN = 0;
@@ -227,11 +228,17 @@ function startThread(id, params, threadId) {
 
 function handleRequest(id, method, params) {
   switch (method) {
-    case "initialize":
+    case "initialize": {
       if (process.env.FAKE_CODEX_MUTE_INITIALIZE) return; // spawned but mute: drives the open() timeout test
-      ok(id, { userAgent: "fake-codex/0.146.0", codexHome: "/tmp/fake-codex-home" });
+      const reply = () => ok(id, { userAgent: "fake-codex/0.146.0", codexHome: "/tmp/fake-codex-home" });
+      // A handshake slow enough to land after a dispose has already given up waiting for it.
+      const delay = Number(process.env.FAKE_CODEX_INITIALIZE_DELAY_MS ?? 0);
+      if (delay > 0) setTimeout(reply, delay); else reply();
       return;
+    }
     case "thread/start": {
+      // Spawned, handshaken and then mute: an unbounded thread/start leaves boot pending forever.
+      if (process.env.FAKE_CODEX_MUTE_THREAD_START) return;
       if (params.model === "explode") {
         fail(id, -32600, "failed to load configuration", { action: "relogin", statusCode: 401 });
         return;
@@ -248,6 +255,7 @@ function handleRequest(id, method, params) {
       return;
     }
     case "thread/resume":
+      if (process.env.FAKE_CODEX_MUTE_THREAD_START) return;
       startThread(id, params, params.threadId);
       // A thread id containing "busy" was mid-turn when the client went away: resuming rejoins the live turn,
       // whose id the client can only learn from turn/started (the resume response does not carry it).
