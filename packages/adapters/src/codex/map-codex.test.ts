@@ -85,6 +85,69 @@ describe("createCodexMapper", () => {
     expect(types(out)).toEqual(["status"]);
   });
 
+  it("persists a half-streamed message when an interrupted turn completes", () => {
+    // assistant_delta is ephemeral (not in PERSISTED_EVENT_TYPES) and assistant_text only ever comes from
+    // item/completed — which an interrupt never sends. Without a flush the answer is live-only and gone on reload.
+    const m = createCodexMapper();
+    m.map("turn/started", { turn: { id: "t1" } });
+    m.map("item/started", { item: { type: "agentMessage", id: "msg_9", text: "" } });
+    m.map("item/agentMessage/delta", { itemId: "msg_9", delta: "half " });
+    m.map("item/agentMessage/delta", { itemId: "msg_9", delta: "an answer" });
+    const out = m.map("turn/completed", { turn: { id: "t1", status: "interrupted", items: [] } });
+    expect(types(out)).toEqual(["assistant_text", "status"]);
+    expect(out[0]).toMatchObject({ type: "assistant_text", payload: { messageId: "msg_9", text: "half an answer" } });
+  });
+
+  it("persists half-streamed reasoning the same way", () => {
+    const m = createCodexMapper();
+    m.map("turn/started", { turn: { id: "t1" } });
+    m.map("item/started", { item: { type: "reasoning", id: "rs_9", summary: [], content: [] } });
+    m.map("item/reasoning/summaryTextDelta", { itemId: "rs_9", delta: "Checking ", summaryIndex: 0 });
+    m.map("item/reasoning/summaryTextDelta", { itemId: "rs_9", delta: "the request", summaryIndex: 0 });
+    const out = m.map("turn/completed", { turn: { id: "t1", status: "interrupted", items: [] } });
+    expect(types(out)).toEqual(["thinking", "status"]);
+    expect(out[0]).toMatchObject({ type: "thinking", payload: { messageId: "rs_9", text: "Checking the request" } });
+  });
+
+  it("emits exactly one assistant_text on a normal completion — never a second from the flush", () => {
+    // If item/completed stopped clearing the run, every message in every turn would be persisted twice.
+    const m = createCodexMapper();
+    m.map("turn/started", { turn: { id: "t1" } });
+    m.map("item/started", { item: { type: "agentMessage", id: "msg_1", text: "" } });
+    m.map("item/agentMessage/delta", { itemId: "msg_1", delta: "hel" });
+    m.map("item/agentMessage/delta", { itemId: "msg_1", delta: "lo" });
+    const done = m.map("item/completed", { item: { type: "agentMessage", id: "msg_1", text: "hello" } });
+    expect(types(done)).toEqual(["assistant_text"]);
+    const out = m.map("turn/completed", { turn: { id: "t1", status: "completed", items: [] } });
+    expect(types(out)).toEqual(["status"]);
+  });
+
+  it("emits exactly one thinking on a normal reasoning completion", () => {
+    const m = createCodexMapper();
+    m.map("turn/started", { turn: { id: "t1" } });
+    m.map("item/started", { item: { type: "reasoning", id: "rs_1", summary: [], content: [] } });
+    m.map("item/reasoning/summaryTextDelta", { itemId: "rs_1", delta: "Check", summaryIndex: 0 });
+    const done = m.map("item/completed", { item: { type: "reasoning", id: "rs_1", summary: ["Checking the request."], content: [] } });
+    expect(types(done)).toEqual(["thinking"]);
+    expect(types(m.map("turn/completed", { turn: { id: "t1", status: "completed", items: [] } }))).toEqual(["status"]);
+  });
+
+  it("flushes an open message run when the process dies mid-stream", () => {
+    const m = createCodexMapper();
+    m.map("item/started", { item: { type: "agentMessage", id: "msg_2", text: "" } });
+    m.map("item/agentMessage/delta", { itemId: "msg_2", delta: "cut off" });
+    const closed = m.closeOpenTools("process exited");
+    expect(closed).toContainEqual({ type: "assistant_text", ts: expect.any(Number), payload: { messageId: "msg_2", text: "cut off" } });
+    expect(m.closeOpenTools("again")).toEqual([]); // and the run is cleared, not replayed
+  });
+
+  it("does not manufacture an empty assistant_text for a run that streamed nothing", () => {
+    const m = createCodexMapper();
+    m.map("turn/started", { turn: { id: "t1" } });
+    m.map("item/started", { item: { type: "agentMessage", id: "msg_3", text: "" } });
+    expect(types(m.map("turn/completed", { turn: { id: "t1", status: "interrupted", items: [] } }))).toEqual(["status"]);
+  });
+
   it("reports a failed turn as an error before going idle", () => {
     const m = createCodexMapper();
     m.map("turn/started", { turn: { id: "t1" } });

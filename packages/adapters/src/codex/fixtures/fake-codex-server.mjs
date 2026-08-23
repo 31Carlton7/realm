@@ -13,6 +13,7 @@
  * by the text of `turn/start`'s input:
  *
  *   HANG      opens a command item and never finishes the turn        (interrupt / steer tests)
+ *   PARTIAL   streams message deltas and never finishes the item      (partial-text flush tests)
  *   SLOW      (modifier) delays the turn's notifications by 60ms      (turn-id-from-response tests)
  *   GHOST     opens a turn the server does not register as steerable  (turn/steer -> turn/start fallback)
  *   APPROVE   runs one command that needs an approval decision
@@ -189,6 +190,15 @@ async function streamMessageTurn(threadId, turnId, text) {
   endTurn(threadId, turnId);
 }
 
+/** Streams message deltas and then stops: the item never completes, so only a flush can persist the text. */
+async function streamPartialTurn(threadId, turnId, text) {
+  const itemId = `msg_${nextItemN++}`;
+  await openTurn(threadId, turnId, text);
+  notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: { type: "agentMessage", id: itemId, text: "", phase: null, memoryCitation: null } });
+  notify("item/agentMessage/delta", { threadId, turnId, itemId, delta: "half " });
+  notify("item/agentMessage/delta", { threadId, turnId, itemId, delta: "an answer" });
+}
+
 /** Opens a command item and then stops: the turn never completes on its own. */
 async function streamHangTurn(threadId, turnId, text) {
   const cwd = threads.get(threadId)?.cwd ?? process.cwd();
@@ -274,6 +284,7 @@ function handleRequest(id, method, params) {
       // Dies with a tool card still open, so the crash has something to force-close.
       if (text.includes("CRASH")) { void streamHangTurn(params.threadId, turnId, text); setTimeout(() => process.exit(9), 25); return; }
       if (text.includes("GHOST")) { void openTurn(params.threadId, turnId, text); return; }
+      if (text.includes("PARTIAL")) { void streamPartialTurn(params.threadId, turnId, text); return; }
       if (text.includes("HANG")) { void streamHangTurn(params.threadId, turnId, text); return; }
       if (text.includes("APPROVE2")) { void streamTwoApprovalsTurn(params.threadId, turnId, text); return; }
       if (text.includes("PATCH")) { void streamPatchTurn(params.threadId, turnId, text); return; }

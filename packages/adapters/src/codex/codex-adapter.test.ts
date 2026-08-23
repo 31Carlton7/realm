@@ -362,6 +362,26 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
+  it("persists a half-streamed message when the turn is interrupted", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "PARTIAL", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
+    await handle.interrupt();
+    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    // assistant_delta is ephemeral: without the flush the streamed answer never reaches the transcript at all.
+    expect(texts(evs)).toEqual(["half an answer"]);
+    await handle.dispose();
+  });
+
+  it("persists a half-streamed message when the session is disposed mid-stream", async () => {
+    const { handle, evs, done } = await booted();
+    await handle.send({ text: "PARTIAL", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
+    await handle.dispose();
+    await done;
+    expect(texts(evs)).toEqual(["half an answer"]);
+  });
+
   it("records setOptions but reports that it only applies at the next thread start", async () => {
     const logs: string[] = [];
     const { handle, evs } = await booted({ onLog: (l) => logs.push(l) });
