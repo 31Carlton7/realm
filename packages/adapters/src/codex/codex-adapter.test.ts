@@ -1,19 +1,32 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
 import { CodexAdapter, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
 import type { AgentHandle, StartOptions } from "../types";
 
+/**
+ * Every assertion in this file is gated on a real child process: node cold start, module load and at least one
+ * round trip. vitest's 1000 ms default is routinely too tight for that on a loaded two-core CI runner, and a
+ * longer bound costs nothing when the assertion passes.
+ */
+const waitFor = <T>(fn: () => T | Promise<T>) => vi.waitFor(fn, { timeout: 10_000, interval: 25 });
+
 const FAKE = fileURLToPath(new URL("./fixtures/fake-codex-server.mjs", import.meta.url));
 const newAdapter = (o: { bootTimeoutMs?: number } = {}) => new CodexAdapter({ bin: process.execPath, args: [FAKE], ...o });
 const startOpts = (o: Partial<StartOptions> = {}): StartOptions => ({ cwd: process.cwd(), mcpServers: [], ...o });
 
-/** Drains the handle's event stream into an array the assertions poll with `vi.waitFor`. */
+/** Drains the handle's event stream into an array the assertions poll with `waitFor`. */
 function drain(h: AgentHandle) {
+  live.push(h);
   const evs: SessionEvent[] = [];
   const done = (async () => { for await (const e of h.events) evs.push(e); })();
   return { evs, done };
 }
+
+/** Every handle a test drained. A failing assertion skips the test's own dispose(); this stops that leaking a
+ *  child process (and, with it, the shared app-server) into the rest of the run. */
+const live: AgentHandle[] = [];
+afterEach(async () => { for (const h of live.splice(0)) await h.dispose().catch(() => {}); });
 const types = (evs: SessionEvent[]) => evs.map((e) => e.type);
 const statuses = (evs: SessionEvent[]) => evs.filter((e) => e.type === "status").map((e) => e.payload.status);
 const of = <T extends SessionEventType>(evs: SessionEvent[], t: T) => evs.filter((e) => e.type === t) as SessionEventOf<T>[];
@@ -24,7 +37,7 @@ async function booted(o: Partial<StartOptions> = {}) {
   const adapter = newAdapter();
   const handle = adapter.start(startOpts(o));
   const { evs, done } = drain(handle);
-  await vi.waitFor(() => expect(types(evs)).toContain("init"));
+  await waitFor(() => expect(types(evs)).toContain("init"));
   return { adapter, handle, evs, done };
 }
 
@@ -90,8 +103,8 @@ describe("CodexAdapter", () => {
     expect(statuses(evs)).toEqual(["idle"]);
 
     await handle.send({ text: "hi", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "usage")).toHaveLength(1));
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(of(evs, "usage")).toHaveLength(1));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
 
     expect(of(evs, "assistant_delta").map((e) => e.payload.delta)).toEqual(["hel", "lo"]);
     expect(texts(evs)).toEqual(["hello"]);
@@ -108,7 +121,7 @@ describe("CodexAdapter", () => {
     // attach() flushes the thread's buffer synchronously, so init has to be pushed before attaching or the
     // transcript opens with a status change out of nowhere.
     expect(types(evs)[0]).toBe("init");
-    await vi.waitFor(() => expect(statuses(evs)).toEqual(["idle", "running"]));
+    await waitFor(() => expect(statuses(evs)).toEqual(["idle", "running"]));
     await handle.dispose();
   });
 
@@ -117,7 +130,7 @@ describe("CodexAdapter", () => {
     const handle = adapter.start(startOpts());
     const { evs } = drain(handle);
     await handle.send({ text: "hi", attachments: [] }); // no wait for init
-    await vi.waitFor(() => expect(texts(evs)).toEqual(["hello"]));
+    await waitFor(() => expect(texts(evs)).toEqual(["hello"]));
     expect(types(evs).indexOf("init")).toBeLessThan(types(evs).indexOf("assistant_text"));
     await handle.dispose();
   });
@@ -128,7 +141,7 @@ describe("CodexAdapter", () => {
       text: "ECHO please",
       attachments: [{ path: "/tmp/shot.png", mime: "image/png" }, { path: "/tmp/notes.txt", mime: "text/plain" }],
     });
-    await vi.waitFor(() => expect(texts(evs)).toHaveLength(1));
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
     const input = JSON.parse(texts(evs)[0]!) as Array<Record<string, unknown>>;
     expect(input).toHaveLength(2);
     // text_elements is a non-optional array in UserInput; omitting it is a deserialize error on the real server.
@@ -143,7 +156,7 @@ describe("CodexAdapter", () => {
   it("sends only a text block when there are no attachments", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "ECHO", attachments: [] });
-    await vi.waitFor(() => expect(texts(evs)).toHaveLength(1));
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
     expect(JSON.parse(texts(evs)[0]!)).toEqual([{ type: "text", text: "ECHO", text_elements: [] }]);
     await handle.dispose();
   });
@@ -193,10 +206,10 @@ describe("CodexAdapter", () => {
 
   it("rejoins a turn that was already running when the thread was resumed", async () => {
     const { handle, evs } = await booted({ resume: "th_busy" });
-    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
     // Nothing here ever called turn/start, so turn/started is the only place the turn id came from.
     await handle.interrupt();
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     expect(of(evs, "tool_result")[0]!.payload.content).toBe("interrupted");
     await handle.dispose();
   });
@@ -204,7 +217,7 @@ describe("CodexAdapter", () => {
   it("bridges a fileChange approval as apply_patch with the itemId and grantRoot", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "PATCH", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     const req = of(evs, "permission_request")[0]!.payload;
     expect(req.toolName).toBe("apply_patch");
     expect(req.input).toEqual({ itemId: of(evs, "tool_call")[0]!.payload.toolUseId, grantRoot: "/repo" });
@@ -212,7 +225,7 @@ describe("CodexAdapter", () => {
     expect(req.suggestions).toEqual(["accept", "acceptForSession", "decline", "cancel"]);
 
     handle.respondPermission(req.requestId, "allow");
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ content: "edit /repo/src/a.ts\n@@\n-old\n+new", isError: false });
     await handle.dispose();
   });
@@ -220,9 +233,9 @@ describe("CodexAdapter", () => {
   it("denies a fileChange approval with decline, which this request does offer", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "PATCH", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     expect(of(evs, "tool_result")[0]!.payload.isError).toBe(true);
     await handle.dispose();
   });
@@ -230,7 +243,7 @@ describe("CodexAdapter", () => {
   it("bridges a command approval and produces the tool_result once allowed", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "APPROVE", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     expect(statuses(evs).at(-1)).toBe("waiting_permission");
 
     const req = of(evs, "permission_request")[0]!.payload;
@@ -240,7 +253,7 @@ describe("CodexAdapter", () => {
     expect(of(evs, "tool_call")[0]!.payload.name).toBe("exec_command");
 
     handle.respondPermission(req.requestId, "allow");
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     expect(of(evs, "permission_response")[0]!.payload).toEqual({ requestId: req.requestId, decision: "allow" });
     // exitCode 0 only happens if "accept" actually reached the child.
     expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ content: "hi\n", isError: false });
@@ -252,31 +265,31 @@ describe("CodexAdapter", () => {
   it("denies a command approval with a decision the server actually offers", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "APPROVE", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     // The fixture only accepts "accept"/"cancel"; a hard-coded "decline" would leave the turn wedged.
     expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ isError: true });
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
     await handle.dispose();
   });
 
   it("flips to waiting_permission only for the first open request, and back only after the last", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "APPROVE2", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(2));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(2));
     expect(statuses(evs).filter((s) => s === "waiting_permission")).toHaveLength(1);
 
     const [first, second] = of(evs, "permission_request").map((e) => e.payload.requestId);
     const beforeAnswers = statuses(evs).length;
     handle.respondPermission(first!, "allow");
-    await vi.waitFor(() => expect(of(evs, "permission_response")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_response")).toHaveLength(1));
     expect(statuses(evs)).toHaveLength(beforeAnswers); // one still open: status must not be restored yet
 
     handle.respondPermission(second!, "allow");
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(2));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(2));
     expect(statuses(evs)[beforeAnswers]).toBe("running"); // restored exactly once, when the last one closed
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
     await handle.dispose();
   });
 
@@ -285,7 +298,7 @@ describe("CodexAdapter", () => {
     const { handle, evs } = await booted({ onLog: (l) => logs.push(l) });
     await handle.send({ text: "ODDBALL", attachments: [] });
     // The fixture only finishes the turn once its odd request is answered.
-    await vi.waitFor(() => expect(texts(evs)).toEqual(["refused: -32601"]));
+    await waitFor(() => expect(texts(evs)).toEqual(["refused: -32601"]));
     expect(types(evs)).not.toContain("permission_request");
     expect(logs.some((l) => l.includes("item/tool/requestUserInput"))).toBe(true);
     await handle.dispose();
@@ -294,9 +307,9 @@ describe("CodexAdapter", () => {
   it("steers into a live turn rather than starting a second one", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "HANG", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
     await handle.send({ text: "and also this", attachments: [] });
-    await vi.waitFor(() => expect(texts(evs)).toEqual(["steered:and also this"]));
+    await waitFor(() => expect(texts(evs)).toEqual(["steered:and also this"]));
     await handle.dispose();
   });
 
@@ -304,7 +317,7 @@ describe("CodexAdapter", () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "HANG SLOW", attachments: [] }); // notifications are 60ms behind the response
     await handle.send({ text: "immediately", attachments: [] });
-    await vi.waitFor(() => expect(texts(evs)).toEqual(["steered:immediately"]));
+    await waitFor(() => expect(texts(evs)).toEqual(["steered:immediately"]));
     await handle.dispose();
   });
 
@@ -312,20 +325,20 @@ describe("CodexAdapter", () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "GHOST", attachments: [] }); // opens a turn the server does not consider steerable
     await handle.send({ text: "second", attachments: [] });
-    await vi.waitFor(() => expect(texts(evs)).toEqual(["hello"]));
+    await waitFor(() => expect(texts(evs)).toEqual(["hello"]));
     expect(texts(evs).some((t) => t.startsWith("steered:"))).toBe(false);
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
     await handle.dispose();
   });
 
   it("force-closes an open tool card on interrupt and returns to idle", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "HANG", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
     expect(types(evs)).not.toContain("tool_result");
 
     await handle.interrupt();
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ toolUseId: of(evs, "tool_call")[0]!.payload.toolUseId, content: "interrupted", isError: true });
     expect(statuses(evs).at(-1)).toBe("idle");
     await handle.dispose();
@@ -334,10 +347,10 @@ describe("CodexAdapter", () => {
   it("denies pending permissions on interrupt", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "APPROVE", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     await handle.interrupt();
     expect(of(evs, "permission_response")[0]!.payload.decision).toBe("deny");
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     await handle.dispose();
   });
 
@@ -353,21 +366,24 @@ describe("CodexAdapter", () => {
   it("does not interrupt a turn that already completed", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "hi", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "usage")).toHaveLength(1));
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
-    const before = statuses(evs).length;
+    const done = ["idle", "running", "running", "idle", "idle"];
+    await waitFor(() => expect(statuses(evs)).toEqual(done));
     await handle.interrupt();
-    await new Promise((r) => setTimeout(r, 40));
-    expect(statuses(evs)).toHaveLength(before); // a stray turn/interrupt would add idle + turn/completed
+    // A positive signal rather than a sleep: run a second turn to completion. A stray turn/interrupt is
+    // written to the child ahead of this turn's own frames, so anything it produced is already in `evs` by
+    // the time the second answer lands — and the exact sequence below has no room for it.
+    await handle.send({ text: "again", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toEqual(["hello", "hello"]));
+    await waitFor(() => expect(statuses(evs)).toEqual([...done, "running", "running", "idle", "idle"]));
     await handle.dispose();
   });
 
   it("persists a half-streamed message when the turn is interrupted", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "PARTIAL", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
+    await waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
     await handle.interrupt();
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
     // assistant_delta is ephemeral: without the flush the streamed answer never reaches the transcript at all.
     expect(texts(evs)).toEqual(["half an answer"]);
     await handle.dispose();
@@ -376,7 +392,7 @@ describe("CodexAdapter", () => {
   it("persists a half-streamed message when the session is disposed mid-stream", async () => {
     const { handle, evs, done } = await booted();
     await handle.send({ text: "PARTIAL", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
+    await waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
     await handle.dispose();
     await done;
     expect(texts(evs)).toEqual(["half an answer"]);
@@ -419,7 +435,7 @@ describe("CodexAdapter", () => {
   it("reports a failed turn/start instead of leaving the session stuck on running", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "REFUSE", attachments: [] });
-    await vi.waitFor(() => expect(statuses(evs)).toEqual(["idle", "running", "idle"]));
+    await waitFor(() => expect(statuses(evs)).toEqual(["idle", "running", "idle"]));
     expect(of(evs, "error")[0]!.payload.message).toMatch(/the model refused this turn/);
     await handle.dispose();
   });
@@ -427,9 +443,9 @@ describe("CodexAdapter", () => {
   it("reports a steer failure that is not the stale-turn race instead of starting a second turn", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "HANG", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
     await handle.send({ text: "BADSTEER", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "error")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "error")).toHaveLength(1));
     expect(of(evs, "error")[0]!.payload.message).toMatch(/internal error while steering/);
     // Retrying this as turn/start would silently run a SECOND concurrent turn against the same thread.
     expect(texts(evs)).toEqual([]);
@@ -476,7 +492,7 @@ describe("CodexAdapter", () => {
     const two = adapter.start(startOpts());
     const a = drain(one);
     const b = drain(two);
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(types(a.evs)).toContain("init");
       expect(types(b.evs)).toContain("init");
     });
@@ -487,7 +503,7 @@ describe("CodexAdapter", () => {
     expect(adapter.processCount).toBe(1); // the surviving session still owns the process
 
     await two.send({ text: "hi", attachments: [] });
-    await vi.waitFor(() => expect(texts(b.evs)).toEqual(["hello"]));
+    await waitFor(() => expect(texts(b.evs)).toEqual(["hello"]));
     expect(types(a.evs)).not.toContain("assistant_text"); // and the disposed one hears nothing
 
     const conn = (await adapter.connection)!;
@@ -503,7 +519,7 @@ describe("CodexAdapter", () => {
     const two = adapter.start(startOpts());
     const a = drain(one);
     const b = drain(two);
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(types(a.evs)).toContain("init");
       expect(types(b.evs)).toContain("init");
     });
@@ -556,7 +572,7 @@ describe("CodexAdapter", () => {
   it("closes open tool cards when the session is disposed mid-turn", async () => {
     const { handle, evs, done } = await booted();
     await handle.send({ text: "HANG", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
     await handle.dispose();
     await done;
     expect(of(evs, "tool_result")).toHaveLength(1);
@@ -567,7 +583,7 @@ describe("CodexAdapter", () => {
   it("reports an unexpected process death as an error and blames the crash on the open tool card", async () => {
     const { adapter, handle, evs, done } = await booted();
     await handle.send({ text: "CRASH", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
     await done;
     expect(of(evs, "error")).toHaveLength(1);
     expect(of(evs, "error")[0]!.payload.message).toMatch(/exited/);
@@ -580,7 +596,7 @@ describe("CodexAdapter", () => {
   it("resolves a pending permission card when the session is disposed under it", async () => {
     const { handle, evs, done } = await booted();
     await handle.send({ text: "APPROVE", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     await handle.dispose();
     await done;
     // An unanswered request leaves a dangling card in the UI and wedges that thread on a shared process.
@@ -640,7 +656,7 @@ describe("CodexAdapter", () => {
     const { done } = drain(handle);
     await handle.dispose();
     await done;
-    await vi.waitFor(() => expect(adapter.processCount).toBe(0), { timeout: 10_000, interval: 25 });
+    await waitFor(() => expect(adapter.processCount).toBe(0));
     expect(adapter.sessionCount).toBe(0);
     expect((await conn).alive).toBe(false);
   });

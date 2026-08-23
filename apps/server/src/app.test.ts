@@ -8,11 +8,17 @@ describe("defaultAdapters", () => {
     expect(reg.codex?.kind).toBe("codex");
   });
   it("only registers the fake agent behind the env flag", () => {
-    delete process.env.REALM_ENABLE_FAKE_AGENT;
-    expect(defaultAdapters().fake).toBeUndefined();
-    process.env.REALM_ENABLE_FAKE_AGENT = "1";
-    expect(defaultAdapters().fake).toBeDefined();
-    delete process.env.REALM_ENABLE_FAKE_AGENT;
+    const before = process.env.REALM_ENABLE_FAKE_AGENT;
+    try {
+      delete process.env.REALM_ENABLE_FAKE_AGENT;
+      expect(defaultAdapters().fake).toBeUndefined();
+      process.env.REALM_ENABLE_FAKE_AGENT = "1";
+      expect(defaultAdapters().fake).toBeDefined();
+    } finally {
+      // A failed assertion would otherwise leave the flag set for every later test in this process.
+      if (before === undefined) delete process.env.REALM_ENABLE_FAKE_AGENT;
+      else process.env.REALM_ENABLE_FAKE_AGENT = before;
+    }
   });
 
   it("registers both ACP agents with their own launch commands", () => {

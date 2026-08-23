@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, symlink, truncate, writeFile } from "node:fs/promises";
@@ -9,6 +9,13 @@ import { AcpAdapter, acpBootFailureMessage, MAX_FS_READ_BYTES, pickAcpOption, sl
 import { JsonRpcCallError } from "../jsonrpc/stdio";
 import type { AgentHandle, StartOptions } from "../types";
 
+/**
+ * Every assertion in this file is gated on a real child process: node cold start, module load and at least one
+ * round trip. vitest's 1000 ms default is routinely too tight for that on a loaded two-core CI runner, and a
+ * longer bound costs nothing when the assertion passes.
+ */
+const waitFor = <T>(fn: () => T | Promise<T>) => vi.waitFor(fn, { timeout: 10_000, interval: 25 });
+
 const FAKE = fileURLToPath(new URL("./fixtures/fake-acp-agent.mjs", import.meta.url));
 const spec = (o: Partial<AcpAgentSpec> = {}): AcpAgentSpec => ({
   kind: "acp:cursor", bin: process.execPath, args: [FAKE],
@@ -17,12 +24,18 @@ const spec = (o: Partial<AcpAgentSpec> = {}): AcpAgentSpec => ({
 const newAdapter = (o: Partial<AcpAgentSpec> = {}) => new AcpAdapter(spec(o));
 const startOpts = (o: Partial<StartOptions> = {}): StartOptions => ({ cwd: process.cwd(), mcpServers: [], ...o });
 
-/** Drains the handle's event stream into an array the assertions poll with `vi.waitFor`. */
+/** Drains the handle's event stream into an array the assertions poll with `waitFor`. */
 function drain(h: AgentHandle) {
+  live.push(h);
   const evs: SessionEvent[] = [];
   const done = (async () => { for await (const e of h.events) evs.push(e); })();
   return { evs, done };
 }
+
+/** Every handle a test drained. A failing assertion skips the test's own dispose(); this stops that leaking a
+ *  child process into the rest of the run. */
+const live: AgentHandle[] = [];
+afterEach(async () => { for (const h of live.splice(0)) await h.dispose().catch(() => {}); });
 const types = (evs: SessionEvent[]) => evs.map((e) => e.type);
 const statuses = (evs: SessionEvent[]) => evs.filter((e) => e.type === "status").map((e) => e.payload.status);
 const of = <T extends SessionEventType>(evs: SessionEvent[], t: T) => evs.filter((e) => e.type === t) as SessionEventOf<T>[];
@@ -34,18 +47,15 @@ async function booted(o: Partial<StartOptions> = {}, s: Partial<AcpAgentSpec> = 
   const adapter = newAdapter(s);
   const handle = adapter.start(startOpts(o));
   const { evs, done } = drain(handle);
-  await vi.waitFor(() => expect(types(evs).some((t) => t === "init" || t === "error")).toBe(true));
+  await waitFor(() => expect(types(evs).some((t) => t === "init" || t === "error")).toBe(true));
   return { adapter, handle, evs, done };
 }
-
-/** Lets the queue hand everything already pushed to the drain loop, which delivers asynchronously. */
-const settled = () => new Promise((r) => setTimeout(r, 0));
 
 /** Runs one turn and waits for it to settle back to idle. */
 async function turn(handle: AgentHandle, evs: SessionEvent[], text: string) {
   const before = statuses(evs).length;
   await handle.send({ text, attachments: [] });
-  await vi.waitFor(() => expect(statuses(evs).slice(before).at(-1)).toBe("idle"));
+  await waitFor(() => expect(statuses(evs).slice(before).at(-1)).toBe("idle"));
 }
 
 const ALLOW_ONLY = [
@@ -177,7 +187,7 @@ describe("AcpAdapter", () => {
     // The spec's env is a default for the agent; a session's own env is the more specific value and wins.
     const { handle, evs } = await booted({ cwd: dir, env: { FAKE_ACP_NOIMAGE: "" } }, { env: { FAKE_ACP_NOIMAGE: "1" } });
     await handle.send({ text: "ECHO", attachments: [{ path: png, mime: "image/png" }] });
-    await vi.waitFor(() => expect(texts(evs)).toHaveLength(1));
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
     expect((JSON.parse(texts(evs)[0]!) as Record<string, unknown>[])[1]).toMatchObject({ type: "image" });
     await turn(handle, evs, "REVEAL");
     expect((JSON.parse(texts(evs)[1]!) as { cwd: string }).cwd).toBe(dir);
@@ -222,7 +232,7 @@ describe("AcpAdapter", () => {
     const handle = newAdapter().start(startOpts());
     const { evs } = drain(handle);
     await handle.send({ text: "hi", attachments: [] }); // no wait for init
-    await vi.waitFor(() => expect(texts(evs)).toEqual(["Hello"]));
+    await waitFor(() => expect(texts(evs)).toEqual(["Hello"]));
     expect(types(evs).indexOf("init")).toBeLessThan(types(evs).indexOf("assistant_text"));
     await handle.dispose();
   });
@@ -244,9 +254,9 @@ describe("AcpAdapter", () => {
     // session/prompt stays pending for the whole turn. SessionService.send() awaits this, and the RPC method
     // awaits that, so awaiting the prompt would hang the WebSocket call for the length of the turn.
     expect(elapsed).toBeLessThan(1000);
-    await vi.waitFor(() => expect(statuses(evs)).toEqual(["idle", "running"]));
+    await waitFor(() => expect(statuses(evs)).toEqual(["idle", "running"]));
     await handle.interrupt();
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
     // The connection survives cancellation: the agent flushed "bye" before resolving, and the next turn works.
     expect(texts(evs)).toEqual(["bye"]);
     expect(errors(evs)).toEqual([]);
@@ -258,7 +268,7 @@ describe("AcpAdapter", () => {
   it("bridges a permission request, allows it, and surfaces the tool result", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "PERMIT", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     const req = of(evs, "permission_request")[0]!.payload;
     expect(statuses(evs)).toEqual(["idle", "running", "waiting_permission"]);
     // The request's toolCall is a sparse patch carrying only toolCallId, so both the name and the input come
@@ -270,7 +280,7 @@ describe("AcpAdapter", () => {
     expect(req.suggestions[0]).toMatchObject({ optionId: "allow-once", kind: "allow_once" });
 
     handle.respondPermission(req.requestId, "allow");
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
     expect(of(evs, "permission_response")[0]!.payload).toEqual({ requestId: req.requestId, decision: "allow" });
     expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ content: "outcome:allow-once", isError: false });
     expect(statuses(evs)).toEqual(["idle", "running", "waiting_permission", "running", "idle"]);
@@ -280,9 +290,9 @@ describe("AcpAdapter", () => {
   it("echoes the reject option a deny maps to", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "PERMIT", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ content: "outcome:reject-once", isError: true });
     await handle.dispose();
   });
@@ -290,9 +300,9 @@ describe("AcpAdapter", () => {
   it("answers cancelled — never an allow — when the agent offers no reject option", async () => {
     const { handle, evs } = await booted({}, { env: { FAKE_ACP_ALLOWONLY: "1" } });
     await handle.send({ text: "PERMIT", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     expect(of(evs, "tool_result")[0]!.payload.content).toBe("outcome:cancelled");
     await handle.dispose();
   });
@@ -300,16 +310,18 @@ describe("AcpAdapter", () => {
   it("raises waiting_permission once while two requests are open", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "PERMIT2", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(2));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(2));
     expect(statuses(evs).filter((s) => s === "waiting_permission")).toHaveLength(1);
     const [a, b] = of(evs, "permission_request").map((e) => e.payload.requestId);
     handle.respondPermission(a!, "allow");
-    await settled();
+    // A positive signal rather than one macrotask: the agent completes that call as soon as it is answered,
+    // so its tool_result is proof the answer was delivered and acted on.
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     // One answer does not end the wait — the other request is still open.
     expect(statuses(evs).at(-1)).toBe("waiting_permission");
     handle.respondPermission(b!, "allow_always");
-    await vi.waitFor(() => expect(statuses(evs).filter((s) => s === "running")).toHaveLength(2));
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(statuses(evs).filter((s) => s === "running")).toHaveLength(2));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
     expect(statuses(evs)).toEqual(["idle", "running", "waiting_permission", "running", "idle"]);
     expect(of(evs, "tool_result").map((e) => e.payload.content).sort()).toEqual(["outcome:allow-always", "outcome:allow-once"]);
     await handle.dispose();
@@ -318,12 +330,12 @@ describe("AcpAdapter", () => {
   it("cancels every open permission on interrupt without killing the connection", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "PERMIT", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     await handle.interrupt();
-    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     expect(of(evs, "tool_result")[0]!.payload.content).toBe("outcome:cancelled");
     expect(of(evs, "permission_response")).toHaveLength(1);
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
     expect(types(evs)).not.toContain("error");
     await handle.dispose();
   });
@@ -554,7 +566,7 @@ describe("AcpAdapter", () => {
     await writeFile(png, Buffer.from([1, 2, 3, 4]));
     const { handle, evs } = await booted();
     await handle.send({ text: "ECHO", attachments: [{ path: png, mime: "image/png" }] });
-    await vi.waitFor(() => expect(texts(evs)).toHaveLength(1));
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
     const prompt = JSON.parse(texts(evs)[0]!) as Record<string, unknown>[];
     expect(prompt[0]).toEqual({ type: "text", text: "ECHO" });
     expect(prompt[1]).toEqual({ type: "image", data: Buffer.from([1, 2, 3, 4]).toString("base64"), mimeType: "image/png" });
@@ -571,7 +583,7 @@ describe("AcpAdapter", () => {
     expect(prompt).toHaveLength(1);
     const linked = await booted({}, { env: { FAKE_ACP_NOIMAGE: "1" } });
     await linked.handle.send({ text: "ECHO", attachments: [{ path: png, mime: "image/png" }] });
-    await vi.waitFor(() => expect(texts(linked.evs)).toHaveLength(1));
+    await waitFor(() => expect(texts(linked.evs)).toHaveLength(1));
     expect((JSON.parse(texts(linked.evs)[0]!) as Record<string, unknown>[])[1])
       .toEqual({ type: "resource_link", uri: `file://${png}`, name: "shot.png", mimeType: "image/png" });
     await handle.dispose();
@@ -582,7 +594,7 @@ describe("AcpAdapter", () => {
     const { handle, evs } = await booted();
     // Cursor reports embeddedContext:false, so a `resource` block would be rejected outright.
     await handle.send({ text: "ECHO", attachments: [{ path: "/tmp/notes.txt", mime: "text/plain" }] });
-    await vi.waitFor(() => expect(texts(evs)).toHaveLength(1));
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
     const prompt = JSON.parse(texts(evs)[0]!) as Record<string, unknown>[];
     expect(prompt[1]).toEqual({ type: "resource_link", uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain" });
     await handle.dispose();
@@ -604,7 +616,7 @@ describe("AcpAdapter", () => {
   it("reports a failed prompt and settles back to idle", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "FAIL", attachments: [] });
-    await vi.waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
     expect(errors(evs)[0]).toContain("prompt exploded");
     await handle.dispose();
   });
@@ -647,7 +659,7 @@ describe("AcpAdapter", () => {
   it("flushes a half-streamed message when the session is disposed", async () => {
     const { handle, evs, done } = await booted();
     await handle.send({ text: "OPENTEXT", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(1));
     await handle.dispose();
     await done;
     // assistant_delta is ephemeral: without the flush the partial answer never reaches the transcript at all.
@@ -657,7 +669,7 @@ describe("AcpAdapter", () => {
   it("answers a permission still open at dispose instead of leaving it dangling", async () => {
     const { handle, evs, done } = await booted();
     await handle.send({ text: "PERMIT", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
     const { requestId } = of(evs, "permission_request")[0]!.payload;
     await handle.dispose();
     await done;
@@ -679,7 +691,7 @@ describe("AcpAdapter", () => {
   it("closes a tool call that is still open when the session is disposed", async () => {
     const { handle, evs, done } = await booted();
     await handle.send({ text: "OPENTOOL", attachments: [] });
-    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
     await handle.dispose();
     await done;
     expect(of(evs, "tool_result")[0]!.payload).toEqual({ toolUseId: of(evs, "tool_call")[0]!.payload.toolUseId, content: "session closed", isError: true });
@@ -738,7 +750,7 @@ describe("AcpAdapter", () => {
     const adapter = newAdapter({ bootTimeoutMs: 200, env: { FAKE_ACP_MUTE_SESSION_LOAD: "1" } });
     const handle = adapter.start(startOpts({ resume: "sess_prev", onLog: (l) => logs.push(l) }));
     const { evs } = drain(handle);
-    await vi.waitFor(() => expect(types(evs)).toContain("init"), { timeout: 10_000, interval: 25 });
+    await waitFor(() => expect(types(evs)).toContain("init"));
     expect(of(evs, "init")[0]!.payload.providerSessionId).toBe("sess_0");
     expect(logs.join("\n")).toMatch(/session\/load within 200ms/);
     await handle.dispose();

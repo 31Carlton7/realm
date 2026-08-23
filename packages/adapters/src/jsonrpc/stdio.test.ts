@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { StdioJsonRpc, JsonRpcCallError } from "./stdio";
 
+/**
+ * Every assertion in this file is gated on a real child process: node cold start, module load and at least one
+ * round trip. vitest's 1000 ms default is routinely too tight for that on a loaded two-core CI runner, and a
+ * longer bound costs nothing when the assertion passes.
+ */
+const waitFor = <T>(fn: () => T | Promise<T>) => vi.waitFor(fn, { timeout: 10_000, interval: 25 });
+
 /** A child that echoes back one canned reply per inbound line. Written as a node -e script so the test exercises real ndjson framing. */
 const echoScript = `
 let buf = "";
@@ -72,7 +79,7 @@ describe("StdioJsonRpc", () => {
     // pending, then delays the real response ~150ms. This is a genuine race, not a coincidence of
     // disjoint id spaces: id-first dispatch would find the pending entry and settle the promise wrong.
     const inFlight = rpc.request("slowPing", { n: 1 });
-    await vi.waitFor(() => expect(serverRequests).toHaveLength(1));
+    await waitFor(() => expect(serverRequests).toHaveLength(1));
     expect(serverRequests[0]).toMatchObject({ method: "askYou" });
     const liveId = serverRequests[0]!.id;
     // The colliding server request must not have touched the pending client request: it should still
@@ -85,14 +92,14 @@ describe("StdioJsonRpc", () => {
   it("delivers notifications (which have no id)", async () => {
     const { rpc, notifications } = make();
     rpc.notify("notifyMe");
-    await vi.waitFor(() => expect(notifications).toContainEqual({ method: "tick", params: { at: 1 } }));
+    await waitFor(() => expect(notifications).toContainEqual({ method: "tick", params: { at: 1 } }));
     await rpc.dispose();
   });
 
   it("keeps a bounded stderr tail and forwards lines", async () => {
     const { rpc, stderr } = make();
     rpc.notify("loud");
-    await vi.waitFor(() => expect(stderr).toEqual(["noise-1", "noise-2"]));
+    await waitFor(() => expect(stderr).toEqual(["noise-1", "noise-2"]));
     expect(rpc.stderrTail).toEqual(["noise-1", "noise-2"]);
     await rpc.dispose();
   });
@@ -100,7 +107,7 @@ describe("StdioJsonRpc", () => {
   it("caps the stderr tail at 50 lines, dropping the oldest", async () => {
     const { rpc, stderr } = make();
     rpc.notify("spam");
-    await vi.waitFor(() => expect(stderr).toHaveLength(60));
+    await waitFor(() => expect(stderr).toHaveLength(60));
     expect(rpc.stderrTail).toHaveLength(50);
     expect(rpc.stderrTail[0]).toBe("line-11");
     expect(rpc.stderrTail[49]).toBe("line-60");
@@ -125,7 +132,7 @@ describe("StdioJsonRpc", () => {
   it("rejects in-flight requests and reports exit when the child dies", async () => {
     const { rpc, onExit } = make({ args: ["-e", "process.exit(3)"] });
     await expect(rpc.request("ping")).rejects.toThrow(/exited/);
-    await vi.waitFor(() => expect(onExit).toHaveBeenCalled());
+    await waitFor(() => expect(onExit).toHaveBeenCalled());
     expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ disposed: false }));
     await rpc.dispose();
   });
@@ -133,7 +140,7 @@ describe("StdioJsonRpc", () => {
   it("reports a spawn failure as an exit rather than throwing", async () => {
     const { rpc, onExit } = make({ command: "/definitely/not/a/binary", args: [] });
     await expect(rpc.request("ping")).rejects.toThrow();
-    await vi.waitFor(() => expect(onExit).toHaveBeenCalled());
+    await waitFor(() => expect(onExit).toHaveBeenCalled());
     expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ disposed: false }));
     await rpc.dispose();
   });

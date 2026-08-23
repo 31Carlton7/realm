@@ -2,6 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { CodexConnection, type CodexConnectionOptions } from "./connection";
 
+/**
+ * Every assertion in this file is gated on a real child process: node cold start, module load and at least one
+ * round trip. vitest's 1000 ms default is routinely too tight for that on a loaded two-core CI runner, and a
+ * longer bound costs nothing when the assertion passes.
+ */
+const waitFor = <T>(fn: () => T | Promise<T>) => vi.waitFor(fn, { timeout: 10_000, interval: 25 });
+
 const FAKE = fileURLToPath(new URL("./fixtures/fake-codex-server.mjs", import.meta.url));
 const open = (extra: Partial<CodexConnectionOptions> = {}) =>
   CodexConnection.open({ bin: process.execPath, args: [FAKE], cwd: process.cwd(), ...extra });
@@ -41,7 +48,7 @@ describe("CodexConnection", () => {
     c.attach(a.thread.id, { ...silent, onNotification: (m) => seenA.push(m) });
     c.attach(b.thread.id, { ...silent, onNotification: (m) => seenB.push(m) });
     await say(c, a.thread.id, "hi");
-    await vi.waitFor(() => expect(seenA).toContain("turn/completed"));
+    await waitFor(() => expect(seenA).toContain("turn/completed"));
     expect(seenB).toEqual([]);
     await c.dispose();
   });
@@ -62,7 +69,7 @@ describe("CodexConnection", () => {
       onServerRequest: (id, method) => { seen.push(method); c.respond(id, { decision: "accept" }); },
     });
     await say(c, t.thread.id, "APPROVE");
-    await vi.waitFor(() => expect(seen).toContain("turn/completed"));
+    await waitFor(() => expect(seen).toContain("turn/completed"));
     expect(seen).toContain("item/commandExecution/requestApproval");
     // exitCode 0 only happens if the listener's "accept" actually reached the child.
     expect(completed).toHaveLength(1);
@@ -75,7 +82,7 @@ describe("CodexConnection", () => {
     const c = await open();
     const t = await startThread(c);
     await say(c, t.thread.id, "hi");
-    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
+    await waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
     const seen: string[] = [];
     c.attach(t.thread.id, { ...silent, onNotification: (m) => seen.push(m) });
     expect(seen).toEqual(MESSAGE_TURN);
@@ -88,7 +95,7 @@ describe("CodexConnection", () => {
     c.onUnroutedReply = (id, code) => rejected.push({ id, code });
     const t = await startThread(c);
     await say(c, t.thread.id, "APPROVE");
-    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(APPROVAL_PREFIX));
+    await waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(APPROVAL_PREFIX));
     expect(rejected).toEqual([]);
     const seen: string[] = [];
     c.attach(t.thread.id, {
@@ -96,7 +103,7 @@ describe("CodexConnection", () => {
       onNotification: (m) => seen.push(m),
       onServerRequest: (id, method) => { seen.push(method); c.respond(id, { decision: "accept" }); },
     });
-    await vi.waitFor(() => expect(seen).toContain("turn/completed"));
+    await waitFor(() => expect(seen).toContain("turn/completed"));
     expect(seen).toContain("item/commandExecution/requestApproval");
     await c.dispose();
   });
@@ -111,11 +118,11 @@ describe("CodexConnection", () => {
     c.attach(decoy.thread.id, { ...silent });
     const orphan = await startThread(c);
     await say(c, orphan.thread.id, "APPROVE");
-    await vi.waitFor(() => expect(replies).toHaveLength(1));
+    await waitFor(() => expect(replies).toHaveLength(1));
     expect(replies[0]).toMatchObject({ code: -32601 });
     // The reply must reach the child, not just the spy: the fixture unblocks, fails the command and ends
     // the turn. 4 opening frames + 4 more once the refusal lands.
-    await vi.waitFor(() => expect(c.bufferedCount(orphan.thread.id)).toBe(8));
+    await waitFor(() => expect(c.bufferedCount(orphan.thread.id)).toBe(8));
     const seen: string[] = [];
     c.attach(orphan.thread.id, { ...silent, onNotification: (m) => seen.push(m) });
     expect(seen.slice(4)).toEqual(["serverRequest/resolved", "item/completed", "thread/status/changed", "turn/completed"]);
@@ -129,10 +136,10 @@ describe("CodexConnection", () => {
     const t = await startThread(c);
     // Each turn streams exactly 10 notifications, so 25 turns overrun the 200-frame cap.
     for (let i = 0; i < 25; i++) await say(c, t.thread.id, "hi");
-    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(200));
+    await waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(200));
     // The buffer is full, so this approval cannot be queued — dropping it would stall the turn forever.
     await say(c, t.thread.id, "APPROVE");
-    await vi.waitFor(() => expect(rejected).toEqual([-32601]));
+    await waitFor(() => expect(rejected).toEqual([-32601]));
     const seen: string[] = [];
     c.attach(t.thread.id, { ...silent, onNotification: (m) => seen.push(m) });
     expect(seen).toHaveLength(200);
@@ -146,7 +153,7 @@ describe("CodexConnection", () => {
     c.attach(t.thread.id, { ...silent, onNotification: (m) => seen.push(m) });
     c.detach(t.thread.id);
     await say(c, t.thread.id, "hi");
-    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
+    await waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
     expect(seen).toEqual([]);
     c.detach(t.thread.id);
     const later: string[] = [];
@@ -161,11 +168,11 @@ describe("CodexConnection", () => {
     c.onUnroutedReply = (_id, code) => replies.push(code);
     const t = await startThread(c);
     await say(c, t.thread.id, "APPROVE");
-    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(APPROVAL_PREFIX));
+    await waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(APPROVAL_PREFIX));
     c.detach(t.thread.id);
     expect(replies).toEqual([-32601]);
     // The child is still alive; abandoning the request silently would wedge its turn forever.
-    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(4));
+    await waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(4));
     await c.dispose();
   });
 
@@ -176,7 +183,7 @@ describe("CodexConnection", () => {
     const seen: string[] = [];
     c.attach(t.thread.id, { ...silent, onNotification: (m) => { seen.push(m); throw new Error("listener boom"); } });
     await say(c, t.thread.id, "hi");
-    await vi.waitFor(() => expect(seen).toEqual(MESSAGE_TURN)); // every later frame still lands
+    await waitFor(() => expect(seen).toEqual(MESSAGE_TURN)); // every later frame still lands
     expect(logs.some((l) => l.includes("listener boom"))).toBe(true);
     expect(c.alive).toBe(true);
     await c.dispose();
@@ -195,7 +202,7 @@ describe("CodexConnection", () => {
       onServerRequest: () => { throw new Error("approval boom"); },
     });
     await say(c, t.thread.id, "APPROVE");
-    await vi.waitFor(() => expect(seen).toContain("turn/completed")); // the turn is not wedged
+    await waitFor(() => expect(seen).toContain("turn/completed")); // the turn is not wedged
     expect(replies).toEqual([-32603]);
     expect(logs.some((l) => l.includes("approval boom"))).toBe(true);
     await c.dispose();
@@ -205,7 +212,7 @@ describe("CodexConnection", () => {
     const c = await open();
     const t = await startThread(c);
     await say(c, t.thread.id, "hi");
-    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
+    await waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
     const first: string[] = [];
     c.attach(t.thread.id, { ...silent, onNotification: (m) => first.push(m) });
     expect(first).toEqual(MESSAGE_TURN);
@@ -221,7 +228,7 @@ describe("CodexConnection", () => {
     const gone: { reason: string; disposed: boolean }[] = [];
     c.attach(t.thread.id, { ...silent, onGone: (reason, disposed) => gone.push({ reason, disposed }) });
     await c.dispose();
-    await vi.waitFor(() => expect(gone).toHaveLength(1));
+    await waitFor(() => expect(gone).toHaveLength(1));
     expect(gone[0]).toMatchObject({ disposed: true });
     expect(c.threadCount).toBe(0);
     expect(c.alive).toBe(false);
@@ -233,7 +240,7 @@ describe("CodexConnection", () => {
     const gone: { reason: string; disposed: boolean }[] = [];
     c.attach(t.thread.id, { ...silent, onGone: (reason, disposed) => gone.push({ reason, disposed }) });
     void c.request("$test/exit").catch(() => {}); // the fixture exits without replying
-    await vi.waitFor(() => expect(gone).toHaveLength(1));
+    await waitFor(() => expect(gone).toHaveLength(1));
     expect(gone[0]).toMatchObject({ disposed: false, reason: expect.stringContaining("exited") });
     const late: boolean[] = [];
     c.attach(t.thread.id, { ...silent, onGone: (_reason, disposed) => late.push(disposed) });
