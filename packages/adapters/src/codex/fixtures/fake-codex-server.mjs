@@ -10,11 +10,27 @@
  *
  * Every turn opens with the sequence the real server was captured emitting (protocol reference §2.4):
  * `thread/status/changed{active}` -> `turn/started` -> `item/started(userMessage)`. What follows is selected
- * by the text of `turn/start`'s input: "APPROVE" runs a command that needs an approval decision, "HANG" stops
- * after the opening and never completes the turn, anything else streams a short agent message.
+ * by the text of `turn/start`'s input:
  *
- * Two test-only hooks: the `$test/exit` request kills the process (so tests can tell an unexpected death from
- * an intentional dispose), and FAKE_CODEX_MUTE_INITIALIZE=1 makes `initialize` go unanswered.
+ *   HANG      opens a command item and never finishes the turn        (interrupt / steer tests)
+ *   SLOW      (modifier) delays the turn's notifications by 60ms      (turn-id-from-response tests)
+ *   GHOST     opens a turn the server does not register as steerable  (turn/steer -> turn/start fallback)
+ *   APPROVE   runs one command that needs an approval decision
+ *   APPROVE2  runs two commands whose approvals are open at once      (waiting_permission bookkeeping)
+ *   ODDBALL   asks a server request no client is expected to support  (-32601 answer path)
+ *   ECHO      replies with the raw `input` array as the agent message (input-shape assertions)
+ *   CRASH     answers, then dies without warning                      (unexpected-death path)
+ *   anything  streams a short agent message
+ *
+ * `text_elements` is validated on text input exactly as the real server does — omitting it is a deserialize
+ * error there, and silently accepting it here would let that regression through.
+ *
+ * Test-only hooks: the `$test/exit` request kills the process (so tests can tell an unexpected death from
+ * an intentional dispose), `model: "explode"` fails `thread/start` with the revoked-login error shape,
+ * `model: "reflect"` echoes the whole `thread/start`/`thread/resume` params object back as the model string
+ * (the only field of the start response the adapter surfaces), a resumed thread id containing "busy" rejoins a
+ * turn that is already running, and FAKE_CODEX_MUTE_INITIALIZE=1 makes
+ * `initialize` go unanswered.
  */
 
 let nextThreadN = 0;
@@ -22,23 +38,53 @@ let nextTurnN = 0;
 let nextItemN = 0;
 let nextServerRequestId = 0; // the real server numbers its own requests from 0
 const threads = new Map(); // threadId -> { cwd }
-const pendingApprovals = new Map(); // server request id -> (decision) => void
+const activeTurns = new Map(); // threadId -> turnId, the precondition turn/steer checks
+const pendingRequests = new Map(); // server request id -> (clientReply) => void
 let stdinBuf = "";
 
 const send = (frame) => process.stdout.write(JSON.stringify(frame) + "\n");
 const ok = (id, result) => send({ id, result });
 const fail = (id, code, message, data) => send({ id, error: { code, message, ...(data === undefined ? {} : { data }) } });
 const notify = (method, params) => send({ method, params, emittedAtMs: Date.now() });
+/** Sends a server -> client request and hands back its id plus a promise for the client's reply. */
 const ask = (method, params) => {
   const id = nextServerRequestId++;
   send({ method, id, params });
-  return id;
+  return { id, reply: new Promise((resolve) => pendingRequests.set(id, resolve)) };
 };
-const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
+const tick = (ms = 1) => new Promise((resolve) => setTimeout(resolve, ms));
 const inputText = (input) => (Array.isArray(input) ? input : []).map((p) => (p && typeof p.text === "string" ? p.text : "")).join(" ");
 
+/** Mirrors the real server's deserialization: `text_elements` is a non-optional array on text input. */
+function inputError(input) {
+  if (!Array.isArray(input) || input.length === 0) return "input must be a non-empty array";
+  for (const part of input) {
+    if (!part || typeof part !== "object") return "input part must be an object";
+    if (part.type === "text" && !Array.isArray(part.text_elements)) return "missing field `text_elements`";
+    if (part.type === "localImage" && typeof part.path !== "string") return "missing field `path`";
+  }
+  return null;
+}
+
+const commandItem = (id, command, cwd) =>
+  ({ type: "commandExecution", id, command, cwd, status: "inProgress", commandActions: [], aggregatedOutput: null, exitCode: null });
+
+function endTurn(threadId, turnId, status = "completed") {
+  activeTurns.delete(threadId);
+  notify("thread/status/changed", { threadId, status: { type: "idle" } });
+  notify("turn/completed", { threadId, turn: { id: turnId, itemsView: "summary", items: [], status, error: null } });
+}
+
+function agentMessage(threadId, turnId, text) {
+  const itemId = `msg_${nextItemN++}`;
+  notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: { type: "agentMessage", id: itemId, text: "", phase: null, memoryCitation: null } });
+  notify("item/completed", { threadId, turnId, completedAtMs: Date.now(), item: { type: "agentMessage", id: itemId, text, phase: null, memoryCitation: null } });
+}
+
 async function openTurn(threadId, turnId, text) {
-  await tick();
+  // SLOW widens the gap between the turn/start response and the first notification, so tests can act in the
+  // window where the response is the only source of the turn id.
+  await tick(text.includes("SLOW") ? 60 : 1);
   notify("thread/status/changed", { threadId, status: { type: "active", activeFlags: [] } });
   notify("turn/started", { threadId, turn: { id: turnId, status: "inProgress", items: [] } });
   notify("item/started", {
@@ -47,22 +93,19 @@ async function openTurn(threadId, turnId, text) {
   });
 }
 
+/** One command item, blocked on an approval, then completed according to the decision. */
 async function streamApprovalTurn(threadId, turnId, text) {
   const itemId = `call_${nextItemN++}`;
   const cwd = threads.get(threadId)?.cwd ?? process.cwd();
   const command = "/bin/zsh -lc 'echo hi'";
   await openTurn(threadId, turnId, text);
-  notify("item/started", {
-    threadId, turnId, startedAtMs: Date.now(),
-    item: { type: "commandExecution", id: itemId, command, cwd, status: "inProgress", commandActions: [], aggregatedOutput: null, exitCode: null },
-  });
-  const requestId = ask("item/commandExecution/requestApproval", {
+  notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: commandItem(itemId, command, cwd) });
+  const { id: requestId, reply } = ask("item/commandExecution/requestApproval", {
     threadId, turnId, itemId, startedAtMs: Date.now(), environmentId: "local",
     reason: "fake approval", command, cwd, commandActions: [],
     availableDecisions: ["accept", "cancel"],
   });
-  const decision = await new Promise((resolve) => pendingApprovals.set(requestId, resolve));
-  const accepted = decision === "accept";
+  const accepted = (await reply).result?.decision === "accept";
   notify("serverRequest/resolved", { threadId, requestId });
   notify("item/completed", {
     threadId, turnId, completedAtMs: Date.now(),
@@ -73,8 +116,36 @@ async function streamApprovalTurn(threadId, turnId, text) {
       exitCode: accepted ? 0 : 1,
     },
   });
-  notify("thread/status/changed", { threadId, status: { type: "idle" } });
-  notify("turn/completed", { threadId, turn: { id: turnId, itemsView: "summary", items: [], status: "completed", error: null } });
+  endTurn(threadId, turnId);
+}
+
+/** Two command items whose approvals are outstanding at the same time (parallel tool calls). */
+async function streamTwoApprovalsTurn(threadId, turnId, text) {
+  const cwd = threads.get(threadId)?.cwd ?? process.cwd();
+  await openTurn(threadId, turnId, text);
+  const asked = [0, 1].map((n) => {
+    const itemId = `call_${nextItemN++}`;
+    const command = `/bin/zsh -lc 'echo ${n}'`;
+    notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: commandItem(itemId, command, cwd) });
+    const { reply } = ask("item/commandExecution/requestApproval", {
+      threadId, turnId, itemId, startedAtMs: Date.now(), environmentId: "local",
+      reason: "fake approval", command, cwd, commandActions: [],
+      availableDecisions: ["accept", "cancel"],
+    });
+    return { itemId, command, reply };
+  });
+  const replies = await Promise.all(asked.map((a) => a.reply));
+  asked.forEach((a, n) => {
+    const accepted = replies[n].result?.decision === "accept";
+    notify("item/completed", {
+      threadId, turnId, completedAtMs: Date.now(),
+      item: {
+        type: "commandExecution", id: a.itemId, command: a.command, cwd, commandActions: [],
+        status: accepted ? "completed" : "failed", aggregatedOutput: accepted ? `${n}\n` : "", exitCode: accepted ? 0 : 1,
+      },
+    });
+  });
+  endTurn(threadId, turnId);
 }
 
 async function streamMessageTurn(threadId, turnId, text) {
@@ -92,21 +163,42 @@ async function streamMessageTurn(threadId, turnId, text) {
       modelContextWindow: 258400,
     },
   });
-  notify("thread/status/changed", { threadId, status: { type: "idle" } });
-  notify("turn/completed", { threadId, turn: { id: turnId, itemsView: "summary", items: [{ type: "agentMessage", id: itemId, text: "hello" }], status: "completed", error: null } });
+  endTurn(threadId, turnId);
+}
+
+/** Opens a command item and then stops: the turn never completes on its own. */
+async function streamHangTurn(threadId, turnId, text) {
+  const cwd = threads.get(threadId)?.cwd ?? process.cwd();
+  await openTurn(threadId, turnId, text);
+  notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: commandItem(`call_${nextItemN++}`, "/bin/zsh -lc 'sleep 999'", cwd) });
+}
+
+/** Echoes the raw input array so tests can assert the exact wire shape the adapter built. */
+async function streamEchoTurn(threadId, turnId, text, input) {
+  await openTurn(threadId, turnId, text);
+  agentMessage(threadId, turnId, JSON.stringify(input));
+  endTurn(threadId, turnId);
+}
+
+/** A server request no client is expected to understand; the turn only ends once it is answered. */
+async function streamOddballTurn(threadId, turnId, text) {
+  await openTurn(threadId, turnId, text);
+  const { reply } = ask("item/tool/requestUserInput", { threadId, turnId, itemId: `q_${nextItemN++}`, questions: [], autoResolutionMs: null });
+  const answer = await reply;
+  agentMessage(threadId, turnId, `refused: ${answer.error?.code ?? answer.result?.decision ?? "none"}`);
+  endTurn(threadId, turnId);
 }
 
 async function streamInterrupt(threadId, turnId) {
   await tick();
-  notify("thread/status/changed", { threadId, status: { type: "idle" } });
-  notify("turn/completed", { threadId, turn: { id: turnId, itemsView: "summary", items: [], status: "interrupted", error: null } });
+  endTurn(threadId, turnId, "interrupted");
 }
 
 function startThread(id, params, threadId) {
   threads.set(threadId, { cwd: params.cwd });
   ok(id, {
     thread: { id: threadId, status: { type: "idle" }, cwd: params.cwd, turns: [] },
-    model: params.model ?? "gpt-5.2",
+    model: params.model === "reflect" ? JSON.stringify(params) : (params.model ?? "gpt-5.2"),
     cwd: params.cwd,
   });
 }
@@ -126,14 +218,36 @@ function handleRequest(id, method, params) {
       return;
     case "thread/resume":
       startThread(id, params, params.threadId);
+      // A thread id containing "busy" was mid-turn when the client went away: resuming rejoins the live turn,
+      // whose id the client can only learn from turn/started (the resume response does not carry it).
+      if (String(params.threadId).includes("busy")) void streamHangTurn(params.threadId, `tu_${nextTurnN++}`, "resumed");
       return;
     case "turn/start": {
+      const bad = inputError(params.input);
+      if (bad) { fail(id, -32602, `invalid params: ${bad}`); return; }
       const turnId = `tu_${nextTurnN++}`;
       ok(id, { turn: { id: turnId, status: "inProgress", items: [] } });
       const text = inputText(params.input);
-      // HANG opens the turn like any other and then simply never finishes it: drives interrupt tests.
-      if (text.includes("HANG")) { void openTurn(params.threadId, turnId, text); return; }
-      void (text.includes("APPROVE") ? streamApprovalTurn(params.threadId, turnId, text) : streamMessageTurn(params.threadId, turnId, text));
+      // GHOST is the only turn the server will not accept a steer for, so the adapter's stale-turn fallback
+      // has something to trip over.
+      if (!text.includes("GHOST")) activeTurns.set(params.threadId, turnId);
+      if (text.includes("CRASH")) { setTimeout(() => process.exit(9), 5); return; }
+      if (text.includes("GHOST")) { void openTurn(params.threadId, turnId, text); return; }
+      if (text.includes("HANG")) { void streamHangTurn(params.threadId, turnId, text); return; }
+      if (text.includes("APPROVE2")) { void streamTwoApprovalsTurn(params.threadId, turnId, text); return; }
+      if (text.includes("APPROVE")) { void streamApprovalTurn(params.threadId, turnId, text); return; }
+      if (text.includes("ODDBALL")) { void streamOddballTurn(params.threadId, turnId, text); return; }
+      if (text.includes("ECHO")) { void streamEchoTurn(params.threadId, turnId, text, params.input); return; }
+      void streamMessageTurn(params.threadId, turnId, text);
+      return;
+    }
+    case "turn/steer": {
+      const bad = inputError(params.input);
+      if (bad) { fail(id, -32602, `invalid params: ${bad}`); return; }
+      const active = activeTurns.get(params.threadId);
+      if (!active || active !== params.expectedTurnId) { fail(id, -32600, "no active turn to steer"); return; }
+      ok(id, { turnId: active });
+      agentMessage(params.threadId, active, `steered:${inputText(params.input)}`);
       return;
     }
     case "turn/interrupt":
@@ -152,10 +266,10 @@ function handleFrame(line) {
   // A client RESPONSE to one of our server requests: no method, an id, and result/error. Must be checked
   // before the request dispatcher, since the two id spaces overlap.
   if (msg.method === undefined && msg.id !== undefined && ("result" in msg || "error" in msg)) {
-    const resolve = pendingApprovals.get(msg.id);
+    const resolve = pendingRequests.get(msg.id);
     if (!resolve) return;
-    pendingApprovals.delete(msg.id);
-    resolve(msg.result?.decision ?? null); // an error response counts as "not accepted"
+    pendingRequests.delete(msg.id);
+    resolve({ result: msg.result, error: msg.error });
     return;
   }
 
