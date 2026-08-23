@@ -583,6 +583,17 @@ describe("AcpAdapter", () => {
     expect(of(evs, "permission_response").map((e) => e.payload)).toEqual([{ requestId, decision: "deny" }]);
   });
 
+  it("cancels a permission that arrives while the session is being torn down", async () => {
+    const { handle, evs, done } = await booted({}, { env: { FAKE_ACP_IGNORE_EOF: "1" } });
+    await handle.send({ text: "LATEPERMIT", attachments: [] });
+    // dispose() only resolves once the child is gone, so the late request has certainly arrived by then.
+    await handle.dispose();
+    await done;
+    expect(types(evs)).not.toContain("permission_request");
+    expect(statuses(evs)).not.toContain("waiting_permission");
+    expect(statuses(evs).at(-1)).toBe("ended");
+  });
+
   it("closes a tool call that is still open when the session is disposed", async () => {
     const { handle, evs, done } = await booted();
     await handle.send({ text: "OPENTOOL", attachments: [] });

@@ -201,10 +201,11 @@ export class AcpAdapter implements AgentAdapter {
     };
 
     const requestPermission = (id: JsonRpcId, p: Bag): void => {
-      // A replayed permission request belongs to a turn that finished long ago: there is no live tool call
-      // behind it and nobody watching for a card, so it is answered `cancelled` and kept out of the transcript.
-      if (replaying) {
-        log("cancelling a permission request raised during session/load replay");
+      // Nobody is left to answer either of these, so both get `cancelled` — the only other legal answer (§4) —
+      // and stay out of the transcript: a replayed request belongs to a turn that finished long ago, and one
+      // that arrives while the child is being torn down would leave a card waiting after the session ended.
+      if (replaying || disposed) {
+        log(`cancelling a permission request raised during ${replaying ? "session/load replay" : "shutdown"}`);
         rpc?.respond(id, { outcome: { outcome: "cancelled" } });
         return;
       }

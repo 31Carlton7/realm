@@ -12,6 +12,7 @@
  * What a turn does is selected by the text of the prompt's text blocks:
  *
  *   HANG              never resolves on its own                     (send()-must-not-await, interrupt)
+ *   LATEPERMIT        asks for permission 30ms in, then exits    (permission racing the teardown)
  *   OPENTEXT          streams one message chunk and never ends the turn (open text run at dispose)
  *   OPENTOOL          opens a tool call and then never ends the turn (tool cards still open at dispose)
  *   PERMIT            one tool call gated on session/request_permission
@@ -30,7 +31,7 @@
  * fail -32603 with data (Cursor's shape), FAKE_ACP_LOADFAIL=1 makes session/load fail, FAKE_ACP_NOLOAD=1 drops
  * the loadSession capability, FAKE_ACP_NOIMAGE=1 drops the image prompt capability, FAKE_ACP_ALLOWONLY=1 offers no reject option, and FAKE_ACP_LOAD_ASKS=1
  * makes session/load call fs/read_text_file and session/request_permission back on us mid-replay.
- * FAKE_ACP_NOSESSIONID=1 answers session/new without a sessionId, FAKE_ACP_BADAUTH=1 sends a non-array
+ * FAKE_ACP_IGNORE_EOF=1 keeps the child alive after its stdin closes, FAKE_ACP_NOSESSIONID=1 answers session/new without a sessionId, FAKE_ACP_BADAUTH=1 sends a non-array
  * `authMethods`, and FAKE_ACP_EXIT_MARKER=<path> writes that file when our stdin closes.
  */
 
@@ -115,6 +116,13 @@ async function runTurn(id, sessionId, prompt) {
   if (text.includes("DIE")) {
     update(sessionId, { sessionUpdate: "tool_call", toolCallId: `call_${nextCallN++}`, title: "Doomed", kind: "execute", status: "in_progress" });
     setTimeout(() => process.exit(9), 25);
+    return;
+  }
+  if (text.includes("LATEPERMIT")) { // asks only once the client has started tearing the session down
+    setTimeout(() => {
+      void permitTurn(sessionId, 9);
+      setTimeout(() => process.exit(0), 30);
+    }, 30);
     return;
   }
   if (text.includes("OPENTEXT")) { message(sessionId, "partial"); return; } // a message run left open
@@ -242,6 +250,7 @@ process.stdin.on("data", (chunk) => {
   }
 });
 process.stdin.on("end", () => {
+  if (process.env.FAKE_ACP_IGNORE_EOF) return; // outlive the client's stdin close, like an agent mid-tool-call
   // Proof for the tests that closing our stdin really did take this child down.
   if (process.env.FAKE_ACP_EXIT_MARKER) writeFileSync(process.env.FAKE_ACP_EXIT_MARKER, "bye");
   process.exit(0);
