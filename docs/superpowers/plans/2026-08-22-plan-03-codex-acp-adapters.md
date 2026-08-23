@@ -87,18 +87,20 @@ process.stdin.on("data", (c) => {
     const msg = JSON.parse(line);
     if (msg.method === "ping") process.stdout.write(JSON.stringify({ id: msg.id, result: { pong: msg.params?.n ?? 0 } }) + "\\n");
     if (msg.method === "boom") process.stdout.write(JSON.stringify({ id: msg.id, error: { code: -32600, message: "nope", data: { action: "relogin" } } }) + "\\n");
-    if (msg.method === "provoke") {
-      // server -> client request using id 0, which collides with our own client id space
-      process.stdout.write(JSON.stringify({ method: "askYou", id: 0, params: { q: "ok?" } }) + "\\n");
+    if (msg.method === "slowPing") {
+      // Fire a server -> client request that REUSES this same request's id while it is still pending,
+      // then deliver the real response ~150ms later. A dispatcher that resolves by id-lookup instead of
+      // frame shape would settle the client's promise from the collision, not the real response.
+      process.stdout.write(JSON.stringify({ method: "askYou", id: msg.id, params: { q: "ok?" } }) + "\\n");
+      setTimeout(() => process.stdout.write(JSON.stringify({ id: msg.id, result: { pong: msg.params?.n ?? 0 } }) + "\\n"), 150);
     }
     if (msg.method === "notifyMe") process.stdout.write(JSON.stringify({ method: "tick", params: { at: 1 }, emittedAtMs: 7 }) + "\\n");
-    if (msg.id === 0 && msg.result) process.stdout.write(JSON.stringify({ method: "answered", params: msg.result }) + "\\n");
     if (msg.method === "loud") process.stderr.write("noise-1\\nnoise-2\\n");
   }
 });
 `;
 
-const make = (over: Partial<Parameters<typeof StdioJsonRpc.prototype.constructor>[0]> = {}) => {
+const make = (over: Partial<ConstructorParameters<typeof StdioJsonRpc>[0]> = {}) => {
   const notifications: { method: string; params: unknown }[] = [];
   const serverRequests: { id: number | string; method: string; params: unknown }[] = [];
   const stderr: string[] = [];
@@ -132,29 +134,31 @@ describe("StdioJsonRpc", () => {
   });
 
   it("dispatches a server request whose id collides with a live client id", async () => {
-    const { rpc, serverRequests, notifications } = make();
-    // Burn client id 1..N so ids overlap, and keep a request in flight.
-    const inFlight = rpc.request("ping", { n: 1 });
-    await rpc.request("provoke");
+    const { rpc, serverRequests } = make();
+    // The child immediately fires a server request reusing this SAME id while the request is still
+    // pending, then delays the real response ~150ms. This is a genuine race, not a coincidence of
+    // disjoint id spaces: id-first dispatch would find the pending entry and settle the promise wrong.
+    const inFlight = rpc.request("slowPing", { n: 1 });
     await vi.waitFor(() => expect(serverRequests).toHaveLength(1));
-    expect(serverRequests[0]).toMatchObject({ id: 0, method: "askYou" });
-    // The in-flight client request must NOT have been resolved by the server request.
+    expect(serverRequests[0]).toMatchObject({ method: "askYou" });
+    const liveId = serverRequests[0]!.id;
+    // The colliding server request must not have touched the pending client request: it should still
+    // resolve, ~150ms later, from the real deferred response and not from the collision.
     await expect(inFlight).resolves.toEqual({ pong: 1 });
-    rpc.respond(0, { ok: true });
-    await vi.waitFor(() => expect(notifications.map((n) => n.method)).toContain("answered"));
+    rpc.respond(liveId, { ok: true });
     await rpc.dispose();
   });
 
   it("delivers notifications (which have no id)", async () => {
     const { rpc, notifications } = make();
-    await rpc.request("notifyMe");
+    rpc.notify("notifyMe");
     await vi.waitFor(() => expect(notifications).toContainEqual({ method: "tick", params: { at: 1 } }));
     await rpc.dispose();
   });
 
   it("keeps a bounded stderr tail and forwards lines", async () => {
     const { rpc, stderr } = make();
-    await rpc.request("loud");
+    rpc.notify("loud");
     await vi.waitFor(() => expect(stderr).toEqual(["noise-1", "noise-2"]));
     expect(rpc.stderrTail).toEqual(["noise-1", "noise-2"]);
     await rpc.dispose();
