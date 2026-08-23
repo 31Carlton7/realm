@@ -506,6 +506,29 @@ describe("createCodexMapper", () => {
     expect(out[1]).toMatchObject({ type: "status", payload: { status: "idle" } });
   });
 
+  it("labels a force-closed item with the turn status when the turn wasn't interrupted", () => {
+    // Pins the non-interrupted branch of the force-close wording: it should never read as if the
+    // turn itself succeeded/failed with that word as its result — it should say what actually happened
+    // (the item never got its own item/completed).
+    const m = createCodexMapper();
+    m.map("turn/started", { turn: { id: "t1" } });
+    m.map("item/started", { item: { type: "commandExecution", id: "c10", command: "sleep 60", cwd: "/tmp" } });
+    const out = m.map("turn/completed", { turn: { id: "t1", status: "completed", items: [] } });
+    expect(out[0]).toMatchObject({ type: "tool_result", payload: { toolUseId: "c10", isError: true, content: "turn ended without a result (completed)" } });
+  });
+
+  it("emits only status on a normal completion — no leftover tool_result once item/completed already closed the item", () => {
+    // Regression guard for the openTools bookkeeping: if item/completed stopped deleting the id from
+    // openTools, turn/completed would force-close it a second time and every tool call in every turn
+    // would get a spurious extra error tool_result.
+    const m = createCodexMapper();
+    m.map("turn/started", { turn: { id: "t1" } });
+    m.map("item/started", { item: { type: "commandExecution", id: "c11", command: "echo hi", cwd: "/tmp" } });
+    m.map("item/completed", { item: { type: "commandExecution", id: "c11", status: "completed", aggregatedOutput: "hi\n", exitCode: 0 } });
+    const out = m.map("turn/completed", { turn: { id: "t1", status: "completed", items: [] } });
+    expect(types(out)).toEqual(["status"]);
+  });
+
   it("reports a failed turn as an error before going idle", () => {
     const m = createCodexMapper();
     m.map("turn/started", { turn: { id: "t1" } });
@@ -533,6 +556,51 @@ describe("createCodexMapper", () => {
     const m = createCodexMapper();
     const out = m.map("error", { error: { message: "rate limited" }, willRetry: true });
     expect(out[0]).toMatchObject({ type: "error", payload: { message: "rate limited (retrying)" } });
+  });
+
+  it("maps mcpToolCall to tool_call then tool_result, using server.tool as the name", () => {
+    const m = createCodexMapper();
+    const start = m.map("item/started", { item: { type: "mcpToolCall", id: "mcp1", server: "figma", tool: "get_file", arguments: { fileId: "abc" } } });
+    expect(start[0]).toMatchObject({ type: "tool_call", payload: { toolUseId: "mcp1", name: "figma.get_file", input: { fileId: "abc" }, parentToolUseId: null } });
+    const done = m.map("item/completed", { item: { type: "mcpToolCall", id: "mcp1", status: "completed", result: "ok" } });
+    expect(done[0]).toMatchObject({ type: "tool_result", payload: { toolUseId: "mcp1", content: "ok", isError: false } });
+  });
+
+  it("surfaces the mcpToolCall error field as the result content when the call fails", () => {
+    const m = createCodexMapper();
+    m.map("item/started", { item: { type: "mcpToolCall", id: "mcp2", server: "notion", tool: "search", arguments: {} } });
+    const done = m.map("item/completed", { item: { type: "mcpToolCall", id: "mcp2", status: "failed", error: "401 unauthorized" } });
+    expect(done[0]).toMatchObject({ type: "tool_result", payload: { toolUseId: "mcp2", content: "401 unauthorized", isError: true } });
+  });
+
+  it("appends the exit code to a nonzero-exit command's output", () => {
+    const m = createCodexMapper();
+    m.map("item/started", { item: { type: "commandExecution", id: "c3", command: "false", cwd: "/tmp" } });
+    const done = m.map("item/completed", { item: { type: "commandExecution", id: "c3", status: "failed", aggregatedOutput: "boom", exitCode: 1 } });
+    expect((done[0] as { payload: { content: string } }).payload.content).toBe("boom\n[exit 1]");
+  });
+
+  it("closeOpenTools force-closes items awaiting item/completed and clears them", () => {
+    const m = createCodexMapper();
+    m.map("item/started", { item: { type: "commandExecution", id: "c4", command: "sleep 5", cwd: "/tmp" } });
+    m.map("item/started", { item: { type: "fileChange", id: "p2", status: "inProgress", changes: [] } });
+    const closed = m.closeOpenTools("process exited");
+    expect(closed).toHaveLength(2);
+    expect(closed).toContainEqual({ type: "tool_result", ts: expect.any(Number), payload: { toolUseId: "c4", content: "process exited", isError: true } });
+    expect(closed).toContainEqual({ type: "tool_result", ts: expect.any(Number), payload: { toolUseId: "p2", content: "process exited", isError: true } });
+    // calling it again finds nothing left open
+    expect(m.closeOpenTools("again")).toEqual([]);
+  });
+
+  it("returns no event for item/commandExecution/outputDelta (streamed stdout, coalesced by item/completed)", () => {
+    const m = createCodexMapper();
+    m.map("item/started", { item: { type: "commandExecution", id: "c12", command: "echo hi", cwd: "/tmp" } });
+    expect(m.map("item/commandExecution/outputDelta", { itemId: "c12", delta: "hi\n" })).toEqual([]);
+  });
+
+  it("maps a systemError thread status to the error status", () => {
+    const m = createCodexMapper();
+    expect(m.map("thread/status/changed", { status: { type: "systemError" } })[0]).toMatchObject({ type: "status", payload: { status: "error" } });
   });
 
   it("drops advisory and firehose notifications", () => {
@@ -610,8 +678,8 @@ function toolOutputFor(item: Bag): string {
  * - Advisory notifications return `[]` — the adapter logs them instead of putting them in the transcript.
  */
 export function createCodexMapper() {
-  /** itemId -> tool name, for items still awaiting item/completed. */
-  const openTools = new Map<string, string>();
+  /** itemIds of tool items still awaiting item/completed. */
+  const openTools = new Set<string>();
   let numTurns = 0;
 
   return {
@@ -624,7 +692,7 @@ export function createCodexMapper() {
           const item = obj(p.item);
           const id = str(item.id);
           const name = toolNameFor(item);
-          if (name) { openTools.set(id, name); out.push(sessionEvent("tool_call", { toolUseId: id, name, input: toolInputFor(item), parentToolUseId: null })); }
+          if (name) { openTools.add(id); out.push(sessionEvent("tool_call", { toolUseId: id, name, input: toolInputFor(item), parentToolUseId: null })); }
           return out; // userMessage / agentMessage / reasoning starts carry no Realm event
         }
 
@@ -661,7 +729,8 @@ export function createCodexMapper() {
         case "turn/completed": {
           const turn = obj(p.turn);
           const status = str(turn.status);
-          for (const [id] of openTools) out.push(sessionEvent("tool_result", { toolUseId: id, content: status === "interrupted" ? "interrupted" : status, isError: true }));
+          // An item still open here never got its own item/completed (an interrupt skips it entirely).
+          for (const id of openTools) out.push(sessionEvent("tool_result", { toolUseId: id, content: status === "interrupted" ? "interrupted" : `turn ended without a result (${status})`, isError: true }));
           openTools.clear();
           if (status === "failed") out.push(sessionEvent("error", { message: str(obj(turn.error).message) || "turn failed" }));
           out.push(sessionEvent("status", { status: "idle" }));
@@ -693,7 +762,7 @@ export function createCodexMapper() {
 
     /** Close anything still open — used when the process dies mid-turn. */
     closeOpenTools(reason: string): SessionEvent[] {
-      const out = [...openTools.keys()].map((id) => sessionEvent("tool_result", { toolUseId: id, content: reason, isError: true }));
+      const out = [...openTools].map((id) => sessionEvent("tool_result", { toolUseId: id, content: reason, isError: true }));
       openTools.clear();
       return out;
     },
@@ -704,7 +773,7 @@ export function createCodexMapper() {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm vitest run packages/adapters/src/codex/map-codex.test.ts`
-Expected: PASS — 12 tests.
+Expected: PASS — 20 tests.
 
 - [ ] **Step 5: Commit**
 

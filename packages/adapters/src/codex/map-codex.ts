@@ -54,8 +54,8 @@ function toolOutputFor(item: Bag): string {
  * - Advisory notifications return `[]` — the adapter logs them instead of putting them in the transcript.
  */
 export function createCodexMapper() {
-  /** itemId -> tool name, for items still awaiting item/completed. */
-  const openTools = new Map<string, string>();
+  /** itemIds of tool items still awaiting item/completed. */
+  const openTools = new Set<string>();
   let numTurns = 0;
 
   return {
@@ -68,7 +68,7 @@ export function createCodexMapper() {
           const item = obj(p.item);
           const id = str(item.id);
           const name = toolNameFor(item);
-          if (name) { openTools.set(id, name); out.push(sessionEvent("tool_call", { toolUseId: id, name, input: toolInputFor(item), parentToolUseId: null })); }
+          if (name) { openTools.add(id); out.push(sessionEvent("tool_call", { toolUseId: id, name, input: toolInputFor(item), parentToolUseId: null })); }
           return out; // userMessage / agentMessage / reasoning starts carry no Realm event
         }
 
@@ -105,7 +105,8 @@ export function createCodexMapper() {
         case "turn/completed": {
           const turn = obj(p.turn);
           const status = str(turn.status);
-          for (const [id] of openTools) out.push(sessionEvent("tool_result", { toolUseId: id, content: status === "interrupted" ? "interrupted" : status, isError: true }));
+          // An item still open here never got its own item/completed (an interrupt skips it entirely).
+          for (const id of openTools) out.push(sessionEvent("tool_result", { toolUseId: id, content: status === "interrupted" ? "interrupted" : `turn ended without a result (${status})`, isError: true }));
           openTools.clear();
           if (status === "failed") out.push(sessionEvent("error", { message: str(obj(turn.error).message) || "turn failed" }));
           out.push(sessionEvent("status", { status: "idle" }));
@@ -137,7 +138,7 @@ export function createCodexMapper() {
 
     /** Close anything still open — used when the process dies mid-turn. */
     closeOpenTools(reason: string): SessionEvent[] {
-      const out = [...openTools.keys()].map((id) => sessionEvent("tool_result", { toolUseId: id, content: reason, isError: true }));
+      const out = [...openTools].map((id) => sessionEvent("tool_result", { toolUseId: id, content: reason, isError: true }));
       openTools.clear();
       return out;
     },
