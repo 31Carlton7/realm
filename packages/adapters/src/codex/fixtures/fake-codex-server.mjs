@@ -16,10 +16,13 @@
  *   SLOW      (modifier) delays the turn's notifications by 60ms      (turn-id-from-response tests)
  *   GHOST     opens a turn the server does not register as steerable  (turn/steer -> turn/start fallback)
  *   APPROVE   runs one command that needs an approval decision
+ *   PATCH     edits a file and asks for a fileChange approval instead
+ *   REFUSE    fails `turn/start` outright
  *   APPROVE2  runs two commands whose approvals are open at once      (waiting_permission bookkeeping)
  *   ODDBALL   asks a server request no client is expected to support  (-32601 answer path)
  *   ECHO      replies with the raw `input` array as the agent message (input-shape assertions)
- *   CRASH     answers, then dies without warning                      (unexpected-death path)
+ *   CRASH     opens a command item, then dies without warning          (unexpected-death path)
+ *   BADSTEER  (on turn/steer) fails the steer with something other than "no active turn"
  *   anything  streams a short agent message
  *
  * `text_elements` is validated on text input exactly as the real server does — omitting it is a deserialize
@@ -148,6 +151,25 @@ async function streamTwoApprovalsTurn(threadId, turnId, text) {
   endTurn(threadId, turnId);
 }
 
+/** One fileChange item, blocked on the fileChange flavour of approval. */
+async function streamPatchTurn(threadId, turnId, text) {
+  const itemId = `patch_${nextItemN++}`;
+  const changes = [{ path: "/repo/src/a.ts", kind: { type: "edit" }, diff: "@@\n-old\n+new" }];
+  await openTurn(threadId, turnId, text);
+  notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: { type: "fileChange", id: itemId, changes, status: "inProgress" } });
+  const { reply } = ask("item/fileChange/requestApproval", {
+    threadId, turnId, itemId, startedAtMs: Date.now(), reason: "Apply 1 edit to a.ts", grantRoot: "/repo",
+    // FileChangeApprovalDecision, unlike the captured command flavour, does offer "decline".
+    availableDecisions: ["accept", "acceptForSession", "decline", "cancel"],
+  });
+  const decision = (await reply).result?.decision;
+  notify("item/completed", {
+    threadId, turnId, completedAtMs: Date.now(),
+    item: { type: "fileChange", id: itemId, changes, status: decision === "accept" ? "completed" : "failed", decision: decision ?? null },
+  });
+  endTurn(threadId, turnId);
+}
+
 async function streamMessageTurn(threadId, turnId, text) {
   const itemId = `msg_${nextItemN++}`;
   await openTurn(threadId, turnId, text);
@@ -209,13 +231,22 @@ function handleRequest(id, method, params) {
       if (process.env.FAKE_CODEX_MUTE_INITIALIZE) return; // spawned but mute: drives the open() timeout test
       ok(id, { userAgent: "fake-codex/0.146.0", codexHome: "/tmp/fake-codex-home" });
       return;
-    case "thread/start":
+    case "thread/start": {
       if (params.model === "explode") {
         fail(id, -32600, "failed to load configuration", { action: "relogin", statusCode: 401 });
         return;
       }
-      startThread(id, params, `th_${nextThreadN++}`);
+      if (params.model === "nope") {
+        fail(id, -32600, "unknown model `nope`", { statusCode: 400 }); // no `action`: not a login problem
+        return;
+      }
+      const threadId = `th_${nextThreadN++}`;
+      // `model: "eager"` reproduces the race CodexConnection's buffer exists for: a thread-scoped notification
+      // emitted before the response that tells the client the thread id.
+      if (params.model === "eager") notify("thread/status/changed", { threadId, status: { type: "active", activeFlags: [] } });
+      startThread(id, params, threadId);
       return;
+    }
     case "thread/resume":
       startThread(id, params, params.threadId);
       // A thread id containing "busy" was mid-turn when the client went away: resuming rejoins the live turn,
@@ -225,16 +256,19 @@ function handleRequest(id, method, params) {
     case "turn/start": {
       const bad = inputError(params.input);
       if (bad) { fail(id, -32602, `invalid params: ${bad}`); return; }
+      const text = inputText(params.input);
+      if (text.includes("REFUSE")) { fail(id, -32600, "the model refused this turn"); return; }
       const turnId = `tu_${nextTurnN++}`;
       ok(id, { turn: { id: turnId, status: "inProgress", items: [] } });
-      const text = inputText(params.input);
       // GHOST is the only turn the server will not accept a steer for, so the adapter's stale-turn fallback
       // has something to trip over.
       if (!text.includes("GHOST")) activeTurns.set(params.threadId, turnId);
-      if (text.includes("CRASH")) { setTimeout(() => process.exit(9), 5); return; }
+      // Dies with a tool card still open, so the crash has something to force-close.
+      if (text.includes("CRASH")) { void streamHangTurn(params.threadId, turnId, text); setTimeout(() => process.exit(9), 25); return; }
       if (text.includes("GHOST")) { void openTurn(params.threadId, turnId, text); return; }
       if (text.includes("HANG")) { void streamHangTurn(params.threadId, turnId, text); return; }
       if (text.includes("APPROVE2")) { void streamTwoApprovalsTurn(params.threadId, turnId, text); return; }
+      if (text.includes("PATCH")) { void streamPatchTurn(params.threadId, turnId, text); return; }
       if (text.includes("APPROVE")) { void streamApprovalTurn(params.threadId, turnId, text); return; }
       if (text.includes("ODDBALL")) { void streamOddballTurn(params.threadId, turnId, text); return; }
       if (text.includes("ECHO")) { void streamEchoTurn(params.threadId, turnId, text, params.input); return; }
@@ -244,6 +278,7 @@ function handleRequest(id, method, params) {
     case "turn/steer": {
       const bad = inputError(params.input);
       if (bad) { fail(id, -32602, `invalid params: ${bad}`); return; }
+      if (inputText(params.input).includes("BADSTEER")) { fail(id, -32603, "internal error while steering"); return; }
       const active = activeTurns.get(params.threadId);
       if (!active || active !== params.expectedTurnId) { fail(id, -32600, "no active turn to steer"); return; }
       ok(id, { turnId: active });

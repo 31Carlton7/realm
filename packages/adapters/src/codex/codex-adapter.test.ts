@@ -103,6 +103,15 @@ describe("CodexAdapter", () => {
     expect(adapter.processCount).toBe(0);
   });
 
+  it("emits init first even when a notification beat the thread/start response", async () => {
+    const { handle, evs } = await booted({ model: "eager" });
+    // attach() flushes the thread's buffer synchronously, so init has to be pushed before attaching or the
+    // transcript opens with a status change out of nowhere.
+    expect(types(evs)[0]).toBe("init");
+    await vi.waitFor(() => expect(statuses(evs)).toEqual(["idle", "running"]));
+    await handle.dispose();
+  });
+
   it("accepts a send that arrives before the boot has finished", async () => {
     const adapter = newAdapter();
     const handle = adapter.start(startOpts());
@@ -189,6 +198,32 @@ describe("CodexAdapter", () => {
     await handle.interrupt();
     await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
     expect(of(evs, "tool_result")[0]!.payload.content).toBe("interrupted");
+    await handle.dispose();
+  });
+
+  it("bridges a fileChange approval as apply_patch with the itemId and grantRoot", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "PATCH", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(req.toolName).toBe("apply_patch");
+    expect(req.input).toEqual({ itemId: of(evs, "tool_call")[0]!.payload.toolUseId, grantRoot: "/repo" });
+    expect(req.title).toBe("Apply 1 edit to a.ts");
+    expect(req.suggestions).toEqual(["accept", "acceptForSession", "decline", "cancel"]);
+
+    handle.respondPermission(req.requestId, "allow");
+    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ content: "edit /repo/src/a.ts\n@@\n-old\n+new", isError: false });
+    await handle.dispose();
+  });
+
+  it("denies a fileChange approval with decline, which this request does offer", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "PATCH", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
+    await vi.waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    expect(of(evs, "tool_result")[0]!.payload.isError).toBe(true);
     await handle.dispose();
   });
 
@@ -349,6 +384,39 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
+  it("does not blame the login for a boot failure that is not a login problem", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts({ model: "nope" }));
+    const { evs, done } = drain(handle);
+    await done;
+    const text = of(evs, "error")[0]!.payload.message;
+    expect(text).toMatch(/unknown model/);
+    // Telling someone to re-run `codex login` over a bad model name sends them down the wrong path entirely.
+    expect(text).not.toMatch(/codex login/);
+    expect(adapter.processCount).toBe(0);
+  });
+
+  it("reports a failed turn/start instead of leaving the session stuck on running", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "REFUSE", attachments: [] });
+    await vi.waitFor(() => expect(statuses(evs)).toEqual(["idle", "running", "idle"]));
+    expect(of(evs, "error")[0]!.payload.message).toMatch(/the model refused this turn/);
+    await handle.dispose();
+  });
+
+  it("reports a steer failure that is not the stale-turn race instead of starting a second turn", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "HANG", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await handle.send({ text: "BADSTEER", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "error")).toHaveLength(1));
+    expect(of(evs, "error")[0]!.payload.message).toMatch(/internal error while steering/);
+    // Retrying this as turn/start would silently run a SECOND concurrent turn against the same thread.
+    expect(texts(evs)).toEqual([]);
+    expect(of(evs, "tool_call")).toHaveLength(1);
+    await handle.dispose();
+  });
+
   it("reports a failed spawn as an error rather than hanging", async () => {
     const adapter = new CodexAdapter({ bin: "/definitely/not/a/codex/binary" });
     const handle = adapter.start(startOpts());
@@ -402,7 +470,45 @@ describe("CodexAdapter", () => {
     await vi.waitFor(() => expect(texts(b.evs)).toEqual(["hello"]));
     expect(types(a.evs)).not.toContain("assistant_text"); // and the disposed one hears nothing
 
+    const conn = (await adapter.connection)!;
     await two.dispose();
+    expect(adapter.processCount).toBe(0);
+    expect(adapter.sessionCount).toBe(0);
+    expect(conn.alive).toBe(false);
+  });
+
+  it("detaches from the shared process so a disposed session stops being reachable", async () => {
+    const adapter = newAdapter();
+    const one = adapter.start(startOpts());
+    const two = adapter.start(startOpts());
+    const a = drain(one);
+    const b = drain(two);
+    await vi.waitFor(() => {
+      expect(types(a.evs)).toContain("init");
+      expect(types(b.evs)).toContain("init");
+    });
+    const conn = (await adapter.connection)!;
+    expect(conn.threadCount).toBe(2);
+
+    await one.dispose();
+    // Without detach the listener, its mapper and the whole start() closure stay reachable from the
+    // connection for the life of the process.
+    expect(conn.threadCount).toBe(1);
+
+    await two.dispose();
+    expect(conn.threadCount).toBe(0);
+    expect(conn.alive).toBe(false); // the refcount reaching zero has to actually kill the child
+  });
+
+  it("ends a still-attached session quietly when the shared process is deliberately torn down", async () => {
+    const { adapter, evs, done } = await booted();
+    const conn = (await adapter.connection)!;
+    // onGone(reason, disposed: true) with a listener still attached: this is app quit. Reporting it would
+    // spray "codex app-server exited" across every open Codex session.
+    await conn.dispose();
+    await done;
+    expect(types(evs)).not.toContain("error");
+    expect(statuses(evs)).toEqual(["idle", "ended"]);
     expect(adapter.processCount).toBe(0);
     expect(adapter.sessionCount).toBe(0);
   });
@@ -438,14 +544,28 @@ describe("CodexAdapter", () => {
     expect(types(evs)).not.toContain("error");
   });
 
-  it("reports an unexpected process death as an error", async () => {
+  it("reports an unexpected process death as an error and blames the crash on the open tool card", async () => {
     const { adapter, handle, evs, done } = await booted();
     await handle.send({ text: "CRASH", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
     await done;
     expect(of(evs, "error")).toHaveLength(1);
     expect(of(evs, "error")[0]!.payload.message).toMatch(/exited/);
+    // "session closed" would be a lie here — the card has to say what actually happened to it.
+    expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ content: expect.stringMatching(/exited/) as unknown as string, isError: true });
     expect(statuses(evs).slice(-2)).toEqual(["error", "ended"]);
     expect(adapter.processCount).toBe(0);
+  });
+
+  it("resolves a pending permission card when the session is disposed under it", async () => {
+    const { handle, evs, done } = await booted();
+    await handle.send({ text: "APPROVE", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await handle.dispose();
+    await done;
+    // An unanswered request leaves a dangling card in the UI and wedges that thread on a shared process.
+    expect(of(evs, "permission_response")[0]!.payload).toMatchObject({ requestId: of(evs, "permission_request")[0]!.payload.requestId, decision: "deny" });
+    expect(statuses(evs).at(-1)).toBe("ended");
   });
 
   it("fails a send once the session is gone instead of throwing at the caller", async () => {

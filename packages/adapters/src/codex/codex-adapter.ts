@@ -86,6 +86,12 @@ export class CodexAdapter implements AgentAdapter {
   get processCount(): number { return this.conn === null ? 0 : 1; }
   /** Visible for tests: sessions currently holding the process. A leak here strands the child forever. */
   get sessionCount(): number { return this.refs; }
+  /**
+   * Visible for tests: the shared process itself, once a session has acquired it. Lets tests assert what the
+   * refcount alone cannot — that the child is really dead, that a disposed session really detached, and how a
+   * still-attached session reacts when the process is deliberately torn down under it.
+   */
+  get connection(): Promise<CodexConnection> | null { return this.conn; }
 
   async probe(): Promise<ProbeResult> {
     const p = await probeCodex(this.bin);
@@ -132,7 +138,6 @@ export class CodexAdapter implements AgentAdapter {
     let conn: CodexConnection | null = null;
     let threadId: string | null = null;
     let activeTurnId: string | null = null;
-    let running = false;
     let acquired = false;
     let disposed = false;
 
@@ -148,8 +153,9 @@ export class CodexAdapter implements AgentAdapter {
       conn?.respond(p.id, { decision: pickCodexDecision(decision, p.decisions) });
       events.push(sessionEvent("permission_response", { requestId, decision }));
       // Several tools can be waiting at once (parallel tool calls): the status only comes back when the last
-      // one is answered.
-      if (pending.size === 0) events.push(sessionEvent("status", { status: running ? "running" : "idle" }));
+      // one is answered. An approval only exists inside a live turn, so that status is always `running`; the
+      // turn's own `turn/completed` is what settles it back to idle.
+      if (pending.size === 0) events.push(sessionEvent("status", { status: "running" }));
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) respond(id, "deny"); };
 
@@ -168,8 +174,10 @@ export class CodexAdapter implements AgentAdapter {
     const listener: ThreadListener = {
       onNotification: (method, params) => {
         const p = obj(params);
-        if (method === "turn/started") { activeTurnId = str(obj(p.turn).id) || activeTurnId; running = true; }
-        if (method === "turn/completed") { activeTurnId = null; running = false; }
+        // thread/resume rejoins a turn that is already running, and its response carries no turn id — this
+        // notification is the only place a rejoined session learns one.
+        if (method === "turn/started") activeTurnId = str(obj(p.turn).id) || activeTurnId;
+        if (method === "turn/completed") activeTurnId = null;
         for (const e of mapper.map(method, params)) events.push(e);
       },
       onServerRequest: (id, method, params) => {
@@ -210,6 +218,8 @@ export class CodexAdapter implements AgentAdapter {
         conn = c;
         const { approvalPolicy, sandbox } = codexPolicyFor(opts.permissionMode);
         const config = mcpConfig(opts.mcpServers);
+        // `opts.effort` is deliberately dropped: Codex takes reasoning effort per turn, not per thread, and
+        // Realm has no per-turn effort control yet. Claude passes it through; this asymmetry is intentional.
         const common = {
           cwd: opts.cwd,
           approvalPolicy,
@@ -224,9 +234,12 @@ export class CodexAdapter implements AgentAdapter {
         const id = str(obj(res.thread).id) || str(opts.resume);
         if (!id) throw new Error("codex did not return a thread id");
         threadId = id;
-        c.attach(id, listener);
+        // Both before attach(): attach flushes the thread's buffer synchronously, and notifications that beat
+        // the thread/start response would otherwise be mapped into the stream ahead of init. Nothing is lost by
+        // waiting — the connection buffers by threadId until someone attaches.
         events.push(sessionEvent("init", { providerSessionId: id, model: str(res.model) || str(opts.model), tools: [], cwd: str(res.cwd) || opts.cwd }));
         events.push(sessionEvent("status", { status: "idle" }));
+        c.attach(id, listener);
       } catch (e) {
         if (disposed) return;
         fail(bootFailureMessage(e));
@@ -251,7 +264,6 @@ export class CodexAdapter implements AgentAdapter {
         await boot; // boot reports its own failures; it never rejects
         if (disposed || !conn || !threadId) { events.push(sessionEvent("error", { message: "session ended" })); return; }
         const input = inputFor(m);
-        running = true;
         events.push(sessionEvent("status", { status: "running" }));
         try {
           if (activeTurnId) {
@@ -269,7 +281,6 @@ export class CodexAdapter implements AgentAdapter {
           const started = obj(await conn.request("turn/start", { threadId, input }));
           activeTurnId = str(obj(started.turn).id) || null;
         } catch (e) {
-          running = false;
           events.push(sessionEvent("error", { message: message(e) }));
           events.push(sessionEvent("status", { status: "idle" }));
         }
