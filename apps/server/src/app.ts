@@ -9,16 +9,16 @@ import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { SessionService } from "./sessions/service";
-import { ClaudeAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
+import { ClaudeAdapter, CodexAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 
 export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
-/** Claude always; the scripted fake only when REALM_ENABLE_FAKE_AGENT=1 (offline dev). */
+/** Claude and Codex always; the scripted fake only when REALM_ENABLE_FAKE_AGENT=1 (offline dev). */
 export function defaultAdapters(): AdapterRegistry {
-  const reg: AdapterRegistry = { claude: new ClaudeAdapter() };
+  const reg: AdapterRegistry = { claude: new ClaudeAdapter(), codex: new CodexAdapter() };
   if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ script: [], delayMs: 15 });
   return reg;
 }
