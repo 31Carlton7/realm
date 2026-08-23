@@ -21,8 +21,15 @@ import { SpacesStore } from "../src/store/spaces";
 
 const KINDS = (process.argv[2] ?? "codex,acp:cursor").split(",").filter(Boolean) as AgentKind[];
 const PROMPT = process.argv[3] ?? "Reply with exactly: REALM OK";
+/**
+ * Per-turn budget, applied to the resume leg too.
+ *
+ * It has to be this generous: `cursor-agent acp` sits silent for a fixed ~60s after `session/prompt` before it
+ * streams a single chunk (reproducible with a bare JSON-RPC client, so it is the CLI, not Realm). The resume leg
+ * used to get half this, which put the deadline within a few hundred milliseconds of when the answer actually
+ * arrives — the turn was still in flight when the check gave up on it.
+ */
 const TURN_TIMEOUT_MS = 120_000;
-const RESUME_TIMEOUT_MS = 60_000;
 
 let failures = 0;
 const ok = (label: string, cond: boolean, detail = "") => {
@@ -32,17 +39,23 @@ const ok = (label: string, cond: boolean, detail = "") => {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Poll the persisted event log until the turn settles (idle after text, or a terminal status). */
-async function drain(read: () => SessionEvent[], timeoutMs: number): Promise<SessionEvent[]> {
+/**
+ * Poll the persisted event log until the turn that begins at index `from` settles, and return that turn's slice.
+ *
+ * Scoped to `from` rather than to the whole log on purpose: `read()` hands back the session's entire history, and
+ * on the resume leg that history already ends in the previous turn's `assistant_text` followed by `idle`. A
+ * whole-history condition is therefore satisfiable before the new turn has produced anything at all.
+ */
+async function drain(read: () => SessionEvent[], from: number, timeoutMs: number): Promise<SessionEvent[]> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const evs = read();
+  for (;;) {
+    const evs = read().slice(from);
     const lastStatus = evs.filter((e) => e.type === "status").at(-1)?.payload.status;
     const settled = lastStatus === "idle" && evs.some((e) => e.type === "assistant_text");
     if (settled || lastStatus === "error" || lastStatus === "ended") return evs;
+    if (Date.now() >= deadline) return evs;
     await sleep(200);
   }
-  return read();
 }
 
 async function main() {
@@ -76,10 +89,11 @@ async function main() {
 
     const read = () => app.sessions.events(session.id, 0, 1000).map((s) => s.event);
 
+    const from = read().length;
     const t0 = Date.now();
     await app.sessions.send(session.id, { text: PROMPT, attachments: [] });
     const sendMs = Date.now() - t0;
-    const evs = await drain(read, TURN_TIMEOUT_MS);
+    const evs = await drain(read, from, TURN_TIMEOUT_MS);
 
     const text = evs.filter((e) => e.type === "assistant_text").map((e) => (e.payload as { text: string }).text).join("");
     const errs = evs.filter((e) => e.type === "error").map((e) => (e.payload as { message: string }).message);
@@ -102,8 +116,7 @@ async function main() {
 
     const before = read().length;
     await app.sessions.send(session.id, { text: "Reply with exactly: RESUMED", attachments: [] });
-    await drain(read, RESUME_TIMEOUT_MS);
-    const after = read().slice(before);
+    const after = await drain(read, before, TURN_TIMEOUT_MS);
     const init2 = after.find((e) => e.type === "init");
     const resumedId = init2 ? (init2.payload as { providerSessionId: string }).providerSessionId : null;
     const text2 = after.filter((e) => e.type === "assistant_text").map((e) => (e.payload as { text: string }).text).join("");
