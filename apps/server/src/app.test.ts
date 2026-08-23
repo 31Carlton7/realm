@@ -14,4 +14,10 @@ describe("defaultAdapters", () => {
     expect(defaultAdapters().fake).toBeDefined();
     delete process.env.REALM_ENABLE_FAKE_AGENT;
   });
+
+  it("registers both ACP agents with their own launch commands", () => {
+    const reg = defaultAdapters();
+    expect(reg["acp:cursor"]?.kind).toBe("acp:cursor");
+    expect(reg["acp:gemini"]?.kind).toBe("acp:gemini");
+  });
 });
