@@ -1,5 +1,5 @@
-import { basename } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
+import { readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
@@ -93,6 +93,50 @@ export function sliceLines(content: string, line: unknown, limit: unknown): stri
   const lines = content.split("\n");
   const start = from === null ? 0 : Math.max(0, from - 1);
   return lines.slice(start, count === null ? undefined : start + count).join("\n");
+}
+
+/** Cap on `fs/read_text_file`: the content crosses a JSON-RPC frame and lands in the model's context. */
+export const MAX_FS_READ_BYTES = 10 * 1024 * 1024;
+
+/**
+ * `realpath` for a path whose tail may not exist yet: resolves the deepest ancestor that does, then re-attaches
+ * the missing segments. A plain `realpath` throws ENOENT for a not-yet-created write target.
+ */
+async function realpathOfDeepestExisting(p: string): Promise<string> {
+  const tail: string[] = [];
+  let cur = p;
+  for (;;) {
+    try { return join(await realpath(cur), ...tail); }
+    catch { /* does not exist yet — keep walking up */ }
+    const parent = dirname(cur);
+    if (parent === cur) return p; // ran out of ancestors; nothing left to resolve
+    tail.unshift(basename(cur));
+    cur = parent;
+  }
+}
+
+/**
+ * Resolves `target` for the session rooted at `root`, and refuses anything that escapes it.
+ *
+ * §5 is right that declaring `fs:false` would not remove the capability — the agent just does its own disk I/O.
+ * But that cuts the other way for containment: confining *our* handlers costs a well-behaved agent nothing (it
+ * falls back to that same I/O) and stops Realm from being the instrument of an unconstrained read of
+ * `~/.ssh/id_rsa` or write to `~/.zshrc`, neither of which ever reaches a permission card.
+ *
+ * Both sides are resolved through `realpath` before they are compared, so a symlink inside the session
+ * directory cannot point out of it — and neither side may be compared literally, because on macOS the session
+ * cwd itself routinely arrives as a symlinked `/var/...` path for a real `/private/var/...` one.
+ *
+ * The caller reports a missing file: this returns a resolved path, not the promise that anything is there.
+ */
+export async function containedPath(root: string, target: string): Promise<string> {
+  const rootReal = await realpath(root);
+  // An absolute target is kept as-is; a relative one starts at the session directory.
+  const real = await realpathOfDeepestExisting(resolve(rootReal, target));
+  if (real !== rootReal && !real.startsWith(rootReal + sep)) {
+    throw new Error(`${target} is outside this session's working directory`);
+  }
+  return real;
 }
 
 /**
@@ -196,15 +240,21 @@ export class AcpAdapter implements AgentAdapter {
     };
 
     const serveFs = async (id: JsonRpcId, method: string, p: Bag): Promise<void> => {
+      const target = str(p.path);
       try {
         if (method === "fs/read_text_file") {
-          const content = await readFile(str(p.path), "utf8");
+          const path = await containedPath(opts.cwd, target);
+          const { size } = await stat(path);
+          if (size > MAX_FS_READ_BYTES) throw new Error(`${target} is ${size} bytes, too large to read (limit ${MAX_FS_READ_BYTES})`);
+          const content = await readFile(path, "utf8");
           rpc?.respond(id, { content: sliceLines(content, p.line, p.limit) });
         } else {
-          await writeFile(str(p.path), str(p.content), "utf8");
+          const path = await containedPath(opts.cwd, target);
+          await writeFile(path, str(p.content), "utf8");
           rpc?.respond(id, {});
         }
       } catch (e) {
+        log(`${method} ${target}: ${message(e)}`);
         rpc?.respondError(id, -32603, message(e));
       }
     };

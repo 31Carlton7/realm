@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
-import { AcpAdapter, acpBootFailureMessage, pickAcpOption, sliceLines, type AcpAgentSpec } from "./acp-adapter";
+import { AcpAdapter, acpBootFailureMessage, MAX_FS_READ_BYTES, pickAcpOption, sliceLines, type AcpAgentSpec } from "./acp-adapter";
 import { JsonRpcCallError } from "../jsonrpc/stdio";
 import type { AgentHandle, StartOptions } from "../types";
 
@@ -404,7 +404,7 @@ describe("AcpAdapter", () => {
     const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
     const path = join(dir, "NOTES.txt");
     await writeFile(path, "one\ntwo\nthree\nfour\n");
-    const { handle, evs } = await booted();
+    const { handle, evs } = await booted({ cwd: dir });
     await turn(handle, evs, `READFILE ${path}`);
     expect(texts(evs)[0]).toBe("read:one\ntwo\nthree\nfour\n");
     await turn(handle, evs, `READFILE ${path} 2 2`);
@@ -418,11 +418,93 @@ describe("AcpAdapter", () => {
 
   it("serves fs/write_text_file", async () => {
     const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
-    const path = join(dir, "OUT.txt");
-    const { handle, evs } = await booted();
+    const path = join(dir, "OUT.txt"); // does not exist yet: the target is resolved through its parent
+    const { handle, evs } = await booted({ cwd: dir });
     await turn(handle, evs, `WRITEFILE ${path} written by the agent`);
     expect(texts(evs)[0]).toBe("write:ok");
     expect(await readFile(path, "utf8")).toBe("written by the agent");
+    await handle.dispose();
+  });
+
+  it("refuses to read a path that escapes the session's working directory", async () => {
+    // Absolute paths are all an agent needs to ask for ~/.ssh/id_rsa or ~/.aws/credentials, and none of this
+    // reaches a permission card. Declaring fs:false would not take the capability away — but confining our own
+    // handlers costs a well-behaved agent nothing, it just falls back to its own I/O.
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const work = join(dir, "work");
+    await mkdir(work);
+    const outside = join(dir, "SECRET.txt");
+    await writeFile(outside, "credentials");
+    const logs: string[] = [];
+    const { handle, evs } = await booted({ cwd: work, onLog: (l) => logs.push(l) });
+    await turn(handle, evs, `READFILE ${outside}`);
+    expect(texts(evs)[0]).toContain("read failed:");
+    expect(texts(evs)[0]).toContain("outside");
+    await turn(handle, evs, `READFILE ../../../etc/passwd`); // relative traversal, resolved against cwd
+    expect(texts(evs)[1]).toContain("outside");
+    expect(logs.join("\n")).toContain("outside");
+    await handle.dispose();
+  });
+
+  it("refuses to write outside the working directory and leaves the target untouched", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const work = join(dir, "work");
+    await mkdir(work);
+    const outside = join(dir, "ZSHRC");
+    await writeFile(outside, "original");
+    const { handle, evs } = await booted({ cwd: work });
+    await turn(handle, evs, `WRITEFILE ${outside} clobbered`);
+    expect(texts(evs)[0]).toContain("write failed:");
+    expect(await readFile(outside, "utf8")).toBe("original");
+    // …and a brand new file outside cwd is not created either.
+    await turn(handle, evs, `WRITEFILE ${join(dir, "NEW.txt")} hello`);
+    expect(texts(evs)[1]).toContain("write failed:");
+    expect(existsSync(join(dir, "NEW.txt"))).toBe(false);
+    await handle.dispose();
+  });
+
+  it("refuses a symlink inside the working directory that points outside it", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const work = join(dir, "work");
+    await mkdir(work);
+    const outside = join(dir, "SECRET.txt");
+    await writeFile(outside, "credentials");
+    // Resolving the link is the whole point: a containment check on the literal path would wave this through.
+    await symlink(outside, join(work, "innocent.txt"));
+    const { handle, evs } = await booted({ cwd: work });
+    await turn(handle, evs, `READFILE ${join(work, "innocent.txt")}`);
+    expect(texts(evs)[0]).toContain("outside");
+    expect(texts(evs)[0]).not.toContain("credentials");
+    await turn(handle, evs, `WRITEFILE ${join(work, "innocent.txt")} clobbered`);
+    expect(texts(evs)[1]).toContain("write failed:");
+    expect(await readFile(outside, "utf8")).toBe("credentials");
+    await handle.dispose();
+  });
+
+  it("refuses a sibling directory whose name merely starts with the working directory's", async () => {
+    // /…/work-evil is not inside /…/work, however much a naive prefix test would like it to be.
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const work = join(dir, "work");
+    await mkdir(work);
+    await mkdir(join(dir, "work-evil"));
+    const sibling = join(dir, "work-evil", "SECRET.txt");
+    await writeFile(sibling, "credentials");
+    const { handle, evs } = await booted({ cwd: work });
+    await turn(handle, evs, `READFILE ${sibling}`);
+    expect(texts(evs)[0]).toContain("outside");
+    expect(texts(evs)[0]).not.toContain("credentials");
+    await handle.dispose();
+  });
+
+  it("refuses to read a file past the size cap", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const huge = join(dir, "HUGE.bin");
+    await writeFile(huge, "");
+    await truncate(huge, MAX_FS_READ_BYTES + 1); // sparse: no real bytes written
+    const { handle, evs } = await booted({ cwd: dir });
+    await turn(handle, evs, `READFILE ${huge}`);
+    expect(texts(evs)[0]).toContain("read failed:");
+    expect(texts(evs)[0]).toMatch(/too large|bytes/);
     await handle.dispose();
   });
 
@@ -682,7 +764,7 @@ describe("AcpAdapter", () => {
     const path = join(dir, "REPLAY.txt");
     await writeFile(path, "replayed content");
     const { handle, evs } = await booted(
-      { resume: "sess_prev" },
+      { resume: "sess_prev", cwd: dir },
       { env: { FAKE_ACP_LOAD_ASKS: "1", FAKE_ACP_LOAD_ASKS_PATH: path } },
     );
     await turn(handle, evs, "REVEAL");
