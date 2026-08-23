@@ -96,6 +96,16 @@ process.stdin.on("data", (c) => {
     }
     if (msg.method === "notifyMe") process.stdout.write(JSON.stringify({ method: "tick", params: { at: 1 }, emittedAtMs: 7 }) + "\\n");
     if (msg.method === "loud") process.stderr.write("noise-1\\nnoise-2\\n");
+    if (msg.method === "spam") {
+      // 60 lines, one write each, to exercise the 50-line stderrTail cap's shift() branch.
+      for (let n = 1; n <= 60; n++) process.stderr.write("line-" + n + "\\n");
+    }
+    if (msg.method === "big") {
+      // A single large write is split across multiple stdout 'data' chunks by the OS pipe buffer
+      // (well under 500KB on any platform), exercising the outBuf reassembly loop for real.
+      const s = "x".repeat(500000);
+      process.stdout.write(JSON.stringify({ id: msg.id, result: { s: s } }) + "\\n");
+    }
   }
 });
 `;
@@ -125,11 +135,7 @@ describe("StdioJsonRpc", () => {
 
   it("rejects with a JsonRpcCallError carrying code and data", async () => {
     const { rpc } = make();
-    await expect(rpc.request("boom")).rejects.toBeInstanceOf(JsonRpcCallError);
-    await rpc.request("boom").catch((e: JsonRpcCallError) => {
-      expect(e.code).toBe(-32600);
-      expect(e.data).toEqual({ action: "relogin" });
-    });
+    await expect(rpc.request("boom")).rejects.toMatchObject({ code: -32600, data: { action: "relogin" } });
     await rpc.dispose();
   });
 
@@ -164,10 +170,36 @@ describe("StdioJsonRpc", () => {
     await rpc.dispose();
   });
 
+  it("caps the stderr tail at 50 lines, dropping the oldest", async () => {
+    const { rpc, stderr } = make();
+    rpc.notify("spam");
+    await vi.waitFor(() => expect(stderr).toHaveLength(60));
+    expect(rpc.stderrTail).toHaveLength(50);
+    expect(rpc.stderrTail[0]).toBe("line-11");
+    expect(rpc.stderrTail[49]).toBe("line-60");
+    await rpc.dispose();
+  });
+
+  it("reassembles a JSON-RPC frame split across multiple stdout chunks", async () => {
+    const { rpc } = make();
+    const result = await rpc.request<{ s: string }>("big");
+    expect(result.s).toHaveLength(500_000);
+    expect(result.s).toBe("x".repeat(500_000));
+    await rpc.dispose();
+  });
+
+  it("dispose() reports onExit exactly once with disposed: true", async () => {
+    const { rpc, onExit } = make();
+    await rpc.dispose();
+    expect(onExit).toHaveBeenCalledTimes(1);
+    expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ disposed: true, reason: "disposed" }));
+  });
+
   it("rejects in-flight requests and reports exit when the child dies", async () => {
     const { rpc, onExit } = make({ args: ["-e", "process.exit(3)"] });
     await expect(rpc.request("ping")).rejects.toThrow(/exited/);
     await vi.waitFor(() => expect(onExit).toHaveBeenCalled());
+    expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ disposed: false }));
     await rpc.dispose();
   });
 
@@ -175,6 +207,7 @@ describe("StdioJsonRpc", () => {
     const { rpc, onExit } = make({ command: "/definitely/not/a/binary", args: [] });
     await expect(rpc.request("ping")).rejects.toThrow();
     await vi.waitFor(() => expect(onExit).toHaveBeenCalled());
+    expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ disposed: false }));
     await rpc.dispose();
   });
 });
@@ -205,6 +238,7 @@ export class JsonRpcCallError extends Error {
 }
 
 const STDERR_TAIL_LINES = 50;
+const DISPOSE_KILL_TIMEOUT_MS = 2000;
 
 export type StdioJsonRpcOptions = {
   command: string;
@@ -215,7 +249,9 @@ export type StdioJsonRpcOptions = {
   /** MUST be answered with respond()/respondError() — an unanswered server request stalls the agent's turn forever. */
   onServerRequest: (r: JsonRpcServerRequest) => void;
   onStderr?: (line: string) => void;
-  onExit: (info: { code: number | null; signal: NodeJS.Signals | null; reason: string }) => void;
+  /** `disposed` is the reliable signal for "we caused this shutdown" vs "the child actually died" —
+   *  branch on it, not on parsing `reason`, which is a free-form string for logs only. */
+  onExit: (info: { code: number | null; signal: NodeJS.Signals | null; reason: string; disposed: boolean }) => void;
 };
 
 /**
@@ -234,7 +270,8 @@ export class StdioJsonRpc {
   private outBuf = "";
   private errBuf = "";
   private dead: Error | null = null;
-  readonly stderrTail: string[] = [];
+  private childExited = false;
+  private _stderrTail: string[] = [];
 
   constructor(private o: StdioJsonRpcOptions, deps: { spawn?: typeof nodeSpawn } = {}) {
     const spawnFn = deps.spawn ?? nodeSpawn;
@@ -243,11 +280,24 @@ export class StdioJsonRpc {
     this.child.stderr?.setEncoding("utf8");
     this.child.stdout?.on("data", (c: string) => this.onStdout(c));
     this.child.stderr?.on("data", (c: string) => this.onStderrChunk(c));
-    this.child.on("error", (e: Error) => this.die(`failed to start ${o.command}: ${e.message}`, null, null));
-    this.child.on("exit", (code, signal) => this.die(`${o.command} exited (code ${code ?? "null"}, signal ${signal ?? "null"})`, code, signal));
+    // Stream 'error' (EPIPE, ERR_STREAM_WRITE_AFTER_END, ...) is otherwise unhandled and crashes the whole
+    // process with an uncaughtException. It isn't fatal to the RPC session by itself — 'exit' is what ends
+    // that — so just surface it as a diagnostic.
+    this.child.stdin?.on("error", (e: Error) => this.o.onStderr?.(`stdin error: ${e.message}`));
+    this.child.stdout?.on("error", (e: Error) => this.o.onStderr?.(`stdout error: ${e.message}`));
+    this.child.stderr?.on("error", (e: Error) => this.o.onStderr?.(`stderr error: ${e.message}`));
+    this.child.on("error", (e: Error) => {
+      this.childExited = true; // never actually started; nothing left to reap
+      this.die(`failed to start ${o.command}: ${e.message}`, null, null, false);
+    });
+    this.child.on("exit", (code, signal) => {
+      this.childExited = true;
+      this.die(`${o.command} exited (code ${code ?? "null"}, signal ${signal ?? "null"})`, code, signal, false);
+    });
   }
 
   get alive(): boolean { return this.dead === null; }
+  get stderrTail(): readonly string[] { return [...this._stderrTail]; }
 
   request<T = unknown>(method: string, params?: unknown): Promise<T> {
     if (this.dead) return Promise.reject(this.dead);
@@ -273,15 +323,32 @@ export class StdioJsonRpc {
     this.write({ jsonrpc: "2.0", id, error: { code, message } });
   }
 
+  /**
+   * Sends EOF — most CLI agents exit cleanly on stdin close — then waits briefly for the real process to
+   * go away, escalating to SIGKILL if it hasn't. The child is not spawned detached, so a hard crash of
+   * this process still orphans it; this only covers the graceful path.
+   */
   async dispose(): Promise<void> {
-    if (!this.dead) this.die("disposed", null, null);
+    if (!this.dead) this.die("disposed", null, null, true);
     this.child.stdin?.end();
-    if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill("SIGTERM");
+    await this.reap();
+  }
+
+  private reap(): Promise<void> {
+    if (this.childExited) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const finish = () => { clearTimeout(killTimer); resolve(); };
+      this.child.once("exit", finish);
+      this.child.once("error", finish); // spawn never actually started; nothing more to wait for
+      const killTimer = setTimeout(() => this.child.kill("SIGKILL"), DISPOSE_KILL_TIMEOUT_MS);
+    });
   }
 
   private write(msg: unknown): void {
+    // Guards synchronous throws only (e.g. writing after the stream is already destroyed); async write
+    // failures surface via the stdin 'error' listener registered in the constructor instead.
     try { this.child.stdin?.write(JSON.stringify(msg) + "\n"); }
-    catch { /* the exit handler already rejected everything in flight */ }
+    catch { /* swallow: the 'error'/'exit' handlers already reject everything in flight */ }
   }
 
   private onStdout(chunk: string): void {
@@ -305,7 +372,7 @@ export class StdioJsonRpc {
     if (hasId && typeof msg.method === "string") { this.o.onServerRequest({ id, method: msg.method, params: msg.params }); return; }
     if (hasId && ("result" in msg || "error" in msg)) {
       const p = this.pending.get(id);
-      if (!p) return; // a response we never asked for; ignore rather than guess
+      if (!p) { this.o.onStderr?.(`response for unknown request id ${String(id)}: ${line.slice(0, 200)}`); return; }
       this.pending.delete(id);
       if ("error" in msg) {
         const e = (msg.error ?? {}) as { code?: number; message?: string; data?: unknown };
@@ -325,17 +392,17 @@ export class StdioJsonRpc {
       this.errBuf = this.errBuf.slice(i + 1);
       if (!line.trim()) continue;
       this.o.onStderr?.(line);
-      this.stderrTail.push(line);
-      if (this.stderrTail.length > STDERR_TAIL_LINES) this.stderrTail.shift();
+      this._stderrTail.push(line);
+      if (this._stderrTail.length > STDERR_TAIL_LINES) this._stderrTail.shift();
     }
   }
 
-  private die(reason: string, code: number | null, signal: NodeJS.Signals | null): void {
+  private die(reason: string, code: number | null, signal: NodeJS.Signals | null, disposed: boolean): void {
     if (this.dead) return;
     this.dead = new Error(reason);
     for (const [, p] of this.pending) p.reject(this.dead);
     this.pending.clear();
-    this.o.onExit({ code, signal, reason });
+    this.o.onExit({ code, signal, reason, disposed });
   }
 }
 ```
@@ -343,7 +410,7 @@ export class StdioJsonRpc {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm vitest run packages/adapters/src/jsonrpc/stdio.test.ts`
-Expected: PASS — 7 tests.
+Expected: PASS — 10 tests.
 
 - [ ] **Step 5: Commit**
 

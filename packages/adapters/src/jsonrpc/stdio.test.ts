@@ -23,6 +23,16 @@ process.stdin.on("data", (c) => {
     }
     if (msg.method === "notifyMe") process.stdout.write(JSON.stringify({ method: "tick", params: { at: 1 }, emittedAtMs: 7 }) + "\\n");
     if (msg.method === "loud") process.stderr.write("noise-1\\nnoise-2\\n");
+    if (msg.method === "spam") {
+      // 60 lines, one write each, to exercise the 50-line stderrTail cap's shift() branch.
+      for (let n = 1; n <= 60; n++) process.stderr.write("line-" + n + "\\n");
+    }
+    if (msg.method === "big") {
+      // A single large write is split across multiple stdout 'data' chunks by the OS pipe buffer
+      // (well under 500KB on any platform), exercising the outBuf reassembly loop for real.
+      const s = "x".repeat(500000);
+      process.stdout.write(JSON.stringify({ id: msg.id, result: { s: s } }) + "\\n");
+    }
   }
 });
 `;
@@ -52,11 +62,7 @@ describe("StdioJsonRpc", () => {
 
   it("rejects with a JsonRpcCallError carrying code and data", async () => {
     const { rpc } = make();
-    await expect(rpc.request("boom")).rejects.toBeInstanceOf(JsonRpcCallError);
-    await rpc.request("boom").catch((e: JsonRpcCallError) => {
-      expect(e.code).toBe(-32600);
-      expect(e.data).toEqual({ action: "relogin" });
-    });
+    await expect(rpc.request("boom")).rejects.toMatchObject({ code: -32600, data: { action: "relogin" } });
     await rpc.dispose();
   });
 
@@ -91,10 +97,36 @@ describe("StdioJsonRpc", () => {
     await rpc.dispose();
   });
 
+  it("caps the stderr tail at 50 lines, dropping the oldest", async () => {
+    const { rpc, stderr } = make();
+    rpc.notify("spam");
+    await vi.waitFor(() => expect(stderr).toHaveLength(60));
+    expect(rpc.stderrTail).toHaveLength(50);
+    expect(rpc.stderrTail[0]).toBe("line-11");
+    expect(rpc.stderrTail[49]).toBe("line-60");
+    await rpc.dispose();
+  });
+
+  it("reassembles a JSON-RPC frame split across multiple stdout chunks", async () => {
+    const { rpc } = make();
+    const result = await rpc.request<{ s: string }>("big");
+    expect(result.s).toHaveLength(500_000);
+    expect(result.s).toBe("x".repeat(500_000));
+    await rpc.dispose();
+  });
+
+  it("dispose() reports onExit exactly once with disposed: true", async () => {
+    const { rpc, onExit } = make();
+    await rpc.dispose();
+    expect(onExit).toHaveBeenCalledTimes(1);
+    expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ disposed: true, reason: "disposed" }));
+  });
+
   it("rejects in-flight requests and reports exit when the child dies", async () => {
     const { rpc, onExit } = make({ args: ["-e", "process.exit(3)"] });
     await expect(rpc.request("ping")).rejects.toThrow(/exited/);
     await vi.waitFor(() => expect(onExit).toHaveBeenCalled());
+    expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ disposed: false }));
     await rpc.dispose();
   });
 
@@ -102,6 +134,7 @@ describe("StdioJsonRpc", () => {
     const { rpc, onExit } = make({ command: "/definitely/not/a/binary", args: [] });
     await expect(rpc.request("ping")).rejects.toThrow();
     await vi.waitFor(() => expect(onExit).toHaveBeenCalled());
+    expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ disposed: false }));
     await rpc.dispose();
   });
 });

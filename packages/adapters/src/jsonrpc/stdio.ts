@@ -13,6 +13,7 @@ export class JsonRpcCallError extends Error {
 }
 
 const STDERR_TAIL_LINES = 50;
+const DISPOSE_KILL_TIMEOUT_MS = 2000;
 
 export type StdioJsonRpcOptions = {
   command: string;
@@ -23,7 +24,9 @@ export type StdioJsonRpcOptions = {
   /** MUST be answered with respond()/respondError() — an unanswered server request stalls the agent's turn forever. */
   onServerRequest: (r: JsonRpcServerRequest) => void;
   onStderr?: (line: string) => void;
-  onExit: (info: { code: number | null; signal: NodeJS.Signals | null; reason: string }) => void;
+  /** `disposed` is the reliable signal for "we caused this shutdown" vs "the child actually died" —
+   *  branch on it, not on parsing `reason`, which is a free-form string for logs only. */
+  onExit: (info: { code: number | null; signal: NodeJS.Signals | null; reason: string; disposed: boolean }) => void;
 };
 
 /**
@@ -42,7 +45,8 @@ export class StdioJsonRpc {
   private outBuf = "";
   private errBuf = "";
   private dead: Error | null = null;
-  readonly stderrTail: string[] = [];
+  private childExited = false;
+  private _stderrTail: string[] = [];
 
   constructor(private o: StdioJsonRpcOptions, deps: { spawn?: typeof nodeSpawn } = {}) {
     const spawnFn = deps.spawn ?? nodeSpawn;
@@ -51,11 +55,24 @@ export class StdioJsonRpc {
     this.child.stderr?.setEncoding("utf8");
     this.child.stdout?.on("data", (c: string) => this.onStdout(c));
     this.child.stderr?.on("data", (c: string) => this.onStderrChunk(c));
-    this.child.on("error", (e: Error) => this.die(`failed to start ${o.command}: ${e.message}`, null, null));
-    this.child.on("exit", (code, signal) => this.die(`${o.command} exited (code ${code ?? "null"}, signal ${signal ?? "null"})`, code, signal));
+    // Stream 'error' (EPIPE, ERR_STREAM_WRITE_AFTER_END, ...) is otherwise unhandled and crashes the whole
+    // process with an uncaughtException. It isn't fatal to the RPC session by itself — 'exit' is what ends
+    // that — so just surface it as a diagnostic.
+    this.child.stdin?.on("error", (e: Error) => this.o.onStderr?.(`stdin error: ${e.message}`));
+    this.child.stdout?.on("error", (e: Error) => this.o.onStderr?.(`stdout error: ${e.message}`));
+    this.child.stderr?.on("error", (e: Error) => this.o.onStderr?.(`stderr error: ${e.message}`));
+    this.child.on("error", (e: Error) => {
+      this.childExited = true; // never actually started; nothing left to reap
+      this.die(`failed to start ${o.command}: ${e.message}`, null, null, false);
+    });
+    this.child.on("exit", (code, signal) => {
+      this.childExited = true;
+      this.die(`${o.command} exited (code ${code ?? "null"}, signal ${signal ?? "null"})`, code, signal, false);
+    });
   }
 
   get alive(): boolean { return this.dead === null; }
+  get stderrTail(): readonly string[] { return [...this._stderrTail]; }
 
   request<T = unknown>(method: string, params?: unknown): Promise<T> {
     if (this.dead) return Promise.reject(this.dead);
@@ -81,15 +98,32 @@ export class StdioJsonRpc {
     this.write({ jsonrpc: "2.0", id, error: { code, message } });
   }
 
+  /**
+   * Sends EOF — most CLI agents exit cleanly on stdin close — then waits briefly for the real process to
+   * go away, escalating to SIGKILL if it hasn't. The child is not spawned detached, so a hard crash of
+   * this process still orphans it; this only covers the graceful path.
+   */
   async dispose(): Promise<void> {
-    if (!this.dead) this.die("disposed", null, null);
+    if (!this.dead) this.die("disposed", null, null, true);
     this.child.stdin?.end();
-    if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill("SIGTERM");
+    await this.reap();
+  }
+
+  private reap(): Promise<void> {
+    if (this.childExited) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const finish = () => { clearTimeout(killTimer); resolve(); };
+      this.child.once("exit", finish);
+      this.child.once("error", finish); // spawn never actually started; nothing more to wait for
+      const killTimer = setTimeout(() => this.child.kill("SIGKILL"), DISPOSE_KILL_TIMEOUT_MS);
+    });
   }
 
   private write(msg: unknown): void {
+    // Guards synchronous throws only (e.g. writing after the stream is already destroyed); async write
+    // failures surface via the stdin 'error' listener registered in the constructor instead.
     try { this.child.stdin?.write(JSON.stringify(msg) + "\n"); }
-    catch { /* the exit handler already rejected everything in flight */ }
+    catch { /* swallow: the 'error'/'exit' handlers already reject everything in flight */ }
   }
 
   private onStdout(chunk: string): void {
@@ -113,7 +147,7 @@ export class StdioJsonRpc {
     if (hasId && typeof msg.method === "string") { this.o.onServerRequest({ id, method: msg.method, params: msg.params }); return; }
     if (hasId && ("result" in msg || "error" in msg)) {
       const p = this.pending.get(id);
-      if (!p) return; // a response we never asked for; ignore rather than guess
+      if (!p) { this.o.onStderr?.(`response for unknown request id ${String(id)}: ${line.slice(0, 200)}`); return; }
       this.pending.delete(id);
       if ("error" in msg) {
         const e = (msg.error ?? {}) as { code?: number; message?: string; data?: unknown };
@@ -133,16 +167,16 @@ export class StdioJsonRpc {
       this.errBuf = this.errBuf.slice(i + 1);
       if (!line.trim()) continue;
       this.o.onStderr?.(line);
-      this.stderrTail.push(line);
-      if (this.stderrTail.length > STDERR_TAIL_LINES) this.stderrTail.shift();
+      this._stderrTail.push(line);
+      if (this._stderrTail.length > STDERR_TAIL_LINES) this._stderrTail.shift();
     }
   }
 
-  private die(reason: string, code: number | null, signal: NodeJS.Signals | null): void {
+  private die(reason: string, code: number | null, signal: NodeJS.Signals | null, disposed: boolean): void {
     if (this.dead) return;
     this.dead = new Error(reason);
     for (const [, p] of this.pending) p.reject(this.dead);
     this.pending.clear();
-    this.o.onExit({ code, signal, reason });
+    this.o.onExit({ code, signal, reason, disposed });
   }
 }
