@@ -140,12 +140,11 @@ export class AcpAdapter implements AgentAdapter {
       events.push(sessionEvent("status", { status: "error" }));
     };
 
-    const answer = (requestId: string, outcome: Bag) => {
+    const answer = (requestId: string, outcome: Bag): void => {
       const p = pending.get(requestId);
-      if (!p) return false;
+      if (!p) return;
       pending.delete(requestId);
       rpc?.respond(p.id, { outcome });
-      return true;
     };
 
     const respond = (requestId: string, decision: PermissionDecision) => {
@@ -178,11 +177,13 @@ export class AcpAdapter implements AgentAdapter {
       if (disposed) return;
       disposed = true;
       cancelAllPending();
+      // The child goes first, and the stream stays open across its death: whatever the agent flushes on its
+      // way out still reaches the transcript, and `ended` stays the last event anyone sees.
+      await rpc?.dispose();
       for (const e of mapper.flush()) events.push(e);
       for (const e of mapper.closeOpenCalls("session closed")) events.push(e);
       events.push(sessionEvent("status", { status: "ended" }));
       events.close();
-      await rpc?.dispose();
     };
 
     const serveFs = async (id: JsonRpcId, method: string, p: Bag): Promise<void> => {
@@ -315,8 +316,6 @@ export class AcpAdapter implements AgentAdapter {
       return blocks;
     };
 
-    const settle = (events_: SessionEvent[]) => { for (const e of events_) events.push(e); };
-
     return {
       events,
       send: async (m: UserMessage) => {
@@ -329,14 +328,14 @@ export class AcpAdapter implements AgentAdapter {
         void rpc.request("session/prompt", { sessionId, prompt }).then(
           (res) => {
             if (disposed) return;
-            settle(mapper.flush());
+            for (const e of mapper.flush()) events.push(e);
             const failure = stopReasonError(str(obj(res).stopReason));
             if (failure) events.push(sessionEvent("error", { message: failure }));
             events.push(sessionEvent("status", { status: "idle" }));
           },
           (e) => {
             if (disposed) return; // the exit handler already reported why the turn died
-            settle(mapper.flush());
+            for (const e of mapper.flush()) events.push(e);
             events.push(sessionEvent("error", { message: message(e) }));
             events.push(sessionEvent("status", { status: "idle" }));
           },

@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { fileURLToPath } from "node:url";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
-import { AcpAdapter, pickAcpOption, type AcpAgentSpec } from "./acp-adapter";
+import { AcpAdapter, acpBootFailureMessage, pickAcpOption, sliceLines, type AcpAgentSpec } from "./acp-adapter";
+import { JsonRpcCallError } from "../jsonrpc/stdio";
 import type { AgentHandle, StartOptions } from "../types";
 
 const FAKE = fileURLToPath(new URL("./fixtures/fake-acp-agent.mjs", import.meta.url));
@@ -87,6 +89,73 @@ describe("pickAcpOption", () => {
   });
 });
 
+describe("sliceLines", () => {
+  const FOUR = "one\ntwo\nthree\nfour\n";
+
+  it("returns the whole file when the agent asked for no window", () => {
+    expect(sliceLines(FOUR, undefined, undefined)).toBe(FOUR);
+    expect(sliceLines(FOUR, null, null)).toBe(FOUR);
+  });
+
+  it("treats line as 1-based and limit as a line count", () => {
+    expect(sliceLines(FOUR, 2, 2)).toBe("two\nthree");
+    expect(sliceLines(FOUR, 1, 1)).toBe("one");
+  });
+
+  it("honours line on its own", () => {
+    expect(sliceLines(FOUR, 3, undefined)).toBe("three\nfour\n");
+    expect(sliceLines(FOUR, 1, null)).toBe(FOUR);
+  });
+
+  it("honours limit on its own", () => {
+    expect(sliceLines(FOUR, undefined, 2)).toBe("one\ntwo");
+    expect(sliceLines(FOUR, null, 1)).toBe("one");
+  });
+
+  it("clamps a line before the start of the file", () => {
+    expect(sliceLines(FOUR, 0, 1)).toBe("one");
+    expect(sliceLines(FOUR, -5, 1)).toBe("one");
+  });
+});
+
+describe("acpBootFailureMessage", () => {
+  const SPEC = { label: "Cursor", loginHint: "Run `cursor-agent login`." };
+  const AUTH = [{ id: "cursor_login", name: "Cursor Login" }];
+
+  it("leaves a non-protocol failure alone", () => {
+    // A missing binary or a dead pipe is not a login problem; appending the hint would misdirect the user.
+    const msg = acpBootFailureMessage(new Error("spawn cursor-agent ENOENT"), SPEC, AUTH);
+    expect(msg).toBe("spawn cursor-agent ENOENT");
+  });
+
+  it("names the agent, the auth methods and the hint on -32000", () => {
+    const msg = acpBootFailureMessage(new JsonRpcCallError(-32000, "API key is missing.", undefined), SPEC, AUTH);
+    expect(msg).toContain("Cursor");
+    expect(msg).toContain("sign in");
+    expect(msg).toContain("API key is missing.");
+    expect(msg).toContain("Cursor Login");
+    expect(msg).toContain("Run `cursor-agent login`.");
+  });
+
+  it("echoes Cursor's -32603 data verbatim and still appends the hint", () => {
+    const e = new JsonRpcCallError(-32603, "Internal error", { message: "Failed to initialize session services", details: "[unauthenticated] Error" });
+    const msg = acpBootFailureMessage(e, SPEC, AUTH);
+    expect(msg).toContain("Internal error");
+    expect(msg).toContain("Failed to initialize session services");
+    expect(msg).toContain("[unauthenticated] Error");
+    expect(msg).toContain("Run `cursor-agent login`.");
+    expect(msg).not.toContain("sign in"); // -32603 is generic: do not claim to know it is an auth problem
+  });
+
+  it("falls back to auth method ids and copes with no auth methods at all", () => {
+    const e = new JsonRpcCallError(-32000, "nope", undefined);
+    expect(acpBootFailureMessage(e, SPEC, [{ id: "vertex-ai" }])).toContain("vertex-ai");
+    const bare = acpBootFailureMessage(e, SPEC, []);
+    expect(bare).not.toContain("Sign-in methods");
+    expect(bare).toContain("Run `cursor-agent login`.");
+  });
+});
+
 describe("AcpAdapter", () => {
   it("reports the kind it was constructed with", () => {
     expect(newAdapter().kind).toBe("acp:cursor");
@@ -99,6 +168,35 @@ describe("AcpAdapter", () => {
     expect(good.version).toMatch(/^v?\d/);
     const bad = await newAdapter({ kind: "acp:gemini", bin: "/nonexistent/acp-bin" }).probe();
     expect(bad).toMatchObject({ kind: "acp:gemini", available: false, version: null });
+  });
+
+  it("spawns the child in the session's cwd and lets session env override the spec's", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const png = join(dir, "shot.png");
+    await writeFile(png, Buffer.from([1, 2, 3, 4]));
+    // The spec's env is a default for the agent; a session's own env is the more specific value and wins.
+    const { handle, evs } = await booted({ cwd: dir, env: { FAKE_ACP_NOIMAGE: "" } }, { env: { FAKE_ACP_NOIMAGE: "1" } });
+    await handle.send({ text: "ECHO", attachments: [{ path: png, mime: "image/png" }] });
+    await vi.waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect((JSON.parse(texts(evs)[0]!) as Record<string, unknown>[])[1]).toMatchObject({ type: "image" });
+    await turn(handle, evs, "REVEAL");
+    expect((JSON.parse(texts(evs)[1]!) as { cwd: string }).cwd).toBe(dir);
+    await handle.dispose();
+  });
+
+  it("fails the session when the agent answers session/new without a session id", async () => {
+    const { evs, done } = await booted({}, { env: { FAKE_ACP_NOSESSIONID: "1" } });
+    await done;
+    expect(errors(evs)[0]).toContain("Cursor did not return a session id");
+    expect(statuses(evs)).toEqual(["error", "ended"]);
+  });
+
+  it("survives a malformed authMethods on the failure path", async () => {
+    const { evs, done } = await booted({}, { env: { FAKE_ACP_AUTHFAIL: "1", FAKE_ACP_BADAUTH: "1" } });
+    await done;
+    expect(errors(evs)[0]).toContain("Run `cursor-agent login`.");
+    expect(errors(evs)[0]).not.toContain("Sign-in methods");
+    expect(statuses(evs)).toEqual(["error", "ended"]);
   });
 
   it("emits init then a full streaming turn, and never a user_message", async () => {
@@ -118,6 +216,24 @@ describe("AcpAdapter", () => {
     expect(types(evs)).not.toContain("user_message");
     expect(errors(evs)).toEqual([]);
     await handle.dispose();
+  });
+
+  it("accepts a send that arrives before the boot has finished", async () => {
+    const handle = newAdapter().start(startOpts());
+    const { evs } = drain(handle);
+    await handle.send({ text: "hi", attachments: [] }); // no wait for init
+    await vi.waitFor(() => expect(texts(evs)).toEqual(["Hello"]));
+    expect(types(evs).indexOf("init")).toBeLessThan(types(evs).indexOf("assistant_text"));
+    await handle.dispose();
+  });
+
+  it("reports a child that dies during the handshake once, then ends", async () => {
+    const handle = newAdapter({ args: ["-e", "process.exit(3)"] }).start(startOpts());
+    const { evs, done } = drain(handle);
+    await done;
+    expect(errors(evs)).toHaveLength(1);
+    expect(errors(evs)[0]).toMatch(/exited/);
+    expect(statuses(evs)).toEqual(["error", "ended"]);
   });
 
   it("returns from send() without waiting for the turn to finish", async () => {
@@ -148,6 +264,7 @@ describe("AcpAdapter", () => {
     // The request's toolCall is a sparse patch carrying only toolCallId, so both the name and the input come
     // from the tool_call the mapper already recorded.
     expect(req.toolName).toBe("Run step 0");
+    expect(req.title).toBe("Run step 0");
     expect(req.input).toEqual({ command: "echo 0" });
     expect(req.suggestions).toHaveLength(3);
     expect(req.suggestions[0]).toMatchObject({ optionId: "allow-once", kind: "allow_once" });
@@ -292,8 +409,10 @@ describe("AcpAdapter", () => {
     expect(texts(evs)[0]).toBe("read:one\ntwo\nthree\nfour\n");
     await turn(handle, evs, `READFILE ${path} 2 2`);
     expect(texts(evs)[1]).toBe("read:two\nthree");
+    await turn(handle, evs, `READFILE ${path} 3`); // a line with no limit runs to the end of the file
+    expect(texts(evs)[2]).toBe("read:three\nfour\n");
     await turn(handle, evs, `READFILE ${join(dir, "missing.txt")}`);
-    expect(texts(evs)[2]).toContain("read failed:");
+    expect(texts(evs)[3]).toContain("read failed:");
     await handle.dispose();
   });
 
@@ -433,12 +552,56 @@ describe("AcpAdapter", () => {
     expect(statuses(evs)).toEqual(["idle", "ended"]);
   });
 
+  it("takes the child process down with the session", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const marker = join(dir, "child-exited");
+    const { handle } = await booted({}, { env: { FAKE_ACP_EXIT_MARKER: marker } });
+    expect(existsSync(marker)).toBe(false);
+    await handle.dispose();
+    // dispose() does not resolve until the child is actually gone, so this needs no polling.
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  it("flushes a half-streamed message when the session is disposed", async () => {
+    const { handle, evs, done } = await booted();
+    await handle.send({ text: "OPENTEXT", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(1));
+    await handle.dispose();
+    await done;
+    // assistant_delta is ephemeral: without the flush the partial answer never reaches the transcript at all.
+    expect(texts(evs)).toEqual(["partial"]);
+  });
+
+  it("answers a permission still open at dispose instead of leaving it dangling", async () => {
+    const { handle, evs, done } = await booted();
+    await handle.send({ text: "PERMIT", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const { requestId } = of(evs, "permission_request")[0]!.payload;
+    await handle.dispose();
+    await done;
+    // A request with no response leaves a card the UI renders as still waiting, forever.
+    expect(of(evs, "permission_response").map((e) => e.payload)).toEqual([{ requestId, decision: "deny" }]);
+  });
+
+  it("closes a tool call that is still open when the session is disposed", async () => {
+    const { handle, evs, done } = await booted();
+    await handle.send({ text: "OPENTOOL", attachments: [] });
+    await vi.waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await handle.dispose();
+    await done;
+    expect(of(evs, "tool_result")[0]!.payload).toEqual({ toolUseId: of(evs, "tool_call")[0]!.payload.toolUseId, content: "session closed", isError: true });
+    expect(types(evs)).not.toContain("error"); // a dispose is not a failure, open card or not
+    expect(statuses(evs).at(-1)).toBe("ended");
+  });
+
   it("closes an open tool call and reports an error when the child dies unexpectedly", async () => {
     const { handle, evs, done } = await booted();
     await handle.send({ text: "DIE", attachments: [] });
     await done;
     expect(errors(evs)[0]).toMatch(/exited/);
-    expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ isError: true });
+    // The card is closed with why the child died, not with the generic dispose reason.
+    expect(of(evs, "tool_result")[0]!.payload.content).toMatch(/exited/);
+    expect(of(evs, "tool_result")[0]!.payload.isError).toBe(true);
     expect(statuses(evs)).toEqual(["idle", "running", "error", "ended"]);
     await handle.dispose();
   });

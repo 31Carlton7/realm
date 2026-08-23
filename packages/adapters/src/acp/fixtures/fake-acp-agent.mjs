@@ -12,6 +12,8 @@
  * What a turn does is selected by the text of the prompt's text blocks:
  *
  *   HANG              never resolves on its own                     (send()-must-not-await, interrupt)
+ *   OPENTEXT          streams one message chunk and never ends the turn (open text run at dispose)
+ *   OPENTOOL          opens a tool call and then never ends the turn (tool cards still open at dispose)
  *   PERMIT            one tool call gated on session/request_permission
  *   PERMIT2           two tool calls whose permissions are open at once (waiting_permission bookkeeping)
  *   READFILE p [l][n] calls fs/read_text_file back on us and echoes the content
@@ -28,7 +30,11 @@
  * fail -32603 with data (Cursor's shape), FAKE_ACP_LOADFAIL=1 makes session/load fail, FAKE_ACP_NOLOAD=1 drops
  * the loadSession capability, FAKE_ACP_NOIMAGE=1 drops the image prompt capability, FAKE_ACP_ALLOWONLY=1 offers no reject option, and FAKE_ACP_LOAD_ASKS=1
  * makes session/load call fs/read_text_file and session/request_permission back on us mid-replay.
+ * FAKE_ACP_NOSESSIONID=1 answers session/new without a sessionId, FAKE_ACP_BADAUTH=1 sends a non-array
+ * `authMethods`, and FAKE_ACP_EXIT_MARKER=<path> writes that file when our stdin closes.
  */
+
+import { writeFileSync } from "node:fs";
 
 let nextSessionN = 0;
 let nextCallN = 0;
@@ -36,7 +42,7 @@ let nextServerRequestId = 0; // the real agents number their own requests from 0
 const pendingRequests = new Map(); // agent request id -> (clientReply) => void
 const pendingPrompts = new Map(); // sessionId -> prompt request id
 /** Everything the client asked of us, echoed back by a REVEAL turn. */
-const journal = { newParams: null, loadParams: null, calls: [], replayAsks: null };
+const journal = { cwd: process.cwd(), newParams: null, loadParams: null, calls: [], replayAsks: null };
 let stdinBuf = "";
 
 const send = (frame) => process.stdout.write(JSON.stringify(frame) + "\n");
@@ -111,6 +117,11 @@ async function runTurn(id, sessionId, prompt) {
     setTimeout(() => process.exit(9), 25);
     return;
   }
+  if (text.includes("OPENTEXT")) { message(sessionId, "partial"); return; } // a message run left open
+  if (text.includes("OPENTOOL")) { // a tool card left open, and a turn that never ends
+    update(sessionId, { sessionUpdate: "tool_call", toolCallId: `call_${nextCallN++}`, title: "Never finishes", kind: "execute", status: "in_progress" });
+    return;
+  }
   if (text.includes("HANG")) return; // resolved only by session/cancel
   if (text.includes("ECHO")) message(sessionId, JSON.stringify(prompt));
   else if (text.includes("REVEAL")) message(sessionId, JSON.stringify(journal));
@@ -158,13 +169,15 @@ function handleRequest(id, method, params) {
           mcpCapabilities: { http: true, sse: true },
           promptCapabilities: { image: !process.env.FAKE_ACP_NOIMAGE, audio: false, embeddedContext: false },
         },
-        authMethods: [{ id: "fake_login", name: "Fake Login", description: "Run `fake login` first." }],
+        // FAKE_ACP_BADAUTH: a real agent may send anything here; a non-array must not crash the error path.
+        authMethods: process.env.FAKE_ACP_BADAUTH ? "not-an-array" : [{ id: "fake_login", name: "Fake Login", description: "Run `fake login` first." }],
       });
       return;
     case "session/new":
       if (process.env.FAKE_ACP_AUTHFAIL) { fail(id, -32000, "This client is no longer supported for individuals."); return; }
       if (process.env.FAKE_ACP_STARTFAIL) { fail(id, -32603, "Internal error", { message: "Failed to initialize session services", details: "[unauthenticated] Error" }); return; }
       journal.newParams = params;
+      if (process.env.FAKE_ACP_NOSESSIONID) { ok(id, {}); return; }
       ok(id, { sessionId: `sess_${nextSessionN++}`, models: { currentModelId: "fake-model-1", availableModels: [{ modelId: "fake-model-1", name: "Fake 1" }] } });
       return;
     case "session/load":
@@ -228,4 +241,8 @@ process.stdin.on("data", (chunk) => {
     if (line.trim()) handleFrame(line);
   }
 });
-process.stdin.on("end", () => process.exit(0));
+process.stdin.on("end", () => {
+  // Proof for the tests that closing our stdin really did take this child down.
+  if (process.env.FAKE_ACP_EXIT_MARKER) writeFileSync(process.env.FAKE_ACP_EXIT_MARKER, "bye");
+  process.exit(0);
+});
