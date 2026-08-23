@@ -1,13 +1,23 @@
 import { describe, it, expect, vi } from "vitest";
 import { fileURLToPath } from "node:url";
-import { CodexConnection } from "./connection";
+import { CodexConnection, type CodexConnectionOptions } from "./connection";
 
 const FAKE = fileURLToPath(new URL("./fixtures/fake-codex-server.mjs", import.meta.url));
-const open = () => CodexConnection.open({ bin: process.execPath, args: [FAKE], cwd: process.cwd() });
+const open = (extra: Partial<CodexConnectionOptions> = {}) =>
+  CodexConnection.open({ bin: process.execPath, args: [FAKE], cwd: process.cwd(), ...extra });
 const startThread = (c: CodexConnection) => c.request<{ thread: { id: string } }>("thread/start", { cwd: "/tmp" });
 const say = (c: CodexConnection, threadId: string, text: string) =>
   c.request("turn/start", { threadId, input: [{ type: "text", text, text_elements: [] }] });
 const silent = { onNotification: () => {}, onServerRequest: () => {}, onGone: () => {} };
+
+/** The fixture's plain turn, in order. Buffer flushes must preserve it: the mapper needs deltas before item/completed. */
+const MESSAGE_TURN = [
+  "thread/status/changed", "turn/started", "item/started", "item/started",
+  "item/agentMessage/delta", "item/agentMessage/delta", "item/completed",
+  "thread/tokenUsage/updated", "thread/status/changed", "turn/completed",
+];
+/** The approval turn buffers 4 notifications plus the approval request before it blocks. */
+const APPROVAL_PREFIX = 5;
 
 describe("CodexConnection", () => {
   it("initializes and starts a thread", async () => {
@@ -15,6 +25,12 @@ describe("CodexConnection", () => {
     const r = await startThread(c);
     expect(r.thread.id).toMatch(/^th_/);
     await c.dispose();
+  });
+
+  it("rejects instead of hanging when the server never answers initialize", async () => {
+    await expect(
+      open({ env: { FAKE_CODEX_MUTE_INITIALIZE: "1" }, initializeTimeoutMs: 150 }),
+    ).rejects.toThrow(/did not answer initialize/);
   });
 
   it("routes notifications to the attached thread listener only", async () => {
@@ -30,14 +46,39 @@ describe("CodexConnection", () => {
     await c.dispose();
   });
 
-  it("buffers frames that arrive before attach and flushes them", async () => {
+  it("delivers an approval to its attached thread and answers nothing itself", async () => {
+    const c = await open();
+    const unrouted: number[] = [];
+    c.onUnroutedReply = (_id, code) => unrouted.push(code);
+    const t = await startThread(c);
+    const seen: string[] = [];
+    const completed: { exitCode?: number; status?: string }[] = [];
+    c.attach(t.thread.id, {
+      ...silent,
+      onNotification: (m, p) => {
+        seen.push(m);
+        if (m === "item/completed") completed.push((p as { item: { exitCode?: number; status?: string } }).item);
+      },
+      onServerRequest: (id, method) => { seen.push(method); c.respond(id, { decision: "accept" }); },
+    });
+    await say(c, t.thread.id, "APPROVE");
+    await vi.waitFor(() => expect(seen).toContain("turn/completed"));
+    expect(seen).toContain("item/commandExecution/requestApproval");
+    // exitCode 0 only happens if the listener's "accept" actually reached the child.
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({ status: "completed", exitCode: 0 });
+    expect(unrouted).toEqual([]); // the connection must not also refuse a request it delivered
+    await c.dispose();
+  });
+
+  it("buffers frames that arrive before attach and flushes them in order", async () => {
     const c = await open();
     const t = await startThread(c);
     await say(c, t.thread.id, "hi");
-    await new Promise((r) => setTimeout(r, 50)); // let the whole turn stream out unattached
+    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
     const seen: string[] = [];
     c.attach(t.thread.id, { ...silent, onNotification: (m) => seen.push(m) });
-    await vi.waitFor(() => expect(seen).toContain("turn/completed"));
+    expect(seen).toEqual(MESSAGE_TURN);
     await c.dispose();
   });
 
@@ -47,7 +88,7 @@ describe("CodexConnection", () => {
     c.onUnroutedReply = (id, code) => rejected.push({ id, code });
     const t = await startThread(c);
     await say(c, t.thread.id, "APPROVE");
-    await new Promise((r) => setTimeout(r, 50)); // approval request arrives while nothing is attached
+    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(APPROVAL_PREFIX));
     expect(rejected).toEqual([]);
     const seen: string[] = [];
     c.attach(t.thread.id, {
@@ -72,6 +113,12 @@ describe("CodexConnection", () => {
     await say(c, orphan.thread.id, "APPROVE");
     await vi.waitFor(() => expect(replies).toHaveLength(1));
     expect(replies[0]).toMatchObject({ code: -32601 });
+    // The reply must reach the child, not just the spy: the fixture unblocks, fails the command and ends
+    // the turn. 4 opening frames + 4 more once the refusal lands.
+    await vi.waitFor(() => expect(c.bufferedCount(orphan.thread.id)).toBe(8));
+    const seen: string[] = [];
+    c.attach(orphan.thread.id, { ...silent, onNotification: (m) => seen.push(m) });
+    expect(seen.slice(4)).toEqual(["serverRequest/resolved", "item/completed", "thread/status/changed", "turn/completed"]);
     await c.dispose();
   });
 
@@ -82,7 +129,7 @@ describe("CodexConnection", () => {
     const t = await startThread(c);
     // Each turn streams exactly 10 notifications, so 25 turns overrun the 200-frame cap.
     for (let i = 0; i < 25; i++) await say(c, t.thread.id, "hi");
-    await new Promise((r) => setTimeout(r, 400));
+    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(200));
     // The buffer is full, so this approval cannot be queued — dropping it would stall the turn forever.
     await say(c, t.thread.id, "APPROVE");
     await vi.waitFor(() => expect(rejected).toEqual([-32601]));
@@ -92,15 +139,65 @@ describe("CodexConnection", () => {
     await c.dispose();
   });
 
-  it("drops a thread's buffer on detach", async () => {
+  it("stops delivering to a detached listener and drops its buffer", async () => {
     const c = await open();
     const t = await startThread(c);
-    await say(c, t.thread.id, "hi");
-    await new Promise((r) => setTimeout(r, 50));
-    c.detach(t.thread.id);
     const seen: string[] = [];
     c.attach(t.thread.id, { ...silent, onNotification: (m) => seen.push(m) });
+    c.detach(t.thread.id);
+    await say(c, t.thread.id, "hi");
+    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
     expect(seen).toEqual([]);
+    c.detach(t.thread.id);
+    const later: string[] = [];
+    c.attach(t.thread.id, { ...silent, onNotification: (m) => later.push(m) });
+    expect(later).toEqual([]); // detach dropped the queue rather than leaving it for the next listener
+    await c.dispose();
+  });
+
+  it("answers buffered server requests when their thread detaches", async () => {
+    const c = await open();
+    const replies: number[] = [];
+    c.onUnroutedReply = (_id, code) => replies.push(code);
+    const t = await startThread(c);
+    await say(c, t.thread.id, "APPROVE");
+    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(APPROVAL_PREFIX));
+    c.detach(t.thread.id);
+    expect(replies).toEqual([-32601]);
+    // The child is still alive; abandoning the request silently would wedge its turn forever.
+    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(4));
+    await c.dispose();
+  });
+
+  it("survives a listener that throws on a notification", async () => {
+    const logs: string[] = [];
+    const c = await open({ onLog: (l) => logs.push(l) });
+    const t = await startThread(c);
+    const seen: string[] = [];
+    c.attach(t.thread.id, { ...silent, onNotification: (m) => { seen.push(m); throw new Error("listener boom"); } });
+    await say(c, t.thread.id, "hi");
+    await vi.waitFor(() => expect(seen).toEqual(MESSAGE_TURN)); // every later frame still lands
+    expect(logs.some((l) => l.includes("listener boom"))).toBe(true);
+    expect(c.alive).toBe(true);
+    await c.dispose();
+  });
+
+  it("answers -32603 when a listener throws on a server request", async () => {
+    const logs: string[] = [];
+    const c = await open({ onLog: (l) => logs.push(l) });
+    const replies: number[] = [];
+    c.onUnroutedReply = (_id, code) => replies.push(code);
+    const t = await startThread(c);
+    const seen: string[] = [];
+    c.attach(t.thread.id, {
+      ...silent,
+      onNotification: (m) => seen.push(m),
+      onServerRequest: () => { throw new Error("approval boom"); },
+    });
+    await say(c, t.thread.id, "APPROVE");
+    await vi.waitFor(() => expect(seen).toContain("turn/completed")); // the turn is not wedged
+    expect(replies).toEqual([-32603]);
+    expect(logs.some((l) => l.includes("approval boom"))).toBe(true);
     await c.dispose();
   });
 
@@ -108,10 +205,10 @@ describe("CodexConnection", () => {
     const c = await open();
     const t = await startThread(c);
     await say(c, t.thread.id, "hi");
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
     const first: string[] = [];
     c.attach(t.thread.id, { ...silent, onNotification: (m) => first.push(m) });
-    expect(first).toContain("turn/completed");
+    expect(first).toEqual(MESSAGE_TURN);
     const second: string[] = [];
     c.attach(t.thread.id, { ...silent, onNotification: (m) => second.push(m) });
     expect(second).toEqual([]);
@@ -142,6 +239,19 @@ describe("CodexConnection", () => {
     c.attach(t.thread.id, { ...silent, onGone: (_reason, disposed) => late.push(disposed) });
     expect(late).toEqual([false]); // a crash stays a crash for listeners that arrive afterwards
     await c.dispose();
+  });
+
+  it("keeps fanning out when a listener throws on gone", async () => {
+    const logs: string[] = [];
+    const c = await open({ onLog: (l) => logs.push(l) });
+    const a = await startThread(c);
+    const b = await startThread(c);
+    c.attach(a.thread.id, { ...silent, onGone: () => { throw new Error("gone boom"); } });
+    const second: boolean[] = [];
+    c.attach(b.thread.id, { ...silent, onGone: (_reason, disposed) => second.push(disposed) });
+    await c.dispose();
+    expect(second).toEqual([true]); // one session's broken teardown must not strand its neighbours
+    expect(logs.some((l) => l.includes("gone boom"))).toBe(true);
   });
 
   it("tells a listener that attaches after the process is already gone", async () => {

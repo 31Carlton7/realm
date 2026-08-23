@@ -8,11 +8,13 @@
  *   - server -> client request ids start at 0 and therefore collide with client request ids on purpose
  *   - every thread-scoped notification carries `threadId`; turn-scoped ones add `turnId`
  *
- * Turn behaviour is selected by the text of `turn/start`'s input: "APPROVE" runs a command that needs an
- * approval decision, "HANG" streams nothing at all, anything else streams a short agent message.
+ * Every turn opens with the sequence the real server was captured emitting (protocol reference §2.4):
+ * `thread/status/changed{active}` -> `turn/started` -> `item/started(userMessage)`. What follows is selected
+ * by the text of `turn/start`'s input: "APPROVE" runs a command that needs an approval decision, "HANG" stops
+ * after the opening and never completes the turn, anything else streams a short agent message.
  *
- * `$test/exit` is a test-only notification that kills the process, letting tests tell an unexpected death
- * apart from an intentional dispose.
+ * Two test-only hooks: the `$test/exit` request kills the process (so tests can tell an unexpected death from
+ * an intentional dispose), and FAKE_CODEX_MUTE_INITIALIZE=1 makes `initialize` go unanswered.
  */
 
 let nextThreadN = 0;
@@ -35,11 +37,21 @@ const ask = (method, params) => {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
 const inputText = (input) => (Array.isArray(input) ? input : []).map((p) => (p && typeof p.text === "string" ? p.text : "")).join(" ");
 
-async function streamApprovalTurn(threadId, turnId) {
+async function openTurn(threadId, turnId, text) {
+  await tick();
+  notify("thread/status/changed", { threadId, status: { type: "active", activeFlags: [] } });
+  notify("turn/started", { threadId, turn: { id: turnId, status: "inProgress", items: [] } });
+  notify("item/started", {
+    threadId, turnId, startedAtMs: Date.now(),
+    item: { type: "userMessage", id: `usr_${nextItemN++}`, clientId: null, content: [{ type: "text", text, text_elements: [] }] },
+  });
+}
+
+async function streamApprovalTurn(threadId, turnId, text) {
   const itemId = `call_${nextItemN++}`;
   const cwd = threads.get(threadId)?.cwd ?? process.cwd();
   const command = "/bin/zsh -lc 'echo hi'";
-  await tick();
+  await openTurn(threadId, turnId, text);
   notify("item/started", {
     threadId, turnId, startedAtMs: Date.now(),
     item: { type: "commandExecution", id: itemId, command, cwd, status: "inProgress", commandActions: [], aggregatedOutput: null, exitCode: null },
@@ -65,16 +77,9 @@ async function streamApprovalTurn(threadId, turnId) {
   notify("turn/completed", { threadId, turn: { id: turnId, itemsView: "summary", items: [], status: "completed", error: null } });
 }
 
-async function streamMessageTurn(threadId, turnId) {
+async function streamMessageTurn(threadId, turnId, text) {
   const itemId = `msg_${nextItemN++}`;
-  const userItemId = `usr_${nextItemN++}`;
-  await tick();
-  notify("thread/status/changed", { threadId, status: { type: "active", activeFlags: [] } });
-  notify("turn/started", { threadId, turn: { id: turnId, status: "inProgress", items: [] } });
-  notify("item/started", {
-    threadId, turnId, startedAtMs: Date.now(),
-    item: { type: "userMessage", id: userItemId, clientId: null, content: [{ type: "text", text: "hi", text_elements: [] }] },
-  });
+  await openTurn(threadId, turnId, text);
   notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: { type: "agentMessage", id: itemId, text: "", phase: null, memoryCitation: null } });
   notify("item/agentMessage/delta", { threadId, turnId, itemId, delta: "hel" });
   notify("item/agentMessage/delta", { threadId, turnId, itemId, delta: "lo" });
@@ -109,6 +114,7 @@ function startThread(id, params, threadId) {
 function handleRequest(id, method, params) {
   switch (method) {
     case "initialize":
+      if (process.env.FAKE_CODEX_MUTE_INITIALIZE) return; // spawned but mute: drives the open() timeout test
       ok(id, { userAgent: "fake-codex/0.146.0", codexHome: "/tmp/fake-codex-home" });
       return;
     case "thread/start":
@@ -125,8 +131,9 @@ function handleRequest(id, method, params) {
       const turnId = `tu_${nextTurnN++}`;
       ok(id, { turn: { id: turnId, status: "inProgress", items: [] } });
       const text = inputText(params.input);
-      if (text.includes("HANG")) return; // never completes: drives interrupt tests
-      void (text.includes("APPROVE") ? streamApprovalTurn(params.threadId, turnId) : streamMessageTurn(params.threadId, turnId));
+      // HANG opens the turn like any other and then simply never finishes it: drives interrupt tests.
+      if (text.includes("HANG")) { void openTurn(params.threadId, turnId, text); return; }
+      void (text.includes("APPROVE") ? streamApprovalTurn(params.threadId, turnId, text) : streamMessageTurn(params.threadId, turnId, text));
       return;
     }
     case "turn/interrupt":

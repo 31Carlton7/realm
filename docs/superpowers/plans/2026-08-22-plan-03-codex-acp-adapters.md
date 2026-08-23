@@ -881,277 +881,207 @@ git commit -m "feat(adapters): codex CLI probe"
 
 ### Task 4: `CodexConnection` — one shared `app-server`, fanned out by `threadId`
 
+**Status: shipped.** The code below is the implementation as merged; `packages/adapters/src/codex/` is authoritative if the two ever drift.
+
 A single `codex app-server` process multiplexes any number of threads, and every notification and approval request is tagged with `threadId` (verified live with two concurrent threads). Realm therefore runs **one** process for all Codex sessions rather than one per session.
 
-Two subtleties this task must handle:
+Subtleties this task handles:
 
-- **The attach race.** Notifications for a thread can arrive before `thread/start` returns and we know its id. The connection buffers frames for unknown thread ids (bounded) and flushes them on `attach`.
-- **Unknown server requests must still be answered.** Codex can send approval kinds we don't implement (`item/permissions/requestApproval`, `item/tool/requestUserInput`). Dropping one stalls the turn permanently, so anything unrouted gets a `-32601` reply.
+- **The attach race.** Notifications for a thread can arrive before `thread/start` returns and we know its id. The connection buffers notifications for unknown thread ids (bounded) and flushes them, in order, on `attach`.
+- **Every server request gets an answer, on every path.** Codex can send approval kinds we don't implement (`item/permissions/requestApproval`, `item/tool/requestUserInput`). Dropping one stalls the turn permanently. So a request is answered — by the thread's listener, or by the connection with a JSON-RPC error — when it is unroutable, when the buffer is full, when its thread detaches with it still queued, and when the listener throws while handling it.
+- **Listener callbacks are never trusted.** They run inside the stdout `data` handler; an escaping throw is an `uncaughtException`, which in Electron main is a whole-app crash caused by one misbehaving session. Every `onNotification` / `onServerRequest` / `onGone` call is wrapped.
 
 **Files:**
 - Create: `packages/adapters/src/codex/connection.ts`
 - Create: `packages/adapters/src/codex/fixtures/fake-codex-server.mjs`
 - Create: `packages/adapters/src/codex/connection.test.ts`
 
-- [ ] **Step 1: Write the fake server fixture**
+- [x] **Step 1: Write the fake server fixture**
 
-Create `packages/adapters/src/codex/fixtures/fake-codex-server.mjs`. This speaks enough of the real protocol to drive the adapter tests, using the exact frame shapes captured in `docs/dev/codex-app-server-protocol.md`:
+`packages/adapters/src/codex/fixtures/fake-codex-server.mjs` — a single coherent script, all state declared up front, speaking the frame shapes captured in `docs/dev/codex-app-server-protocol.md`. Task 5 builds its adapter tests on this file, so fidelity to the captured protocol matters more than brevity.
 
-```js
-// Minimal `codex app-server` stand-in for adapter tests. Newline-delimited JSON-RPC.
-// Responses deliberately omit `jsonrpc`, and server->client requests start at id 0, exactly like the real server.
-let buf = "";
-let threadSeq = 0;
-let turnSeq = 0;
-let serverReqId = 0;
-const send = (o) => process.stdout.write(JSON.stringify(o) + "\n");
-const notify = (method, params) => send({ method, params, emittedAtMs: 1 });
+- Newline-delimited JSON. **Responses omit `jsonrpc`** and **server→client request ids start at 0**, mirroring the real server, so tests exercise the two-id-space handling for real.
+- Client **responses** (`result`/`error`, no `method`) route to the pending-approval logic, checked *before* the request dispatcher since the id spaces overlap. An error response counts as "not accepted", so a refused approval still unblocks the turn.
+- `initialize` → `{ id, result: { userAgent, codexHome } }`; `initialized` → ignored.
+- `thread/start` → `th_N`, `{ thread: { id, status:{type:"idle"}, cwd, turns: [] }, model, cwd }`. `params.model === "explode"` instead returns `{ code: -32600, message: "failed to load configuration", data: { action: "relogin", statusCode: 401 } }` (drives Task 5's revoked-login test). `thread/resume` is the same but reuses `params.threadId`.
+- `turn/start` → `tu_N`, `{ turn: { id, status: "inProgress", items: [] } }`, then streams asynchronously.
+- **Every turn opens with the sequence the real server was captured emitting** (protocol reference §2.4): `thread/status/changed{active}` → `turn/started` → `item/started(userMessage)`, carrying the real input text. What follows keys off that text:
+  - contains `APPROVE`: `item/started`(commandExecution), then a server→client `item/commandExecution/requestApproval` with `availableDecisions: ["accept","cancel"]`, and waits. On the client's answer: `serverRequest/resolved`, `item/completed` (`completed`/`hi\n`/`exitCode 0` on `accept`, else `failed`/`exitCode 1`), `thread/status/changed{idle}`, `turn/completed{completed}`.
+  - contains `HANG`: stops after the opening and never completes the turn. It must still emit the opening — a Task 5 adapter that mishandles `turn/started` would otherwise pass its interrupt tests against a sequence the real server never produces.
+  - otherwise: `item/started`(agentMessage), two `item/agentMessage/delta` (`"hel"`, `"lo"`), `item/completed`(agentMessage, `"hello"`), `thread/tokenUsage/updated` (`total.inputTokens 10`, `outputTokens 2`), `thread/status/changed{idle}`, `turn/completed{completed}`. **Exactly 10 notifications**, which the buffer tests count on.
+- `turn/interrupt` → `{}`, then `thread/status/changed{idle}` and `turn/completed` with `status:"interrupted"`, `items: []`.
+- Every notification carries `threadId` (and `turnId` where turn-scoped) — that is exactly what the connection routes on.
+- Any other request with an id → `-32600`. `process.stdin` `end` → exit, so `dispose()` doesn't wait out its 2s SIGKILL timer on every test.
+- Two test-only hooks: the `$test/exit` request kills the process (so tests can tell an unexpected death from an intentional dispose), and `FAKE_CODEX_MUTE_INITIALIZE=1` makes `initialize` go unanswered (drives the `open()` timeout test).
 
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (c) => {
-  buf += c;
-  let i;
-  while ((i = buf.indexOf("\n")) >= 0) {
-    const line = buf.slice(0, i); buf = buf.slice(i + 1);
-    if (line.trim()) handle(JSON.parse(line));
-  }
-});
+- [x] **Step 2: Write the failing test**
 
-function handle(msg) {
-  const { id, method, params } = msg;
-  if (method === "initialize") return send({ id, result: { userAgent: "fake/0.0.1", codexHome: "/tmp/codex-home" } });
-  if (method === "initialized") return;
-  if (method === "thread/start" || method === "thread/resume") {
-    const threadId = method === "thread/resume" ? params.threadId : `th_${++threadSeq}`;
-    if (params.model === "explode") return send({ id, error: { code: -32600, message: "failed to load configuration", data: { action: "relogin", statusCode: 401 } } });
-    return send({ id, result: { thread: { id: threadId, status: { type: "idle" }, cwd: params.cwd, turns: [] }, model: params.model ?? "gpt-fake", cwd: params.cwd } });
-  }
-  if (method === "turn/start") {
-    const threadId = params.threadId;
-    const turnId = `tu_${++turnSeq}`;
-    send({ id, result: { turn: { id: turnId, status: "inProgress", items: [] } } });
-    const text = params.input.map((b) => b.text ?? "").join("");
-    queueMicrotask(() => runTurn(threadId, turnId, text));
-    return;
-  }
-  if (method === "turn/interrupt") {
-    send({ id, result: {} });
-    notify("thread/status/changed", { threadId: params.threadId, status: { type: "idle" } });
-    notify("turn/completed", { threadId: params.threadId, turn: { id: params.turnId, status: "interrupted", items: [] } });
-    return;
-  }
-  if (id !== undefined && id !== null) send({ id, error: { code: -32600, message: `unknown method ${method}` } });
-}
+`packages/adapters/src/codex/connection.test.ts` — 17 tests. Each pins one invariant; all are mutation-verified (see Step 6).
 
-function runTurn(threadId, turnId, text) {
-  const base = { threadId, turnId };
-  notify("thread/status/changed", { threadId, status: { type: "active", activeFlags: [] } });
-  notify("turn/started", { threadId, turn: { id: turnId, status: "inProgress" } });
-  notify("item/started", { ...base, item: { type: "userMessage", id: "u1", content: [{ type: "text", text }] } });
+| Test | Invariant it pins |
+| --- | --- |
+| initializes and starts a thread | the handshake works end to end |
+| rejects instead of hanging when the server never answers `initialize` | a spawned-but-mute child fails session creation loudly instead of hanging forever |
+| routes notifications to the attached thread listener only | fan-out by `threadId`; no cross-talk between sessions |
+| delivers an approval to its attached thread and answers nothing itself | **the production approval path** — the listener receives it, its `accept` reaches the child (asserted via `exitCode: 0`), and the connection does *not* also refuse the same id |
+| buffers frames that arrive before attach and flushes them in order | the attach race, and that flush order survives (the mapper needs deltas before `item/completed`) |
+| buffers a server request that arrives before any thread has attached | the buffer branch of the routing rule |
+| answers unroutable server requests with `-32601` so turns never stall | the reject branch — asserted **end to end**, by watching the orphan thread receive `serverRequest/resolved → item/completed → turn/completed`, not just by the `onUnroutedReply` spy |
+| stops buffering at the per-thread cap, and still answers requests it cannot queue | bounded buffer; overflow refuses rather than drops |
+| stops delivering to a detached listener and drops its buffer | both halves of `detach` |
+| answers buffered server requests when their thread detaches | a queued approval is refused, not abandoned, while the child is still alive |
+| survives a listener that throws on a notification | the throw is logged, later frames still land, the connection stays alive |
+| answers `-32603` when a listener throws on a server request | a session-level bug cannot wedge its own turn |
+| keeps fanning out when a listener throws on gone | one broken teardown cannot strand sibling sessions |
+| does not replay an already-flushed buffer to a later listener | `attach` clears the queue before flushing |
+| tells every attached thread when the process dies, flagging an intentional dispose | `onGone(reason, disposed: true)` |
+| reports an unexpected death as not disposed | `onGone(reason, disposed: false)`, including for listeners attaching afterwards |
+| tells a listener that attaches after the process is already gone | no listener silently wired to a dead connection |
 
-  if (text.includes("APPROVE")) {
-    const itemId = "call_1";
-    notify("item/started", { ...base, item: { type: "commandExecution", id: itemId, command: "/bin/zsh -lc 'echo hi'", cwd: "/tmp", status: "inProgress" } });
-    const reqId = serverReqId++;
-    send({ method: "item/commandExecution/requestApproval", id: reqId, params: { ...base, itemId, command: "/bin/zsh -lc 'echo hi'", cwd: "/tmp", availableDecisions: ["accept", "cancel"] } });
-    return; // the rest of the turn waits for our answer (see onApproval)
-  }
-  if (text.includes("HANG")) return; // never completes, for interrupt tests
+Determinism note: tests wait on `c.bufferedCount(threadId)` reaching a known frame count via `vi.waitFor`, never on a bare `setTimeout`. A wall-clock settle would let a frame route *live* instead of through the buffer, silently testing the wrong path.
 
-  notify("item/started", { ...base, item: { type: "agentMessage", id: "msg_1", text: "" } });
-  notify("item/agentMessage/delta", { ...base, itemId: "msg_1", delta: "hel" });
-  notify("item/agentMessage/delta", { ...base, itemId: "msg_1", delta: "lo" });
-  notify("item/completed", { ...base, item: { type: "agentMessage", id: "msg_1", text: "hello" } });
-  notify("thread/tokenUsage/updated", { ...base, tokenUsage: { total: { totalTokens: 12, inputTokens: 10, outputTokens: 2 }, last: {}, modelContextWindow: 1000 } });
-  notify("thread/status/changed", { threadId, status: { type: "idle" } });
-  notify("turn/completed", { threadId, turn: { id: turnId, status: "completed", items: [] } });
-}
-
-// Answering an approval finishes the command and the turn.
-const origHandle = handle;
-process.on("exit", () => {});
-let pendingApproval = null;
-const _send = send;
-// Intercept client responses to our server requests.
-const originalDispatch = handle;
-function onClientResponse(msg) {
-  if (msg.result && msg.result.decision !== undefined) {
-    notify("serverRequest/resolved", { threadId: pendingApproval?.threadId, requestId: msg.id });
-    if (!pendingApproval) return;
-    const { threadId, turnId } = pendingApproval;
-    const base = { threadId, turnId };
-    const accepted = msg.result.decision === "accept";
-    notify("item/completed", { ...base, item: { type: "commandExecution", id: "call_1", status: accepted ? "completed" : "failed", aggregatedOutput: accepted ? "hi\n" : "", exitCode: accepted ? 0 : 1 } });
-    notify("thread/status/changed", { threadId, status: { type: "idle" } });
-    notify("turn/completed", { threadId, turn: { id: turnId, status: "completed", items: [] } });
-    pendingApproval = null;
-  }
-}
-```
-
-Note: the trailing block above is illustrative of intent but duplicates state. **Write the fixture as a single coherent script** — declare `pendingApproval` at the top with the other `let` declarations, set it inside `runTurn` when it sends the approval request, and route client responses from `handle()` like this, replacing the final block:
-
-```js
-function handle(msg) {
-  const { id, method, params, result } = msg;
-  if (result !== undefined && method === undefined) return onClientResponse(msg);
-  // …the method branches above…
-}
-```
-
-- [ ] **Step 2: Write the failing test**
-
-Create `packages/adapters/src/codex/connection.test.ts`:
-
-```ts
-import { describe, it, expect, vi } from "vitest";
-import { fileURLToPath } from "node:url";
-import { CodexConnection } from "./connection";
-
-const FAKE = fileURLToPath(new URL("./fixtures/fake-codex-server.mjs", import.meta.url));
-const open = () => CodexConnection.open({ bin: process.execPath, args: [FAKE], cwd: process.cwd() });
-
-describe("CodexConnection", () => {
-  it("initializes and starts a thread", async () => {
-    const c = await open();
-    const r = await c.request<{ thread: { id: string } }>("thread/start", { cwd: "/tmp" });
-    expect(r.thread.id).toMatch(/^th_/);
-    await c.dispose();
-  });
-
-  it("routes notifications to the attached thread listener only", async () => {
-    const c = await open();
-    const a = await c.request<{ thread: { id: string } }>("thread/start", { cwd: "/tmp" });
-    const b = await c.request<{ thread: { id: string } }>("thread/start", { cwd: "/tmp" });
-    const seenA: string[] = []; const seenB: string[] = [];
-    c.attach(a.thread.id, { onNotification: (m) => seenA.push(m), onServerRequest: () => {}, onGone: () => {} });
-    c.attach(b.thread.id, { onNotification: (m) => seenB.push(m), onServerRequest: () => {}, onGone: () => {} });
-    await c.request("turn/start", { threadId: a.thread.id, input: [{ type: "text", text: "hi", text_elements: [] }] });
-    await vi.waitFor(() => expect(seenA).toContain("turn/completed"));
-    expect(seenB).toEqual([]);
-    await c.dispose();
-  });
-
-  it("buffers frames that arrive before attach and flushes them", async () => {
-    const c = await open();
-    const t = await c.request<{ thread: { id: string } }>("thread/start", { cwd: "/tmp" });
-    await c.request("turn/start", { threadId: t.thread.id, input: [{ type: "text", text: "hi", text_elements: [] }] });
-    await new Promise((r) => setTimeout(r, 50)); // let the whole turn stream out unattached
-    const seen: string[] = [];
-    c.attach(t.thread.id, { onNotification: (m) => seen.push(m), onServerRequest: () => {}, onGone: () => {} });
-    await vi.waitFor(() => expect(seen).toContain("turn/completed"));
-    await c.dispose();
-  });
-
-  it("answers unroutable server requests with -32601 so turns never stall", async () => {
-    const c = await open();
-    const replies: unknown[] = [];
-    c.onUnroutedReply = (id, code) => replies.push({ id, code });
-    // A decoy thread is attached, so the buffering path (which only applies before ANY thread attaches) is off
-    // and an approval for a second, unattached thread must be rejected rather than queued.
-    const decoy = await c.request<{ thread: { id: string } }>("thread/start", { cwd: "/tmp" });
-    c.attach(decoy.thread.id, { onNotification: () => {}, onServerRequest: () => {}, onGone: () => {} });
-    const orphan = await c.request<{ thread: { id: string } }>("thread/start", { cwd: "/tmp" });
-    await c.request("turn/start", { threadId: orphan.thread.id, input: [{ type: "text", text: "APPROVE", text_elements: [] }] });
-    await vi.waitFor(() => expect(replies).toHaveLength(1));
-    expect(replies[0]).toMatchObject({ code: -32601 });
-    await c.dispose();
-  });
-
-  it("tells every attached thread when the process dies", async () => {
-    const c = await open();
-    const t = await c.request<{ thread: { id: string } }>("thread/start", { cwd: "/tmp" });
-    const gone: string[] = [];
-    c.attach(t.thread.id, { onNotification: () => {}, onServerRequest: () => {}, onGone: (r) => gone.push(r) });
-    await c.dispose();
-    await vi.waitFor(() => expect(gone).toHaveLength(1));
-  });
-});
-```
-
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `pnpm vitest run packages/adapters/src/codex/connection.test.ts`
 Expected: FAIL — `Failed to resolve import "./connection"`.
 
-- [ ] **Step 4: Write the implementation**
+- [x] **Step 4: Write the implementation**
 
-Create `packages/adapters/src/codex/connection.ts`:
+`packages/adapters/src/codex/connection.ts`:
 
 ```ts
 import { StdioJsonRpc, type JsonRpcId } from "../jsonrpc/stdio";
 
 export type ThreadListener = {
   onNotification: (method: string, params: unknown) => void;
-  /** MUST answer via connection.respond()/respondError(). */
+  /** MUST answer via connection.respond()/respondError(). If this throws, the connection answers -32603 for you. */
   onServerRequest: (id: JsonRpcId, method: string, params: unknown) => void;
-  onGone: (reason: string) => void;
+  /** `disposed` is true when Realm shut the process down on purpose — only `disposed: false` is an error. */
+  onGone: (reason: string, disposed: boolean) => void;
+};
+
+export type CodexConnectionOptions = {
+  bin: string;
+  args?: string[];
+  cwd: string;
+  env?: Record<string, string>;
+  onLog?: (line: string) => void;
+  /** Overridable for tests. A spawned-but-mute `codex app-server` must not hang session creation forever. */
+  initializeTimeoutMs?: number;
 };
 
 type Buffered = { kind: "note"; method: string; params: unknown } | { kind: "req"; id: JsonRpcId; method: string; params: unknown };
 
 const MAX_BUFFERED_PER_THREAD = 200;
+const INITIALIZE_TIMEOUT_MS = 10_000;
 
 const threadIdOf = (params: unknown): string | null => {
   const t = (params as { threadId?: unknown } | null)?.threadId;
   return typeof t === "string" ? t : null;
 };
 
+const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    p.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
 /**
  * One `codex app-server` process, shared by every Codex session and fanned out by `threadId`.
  *
- * Frames whose thread has no listener yet are buffered (bounded) and flushed on `attach`, because notifications can
- * beat the `thread/start` response that tells us the id. Server requests for unknown threads are answered -32601
- * rather than dropped: an unanswered request stalls that turn forever.
+ * Notifications for a thread with no listener yet are buffered (bounded) and flushed on `attach`, because
+ * they can beat the `thread/start` response that tells us the id.
+ *
+ * Server requests are only buffered while NO thread is attached at all — that is the one window where an
+ * unknown thread id really means "the startup race, our `thread/start` has not returned yet". Once any
+ * thread is attached, a request for an unknown thread is a genuine orphan and is answered -32601 rather
+ * than queued: an unanswered server request stalls that turn forever, whereas a rejected one fails it
+ * cleanly. Do not widen this to "always buffer".
+ *
+ * That invariant holds through every exit: a listener that throws, a thread that detaches with an approval
+ * still queued, and a full buffer all answer the request rather than dropping it. One session's bug must
+ * never wedge a turn or take down its neighbours, so listener callbacks are never trusted to not throw.
  */
 export class CodexConnection {
-  private threads = new Map<string, ThreadListener>();
-  private buffer = new Map<string, Buffered[]>();
-  private constructor(private rpc: StdioJsonRpc, private onLog?: (line: string) => void) {}
+  private readonly threads = new Map<string, ThreadListener>();
+  private readonly buffer = new Map<string, Buffered[]>();
+  private readonly rpc: StdioJsonRpc;
+  private readonly onLog?: (line: string) => void;
+  private gone: { reason: string; disposed: boolean } | null = null;
 
-  /** Visible for tests: called when a server request cannot be routed to any thread. */
+  /** Visible for tests: fires whenever the connection itself answers a server request instead of a listener. */
   onUnroutedReply?: (id: JsonRpcId, code: number) => void;
 
-  static async open(opts: { bin: string; args?: string[]; cwd: string; env?: Record<string, string>; onLog?: (line: string) => void }): Promise<CodexConnection> {
-    let self: CodexConnection;
-    const rpc = new StdioJsonRpc({
+  private constructor(opts: CodexConnectionOptions) {
+    this.onLog = opts.onLog;
+    // `this` is fully initialized here (field initializers run first) and StdioJsonRpc never invokes a
+    // callback synchronously from its constructor, but binding through `this` rather than a `let` declared
+    // after the call keeps that from mattering.
+    this.rpc = new StdioJsonRpc({
       command: opts.bin,
       args: opts.args ?? ["app-server"],
       cwd: opts.cwd,
       env: opts.env,
-      onNotification: (n) => self.routeNotification(n.method, n.params),
-      onServerRequest: (r) => self.routeServerRequest(r.id, r.method, r.params),
-      onStderr: (l) => opts.onLog?.(l),
-      onExit: ({ reason }) => self.fanOutGone(reason),
+      onNotification: (n) => this.routeNotification(n.method, n.params),
+      onServerRequest: (r) => this.routeServerRequest(r.id, r.method, r.params),
+      onStderr: (l) => this.onLog?.(l),
+      onExit: ({ reason: why, disposed }) => this.fanOutGone(why, disposed),
     });
-    self = new CodexConnection(rpc, opts.onLog);
-    await rpc.request("initialize", {
-      clientInfo: { name: "realm", title: "Realm", version: "0.0.1" },
-      capabilities: { experimentalApi: true, requestAttestation: false },
-    });
-    rpc.notify("initialized");
-    return self;
+  }
+
+  static async open(opts: CodexConnectionOptions): Promise<CodexConnection> {
+    const conn = new CodexConnection(opts);
+    const ms = opts.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS;
+    try {
+      // A child that spawns but never answers would otherwise leave this promise pending forever, hanging
+      // session creation with nothing to show the user.
+      await withTimeout(
+        conn.rpc.request("initialize", {
+          clientInfo: { name: "realm", title: "Realm", version: "0.0.1" },
+          capabilities: { experimentalApi: true, requestAttestation: false },
+        }),
+        ms,
+        `${opts.bin} did not answer initialize within ${ms}ms`,
+      );
+    } catch (e) {
+      await conn.dispose(); // never leave a half-spawned child behind
+      throw e;
+    }
+    conn.rpc.notify("initialized");
+    return conn;
   }
 
   get threadCount(): number { return this.threads.size; }
   get alive(): boolean { return this.rpc.alive; }
-  get stderrTail(): string[] { return this.rpc.stderrTail; }
+  get stderrTail(): readonly string[] { return this.rpc.stderrTail; }
+
+  /** Visible for tests: frames queued for a thread that has not attached yet. */
+  bufferedCount(threadId: string): number { return this.buffer.get(threadId)?.length ?? 0; }
 
   request<T = unknown>(method: string, params?: unknown): Promise<T> { return this.rpc.request<T>(method, params); }
   respond(id: JsonRpcId, result: unknown): void { this.rpc.respond(id, result); }
   respondError(id: JsonRpcId, code: number, message: string): void { this.rpc.respondError(id, code, message); }
 
   attach(threadId: string, listener: ThreadListener): void {
+    if (this.gone) { this.deliverGone(listener, this.gone.reason, this.gone.disposed); return; }
     this.threads.set(threadId, listener);
     const queued = this.buffer.get(threadId);
-    this.buffer.delete(threadId);
+    this.buffer.delete(threadId); // before the flush, so re-entrant pushes are not replayed or lost
     for (const f of queued ?? []) {
-      if (f.kind === "note") listener.onNotification(f.method, f.params);
-      else listener.onServerRequest(f.id, f.method, f.params);
+      if (f.kind === "note") this.deliverNotification(listener, f.method, f.params);
+      else this.deliverServerRequest(listener, f.id, f.method, f.params);
     }
   }
 
-  detach(threadId: string): void { this.threads.delete(threadId); this.buffer.delete(threadId); }
+  detach(threadId: string): void {
+    this.threads.delete(threadId);
+    // Anything still queued for this thread will never be delivered, and the child is still alive waiting
+    // on it — so answer the requests before dropping them.
+    this.drainBuffer(threadId, "thread detached");
+  }
 
   async dispose(): Promise<void> { await this.rpc.dispose(); }
 
@@ -1159,48 +1089,94 @@ export class CodexConnection {
     const threadId = threadIdOf(params);
     if (!threadId) { this.onLog?.(`[codex] ${method}`); return; } // global advisory: rate limits, config warnings
     const l = this.threads.get(threadId);
-    if (l) { l.onNotification(method, params); return; }
+    if (l) { this.deliverNotification(l, method, params); return; }
     this.push(threadId, { kind: "note", method, params });
   }
 
   private routeServerRequest(id: JsonRpcId, method: string, params: unknown): void {
     const threadId = threadIdOf(params);
     const l = threadId ? this.threads.get(threadId) : undefined;
-    if (l) { l.onServerRequest(id, method, params); return; }
-    if (threadId && this.buffer.has(threadId)) { this.push(threadId, { kind: "req", id, method, params }); return; }
+    if (l) { this.deliverServerRequest(l, id, method, params); return; }
     if (threadId && this.threads.size === 0) { this.push(threadId, { kind: "req", id, method, params }); return; }
     this.onLog?.(`[codex] unroutable server request ${method} (thread ${threadId ?? "none"})`);
-    this.rpc.respondError(id, -32601, "no client for this thread");
-    this.onUnroutedReply?.(id, -32601);
+    this.refuse(id, -32601, "no client for this thread");
+  }
+
+  /** A listener throwing is a bug in one session; it must not escape into the stdout handler and crash the app. */
+  private deliverNotification(l: ThreadListener, method: string, params: unknown): void {
+    try { l.onNotification(method, params); }
+    catch (e) { this.onLog?.(`[codex] listener threw on ${method}: ${reason(e)}`); }
+  }
+
+  private deliverServerRequest(l: ThreadListener, id: JsonRpcId, method: string, params: unknown): void {
+    try { l.onServerRequest(id, method, params); }
+    catch (e) {
+      // If the listener already answered before throwing, the child ignores this second frame; a duplicate
+      // reply is strictly better than a turn wedged forever on a half-handled request.
+      this.onLog?.(`[codex] listener threw on ${method}: ${reason(e)}`);
+      this.refuse(id, -32603, "client failed to handle this request");
+    }
+  }
+
+  private deliverGone(l: ThreadListener, why: string, disposed: boolean): void {
+    try { l.onGone(why, disposed); }
+    catch (e) { this.onLog?.(`[codex] listener threw on gone: ${reason(e)}`); }
+  }
+
+  private refuse(id: JsonRpcId, code: number, message: string): void {
+    this.rpc.respondError(id, code, message);
+    this.onUnroutedReply?.(id, code);
   }
 
   private push(threadId: string, f: Buffered): void {
     const q = this.buffer.get(threadId) ?? [];
     if (q.length >= MAX_BUFFERED_PER_THREAD) {
-      if (f.kind === "req") { this.rpc.respondError(f.id, -32601, "buffer overflow"); this.onUnroutedReply?.(f.id, -32601); }
+      if (f.kind === "req") this.refuse(f.id, -32601, "buffer overflow");
       return;
     }
     q.push(f);
     this.buffer.set(threadId, q);
   }
 
-  private fanOutGone(reason: string): void {
+  private drainBuffer(threadId: string, why: string): void {
+    const q = this.buffer.get(threadId);
+    this.buffer.delete(threadId);
+    for (const f of q ?? []) if (f.kind === "req") this.refuse(f.id, -32601, why);
+  }
+
+  private fanOutGone(why: string, disposed: boolean): void {
+    this.gone = { reason: why, disposed };
     const listeners = [...this.threads.values()];
+    // Cleared before the fan-out so a listener that calls detach() (or re-enters routing) from onGone sees
+    // an already-empty connection instead of resurrecting state. Map.delete on a missing key is a no-op.
     this.threads.clear();
+    // Not drained: the peer is gone, so there is nothing left to answer (respondError is a no-op once dead).
     this.buffer.clear();
-    for (const l of listeners) l.onGone(reason);
+    for (const l of listeners) this.deliverGone(l, why, disposed);
   }
 }
 ```
 
 **Why the routing rule has two branches.** Before *any* thread attaches, an inbound frame is almost certainly the startup race (the `thread/start` response has not returned yet), so it is buffered. Once at least one thread is attached, a frame for an unknown thread is a genuine orphan and is rejected with `-32601` immediately. Never weaken this to "always buffer" — an approval that is never answered stalls that turn forever, which is the failure mode this task exists to prevent.
 
-- [ ] **Step 5: Run the test to verify it passes**
+> **Correction to an earlier draft of this plan.** That draft had a third branch ahead of the size check, `if (threadId && this.buffer.has(threadId)) push(...)`, meant to preserve ordering. It makes the reject branch unreachable: `routeNotification` buffers unconditionally, and the approval turn emits `item/started` *before* the approval request, so `buffer.has(threadId)` is always true by the time the request arrives — every orphaned approval would be queued forever, which is exactly the stall this task exists to prevent. Verified: re-adding it fails the orphan test. Ordering loses to never-stall; the branch is gone.
+
+Three further corrections to that draft, all shipped above:
+
+- **`onGone` carries `disposed`.** The draft passed only `reason`, so a normal app shutdown was indistinguishable from a mid-turn crash. Task 5 turns `onGone` into a user-visible error event, so quitting Realm would have sprayed "codex app-server exited" across every open Codex session. Only `disposed: false` is an error.
+- **`open()` no longer uses a `let self` closed over before assignment.** It was safe in fact — `StdioJsonRpc` never fires a callback synchronously from its constructor — but it is a correctness argument about another module's internals that a future edit could silently break. The spawn moved into the constructor body and callbacks bind through `this`.
+- **`open()` disposes the child on a failed *or silent* handshake.** A rejected `initialize` used to orphan the process; an unanswered one used to hang forever, since `StdioJsonRpc.request` has no timeout of its own.
+
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `pnpm vitest run packages/adapters/src/codex/connection.test.ts`
-Expected: PASS — 5 tests.
+Expected: PASS — 17 tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Mutation-verify, then commit**
+
+Both earlier tasks on this branch were reviewed by mutation testing and in both the *tests*, not the code, were the weak point. 22 mutants, all killed: the two-branch routing rule in both directions; live approval delivery in both directions (never deliver / deliver *and* also refuse); `refuse` notifying the spy but never answering the child; `buffer.delete` in `attach`; reversed flush order; the cap and its overflow-refuse; both halves of `detach`, including abandoning queued requests; each of the three listener try/catch blocks; the `initialize` timeout; `threadIdOf`; and both `disposed` polarities.
+
+Watch for two shapes of weak test in particular: asserting a refusal only against `onUnroutedReply` (a test-only spy — the mutant that keeps the spy and deletes the real `respondError` survives), and leaving the live delivery path uncovered while the unroutable path is heavily tested.
 
 ```bash
 git add packages/adapters/src/codex/connection.ts packages/adapters/src/codex/connection.test.ts packages/adapters/src/codex/fixtures
@@ -1469,7 +1445,15 @@ export class CodexAdapter implements AgentAdapter {
           suggestions: available,
         }));
       },
-      onGone: (reason) => fail(reason),
+      // `disposed: true` means Realm shut the process down on purpose (app quit, last session released) —
+      // end the stream quietly. Only a real death is an error the user needs to see.
+      onGone: (reason, wasDisposed) => {
+        if (!wasDisposed && !disposed) { fail(reason); return; }
+        if (events.isClosed) return;
+        for (const e of mapper.closeOpenTools("session ended")) events.push(e);
+        events.push(sessionEvent("status", { status: "ended" }));
+        events.close();
+      },
     };
 
     const boot = (async () => {
