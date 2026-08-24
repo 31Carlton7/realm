@@ -2761,6 +2761,10 @@ From the final pre-merge review. None block the merge; all are real.
   whichever session spawned it. Moot today (`SessionService` never passes `env`) but wrong the moment it does.
 
 **Hygiene**
+- **Raise `testTimeout` for `apps/server`.** Plan 3 raised it to 20s for `packages/adapters` because a 1s
+  `vi.waitFor` default was racing real child-process spawns. `apps/server` still runs on vitest's 5s default, and
+  its terminal test (`rpc/methods.test.ts`, "when the shell exits on its own…") spawns a real pty — it takes ~2.2s
+  idle but timed out at 5s under load during the pre-merge run. Same root cause, different project.
 - Add `scripts/` to `apps/server/tsconfig.json` so `live-agent-check.ts` is typechecked, and declare `tsx` as a
   dependency of `@realm/server` (it is currently only a devDependency of `@realm/adapters`).
 - `AGENT_LOGIN_HINTS` renders literal markdown backticks as text; the line it replaced used real `<code>`
