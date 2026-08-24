@@ -24,6 +24,14 @@ async function mount(status: "idle" | "running" | "waiting_permission" = "waitin
   return { api, store, ...r };
 }
 
+/** Mounts the pane for a session of a given agent kind — the composer's option set is per-kind. */
+async function mountKind(agentKind: "codex" | "acp:cursor") {
+  const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind })] });
+  const store = createAppStore(api); await store.getState().boot();
+  store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+  return render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+}
+
 describe("SessionPane", () => {
   it("renders transcript blocks, shows permission card, and sends composer text", async () => {
     const { api } = await mount();
@@ -105,6 +113,16 @@ describe("SessionPane", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("OAuth session expired");
     expect(screen.getByText("/a/b.ts")).toBeInTheDocument();
   });
+
+  it("offers the composer permission picker only for agents whose permission model Realm controls", async () => {
+    const codex = await mountKind("codex");
+    expect(screen.getByRole("combobox", { name: "Permission mode" })).toBeInTheDocument();
+    codex.unmount();
+    // AcpAdapter never transmits Realm's mode ids, so the picker would silently do nothing for an ACP agent.
+    await mountKind("acp:cursor");
+    expect(screen.queryByRole("combobox", { name: "Permission mode" })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Effort" })).toBeInTheDocument(); // the rest of the bar is untouched
+  });
 });
 
 describe("markdown + summaries", () => {
@@ -153,5 +171,39 @@ describe("NewSessionSheet", () => {
     expect(s).toMatchObject({ agentKind: "fake", projectId: "pr1", model: "fake", permissionMode: "acceptEdits" });
     expect(store.getState().sheet).toBeNull();
     expect(store.getState().items.some((i) => i.kind === "session" && i.refId === s.id)).toBe(true);
+  });
+
+  it("shows a login hint for the selected agent only, and it switches when the selection changes", async () => {
+    const api = fakeApi();
+    api.probeAgents = async () => [
+      { kind: "fake", available: true, version: "fake", loggedIn: true, reason: null },
+      { kind: "claude", available: true, version: "1.0", loggedIn: true, reason: null },
+    ];
+    const store = createAppStore(api); await store.getState().boot();
+    store.getState().openSheet({ kind: "new-session" });
+    render(<StoreContext.Provider value={store}><NewSessionSheet /></StoreContext.Provider>);
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Fake agent/ })).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByText(/Scripted offline agent used for development\./)).toBeInTheDocument();
+    expect(screen.queryByText(/claude auth login/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /Claude/ }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Claude/ })).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByText(/claude auth login/)).toBeInTheDocument();
+    expect(screen.queryByText(/Scripted offline agent used for development\./)).not.toBeInTheDocument();
+  });
+  it("hides the Permissions field for an ACP agent and keeps it for Codex", async () => {
+    const api = fakeApi();
+    api.probeAgents = async () => [
+      { kind: "codex", available: true, version: "1.0", loggedIn: true, reason: null },
+      { kind: "acp:cursor", available: true, version: "1.0", loggedIn: true, reason: null },
+    ];
+    const store = createAppStore(api); await store.getState().boot();
+    store.getState().openSheet({ kind: "new-session" });
+    render(<StoreContext.Provider value={store}><NewSessionSheet /></StoreContext.Provider>);
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Codex/ })).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByRole("combobox", { name: "Permission mode" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /Cursor/ }));
+    // Offering Plan for an agent that never receives it is the dangerous kind of inconsistency.
+    await waitFor(() => expect(screen.queryByRole("combobox", { name: "Permission mode" })).toBeNull());
+    expect(screen.getByRole("combobox", { name: "Working directory" })).toBeInTheDocument();
   });
 });

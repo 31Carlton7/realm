@@ -1,4 +1,4 @@
-import { AGENT_META, AGENT_MODELS, PERMISSION_MODES, type AgentKind } from "@realm/contracts";
+import { AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, PERMISSION_MODES, type AgentKind } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { useApp } from "../../state/store";
@@ -30,6 +30,9 @@ export function NewSessionSheet() {
   useEffect(() => { if (!agent) { const first = probe.find((p) => p.available); if (first) setAgent(first.kind); } }, [probe, agent]);
 
   const models = agent ? (AGENT_MODELS[agent] as ReadonlyArray<{ id: string; label: string }>) : [];
+  // Hidden exactly like the model picker is when the agent has no models: an option Realm cannot transmit
+  // is worse than no option at all.
+  const canSetPermissionMode = !agent || AGENT_SUPPORTS_PERMISSION_MODES[agent];
   const chosen = probe.find((p) => p.kind === agent);
   const canCreate = !!agent && !!chosen?.available;
   const submit = () => {
@@ -44,7 +47,6 @@ export function NewSessionSheet() {
           <div className="agent-list" role="radiogroup" aria-label="Agent">
             {probing && probe.length === 0 && <div className="muted">Checking installed agents…</div>}
             {probeError && <div className="agent-error" role="alert">Couldn't check agents: {probeError}</div>}
-            {probe.some((p) => p.kind === "claude") && <div className="agent-hint-text muted">Claude uses your <code>claude</code> login — run <code>claude auth login</code> if sessions fail to authenticate.</div>}
             {!probing && !probeError && probe.length === 0 && <div className="muted">No agents available.</div>}
             {probe.map((p) => (
               <button type="button" key={p.kind} role="radio" aria-checked={agent === p.kind} className="agent-choice" data-selected={agent === p.kind || undefined}
@@ -55,6 +57,7 @@ export function NewSessionSheet() {
               </button>
             ))}
           </div>
+          {agent && <div className="agent-hint-text muted">{AGENT_LOGIN_HINTS[agent]}</div>}
         </div>
         <label className="field"><span>Working directory</span>
           <select aria-label="Working directory" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
@@ -70,11 +73,13 @@ export function NewSessionSheet() {
             </select>
           </label>
         )}
-        <label className="field"><span>Permissions</span>
-          <select aria-label="Permission mode" value={permissionMode} onChange={(e) => setPermissionMode(e.target.value)}>
-            {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-        </label>
+        {canSetPermissionMode && (
+          <label className="field"><span>Permissions</span>
+            <select aria-label="Permission mode" value={permissionMode} onChange={(e) => setPermissionMode(e.target.value)}>
+              {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </label>
+        )}
         <div className="form-actions">
           <button type="button" className="btn" onClick={closeSheet}>Cancel</button>
           <button type="submit" className="btn primary" disabled={!canCreate}>Create</button>

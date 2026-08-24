@@ -1,4 +1,4 @@
-import { AGENT_MODELS, EFFORT_LEVELS, PERMISSION_MODES, type Project, type Session, type SessionStatus } from "@realm/contracts";
+import { AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, EFFORT_LEVELS, PERMISSION_MODES, type Project, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { SessionOptions } from "../../state/store";
@@ -14,6 +14,9 @@ export function Composer({ session, status, project, onSend, onStop, onOptions }
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
   const models = AGENT_MODELS[session.agentKind] as ReadonlyArray<{ id: string; label: string }>;
+  // Hidden exactly like the model picker is when the agent has no models: an option Realm cannot transmit
+  // is worse than no option at all.
+  const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[session.agentKind];
   const cwdName = session.cwd.replace(/\/+$/, "").split("/").pop() || session.cwd;
 
   useLayoutEffect(() => {
@@ -43,9 +46,11 @@ export function Composer({ session, status, project, onSend, onStop, onOptions }
             {!session.effort && <option value="">Default effort</option>}
             {EFFORT_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
-          <select aria-label="Permission mode" className="composer-select" value={session.permissionMode} onChange={(e) => onOptions({ permissionMode: e.target.value })}>
-            {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
+          {canSetPermissionMode && (
+            <select aria-label="Permission mode" className="composer-select" value={session.permissionMode} onChange={(e) => onOptions({ permissionMode: e.target.value })}>
+              {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          )}
           <span className="composer-chip" title={session.cwd}><Icon name="folder" size={12} />{project ? `${project.name} · ` : ""}{cwdName}</span>
         </div>
         <div className="composer-actions">
