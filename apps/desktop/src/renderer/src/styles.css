@@ -9,7 +9,7 @@
   --rl-frame: #131417; --rl-panel: #1b1c20; --rl-raised: #222329;
   --rl-line: #26272c; --rl-line-strong: #33343b;
   --rl-hover: rgba(255,255,255,.05);
-  --rl-text-bright: #ececf1; --rl-text-dim: #9a9ba5; --rl-text-faint: #5e5f68;
+  --rl-text-bright: #ececf1; --rl-text-dim: #9a9ba5; --rl-text-faint: #84858f;
   --rl-danger: #f87171; --rl-success: #6ee7a0; --rl-warning: #e8963a;
   --rl-terminal-bg: #101114; --rl-shadow: 0 8px 24px rgba(0,0,0,.4);
   --r-panel: 12px; --r-ctl: 8px; --r-chip: 6px;
@@ -51,7 +51,7 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 
 .group-label { font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--rl-text-faint); padding: 10px 5px 4px; }
+  color: var(--rl-text-dim); padding: 10px 5px 4px; }
 
 .pinned-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding-bottom: 4px; }
 .tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1; border-radius: 10px;
@@ -250,7 +250,7 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
 .tool-card[data-state="running"] .tool-status { color: var(--rl-accent); }
 .tool-body { border-top: 1px solid var(--rl-line); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
-.tool-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); margin-bottom: 4px; }
+.tool-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-dim); margin-bottom: 4px; }
 .tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); border: 1px solid var(--rl-line); font: 12px ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
 .tool-body pre[data-error] { color: var(--rl-danger); }
 
@@ -265,7 +265,7 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .composer { flex: none; margin: 8px 12px 12px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-panel); background: var(--rl-raised); box-shadow: var(--rl-shadow); display: flex; flex-direction: column; }
 .composer:focus-within { border-color: color-mix(in srgb, var(--rl-accent) 60%, var(--rl-line-strong)); }
 .composer-input { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright); font: inherit; line-height: 1.45; padding: 10px 12px 4px; min-height: 36px; max-height: 220px; }
-.composer-input::placeholder { color: var(--rl-text-faint); }
+.composer-input::placeholder { color: var(--rl-text-dim); }
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 8px 8px; }
 .composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; }
 .composer-select { height: 24px; padding: 0 6px; border-radius: var(--r-chip); border: 1px solid transparent; background: transparent; color: var(--rl-text-dim); font-size: 10.5px; max-width: 150px; }
@@ -283,7 +283,7 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .agent-choice[data-selected] { border-color: var(--rl-accent); }
 .agent-error { font-size: 12px; color: var(--rl-danger); }
 .agent-hint-text { font-size: 11px; color: var(--rl-text-dim); } .agent-hint-text code { font: 11px ui-monospace, Menlo, monospace; }
-.agent-name { font-weight: 550; } .agent-hint { margin-left: auto; font-size: 11px; color: var(--rl-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.agent-name { font-weight: 550; } .agent-hint { margin-left: auto; font-size: 11px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 
 /* ── Scrollbars: thin + on-theme in the few containers that actually scroll ───── */
 .transcript, .space-body, .palette-list, .tool-well, .sheet { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }

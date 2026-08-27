@@ -64,6 +64,26 @@ describe("paletteFromColor (flat)", () => {
     expect(vars["--rl-hover"]).toBe("rgba(255,255,255,.05)");
     expect(vars["--rl-mode"]).toBeUndefined();
   });
+  it("textFaint meets WCAG AA (≥4.5:1) on the panel it sits on, in both modes (V-T1/A-H4)", () => {
+    // Computed, not pinned: any future re-tint of faint or panel must keep group labels, hints and
+    // placeholders legible.
+    const luminance = (hex: string): number => {
+      const n = parseInt(hex.replace("#", ""), 16);
+      const chan = (v: number) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * chan((n >> 16) & 255) + 0.7152 * chan((n >> 8) & 255) + 0.0722 * chan(n & 255);
+    };
+    const contrast = (a: string, b: string): number => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (hi! + 0.05) / (lo! + 0.05);
+    };
+    // Sanity-pin the formula itself so a broken luminance can't vacuously pass: black-on-white is 21:1.
+    expect(contrast("#000000", "#ffffff")).toBeCloseTo(21, 1);
+    for (const mode of ["dark", "light"] as const) {
+      const p = paletteFromColor("#3ddc97", mode);
+      expect(contrast(p.textFaint, p.panel), `${mode} faint on panel`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it("applyTheme sets data-mode on the root element", () => {
     const root = { style: { setProperty: () => {} }, dataset: {} as Record<string, string> } as unknown as HTMLElement;
     applyTheme(paletteFromColor("#3ddc97", "dark"), root);

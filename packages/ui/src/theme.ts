@@ -53,7 +53,7 @@ export function paletteFromColor(hex: string, mode: Mode): Palette {
     mode, accent,
     frame: "#131417", panel: "#1b1c20", raised: "#222329", line: "#26272c", lineStrong: "#33343b",
     hover: "rgba(255,255,255,.05)",
-    textBright: "#ececf1", textDim: "#9a9ba5", textFaint: "#5e5f68",
+    textBright: "#ececf1", textDim: "#9a9ba5", textFaint: "#84858f",
     danger: "#f87171", success: "#6ee7a0", warning: "#e8963a",
     terminalBg: "#101114", shadow: "0 8px 24px rgba(0,0,0,.4)",
   };
@@ -61,7 +61,7 @@ export function paletteFromColor(hex: string, mode: Mode): Palette {
     mode, accent,
     frame: "#f2f2f4", panel: "#ffffff", raised: "#f7f7f9", line: "#e3e3e8", lineStrong: "#d2d2d9",
     hover: "rgba(20,20,30,.05)",
-    textBright: "#1c1c21", textDim: "#5f6068", textFaint: "#9a9aa4",
+    textBright: "#1c1c21", textDim: "#5f6068", textFaint: "#747480",
     danger: "#dc2626", success: "#16a34a", warning: "#c2701d",
     terminalBg: "#16171a", shadow: "0 8px 24px rgba(20,20,40,.14)",
   };
