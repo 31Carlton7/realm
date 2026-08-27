@@ -2,7 +2,8 @@ import { Icon } from "@realm/ui";
 import { useState } from "react";
 import { allItems, emptyLayout, itemIdOfLeaf, type Item, type Layout } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { RenameInput, useItemContextMenu } from "./ItemContextMenu";
+import { RenameInput } from "../RenameInput";
+import { useItemContextMenu } from "./ItemContextMenu";
 
 const STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
 

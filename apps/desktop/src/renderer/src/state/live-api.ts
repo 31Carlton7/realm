@@ -32,4 +32,5 @@ export const liveApi = (): Api => ({
   setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),
   probeAgents: () => rpc().call("agents.probe", {}),
+  gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),
 });

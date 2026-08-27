@@ -1,7 +1,7 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, openItem as layoutOpen, splitLeaf, updateSizes, LayoutSchema,
-  type AgentKind, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionStatus, type Space, type StoredSessionEvent,
+  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, LayoutSchema,
+  type AgentKind, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionStatus, type Space, type StoredSessionEvent,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -57,6 +57,8 @@ export type Api = {
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
   probeAgents(): Promise<AgentProbe[]>;
+  /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
+  gitInfo(cwd: string): Promise<GitInfo | null>;
 };
 
 export const PERSIST_DEBOUNCE_MS = 300;
@@ -93,6 +95,12 @@ export type AppState = {
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
   agentProbe: AgentProbe[];
+  /** Composer drafts by session id — store-owned so layout reshapes/pane remounts never lose typed
+   *  text (A-M9). Never persisted; dropped when the session's item is deleted. */
+  drafts: Record<string, string>;
+  /** Git working-tree summaries by cwd; null = known non-repo. Refreshed event-driven only (session
+   *  status transitions to idle/error, space activation, session open) — never polled. */
+  gitInfo: Record<string, GitInfo | null>;
   activeSpace(): Space | undefined;
   activeIndex(): number;
   boot(): Promise<void>;
@@ -152,6 +160,8 @@ export type AppState = {
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
   probeAgents(): Promise<void>;
+  setDraft(sessionId: string, text: string): void;
+  refreshGitInfo(cwd: string): Promise<void>;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
   clearError(): void;
@@ -259,6 +269,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  (A concurrent items.changed refresh can't have opened it — reconcile is prune-only.) Takes an
      *  itemsFetchSeq slot so any older in-flight refreshItems response is dropped instead of pruning
      *  the item this fetch is about to open. */
+    /** Kick an event-driven git refresh for one session's cwd (no-op while the session is unknown). */
+    const refreshGitFor = (sessionId: string) => {
+      const cwd = get().sessions[sessionId]?.cwd;
+      if (cwd) get().run(() => get().refreshGitInfo(cwd));
+    };
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
@@ -271,7 +286,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
-      sessions: {}, sessionStatus: {}, transcripts: {}, agentProbe: [],
+      sessions: {}, sessionStatus: {}, transcripts: {}, agentProbe: [], drafts: {}, gitInfo: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
@@ -292,6 +307,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], sessions: {}, error: null });
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
         await Promise.all([get().refreshProjects(), get().refreshItems(), get().refreshSessions()]);
+        // Space activation refreshes git context for the focused pane's session, if any.
+        const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
+        if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
       },
       async nextSpace() {
         const { spaces } = get(); const i = get().activeIndex();
@@ -422,7 +440,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (it?.kind === "session") {
           dropTranscript(it.refId); loading.delete(it.refId);
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
-          set({ sessionStatus, sessions });
+          const { [it.refId]: _dr, ...drafts } = get().drafts;
+          set({ sessionStatus, sessions, drafts });
         }
       },
       async splitFocused(dir) {
@@ -499,6 +518,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const [session, events] = await Promise.all([get().sessions[id] ? null : api.getSession(id), fetchAll()]);
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
+          refreshGitFor(id); // opening a session refreshes its cwd's git context
           let { lastSeq, t } = get().transcripts[id] ?? prev;
           for (const e of [...events, ...(loading.get(id) ?? [])]) if (e.seq > lastSeq) { t = reduceTranscript(t, e.event); lastSeq = e.seq; }
           setTranscript(id, { lastSeq, t });
@@ -514,8 +534,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(cur.t, ev.event) });
       },
       applySessionStatus(sessionId, status) {
+        const prev = get().sessionStatus[sessionId];
         const s = get().sessions[sessionId];
         set({ sessionStatus: { ...get().sessionStatus, [sessionId]: status }, ...(s ? { sessions: { ...get().sessions, [sessionId]: { ...s, status } } } : {}) });
+        // A turn just finished (or died): the working tree likely changed, so refresh git context.
+        if (prev !== status && (status === "idle" || status === "error")) refreshGitFor(sessionId);
       },
       async newSession(input, targetLeafId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
@@ -529,6 +552,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },
       async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
       async probeAgents() { set({ agentProbe: await api.probeAgents() }); },
+      setDraft(sessionId, text) { set({ drafts: { ...get().drafts, [sessionId]: text } }); },
+      async refreshGitInfo(cwd) {
+        const info = await api.gitInfo(cwd);
+        set({ gitInfo: { ...get().gitInfo, [cwd]: info } });
+      },
       run(action) {
         action().catch((e: unknown) => {
           console.error(e);

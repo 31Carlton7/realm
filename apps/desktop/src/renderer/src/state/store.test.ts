@@ -595,6 +595,100 @@ describe("app store", () => {
     });
   });
 
+  describe("drafts (A-M9)", () => {
+    it("setDraft stores per session id — never under another id — and survives layout close/reopen", async () => {
+      const store = createAppStore(api); await store.getState().boot();
+      store.getState().setDraft("se1", "half-typed thought");
+      store.getState().setDraft("se2", "other");
+      expect(store.getState().drafts.se1).toBe("half-typed thought");
+      expect(store.getState().drafts.se2).toBe("other"); // keyed by its own id, not overwriting se1's
+      // Layout-only close + reopen never touches drafts (that is the whole point of store ownership).
+      store.setState({ layout: leaf("L1", "i1"), focusedLeafId: "L1" });
+      await store.getState().closeFromLayout("i1");
+      await store.getState().openItem("i1");
+      expect(store.getState().drafts.se1).toBe("half-typed thought");
+    });
+
+    it("deleteItem on a session drops its draft; other drafts stay", async () => {
+      api = fakeApi({
+        items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
+        sessions: [session("se1", "s1")],
+      });
+      const store = createAppStore(api); await store.getState().boot();
+      store.getState().setDraft("se1", "doomed");
+      store.getState().setDraft("se9", "kept");
+      await store.getState().deleteItem("i2");
+      expect(store.getState().drafts.se1).toBeUndefined();
+      expect(store.getState().drafts.se9).toBe("kept");
+    });
+  });
+
+  describe("git context (workspace.gitInfo)", () => {
+    const gi = { branch: "main", additions: 2, deletions: 1, dirty: 3, ahead: 0, behind: 0 };
+    const seedGit = () => fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
+      sessions: [session("se1", "s1", { status: "running" })],
+      gitInfo: { "/tmp": gi },
+    });
+
+    it("refreshGitInfo stores the result keyed by cwd; null for a non-repo", async () => {
+      api = seedGit(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().refreshGitInfo("/tmp");
+      await store.getState().refreshGitInfo("/not-a-repo");
+      expect(store.getState().gitInfo["/tmp"]).toEqual(gi);
+      expect(store.getState().gitInfo["/not-a-repo"]).toBeNull();
+    });
+
+    it("a status transition to idle refreshes the session's cwd; running does not; a repeat of idle does not re-fire", async () => {
+      api = seedGit(); const store = createAppStore(api); await store.getState().boot();
+      const gitCalls = () => api.calls.filter((c) => c === "gitInfo:/tmp").length;
+      const before = gitCalls();
+      store.getState().applySessionStatus("se1", "running"); // running → running: not a finish
+      await tick();
+      expect(gitCalls()).toBe(before);
+      store.getState().applySessionStatus("se1", "idle");
+      await tick();
+      expect(gitCalls()).toBe(before + 1);
+      store.getState().applySessionStatus("se1", "idle"); // redundant event: no transition, no refresh
+      await tick();
+      expect(gitCalls()).toBe(before + 1);
+      store.getState().applySessionStatus("se1", "running");
+      store.getState().applySessionStatus("se1", "error"); // a crash also lands the working tree
+      await tick();
+      expect(gitCalls()).toBe(before + 2);
+      expect(store.getState().gitInfo["/tmp"]).toEqual(gi);
+    });
+
+    it("openSession refreshes the session's cwd", async () => {
+      api = seedGit(); const store = createAppStore(api); await store.getState().boot();
+      const before = api.calls.filter((c) => c.startsWith("gitInfo:")).length;
+      await store.getState().openSession("se1");
+      await tick();
+      expect(api.calls.filter((c) => c === "gitInfo:/tmp").length).toBe(before + 1);
+    });
+
+    it("space activation refreshes git for the focused leaf's session — and only for a session leaf", async () => {
+      api = fakeApi({
+        spaces: [
+          space("s1", "p1", "Versed", { layout: leaf("L1", "i1") }),
+          space("s2", "p2", "Homework", { layout: leaf("L2", "i2") }),
+        ],
+        items: {
+          s1: [item("i1", "s1", { title: "Terminal" })],
+          s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "Sess" })],
+        },
+        sessions: [session("se2", "s2", { cwd: "/repo" })],
+        gitInfo: { "/repo": gi },
+      });
+      const store = createAppStore(api); await store.getState().boot(); // boots into s1 (terminal focused)
+      expect(api.calls.filter((c) => c.startsWith("gitInfo:"))).toEqual([]);
+      await store.getState().selectSpace("s2");
+      await tick();
+      expect(api.calls.filter((c) => c.startsWith("gitInfo:"))).toEqual(["gitInfo:/repo"]);
+      expect(store.getState().gitInfo["/repo"]).toEqual(gi);
+    });
+  });
+
   describe("single overlay slot (U-M4/V-F5)", () => {
     it("opening the palette closes any open sheet", async () => {
       const store = createAppStore(api); await store.getState().boot();

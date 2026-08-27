@@ -2,7 +2,8 @@ import { Icon } from "@realm/ui";
 import { useState } from "react";
 import type { Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { RenameInput, useItemContextMenu } from "./ItemContextMenu";
+import { RenameInput } from "../RenameInput";
+import { useItemContextMenu } from "./ItemContextMenu";
 
 /** Pinned-but-unopened items as a grid of icon tiles (Arc "favorites"). A pinned item that's also open
  *  lives in the OPEN group instead — it's never passed here, so there's no "active" tile state to track. */

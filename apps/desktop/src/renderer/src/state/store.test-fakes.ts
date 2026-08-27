@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
+import type { GitInfo, Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
 import type { Api } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -17,6 +17,8 @@ export type FakeData = {
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
   settings?: Record<string, unknown>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
+  /** By cwd; absent cwd = not a repo (null). */
+  gitInfo?: Record<string, GitInfo | null>;
 };
 
 export type FakeApi = Api & {
@@ -43,6 +45,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     settings: overrides.settings ?? {},
     sessions: overrides.sessions ?? [],
     sessionEvents: overrides.sessionEvents ?? {},
+    gitInfo: overrides.gitInfo ?? {},
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -118,6 +121,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     probeAgents: async () => { calls.push("probeAgents"); return [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]; },
+    gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

@@ -22,7 +22,10 @@ function renderHost(over: Partial<PaneHostProps> = {}) {
     onFocus: vi.fn(), onClose: vi.fn(), onSplit: vi.fn(), onDropItem: vi.fn(),
     ...over,
   };
-  return { ...render(<PaneHost {...props} />), props };
+  // PanelBar reads the store (rename/delete, per-kind meta), so every host render needs a provider.
+  const api = fakeApi({ items: { s1: [...items] } });
+  const store = createAppStore(api);
+  return { ...render(<StoreContext.Provider value={store}><PaneHost {...props} /></StoreContext.Provider>), props, api, store };
 }
 
 const REALM_TYPE = "application/x-realm-item";
@@ -94,12 +97,55 @@ describe("PaneHost", () => {
     expect(props.onFocus).not.toHaveBeenCalledWith("L1");
   });
 
-  it("close button calls onClose(itemId); split button calls onSplit(leafId, 'row')", () => {
+  it("close button calls onClose(itemId); the bar carries only ⋯ + close (no split icon button)", () => {
     const { props } = renderHost();
     fireEvent.click(within(panel("L1")).getByRole("button", { name: "Close Tab A" }));
     expect(props.onClose).toHaveBeenCalledExactlyOnceWith("A");
-    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Split right" }));
+    expect(within(panel("L2")).queryByRole("button", { name: "Split right" })).toBeNull();
+    expect(panel("L2").querySelectorAll(".panel-actions .icon-btn")).toHaveLength(2); // ⋯ menu + ×
+  });
+
+  it("⋯ menu: Split right/down call onSplit with the pane's own leaf and direction; Close calls onClose", () => {
+    const { props, unmount } = renderHost();
+    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Split right/ }));
     expect(props.onSplit).toHaveBeenCalledExactlyOnceWith("L2", "row");
+    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Split down/ }));
+    expect(props.onSplit).toHaveBeenLastCalledWith("L2", "col");
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Pane menu for Tab A" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Close/ }));
+    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("A");
+    unmount();
+  });
+
+  it("⋯ menu Delete is two-step and deletes through the store on confirm", async () => {
+    const { api, unmount } = renderHost({ layout: { type: "leaf", id: "L1", itemId: "A" } });
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Pane menu for Tab A" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    expect(api.calls).not.toContain("deleteItem:A"); // armed, not deleted
+    expect(screen.getByRole("menu")).toBeInTheDocument(); // menu stayed open for the confirm
+    fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
+    await waitFor(() => expect(api.calls).toContain("deleteItem:A"));
+    unmount();
+  });
+
+  it("title is click-to-rename inline for any item kind: Enter commits via updateItem, Escape cancels", async () => {
+    const { store, unmount } = renderHost({ layout: { type: "leaf", id: "L1", itemId: "A" } });
+    await store.getState().boot(); // items must be loaded for updateItem to merge
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Rename Tab A" }));
+    const input = screen.getByRole("textbox", { name: "Rename Tab A" });
+    fireEvent.change(input, { target: { value: "Renamed A" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(store.getState().items.find((i) => i.id === "A")?.title).toBe("Renamed A"));
+    // Escape cancels: no store write, title button returns.
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: /Rename/ }));
+    const input2 = screen.getByRole("textbox", { name: /Rename/ });
+    fireEvent.change(input2, { target: { value: "never" } });
+    fireEvent.keyDown(input2, { key: "Escape" });
+    expect(store.getState().items.find((i) => i.id === "A")?.title).toBe("Renamed A");
+    expect(screen.queryByRole("textbox", { name: /Rename/ })).toBeNull();
+    unmount();
   });
 
   it("a session item's PanelBar renders the paneMeta content (model + status dot)", () => {
@@ -316,8 +362,9 @@ async function mountMain(focusedLeafId: string) {
 describe("App shell", () => {
   it("PanelBar split targets its own leaf: focusLeaf runs before splitFocused", async () => {
     const { store } = await mountMain("L1");
-    // L1 is focused; splitting from L2's PanelBar must split L2, not the previously focused leaf.
-    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Split right" }));
+    // L1 is focused; splitting from L2's PanelBar menu must split L2, not the previously focused leaf.
+    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Split right/ }));
     await waitFor(() => expect(findEmptySiblingOf(store.getState().layout!, "L2")).toBeTruthy());
     expect(findEmptySiblingOf(store.getState().layout!, "L1")).toBeNull();
     expect(store.getState().focusedLeafId).toBe(findEmptySiblingOf(store.getState().layout!, "L2"));

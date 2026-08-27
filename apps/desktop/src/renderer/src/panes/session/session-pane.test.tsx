@@ -158,6 +158,75 @@ describe("SessionPane", () => {
   });
 });
 
+describe("composer context row (git chips)", () => {
+  const gi = (over: Partial<{ branch: string; additions: number; deletions: number; dirty: number }> = {}) =>
+    ({ branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0, ...over });
+
+  async function mountWithGit(info: ReturnType<typeof gi> | null) {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } },
+      gitInfo: { "/tmp": info } }); // the fake session's cwd is /tmp
+    const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    return { store, ...r };
+  }
+
+  it("renders branch + diff + dirty chips from store gitInfo for the session's cwd", async () => {
+    await mountWithGit(gi({ branch: "feat/x", additions: 12, deletions: 3, dirty: 4 }));
+    expect(document.querySelector(".composer-context .git-branch")).toHaveTextContent("feat/x");
+    expect(document.querySelector(".git-diff .diff-add")).toHaveTextContent("+12");
+    expect(document.querySelector(".git-diff .diff-del")).toHaveTextContent("−3");
+    expect(document.querySelector(".git-dirty")).toHaveTextContent("4 changed");
+    expect(document.querySelector(".composer-context .composer-chip")).toBeInTheDocument(); // cwd chip lives here too
+  });
+
+  it("hides the diff chip when both counts are zero and the dirty chip at zero", async () => {
+    await mountWithGit(gi({ branch: "main" }));
+    expect(document.querySelector(".git-branch")).toHaveTextContent("main");
+    expect(document.querySelector(".git-diff")).toBeNull();
+    expect(document.querySelector(".git-dirty")).toBeNull();
+  });
+
+  it("renders no git chips at all when the cwd is not a repo (null)", async () => {
+    await mountWithGit(null);
+    expect(document.querySelector(".git-branch")).toBeNull();
+    expect(document.querySelector(".git-diff")).toBeNull();
+    expect(document.querySelector(".git-dirty")).toBeNull();
+    expect(document.querySelector(".composer-context .composer-chip")).toBeInTheDocument(); // cwd chip survives
+  });
+});
+
+describe("durable drafts (A-M9)", () => {
+  it("a typed draft survives unmounting and remounting the pane, and is keyed to its own session", async () => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" }), session("se2", "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) }, se2: { lastSeq: 0, t: reduceAll([]) } } });
+    const pane = (ref: string) => (
+      <StoreContext.Provider value={store}><SessionPane item={item(`i-${ref}`, "s1", { kind: "session", refId: ref, title: "s" })} visible /></StoreContext.Provider>
+    );
+    const r = render(pane("se1"));
+    fireEvent.change(screen.getByRole("textbox", { name: /message/i }), { target: { value: "keep me" } });
+    expect(store.getState().drafts.se1).toBe("keep me");
+    r.unmount();
+    // Remount the same session: the draft is back.
+    const r2 = render(pane("se1"));
+    expect((screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement).value).toBe("keep me");
+    r2.unmount();
+    // A different session never sees it (keyed by session id, not by pane position).
+    render(pane("se2"));
+    expect((screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("a suggestion chip fills the store draft for that session", async () => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
+    expect(store.getState().drafts.se1).toBe("Hello!");
+  });
+});
+
 describe("SessionMeta", () => {
   function mountMeta(over: { model?: string | null; costUsd?: number; numTurns?: number; status?: "idle" | "waiting_permission" } = {}) {
     const store = createAppStore(fakeApi());
