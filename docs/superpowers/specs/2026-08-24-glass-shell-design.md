@@ -87,3 +87,27 @@ Same token structure, inverted derivation: light frame (`#f2f2f4`), white panels
 ## 7. Out of scope (roadmap)
 
 Browser pane + realm-mcp; **Pull Requests tab** (Codex-app-style PR list in the sidebar — roadmap item, records the reference app's feature); ACP mode mapping; dynamic model pickers; ground tinting for space identity; Windows/Linux polish beyond the (now trivial) shared rendering; sidebar width preference; any server/adapter change.
+
+---
+
+# Amendment 2026-08-27 — Session shell (full-bleed, dividers, sessions-not-terminals)
+
+Direction set from the user's reference screenshot (t3code-style multi-session workspace) plus t3.codes / universe.works / ara.so. Supersedes §1's panel-in-frame *presentation* (the three-level token ladder survives; its application changes) and parts of §2/§3.
+
+## A1. Full-bleed panes, hairline dividers — the inset dies
+- No 8px gutters, no rounded floating panels, no per-pane border, no drop shadows on panes. The content area is **full-bleed**; a split renders leaves edge-to-edge separated by a **single 1px divider** (`--rl-line`), draggable to resize (Claude Desktop style). The sidebar/content boundary is the same 1px divider.
+- The global topbar (breadcrumb + LayoutMenu) is **removed**. Each pane carries its own slim header; layout presets move to the command palette and the pane-header ⋯ menu.
+- `frame`/`panel` merge visually for the stage: panes sit on `--rl-panel`; the sidebar sits on `--rl-frame` (one step darker), separated by the divider. `raised` keeps overlays/composer.
+- Radii survive only on controls, chips, cards-in-content (tool cards, composer, suggestion chips), and overlays — never on panes.
+
+## A2. Sessions are sessions, not terminals
+Each session pane reads like a working document with chrome that carries real context:
+- **Pane header** (34px): agent icon · editable title (click-to-rename inline) · right: status dot, model·effort chip, ⋯ menu (rename/split down/close/delete), close ×.
+- **Composer block** (bottom, `raised`, the screenshot's composition):
+  1. *Context row*: cwd chip · **git branch + dirty stats** (`+N −M`) when cwd is a repo — new server RPC `workspace.gitInfo(cwd) → { branch, ahead, behind, additions, deletions, dirty } | null`, shelling to git, cached ~3s, polled on session status transitions and space activation.
+  2. *Input* (existing draft/⌘↵ behaviour).
+  3. *Chips row*: permission-mode chip (warning colour on bypass), model/effort selects, send/stop.
+- **Terminals** auto-title from cwd basename (server-side at creation) and get the interior padding + themed xterm scrollbar + empty-pane hint from the audit.
+
+## A3. Audit adoption
+The 2026-08-27 audit's P0 list, the P1 keyboard/command + multi-agent-visibility + accent-discipline/identity + surface-polish themes, and the P2 quick wins ride along in this same overhaul (see `docs/superpowers/plans/2026-08-27-plan-05-session-shell.md` for the authoritative work breakdown). Accent-lit focus applies to the **focused pane's header underline + icon** (borders no longer exist to tint). The bundled mono face decision resolves to **JetBrains Mono (OFL, woff2, bundled)** for tool cards, wells, kbd, terminal fallback, and palette hints.
