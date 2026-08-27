@@ -38,6 +38,19 @@ async function boot(fake = new FakeAdapter({ script: [{ on: "go", emit: [{ kind:
 }
 
 describe("SessionService over rpc", () => {
+  it("sessions.listAll spans spaces (sessionId→spaceId map for cross-space badges)", async () => {
+    const { c, sp } = await boot();
+    const p2 = (await c.call("profiles.create", { name: "X" })).result;
+    const sp2 = (await c.call("spaces.create", { profileId: p2.id, name: "T" })).result;
+    const a = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const b = (await c.call("sessions.create", { spaceId: sp2.id, agentKind: "fake" })).result.session;
+    const all = (await c.call("sessions.listAll", {})).result;
+    expect(all.map((s: Any) => [s.id, s.spaceId])).toEqual([[a.id, sp.id], [b.id, sp2.id]]);
+    // per-space list stays scoped
+    expect((await c.call("sessions.list", { spaceId: sp2.id })).result.map((s: Any) => s.id)).toEqual([b.id]);
+    c.close();
+  });
+
   it("create → send → permission → respond → idle, all persisted and broadcast", async () => {
     const { c, sp } = await boot();
     const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;

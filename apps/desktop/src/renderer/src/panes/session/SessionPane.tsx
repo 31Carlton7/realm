@@ -29,7 +29,7 @@ export function SessionMeta({ item }: { item: Item }) {
 }
 
 /** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
-export function SessionPane({ item, visible }: PaneProps) {
+export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const id = item.refId;
   const session = useApp((s) => s.sessions[id]);
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
@@ -56,7 +56,7 @@ export function SessionPane({ item, visible }: PaneProps) {
   const space = spaces.find((s) => s.id === session.spaceId);
   return (
     <div className="session-pane" data-visible={visible || undefined}>
-      <Transcript transcript={transcript} sessionStatus={status} visible={visible}
+      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused}
         onDecide={(requestId, d) => run(() => respondPermission(id, requestId, d))}
         empty={
           <div className="transcript-empty muted">

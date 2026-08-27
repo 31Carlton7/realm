@@ -54,6 +54,8 @@ export type Api = {
   /** Drop the renderer-side xterm instance/scrollback for a closed terminal. */
   disposeTerminal(terminalId: string): void;
   listSessions(spaceId: string): Promise<Session[]>;
+  /** Every session across every space (sessionId→spaceId map for cross-space badges). */
+  listAllSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
   sendMessage(id: string, text: string): Promise<void>;
@@ -104,7 +106,12 @@ export type AppState = {
   sheet: Sheet | null;
   /** Sessions of the active space, by id. */
   sessions: Record<string, Session>;
+  /** Statuses across spaces: seeded by refreshAllSessions, kept current by session.status broadcasts
+   *  (which fire for every space) — entries survive space switches. */
   sessionStatus: Record<string, SessionStatus>;
+  /** sessionId → spaceId for EVERY known session. session.status broadcasts carry only a sessionId;
+   *  this map is what lets an inactive space's strip button wear its badge. */
+  sessionSpace: Record<string, string>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
   agentProbe: AgentProbe[];
@@ -165,6 +172,10 @@ export type AppState = {
   openSheet(sheet: Sheet): void;
   closeSheet(): void;
   refreshSessions(): Promise<void>;
+  /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
+  refreshAllSessions(): Promise<void>;
+  /** Jump to a waiting_permission session anywhere: switch space if needed, open its item, focus it. */
+  jumpToPermission(): Promise<void>;
   /** Load (or catch up) a session's transcript: fetch events after the last known seq and reduce them. */
   openSession(id: string): Promise<void>;
   applySessionEvent(ev: LiveSessionEvent): void;
@@ -199,6 +210,21 @@ export function reconcileLayout(layout: Layout | null, items: Item[]): Layout {
 /** True when a leaf with this id exists anywhere in the layout (splits don't count). */
 export function hasLeafIn(l: Layout, leafId: string): boolean {
   return l.type === "leaf" ? l.id === leafId : l.children.some((c) => hasLeafIn(c, leafId));
+}
+
+/** The one status a space's strip button wears, from all its sessions. Priority: a permission is a
+ *  question for the user (most urgent), an error needs eyes, running is just progress (U-H3). */
+export function spaceBadge(
+  sessionStatus: Record<string, SessionStatus>, sessionSpace: Record<string, string>, spaceId: string,
+): "waiting_permission" | "error" | "running" | null {
+  let error = false, running = false;
+  for (const [id, st] of Object.entries(sessionStatus)) {
+    if (sessionSpace[id] !== spaceId) continue;
+    if (st === "waiting_permission") return "waiting_permission";
+    if (st === "error") error = true;
+    else if (st === "running") running = true;
+  }
+  return error ? "error" : running ? "running" : null;
 }
 
 export type FocusDir = "left" | "right" | "up" | "down";
@@ -346,7 +372,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastSessionConfig: {}, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
-      sessions: {}, sessionStatus: {}, transcripts: {}, agentProbe: [], drafts: {}, gitInfo: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, gitInfo: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
@@ -358,6 +384,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
+        // Cross-space badges need every session's space + status, not just the active space's.
+        await get().refreshAllSessions();
       },
       async selectSpace(id) {
         await flushPersist();
@@ -503,8 +531,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (it?.kind === "session") {
           dropTranscript(it.refId); loading.delete(it.refId);
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
-          const { [it.refId]: _dr, ...drafts } = get().drafts;
-          set({ sessionStatus, sessions, drafts });
+          const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
+          set({ sessionStatus, sessions, drafts, sessionSpace });
         }
       },
       async splitFocused(dir) {
@@ -552,7 +580,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ connectionState: state });
         if (state !== "connected") return;
         // The socket was down: change events were lost, so refetch what they would have delivered.
-        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions()]));
+        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions()]));
         // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
       },
@@ -566,9 +594,29 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!isSpace(sid)) return;
         // Statuses are rebuilt from the list: entries for other spaces are kept only if still known there.
         const sessions: Record<string, Session> = {}; const sessionStatus: Record<string, SessionStatus> = {};
+        const sessionSpace = { ...get().sessionSpace };
         for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
-        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; }
-        set({ sessions, sessionStatus });
+        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; }
+        set({ sessions, sessionStatus, sessionSpace });
+      },
+      async refreshAllSessions() {
+        const all = await api.listAllSessions();
+        // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
+        // are written before each session.status broadcast), so they simply overwrite.
+        const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
+        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; }
+        set({ sessionSpace, sessionStatus });
+      },
+      async jumpToPermission() {
+        const waiting = Object.entries(get().sessionStatus).filter(([, st]) => st === "waiting_permission").map(([id]) => id);
+        if (waiting.length === 0) return;
+        // Prefer one in the active space (no context switch); otherwise the first known anywhere.
+        const active = get().activeSpaceId;
+        const sid = waiting.find((id) => (get().sessionSpace[id] ?? get().sessions[id]?.spaceId) === active) ?? waiting[0]!;
+        const spaceId = get().sessionSpace[sid] ?? get().sessions[sid]?.spaceId;
+        if (spaceId && spaceId !== get().activeSpaceId) await get().selectSpace(spaceId);
+        const item = get().items.find((i) => i.kind === "session" && i.refId === sid);
+        if (item) await get().openItem(item.id); // opens into the focused leaf and focuses it
       },
       async openSession(id) {
         if (loading.has(id)) return;
@@ -606,6 +654,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const prev = get().sessionStatus[sessionId];
         const s = get().sessions[sessionId];
         set({ sessionStatus: { ...get().sessionStatus, [sessionId]: status }, ...(s ? { sessions: { ...get().sessions, [sessionId]: { ...s, status } } } : {}) });
+        // A broadcast for a session we can't place (created in another window/space since the last
+        // list): fetch the map so its space can wear the badge.
+        if (!get().sessionSpace[sessionId]) get().run(() => get().refreshAllSessions());
         // A turn just finished (or died): the working tree likely changed, so refresh git context.
         if (prev !== status && (status === "idle" || status === "error")) refreshGitFor(sessionId);
       },

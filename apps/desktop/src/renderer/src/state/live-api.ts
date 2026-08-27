@@ -25,6 +25,7 @@ export const liveApi = (): Api => ({
   pickFolder: () => window.realm.pickFolder(),
   disposeTerminal: (terminalId) => getTerminalHub().dispose(terminalId),
   listSessions: (spaceId) => rpc().call("sessions.list", { spaceId }),
+  listAllSessions: () => rpc().call("sessions.listAll", {}),
   getSession: (id) => rpc().call("sessions.get", { id }),
   createSession: (input) => rpc().call("sessions.create", input),
   sendMessage: async (id, text) => { await rpc().call("sessions.send", { id, text }); },

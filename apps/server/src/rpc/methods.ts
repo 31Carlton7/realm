@@ -72,6 +72,7 @@ export function registerMethods(d: Deps): void {
 
   reg("agents.probe", () => d.sessions.probeAll());
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
+  reg("sessions.listAll", () => d.sessions.listAll());
   reg("sessions.get", (p) => d.sessions.get(p.id));
   reg("sessions.create", (p) => d.sessions.create(p));
   reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments }); return { ok: true as const }; });

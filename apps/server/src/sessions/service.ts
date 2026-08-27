@@ -41,6 +41,7 @@ export class SessionService {
 
   isLive(id: string): boolean { return this.live.has(id); }
   list(spaceId: string): Session[] { return this.d.sessions.list(spaceId); }
+  listAll(): Session[] { return this.d.sessions.listAll(); }
   get(id: string): Session { const s = this.d.sessions.get(id); if (!s) throw new NotFoundError("session", id); return s; }
   events(id: string, afterSeq: number, limit: number): StoredSessionEvent[] { this.get(id); return this.d.events.listAfter(id, afterSeq, limit); }
 

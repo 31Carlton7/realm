@@ -158,6 +158,47 @@ describe("SessionPane", () => {
   });
 });
 
+describe("permission keyboard (U-H4)", () => {
+  async function mountFocused(focused: boolean) {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "waiting_permission" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "waiting_permission" }, transcripts: { se1: { lastSeq: 4, t: seeded() } } });
+    const decided: string[] = []; api.respondPermission = async (_i, r, d) => { decided.push(`${r}:${d}`); };
+    render(<StoreContext.Provider value={store}>
+      <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible focused={focused} />
+    </StoreContext.Provider>);
+    return { decided, card: screen.getByRole("group", { name: /Permission request/ }) };
+  }
+
+  it("autofocuses the Allow button on mount when the card is in the FOCUSED pane", async () => {
+    const { } = await mountFocused(true);
+    expect(screen.getByRole("button", { name: "Allow" })).toHaveFocus();
+  });
+
+  it("does NOT steal focus for an unfocused pane", async () => {
+    await mountFocused(false);
+    expect(screen.getByRole("button", { name: "Allow" })).not.toHaveFocus();
+  });
+
+  it("Enter=Allow, ⇧Enter=Always, ⌘⌫=Deny — and buttons carry visible kbd hints", async () => {
+    const { decided, card } = await mountFocused(true);
+    fireEvent.keyDown(card, { key: "Enter" });
+    fireEvent.keyDown(card, { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(card, { key: "Backspace", metaKey: true });
+    await waitFor(() => expect(decided).toEqual(["r1:allow", "r1:allow_always", "r1:deny"]));
+    expect(screen.getByRole("button", { name: "Allow" }).querySelector("kbd")).toHaveTextContent("⏎");
+    expect(screen.getByRole("button", { name: "Deny" }).querySelector("kbd")).toHaveTextContent("⌘⌫");
+    expect(screen.getByRole("button", { name: "Allow always" }).querySelector("kbd")).toHaveTextContent("⇧⏎");
+  });
+
+  it("plain Backspace and bare letters decide nothing", async () => {
+    const { decided, card } = await mountFocused(true);
+    fireEvent.keyDown(card, { key: "Backspace" });
+    fireEvent.keyDown(card, { key: "a" });
+    expect(decided).toEqual([]);
+  });
+});
+
 describe("composer context row (git chips)", () => {
   const gi = (over: Partial<{ branch: string; additions: number; deletions: number; dirty: number }> = {}) =>
     ({ branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0, ...over });

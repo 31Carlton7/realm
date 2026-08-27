@@ -156,6 +156,20 @@ describe("CommandPalette", () => {
     await waitFor(() => expect(api.calls).toContain("interrupt:se1"));
   });
 
+  it("'Respond to pending permission' appears only with a waiting session and jumps across spaces to it", async () => {
+    const it2 = item("i2", "s2", { kind: "session", refId: "se2", title: "Waiting there" });
+    const { store } = await mount({ items: { s2: [it2] }, sessions: [session("se2", "s2", { status: "idle" })] });
+    expect(store.getState().activeSpaceId).toBe("s1");
+    expect(screen.queryByRole("option", { name: /Respond to pending permission/ })).toBeNull();
+    act(() => store.getState().applySessionStatus("se2", "waiting_permission"));
+    fireEvent.click(screen.getByRole("option", { name: /Respond to pending permission/ }));
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    await waitFor(() => {
+      const l = store.getState().layout!;
+      expect(l.type === "leaf" && l.itemId).toBe("i2"); // the waiting session's item, opened + focused
+    });
+  });
+
   it("honest placeholder: the input says Search…, and actions still run from the keyboard", async () => {
     const { store } = await mount();
     expect(screen.getByPlaceholderText("Search…")).toBeInTheDocument();

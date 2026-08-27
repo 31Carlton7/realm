@@ -111,7 +111,7 @@ export function PaneHost(p: PaneHostProps) {
                 Keying forces a remount so component-local state (composer draft, expanded thinking
                 blocks, …) never leaks from the old item to the new one — and lets .panel-body .pane-slot's
                 rl-settle animation (styles.css) naturally replay on every swap. */}
-            {item && <div key={item.id} className="pane-slot"><PaneFor item={item} visible /></div>}
+            {item && <div key={item.id} className="pane-slot"><PaneFor item={item} visible focused={n.id === p.focusedLeafId} /></div>}
           </div>
           {dragging && <DropOverlay leafId={n.id} onDropItem={p.onDropItem} />}
         </div>

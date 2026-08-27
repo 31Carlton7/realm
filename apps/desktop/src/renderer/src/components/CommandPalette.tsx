@@ -89,6 +89,7 @@ function PaletteBody() {
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const requestRename = useApp((s) => s.requestRename);
   const interruptSession = useApp((s) => s.interruptSession);
+  const jumpToPermission = useApp((s) => s.jumpToPermission);
   const applyPreset = useApp((s) => s.applyPreset);
   const setThemePref = useApp((s) => s.setThemePref);
   const openSheet = useApp((s) => s.openSheet);
@@ -133,9 +134,12 @@ function PaletteBody() {
       allItems.filter((it) => it.spaceId === sp.id).sort(byRecency)
         .map((it) => itemEntry(it, sp.name, <span>{sp.name} · {relTime(it.updatedAt)}</span>)));
 
+    const anyWaiting = Object.values(sessionStatus).includes("waiting_permission");
     const act = (id: string, label: string, icon: string, run_: () => void, hint?: ReactNode): Entry =>
       ({ id: `act:${id}`, label, icon: <Icon name={icon} size={15} />, run: run_, section: "Actions", hint });
     const actions: Entry[] = [
+      // A pending permission anywhere leads the actions — it is the hottest thing in the app (U-H4).
+      ...(anyWaiting ? [act("respond-permission", "Respond to pending permission", "alert", () => run(() => jumpToPermission()))] : []),
       ...spaces.map((sp) => act(`space-${sp.id}`, `Switch to ${sp.name}`, sp.icon, () => run(() => selectSpace(sp.id)), sp.id === activeSpaceId ? "current" : undefined)),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), <kbd>⌘T</kbd>),
       act("new-session", "New session…", "session", () => openSheet({ kind: "new-session" }), <kbd>⌘N</kbd>),
@@ -160,7 +164,7 @@ function PaletteBody() {
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref,
       selectSpace, openItem, newTerminal, newSessionQuick, splitFocused, closeFromLayout, requestRename,
-      interruptSession, applyPreset, setThemePref, openSheet, run]);
+      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, run]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked
   // by match score (ties keep the sectioned order, so recency still breaks ties).

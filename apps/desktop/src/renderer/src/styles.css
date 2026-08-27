@@ -93,6 +93,11 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .strip-space[data-drag-over] { box-shadow: inset 2px 0 0 var(--rl-accent); }
 .strip-dot { position: absolute; bottom: 2px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; opacity: 0; }
 .strip-space[data-active] .strip-dot { opacity: 1; }
+/* Cross-space agent status (U-H3): waiting > error > running, resolved in spaceBadge. */
+.strip-badge { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--rl-frame); }
+.strip-badge[data-status="running"] { background: var(--rl-accent); }
+.strip-badge[data-status="waiting_permission"] { background: var(--rl-warning); animation: rl-pulse 0.9s ease-in-out infinite; }
+.strip-badge[data-status="error"] { background: var(--rl-danger); }
 
 /* ── Menus / overlays (raised) ─────────────────────────────────────────── */
 .menu { z-index: 100; min-width: 160px; padding: 4px; display: flex; flex-direction: column;
@@ -211,6 +216,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-sec:not(:first-child) { margin-top: 4px; }
 .palette-hint .item-glyph { display: inline-grid; vertical-align: middle; }
 .palette-hint kbd { padding: 1px 5px; border: 1px solid var(--rl-line); border-radius: 4px; }
+.permission-actions kbd { margin-left: 5px; padding: 0 4px; border: 1px solid currentColor; border-radius: 4px; font-size: 10px; opacity: .6; }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { font-size: 11px; color: var(--rl-text-dim); }
