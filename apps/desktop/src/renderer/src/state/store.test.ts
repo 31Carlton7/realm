@@ -595,6 +595,52 @@ describe("app store", () => {
     });
   });
 
+  describe("connection state", () => {
+    const stored = (sessionId: string, seq: number, event: StoredSessionEvent["event"]): StoredSessionEvent => ({ seq, sessionId, event });
+    const seed = () => fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+      sessions: [session("se1", "s1", { status: "running" })],
+      sessionEvents: { se1: [stored("se1", 1, sessionEvent("user_message", { text: "hi", attachments: [] }))] },
+    });
+
+    it("starts connected; going down flips the flag without fetching anything", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      expect(store.getState().connectionState).toBe("connected");
+      api.calls.length = 0;
+      store.getState().applyConnectionState("reconnecting");
+      expect(store.getState().connectionState).toBe("reconnecting");
+      await tick();
+      expect(api.calls).toEqual([]);
+    });
+
+    it("regaining the connection runs the boot-lite refresh and catches open transcripts up from lastSeq", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openSession("se1");
+      expect(store.getState().transcripts.se1!.lastSeq).toBe(1);
+      // Events that arrived server-side while the socket was down.
+      api.data.sessionEvents.se1!.push(stored("se1", 2, sessionEvent("assistant_text", { messageId: "m1", text: "welcome back" })));
+      store.getState().applyConnectionState("reconnecting");
+      api.calls.length = 0;
+      store.getState().applyConnectionState("connected");
+      expect(store.getState().connectionState).toBe("connected");
+      await tick(); await tick();
+      expect(api.calls).toContain("listSpaces");
+      expect(api.calls).toContain("listItems:s1");
+      expect(api.calls).toContain("listSessions:s1");
+      expect(api.calls).toContain("sessionEvents:se1:1"); // catch-up from lastSeq, not a refetch from 0
+      expect(store.getState().transcripts.se1!.lastSeq).toBe(2);
+      expect(store.getState().transcripts.se1!.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant"]);
+    });
+
+    it("a redundant connected notification does not refetch (refresh only fires on the reconnecting→connected edge)", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      api.calls.length = 0;
+      store.getState().applyConnectionState("connected");
+      await tick();
+      expect(api.calls).toEqual([]);
+    });
+  });
+
   describe("arc-true layout slice", () => {
     const twoItems = () => { api.data.items.s1 = [item("i1", "s1"), item("i2", "s1")]; };
 

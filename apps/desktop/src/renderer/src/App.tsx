@@ -37,6 +37,18 @@ function ThemeBridge() {
   return null;
 }
 
+/** Slim persistent banner while the RPC socket is down; Retry skips the backoff wait. */
+function ConnectionBanner() {
+  const state = useApp((s) => s.connectionState);
+  if (state === "connected") return null;
+  return (
+    <div className="conn-banner" role="status">
+      <span>Connection lost — reconnecting…</span>
+      <button onClick={() => rpc().retryNow()}>Retry</button>
+    </div>
+  );
+}
+
 function ErrorBar() {
   const error = useApp((s) => s.error);
   const clearError = useApp((s) => s.clearError);
@@ -101,12 +113,14 @@ export function App() {
     });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
-    return () => { offS(); offI(); offE(); offT(); };
+    const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
+    return () => { offS(); offI(); offE(); offT(); offC(); };
   }, [store]);
   return (
     <StoreContext.Provider value={store}>
       <ThemeBridge />
       <div className="app"><Sidebar /><main className="main"><Main /></main></div>
+      <ConnectionBanner />
       <SheetHost />
       <CommandPalette />
     </StoreContext.Provider>

@@ -83,6 +83,8 @@ export type AppState = {
   focusedLeafId: string | null;
   projects: Project[];
   error: string | null;
+  /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
+  connectionState: "connected" | "reconnecting";
   paletteOpen: boolean;
   sheet: Sheet | null;
   /** Sessions of the active space, by id. */
@@ -132,6 +134,9 @@ export type AppState = {
    *  Until the active space's items have loaded, sizes apply locally but never persist — PanelGroup
    *  fires onLayout at mount with normalized sizes, and that echo is not a user action. */
   resizeSplit(splitId: string, sizes: number[]): void;
+  /** On the reconnecting→connected edge, runs a boot-lite refresh (spaces/items/sessions) and catches
+   *  every open transcript up from its lastSeq — the events missed while the socket was down. */
+  applyConnectionState(state: "connected" | "reconnecting"): void;
   setPaletteOpen(open: boolean): void;
   openSheet(sheet: Sheet): void;
   closeSheet(): void;
@@ -264,6 +269,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
+      connectionState: "connected",
       paletteOpen: false, sheet: null,
       sessions: {}, sessionStatus: {}, transcripts: {}, agentProbe: [],
 
@@ -451,6 +457,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!current || sameSizes(current, sizes)) return;
         set({ layout: updateSizes(l, splitId, sizes) });
         if (layoutHydrated) schedulePersist(); // pre-hydration resizes are mount echoes, not user actions
+      },
+      applyConnectionState(state) {
+        const prev = get().connectionState;
+        if (prev === state) return;
+        set({ connectionState: state });
+        if (state !== "connected") return;
+        // The socket was down: change events were lost, so refetch what they would have delivered.
+        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions()]));
+        // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
+        for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
       },
       setPaletteOpen(open) { set({ paletteOpen: open }); },
       openSheet(sheet) { set({ sheet }); },
