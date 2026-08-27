@@ -420,6 +420,24 @@ describe("app store", () => {
       await store.getState().selectSpace("s2");
       expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before + 1);
     });
+
+    it("flushPersist writes a pending debounced persist immediately (pagehide seam, A-M4) and no-ops when idle", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().newTerminal();
+      await store.getState().applyPreset("two-col");
+      const splitId = store.getState().layout!.id;
+      const count = () => api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      const before = count();
+      await store.getState().flushPersist(); // nothing pending → no write
+      expect(count()).toBe(before);
+      store.getState().resizeSplit(splitId, [10, 90]); // debounce armed, not yet persisted
+      expect(count()).toBe(before);
+      await store.getState().flushPersist();
+      expect(count()).toBe(before + 1);
+      const saved = store.getState().layout!; if (saved.type !== "split") throw new Error();
+      expect(saved.sizes).toEqual([10, 90]);
+    });
   });
 
   it("run() surfaces action errors and clearError resets", async () => {

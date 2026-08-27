@@ -194,7 +194,7 @@ function PaletteBody() {
       <div className="palette" role="dialog" aria-label="Command palette">
         <div className="palette-input">
           <Icon name="search" size={16} />
-          <input autoFocus role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list"
+          <input autoFocus role="combobox" aria-label="Command palette" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list"
             aria-activedescendant={filtered[sel] ? `palette-opt-${sel}` : undefined}
             placeholder="Search…" value={query} onChange={(e) => { setQuery(e.target.value); setIndex(0); }} onKeyDown={onKeyDown} />
           <kbd>esc</kbd>

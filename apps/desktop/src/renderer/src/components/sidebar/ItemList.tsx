@@ -84,7 +84,10 @@ export function ItemList({ items, variant }: { items: Item[]; variant: "open" | 
           onContextMenu={onContextMenu(it)}>
           {renaming?.id === it.id ? <RenameInput item={it} onDone={() => setRenaming(null)} /> : (
             <>
-              <button className="item-row" aria-label={it.title} onClick={() => run(() => openItem(it.id))}>
+              {/* The status is part of the accessible name (A-L4): the dot alone is invisible to a reader. */}
+              <button className="item-row"
+                aria-label={it.kind === "session" && sessionStatus[it.refId] ? `${it.title} — ${STATUS_LABEL[sessionStatus[it.refId]!]}` : it.title}
+                onClick={() => run(() => openItem(it.id))}>
                 <Icon name={it.kind} size={14} /><span className="item-title">{it.title}</span>
                 {it.kind === "session" && sessionStatus[it.refId] && (
                   <span className="status-dot item-status" data-status={sessionStatus[it.refId]} title={STATUS_LABEL[sessionStatus[it.refId]!]} />

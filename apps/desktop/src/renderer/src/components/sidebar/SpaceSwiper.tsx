@@ -144,6 +144,7 @@ const ActiveSpaceBody = memo(function ActiveSpaceBody() {
           </>
         )}
         <div className="group-label">Space</div>
+        {items.length === 0 && <div className="space-empty">Nothing here yet — create something with New… below</div>}
         {pinned.length > 0 && <PinnedGrid items={pinned} />}
         <ItemList items={rest} variant="space" />
       </div>

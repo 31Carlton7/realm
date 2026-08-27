@@ -100,7 +100,10 @@ export function App() {
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
-    return () => { offS(); offI(); offE(); offT(); offC(); };
+    // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
+    const onPageHide = () => { void store.getState().flushPersist(); };
+    window.addEventListener("pagehide", onPageHide);
+    return () => { offS(); offI(); offE(); offT(); offC(); window.removeEventListener("pagehide", onPageHide); };
   }, [store]);
   return (
     <StoreContext.Provider value={store}>

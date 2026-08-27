@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { sessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -87,7 +87,7 @@ describe("SessionPane", () => {
     expect(screen.queryByRole("button", { name: "Say hello" })).toBeNull();
   });
 
-  it("composer permission select carries data-warning only in bypassPermissions", async () => {
+  it("composer permission select carries data-warning only in bypassPermissions (reached via the confirm)", async () => {
     await mount("idle", reduceAll([]));
     const select = screen.getByRole("combobox", { name: "Permission mode" });
     expect(select).not.toHaveAttribute("data-warning");
@@ -95,8 +95,35 @@ describe("SessionPane", () => {
     await waitFor(() => expect(select).toHaveValue("plan"));
     expect(select).not.toHaveAttribute("data-warning");
     fireEvent.change(select, { target: { value: "bypassPermissions" } });
+    fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
     await waitFor(() => expect(select).toHaveValue("bypassPermissions"));
     expect(select).toHaveAttribute("data-warning");
+  });
+
+  it("selecting bypassPermissions applies nothing until the inline confirm is clicked (U-M7)", async () => {
+    const { api, store } = await mount("idle", reduceAll([]));
+    const select = screen.getByRole("combobox", { name: "Permission mode" });
+    fireEvent.change(select, { target: { value: "bypassPermissions" } });
+    // The select stays on the current mode and no option was transmitted — the confirm is the only path.
+    expect(select).toHaveValue("default");
+    expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+    expect(screen.queryByRole("button", { name: "Allow everything? Confirm" })).toBeNull();
+  });
+
+  it("the bypass confirm expires after 5s without applying anything", async () => {
+    const { api } = await mount("idle", reduceAll([]));
+    const select = screen.getByRole("combobox", { name: "Permission mode" });
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(select, { target: { value: "bypassPermissions" } });
+      expect(screen.getByRole("button", { name: "Allow everything? Confirm" })).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(5100); });
+      expect(screen.queryByRole("button", { name: "Allow everything? Confirm" })).toBeNull();
+      expect(select).toHaveValue("default");
+      expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
+    } finally { vi.useRealTimers(); }
   });
 
   it("Stop appears while running and interrupts; option selects call setSessionOptions; opens the session on mount", async () => {

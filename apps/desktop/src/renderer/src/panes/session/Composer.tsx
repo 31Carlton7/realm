@@ -1,6 +1,6 @@
 import { AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, EFFORT_LEVELS, PERMISSION_MODES, type GitInfo, type Project, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { SessionOptions } from "../../state/store";
 
 const MAX_ROWS_PX = 220;
@@ -42,6 +42,15 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
   // Hidden exactly like the model picker is when the agent has no models: an option Realm cannot transmit
   // is worse than no option at all.
   const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[session.agentKind];
+  // bypassPermissions must never be a one-click slip (U-M7): selecting it arms an inline confirm chip
+  // for 5s while the (controlled) select simply stays on the current mode; only the explicit confirm
+  // actually applies the option.
+  const [confirmBypass, setConfirmBypass] = useState(false);
+  useEffect(() => {
+    if (!confirmBypass) return;
+    const t = setTimeout(() => setConfirmBypass(false), 5000);
+    return () => clearTimeout(t);
+  }, [confirmBypass]);
 
   useLayoutEffect(() => {
     const el = ta.current; if (!el) return;
@@ -73,9 +82,21 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
           </select>
           {canSetPermissionMode && (
             <select aria-label="Permission mode" className="composer-select" data-warning={session.permissionMode === "bypassPermissions" || undefined}
-              value={session.permissionMode} onChange={(e) => onOptions({ permissionMode: e.target.value })}>
+              value={session.permissionMode}
+              onChange={(e) => {
+                const mode = e.target.value;
+                if (mode === "bypassPermissions" && session.permissionMode !== "bypassPermissions") { setConfirmBypass(true); return; }
+                setConfirmBypass(false);
+                onOptions({ permissionMode: mode });
+              }}>
               {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
+          )}
+          {confirmBypass && (
+            <button className="composer-chip bypass-confirm"
+              onClick={() => { setConfirmBypass(false); onOptions({ permissionMode: "bypassPermissions" }); }}>
+              Allow everything? Confirm
+            </button>
           )}
         </div>
         <div className="composer-actions">

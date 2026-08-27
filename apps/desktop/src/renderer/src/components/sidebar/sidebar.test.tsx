@@ -26,15 +26,23 @@ describe("Arc sidebar", () => {
     expect(screen.queryByRole("button", { name: "Terminal" })).not.toBeInTheDocument();
   });
 
-  it("session items show a status dot that follows sessionStatus (pulsing state exposed via data-status)", async () => {
+  it("session items show a status dot that follows sessionStatus, and the row's accessible name carries the status (A-L4)", async () => {
     const { store } = await mount(fakeApi({ items: { s1: [item("i1", "s1", { title: "Terminal" }), item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] } }));
-    const row = () => screen.getByRole("button", { name: "Fix the build" });
+    const row = () => screen.getByRole("button", { name: /^Fix the build/ });
     expect(row().querySelector(".status-dot")).toBeNull(); // no status known yet
+    expect(row()).toHaveAccessibleName("Fix the build");
     act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
     expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
+    expect(row()).toHaveAccessibleName("Fix the build — needs permission");
     act(() => store.getState().applySessionStatus("se1", "idle"));
     expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "idle");
+    expect(row()).toHaveAccessibleName("Fix the build — idle");
     expect(screen.getByRole("button", { name: "Terminal" }).querySelector(".status-dot")).toBeNull();
+  });
+
+  it("an empty space shows one faint hint line pointing at New… (A-L6)", async () => {
+    await mount(fakeApi({ items: { s1: [] } }));
+    expect(screen.getByText(/Nothing here yet/)).toBeInTheDocument();
   });
 
   it("pinned items render as tiles, unpinned in the list", async () => {

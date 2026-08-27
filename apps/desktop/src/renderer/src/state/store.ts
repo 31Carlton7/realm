@@ -165,6 +165,9 @@ export type AppState = {
    *  Until the active space's items have loaded, sizes apply locally but never persist — PanelGroup
    *  fires onLayout at mount with normalized sizes, and that echo is not a user action. */
   resizeSplit(splitId: string, sizes: number[]): void;
+  /** Flush a pending debounced layout persist immediately — wired to `pagehide` (A-M4): a resize inside
+   *  the debounce window of quitting would otherwise never reach the server. No-op when nothing is pending. */
+  flushPersist(): Promise<void>;
   /** On the reconnecting→connected edge, runs a boot-lite refresh (spaces/items/sessions) and catches
    *  every open transcript up from its lastSeq — the events missed while the socket was down. */
   applyConnectionState(state: "connected" | "reconnecting"): void;
@@ -574,6 +577,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ layout: updateSizes(l, splitId, sizes) });
         if (layoutHydrated) schedulePersist(); // pre-hydration resizes are mount echoes, not user actions
       },
+      flushPersist: () => flushPersist(),
       applyConnectionState(state) {
         const prev = get().connectionState;
         if (prev === state) return;
