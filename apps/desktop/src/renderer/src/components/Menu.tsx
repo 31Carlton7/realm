@@ -2,7 +2,9 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, 
 import { createPortal } from "react-dom";
 
 export type MenuItem =
-  | { kind?: "item"; label: ReactNode; onSelect: () => void; disabled?: boolean; title?: string; checked?: boolean; danger?: boolean }
+  | { kind?: "item"; label: ReactNode; onSelect: () => void; disabled?: boolean; title?: string; checked?: boolean; danger?: boolean;
+      /** Selecting keeps the menu open (two-step confirms rebuild their items in place). */
+      keepOpen?: boolean }
   | { kind: "separator" };
 
 const MARGIN = 6;
@@ -53,7 +55,7 @@ export function Menu({ items, onClose, at, anchorRef, align = "left", label }: {
         : (
           <button key={i} role="menuitem" disabled={it.disabled} title={it.title} aria-checked={it.checked}
             className={(it.checked ? "checked" : "") + (it.danger ? " danger" : "")}
-            onClick={() => { it.onSelect(); onClose(); }}>
+            onClick={() => { it.onSelect(); if (!it.keepOpen) onClose(); }}>
             {it.label}
           </button>
         ))}
