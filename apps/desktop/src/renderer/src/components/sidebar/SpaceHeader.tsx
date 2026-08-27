@@ -25,7 +25,8 @@ export function SpaceHeader({ space }: { space: Space }) {
       <h2><Icon name={space.icon} size={16} /><span className="space-name">{space.name}</span></h2>
       <div className="space-header-actions">
         {profile && <button className="pill" title="Space settings" onClick={openSettings}>{profile.name}</button>}
-        <button ref={btnRef} className="icon-btn" aria-label="Space menu" title="More" onClick={() => setMenu((o) => !o)}><Icon name="more" size={15} /></button>
+        <button ref={btnRef} className="icon-btn" aria-label="Space menu" aria-haspopup="menu" aria-expanded={menu}
+          title="More" onClick={() => setMenu((o) => !o)}><Icon name="more" size={15} /></button>
         {menu && (
           <Menu align="right" anchorRef={btnRef} label="Space menu" onClose={closeMenu} items={[
               { label: "Space settings…", onSelect: openSettings },

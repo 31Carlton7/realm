@@ -97,10 +97,13 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 /* ── Menus / overlays (raised) ─────────────────────────────────────────── */
 .menu { z-index: 100; min-width: 160px; padding: 4px; display: flex; flex-direction: column;
   background: var(--rl-raised); color: var(--rl-text-bright); border: 1px solid var(--rl-line-strong); border-radius: var(--r-panel); box-shadow: var(--rl-shadow); }
-.menu [role="menuitem"] { text-align: left; padding: 6px 10px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px; }
-.menu [role="menuitem"]:hover:not(:disabled) { background: var(--rl-hover); }
-.menu [role="menuitem"].checked::after { content: "✓"; margin-left: auto; color: var(--rl-accent); }
+.menu [role="menuitem"], .menu [role="menuitemcheckbox"] { text-align: left; padding: 6px 10px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px; }
+.menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--rl-hover); }
+/* Roving focus moves programmatically, which browsers don't always mark :focus-visible — use :focus. */
+.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--rl-hover); outline: none; }
+.menu .menu-check { margin-left: auto; color: var(--rl-accent); flex: none; }
 .menu [role="menuitem"].danger { color: var(--rl-danger); }
+.menu-label { flex: 1; }
 .menu-sep { height: 1px; background: var(--rl-line); margin: 4px 2px; }
 .menu-kbd { margin-left: auto; padding-left: 18px; color: var(--rl-text-dim); }
 

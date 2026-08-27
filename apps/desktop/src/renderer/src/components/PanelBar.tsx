@@ -1,12 +1,10 @@
 import { Icon } from "@realm/ui";
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState } from "react";
 import type { Item } from "@realm/contracts";
 import { paneMeta } from "../panes/registry";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
 import { RenameInput } from "./RenameInput";
-
-const hinted = (label: string, keys: string): ReactNode => <><span>{label}</span><kbd className="menu-kbd">{keys}</kbd></>;
 
 /** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), ⋯ menu + close.
  *  Split/close stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
@@ -44,9 +42,9 @@ export function PanelBar({ item, onSplit, onClose }: {
         <Menu anchorRef={menuBtn} align="right" label={`Actions for ${item.title}`} onClose={closeMenu} items={[
           { label: "Rename", onSelect: () => setRenaming(true) },
           { kind: "separator" },
-          { label: hinted("Split right", "⌘\\"), onSelect: () => onSplit("row") },
-          { label: hinted("Split down", "⌘⇧\\"), onSelect: () => onSplit("col") },
-          { label: hinted("Close", "⌘W"), onSelect: onClose },
+          { label: "Split right", kbd: "⌘\\", onSelect: () => onSplit("row") },
+          { label: "Split down", kbd: "⌘⇧\\", onSelect: () => onSplit("col") },
+          { label: "Close", kbd: "⌘W", onSelect: onClose },
           { kind: "separator" },
           confirmingDelete
             ? { label: <strong>Really delete?</strong>, danger: true, onSelect: () => run(() => deleteItem(item.id)) }

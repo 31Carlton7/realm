@@ -14,7 +14,8 @@ export function NewItemMenu() {
   return (
     <div className="new-item">
       <div className="sb-divider" />
-      <button ref={btnRef} className="item-row new-row" aria-label="New item" onClick={() => setOpen((o) => !o)}><Icon name="add" size={14} /><span>New…</span></button>
+      <button ref={btnRef} className="item-row new-row" aria-label="New item" aria-haspopup="menu" aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}><Icon name="add" size={14} /><span>New…</span></button>
       {open && (
         <Menu label="New item" onClose={close} anchorRef={btnRef} items={[
           { label: "Session…", onSelect: () => openSheet({ kind: "new-session" }) },
