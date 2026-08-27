@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { useApp } from "../../state/store";
 
 /** Bottom bar: settings (left), one icon button per space (center, drag to reorder), + new space (right). */
@@ -12,6 +12,10 @@ export function SpaceStrip() {
   const run = useApp((s) => s.run);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  // With 10+ spaces the strip scrolls; keep the active space reachable/visible on every activation
+  // (safe-centered flex can clip either end, and the scrollbar is hidden).
+  const activeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => { activeRef.current?.scrollIntoView?.({ inline: "nearest", block: "nearest" }); }, [activeSpaceId]);
 
   const drop = (targetId: string) => {
     const from = dragId; setDragId(null); setOverId(null);
@@ -30,7 +34,7 @@ export function SpaceStrip() {
       <button className="icon-btn strip-side" aria-label="Settings" title="Settings" onClick={() => { /* Settings arrives with a later plan */ }}><Icon name="settings" size={16} /></button>
       <div className="strip-spaces" aria-label="Spaces">
         {spaces.map((sp) => (
-          <button key={sp.id} className="strip-space" aria-pressed={sp.id === activeSpaceId} aria-label={`Switch to space ${sp.name}`} title={sp.name}
+          <button key={sp.id} ref={sp.id === activeSpaceId ? activeRef : null} className="strip-space" aria-pressed={sp.id === activeSpaceId} aria-label={`Switch to space ${sp.name}`} title={sp.name}
             data-active={sp.id === activeSpaceId || undefined} data-drag-over={overId === sp.id || undefined}
             draggable onDragStart={(e) => { setDragId(sp.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", sp.id); }}
             onDragOver={onDragOver(sp.id)} onDragLeave={() => { if (overId === sp.id) setOverId(null); }}

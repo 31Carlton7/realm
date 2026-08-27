@@ -82,7 +82,10 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .new-row { color: var(--rl-text-dim); width: 100%; } .new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 
 .space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px 10px; }
-.strip-spaces { flex: 1; display: flex; align-items: center; justify-content: center; gap: 2px; min-width: 0; overflow-x: auto; }
+/* safe center: centered while it fits, but overflow aligns to start instead of clipping the left end
+   unreachably (A-H2). The scrollbar is hidden — scrollIntoView keeps the active space visible. */
+.strip-spaces { flex: 1; display: flex; align-items: center; justify-content: safe center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.strip-spaces::-webkit-scrollbar { display: none; }
 .strip-side { flex: none; }
 .strip-space { position: relative; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); color: var(--rl-text-dim); flex: none; }
 .strip-space:hover { background: var(--rl-panel); color: var(--rl-text-bright); }
