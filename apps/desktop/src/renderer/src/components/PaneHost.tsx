@@ -32,6 +32,9 @@ const EDGE_THRESHOLD = 0.32;
  * EDGE_THRESHOLD of that edge, else "center". At a corner, both axes can be in range; the axis whose
  * fraction is smaller (the pointer has penetrated further into that edge's territory) wins. On an exact
  * tie, horizontal (left/right) beats vertical (top/bottom) — an arbitrary but fixed choice.
+ * Coordinates outside the rect (the pointer has overshot the panel mid-drag) are not clamped: the
+ * overshot side's fraction just goes negative, which is still <= EDGE_THRESHOLD, so it keeps winning
+ * that edge deterministically instead of collapsing to "center".
  */
 export function zoneAt(x: number, y: number, rect: { width: number; height: number }): DropEdge {
   const { width, height } = rect;
@@ -56,7 +59,7 @@ function zoneAtEvent(e: ReactDragEvent<HTMLElement>): DropEdge {
 function DropOverlay({ leafId, onDropItem }: { leafId: string; onDropItem?: (itemId: string, leafId: string, edge: DropEdge) => void }) {
   const [hot, setHot] = useState<DropEdge | null>(null);
   return (
-    <div className="drop-overlay" style={{ pointerEvents: "auto" }}
+    <div className="drop-overlay"
       onDragOver={(e) => { if (isRealmDrag(e)) { e.preventDefault(); setHot(zoneAtEvent(e)); } }}
       onDragLeave={() => setHot(null)}
       onDrop={(e) => {

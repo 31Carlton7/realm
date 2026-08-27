@@ -124,7 +124,9 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .resize-handle::after { content: ""; position: absolute; inset: 30% 3px; border-radius: 2px; background: transparent; }
 .resize-handle:hover::after, .resize-handle[data-resize-handle-active]::after { background: var(--rl-accent); }
 
-.drop-overlay { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+/* Only ever rendered while a drag is in progress (see PaneHost.tsx), so it's always meant to catch
+   pointer events — no idle "none" state to switch out of. */
+.drop-overlay { position: absolute; inset: 0; z-index: 5; pointer-events: auto; }
 .drop-zone { position: absolute; background: color-mix(in srgb, var(--rl-accent) 18%, transparent);
   border: 1.5px dashed var(--rl-accent); border-radius: 8px; opacity: 0; }
 .drop-zone[data-hot] { opacity: 1; }

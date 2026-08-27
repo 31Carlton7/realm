@@ -228,6 +228,22 @@ describe("Arc sidebar", () => {
     expect(api.calls).toContain("deleteItem:i2");
   });
 
+  it("Delete on an OPEN item removes it from both the layout and the item list", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    const { store } = await mount(api);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" })); // i1 is open in L1
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
+    expect(api.calls).toContain("deleteItem:i1");
+    const l = store.getState().layout!;
+    expect(l.type === "leaf" && l.itemId).toBeNull(); // the leaf it occupied is empty, not still pointing at i1
+  });
+
   it("during a row split, OPEN rows render the quadrant glyph lighting the correct column", async () => {
     const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
       { type: "leaf", id: "L1", itemId: "i1" },
@@ -335,5 +351,20 @@ describe("leafPositionOf", () => {
     expect(leafPositionOf(l, "i1")).toBe(0);
     expect(leafPositionOf(l, "i2")).toBe(1);
     expect(leafPositionOf(l, "i3")).toBe(2);
+  });
+
+  it("a >2-child root with a nested split still takes the DF fallback, not the two-way branch", () => {
+    // root has 3 children (not two-way), so the two-way branch never applies here even though one of
+    // those children is itself a two-way split. DF leaf order is a, b, c, d — "c" is index 2.
+    const l = split("row", [leaf("L1", "a"), split("col", [leaf("L2", "b"), leaf("L3", "c")]), leaf("L4", "d")]);
+    expect(leafPositionOf(l, "c")).toBe(2);
+  });
+
+  it("a two-way root resolves by which top-level child's subtree holds the item, not DF order (the documented contract)", () => {
+    // The root IS two-way, so the two-way branch applies: "b" lives inside child 0's subtree -> 0.
+    // A DF-fallback implementation would instead see leaves [a, b, d] and answer 1 for "b" — wrong.
+    const inner = split("col", [leaf("L1", "a"), leaf("L2", "b")]);
+    const l = split("row", [inner, leaf("L3", "d")]);
+    expect(leafPositionOf(l, "b")).toBe(0);
   });
 });

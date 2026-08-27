@@ -163,13 +163,25 @@ describe("PaneHost drag-to-split overlay", () => {
     expect(ov2.querySelector("[data-hot]")).toBeNull(); // the other panel never lights up
   });
 
-  it("dragover on a non-realm drag over an already-open overlay does not set data-hot (and doesn't preventDefault)", () => {
+  it("dragover on a non-realm drag over an already-open overlay does not set data-hot and does not preventDefault", () => {
     renderHost();
     fireDrag(window, "dragstart", dt("A")); // a real realm drag is in progress
     const ov1 = panel("L1").querySelector(".drop-overlay")!;
     stubRect(ov1, { width: 400, height: 300 });
-    fireDrag(ov1, "dragover", dt("ignored", ["Files"]), { clientX: 390, clientY: 150 });
+    const e = fireDrag(ov1, "dragover", dt("ignored", ["Files"]), { clientX: 390, clientY: 150 });
     expect(ov1.querySelector("[data-hot]")).toBeNull();
+    // Undone preventDefault here is what tells the browser "not a valid drop target" — an OS file drag
+    // must be free to fall through to whatever else wants it (e.g. the OS itself).
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("a realm dragover calls preventDefault — the one line that makes the drop legal at all", () => {
+    renderHost();
+    fireDrag(window, "dragstart", dt("A"));
+    const overlay = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    const e = fireDrag(overlay, "dragover", dt("A"), { clientX: 200, clientY: 150 });
+    expect(e.defaultPrevented).toBe(true);
   });
 
   it("drop on [data-edge=right] calls onDropItem(itemId, leafId, 'right')", () => {
@@ -225,6 +237,14 @@ describe("zoneAt (pure pointer -> edge mapping)", () => {
     expect(zoneAt(127, 100, rect)).toBe("left"); // 127/400 = 31.75% <= 32%
     expect(zoneAt(129, 100, rect)).toBe("center"); // 129/400 = 32.25% > 32%
     expect(zoneAt(390, 100, rect)).toBe("right");
+  });
+
+  it("the 32% boundary itself is inclusive (exactly at the threshold still counts as the edge)", () => {
+    expect(zoneAt(0.32 * rect.width, 100, rect)).toBe("left"); // frac === 0.32 exactly
+  });
+
+  it("does not clamp an overshot pointer outside the rect — the overshot edge just keeps winning", () => {
+    expect(zoneAt(-10, 100, rect)).toBe("left");
   });
 
   it("returns top/bottom within 32% of the respective edge", () => {
