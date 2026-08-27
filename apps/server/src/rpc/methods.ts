@@ -8,6 +8,7 @@ import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
+import type { GitInfoService } from "../workspace/git-info";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
 type Params<M extends MethodName> = z.infer<(typeof Methods)[M]["params"]>;
@@ -15,7 +16,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -24,6 +25,8 @@ export function registerMethods(d: Deps): void {
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
   reg("system.info", () => ({ realmHome: d.home, version: d.version }));
+
+  reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
 
   reg("profiles.list", () => d.profiles.list());
   reg("profiles.create", (p) => { const r = d.profiles.create(p); rpc.broadcast("profiles.changed", {}); return r; });

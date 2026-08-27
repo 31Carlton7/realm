@@ -63,7 +63,7 @@ describe("rpc methods", () => {
     c.close();
   });
 
-  it("terminals.create makes an item and streams data events", async () => {
+  it("terminals.create makes an item titled after its cwd basename and streams data events", async () => {
     const { c } = await boot();
     const prof = (await c.call("profiles.create", { name: "W" })).result;
     const space = (await c.call("spaces.create", { profileId: prof.id, name: "S" })).result;
@@ -72,10 +72,23 @@ describe("rpc methods", () => {
     const items = (await c.call("items.list", { spaceId: space.id })).result;
     expect(items.map((i: any) => i.id)).toEqual([itemId]);
     expect(items[0].refId).toBe(terminalId);
+    // Auto-title (U-M1): the cwd basename, not a generic "Terminal".
+    expect(items[0].title).toBe(space.folderPath.split("/").pop());
+    expect(items[0].title).not.toBe("Terminal");
     await c.call("terminals.write", { terminalId, data: "echo REALM_RPC_OK\n" });
     const termData = () => c.events.filter((e) => e.event === "terminal.data").map((e) => e.payload.data).join("");
     await waitFor(() => termData().includes("REALM_RPC_OK"));
     await c.call("terminals.close", { terminalId });
+    c.close();
+  });
+
+  it("workspace.gitInfo answers over rpc: null for a non-repo cwd, INVALID_PARAMS for a relative one", async () => {
+    const { home, c } = await boot();
+    // `home` is a fresh temp dir — a real absolute path that is not a git repo.
+    expect((await c.call("workspace.gitInfo", { cwd: home })).result).toBeNull();
+    const bad = await c.call("workspace.gitInfo", { cwd: "not/absolute" });
+    expect(bad.ok).toBe(false);
+    expect(bad.error.code).toBe("INVALID_PARAMS");
     c.close();
   });
 

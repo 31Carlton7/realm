@@ -10,6 +10,7 @@ import { TerminalService } from "./terminals/service";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { SessionService } from "./sessions/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
+import { GitInfoService } from "./workspace/git-info";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 
@@ -58,7 +59,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, adapters: opts.adapters ?? defaultAdapters() });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, items, settings: new SettingsStore(db), terminals, sessions,
+    profiles, spaces, projects, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(),
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

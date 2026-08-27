@@ -26,6 +26,19 @@ export function parseWireMessage(raw: string): WireMessage {
   throw new Error("Unrecognized wire message");
 }
 
+/** Working-tree summary for a session/terminal cwd (composer context row). Null result = not a git
+ *  repo, or git itself is missing/failing — the UI simply shows no git chips. */
+export const GitInfoSchema = z.object({
+  branch: z.string(),
+  additions: z.number().int(),
+  deletions: z.number().int(),
+  /** Entries in `git status --porcelain` (staged + unstaged + untracked). */
+  dirty: z.number().int(),
+  ahead: z.number().int(),
+  behind: z.number().int(),
+});
+export type GitInfo = z.infer<typeof GitInfoSchema>;
+
 /** Method registry: params + result schemas. Server validates params; client types results. */
 export const Methods = {
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
@@ -58,6 +71,8 @@ export const Methods = {
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
   "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string() }) },
+
+  "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
 
   "agents.probe": { params: z.object({}), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable() })) },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },

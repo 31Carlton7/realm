@@ -1,5 +1,6 @@
 import { newId } from "@realm/contracts";
 import { existsSync } from "node:fs";
+import { basename } from "node:path";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -58,7 +59,9 @@ export class TerminalService {
     let itemId: string;
     try {
       this.d.terminals.insert({ id: terminalId, spaceId: p.spaceId, cwd, shell });
-      itemId = this.d.items.create({ spaceId: p.spaceId, kind: "terminal", title: "Terminal", refId: terminalId }).id;
+      // Auto-title from the cwd basename (U-M1) so several terminals stay tellable-apart; "/" has no
+      // basename, so it falls back to the generic label.
+      itemId = this.d.items.create({ spaceId: p.spaceId, kind: "terminal", title: basename(cwd) || "Terminal", refId: terminalId }).id;
       this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell });
       this.d.db.exec("COMMIT");
     } catch (e) {
