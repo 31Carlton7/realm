@@ -9,6 +9,7 @@ export const liveApi = (): Api => ({
   createProfile: (name) => rpc().call("profiles.create", { name }),
   listSpaces: () => rpc().call("spaces.list", {}),
   listItems: (spaceId) => rpc().call("items.list", { spaceId }),
+  listAllItems: () => rpc().call("items.listAll", {}),
   listProjects: (spaceId) => rpc().call("projects.list", { spaceId }),
   createSpace: (input) => rpc().call("spaces.create", input),
   updateSpace: (input) => rpc().call("spaces.update", input),

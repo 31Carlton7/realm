@@ -44,7 +44,7 @@ function glyphCellsOn(layout: Layout, pos: 0 | 1 | 2 | 3): number[] {
   return [pos];
 }
 
-function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
+export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
   const pos = leafPositionOf(layout, itemId);
   if (pos === null) return null;
   const on = new Set(glyphCellsOn(layout, pos));

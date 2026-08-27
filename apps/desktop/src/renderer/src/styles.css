@@ -204,9 +204,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: 1px solid var(--rl-line); border-radius: 4px; }
 .palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
-.palette-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-ctl); cursor: default; }
-.palette-opt.selected { background: var(--rl-hover); }
-.palette-opt.disabled { opacity: .45; }
+.palette-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-ctl); cursor: pointer; }
+.palette-opt.selected, .palette-opt:hover { background: var(--rl-hover); }
+.palette-opt.disabled { opacity: .45; cursor: default; }
+.palette-sec { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
+.palette-sec:not(:first-child) { margin-top: 4px; }
+.palette-hint .item-glyph { display: inline-grid; vertical-align: middle; }
+.palette-hint kbd { padding: 1px 5px; border: 1px solid var(--rl-line); border-radius: 4px; }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { font-size: 11px; color: var(--rl-text-dim); }

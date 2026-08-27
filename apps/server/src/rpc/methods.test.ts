@@ -55,6 +55,21 @@ describe("rpc methods", () => {
     c.close();
   });
 
+  it("items.listAll spans spaces, newest-updated first", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const s1 = (await c.call("spaces.create", { profileId: prof.id, name: "One" })).result;
+    const s2 = (await c.call("spaces.create", { profileId: prof.id, name: "Two" })).result;
+    const a = (await c.call("items.create", { spaceId: s1.id, kind: "terminal", title: "a", refId: s1.id })).result;
+    const b = (await c.call("items.create", { spaceId: s2.id, kind: "terminal", title: "b", refId: s2.id })).result;
+    await new Promise((r) => setTimeout(r, 5)); // updated_at has ms resolution
+    await c.call("items.update", { id: a.id, title: "a2" }); // touch a: it becomes the newest
+    const all = (await c.call("items.listAll", {})).result;
+    expect(all.map((i: { id: string }) => i.id)).toEqual([a.id, b.id]);
+    expect(all.map((i: { spaceId: string }) => i.spaceId)).toEqual([s1.id, s2.id]);
+    c.close();
+  });
+
   it("returns NOT_FOUND for items.create with a bogus spaceId", async () => {
     const { c } = await boot();
     const r = await c.call("items.create", { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", kind: "terminal", title: "t", refId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });

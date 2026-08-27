@@ -11,6 +11,10 @@ export type CreateSpaceInput = { name: string; icon: string; profileId: string; 
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
+/** What the last session of an agent kind was created with (one-shot palette entries). The spaceId
+ *  records where the projectId is valid — projects are space-scoped, so quick-creating from another
+ *  space falls back to the space folder instead of carrying a foreign project. */
+export type LastSessionConfig = Omit<CreateSessionInput, "spaceId" | "agentKind"> & { spaceId: string };
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
 export type PermissionDecision = "allow" | "allow_always" | "deny";
 /** Where a sidebar row was dropped on a pane: an edge splits there, center replaces the pane's item.
@@ -30,6 +34,8 @@ export type Api = {
   /** Global list across all profiles, in user sort order. */
   listSpaces(): Promise<Space[]>;
   listItems(spaceId: string): Promise<Item[]>;
+  /** Every item across every space, newest-updated first (command palette search). */
+  listAllItems(): Promise<Item[]>;
   listProjects(spaceId: string): Promise<Project[]>;
   createSpace(input: CreateSpaceInput): Promise<Space>;
   updateSpace(input: UpdateSpaceInput): Promise<Space>;
@@ -70,7 +76,8 @@ export const EVENTS_PAGE = 1000;
 export type Sheet =
   | { kind: "space-settings"; spaceId: string }
   | { kind: "new-space" }
-  | { kind: "new-session" };
+  /** agentKind preselects the sheet's agent picker (palette one-shots with no remembered config). */
+  | { kind: "new-session"; agentKind?: AgentKind };
 
 export type AppState = {
   profiles: Profile[];
@@ -80,6 +87,12 @@ export type AppState = {
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
   items: Item[]; layout: Layout | null;
+  /** Items across every space (palette search); refreshed when the palette opens. */
+  allItems: Item[];
+  /** Last submitted new-session options per agent kind (palette one-shots). Session-local, not persisted. */
+  lastSessionConfig: Partial<Record<AgentKind, LastSessionConfig>>;
+  /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
+  renamingItemId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
    *  layout no longer contains it. */
   focusedLeafId: string | null;
@@ -117,6 +130,7 @@ export type AppState = {
   setSwipeInvert(v: boolean): Promise<void>;
   refreshSpaces(): Promise<void>;
   refreshItems(): Promise<void>;
+  refreshAllItems(): Promise<void>;
   refreshProjects(): Promise<void>;
   linkProject(rootPath: string): Promise<void>;
   pickAndLinkProject(): Promise<void>;
@@ -157,6 +171,11 @@ export type AppState = {
   applySessionStatus(sessionId: string, status: SessionStatus): void;
   /** Create a session in the active space, open its item, and open its transcript. */
   newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null): Promise<void>;
+  /** One-shot session creation with the agent's last-used options; falls back to the sheet
+   *  (preselected) when that agent has never been configured this session. */
+  newSessionQuick(agentKind: AgentKind): Promise<void>;
+  /** Arm (or with null, disarm) inline rename for the pane holding this item. */
+  requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
@@ -324,6 +343,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
+      allItems: [], lastSessionConfig: {}, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
       sessions: {}, sessionStatus: {}, transcripts: {}, agentProbe: [], drafts: {}, gitInfo: {},
@@ -378,6 +398,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const layout = reconcileLayout(get().layout, items);
         layoutHydrated = true;
         set({ items, layout, focusedLeafId: focusIn(layout) });
+      },
+      async refreshAllItems() {
+        set({ allItems: await api.listAllItems() });
       },
       async refreshProjects() {
         const sid = get().activeSpaceId; if (!sid) return;
@@ -588,11 +611,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async newSession(input, targetLeafId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
+        const { agentKind, ...rest } = input;
         const { session, itemId } = await api.createSession({ ...input, spaceId: sid });
+        // Remember this agent's options so the palette's one-shot entries can repeat them.
+        set({ lastSessionConfig: { ...get().lastSessionConfig, [agentKind]: { ...rest, spaceId: sid } } });
         if (isSpace(sid)) mergeSession(session);
         await adoptItem(sid, itemId, targetLeafId);
         await get().openSession(session.id);
       },
+      async newSessionQuick(agentKind) {
+        const cfg = get().lastSessionConfig[agentKind];
+        if (!cfg) { get().openSheet({ kind: "new-session", agentKind }); return; }
+        const { spaceId: recordedSpace, projectId, ...rest } = cfg;
+        // Projects are space-scoped: reuse the project only in the space it was chosen in.
+        await get().newSession({ agentKind, ...rest, projectId: recordedSpace === get().activeSpaceId ? projectId : null });
+      },
+      requestRename(itemId) { set({ renamingItemId: itemId }); },
       async sendMessage(id, text) { await api.sendMessage(id, text); },
       async interruptSession(id) { await api.interruptSession(id); },
       async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },

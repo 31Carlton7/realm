@@ -14,6 +14,10 @@ export function PanelBar({ item, onSplit, onClose }: {
 }) {
   const deleteItem = useApp((s) => s.deleteItem);
   const run = useApp((s) => s.run);
+  // The palette's "Rename focused item" arms renamingItemId; items are unique in the layout, so at
+  // most one PanelBar answers. Local state covers the click-to-rename path.
+  const renameArmed = useApp((s) => s.renamingItemId === item.id);
+  const requestRename = useApp((s) => s.requestRename);
   const [renaming, setRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Two-step destructive confirm (U-H2), same pattern as the sidebar's item menu.
@@ -24,8 +28,8 @@ export function PanelBar({ item, onSplit, onClose }: {
   return (
     <div className="panel-bar">
       <span className="panel-icon"><Icon name={item.kind} size={14} /></span>
-      {renaming
-        ? <span className="panel-rename"><RenameInput item={item} onDone={() => setRenaming(false)} /></span>
+      {(renaming || renameArmed)
+        ? <span className="panel-rename"><RenameInput item={item} onDone={() => { setRenaming(false); if (renameArmed) requestRename(null); }} /></span>
         : (
           <button className="panel-title" title="Click to rename" aria-label={`Rename ${item.title}`}
             onClick={() => setRenaming(true)}>{item.title}</button>

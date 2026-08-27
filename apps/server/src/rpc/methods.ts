@@ -53,6 +53,7 @@ export function registerMethods(d: Deps): void {
   reg("projects.delete", (p) => { const pr = d.projects.get(p.id); d.projects.delete(p.id); if (pr) rpc.broadcast("items.changed", { spaceId: pr.spaceId }); return { ok: true as const }; });
 
   reg("items.list", (p) => d.items.list(p.spaceId));
+  reg("items.listAll", () => d.items.listAll());
   reg("items.create", (p) => { const r = d.items.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
   reg("items.update", (p) => { const r = d.items.update(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
   reg("items.delete", async (p) => {

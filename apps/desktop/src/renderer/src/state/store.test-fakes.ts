@@ -59,6 +59,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return [...data.spaces]; },
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
+    listAllItems: async () => {
+      calls.push("listAllItems");
+      return Object.values(data.items).flat().slice().sort((a, b) => b.updatedAt - a.updatedAt);
+    },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
     createSpace: async (input) => {
       const s = space(`s${++n}`, input.profileId, input.name, { icon: input.icon, color: input.color ?? "#ffb454", sortOrder: data.spaces.length });
