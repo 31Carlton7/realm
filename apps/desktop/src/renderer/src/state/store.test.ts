@@ -1,7 +1,11 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, PERSIST_DEBOUNCE_MS } from "./store";
-import { emptyLayout, allTabs, findLeafOfTab, sessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { createAppStore, findEmptySiblingOf, hasLeafIn, swapSplitChildrenOf, PERSIST_DEBOUNCE_MS, type DropEdge } from "./store";
+import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, item, session, space, type FakeApi } from "./store.test-fakes";
+
+const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
+const split = (id: string, dir: "row" | "col", children: Layout[]): Layout =>
+  ({ type: "split", id, dir, sizes: children.map(() => 100 / children.length), children });
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -20,8 +24,9 @@ describe("app store", () => {
     expect(s.activeSpace()?.name).toBe("Versed"); expect(s.activeIndex()).toBe(0);
     expect(s.items.map((i) => i.id)).toEqual(["i1"]);
     expect(s.themePref).toBe("system");
-    // a null layout is materialized with all items as tabs
+    // a null layout materializes as a single empty leaf; items stay unopened (SPACE group)
     expect(s.layout?.type).toBe("leaf");
+    expect(allItems(s.layout!)).toEqual([]);
   });
 
   it("boot selects the setting-persisted active space, else the first", async () => {
@@ -154,14 +159,16 @@ describe("app store", () => {
     store.getState().closeSheet(); expect(store.getState().sheet).toBeNull();
   });
 
-  it("newTerminal creates item, adds tab to layout, persists layout", async () => {
+  it("newTerminal creates the item, opens it into the focused leaf, persists layout", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().newTerminal();
     const s = store.getState();
     expect(s.items).toHaveLength(2);
     expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
-    expect(s.layout && s.layout.type === "leaf" ? s.layout.tabs.length : 0).toBe(2);
+    const created = s.items.find((i) => i.id !== "i1")!.id;
+    expect(allItems(s.layout!)).toEqual([created]); // opened once; i1 stays unopened
+    expect(s.focusedLeafId).toBe(findLeafOfItem(s.layout!, created)!.id);
   });
 
   it("persist merges the returned Space so a later selectSpace seeds from the newest layout", async () => {
@@ -172,14 +179,28 @@ describe("app store", () => {
     expect(spaces.find((s) => s.id === activeSpaceId)!.layout).toEqual(layout);
   });
 
-  it("closeItem deletes the item (server closes the pty), removes the tab, disposes the local terminal", async () => {
+  it("deleteItem deletes the item (server closes the pty), removes it from the layout, disposes the local terminal", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
-    await store.getState().closeItem("i1");
+    await store.getState().openItem("i1");
+    await store.getState().deleteItem("i1");
     expect(store.getState().items).toHaveLength(0);
-    expect(store.getState().layout).toEqual(expect.objectContaining({ type: "leaf", tabs: [] }));
+    expect(store.getState().layout).toEqual(expect.objectContaining({ type: "leaf", itemId: null }));
     expect(api.calls).toContain("deleteItem:i1");
     expect(api.disposed).toEqual(["i1"]);
+  });
+
+  it("closeFromLayout removes the item from the layout only — no server delete, no dispose, item kept", async () => {
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i1");
+    expect(allItems(store.getState().layout!)).toEqual(["i1"]);
+    await store.getState().closeFromLayout("i1");
+    expect(allItems(store.getState().layout!)).toEqual([]);
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]); // back in the SPACE group
+    expect(api.calls.filter((c) => c.startsWith("deleteItem"))).toEqual([]);
+    expect(api.disposed).toEqual([]);
+    expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true); // layout change persisted
   });
 
   it("applyPreset rebuilds layout and persists", async () => {
@@ -207,26 +228,27 @@ describe("app store", () => {
     expect(store.getState().projects).toHaveLength(1);
   });
 
-  describe("split race: items.changed refresh lands before terminals.create resolves", () => {
-    it("splitWithNewTerminal puts the tab exactly once, in the new leaf", async () => {
+  describe("create race: items.changed refresh lands before terminals.create resolves", () => {
+    it("newTerminal after splitFocused lands the item exactly once, in the fresh leaf", async () => {
       const store = createAppStore(api);
       await store.getState().boot();
+      await store.getState().openItem("i1");
+      const originalLeaf = store.getState().focusedLeafId!;
+      await store.getState().splitFocused("row");
+      const freshLeaf = store.getState().focusedLeafId!;
       api.delays["createTerminal"] = 20;
-      // The event handler refreshes items (and reconciles the new item into the first leaf) before create resolves.
+      // The event handler refreshes items before create resolves; prune-only reconcile must not force-open.
       api.onCreateTerminal = () => { void store.getState().refreshItems(); };
-      const rootLeafId = store.getState().layout!.id;
-      await store.getState().splitWithNewTerminal(rootLeafId, "row");
+      await store.getState().newTerminal();
       const l = store.getState().layout!;
       expect(l.type).toBe("split");
-      if (l.type !== "split") throw new Error();
       const newId = store.getState().items.find((i) => i.id !== "i1")!.id;
-      expect(allTabs(l).filter((t) => t === newId)).toHaveLength(1);
-      expect(l.children[0]).toMatchObject({ id: rootLeafId, tabs: ["i1"] });
-      expect(l.children[1]).toMatchObject({ tabs: [newId], activeTab: newId });
-      expect(findLeafOfTab(l, newId)!.id).not.toBe(rootLeafId);
+      expect(allItems(l).filter((t) => t === newId)).toHaveLength(1);
+      expect(findLeafOfItem(l, newId)!.id).toBe(freshLeaf);
+      expect(findLeafOfItem(l, "i1")!.id).toBe(originalLeaf);
     });
 
-    it("newTerminal into a target leaf still yields a single tab", async () => {
+    it("newTerminal into a target leaf still opens the item exactly once, there", async () => {
       const store = createAppStore(api);
       await store.getState().boot();
       await store.getState().newTerminal();
@@ -238,8 +260,9 @@ describe("app store", () => {
       await store.getState().newTerminal(secondLeaf);
       const l = store.getState().layout!;
       const newId = store.getState().items.at(-1)!.id;
-      expect(allTabs(l).filter((t) => t === newId)).toHaveLength(1);
-      expect(findLeafOfTab(l, newId)!.id).toBe(secondLeaf);
+      expect(allItems(l).filter((t) => t === newId)).toHaveLength(1);
+      expect(findLeafOfItem(l, newId)!.id).toBe(secondLeaf);
+      expect(store.getState().focusedLeafId).toBe(secondLeaf);
     });
   });
 
@@ -256,7 +279,7 @@ describe("app store", () => {
       const s = store.getState();
       expect(s.activeSpaceId).toBe("s2");
       expect(s.items.map((i) => i.id)).toEqual(["i2"]);
-      expect(allTabs(s.layout!)).toEqual(["i2"]);
+      expect(allItems(s.layout!)).toEqual([]); // nothing force-opened
     });
 
     it("selectSpace A then B: slow A responses are dropped", async () => {
@@ -271,7 +294,7 @@ describe("app store", () => {
       await new Promise((r) => setTimeout(r, 60));
       expect(store.getState().activeSpaceId).toBe(s2id);
       expect(store.getState().items).toEqual([]);
-      expect(allTabs(store.getState().layout!)).toEqual([]);
+      expect(allItems(store.getState().layout!)).toEqual([]);
     });
   });
 
@@ -411,7 +434,7 @@ describe("app store", () => {
       expect(store.getState().sessionStatus.unknown).toBe("idle");
     });
 
-    it("newSession creates, adds the tab, persists, and opens the transcript", async () => {
+    it("newSession creates, opens the item into the focused leaf, persists, and opens the transcript", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().newSession({ agentKind: "fake", model: "fake" });
       const s = store.getState();
@@ -419,7 +442,9 @@ describe("app store", () => {
       const created = Object.values(s.sessions).find((x) => x.id !== "se1")!;
       expect(created.model).toBe("fake");
       expect(s.items.some((i) => i.kind === "session" && i.refId === created.id)).toBe(true);
-      expect(allTabs(s.layout!)).toContain(s.items.find((i) => i.refId === created.id)!.id);
+      const createdItemId = s.items.find((i) => i.refId === created.id)!.id;
+      expect(allItems(s.layout!)).toContain(createdItemId);
+      expect(s.focusedLeafId).toBe(findLeafOfItem(s.layout!, createdItemId)!.id);
       expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
       expect(s.transcripts[created.id]).toEqual({ lastSeq: 0, t: expect.objectContaining({ blocks: [] }) });
     });
@@ -434,23 +459,38 @@ describe("app store", () => {
       expect(store.getState().sessions.se1?.permissionMode).toBe("plan");
     });
 
-    it("probeAgents stores the probe; closeItem on a session drops its transcript, status and session", async () => {
+    it("probeAgents stores the probe; deleteItem on a session drops its transcript, status and session", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().probeAgents();
       expect(store.getState().agentProbe).toEqual([expect.objectContaining({ kind: "fake", available: true })]);
       await store.getState().openSession("se1");
-      await store.getState().closeItem("i2");
+      await store.getState().openItem("i2");
+      await store.getState().deleteItem("i2");
       expect(store.getState().transcripts.se1).toBeUndefined();
       expect(store.getState().sessionStatus.se1).toBeUndefined();
       expect(store.getState().sessions.se1).toBeUndefined();
+      expect(allItems(store.getState().layout!)).toEqual([]);
       expect(api.calls).toContain("deleteItem:i2");
     });
 
-    it("closing the item while openSession is fetching leaves no transcript behind", async () => {
+    it("closeFromLayout on a session item keeps the item, its transcript, session and status", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i2");
+      await store.getState().openSession("se1");
+      await store.getState().closeFromLayout("i2");
+      expect(allItems(store.getState().layout!)).toEqual([]);
+      expect(store.getState().items.some((i) => i.id === "i2")).toBe(true);
+      expect(store.getState().transcripts.se1).toBeDefined();
+      expect(store.getState().sessions.se1).toBeDefined();
+      expect(store.getState().sessionStatus.se1).toBe("running");
+      expect(api.calls.filter((c) => c.startsWith("deleteItem"))).toEqual([]);
+    });
+
+    it("deleting the item while openSession is fetching leaves no transcript behind", async () => {
       api = seed(); api.delays["sessionEvents:se1"] = 20;
       const store = createAppStore(api); await store.getState().boot();
       const p = store.getState().openSession("se1");
-      await store.getState().closeItem("i2");
+      await store.getState().deleteItem("i2");
       await p;
       expect(store.getState().transcripts.se1).toBeUndefined();
     });
@@ -465,5 +505,171 @@ describe("app store", () => {
     });
   });
 
-  void emptyLayout;
+  describe("arc-true layout slice", () => {
+    const twoItems = () => { api.data.items.s1 = [item("i1", "s1"), item("i2", "s1")]; };
+
+    it("reconcile prunes deleted items but never force-opens", async () => {
+      twoItems();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().refreshItems();
+      expect(allItems(store.getState().layout!)).toEqual(["i1"]); // i2 stays unopened
+      api.data.items.s1 = api.data.items.s1!.filter((i) => i.id !== "i1");
+      await store.getState().refreshItems();
+      expect(allItems(store.getState().layout!)).toEqual([]); // i1's leaf emptied
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i2"]); // i2 kept, still unopened
+    });
+
+    it("openItem replaces the focused leaf's item and focuses the leaf", async () => {
+      twoItems();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      const leafId = findLeafOfItem(store.getState().layout!, "i1")!.id;
+      expect(store.getState().focusedLeafId).toBe(leafId);
+      await store.getState().openItem("i2");
+      expect(allItems(store.getState().layout!)).toEqual(["i2"]); // i1 displaced back to SPACE
+      expect(findLeafOfItem(store.getState().layout!, "i2")!.id).toBe(leafId);
+      expect(store.getState().focusedLeafId).toBe(leafId);
+      expect(store.getState().items).toHaveLength(2);
+    });
+
+    it("splitFocused creates an empty sibling and focuses it; the next openItem fills it", async () => {
+      twoItems();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      const originalLeaf = store.getState().focusedLeafId!;
+      await store.getState().splitFocused("row");
+      const l = store.getState().layout!;
+      expect(l.type).toBe("split"); if (l.type !== "split") throw new Error();
+      expect(l.dir).toBe("row");
+      const fresh = store.getState().focusedLeafId!;
+      expect(fresh).not.toBe(originalLeaf);
+      expect(l.children[1]).toEqual({ type: "leaf", id: fresh, itemId: null });
+      expect(findLeafOfItem(l, "i1")!.id).toBe(originalLeaf);
+      await store.getState().openItem("i2");
+      expect(findLeafOfItem(store.getState().layout!, "i2")!.id).toBe(fresh);
+      expect(allItems(store.getState().layout!)).toEqual(["i1", "i2"]);
+      expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
+    });
+
+    it("openItemAt center replaces the leaf's item in place", async () => {
+      twoItems();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      const leafId = store.getState().focusedLeafId!;
+      await store.getState().openItemAt("i2", leafId, "center");
+      const l = store.getState().layout!;
+      expect(l.type).toBe("leaf");
+      expect(allItems(l)).toEqual(["i2"]);
+      expect(store.getState().focusedLeafId).toBe(leafId);
+    });
+
+    const edgeCases: { edge: DropEdge; dir: "row" | "col"; droppedFirst: boolean }[] = [
+      { edge: "left", dir: "row", droppedFirst: true },
+      { edge: "right", dir: "row", droppedFirst: false },
+      { edge: "top", dir: "col", droppedFirst: true },
+      { edge: "bottom", dir: "col", droppedFirst: false },
+    ];
+    for (const { edge, dir, droppedFirst } of edgeCases) {
+      it(`openItemAt ${edge} splits ${dir} and puts the dropped item ${droppedFirst ? "first" : "second"}`, async () => {
+        twoItems();
+        const store = createAppStore(api); await store.getState().boot();
+        await store.getState().openItem("i1");
+        const leafId = store.getState().focusedLeafId!;
+        await store.getState().openItemAt("i2", leafId, edge);
+        const l = store.getState().layout!;
+        expect(l.type).toBe("split"); if (l.type !== "split") throw new Error();
+        expect(l.dir).toBe(dir);
+        expect(l.children.map((c) => (c.type === "leaf" ? c.itemId : null)))
+          .toEqual(droppedFirst ? ["i2", "i1"] : ["i1", "i2"]);
+        expect(store.getState().focusedLeafId).toBe(findLeafOfItem(l, "i2")!.id);
+        expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
+      });
+    }
+
+    it("focusedLeafId falls back to the first leaf when its leaf is closed away", async () => {
+      twoItems();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().splitFocused("row");
+      await store.getState().openItem("i2"); // fills + focuses the fresh leaf
+      const freshLeaf = store.getState().focusedLeafId!;
+      expect(freshLeaf).not.toBe(findLeafOfItem(store.getState().layout!, "i1")!.id);
+      await store.getState().closeFromLayout("i2"); // prunes the focused leaf
+      const s = store.getState();
+      expect(hasLeafIn(s.layout!, freshLeaf)).toBe(false);
+      expect(s.focusedLeafId).toBe(firstLeaf(s.layout!).id);
+    });
+
+    it("focusedLeafId falls back to the first leaf when reconcile prunes its leaf", async () => {
+      twoItems();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().splitFocused("row");
+      await store.getState().openItem("i2");
+      const freshLeaf = store.getState().focusedLeafId!;
+      api.data.items.s1 = api.data.items.s1!.filter((i) => i.id !== "i2"); // deleted server-side
+      await store.getState().refreshItems();
+      const s = store.getState();
+      expect(hasLeafIn(s.layout!, freshLeaf)).toBe(false);
+      expect(s.focusedLeafId).toBe(firstLeaf(s.layout!).id);
+    });
+
+    it("focusLeaf sets focusedLeafId", async () => {
+      const store = createAppStore(api); await store.getState().boot();
+      store.getState().focusLeaf("some-leaf");
+      expect(store.getState().focusedLeafId).toBe("some-leaf");
+    });
+  });
+
+  describe("layout helpers", () => {
+    it("hasLeafIn finds leaves at any depth", () => {
+      const l = split("s", "row", [leaf("a", "i1"), split("s2", "col", [leaf("b", null), leaf("c", "i2")])]);
+      expect(hasLeafIn(l, "a")).toBe(true);
+      expect(hasLeafIn(l, "c")).toBe(true);
+      expect(hasLeafIn(l, "s2")).toBe(false); // splits are not leaves
+      expect(hasLeafIn(l, "zz")).toBe(false);
+      expect(hasLeafIn(leaf("only", null), "only")).toBe(true);
+    });
+
+    it("findEmptySiblingOf returns the empty leaf next to the given leaf, else null", () => {
+      const l = split("s", "row", [leaf("a", "i1"), leaf("b", null)]);
+      expect(findEmptySiblingOf(l, "a")).toBe("b");
+      expect(findEmptySiblingOf(l, "b")).toBeNull(); // its sibling holds an item
+      expect(findEmptySiblingOf(l, "zz")).toBeNull();
+      const nested = split("s", "row", [split("s2", "col", [leaf("a", "i1"), leaf("n", null)]), leaf("c", "i2")]);
+      expect(findEmptySiblingOf(nested, "a")).toBe("n"); // finds the split that directly contains the leaf
+      expect(findEmptySiblingOf(nested, "c")).toBeNull(); // c's sibling is a split, not an empty leaf
+    });
+
+    it("swapSplitChildrenOf swaps the two leaf children holding the pair, nothing else", () => {
+      const l = split("root", "row", [
+        split("other", "col", [leaf("x", "i9"), leaf("y", null)]),
+        split("target", "row", [leaf("a", "i1"), leaf("b", "i2")]),
+      ]);
+      const out = swapSplitChildrenOf(l, "a", "i2");
+      if (out.type !== "split") throw new Error();
+      expect(out.children[0]).toEqual(split("other", "col", [leaf("x", "i9"), leaf("y", null)])); // grandchildren untouched
+      expect(out.children[1]).toEqual(split("target", "row", [leaf("a", "i2"), leaf("b", "i1")]));
+    });
+
+    it("swapSplitChildrenOf after nesting applies only at the freshly created all-leaf split", () => {
+      // The original leaf's side can itself become a split after nesting; the swap must target the
+      // innermost split whose two children are both leaves (always true for a fresh splitLeaf result).
+      const l = split("outer", "row", [
+        split("inner", "col", [leaf("a", "i1"), leaf("n2", "i3")]),
+        leaf("n1", "i2"),
+      ]);
+      // Swap for the fresh inner split (a + i3): outer's children are not both leaves, so it must recurse.
+      const out = swapSplitChildrenOf(l, "a", "i3");
+      if (out.type !== "split") throw new Error();
+      expect(out.children[0]).toEqual(split("inner", "col", [leaf("a", "i3"), leaf("n2", "i1")]));
+      expect(out.children[1]).toEqual(leaf("n1", "i2")); // sibling outside the fresh split untouched
+    });
+
+    it("swapSplitChildrenOf is a no-op when no split holds the pair as direct leaf children", () => {
+      const l = split("s", "row", [split("s2", "col", [leaf("a", "i1"), leaf("b", null)]), leaf("c", "i2")]);
+      expect(swapSplitChildrenOf(l, "a", "i2")).toEqual(l); // i2 is not a's direct sibling
+    });
+  });
 });

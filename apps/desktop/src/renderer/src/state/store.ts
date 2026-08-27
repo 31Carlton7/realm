@@ -1,6 +1,6 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  addTab, allTabs, emptyLayout, gridPreset, removeTab, setActiveTab, splitLeaf, updateSizes,
+  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, openItem as layoutOpen, splitLeaf, updateSizes, LayoutSchema,
   type AgentKind, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionStatus, type Space, type StoredSessionEvent,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
@@ -13,6 +13,9 @@ export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
 export type PermissionDecision = "allow" | "allow_always" | "deny";
+/** Where a sidebar row was dropped on a pane: an edge splits there, center replaces the pane's item.
+ *  Canonical home of this type — PaneHost imports it from here. */
+export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
 export type AgentProbe = MethodResult<"agents.probe">[number];
 /** A `session.event` broadcast: persisted rows carry their seq; ephemeral ones (deltas) have seq -1. */
 export type LiveSessionEvent = StoredSessionEvent & { ephemeral: boolean };
@@ -73,6 +76,9 @@ export type AppState = {
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
   items: Item[]; layout: Layout | null;
+  /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
+   *  layout no longer contains it. */
+  focusedLeafId: string | null;
   projects: Project[];
   error: string | null;
   paletteOpen: boolean;
@@ -102,9 +108,20 @@ export type AppState = {
   pickAndLinkProject(): Promise<void>;
   newTerminal(targetLeafId?: string | null): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
-  closeItem(itemId: string): Promise<void>;
-  activateTab(itemId: string): Promise<void>;
-  splitWithNewTerminal(leafId: string, dir: "row" | "col"): Promise<void>;
+  /** Open an item into `leafId` ?? the focused leaf ?? the first leaf, replacing what it held (the
+   *  replaced item returns to the SPACE group); focuses that leaf. */
+  openItem(itemId: string, leafId?: string | null): Promise<void>;
+  /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). Never deletes. */
+  closeFromLayout(itemId: string): Promise<void>;
+  /** Destructive: closes from the layout, deletes the item server-side (kills ptys), and drops local
+   *  terminal/session state. */
+  deleteItem(itemId: string): Promise<void>;
+  /** Split the focused leaf (or first leaf) with an empty sibling and focus the new leaf. */
+  splitFocused(dir: "row" | "col"): Promise<void>;
+  /** Drag-to-split: center replaces the leaf's item; an edge splits in that direction, the dropped item
+   *  landing on the near side. */
+  openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
+  focusLeaf(leafId: string): void;
   applyPreset(name: PresetName): Promise<void>;
   /** Functional sizes update for one split; persisted with a trailing debounce. No-op if unchanged. */
   resizeSplit(splitId: string, sizes: number[]): void;
@@ -118,7 +135,7 @@ export type AppState = {
   openSession(id: string): Promise<void>;
   applySessionEvent(ev: LiveSessionEvent): void;
   applySessionStatus(sessionId: string, status: SessionStatus): void;
-  /** Create a session in the active space, add its tab, and open its transcript. */
+  /** Create a session in the active space, open its item, and open its transcript. */
   newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null): Promise<void>;
   sendMessage(id: string, text: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
@@ -130,14 +147,53 @@ export type AppState = {
   clearError(): void;
 };
 
-/** Ensure every item is present in the layout exactly once and no stale tabs remain. */
+/** Prune-only: drop ids that no longer exist. Never adds — unopened items live in the SPACE group. */
 export function reconcileLayout(layout: Layout | null, items: Item[]): Layout {
   let l: Layout = layout ?? emptyLayout();
   const ids = new Set(items.map((i) => i.id));
-  for (const t of allTabs(l)) if (!ids.has(t)) l = removeTab(l, t);
-  const present = new Set(allTabs(l));
-  for (const it of items) if (!present.has(it.id)) l = addTab(l, null, it.id);
+  for (const t of allItems(l)) if (!ids.has(t)) l = layoutClose(l, t);
   return l;
+}
+
+/** True when a leaf with this id exists anywhere in the layout (splits don't count). */
+export function hasLeafIn(l: Layout, leafId: string): boolean {
+  return l.type === "leaf" ? l.id === leafId : l.children.some((c) => hasLeafIn(c, leafId));
+}
+
+/** The id of the empty leaf sitting next to `leafId` in its immediate split, if any — i.e. the leaf a
+ *  fresh `splitLeaf(..., null)` just created. Only direct siblings count. */
+export function findEmptySiblingOf(l: Layout, leafId: string): string | null {
+  if (l.type === "leaf") return null;
+  if (l.children.some((c) => c.type === "leaf" && c.id === leafId)) {
+    const empty = l.children.find((c) => c.type === "leaf" && c.id !== leafId && c.itemId === null);
+    return empty?.id ?? null;
+  }
+  for (const c of l.children) { const f = findEmptySiblingOf(c, leafId); if (f) return f; }
+  return null;
+}
+
+/** After `splitLeaf` created a split whose two children are leaves — the original `leafId` and the leaf
+ *  now holding `itemId` — swap the two children's itemIds (drag-to-split onto the near edge). Applies
+ *  only to a split whose direct children are both leaves matching the pair, which is always true for a
+ *  freshly created split; grandchildren and unrelated splits are never touched. */
+export function swapSplitChildrenOf(l: Layout, leafId: string, itemId: string): Layout {
+  if (l.type === "leaf") return l;
+  const [a, b] = l.children;
+  if (l.children.length === 2 && a?.type === "leaf" && b?.type === "leaf" &&
+      ((a.id === leafId && b.itemId === itemId) || (b.id === leafId && a.itemId === itemId))) {
+    return { ...l, children: [{ ...a, itemId: b.itemId }, { ...b, itemId: a.itemId }] };
+  }
+  return { ...l, children: l.children.map((c) => swapSplitChildrenOf(c, leafId, itemId)) };
+}
+
+/** Space RPC results are not zod-parsed on the client (the rpc envelope leaves `result` untouched), so a
+ *  legacy-shaped layout from an older server would arrive unmigrated. Today's server migrates on read
+ *  (LayoutSchema in apps/server store/spaces.ts); parsing again here is version-skew defense. Corrupt
+ *  input degrades to null rather than breaking the space, mirroring the server. */
+function seedLayout(layout: Layout | null): Layout | null {
+  if (!layout) return null;
+  const p = LayoutSchema.safeParse(layout);
+  return p.success ? p.data : null;
 }
 
 function findSplitSizes(l: Layout, splitId: string): number[] | null {
@@ -173,18 +229,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const loading = new Map<string, StoredSessionEvent[]>();
     const setTranscript = (id: string, entry: TranscriptEntry) => set({ transcripts: { ...get().transcripts, [id]: entry } });
     const dropTranscript = (id: string) => { const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
-    /** Add a freshly created item's tab (or split) and persist; mirrors newTerminal. */
+    /** Focus keeps its leaf while the layout still has it; otherwise it resets to the first leaf. */
+    const focusIn = (layout: Layout) => {
+      const f = get().focusedLeafId;
+      return f && hasLeafIn(layout, f) ? f : firstLeaf(layout).id;
+    };
+    /** Adopt a freshly created item: refresh items, then open it into targetLeafId ?? the focused leaf.
+     *  (A concurrent items.changed refresh can't have opened it — reconcile is prune-only.) */
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
       const items = await api.listItems(sid);
       if (!isSpace(sid)) return;
-      // Read layout only now: an items.changed refresh may already have reconciled the item in.
-      const layout = addTab(get().layout ?? emptyLayout(), targetLeafId, itemId);
-      set({ items, layout: reconcileLayout(layout, items) });
-      await persist();
+      set({ items });
+      await get().openItem(itemId, targetLeafId);
     };
 
     return {
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, projects: [], error: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
       paletteOpen: false, sheet: null,
       sessions: {}, sessionStatus: {}, transcripts: {}, agentProbe: [],
 
@@ -202,7 +262,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async selectSpace(id) {
         await flushPersist();
         const space = get().spaces.find((s) => s.id === id);
-        set({ activeSpaceId: id, layout: space?.layout ?? null, items: [], projects: [], sessions: {}, error: null });
+        set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], sessions: {}, error: null });
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
         await Promise.all([get().refreshProjects(), get().refreshItems(), get().refreshSessions()]);
       },
@@ -222,14 +282,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (active && !spaces.some((s) => s.id === active)) {
           const first = spaces[0];
           if (first) await get().selectSpace(first.id);
-          else set({ activeSpaceId: null, items: [], layout: null, projects: [] });
+          else set({ activeSpaceId: null, items: [], layout: null, focusedLeafId: null, projects: [] });
         }
       },
       async refreshItems() {
         const sid = get().activeSpaceId; if (!sid) return;
         const items = await api.listItems(sid);
         if (!isSpace(sid)) return;
-        set({ items, layout: reconcileLayout(get().layout, items) });
+        const layout = reconcileLayout(get().layout, items);
+        set({ items, layout, focusedLeafId: focusIn(layout) });
       },
       async refreshProjects() {
         const sid = get().activeSpaceId; if (!sid) return;
@@ -258,7 +319,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (get().activeSpaceId !== id) return;
         if (neighbor && get().spaces.some((s) => s.id === neighbor.id)) await get().selectSpace(neighbor.id);
         else if (get().spaces[0]) await get().selectSpace(get().spaces[0]!.id);
-        else set({ activeSpaceId: null, items: [], layout: null, projects: [] });
+        else set({ activeSpaceId: null, items: [], layout: null, focusedLeafId: null, projects: [] });
       },
       async reorderSpaces(ids) {
         const prev = get().spaces;
@@ -292,25 +353,29 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { itemId } = await api.createTerminal(sid);
         await adoptItem(sid, itemId, targetLeafId);
       },
-      async splitWithNewTerminal(leafId, dir) {
-        const sid = get().activeSpaceId; if (!sid) return;
-        const { itemId } = await api.createTerminal(sid);
-        const items = await api.listItems(sid);
-        if (!isSpace(sid)) return;
-        const layout = splitLeaf(get().layout ?? emptyLayout(), leafId, dir, itemId);
-        set({ items, layout: reconcileLayout(layout, items) });
-        await persist();
-      },
       async updateItem(input) {
         const sid = get().activeSpaceId;
         const it = await api.updateItem(input);
         if (sid && isSpace(sid)) set({ items: get().items.map((x) => (x.id === it.id ? it : x)) });
       },
-      async closeItem(itemId) {
+      async openItem(itemId, leafId = null) {
+        const target = leafId ?? get().focusedLeafId;
+        const layout = layoutOpen(get().layout ?? emptyLayout(), target, itemId);
+        const leaf = findLeafOfItem(layout, itemId);
+        set({ layout, focusedLeafId: leaf?.id ?? null });
+        await persist();
+      },
+      async closeFromLayout(itemId) {
+        const layout = layoutClose(get().layout ?? emptyLayout(), itemId);
+        set({ layout, focusedLeafId: focusIn(layout) });
+        await persist();
+      },
+      async deleteItem(itemId) {
+        await get().closeFromLayout(itemId);
+        // The old destructive close, minus the layout removal handled above.
         const it = get().items.find((i) => i.id === itemId);
         await api.deleteItem(itemId); // server closes the pty for terminal items
-        const items = get().items.filter((i) => i.id !== itemId);
-        set({ items, layout: removeTab(get().layout ?? emptyLayout(), itemId) });
+        set({ items: get().items.filter((i) => i.id !== itemId) });
         if (it?.kind === "terminal") api.disposeTerminal(it.refId);
         if (it?.kind === "session") {
           dropTranscript(it.refId); loading.delete(it.refId);
@@ -319,12 +384,27 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         await persist();
       },
-      async activateTab(itemId) {
-        set({ layout: setActiveTab(get().layout ?? emptyLayout(), itemId) });
+      async splitFocused(dir) {
+        const l = get().layout ?? emptyLayout();
+        const target = focusIn(l);
+        const layout = splitLeaf(l, target, dir, null);
+        const fresh = findEmptySiblingOf(layout, target);
+        set({ layout, focusedLeafId: fresh ?? target });
         await persist();
       },
+      async openItemAt(itemId, leafId, edge) {
+        if (edge === "center") return get().openItem(itemId, leafId);
+        const dir = edge === "left" || edge === "right" ? "row" : "col";
+        let layout = splitLeaf(get().layout ?? emptyLayout(), leafId, dir, itemId);
+        if (edge === "left" || edge === "top") layout = swapSplitChildrenOf(layout, leafId, itemId);
+        const leaf = findLeafOfItem(layout, itemId);
+        set({ layout, focusedLeafId: leaf?.id ?? null });
+        await persist();
+      },
+      focusLeaf(leafId) { set({ focusedLeafId: leafId }); },
       async applyPreset(name) {
-        set({ layout: gridPreset(name, get().items.map((i) => i.id)) });
+        const layout = gridPreset(name, get().items.map((i) => i.id));
+        set({ layout, focusedLeafId: firstLeaf(layout).id });
         await persist();
       },
       resizeSplit(splitId, sizes) {
