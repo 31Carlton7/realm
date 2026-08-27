@@ -468,8 +468,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
       },
-      setPaletteOpen(open) { set({ paletteOpen: open }); },
-      openSheet(sheet) { set({ sheet }); },
+      // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
+      setPaletteOpen(open) { set(open ? { paletteOpen: true, sheet: null } : { paletteOpen: false }); },
+      openSheet(sheet) { set({ sheet, paletteOpen: false }); },
       closeSheet() { set({ sheet: null }); },
       async refreshSessions() {
         const sid = get().activeSpaceId; if (!sid) return;

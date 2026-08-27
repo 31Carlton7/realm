@@ -595,6 +595,30 @@ describe("app store", () => {
     });
   });
 
+  describe("single overlay slot (U-M4/V-F5)", () => {
+    it("opening the palette closes any open sheet", async () => {
+      const store = createAppStore(api); await store.getState().boot();
+      store.getState().openSheet({ kind: "new-space" });
+      expect(store.getState().sheet).toEqual({ kind: "new-space" });
+      store.getState().setPaletteOpen(true);
+      expect(store.getState().paletteOpen).toBe(true);
+      expect(store.getState().sheet).toBeNull();
+      // Closing the palette must not resurrect or re-close anything.
+      store.getState().setPaletteOpen(false);
+      expect(store.getState().paletteOpen).toBe(false);
+      expect(store.getState().sheet).toBeNull();
+    });
+
+    it("opening a sheet closes the palette", async () => {
+      const store = createAppStore(api); await store.getState().boot();
+      store.getState().setPaletteOpen(true);
+      expect(store.getState().paletteOpen).toBe(true);
+      store.getState().openSheet({ kind: "new-session" });
+      expect(store.getState().sheet).toEqual({ kind: "new-session" });
+      expect(store.getState().paletteOpen).toBe(false);
+    });
+  });
+
   describe("connection state", () => {
     const stored = (sessionId: string, seq: number, event: StoredSessionEvent["event"]): StoredSessionEvent => ({ seq, sessionId, event });
     const seed = () => fakeApi({
