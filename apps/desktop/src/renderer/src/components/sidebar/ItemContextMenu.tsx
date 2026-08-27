@@ -9,7 +9,7 @@ export type ItemMenuState = { item: Item; x: number; y: number } | null;
 export function useItemContextMenu(onRename: (item: Item) => void) {
   const [menu, setMenu] = useState<ItemMenuState>(null);
   const updateItem = useApp((s) => s.updateItem);
-  const closeItem = useApp((s) => s.closeItem);
+  const deleteItem = useApp((s) => s.deleteItem);
   const run = useApp((s) => s.run);
   const onContextMenu = useCallback((item: Item) => (e: MouseEvent) => { e.preventDefault(); setMenu({ item, x: e.clientX, y: e.clientY }); }, []);
   const close = useCallback(() => setMenu(null), []);
@@ -18,7 +18,7 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
       { label: menu.item.pinned ? "Unpin" : "Pin", onSelect: () => run(() => updateItem({ id: menu.item.id, pinned: !menu.item.pinned })) },
       { label: "Rename", onSelect: () => onRename(menu.item) },
       { kind: "separator" },
-      { label: "Close", danger: true, onSelect: () => run(() => closeItem(menu.item.id)) },
+      { label: "Close", danger: true, onSelect: () => run(() => deleteItem(menu.item.id)) },
     ]} />
   ) : null;
   return { onContextMenu, element };

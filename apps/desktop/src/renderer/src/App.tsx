@@ -1,19 +1,35 @@
 import { useEffect, useMemo } from "react";
+import type { StoreApi } from "zustand";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
 import { NewSessionSheet } from "./panes/session/NewSessionSheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { Icon } from "@realm/ui";
-import { activeTabIds } from "./components/sidebar/active-tabs";
 import { PaneHost } from "./components/PaneHost";
 import { LayoutMenu } from "./components/LayoutMenu";
-import { StoreContext, createAppStore, useApp } from "./state/store";
+import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
-import { emptyLayout } from "@realm/contracts";
+import { emptyLayout, type Layout } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
 import "./panes";
+
+/** ⌘\ splits the focused leaf to the right. Bind once at the app root. */
+export function useSplitHotkey(store: StoreApi<AppState>) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === "\\") {
+        e.preventDefault();
+        const s = store.getState();
+        if (s.sheet) return; // a modal sheet owns the keyboard
+        s.run(() => s.splitFocused("row"));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [store]);
+}
 
 /** Writes the active space's palette to :root; lives under the store provider so it can read state. */
 function ThemeBridge() {
@@ -45,48 +61,64 @@ function SheetHost() {
   return null;
 }
 
-/** `<space icon> <space name> / <active tab title>` — the first active tab found in the layout. */
+/** The itemId held by the leaf with this id, or null (leaf empty or not found). */
+function itemIdOfLeaf(l: Layout | null, leafId: string | null): string | null {
+  if (!l || !leafId) return null;
+  if (l.type === "leaf") return l.id === leafId ? l.itemId : null;
+  for (const c of l.children) { const found = itemIdOfLeaf(c, leafId); if (found !== null) return found; }
+  return null;
+}
+
+/** `<space icon> <space name> / <focused item title>` — the item in the focused leaf, if any. */
 function Breadcrumb() {
   const space = useApp((s) => s.activeSpace());
   const items = useApp((s) => s.items);
   const layout = useApp((s) => s.layout);
+  const focusedLeafId = useApp((s) => s.focusedLeafId);
   if (!space) return null;
-  const firstActive = [...activeTabIds(layout)][0];
-  const tab = items.find((i) => i.id === firstActive);
+  const focusedItemId = itemIdOfLeaf(layout, focusedLeafId);
+  const item = items.find((i) => i.id === focusedItemId);
   return (
     <div className="breadcrumb" aria-label="Location">
       <Icon name={space.icon} size={14} /><span className="crumb">{space.name}</span>
-      {tab && <><span className="crumb-sep">/</span><span className="crumb muted">{tab.title}</span></>}
+      {item && <><span className="crumb-sep">/</span><span className="crumb muted">{item.title}</span></>}
     </div>
   );
 }
 
-function Main() {
+/** Topbar + PaneHost for the active space. Exported for the app-shell tests. */
+export function Main() {
   const layout = useApp((s) => s.layout);
   const items = useApp((s) => s.items);
   const spaceId = useApp((s) => s.activeSpaceId);
-  const activateTab = useApp((s) => s.activateTab);
-  const closeItem = useApp((s) => s.closeItem);
-  const split = useApp((s) => s.splitWithNewTerminal);
+  const focusedLeafId = useApp((s) => s.focusedLeafId);
+  const focusLeaf = useApp((s) => s.focusLeaf);
+  const closeFromLayout = useApp((s) => s.closeFromLayout);
+  const splitFocused = useApp((s) => s.splitFocused);
+  const openItemAt = useApp((s) => s.openItemAt);
   const applyPreset = useApp((s) => s.applyPreset);
   const resizeSplit = useApp((s) => s.resizeSplit);
   const run = useApp((s) => s.run);
-  if (!spaceId) return <div className="content-card"><ErrorBar /><div className="pane-placeholder muted">Create a space with the + in the sidebar.</div></div>;
+  if (!spaceId) return <><ErrorBar /><div className="pane-placeholder muted">Create a space with the + in the sidebar.</div></>;
   return (
-    <div className="content-card">
-      <div className="card-topbar"><Breadcrumb /><LayoutMenu onPick={(p) => run(() => applyPreset(p))} /></div>
+    <>
+      <div className="topbar"><Breadcrumb /><LayoutMenu onPick={(p) => run(() => applyPreset(p))} /></div>
       <ErrorBar />
-      <PaneHost layout={layout ?? emptyLayout()} items={items}
-        onActivate={(id) => run(() => activateTab(id))} onClose={(id) => run(() => closeItem(id))}
-        onSplit={(leafId, dir) => run(() => split(leafId, dir))}
-        onResize={resizeSplit} />
-    </div>
+      <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
+        onFocus={focusLeaf}
+        onClose={(id) => run(() => closeFromLayout(id))}
+        // The split button targets its own leaf: focus it synchronously, then split reads the fresh focus.
+        onSplit={(leafId, dir) => { focusLeaf(leafId); run(() => splitFocused(dir)); }}
+        onResize={resizeSplit}
+        onDropItem={(id, leafId, edge) => run(() => openItemAt(id, leafId, edge))} />
+    </>
   );
 }
 
 export function App() {
   const store = useMemo(() => createAppStore(liveApi()), []);
   usePaletteHotkey(store);
+  useSplitHotkey(store);
   useEffect(() => {
     const s = store.getState();
     s.run(() => s.boot());

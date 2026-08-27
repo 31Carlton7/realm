@@ -1,14 +1,19 @@
 import { Fragment, type JSX } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { Item, Layout } from "@realm/contracts";
-import { TabBar } from "./TabBar";
+import type { DropEdge } from "../state/store";
+import { PanelBar } from "./PanelBar";
 import { PaneFor } from "../panes/registry";
 
 export type PaneHostProps = {
-  layout: Layout; items: Item[];
-  onActivate: (itemId: string) => void; onClose: (itemId: string) => void;
+  layout: Layout; items: Item[]; focusedLeafId: string | null;
+  onFocus: (leafId: string) => void;
+  /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). */
+  onClose: (itemId: string) => void;
   onSplit: (leafId: string, dir: "row" | "col") => void;
   onResize?: (splitId: string, sizes: number[]) => void;
+  /** Task 7 wires the drop-zone UI; the store's openItemAt is already self-drop-safe. */
+  onDropItem?: (itemId: string, leafId: string, edge: DropEdge) => void;
 };
 
 export function PaneHost(p: PaneHostProps) {
@@ -17,18 +22,14 @@ export function PaneHost(p: PaneHostProps) {
 
   function renderNode(n: Layout): JSX.Element {
     if (n.type === "leaf") {
-      const tabs = n.tabs.map((t) => byId.get(t)).filter((x): x is Item => !!x);
-      const active = tabs.find((t) => t.id === n.activeTab) ?? tabs[0] ?? null;
+      const item = n.itemId ? byId.get(n.itemId) ?? null : null;
       return (
-        <div className="leaf" data-leaf-id={n.id}>
-          <TabBar tabs={tabs} activeTab={active?.id ?? null} onActivate={p.onActivate} onClose={p.onClose} onSplit={(dir) => p.onSplit(n.id, dir)} />
-          <div className="leaf-body">
-            {tabs.length === 0 && <div className="pane-placeholder muted">Nothing open — add a terminal from the sidebar or split.</div>}
-            {tabs.map((t) => (
-              <div key={t.id} className="pane-slot" style={{ display: t.id === active?.id ? "flex" : "none" }}>
-                <PaneFor item={t} visible={t.id === active?.id} />
-              </div>
-            ))}
+        <div className="panel" data-leaf-id={n.id} data-focused={n.id === p.focusedLeafId || undefined}
+          onPointerDownCapture={() => p.onFocus(n.id)}>
+          {item && <PanelBar item={item} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)} />}
+          <div className="panel-body">
+            {!item && <div className="pane-placeholder muted">Open something from the sidebar.</div>}
+            {item && <div className="pane-slot"><PaneFor item={item} visible /></div>}
           </div>
         </div>
       );

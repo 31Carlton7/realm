@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act, within } from "@testing-librar
 import { sessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
-import { SessionPane } from "./SessionPane";
+import { SessionMeta, SessionPane } from "./SessionPane";
 import { NewSessionSheet } from "./NewSessionSheet";
 import { reduceAll } from "./transcript-model";
 import { renderMarkdown } from "./Markdown";
@@ -52,13 +52,12 @@ describe("SessionPane", () => {
     expect((box as HTMLTextAreaElement).value).toBe("");
   });
 
-  it("Allow always / Deny map to decisions; header shows status and agent; tool card expands", async () => {
+  it("Allow always / Deny map to decisions; tool card expands", async () => {
     const { api } = await mount();
     const decided: string[] = []; api.respondPermission = async (_i, r, d) => { decided.push(`${r}:${d}`); };
     fireEvent.click(screen.getByRole("button", { name: /Allow always/ }));
     fireEvent.click(screen.getByRole("button", { name: /^Deny$/ }));
     expect(decided).toEqual(["r1:allow_always", "r1:deny"]);
-    expect(screen.getByLabelText(/Status: Needs permission/)).toHaveAttribute("data-status", "waiting_permission");
     const tool = screen.getByRole("button", { name: /Bash tool call/ });
     expect(tool).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(tool);
@@ -122,6 +121,33 @@ describe("SessionPane", () => {
     await mountKind("acp:cursor");
     expect(screen.queryByRole("combobox", { name: "Permission mode" })).toBeNull();
     expect(screen.getByRole("combobox", { name: "Effort" })).toBeInTheDocument(); // the rest of the bar is untouched
+  });
+});
+
+describe("SessionMeta", () => {
+  function mountMeta(over: { model?: string | null; costUsd?: number; numTurns?: number; status?: "idle" | "waiting_permission" } = {}) {
+    const store = createAppStore(fakeApi());
+    store.setState({
+      sessions: { se1: session("se1", "s1", { model: over.model ?? null }) },
+      sessionStatus: { se1: over.status ?? "idle" },
+      transcripts: { se1: { lastSeq: 1, t: reduceAll([
+        sessionEvent("usage", { costUsd: over.costUsd ?? 0, inputTokens: 1, outputTokens: 1, numTurns: over.numTurns ?? 0 }),
+      ]) } },
+    });
+    return render(<StoreContext.Provider value={store}><SessionMeta item={item("i9", "s1", { kind: "session", refId: "se1", title: "Sess" })} /></StoreContext.Provider>);
+  }
+
+  it("shows the model label, status dot, and cost once costUsd > 0", () => {
+    mountMeta({ model: "fake-xl", status: "waiting_permission", costUsd: 0.5, numTurns: 3 });
+    expect(screen.getByText("fake-xl")).toBeInTheDocument();
+    expect(screen.getByLabelText("Status: Needs permission")).toHaveAttribute("data-status", "waiting_permission");
+    expect(screen.getByText("$0.50 · 3 turns")).toBeInTheDocument();
+  });
+
+  it("renders no cost while costUsd is 0, even after turns", () => {
+    mountMeta({ model: "fake-xl", costUsd: 0, numTurns: 3 });
+    expect(screen.queryByText(/\$/)).toBeNull();
+    expect(screen.getByText("fake-xl")).toBeInTheDocument(); // the rest of the meta still renders
   });
 });
 
