@@ -1,245 +1,159 @@
 import { describe, expect, it } from "vitest";
 import {
-  emptyLayout, addTab, splitLeaf, removeTab, findLeafOfTab, allTabs, gridPreset, setActiveTab, firstLeaf, updateSizes,
-  LayoutSchema, type Layout,
+  LayoutSchema, allItems, closeItem, emptyLayout, findLeafOfItem, firstLeaf,
+  gridPreset, migrateLayout, openItem, splitLeaf, updateSizes, type Layout, type LayoutLeaf,
 } from "./layout";
 
-describe("layout ops", () => {
-  it("emptyLayout is a single empty leaf", () => {
-    const l = emptyLayout();
-    expect(l.type).toBe("leaf");
-    expect(allTabs(l)).toEqual([]);
-  });
+const leaf = (itemId: string | null): LayoutLeaf => ({ type: "leaf", id: `L-${itemId ?? "empty"}`, itemId });
+const row = (children: Layout[], sizes = children.map(() => 100 / children.length)): Layout =>
+  ({ type: "split", id: "S1", dir: "row", sizes, children });
 
-  it("addTab puts tab in target leaf and activates it", () => {
-    const l = emptyLayout();
-    const l2 = addTab(l, l.id, "A");
-    expect(allTabs(l2)).toEqual(["A"]);
-    expect(findLeafOfTab(l2, "A")?.activeTab).toBe("A");
+describe("migrateLayout", () => {
+  it("converts a legacy leaf to its active tab", () => {
+    const legacy = { type: "leaf", id: "a", tabs: ["t1", "t2", "t3"], activeTab: "t2" };
+    expect(migrateLayout(legacy)).toEqual({ type: "leaf", id: "a", itemId: "t2" });
   });
-
-  it("addTab with no leafId uses first leaf", () => {
-    const l2 = addTab(emptyLayout(), null, "A");
-    expect(allTabs(l2)).toEqual(["A"]);
+  it("falls back to the first tab, then null", () => {
+    expect(migrateLayout({ type: "leaf", id: "a", tabs: ["t1"], activeTab: null }))
+      .toEqual({ type: "leaf", id: "a", itemId: "t1" });
+    expect(migrateLayout({ type: "leaf", id: "a", tabs: [], activeTab: null }))
+      .toEqual({ type: "leaf", id: "a", itemId: null });
   });
-
-  it("addTab with unknown leafId falls back to first leaf", () => {
-    const l = addTab(emptyLayout(), null, "A");
-    const first = firstLeaf(l);
-    // Moving a tab to a leaf that doesn't exist must not lose it.
-    const l2 = addTab(l, "does-not-exist", "A");
-    expect(allTabs(l2)).toEqual(["A"]);
-    const l3 = addTab(l2, "does-not-exist", "B");
-    expect(allTabs(l3)).toEqual(["A", "B"]);
-    expect(findLeafOfTab(l3, "B")?.id).toBe(first.id);
-    expect(findLeafOfTab(l3, "B")?.activeTab).toBe("B");
+  it("falls back to the first tab when activeTab is not among the tabs", () => {
+    expect(migrateLayout({ type: "leaf", id: "a", tabs: ["t1", "t2"], activeTab: "zz" }))
+      .toEqual({ type: "leaf", id: "a", itemId: "t1" });
   });
-
-  it("splitLeaf creates a split with old leaf and new leaf holding new tab", () => {
-    const l = addTab(emptyLayout(), null, "A");
-    const l2 = splitLeaf(l, l.id, "row", "B");
-    expect(l2.type).toBe("split");
-    if (l2.type !== "split") throw new Error();
-    expect(l2.dir).toBe("row");
-    expect(l2.children).toHaveLength(2);
-    expect(l2.sizes).toEqual([50, 50]);
-    expect(allTabs(l2)).toEqual(["A", "B"]);
+  it("recurses through splits and passes new-shape nodes through unchanged", () => {
+    const mixed = { type: "split", id: "s", dir: "row", sizes: [50, 50],
+      children: [{ type: "leaf", id: "a", tabs: ["t1"], activeTab: "t1" }, { type: "leaf", id: "b", itemId: "t9" }] };
+    const out = migrateLayout(mixed) as { children: LayoutLeaf[] };
+    expect(out.children).toEqual([{ type: "leaf", id: "a", itemId: "t1" }, { type: "leaf", id: "b", itemId: "t9" }]);
   });
-
-  it("splitLeaf moves a tab that already lives elsewhere into the new leaf (no duplicates)", () => {
-    // Simulates items.changed reconciling the new item into the first leaf before splitLeaf runs.
-    const l = addTab(addTab(emptyLayout(), null, "A"), null, "B");
-    const l2 = splitLeaf(l, l.id, "row", "B");
-    expect(l2.type).toBe("split");
-    if (l2.type !== "split") throw new Error();
-    expect(allTabs(l2)).toEqual(["A", "B"]);
-    expect(l2.children[0]).toMatchObject({ id: l.id, tabs: ["A"], activeTab: "A" });
-    expect(l2.children[1]).toMatchObject({ tabs: ["B"], activeTab: "B" });
+  it("LayoutSchema parses legacy shapes into the new shape", () => {
+    const parsed = LayoutSchema.parse({ type: "leaf", id: "a", tabs: ["t1", "t2"], activeTab: "t2" });
+    expect(parsed).toEqual({ type: "leaf", id: "a", itemId: "t2" });
   });
-
-  it("splitLeaf falls back to the first leaf when removing the moved tab pruned the target", () => {
-    const l = addTab(emptyLayout(), null, "A");
-    const split = splitLeaf(l, l.id, "row", "B");
-    if (split.type !== "split") throw new Error();
-    const bLeaf = split.children[1]!;
-    // Splitting the leaf that only holds B with newTabId B: B is removed (pruning that leaf), then the first leaf is split.
-    const l2 = splitLeaf(split, bLeaf.id, "col", "B");
-    if (l2.type !== "split") throw new Error();
-    expect(allTabs(l2)).toEqual(["A", "B"]);
-    expect(l2.dir).toBe("col");
-    expect(l2.children[0]).toMatchObject({ id: l.id, tabs: ["A"] });
-    expect(l2.children[1]).toMatchObject({ tabs: ["B"] });
+  it("LayoutSchema still rejects structural garbage", () => {
+    expect(() => LayoutSchema.parse({ type: "split", id: "s", dir: "row", sizes: [100], children: [leaf("x")] })).toThrow();
   });
-
-  it("updateSizes replaces sizes on the matching split only", () => {
-    const l = addTab(emptyLayout(), null, "A");
-    const outer = splitLeaf(l, l.id, "row", "B");
-    if (outer.type !== "split") throw new Error();
-    const inner = splitLeaf(outer, outer.children[1]!.id, "col", "C");
-    if (inner.type !== "split") throw new Error();
-    const innerSplit = inner.children[1]!;
-    if (innerSplit.type !== "split") throw new Error();
-    const l2 = updateSizes(inner, innerSplit.id, [30, 70]);
-    if (l2.type !== "split") throw new Error();
-    expect(l2.sizes).toEqual([50, 50]);
-    expect(l2.children[1]).toMatchObject({ id: innerSplit.id, sizes: [30, 70] });
-    expect(updateSizes(inner, "nope", [1, 2])).toEqual(inner);
-    expect(updateSizes(l, l.id, [1])).toEqual(l);
-  });
-
-  it("removeTab removes tab; empty leaves collapse; single-child splits unwrap", () => {
-    const l = addTab(emptyLayout(), null, "A");
-    const l2 = splitLeaf(l, l.id, "row", "B");
-    const l3 = removeTab(l2, "B");
-    expect(l3.type).toBe("leaf");
-    expect(allTabs(l3)).toEqual(["A"]);
-  });
-
-  it("removeTab never removes the last leaf", () => {
-    const l = addTab(emptyLayout(), null, "A");
-    const l2 = removeTab(l, "A");
-    expect(l2.type).toBe("leaf");
-    expect(allTabs(l2)).toEqual([]);
-  });
-
-  it("removeTab moves activeTab to a neighbor", () => {
-    let l = addTab(emptyLayout(), null, "A");
-    l = addTab(l, null, "B");
-    l = removeTab(l, "B");
-    expect(findLeafOfTab(l, "A")?.activeTab).toBe("A");
-  });
-
-  it("setActiveTab activates in the containing leaf", () => {
-    let l = addTab(emptyLayout(), null, "A");
-    l = addTab(l, null, "B");
-    l = setActiveTab(l, "A");
-    expect(findLeafOfTab(l, "A")?.activeTab).toBe("A");
-  });
-
-  it("gridPreset 2x2 distributes items across 4 leaves", () => {
-    const l = gridPreset("grid-2x2", ["A", "B", "C", "D", "E"]);
-    expect(l.type).toBe("split");
-    if (l.type !== "split") throw new Error();
-    expect(l.dir).toBe("col");
-    expect(l.children).toHaveLength(2);
-    // allTabs walks the tree in order, so the round-robin extra ("E") follows "A"
-    expect(allTabs(l)).toEqual(["A", "E", "B", "C", "D"]);
-    // 5th item lands in the first leaf as an extra tab
-    expect(findLeafOfTab(l, "E")?.tabs).toEqual(["A", "E"]);
-  });
-
-  it("gridPreset 1-up puts everything in one leaf", () => {
-    const l = gridPreset("one", ["A", "B"]);
-    expect(l.type).toBe("leaf");
-    expect(allTabs(l)).toEqual(["A", "B"]);
-  });
-
-  it("removeTab of the last tab preserves the original leaf id", () => {
-    const l = addTab(emptyLayout(), null, "A");
-    const l2 = removeTab(l, "A");
-    expect(l2.type).toBe("leaf");
-    expect(l2.id).toBe(l.id);
-    expect(allTabs(l2)).toEqual([]);
-  });
-
-  it("removeTab of the last tab in a split preserves the first leaf id", () => {
-    const l = addTab(emptyLayout(), null, "A");
-    const l2 = splitLeaf(l, l.id, "row", "B");
-    const l3 = removeTab(removeTab(l2, "B"), "A");
-    expect(l3.type).toBe("leaf");
-    expect(l3.id).toBe(l.id);
-  });
-
-  it("removeTab of a middle active tab activates the right neighbor", () => {
-    let l = addTab(emptyLayout(), null, "A");
-    l = addTab(l, null, "B");
-    l = addTab(l, null, "C");
-    l = setActiveTab(l, "B");
-    l = removeTab(l, "B");
-    expect(allTabs(l)).toEqual(["A", "C"]);
-    expect(findLeafOfTab(l, "A")?.activeTab).toBe("C");
-  });
-
-  it("removeTab inside a nested row-in-col split renormalizes that split's sizes", () => {
-    const leaf = (id: string, tab: string): Layout => ({ type: "leaf", id, tabs: [tab], activeTab: tab });
-    const l: Layout = {
-      type: "split", id: "col", dir: "col", sizes: [40, 60],
-      children: [
-        { type: "split", id: "row", dir: "row", sizes: [20, 30, 50], children: [leaf("la", "A"), leaf("lb", "B"), leaf("lc", "C")] },
-        leaf("ld", "D"),
-      ],
-    };
-    const l2 = removeTab(l, "B");
-    if (l2.type !== "split") throw new Error();
-    expect(l2.sizes).toEqual([40, 60]);
-    const row = l2.children[0]!;
-    if (row.type !== "split") throw new Error();
-    expect(row.children.map((c) => c.id)).toEqual(["la", "lc"]);
-    expect(row.sizes[0]).toBeCloseTo((20 / 70) * 100);
-    expect(row.sizes[1]).toBeCloseTo((50 / 70) * 100);
-    expect(row.sizes.reduce((a, b) => a + b, 0)).toBeCloseTo(100);
-  });
-
-  it("addTab moves a tab that already lives in another leaf", () => {
-    const l = addTab(emptyLayout(), null, "A");
-    const l2 = splitLeaf(l, l.id, "row", "B");
-    const target = findLeafOfTab(l2, "B")!;
-    const l3 = addTab(l2, target.id, "A");
-    expect(allTabs(l3)).toEqual(["B", "A"]);
-    expect(allTabs(l3).filter((t) => t === "A")).toHaveLength(1);
-    expect(findLeafOfTab(l3, "A")?.id).toBe(target.id);
-    expect(findLeafOfTab(l3, "A")?.activeTab).toBe("A");
-    expect(findLeafOfTab(l3, "A")?.tabs).toEqual(["B", "A"]);
-  });
-
-  it("addTab of a tab already in the target leaf just activates it", () => {
-    let l = addTab(emptyLayout(), null, "A");
-    l = addTab(l, null, "B");
-    const l2 = addTab(l, null, "A");
-    expect(allTabs(l2)).toEqual(["A", "B"]);
-    expect(findLeafOfTab(l2, "A")?.activeTab).toBe("A");
-  });
-
-  it("gridPreset with fewer items than leaves leaves the extra leaves empty", () => {
-    const l = gridPreset("two-col", ["A"]);
-    if (l.type !== "split") throw new Error();
-    expect(l.children).toHaveLength(2);
-    expect(allTabs(l)).toEqual(["A"]);
-    const second = l.children[1]!;
-    if (second.type !== "leaf") throw new Error();
-    expect(second.tabs).toEqual([]);
-    expect(second.activeTab).toBeNull();
+  it("LayoutSchema rejects a split with 1 child after legacy migration collapses shapes", () => {
+    // A legacy split whose only child is itself a legacy leaf: migration converts the leaf,
+    // but the split still has just 1 child post-migration, which must still fail validation.
+    expect(() => LayoutSchema.parse({
+      type: "split", id: "s", dir: "row", sizes: [100],
+      children: [{ type: "leaf", id: "a", tabs: ["t1"], activeTab: "t1" }],
+    })).toThrow();
   });
 });
 
-describe("LayoutSchema", () => {
-  it("rejects a split with fewer than 2 children", () => {
-    const bad = { type: "split", id: "s", dir: "row", sizes: [100],
-      children: [{ type: "leaf", id: "l", tabs: [], activeTab: null }] };
-    expect(LayoutSchema.safeParse(bad).success).toBe(false);
+describe("openItem / closeItem", () => {
+  it("opens into the target leaf, replacing its item", () => {
+    const l = row([leaf("a"), leaf("b")]);
+    const out = openItem(l, "L-a", "c");
+    expect(allItems(out)).toEqual(["c", "b"]);
   });
-
-  it("rejects a split whose sizes length differs from children length", () => {
-    const bad = { type: "split", id: "s", dir: "row", sizes: [50, 50, 0], children: [
-      { type: "leaf", id: "a", tabs: [], activeTab: null },
-      { type: "leaf", id: "b", tabs: [], activeTab: null },
-    ] };
-    expect(LayoutSchema.safeParse(bad).success).toBe(false);
+  it("moves an item that is already open elsewhere (uniqueness)", () => {
+    const l = row([leaf("a"), leaf("b")]);
+    const out = openItem(l, "L-a", "b");
+    // b moved into L-a; its old leaf empties and single-child splits unwrap.
+    expect(allItems(out)).toEqual(["b"]);
+    expect(out.type).toBe("leaf");
   });
-
-  it("rejects an invalid split nested deep inside a valid tree", () => {
-    const bad = { type: "split", id: "s", dir: "col", sizes: [50, 50], children: [
-      { type: "leaf", id: "a", tabs: [], activeTab: null },
-      { type: "split", id: "inner", dir: "row", sizes: [100], children: [
-        { type: "leaf", id: "b", tabs: [], activeTab: null },
-      ] },
-    ] };
-    expect(LayoutSchema.safeParse(bad).success).toBe(false);
+  it("opening an item into the leaf it already occupies is a true no-op (sibling survives)", () => {
+    // Without the existing?.id === target0 short-circuit, this would route through
+    // closeItem (unwrapping the 2-child split down to leaf "b") and then overwrite that
+    // surviving leaf's itemId with "a" — silently destroying "b".
+    const l = row([leaf("a"), leaf("b")]);
+    const out = openItem(l, "L-a", "a");
+    expect(allItems(out)).toEqual(["a", "b"]);
+    expect(findLeafOfItem(out, "b")?.id).toBe("L-b");
   });
+  it("opening into an unknown/null leaf targets the first leaf", () => {
+    const l = row([leaf("a"), leaf("b")]);
+    expect(allItems(openItem(l, null, "c"))).toEqual(["c", "b"]);
+    expect(allItems(openItem(l, "nope", "c"))).toEqual(["c", "b"]);
+  });
+  it("moving an item into a leaf whose own pruning collapses the target's sibling structure", () => {
+    // Three leaves in a row: a, b, c. Move "c" into leaf "a": closeItem prunes c's leaf, which
+    // collapses the row down to a 2-child split (a, b) — target "L-a" must still be found post-prune.
+    const l = row([leaf("a"), leaf("b"), leaf("c")], [33, 33, 34]);
+    const out = openItem(l, "L-a", "c");
+    expect(allItems(out)).toEqual(["c", "b"]);
+    const kids = (out as { children: LayoutLeaf[] }).children;
+    expect(kids.map((k) => k.itemId)).toEqual(["c", "b"]);
+  });
+  it("moving an item into a leaf that itself gets pruned away by the move falls back to the first leaf", () => {
+    // Nested: outer row of [leaf a, split[leaf b, leaf c]]. Move "c" into leaf "b": closing c
+    // from the inner split collapses it to leaf b directly, changing the tree shape but "L-b" survives.
+    const inner = row([leaf("b"), leaf("c")], [40, 60]);
+    const l = row([leaf("a"), inner], [50, 50]);
+    const out = openItem(l, "L-b", "c");
+    expect(allItems(out)).toEqual(["a", "c"]);
+    expect(findLeafOfItem(out, "c")?.id).toBe("L-b");
+  });
+  it("closeItem empties a lone leaf but keeps its id", () => {
+    const l = leaf("a");
+    expect(closeItem(l, "a")).toEqual({ type: "leaf", id: "L-a", itemId: null });
+  });
+  it("closeItem collapses a split whose leaf empties", () => {
+    const out = closeItem(row([leaf("a"), leaf("b")]), "a");
+    expect(out).toEqual({ type: "leaf", id: "L-b", itemId: "b" });
+  });
+  it("closeItem keeps empty leaves that were already empty elsewhere", () => {
+    const out = closeItem(row([leaf(null), leaf("b")]), "b");
+    // b's leaf empties and is pruned; the deliberately-empty leaf survives as the tree.
+    expect(out).toEqual({ type: "leaf", id: "L-empty", itemId: null });
+  });
+  it("closeItem renormalizes sizes of the surviving split after pruning a leaf", () => {
+    const l = row([leaf("a"), leaf("b"), leaf("c")], [20, 30, 50]);
+    const out = closeItem(l, "b") as { type: "split"; sizes: number[]; children: LayoutLeaf[] };
+    expect(out.type).toBe("split");
+    expect(out.children.map((c) => c.itemId)).toEqual(["a", "c"]);
+    // Original a:c ratio was 20:50 -> renormalized to sum to 100
+    expect(out.sizes[0]).toBeCloseTo((20 / 70) * 100, 5);
+    expect(out.sizes[1]).toBeCloseTo((50 / 70) * 100, 5);
+    expect(out.sizes.reduce((x, y) => x + y, 0)).toBeCloseTo(100, 5);
+  });
+});
 
-  it("round-trips a valid nested tree", () => {
-    const l = gridPreset("grid-3x3", ["A", "B", "C", "D"]);
-    const parsed = LayoutSchema.parse(JSON.parse(JSON.stringify(l)));
-    expect(parsed).toEqual(l);
+describe("splitLeaf", () => {
+  it("splits with an empty new leaf when itemId is null", () => {
+    const out = splitLeaf(leaf("a"), "L-a", "row", null);
+    expect(out.type).toBe("split");
+    const kids = (out as { children: LayoutLeaf[] }).children;
+    expect(kids.map((c) => c.itemId)).toEqual(["a", null]);
+  });
+  it("moves an already-open item into the new sibling", () => {
+    const out = splitLeaf(row([leaf("a"), leaf("b")]), "L-a", "col", "b");
+    expect(allItems(out)).toEqual(["a", "b"]);
+    const kids = (out as { children: LayoutLeaf[] }).children;
+    expect(kids.map((c) => c.itemId)).toEqual(["a", "b"]);
+    expect((out as { dir: string }).dir).toBe("col");
+  });
+});
+
+describe("gridPreset", () => {
+  it("fills leaves one item each; extras stay unopened", () => {
+    const out = gridPreset("two-col", ["a", "b", "c"]);
+    expect(allItems(out)).toEqual(["a", "b"]);
+  });
+  it("leaves trailing leaves empty when items run short", () => {
+    const out = gridPreset("grid-2x2", ["a"]);
+    expect(allItems(out)).toEqual(["a"]);
+    let empties = 0;
+    const walk = (n: Layout) => { if (n.type === "leaf") { if (n.itemId === null) empties++; } else n.children.forEach(walk); };
+    walk(out);
+    expect(empties).toBe(3);
+  });
+});
+
+describe("plumbing", () => {
+  it("emptyLayout / firstLeaf / findLeafOfItem / updateSizes", () => {
+    expect(emptyLayout().itemId).toBeNull();
+    const l = row([leaf("a"), leaf("b")], [30, 70]);
+    expect(firstLeaf(l).id).toBe("L-a");
+    expect(findLeafOfItem(l, "b")?.id).toBe("L-b");
+    expect(findLeafOfItem(l, "zz")).toBeNull();
+    expect((updateSizes(l, "S1", [60, 40]) as { sizes: number[] }).sizes).toEqual([60, 40]);
   });
 });

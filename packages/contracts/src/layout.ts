@@ -3,14 +3,37 @@ import { newId } from "./ids";
 
 export type Layout =
   | { type: "split"; id: string; dir: "row" | "col"; sizes: number[]; children: Layout[] }
-  | { type: "leaf"; id: string; tabs: string[]; activeTab: string | null };
+  | { type: "leaf"; id: string; itemId: string | null };
 
+export type LayoutLeaf = Extract<Layout, { type: "leaf" }>;
+export type LayoutSplit = Extract<Layout, { type: "split" }>;
+
+/**
+ * Normalize any persisted layout — including the pre-Plan-4 leaf shape `{tabs, activeTab}` — into the
+ * current one-item-per-leaf shape. A legacy leaf collapses to its active tab (else first tab, else empty);
+ * displaced tabs simply stop being open, which is exactly the Arc-true semantic. Runs inside LayoutSchema's
+ * preprocess, so every parse (RPC results, DB reads, tests) migrates silently.
+ */
+export function migrateLayout(input: unknown): unknown {
+  if (typeof input !== "object" || input === null) return input;
+  const n = input as Record<string, unknown>;
+  if (n.type === "split" && Array.isArray(n.children)) return { ...n, children: n.children.map(migrateLayout) };
+  if (n.type === "leaf" && !("itemId" in n) && Array.isArray(n.tabs)) {
+    const tabs = n.tabs.filter((t): t is string => typeof t === "string");
+    const active = typeof n.activeTab === "string" && tabs.includes(n.activeTab) ? n.activeTab : tabs[0] ?? null;
+    return { type: "leaf", id: n.id, itemId: active };
+  }
+  return input;
+}
+
+// `migrateLayout` already walks the whole tree recursively (see above), so by the time this schema
+// validates a node, every descendant has already been normalized to the new shape — the array of
+// children needs no further preprocessing here, just structural validation.
 const LayoutBaseSchema: z.ZodType<Layout> = z.lazy(() =>
   z.discriminatedUnion("type", [
     z.object({ type: z.literal("split"), id: z.string(), dir: z.enum(["row", "col"]),
       sizes: z.array(z.number()), children: z.array(LayoutBaseSchema) }),
-    z.object({ type: z.literal("leaf"), id: z.string(), tabs: z.array(z.string()),
-      activeTab: z.string().nullable() }),
+    z.object({ type: z.literal("leaf"), id: z.string(), itemId: z.string().nullable() }),
   ]),
 );
 
@@ -26,26 +49,26 @@ function validateLayout(node: Layout, ctx: z.RefinementCtx, path: (string | numb
   node.children.forEach((c, i) => validateLayout(c, ctx, [...path, "children", i]));
 }
 
-export const LayoutSchema: z.ZodType<Layout> = LayoutBaseSchema.superRefine((l, ctx) => validateLayout(l, ctx));
+export const LayoutSchema: z.ZodType<Layout> = z.preprocess(migrateLayout, LayoutBaseSchema)
+  .superRefine((l, ctx) => validateLayout(l as Layout, ctx)) as z.ZodType<Layout>;
 
-export type LayoutLeaf = Extract<Layout, { type: "leaf" }>;
-export type LayoutSplit = Extract<Layout, { type: "split" }>;
 export type PresetName = "one" | "two-col" | "three-col" | "grid-2x2" | "grid-3x3";
 export const PRESETS: PresetName[] = ["one", "two-col", "three-col", "grid-2x2", "grid-3x3"];
 
-export const emptyLayout = (): LayoutLeaf => ({ type: "leaf", id: newId(), tabs: [], activeTab: null });
+export const emptyLayout = (): LayoutLeaf => ({ type: "leaf", id: newId(), itemId: null });
 
-export function allTabs(l: Layout): string[] {
-  return l.type === "leaf" ? [...l.tabs] : l.children.flatMap(allTabs);
+/** Every open item, depth-first. The layout's "open set". */
+export function allItems(l: Layout): string[] {
+  return l.type === "leaf" ? (l.itemId ? [l.itemId] : []) : l.children.flatMap(allItems);
 }
 
 export function firstLeaf(l: Layout): LayoutLeaf {
   return l.type === "leaf" ? l : firstLeaf(l.children[0]!);
 }
 
-export function findLeafOfTab(l: Layout, tabId: string): LayoutLeaf | null {
-  if (l.type === "leaf") return l.tabs.includes(tabId) ? l : null;
-  for (const c of l.children) { const f = findLeafOfTab(c, tabId); if (f) return f; }
+export function findLeafOfItem(l: Layout, itemId: string): LayoutLeaf | null {
+  if (l.type === "leaf") return l.itemId === itemId ? l : null;
+  for (const c of l.children) { const f = findLeafOfItem(c, itemId); if (f) return f; }
   return null;
 }
 
@@ -57,32 +80,46 @@ function hasLeaf(l: Layout, leafId: string): boolean {
   return l.type === "leaf" ? l.id === leafId : l.children.some((c) => hasLeaf(c, leafId));
 }
 
-/** Add a tab to a leaf and activate it. Tabs are globally unique: if the tab already lives in
- *  another leaf it is moved; if it is already in the target leaf it is just activated.
- *  A null or unknown leafId targets the first leaf, so a tab can never silently vanish. */
-export function addTab(l: Layout, leafId: string | null, tabId: string): Layout {
-  const target = leafId !== null && hasLeaf(l, leafId) ? leafId : firstLeaf(l).id;
-  const existing = findLeafOfTab(l, tabId);
-  if (existing?.id === target) return setActiveTab(l, tabId);
-  const base = existing ? removeTab(l, tabId) : l;
-  return mapLeaves(base, (leaf) =>
-    leaf.id === target ? { ...leaf, tabs: [...leaf.tabs, tabId], activeTab: tabId } : leaf,
-  );
+/** Remove an item from wherever it is open, pruning the leaf it vacates (unless that empties the whole
+ *  tree — then the first leaf survives, same id, empty). Leaves that were ALREADY deliberately empty are
+ *  kept: only the leaf the item vacated is pruned. */
+export function closeItem(l: Layout, itemId: string): Layout {
+  const pruned = prune(l);
+  return pruned ?? { ...firstLeaf(l), itemId: null };
+
+  function prune(n: Layout): Layout | null {
+    if (n.type === "leaf") return n.itemId === itemId ? null : n;
+    const kept: Layout[] = []; const sizes: number[] = [];
+    n.children.forEach((c, i) => { const p = prune(c); if (p) { kept.push(p); sizes.push(n.sizes[i] ?? 0); } });
+    if (kept.length === 0) return null;
+    if (kept.length === 1) return kept[0]!;
+    const total = sizes.reduce((a, b) => a + b, 0) || 1;
+    return { ...n, children: kept, sizes: sizes.map((s) => (s / total) * 100) };
+  }
 }
 
-export function setActiveTab(l: Layout, tabId: string): Layout {
-  return mapLeaves(l, (leaf) => (leaf.tabs.includes(tabId) ? { ...leaf, activeTab: tabId } : leaf));
+/** Open an item into a leaf, replacing whatever it held (the replaced item just stops being open).
+ *  Items are unique in the layout: if the item is open elsewhere it is moved. A null/unknown leafId
+ *  targets the first leaf. */
+export function openItem(l: Layout, leafId: string | null, itemId: string): Layout {
+  const existing = findLeafOfItem(l, itemId);
+  const target0 = leafId !== null && hasLeaf(l, leafId) ? leafId : firstLeaf(l).id;
+  if (existing?.id === target0) return l;
+  const base = existing ? closeItem(l, itemId) : l;
+  // closeItem may have pruned the target leaf's ancestor structure; re-check.
+  const target = hasLeaf(base, target0) ? target0 : firstLeaf(base).id;
+  return mapLeaves(base, (leaf) => (leaf.id === target ? { ...leaf, itemId } : leaf));
 }
 
-/** Split a leaf, putting `newTabId` alone in the new sibling leaf. Tabs are globally unique: if the tab
- *  already lives somewhere it is removed first. If that removal pruned the target leaf (or the leaf id is
- *  unknown), the first leaf is split instead, so the tab always ends up in exactly one leaf. */
-export function splitLeaf(l: Layout, leafId: string, dir: "row" | "col", newTabId: string): Layout {
-  const base = findLeafOfTab(l, newTabId) ? removeTab(l, newTabId) : l;
+/** Split a leaf. `itemId` fills the new sibling (moved if open elsewhere); null makes an empty sibling
+ *  awaiting the next openItem. Returns the new layout; the new leaf is always the second child of the
+ *  split that replaced `leafId`, discoverable via findLeafOfItem (or the empty leaf id via newLeafId). */
+export function splitLeaf(l: Layout, leafId: string, dir: "row" | "col", itemId: string | null): Layout {
+  const base = itemId && findLeafOfItem(l, itemId) ? closeItem(l, itemId) : l;
   const target = hasLeaf(base, leafId) ? leafId : firstLeaf(base).id;
   return mapLeaves(base, (leaf) => {
     if (leaf.id !== target) return leaf;
-    const fresh: LayoutLeaf = { type: "leaf", id: newId(), tabs: [newTabId], activeTab: newTabId };
+    const fresh: LayoutLeaf = { type: "leaf", id: newId(), itemId };
     return { type: "split", id: newId(), dir, sizes: [50, 50], children: [leaf, fresh] };
   });
 }
@@ -93,40 +130,15 @@ export function updateSizes(l: Layout, splitId: string, sizes: number[]): Layout
   return l.id === splitId ? { ...l, sizes } : { ...l, children: l.children.map((c) => updateSizes(c, splitId, sizes)) };
 }
 
-/** Remove a tab everywhere; prune empty leaves (except the last one); unwrap single-child splits.
- *  If the whole tree empties, the original first leaf survives (same id) with no tabs. */
-export function removeTab(l: Layout, tabId: string): Layout {
-  const pruned = prune(l);
-  return pruned ?? { ...firstLeaf(l), tabs: [], activeTab: null };
-
-  function prune(n: Layout): Layout | null {
-    if (n.type === "leaf") {
-      if (!n.tabs.includes(tabId)) return n;
-      const tabs = n.tabs.filter((t) => t !== tabId);
-      if (tabs.length === 0) return null;
-      const idx = n.tabs.indexOf(tabId);
-      const activeTab = n.activeTab === tabId ? (tabs[Math.min(idx, tabs.length - 1)] ?? null) : n.activeTab;
-      return { ...n, tabs, activeTab };
-    }
-    const kept: Layout[] = []; const sizes: number[] = [];
-    n.children.forEach((c, i) => { const p = prune(c); if (p) { kept.push(p); sizes.push(n.sizes[i] ?? 0); } });
-    if (kept.length === 0) return null;
-    if (kept.length === 1) return kept[0]!;
-    const total = sizes.reduce((a, b) => a + b, 0) || 1;
-    return { ...n, children: kept, sizes: sizes.map((s) => (s / total) * 100) };
-  }
-}
-
-/** Build a preset layout from an ordered list of item ids. Items are dealt to leaves round-robin:
- *  extra items become additional tabs; if there are fewer items than leaves, the remaining leaves stay empty. */
+/** Build a preset layout: one item per leaf in order; extra items stay unopened; extra leaves stay empty. */
 export function gridPreset(name: PresetName, items: string[]): Layout {
   const shape: { rows: number; cols: number } =
     name === "one" ? { rows: 1, cols: 1 } : name === "two-col" ? { rows: 1, cols: 2 }
     : name === "three-col" ? { rows: 1, cols: 3 } : name === "grid-2x2" ? { rows: 2, cols: 2 }
     : { rows: 3, cols: 3 };
   const leafCount = shape.rows * shape.cols;
-  const leaves: LayoutLeaf[] = Array.from({ length: leafCount }, () => emptyLayout());
-  items.forEach((it, i) => { const leaf = leaves[i % leafCount]!; leaf.tabs.push(it); leaf.activeTab ??= it; });
+  const leaves: LayoutLeaf[] = Array.from({ length: leafCount }, (_, i) =>
+    ({ type: "leaf", id: newId(), itemId: items[i] ?? null }));
   if (leafCount === 1) return leaves[0]!;
   const rows: Layout[] = [];
   for (let r = 0; r < shape.rows; r++) {
