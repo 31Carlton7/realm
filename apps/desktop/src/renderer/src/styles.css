@@ -141,7 +141,8 @@ kbd { font: 11px var(--font-mono); }
 .panehost > * { flex: 1; min-width: 0; min-height: 0; }
 .panel { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0;
   background: var(--rl-panel); overflow: hidden; }
-.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--rl-line); font-size: 12px; -webkit-app-region: drag; }
+/* 16px left rail, aligned with the transcript and composer (V-S2). */
+.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 16px; border-bottom: 1px solid var(--rl-line); font-size: 12px; -webkit-app-region: drag; }
 .panel-bar button, .panel-bar input { -webkit-app-region: no-drag; }
 /* Accent-lit focus (V-C1/D3/X1): the focused pane's header underline + icon take the space colour —
    everywhere else the accent is pulled back to neutral, so this is the one mark that says "you are
@@ -157,7 +158,7 @@ button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; bord
 button.panel-title:hover { background: var(--rl-hover); }
 .panel-rename { display: flex; min-width: 120px; max-width: 280px; }
 .panel-rename .rename { height: 24px; }
-.panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; }
+.panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .panel-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .panel-body { flex: 1; min-height: 0; position: relative; display: flex; }
 .pane-slot { flex: 1; min-width: 0; min-height: 0; display: flex; }
@@ -249,7 +250,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .permission-actions kbd { margin-left: 5px; padding: 0 4px; border: 1px solid currentColor; border-radius: 4px; font-size: 10px; opacity: .6; }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-hint { font-size: 11px; color: var(--rl-text-dim); }
+.palette-hint { font-size: 11px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 .palette-empty { padding: 14px; text-align: center; }
 
 /* ── Session pane ──────────────────────────────────────────────────────── */
@@ -265,29 +266,35 @@ button.panel-title:hover { background: var(--rl-hover); }
 .spin { animation: rl-spin 0.9s linear infinite; }
 
 .transcript-wrap { flex: 1; min-height: 0; position: relative; display: flex; }
-.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px 8px; display: flex; flex-direction: column; gap: 10px; }
+/* Cluster-then-breathe rhythm (V-S1): 8px inside a turn, 16px before each new user turn. */
+.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 .transcript-empty { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; max-width: 420px; }
 .transcript-empty svg { color: var(--rl-text-faint); }
-.empty-title { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.empty-title { font-size: 16px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
 .empty-title em { font-style: normal; text-decoration: underline; text-decoration-color: var(--rl-line-strong); text-underline-offset: 3px; }
 .suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
 .suggestion-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 10px;
   border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-dim); font-size: 12px; max-width: 200px; }
 .suggestion-chip:hover { border-color: var(--rl-line-strong); color: var(--rl-text-bright); }
 
-.msg-user-row { display: flex; justify-content: flex-end; }
+.msg-user-row { display: flex; justify-content: flex-end; margin-top: 16px; }
+.msg-user-row:first-child { margin-top: 0; }
 .msg-user { max-width: 78%; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: var(--rl-raised); border: 1px solid var(--rl-line); white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg-assistant { max-width: 72ch; }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; } .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
-.md h1, .md h2, .md h3, .md h4 { margin: 12px 0 6px; font-weight: 600; line-height: 1.3; } .md h1 { font-size: 16px; } .md h2 { font-size: 15px; } .md h3 { font-size: 14px; }
+/* Heading scale per audit T2: h1 17/650 tightened, h2 15/650, h3 13/600 differentiated by colour. */
+.md h1, .md h2, .md h3, .md h4 { margin: 12px 0 6px; font-weight: 600; line-height: 1.3; }
+.md h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; } .md h2 { font-size: 15px; font-weight: 650; } .md h3 { font-size: 13px; color: var(--rl-text-bright); }
 .md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: 4px; background: var(--rl-raised); }
 .md pre { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--rl-frame); border: 1px solid var(--rl-line); overflow-x: auto; }
 .md pre code { padding: 0; background: none; }
 .md a { color: var(--rl-accent); }
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line-strong); color: var(--rl-text-dim); }
 .md table { border-collapse: collapse; margin: 6px 0 8px; } .md th, .md td { border: 1px solid var(--rl-line); padding: 4px 8px; }
+.md-scroll { overflow-x: auto; } /* renderMarkdown wraps every table (A-M1) */
+.md img { max-width: 100%; }
 .md-caret { color: var(--rl-accent); animation: rl-pulse 1s ease-in-out infinite; }
 .msg-thinking { font-size: 12px; }
 .thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); }
@@ -305,7 +312,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-chevron { color: var(--rl-text-faint); transition: transform 120ms var(--ease); flex: none; }
 .tool-card[data-open] .tool-chevron { transform: rotate(90deg); }
 .tool-name { font-weight: 600; flex: none; }
-.tool-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); font: 12px var(--font-mono); }
+.tool-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
 .tool-status { display: grid; place-items: center; width: 16px; color: var(--rl-text-faint); flex: none; }
 .tool-card[data-state="ok"] .tool-status { color: var(--rl-success); }
 .tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
@@ -323,7 +330,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .permission-details pre { margin-top: 6px; }
 .permission-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
-.composer { flex: none; margin: 8px 12px 12px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-panel); background: var(--rl-raised); box-shadow: var(--rl-shadow); display: flex; flex-direction: column; }
+.composer { flex: none; margin: 8px 16px 12px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-panel); background: var(--rl-raised); box-shadow: var(--rl-shadow); display: flex; flex-direction: column; }
 /* Same ring formula as .field inputs (V-C4), stacked under the raised shadow the composer already wears. */
 .composer:focus-within { border-color: color-mix(in srgb, var(--rl-accent) 60%, var(--rl-line-strong));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--rl-accent) 25%, transparent), var(--rl-shadow); }
@@ -367,11 +374,25 @@ button.panel-title:hover { background: var(--rl-hover); }
 .transcript::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb, .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
 .transcript::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track, .terminal-pane .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 
-/* ── Motion (spec §4): panel settle + permission enter; nothing else ───── */
+/* ── Motion (spec §4 + amendment 2026-08-27): panel settle, overlay pop-in, micro-interactions ── */
 .panel-body .pane-slot { animation: rl-settle 150ms var(--ease); }
 @keyframes rl-settle { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.permission-card { animation: rl-perm-in 120ms var(--ease); }
-@keyframes rl-perm-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+/* Overlay enter (was rl-perm-in, permission cards only): menus, palette and sheets now share it. */
+.permission-card, .menu, .palette, .sheet { animation: rl-pop-in 120ms var(--ease); }
+@keyframes rl-pop-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+
+/* Micro-interactions (V-C2, spec §4 amendment): 100ms hover/state colour transitions on interactive
+   surfaces, a press scale on true buttons, and a fast drop-zone fade. Deliberate, not drive-by. */
+.item-row, .item-close, .icon-btn, .btn, .composer-btn, .composer-select, .tool-row, .strip-space,
+.suggestion-chip, .palette-opt, .menu [role^="menuitem"] {
+  transition: background-color 100ms var(--ease), border-color 100ms var(--ease), color 100ms var(--ease);
+}
+.btn, .composer-btn, .icon-btn {
+  transition: background-color 100ms var(--ease), border-color 100ms var(--ease), color 100ms var(--ease), transform 100ms var(--ease);
+}
+.btn:active:not(:disabled), .composer-btn:active:not(:disabled), .icon-btn:active:not(:disabled) { transform: scale(.96); }
+.drop-zone { transition: opacity 80ms linear; }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
