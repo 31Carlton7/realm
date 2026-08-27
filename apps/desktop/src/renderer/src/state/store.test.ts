@@ -183,11 +183,14 @@ describe("app store", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().openItem("i1");
+    const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
     await store.getState().deleteItem("i1");
     expect(store.getState().items).toHaveLength(0);
     expect(store.getState().layout).toEqual(expect.objectContaining({ type: "leaf", itemId: null }));
     expect(api.calls).toContain("deleteItem:i1");
     expect(api.disposed).toEqual(["i1"]);
+    // deleteItem delegates the layout write entirely to closeFromLayout — exactly one persist, not two.
+    expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before + 1);
   });
 
   it("closeFromLayout removes the item from the layout only — no server delete, no dispose, item kept", async () => {

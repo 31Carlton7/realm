@@ -1129,3 +1129,14 @@ export const SUGGESTIONS: Record<AgentKind, { title: string; prompt: string }[]>
 - **Spec coverage:** §1 material → Tasks 3–4; §2 structure/migration/splits → Tasks 1, 2, 5, 6, 7; §3 contents → Tasks 5 (meta/cost), 8; §4 motion → Task 4 CSS + reduced-motion; §5 light mode → Task 3 palette + Task 9 screenshots; §6 verification → per-task tests + Task 9. Suggestion chips, warning chip, cost-blank, toolSummary extension all have named tasks.
 - **Consistency:** `openItem`/`closeFromLayout`/`deleteItem`/`splitFocused`/`openItemAt`/`focusLeaf` are the only new store actions and are used with those exact names in Tasks 5–7. Contracts exports used later: `allItems`, `findLeafOfItem`, `emptyLayout`, `migrateLayout`.
 - **Known risks for the implementer:** (1) `LayoutSchema` preprocess + superRefine typing is fiddly — the cast is annotated; if zod fights, fall back to validating post-migration with a plain `.refine`. (2) The rpc client may or may not zod-parse Space results — Task 2 Step 3 says verify, don't assume. (3) `Composer` state lifting (Task 8) touches ⌘↵ send behaviour — the existing session-pane tests must stay green.
+
+## Post-review follow-ups
+
+Deferred out of the final-review fix batch (`fix(desktop): final review batch — settle animation, focused-row highlight, scrollbars`) — not spec gaps, just not worth blocking that commit on:
+
+- Draggable pinned tiles (reordering the `PinnedGrid` grid is currently not supported).
+- Preset seeding order: should `gridPreset` seed open items before empty leaves ("open-items-first")? Needs a decision, not just an implementation.
+- Fake-timer the three debounce-gate store tests (the ones that currently wait out `PERSIST_DEBOUNCE_MS` for real) so the suite doesn't carry that real time cost.
+- Silence the `NewSessionSheet` `act()` warning surfaced in test output.
+- Spec-doc updates to reflect what shipped: accent usage broadened beyond the original spec's scope, pane title now 12px, and active-row highlighting now means "the focused pane" rather than "every open row."
+- Task 2's table above should gain a note that `openItem` focuses the item's existing pane (no layout change) when the item is already open — the current row only documents the "not yet open" path.

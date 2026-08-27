@@ -272,6 +272,29 @@ describe("Arc sidebar", () => {
     expect(onCells(glyphOf("Beta"))).toEqual([2, 3]); // bottom child -> bottom row
   });
 
+  it("in a split, data-active marks only the focused leaf's row, not every open row; clicking the other OPEN row moves the highlight", async () => {
+    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i1" },
+      { type: "leaf", id: "L2", itemId: "i2" },
+    ] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    const { store } = await mount(api);
+    // boot() focuses the first leaf (L1 -> Alpha) by default.
+    expect(store.getState().focusedLeafId).toBe("L1");
+    const rows = () => screen.getAllByRole("button", { name: /^(Alpha|Beta)$/ }).map((b) => b.closest(".item")!);
+    expect(rows().filter((r) => r.hasAttribute("data-active"))).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Alpha" }).closest(".item")).toHaveAttribute("data-active");
+    expect(screen.getByRole("button", { name: "Beta" }).closest(".item")).not.toHaveAttribute("data-active");
+    fireEvent.click(screen.getByRole("button", { name: "Beta" })); // already open -> focuses its pane, no layout move
+    await waitFor(() => expect(store.getState().focusedLeafId).toBe("L2"));
+    expect(rows().filter((r) => r.hasAttribute("data-active"))).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Beta" }).closest(".item")).toHaveAttribute("data-active");
+    expect(screen.getByRole("button", { name: "Alpha" }).closest(".item")).not.toHaveAttribute("data-active");
+  });
+
   it("both OPEN and SPACE rows are draggable, carry the item id via application/x-realm-item on dragstart, and set/clear data-dragging", async () => {
     const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
     const api = fakeApi({

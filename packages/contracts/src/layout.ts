@@ -103,6 +103,15 @@ export function findLeafOfItem(l: Layout, itemId: string): LayoutLeaf | null {
   return null;
 }
 
+/** The inverse of findLeafOfItem: the itemId held by the leaf with this id, or null (leaf empty,
+ *  leafId missing, or not found). */
+export function itemIdOfLeaf(l: Layout | null, leafId: string | null): string | null {
+  if (!l || !leafId) return null;
+  if (l.type === "leaf") return l.id === leafId ? l.itemId : null;
+  for (const c of l.children) { const found = itemIdOfLeaf(c, leafId); if (found !== null) return found; }
+  return null;
+}
+
 function mapLeaves(l: Layout, fn: (leaf: LayoutLeaf) => Layout): Layout {
   return l.type === "leaf" ? fn(l) : { ...l, children: l.children.map((c) => mapLeaves(c, fn)) };
 }

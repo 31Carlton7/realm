@@ -128,8 +128,6 @@ export type AppState = {
    *  Until the active space's items have loaded, sizes apply locally but never persist — PanelGroup
    *  fires onLayout at mount with normalized sizes, and that echo is not a user action. */
   resizeSplit(splitId: string, sizes: number[]): void;
-  setLayoutLocal(layout: Layout): void;
-  persistLayout(): Promise<void>;
   setPaletteOpen(open: boolean): void;
   openSheet(sheet: Sheet): void;
   closeSheet(): void;
@@ -411,7 +409,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           set({ sessionStatus, sessions });
         }
-        await persist();
       },
       async splitFocused(dir) {
         const l = get().layout ?? emptyLayout();
@@ -446,8 +443,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ layout: updateSizes(l, splitId, sizes) });
         if (layoutHydrated) schedulePersist(); // pre-hydration resizes are mount echoes, not user actions
       },
-      setLayoutLocal(layout) { set({ layout }); },
-      persistLayout: persist,
       setPaletteOpen(open) { set({ paletteOpen: open }); },
       openSheet(sheet) { set({ sheet }); },
       closeSheet() { set({ sheet: null }); },

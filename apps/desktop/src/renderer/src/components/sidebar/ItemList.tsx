@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useState } from "react";
-import { allItems, emptyLayout, type Item, type Layout } from "@realm/contracts";
+import { allItems, emptyLayout, itemIdOfLeaf, type Item, type Layout } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { RenameInput, useItemContextMenu } from "./ItemContextMenu";
 
@@ -61,6 +61,7 @@ function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
  *  only SPACE rows actually open into the focused leaf. Moving an open item is drag-only. */
 export function ItemList({ items, variant }: { items: Item[]; variant: "open" | "space" }) {
   const layout = useApp((s) => s.layout) ?? emptyLayout();
+  const focusedLeafId = useApp((s) => s.focusedLeafId);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const openItem = useApp((s) => s.openItem);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
@@ -68,11 +69,13 @@ export function ItemList({ items, variant }: { items: Item[]; variant: "open" | 
   const [renaming, setRenaming] = useState<Item | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const { onContextMenu, element } = useItemContextMenu(setRenaming);
-  const active = new Set(allItems(layout));
+  // The active row is the one in the focused leaf, not every open row — with a split, only one pane
+  // actually has keyboard/composer focus, and the highlight should say which.
+  const focusedItemId = itemIdOfLeaf(layout, focusedLeafId);
   return (
     <div className="item-list">
       {items.map((it) => (
-        <div key={it.id} className="item" data-active={(variant === "open" && active.has(it.id)) || undefined}
+        <div key={it.id} className="item" data-active={(variant === "open" && it.id === focusedItemId) || undefined}
           data-dragging={draggingId === it.id || undefined}
           draggable
           onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", it.id); e.dataTransfer.effectAllowed = "move"; setDraggingId(it.id); }}

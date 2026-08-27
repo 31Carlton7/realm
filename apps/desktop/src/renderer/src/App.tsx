@@ -11,7 +11,7 @@ import { LayoutMenu } from "./components/LayoutMenu";
 import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
-import { emptyLayout, type Layout } from "@realm/contracts";
+import { emptyLayout, itemIdOfLeaf } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
 import "./panes";
 
@@ -58,14 +58,6 @@ function SheetHost() {
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
   if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "new-session") return <NewSessionSheet />;
-  return null;
-}
-
-/** The itemId held by the leaf with this id, or null (leaf empty or not found). */
-function itemIdOfLeaf(l: Layout | null, leafId: string | null): string | null {
-  if (!l || !leafId) return null;
-  if (l.type === "leaf") return l.id === leafId ? l.itemId : null;
-  for (const c of l.children) { const found = itemIdOfLeaf(c, leafId); if (found !== null) return found; }
   return null;
 }
 

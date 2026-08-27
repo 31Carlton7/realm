@@ -109,8 +109,8 @@ export function PaneHost(p: PaneHostProps) {
             {/* Keyed by item.id: openItem's primary gesture replaces a leaf's item in place, and this
                 div is otherwise the same React position across totally different sessions/terminals.
                 Keying forces a remount so component-local state (composer draft, expanded thinking
-                blocks, …) never leaks from the old item to the new one — and lets .panel-body[data-settle]
-                naturally replay its enter animation on every swap. */}
+                blocks, …) never leaks from the old item to the new one — and lets .panel-body .pane-slot's
+                rl-settle animation (styles.css) naturally replay on every swap. */}
             {item && <div key={item.id} className="pane-slot"><PaneFor item={item} visible /></div>}
           </div>
           {dragging && <DropOverlay leafId={n.id} onDropItem={p.onDropItem} />}

@@ -44,7 +44,6 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--rl-panel); border: 1px solid var(--rl-line); color: var(--rl-text-dim); }
 .icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-panel); color: var(--rl-text-bright); }
-.menu-anchor { position: relative; }
 
 .group-label { font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase;
   color: var(--rl-text-faint); padding: 10px 5px 4px; }
@@ -53,7 +52,6 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1; border-radius: 10px;
   background: var(--rl-panel); border: 1px solid var(--rl-line); color: var(--rl-text-bright); padding: 4px; min-width: 0; }
 .tile:hover { border-color: var(--rl-line-strong); }
-.tile[data-active] { border-color: var(--rl-accent); }
 .tile-title { font-size: 10px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 .tile-rename { aspect-ratio: auto; grid-column: 1 / -1; padding: 0; }
 
@@ -136,7 +134,7 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .drop-zone[data-edge="bottom"] { inset: auto 6px 6px 6px; height: 32%; }
 .drop-zone[data-edge="center"] { inset: 34%; }
 
-.terminal-pane { flex: 1; min-width: 0; min-height: 0; padding: 6px; background: var(--rl-terminal-bg); display: flex; }
+.terminal-pane { flex: 1; min-width: 0; min-height: 0; padding: 6px; background: var(--rl-terminal-bg); display: flex; color-scheme: dark; /* its interior is always dark, in both app modes — keeps xterm's own scrollbar dark too */ }
 .terminal-pane .xterm { height: 100%; }
 .terminal-host { flex: 1; min-width: 0; min-height: 0; height: 100%; }
 .error-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 6px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--rl-danger) 40%, transparent); border-radius: var(--r-ctl);
@@ -278,8 +276,14 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .agent-hint-text { font-size: 11px; color: var(--rl-text-dim); } .agent-hint-text code { font: 11px ui-monospace, Menlo, monospace; }
 .agent-name { font-weight: 550; } .agent-hint { margin-left: auto; font-size: 11px; color: var(--rl-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 
+/* ── Scrollbars: thin + on-theme in the few containers that actually scroll ───── */
+.transcript, .space-body, .palette-list, .tool-well, .sheet { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
+.transcript::-webkit-scrollbar, .space-body::-webkit-scrollbar, .palette-list::-webkit-scrollbar, .tool-well::-webkit-scrollbar, .sheet::-webkit-scrollbar { width: 10px; }
+.transcript::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
+.transcript::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track { background: transparent; }
+
 /* ── Motion (spec §4): panel settle + permission enter; nothing else ───── */
-.panel-body[data-settle] .pane-slot { animation: rl-settle 150ms var(--ease); }
+.panel-body .pane-slot { animation: rl-settle 150ms var(--ease); }
 @keyframes rl-settle { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .permission-card { animation: rl-perm-in 120ms var(--ease); }
 @keyframes rl-perm-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
