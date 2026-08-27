@@ -57,7 +57,7 @@ kbd { font: 11px var(--font-mono); }
 .swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
 .swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; }
 .space-page { flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 12px 8px; overflow: hidden; }
-.space-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px; }
 
 .space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0 8px; }
 .space-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; min-width: 0; letter-spacing: -0.01em; }
