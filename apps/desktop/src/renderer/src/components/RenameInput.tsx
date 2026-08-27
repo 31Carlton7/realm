@@ -12,6 +12,7 @@ export function RenameInput({ item, onDone }: { item: Item; onDone: () => void }
   return (
     <input className="rename" aria-label={`Rename ${item.title}`} autoFocus value={value}
       onChange={(e) => setValue(e.target.value)} onBlur={commit}
-      onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") onDone(); }} />
+      // preventDefault marks the event consumed so the global Escape binding (interrupt) never sees it.
+      onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { e.preventDefault(); onDone(); } }} />
   );
 }

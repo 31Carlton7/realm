@@ -137,6 +137,8 @@ export type AppState = {
    *  landing on the near side. */
   openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
   focusLeaf(leafId: string): void;
+  /** Move pane focus to the structural neighbor in that direction (see neighborLeafId); no-op without one. */
+  focusNeighbor(dir: FocusDir): void;
   applyPreset(name: PresetName): Promise<void>;
   /** Functional sizes update for one split; persisted with a trailing debounce. No-op if unchanged.
    *  Until the active space's items have loaded, sizes apply locally but never persist — PanelGroup
@@ -178,6 +180,44 @@ export function reconcileLayout(layout: Layout | null, items: Item[]): Layout {
 /** True when a leaf with this id exists anywhere in the layout (splits don't count). */
 export function hasLeafIn(l: Layout, leafId: string): boolean {
   return l.type === "leaf" ? l.id === leafId : l.children.some((c) => hasLeafIn(c, leafId));
+}
+
+export type FocusDir = "left" | "right" | "up" | "down";
+
+/**
+ * The leaf you land on moving `dir` from `leafId` — structurally, not geometrically: leaf rects are
+ * not in the store, so this walks the tree instead. From the leaf, climb toward the root; the first
+ * ancestor split whose axis matches the direction (row for left/right, col for up/down) and that has
+ * a sibling on that side wins. Descend into that sibling to the "nearest" leaf: at splits along the
+ * movement axis take the near edge (moving right → leftmost child, moving up → bottom child); at
+ * cross-axis splits take the first child — an approximation, since the true nearest child would
+ * depend on the origin leaf's cross-axis position, which the tree does not encode. Null = no
+ * neighbor that way (callers no-op).
+ */
+export function neighborLeafId(l: Layout, leafId: string, dir: FocusDir): string | null {
+  const axis = dir === "left" || dir === "right" ? "row" : "col";
+  const forward = dir === "right" || dir === "down";
+  // Path from the leaf up to the root (pushed post-recursion, so index 0 is the innermost split).
+  const path: { split: Extract<Layout, { type: "split" }>; index: number }[] = [];
+  const find = (n: Layout): boolean => {
+    if (n.type === "leaf") return n.id === leafId;
+    for (let i = 0; i < n.children.length; i++) {
+      if (find(n.children[i]!)) { path.push({ split: n, index: i }); return true; }
+    }
+    return false;
+  };
+  if (!find(l)) return null;
+  const descend = (n: Layout): string => {
+    if (n.type === "leaf") return n.id;
+    const pick = n.dir === axis ? (forward ? n.children[0]! : n.children.at(-1)!) : n.children[0]!;
+    return descend(pick);
+  };
+  for (const { split, index } of path) {
+    if (split.dir !== axis) continue;
+    const sibling = split.children[index + (forward ? 1 : -1)];
+    if (sibling) return descend(sibling);
+  }
+  return null;
 }
 
 /** The id of the empty leaf sitting next to `leafId` in its immediate split, if any — i.e. the leaf a
@@ -465,6 +505,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await persist();
       },
       focusLeaf(leafId) { set({ focusedLeafId: leafId }); },
+      focusNeighbor(dir) {
+        const { layout, focusedLeafId } = get();
+        if (!layout || !focusedLeafId) return;
+        const next = neighborLeafId(layout, focusedLeafId, dir);
+        if (next) set({ focusedLeafId: next });
+      },
       async applyPreset(name) {
         const layout = gridPreset(name, get().items.map((i) => i.id));
         set({ layout, focusedLeafId: firstLeaf(layout).id });

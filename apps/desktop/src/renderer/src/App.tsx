@@ -1,33 +1,17 @@
 import { useEffect, useMemo } from "react";
-import type { StoreApi } from "zustand";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
 import { NewSessionSheet } from "./panes/session/NewSessionSheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { PaneHost } from "./components/PaneHost";
-import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
+import { StoreContext, createAppStore, useApp } from "./state/store";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
 import { emptyLayout } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
+import { useGlobalHotkeys } from "./hotkeys";
 import "./panes";
-
-/** ⌘\ splits the focused leaf to the right. Bind once at the app root. */
-export function useSplitHotkey(store: StoreApi<AppState>) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === "\\") {
-        e.preventDefault();
-        const s = store.getState();
-        if (s.sheet || s.paletteOpen) return; // a modal sheet or the command palette owns the keyboard
-        s.run(() => s.splitFocused("row"));
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [store]);
-}
 
 /** Writes the active space's palette to :root; lives under the store provider so it can read state. */
 function ThemeBridge() {
@@ -104,7 +88,7 @@ export function Main() {
 export function App() {
   const store = useMemo(() => createAppStore(liveApi()), []);
   usePaletteHotkey(store);
-  useSplitHotkey(store);
+  useGlobalHotkeys(store);
   useEffect(() => {
     const s = store.getState();
     s.run(() => s.boot());

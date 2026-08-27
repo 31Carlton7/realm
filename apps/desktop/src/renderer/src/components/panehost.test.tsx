@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within, renderHook, act } from "@testing-library/react";
 import type { Item, Layout } from "@realm/contracts";
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
-import { Main, useSplitHotkey } from "../App";
+import { Main } from "../App";
+import { useGlobalHotkeys } from "../hotkeys";
 import { StoreContext, createAppStore, findEmptySiblingOf } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 
@@ -383,7 +384,7 @@ describe("App shell", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "A" }, focusedLeafId: "L1" }));
-    renderHook(() => useSplitHotkey(store));
+    renderHook(() => useGlobalHotkeys(store));
     fireEvent.keyDown(window, { key: "\\", metaKey: true });
     await waitFor(() => expect(store.getState().layout!.type).toBe("split"));
     act(() => store.getState().openSheet({ kind: "new-space" }));
@@ -407,7 +408,7 @@ describe("App shell", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "A" }, focusedLeafId: "L1", paletteOpen: true }));
-    renderHook(() => useSplitHotkey(store));
+    renderHook(() => useGlobalHotkeys(store));
     fireEvent.keyDown(window, { key: "\\", metaKey: true });
     const l = store.getState().layout!;
     expect(l.type).toBe("leaf"); // unchanged while the palette is open

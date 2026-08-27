@@ -1,9 +1,28 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { join } from "node:path";
 import { startServer } from "./server-process";
 import { startScrollPhaseStream } from "./scroll-phase";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
+
+/** With no explicit application menu, Electron installs its default one, whose File → Close Window
+ *  binds ⌘W — and menu accelerators fire in the main process before the renderer ever sees the
+ *  keydown, so the renderer's close-pane binding (hotkeys.ts) could never win. Install a menu with
+ *  no ⌘W item: app/edit/view roles stay (⌘Q, copy/paste, devtools), the Window menu is rebuilt
+ *  without the `close` role. */
+function installMenu() {
+  const darwin = process.platform === "darwin";
+  const template: MenuItemConstructorOptions[] = [
+    ...(darwin ? [{ role: "appMenu" } satisfies MenuItemConstructorOptions] : []),
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { label: "Window", submenu: [
+      { role: "minimize" }, { role: "zoom" },
+      ...(darwin ? [{ type: "separator" }, { role: "front" }] satisfies MenuItemConstructorOptions[] : []),
+    ] },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 // Dev affordance: REALM_DEVTOOLS_PORT=9223 exposes the Chrome DevTools protocol for tooling.
 if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugging-port", process.env.REALM_DEVTOOLS_PORT);
@@ -41,6 +60,7 @@ ipcMain.handle("pick-folder", async () => {
 
 app.whenReady().then(async () => {
   try {
+    installMenu();
     const { child, ready } = startServer();
     serverChild = child;
     // TODO(plan-2): reconnect/restart when server exits after ready
