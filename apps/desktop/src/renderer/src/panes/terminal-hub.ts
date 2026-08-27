@@ -41,7 +41,8 @@ export function terminalBackground(doc: Document = document): string {
 }
 
 const defaultFactory: TerminalFactory = () => {
-  const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "ui-monospace, Menlo, monospace", theme: { background: terminalBackground() }, allowProposedApi: true });
+  // Bundled JetBrains Mono (V-X4) first — same face as the tool cards/wells; system mono as fallback.
+  const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace', theme: { background: terminalBackground() }, allowProposedApi: true });
   const fit = new FitAddon(); term.loadAddon(fit);
   return { term, fit };
 };
