@@ -22,7 +22,7 @@ export function useSplitHotkey(store: StoreApi<AppState>) {
       if (e.metaKey && e.key === "\\") {
         e.preventDefault();
         const s = store.getState();
-        if (s.sheet) return; // a modal sheet owns the keyboard
+        if (s.sheet || s.paletteOpen) return; // a modal sheet or the command palette owns the keyboard
         s.run(() => s.splitFocused("row"));
       }
     };

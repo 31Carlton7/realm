@@ -123,4 +123,15 @@ describe("App shell", () => {
     const l = store.getState().layout!;
     expect(l.type === "split" && l.children.length).toBe(2); // unchanged while the sheet is open
   });
+
+  it("⌘\\ is ignored while the command palette is open", async () => {
+    const api = fakeApi({ items: { s1: [...items] } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "A" }, focusedLeafId: "L1", paletteOpen: true }));
+    renderHook(() => useSplitHotkey(store));
+    fireEvent.keyDown(window, { key: "\\", metaKey: true });
+    const l = store.getState().layout!;
+    expect(l.type).toBe("leaf"); // unchanged while the palette is open
+  });
 });
