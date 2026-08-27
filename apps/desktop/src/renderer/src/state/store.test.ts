@@ -302,6 +302,89 @@ describe("app store", () => {
     });
   });
 
+  describe("stale reconcile / spontaneous persist guards", () => {
+    /** Replace listItems for one call with a promise that snapshots the space's items NOW (like a real
+     *  server serializing at query time) but resolves only when released — an out-of-order response. */
+    const gateNextListItems = () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      const base = api.listItems;
+      let first = true;
+      api.listItems = async (sid) => {
+        if (!first) return base(sid);
+        first = false;
+        const snap = [...(api.data.items[sid] ?? [])];
+        await gate;
+        return snap;
+      };
+      return release;
+    };
+
+    it("a stale listItems response resolving after newTerminal opened the item does not prune it", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().splitFocused("row");
+      // An items refresh is in flight (e.g. items.changed handler); its response predates the terminal
+      // creation and — the Api makes no ordering promise — resolves after adoptItem opened the new item.
+      const release = gateNextListItems();
+      const stale = store.getState().refreshItems(); // snapshots [i1]
+      await store.getState().newTerminal();          // creates + opens the new item via a fresh fetch
+      const fresh = store.getState().items.map((i) => i.id);
+      const newId = fresh.find((id) => id !== "i1")!;
+      expect(allItems(store.getState().layout!)).toContain(newId);
+      release(); await stale; await tick();
+      // The stale response must be dropped: nothing pruned, items not rolled back.
+      expect(allItems(store.getState().layout!)).toContain(newId);
+      expect(allItems(store.getState().layout!)).toContain("i1");
+      expect(store.getState().items.map((i) => i.id)).toEqual(fresh);
+    });
+
+    it("an older listItems response resolving after a newer one is dropped (newest fetch wins)", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      const release = gateNextListItems();
+      const stale = store.getState().refreshItems(); // snapshots [i1]
+      api.data.items.s1!.push(item("i2", "s1"));     // server-side change (items.changed follows)
+      await store.getState().refreshItems();         // newer fetch applies [i1, i2]
+      await store.getState().openItem("i2");
+      release(); await stale; await tick();
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
+      expect(allItems(store.getState().layout!)).toEqual(["i2"]); // not pruned by the stale response
+    });
+
+    it("a mount-time onLayout size echo before the space's items load never persists", async () => {
+      // The space's persisted layout has stored sizes that react-resizable-panels will normalize at
+      // mount, firing onLayout → resizeSplit with different sizes before any user action.
+      api.data.spaces[0]!.layout = {
+        type: "split", id: "sp", dir: "col", sizes: [40, 80],
+        children: [leaf("l1", "i1"), leaf("l2", null)],
+      };
+      api.delays["listItems:s1"] = 30;
+      const store = createAppStore(api);
+      const booting = store.getState().boot();
+      while (!store.getState().layout) await tick(); // selectSpace seeded; items still loading
+      store.getState().resizeSplit("sp", [33.33, 66.67]); // the mount echo
+      await booting;
+      await new Promise((r) => setTimeout(r, PERSIST_DEBOUNCE_MS + 50));
+      expect(api.calls.filter((c) => c.startsWith("setLayout"))).toEqual([]); // no action → no write
+      const l = store.getState().layout!; if (l.type !== "split") throw new Error("expected split");
+      expect(l.sizes).toEqual([33.33, 66.67]); // echo still applied locally
+    });
+
+    it("a user resize after the space's items have loaded still persists", async () => {
+      api.data.spaces[0]!.layout = {
+        type: "split", id: "sp", dir: "col", sizes: [40, 80],
+        children: [leaf("l1", "i1"), leaf("l2", null)],
+      };
+      const store = createAppStore(api);
+      await store.getState().boot();
+      store.getState().resizeSplit("sp", [25, 75]);
+      await new Promise((r) => setTimeout(r, PERSIST_DEBOUNCE_MS + 50));
+      expect(api.calls.filter((c) => c.startsWith("setLayout:s1"))).toHaveLength(1);
+    });
+  });
+
   describe("resizeSplit", () => {
     it("updates sizes functionally, ignores unchanged sizes, and persists once after the debounce", async () => {
       const store = createAppStore(api);

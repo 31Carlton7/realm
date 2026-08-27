@@ -123,7 +123,9 @@ export type AppState = {
   openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
   focusLeaf(leafId: string): void;
   applyPreset(name: PresetName): Promise<void>;
-  /** Functional sizes update for one split; persisted with a trailing debounce. No-op if unchanged. */
+  /** Functional sizes update for one split; persisted with a trailing debounce. No-op if unchanged.
+   *  Until the active space's items have loaded, sizes apply locally but never persist — PanelGroup
+   *  fires onLayout at mount with normalized sizes, and that echo is not a user action. */
   resizeSplit(splitId: string, sizes: number[]): void;
   setLayoutLocal(layout: Layout): void;
   persistLayout(): Promise<void>;
@@ -208,6 +210,17 @@ const isThemePref = (x: unknown): x is ThemePref => x === "system" || x === "lig
 export function createAppStore(api: Api): StoreApi<AppState> {
   return createStore<AppState>((set, get) => {
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Monotonic id for fetches of the active space's items. Reconcile is destructive (it prunes open
+     *  items missing from the list), so only the newest-started fetch may apply: the Api makes no
+     *  ordering promise, and a response snapshotted before a concurrent item creation would otherwise
+     *  prune the just-opened item and collapse its splits. Bumped by selectSpace so responses from a
+     *  previous activation die even when the same space is re-selected. */
+    let itemsFetchSeq = 0;
+    /** False from selectSpace until the space's items have loaded and reconciled once. While false,
+     *  resizeSplit applies sizes locally but must not persist: react-resizable-panels fires onLayout at
+     *  mount with normalized sizes, and that echo is not a user action — persisting it would write the
+     *  layout mid-boot (and cement whatever transient state the layout is in). */
+    let layoutHydrated = false;
     const persist = async () => {
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
       const { activeSpaceId, layout } = get();
@@ -235,11 +248,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       return f && hasLeafIn(layout, f) ? f : firstLeaf(layout).id;
     };
     /** Adopt a freshly created item: refresh items, then open it into targetLeafId ?? the focused leaf.
-     *  (A concurrent items.changed refresh can't have opened it — reconcile is prune-only.) */
+     *  (A concurrent items.changed refresh can't have opened it — reconcile is prune-only.) Takes an
+     *  itemsFetchSeq slot so any older in-flight refreshItems response is dropped instead of pruning
+     *  the item this fetch is about to open. */
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
+      const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
       if (!isSpace(sid)) return;
-      set({ items });
+      if (seq === itemsFetchSeq) set({ items }); // superseded by a newer fetch? its list is newer — keep it
       await get().openItem(itemId, targetLeafId);
     };
 
@@ -261,6 +277,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async selectSpace(id) {
         await flushPersist();
+        itemsFetchSeq++; // in-flight item fetches from the previous activation are now stale
+        layoutHydrated = false;
         const space = get().spaces.find((s) => s.id === id);
         set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], sessions: {}, error: null });
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
@@ -287,9 +305,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshItems() {
         const sid = get().activeSpaceId; if (!sid) return;
+        const seq = ++itemsFetchSeq;
         const items = await api.listItems(sid);
-        if (!isSpace(sid)) return;
+        if (!isSpace(sid) || seq !== itemsFetchSeq) return; // space changed, or a newer fetch owns the truth
         const layout = reconcileLayout(get().layout, items);
+        layoutHydrated = true;
         set({ items, layout, focusedLeafId: focusIn(layout) });
       },
       async refreshProjects() {
@@ -415,7 +435,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const current = findSplitSizes(l, splitId);
         if (!current || sameSizes(current, sizes)) return;
         set({ layout: updateSizes(l, splitId, sizes) });
-        schedulePersist();
+        if (layoutHydrated) schedulePersist(); // pre-hydration resizes are mount echoes, not user actions
       },
       setLayoutLocal(layout) { set({ layout }); },
       persistLayout: persist,
