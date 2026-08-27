@@ -1,4 +1,4 @@
-import { Fragment, type JSX } from "react";
+import { Fragment, useEffect, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { Item, Layout } from "@realm/contracts";
 import type { DropEdge } from "../state/store";
@@ -16,8 +16,82 @@ export type PaneHostProps = {
   onDropItem?: (itemId: string, leafId: string, edge: DropEdge) => void;
 };
 
+/** The custom MIME type sidebar rows carry (see ItemList.tsx). Filtering on it keeps ordinary OS file
+ *  drags (which only ever carry "Files" and friends) from lighting up the drop overlays. */
+const REALM_ITEM_TYPE = "application/x-realm-item";
+
+function isRealmDrag(e: { dataTransfer: DataTransfer | null }): boolean {
+  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes(REALM_ITEM_TYPE);
+}
+
+const EDGES = ["left", "right", "top", "bottom", "center"] as const;
+const EDGE_THRESHOLD = 0.32;
+
+/**
+ * Pure pointer→edge mapping: (x, y) relative to a panel-sized rect → the nearest edge zone within
+ * EDGE_THRESHOLD of that edge, else "center". At a corner, both axes can be in range; the axis whose
+ * fraction is smaller (the pointer has penetrated further into that edge's territory) wins. On an exact
+ * tie, horizontal (left/right) beats vertical (top/bottom) — an arbitrary but fixed choice.
+ */
+export function zoneAt(x: number, y: number, rect: { width: number; height: number }): DropEdge {
+  const { width, height } = rect;
+  if (width <= 0 || height <= 0) return "center";
+  const all: { edge: DropEdge; frac: number }[] = [
+    { edge: "left", frac: x / width },
+    { edge: "right", frac: (width - x) / width },
+    { edge: "top", frac: y / height },
+    { edge: "bottom", frac: (height - y) / height },
+  ];
+  const candidates = all.filter((c) => c.frac <= EDGE_THRESHOLD);
+  if (candidates.length === 0) return "center";
+  return candidates.reduce((best, c) => (c.frac < best.frac ? c : best)).edge;
+}
+
+function zoneAtEvent(e: ReactDragEvent<HTMLElement>): DropEdge {
+  const rect = e.currentTarget.getBoundingClientRect();
+  return zoneAt(e.clientX - rect.left, e.clientY - rect.top, rect);
+}
+
+/** Per-leaf drop-zone overlay. Its `hot` state is local so two panels never highlight together. */
+function DropOverlay({ leafId, onDropItem }: { leafId: string; onDropItem?: (itemId: string, leafId: string, edge: DropEdge) => void }) {
+  const [hot, setHot] = useState<DropEdge | null>(null);
+  return (
+    <div className="drop-overlay" style={{ pointerEvents: "auto" }}
+      onDragOver={(e) => { if (isRealmDrag(e)) { e.preventDefault(); setHot(zoneAtEvent(e)); } }}
+      onDragLeave={() => setHot(null)}
+      onDrop={(e) => {
+        e.preventDefault();
+        const id = e.dataTransfer.getData(REALM_ITEM_TYPE);
+        if (id) onDropItem?.(id, leafId, zoneAtEvent(e));
+        setHot(null);
+      }}>
+      {EDGES.map((edge) => (
+        <div key={edge} className="drop-zone" data-edge={edge} data-hot={hot === edge || undefined} />
+      ))}
+    </div>
+  );
+}
+
 export function PaneHost(p: PaneHostProps) {
   const byId = new Map(p.items.map((i) => [i.id, i]));
+  const [dragging, setDragging] = useState(false);
+
+  // Window-level, not per-panel: a drag can start over the sidebar (a different subtree) and must light
+  // up every panel's overlay at once; it ends on dragend (cancelled) or drop (completed) anywhere.
+  useEffect(() => {
+    const onDragStart = (e: DragEvent) => { if (isRealmDrag(e)) setDragging(true); };
+    const onDragEnd = () => setDragging(false);
+    const onDrop = () => setDragging(false);
+    window.addEventListener("dragstart", onDragStart);
+    window.addEventListener("dragend", onDragEnd);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragstart", onDragStart);
+      window.removeEventListener("dragend", onDragEnd);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
   return <div className="panehost">{renderNode(p.layout)}</div>;
 
   function renderNode(n: Layout): JSX.Element {
@@ -31,6 +105,7 @@ export function PaneHost(p: PaneHostProps) {
             {!item && <div className="pane-placeholder muted">Open something from the sidebar.</div>}
             {item && <div className="pane-slot"><PaneFor item={item} visible /></div>}
           </div>
+          {dragging && <DropOverlay leafId={n.id} onDropItem={p.onDropItem} />}
         </div>
       );
     }

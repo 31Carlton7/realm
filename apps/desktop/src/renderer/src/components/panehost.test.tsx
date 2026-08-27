@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within, renderHook, act } from "@testing-library/react";
 import type { Item, Layout } from "@realm/contracts";
-import { PaneHost, type PaneHostProps } from "./PaneHost";
+import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
 import { Main, useSplitHotkey } from "../App";
 import { StoreContext, createAppStore, findEmptySiblingOf } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
@@ -19,10 +19,48 @@ const split2: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50],
 function renderHost(over: Partial<PaneHostProps> = {}) {
   const props: PaneHostProps = {
     layout: split2, items, focusedLeafId: "L1",
-    onFocus: vi.fn(), onClose: vi.fn(), onSplit: vi.fn(),
+    onFocus: vi.fn(), onClose: vi.fn(), onSplit: vi.fn(), onDropItem: vi.fn(),
     ...over,
   };
   return { ...render(<PaneHost {...props} />), props };
+}
+
+const REALM_TYPE = "application/x-realm-item";
+/** DataTransfer stub — jsdom's DataTransfer isn't constructable, so tests build the plain object the
+ *  handlers actually touch: `types` (for the custom-type filter) and `getData` (keyed, so a handler
+ *  reading the wrong key gets an obviously-wrong sentinel instead of silently working). */
+function dt(itemId: string, types: string[] = [REALM_TYPE]) {
+  return {
+    types,
+    getData: (key: string) => (key === REALM_TYPE ? itemId : `wrong-key:${key}`),
+    setData: () => {},
+    effectAllowed: "",
+    dropEffect: "",
+  };
+}
+
+/** jsdom's layout engine always reports zero-size rects; stub it so zoneAt has real numbers to chew on. */
+function stubRect(el: Element, rect: { width: number; height: number; left?: number; top?: number }) {
+  const left = rect.left ?? 0, top = rect.top ?? 0;
+  vi.spyOn(el, "getBoundingClientRect").mockReturnValue({
+    width: rect.width, height: rect.height, left, top,
+    right: left + rect.width, bottom: top + rect.height,
+    x: left, y: top, toJSON: () => {},
+  } as DOMRect);
+}
+
+/** This jsdom build has no DragEvent constructor, so fireEvent.dragOver(el, {dataTransfer, clientX, ...})
+ *  silently drops clientX/clientY (they fall back to a plain Event, which ignores unknown init keys — only
+ *  `dataTransfer`/`clipboardData` get special-cased by testing-library). Build the event by hand instead:
+ *  a plain bubbling Event with dataTransfer/clientX/clientY assigned as real own properties, which both
+ *  native listeners and React's synthetic event layer read directly off the underlying event. */
+function fireDrag(target: Element | Window, type: string, dataTransfer: unknown, coords: { clientX?: number; clientY?: number } = {}) {
+  const e = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(e, "dataTransfer", { value: dataTransfer, configurable: true });
+  Object.defineProperty(e, "clientX", { value: coords.clientX ?? 0, configurable: true });
+  Object.defineProperty(e, "clientY", { value: coords.clientY ?? 0, configurable: true });
+  fireEvent(target, e);
+  return e;
 }
 
 const panel = (leafId: string) => {
@@ -79,6 +117,134 @@ describe("PaneHost", () => {
     expect(meta).not.toBeNull();
     expect(within(meta!).getByText("fake-xl")).toBeInTheDocument();
     expect(meta!.querySelector('.status-dot[data-status="running"]')).toBeInTheDocument();
+  });
+});
+
+describe("PaneHost drag-to-split overlay", () => {
+  it("renders no drop-overlay when no drag is in progress", () => {
+    renderHost();
+    expect(document.querySelector(".drop-overlay")).toBeNull();
+  });
+
+  it("a realm-item drag shows a .drop-overlay with five .drop-zones in every panel", () => {
+    renderHost();
+    fireDrag(window, "dragstart", dt("A"));
+    const overlays = document.querySelectorAll(".drop-overlay");
+    expect(overlays).toHaveLength(2);
+    overlays.forEach((ov) => {
+      const edges = Array.from(ov.querySelectorAll(".drop-zone")).map((z) => z.getAttribute("data-edge")).sort();
+      expect(edges).toEqual(["bottom", "center", "left", "right", "top"]);
+    });
+  });
+
+  it("ignores an OS file drag — no application/x-realm-item type means no overlay", () => {
+    renderHost();
+    fireDrag(window, "dragstart", dt("ignored", ["Files"]));
+    expect(document.querySelector(".drop-overlay")).toBeNull();
+  });
+
+  it("dragend clears the drag state and removes the overlay", () => {
+    renderHost();
+    fireDrag(window, "dragstart", dt("A"));
+    expect(document.querySelector(".drop-overlay")).not.toBeNull();
+    fireDrag(window, "dragend", dt("A"));
+    expect(document.querySelector(".drop-overlay")).toBeNull();
+  });
+
+  it("dragover lights up data-hot on the zone under the pointer, per leaf (not shared across panels)", () => {
+    renderHost();
+    fireDrag(window, "dragstart", dt("A"));
+    const ov1 = panel("L1").querySelector(".drop-overlay")!;
+    const ov2 = panel("L2").querySelector(".drop-overlay")!;
+    stubRect(ov1, { width: 400, height: 300 });
+    fireDrag(ov1, "dragover", dt("A"), { clientX: 390, clientY: 150 }); // near right edge
+    expect(ov1.querySelector('.drop-zone[data-edge="right"]')).toHaveAttribute("data-hot");
+    expect(ov1.querySelector('.drop-zone[data-edge="left"]')).not.toHaveAttribute("data-hot");
+    expect(ov2.querySelector("[data-hot]")).toBeNull(); // the other panel never lights up
+  });
+
+  it("dragover on a non-realm drag over an already-open overlay does not set data-hot (and doesn't preventDefault)", () => {
+    renderHost();
+    fireDrag(window, "dragstart", dt("A")); // a real realm drag is in progress
+    const ov1 = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(ov1, { width: 400, height: 300 });
+    fireDrag(ov1, "dragover", dt("ignored", ["Files"]), { clientX: 390, clientY: 150 });
+    expect(ov1.querySelector("[data-hot]")).toBeNull();
+  });
+
+  it("drop on [data-edge=right] calls onDropItem(itemId, leafId, 'right')", () => {
+    const { props } = renderHost();
+    fireDrag(window, "dragstart", dt("A"));
+    const overlay = panel("L2").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    const zone = overlay.querySelector('.drop-zone[data-edge="right"]')!;
+    fireDrag(zone, "drop", dt("A"), { clientX: 390, clientY: 150 });
+    expect(props.onDropItem).toHaveBeenCalledExactlyOnceWith("A", "L2", "right");
+  });
+
+  it("a completed drop also clears the drag state (overlay disappears)", () => {
+    const { props } = renderHost();
+    fireDrag(window, "dragstart", dt("A"));
+    const overlay = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    fireDrag(overlay, "drop", dt("A"), { clientX: 200, clientY: 150 }); // center
+    expect(props.onDropItem).toHaveBeenCalledExactlyOnceWith("A", "L1", "center");
+    expect(document.querySelector(".drop-overlay")).toBeNull();
+  });
+
+  it("drop computes the edge fresh at drop time, not from the last dragover's hot state", () => {
+    const { props } = renderHost();
+    fireDrag(window, "dragstart", dt("A"));
+    const overlay = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    fireDrag(overlay, "dragover", dt("A"), { clientX: 390, clientY: 150 }); // hot = "right"
+    expect(overlay.querySelector('[data-edge="right"]')).toHaveAttribute("data-hot");
+    fireDrag(overlay, "drop", dt("A"), { clientX: 200, clientY: 150 }); // pointer now at center
+    expect(props.onDropItem).toHaveBeenCalledExactlyOnceWith("A", "L1", "center");
+  });
+
+  it("drop with no realm-item id (bad key or empty) does not call onDropItem", () => {
+    const { props } = renderHost();
+    fireDrag(window, "dragstart", dt("A"));
+    const overlay = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    fireDrag(overlay, "drop", dt(""), { clientX: 200, clientY: 150 });
+    expect(props.onDropItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("zoneAt (pure pointer -> edge mapping)", () => {
+  const rect = { width: 400, height: 200 };
+
+  it("returns center for a pointer in the middle", () => {
+    expect(zoneAt(200, 100, rect)).toBe("center");
+  });
+
+  it("returns left/right within 32% of the respective edge, else center (threshold boundary)", () => {
+    expect(zoneAt(10, 100, rect)).toBe("left");
+    expect(zoneAt(127, 100, rect)).toBe("left"); // 127/400 = 31.75% <= 32%
+    expect(zoneAt(129, 100, rect)).toBe("center"); // 129/400 = 32.25% > 32%
+    expect(zoneAt(390, 100, rect)).toBe("right");
+  });
+
+  it("returns top/bottom within 32% of the respective edge", () => {
+    expect(zoneAt(200, 10, rect)).toBe("top");
+    expect(zoneAt(200, 190, rect)).toBe("bottom");
+    expect(zoneAt(200, 65, rect)).toBe("center"); // 65/200 = 32.5% > 32%
+  });
+
+  it("at a corner, the axis with deeper penetration (smaller fraction) wins", () => {
+    expect(zoneAt(5, 60, rect)).toBe("left"); // left 1.25% vs top 30%
+    expect(zoneAt(100, 5, rect)).toBe("top"); // left 25% vs top 2.5%
+  });
+
+  it("on an exact tie between axes, horizontal wins over vertical (documented, arbitrary tie-break)", () => {
+    const sq = { width: 200, height: 200 };
+    expect(zoneAt(20, 20, sq)).toBe("left"); // left frac 10% == top frac 10%
+  });
+
+  it("degenerates to center for a zero-size rect", () => {
+    expect(zoneAt(10, 10, { width: 0, height: 0 })).toBe("center");
   });
 });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
@@ -254,6 +254,41 @@ describe("Arc sidebar", () => {
     await mount(api);
     expect(onCells(glyphOf("Alpha"))).toEqual([0, 1]); // top child -> top row
     expect(onCells(glyphOf("Beta"))).toEqual([2, 3]); // bottom child -> bottom row
+  });
+
+  it("both OPEN and SPACE rows are draggable, carry the item id via application/x-realm-item on dragstart, and set/clear data-dragging", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    await mount(api);
+    const openRow = screen.getByRole("button", { name: "Alpha" }).closest(".item")!; // OPEN row
+    const spaceRow = screen.getByRole("button", { name: "Beta" }).closest(".item")!; // SPACE row
+
+    for (const [row, id] of [[openRow, "i1"], [spaceRow, "i2"]] as const) {
+      expect(row).toHaveAttribute("draggable", "true");
+      const setData = vi.fn();
+      fireEvent.dragStart(row, { dataTransfer: { setData, effectAllowed: "", getData: () => "" } });
+      expect(setData).toHaveBeenCalledWith("application/x-realm-item", id);
+      expect(row).toHaveAttribute("data-dragging");
+      fireEvent.dragEnd(row, { dataTransfer: { getData: () => "" } });
+      expect(row).not.toHaveAttribute("data-dragging");
+    }
+  });
+
+  it("dragging one row does not mark a sibling row as dragging", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    await mount(api);
+    const openRow = screen.getByRole("button", { name: "Alpha" }).closest(".item")!;
+    const spaceRow = screen.getByRole("button", { name: "Beta" }).closest(".item")!;
+    fireEvent.dragStart(spaceRow, { dataTransfer: { setData: () => {}, effectAllowed: "", getData: () => "" } });
+    expect(spaceRow).toHaveAttribute("data-dragging");
+    expect(openRow).not.toHaveAttribute("data-dragging");
   });
 
   it("a single-leaf layout hides the glyph entirely, even though the item is open", async () => {

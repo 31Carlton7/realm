@@ -65,12 +65,18 @@ export function ItemList({ items, variant }: { items: Item[]; variant: "open" | 
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const run = useApp((s) => s.run);
   const [renaming, setRenaming] = useState<Item | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const { onContextMenu, element } = useItemContextMenu(setRenaming);
   const active = new Set(allItems(layout));
   return (
     <div className="item-list">
       {items.map((it) => (
-        <div key={it.id} className="item" data-active={(variant === "open" && active.has(it.id)) || undefined} onContextMenu={onContextMenu(it)}>
+        <div key={it.id} className="item" data-active={(variant === "open" && active.has(it.id)) || undefined}
+          data-dragging={draggingId === it.id || undefined}
+          draggable
+          onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", it.id); e.dataTransfer.effectAllowed = "move"; setDraggingId(it.id); }}
+          onDragEnd={() => setDraggingId(null)}
+          onContextMenu={onContextMenu(it)}>
           {renaming?.id === it.id ? <RenameInput item={it} onDone={() => setRenaming(null)} /> : (
             <>
               <button className="item-row" aria-label={it.title} onClick={() => run(() => openItem(it.id))}>
