@@ -118,6 +118,41 @@ describe("PaneHost", () => {
     expect(within(meta!).getByText("fake-xl")).toBeInTheDocument();
     expect(meta!.querySelector('.status-dot[data-status="running"]')).toBeInTheDocument();
   });
+
+  it("remounts a leaf's pane when openItem swaps its itemId in place, so component-local state (composer draft) does not leak between sessions", () => {
+    // The Arc-true nav model's primary gesture is openItem replacing a leaf's itemId in place (not opening
+    // a new tab), so the same leaf keeps rendering the same React position across totally different sessions.
+    // Two distinct Items (distinct item ids), each backing a different session — exactly what openItem
+    // swaps between when it replaces a leaf's itemId in place.
+    const itemSe1 = item("S1", "s1", { kind: "session", title: "Agent 1", refId: "se1" });
+    const itemSe2 = item("S2", "s1", { kind: "session", title: "Agent 2", refId: "se2" });
+    const api = fakeApi({ sessions: [session("se1", "s1"), session("se2", "s1")], items: { s1: [itemSe1, itemSe2] } });
+    const store = createAppStore(api);
+    store.setState({
+      sessions: { se1: session("se1", "s1"), se2: session("se2", "s1") },
+      sessionStatus: { se1: "idle", se2: "idle" },
+      // No transcripts entries needed: SessionPane falls back to emptyTranscript() when one is missing.
+    });
+    const layout: Layout = { type: "leaf", id: "L", itemId: "S1" };
+    const { rerender } = render(
+      <StoreContext.Provider value={store}>
+        <PaneHost layout={layout} items={[itemSe1, itemSe2]} focusedLeafId="L" onFocus={() => {}} onClose={() => {}} onSplit={() => {}} />
+      </StoreContext.Provider>,
+    );
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "leftover draft for se1" } });
+    expect((box as HTMLTextAreaElement).value).toBe("leftover draft for se1");
+
+    // Same leaf id "L", but itemId now points at itemSe2 — exactly what openItem does in place.
+    const layoutAfter: Layout = { type: "leaf", id: "L", itemId: "S2" };
+    rerender(
+      <StoreContext.Provider value={store}>
+        <PaneHost layout={layoutAfter} items={[itemSe1, itemSe2]} focusedLeafId="L" onFocus={() => {}} onClose={() => {}} onSplit={() => {}} />
+      </StoreContext.Provider>,
+    );
+    const box2 = screen.getByRole("textbox", { name: /message/i });
+    expect((box2 as HTMLTextAreaElement).value).toBe(""); // fresh component instance, not the se1 instance carrying its draft over
+  });
 });
 
 describe("PaneHost drag-to-split overlay", () => {

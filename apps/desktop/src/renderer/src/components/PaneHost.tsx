@@ -106,7 +106,12 @@ export function PaneHost(p: PaneHostProps) {
           {item && <PanelBar item={item} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)} />}
           <div className="panel-body">
             {!item && <div className="pane-placeholder muted">Open something from the sidebar.</div>}
-            {item && <div className="pane-slot"><PaneFor item={item} visible /></div>}
+            {/* Keyed by item.id: openItem's primary gesture replaces a leaf's item in place, and this
+                div is otherwise the same React position across totally different sessions/terminals.
+                Keying forces a remount so component-local state (composer draft, expanded thinking
+                blocks, …) never leaks from the old item to the new one — and lets .panel-body[data-settle]
+                naturally replay its enter animation on every swap. */}
+            {item && <div key={item.id} className="pane-slot"><PaneFor item={item} visible /></div>}
           </div>
           {dragging && <DropOverlay leafId={n.id} onDropItem={p.onDropItem} />}
         </div>
