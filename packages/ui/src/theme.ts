@@ -37,12 +37,16 @@ export type Palette = {
 
 /** Flat Codex-style palette. Surfaces are fixed neutrals; the space colour survives only as `accent`,
  *  contrast-adjusted so it stays legible on the mode's surfaces (dark: lightness clamped to [55, 75];
- *  light: clamped to [35, 55]; saturation floor 25 so grey accents stay visible). */
+ *  light: clamped to [35, 55]). The 25% saturation floor applies only when the input has real chroma
+ *  (s >= 8); below that threshold hue is meaningless noise (black/white/grey), so flooring it would
+ *  fabricate a colour the user never chose — achromatic input stays achromatic, relying on the
+ *  lightness clamp alone for visibility. */
 export function paletteFromColor(hex: string, mode: Mode): Palette {
   const h = hexToHsl(hex);
+  const s = h.s >= 8 ? Math.max(h.s, 25) : h.s;
   const accent = hslToHex(mode === "dark"
-    ? { h: h.h, s: Math.max(h.s, 25), l: Math.min(75, Math.max(55, h.l)) }
-    : { h: h.h, s: Math.max(h.s, 25), l: Math.min(55, Math.max(35, h.l)) });
+    ? { h: h.h, s, l: Math.min(75, Math.max(55, h.l)) }
+    : { h: h.h, s, l: Math.min(55, Math.max(35, h.l)) });
   if (mode === "dark") return {
     mode, accent,
     frame: "#131417", panel: "#1b1c20", raised: "#222329", line: "#26272c", lineStrong: "#33343b",

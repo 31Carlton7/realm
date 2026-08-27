@@ -22,12 +22,25 @@ describe("paletteFromColor (flat)", () => {
     const p = paletteFromColor("#ffffff", "dark");
     expect(hexToHsl(p.accent).l).toBeLessThanOrEqual(75);
   });
-  it("accent saturation floor keeps a grey accent visible", () => {
-    const dark = paletteFromColor("#888888", "dark");
-    const light = paletteFromColor("#888888", "light");
-    // Round-tripped through hex (8-bit channel quantization), so allow a hair under the 25 floor.
-    expect(hexToHsl(dark.accent).s).toBeGreaterThan(24);
-    expect(hexToHsl(light.accent).s).toBeGreaterThan(24);
+  it("achromatic accent stays achromatic in dark mode (no fabricated hue)", () => {
+    const p = paletteFromColor("#888888", "dark");
+    const hsl = hexToHsl(p.accent);
+    expect(hsl.s).toBeLessThan(8);
+    // Round-tripped through hex (8-bit channel quantization), so allow a hair outside the [55, 75] clamp.
+    expect(hsl.l).toBeGreaterThan(54);
+    expect(hsl.l).toBeLessThan(76);
+  });
+  it("near-black accent regression: #111111 stays achromatic, not a fabricated dusty red", () => {
+    const p = paletteFromColor("#111111", "dark");
+    const hsl = hexToHsl(p.accent);
+    expect(hsl.s).toBeLessThan(8);
+    // Round-tripped through hex (8-bit channel quantization), so allow a hair outside the [55, 75] clamp.
+    expect(hsl.l).toBeGreaterThan(54);
+    expect(hsl.l).toBeLessThan(76);
+  });
+  it("washed-out hued accent still gets the saturation floor", () => {
+    const p = paletteFromColor("#8a7f9e", "dark"); // s ≈ 13.8, above the achromatic threshold
+    expect(hexToHsl(p.accent).s).toBeGreaterThanOrEqual(25);
   });
   it("light palette flips the ladder", () => {
     const p = paletteFromColor("#3ddc97", "light");
