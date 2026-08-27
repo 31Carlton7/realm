@@ -111,6 +111,8 @@ class ReconnSocket {
   send(s: string) { if (this.readyState !== 1) throw new Error("not open"); this.sent.push(s); }
   open() { this.readyState = 1; this.onopen?.(); }
   fail() { this.readyState = 3; this.onclose?.(); }
+  /** What the client's own dispose/abort calls: like a real socket, closing fires onclose (if attached). */
+  close() { this.readyState = 3; this.onclose?.(); }
 }
 const Reconn = ReconnSocket as unknown as typeof WebSocket;
 
@@ -181,7 +183,7 @@ describe("RpcClient reconnect", () => {
     expect(statuses).toEqual(["reconnecting", "connected", "reconnecting"]);
   });
 
-  it("retryNow forces an immediate dial, is a no-op while one is already in flight, and unsubscribing onStatusChange stops notifications", () => {
+  it("retryNow forces an immediate dial, aborts an in-flight dial in favour of a fresh one, and unsubscribing onStatusChange stops notifications", () => {
     const c = new RpcClient("ws://x", Reconn);
     const sockets = ReconnSocket.instances;
     sockets[0]!.open();
@@ -194,12 +196,60 @@ describe("RpcClient reconnect", () => {
     c.retryNow();
     expect(sockets).toHaveLength(2); // immediate, no timer wait
     c.retryNow();
-    expect(sockets).toHaveLength(2); // dial already in flight: no-op
+    expect(sockets).toHaveLength(3); // Retry is honest mid-dial: the stale dial is aborted, a fresh one starts
+    expect(sockets[1]!.readyState).toBe(3); // the superseded socket was actually closed
     vi.advanceTimersByTime(60_000);
-    expect(sockets).toHaveLength(2); // the cancelled timer never fires a duplicate dial
+    expect(sockets).toHaveLength(3); // no timer ever fires a duplicate dial
     off();
-    sockets[1]!.open();
+    sockets[2]!.open();
     expect(statuses).toEqual(["reconnecting"]); // "connected" arrived after unsubscribe
+  });
+
+  it("retryNow's abort rejects calls queued on the aborted dial with DISCONNECTED", async () => {
+    const c = new RpcClient("ws://x", Reconn);
+    const sockets = ReconnSocket.instances;
+    sockets[0]!.open();
+    sockets[0]!.fail();
+    vi.advanceTimersByTime(1000); // dial #2 in flight
+    const p = c.call("profiles.list", {}); // queued on the in-flight dial
+    c.retryNow(); // aborts dial #2, starts dial #3
+    await expect(p).rejects.toMatchObject({ name: "RpcError", code: "DISCONNECTED" });
+    // The fresh dial still works end to end.
+    const s3 = sockets[2]!;
+    s3.open();
+    const p2 = c.call("profiles.list", {});
+    await Promise.resolve(); await Promise.resolve();
+    const req = JSON.parse(s3.sent[0]!);
+    s3.onmessage!({ data: JSON.stringify({ id: req.id, ok: true, result: [] }) });
+    expect(await p2).toEqual([]);
+  });
+
+  it("dispose closes the socket, rejects pending calls, and stops reconnecting for good", async () => {
+    const c = new RpcClient("ws://x", Reconn);
+    const sockets = ReconnSocket.instances;
+    sockets[0]!.open();
+    const statuses: string[] = [];
+    c.onStatusChange((s) => statuses.push(s));
+    const p = c.call("profiles.list", {});
+    c.dispose();
+    await expect(p).rejects.toMatchObject({ name: "RpcError", code: "DISCONNECTED" });
+    expect(sockets[0]!.readyState).toBe(3); // actually closed
+    vi.advanceTimersByTime(60_000);
+    expect(sockets).toHaveLength(1); // never dials again
+    expect(statuses).toEqual([]); // a deliberate teardown is not a "reconnecting" event
+    await expect(c.call("profiles.list", {})).rejects.toMatchObject({ code: "DISCONNECTED" });
+  });
+
+  it("dispose while reconnecting clears the retry timer — no dial ever fires afterwards", () => {
+    const c = new RpcClient("ws://x", Reconn);
+    const sockets = ReconnSocket.instances;
+    sockets[0]!.open();
+    sockets[0]!.fail(); // timer pending
+    c.dispose();
+    vi.advanceTimersByTime(60_000);
+    expect(sockets).toHaveLength(1);
+    c.retryNow(); // after dispose even an explicit retry is a no-op
+    expect(sockets).toHaveLength(1);
   });
 
   it("calls made while a reconnect dial is in flight are queued and sent once it opens", async () => {

@@ -345,6 +345,16 @@ describe("App shell", () => {
     expect(l.type === "split" && l.children.length).toBe(2); // unchanged while the sheet is open
   });
 
+  it("the error bar steps below the connection banner only while the socket is down", async () => {
+    const { store } = await mountMain("L1");
+    act(() => store.setState({ error: "boom" }));
+    expect(document.querySelector(".error-bar")).not.toHaveAttribute("data-under-banner");
+    act(() => store.setState({ connectionState: "reconnecting" }));
+    expect(document.querySelector(".error-bar")).toHaveAttribute("data-under-banner");
+    act(() => store.setState({ connectionState: "connected" }));
+    expect(document.querySelector(".error-bar")).not.toHaveAttribute("data-under-banner");
+  });
+
   it("⌘\\ is ignored while the command palette is open", async () => {
     const api = fakeApi({ items: { s1: [...items] } });
     const store = createAppStore(api);

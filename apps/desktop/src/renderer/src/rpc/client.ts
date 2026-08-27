@@ -6,6 +6,7 @@ export class RpcError extends Error {
   constructor(public code: string, message: string) { super(message); this.name = "RpcError"; }
 }
 
+const WS_CONNECTING = 0;
 const WS_OPEN = 1;
 const WS_CLOSING = 2;
 export const RECONNECT_BASE_MS = 1000;
@@ -27,10 +28,12 @@ export class RpcClient {
   private status: ConnectionStatus = "connected";
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private disposed = false;
   constructor(private url: string, private Impl: typeof WebSocket = WebSocket) {
     this.connect();
   }
   private connect() {
+    if (this.disposed) return;
     const ws = new this.Impl(this.url);
     this.ws = ws;
     this.opened = new Promise((res) => {
@@ -42,6 +45,7 @@ export class RpcClient {
       };
     });
     ws.onmessage = (e) => { if (this.ws === ws) this.onMessage(String(e.data)); };
+    // onerror is deliberately unattached: every socket error is followed by close, so onclose is the single reconnect path.
     ws.onclose = () => {
       if (this.ws !== ws) return;
       for (const p of this.pending.values()) p.reject(new RpcError("DISCONNECTED", "socket closed"));
@@ -55,12 +59,34 @@ export class RpcClient {
     this.attempt++;
     this.retryTimer = setTimeout(() => { this.retryTimer = null; this.connect(); }, delay);
   }
-  /** Skip the backoff wait and dial immediately (the banner's Retry). No-op while connected or while
-   *  a dial is already in flight. */
+  /** The banner's Retry. Waiting out a backoff: dial immediately. Dial already in flight: abort it and
+   *  dial fresh — the alternative (a silent no-op) makes the button dishonest, and a browser dial can
+   *  hang far longer than any backoff. Calls queued on the aborted dial reject with DISCONNECTED,
+   *  exactly as a socket drop would. No-op while connected or after dispose(). */
   retryNow(): void {
-    if (!this.retryTimer) return;
-    clearTimeout(this.retryTimer); this.retryTimer = null;
-    this.connect();
+    if (this.disposed) return;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer); this.retryTimer = null;
+      this.connect();
+      return;
+    }
+    const stale = this.ws;
+    if (stale.readyState !== WS_CONNECTING) return; // connected: nothing to retry
+    for (const p of this.pending.values()) p.reject(new RpcError("DISCONNECTED", "dial aborted by retry"));
+    this.pending.clear();
+    this.connect(); // reassigns this.ws first, so the stale socket's own onclose is ignored as superseded
+    try { stale.close(); } catch { /* already closing */ }
+  }
+  /** Permanent teardown (window unload, tests): close the socket, reject pending calls, stop
+   *  reconnecting for good. A disposed client never dials again. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+    for (const p of this.pending.values()) p.reject(new RpcError("DISCONNECTED", "client disposed"));
+    this.pending.clear();
+    this.ws.onclose = null; // a deliberate close: no reconnect, no "reconnecting" status flip
+    try { this.ws.close(); } catch { /* already closed */ }
   }
   onStatusChange(fn: (s: ConnectionStatus) => void): () => void {
     this.statusListeners.add(fn);

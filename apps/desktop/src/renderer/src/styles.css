@@ -143,6 +143,8 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .error-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 6px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--rl-danger) 40%, transparent); border-radius: var(--r-ctl);
   background: color-mix(in srgb, var(--rl-danger) 10%, var(--rl-panel)); color: var(--rl-danger); font-size: 12px; -webkit-app-region: no-drag; }
 .error-bar button { color: inherit; padding: 2px 6px; }
+/* While the conn-banner (fixed, top-center) is visible, drop below it instead of colliding. */
+.error-bar[data-under-banner] { margin-top: 34px; }
 /* Socket down: slim fixed banner, above panes but below sheets/palette. */
 .conn-banner { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 12px;
   padding: 5px 12px; border: 1px solid color-mix(in srgb, var(--rl-warning) 45%, transparent); border-top: none; border-radius: 0 0 var(--r-ctl) var(--r-ctl);

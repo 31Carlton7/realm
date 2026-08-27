@@ -52,9 +52,11 @@ function ConnectionBanner() {
 function ErrorBar() {
   const error = useApp((s) => s.error);
   const clearError = useApp((s) => s.clearError);
+  // The fixed conn-banner hangs over the top edge where this bar sits; step below it while it shows.
+  const underBanner = useApp((s) => s.connectionState !== "connected");
   if (!error) return null;
   return (
-    <div className="error-bar" role="alert">
+    <div className="error-bar" data-under-banner={underBanner || undefined} role="alert">
       <span>{error}</span>
       <button aria-label="Dismiss error" onClick={clearError}>✕</button>
     </div>
