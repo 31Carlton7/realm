@@ -5,14 +5,45 @@ describe("hex/hsl roundtrip", () => {
   it("hslToHex(hexToHsl(x)) === x", () => { expect(hslToHex(hexToHsl("#7c6cff"))).toBe("#7c6cff"); });
 });
 
+/** Max per-channel distance between two hexes — the "sub-perceptual" yardstick for the ground tint. */
+const channelDelta = (a: string, b: string): number => {
+  const n = (h: string) => parseInt(h.replace("#", ""), 16);
+  const x = n(a), y = n(b);
+  return Math.max(
+    Math.abs(((x >> 16) & 255) - ((y >> 16) & 255)),
+    Math.abs(((x >> 8) & 255) - ((y >> 8) & 255)),
+    Math.abs((x & 255) - (y & 255)),
+  );
+};
+
 describe("paletteFromColor (flat)", () => {
-  it("dark palette uses fixed neutral surfaces and the space colour only as accent", () => {
+  it("dark surfaces stay (near-)neutral; raised/line are fixed, frame/panel only carry the sub-perceptual tint", () => {
     const p = paletteFromColor("#3ddc97", "dark");
-    expect(p.frame).toBe("#131417");
-    expect(p.panel).toBe("#1b1c20");
     expect(p.raised).toBe("#222329");
     expect(p.line).toBe("#26272c");
+    // frame/panel are hue-tinted (V-X5) but must remain within a few channel steps of the base greys.
+    expect(channelDelta(p.frame, "#131417")).toBeLessThanOrEqual(5);
+    expect(channelDelta(p.panel, "#1b1c20")).toBeLessThanOrEqual(5);
     expect(p.accent).not.toBe(p.frame);
+  });
+  it("ground tint (V-X5): different space hues produce different frame/panel hexes", () => {
+    const violet = paletteFromColor("#7c6cff", "dark");
+    const green = paletteFromColor("#3ddc97", "dark");
+    expect(violet.frame).not.toBe(green.frame);
+    expect(violet.panel).not.toBe(green.panel);
+    // Same lightness ladder either way — the tint is hue-only, never a luminance shift.
+    expect(hexToHsl(violet.frame).l).toBeCloseTo(hexToHsl(green.frame).l, 0);
+  });
+  it("ground tint skips achromatic space colours — the stock greys, exactly (no fabricated hue)", () => {
+    const p = paletteFromColor("#888888", "dark");
+    expect(p.frame).toBe("#131417");
+    expect(p.panel).toBe("#1b1c20");
+    const q = paletteFromColor("#888888", "light");
+    expect(q.frame).toBe("#f2f2f4");
+    expect(q.panel).toBe("#ffffff");
+  });
+  it("light panel stays pure white under the tint — full lightness has no room for hue", () => {
+    expect(paletteFromColor("#3ddc97", "light").panel).toBe("#ffffff");
   });
   it("hover is a translucent fill per mode (visible on any surface, unlike surface-on-surface fills)", () => {
     expect(paletteFromColor("#3ddc97", "dark").hover).toBe("rgba(255,255,255,.05)");

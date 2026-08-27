@@ -102,7 +102,7 @@ export function PaneHost(p: PaneHostProps) {
       const item = n.itemId ? byId.get(n.itemId) ?? null : null;
       return (
         <div className="panel" data-leaf-id={n.id} data-focused={n.id === p.focusedLeafId || undefined}
-          onPointerDownCapture={() => p.onFocus(n.id)}>
+          data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
           {item && <PanelBar item={item} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)} />}
           <div className="panel-body">
             {!item && <div className="pane-placeholder muted">Open something from the sidebar.</div>}

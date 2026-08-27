@@ -89,6 +89,18 @@ describe("PaneHost", () => {
     expect(document.querySelector(".panel-bar")).toBeNull();
   });
 
+  it("marks empty leaves with data-empty so a focused empty leaf (which has no header to accent-underline) still gets a visual focus mark (W5 carry-item)", () => {
+    const withEmpty: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "A" },
+      { type: "leaf", id: "L2", itemId: null },
+    ] };
+    renderHost({ layout: withEmpty, focusedLeafId: "L2" });
+    // The CSS contract: .panel[data-focused][data-empty] draws the accent top rule.
+    expect(panel("L2")).toHaveAttribute("data-empty");
+    expect(panel("L2")).toHaveAttribute("data-focused");
+    expect(panel("L1")).not.toHaveAttribute("data-empty");
+  });
+
   it("marks only the focused leaf with data-focused; pointer-down on another panel calls onFocus(leafId)", () => {
     const { props } = renderHost({ focusedLeafId: "L1" });
     expect(panel("L1")).toHaveAttribute("data-focused");

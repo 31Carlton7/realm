@@ -45,13 +45,24 @@ export type Palette = {
  *  lightness clamp alone for visibility. */
 export function paletteFromColor(hex: string, mode: Mode): Palette {
   const h = hexToHsl(hex);
-  const s = h.s >= 8 ? Math.max(h.s, 25) : h.s;
+  const chromatic = h.s >= 8;
+  const s = chromatic ? Math.max(h.s, 25) : h.s;
   const accent = hslToHex(mode === "dark"
     ? { h: h.h, s, l: Math.min(75, Math.max(55, h.l)) }
     : { h: h.h, s, l: Math.min(55, Math.max(35, h.l)) });
+  /** Ground tint (V-X5, spec §1's "≤4% escape hatch"): frame/panel take the space colour's hue at the
+   *  base grey's own tiny saturation (≈8–10%, ~2 channel steps at these lightnesses — sub-perceptual),
+   *  same lightness. Computed here into plain hexes so no use site needs color-mix. Achromatic space
+   *  colours (same s<8 rule as the accent) skip it: their hue is noise, and greys should get the stock
+   *  neutral ground, not a fabricated cast. */
+  const ground = (base: string): string => {
+    if (!chromatic) return base;
+    const b = hexToHsl(base);
+    return hslToHex({ h: h.h, s: b.s, l: b.l });
+  };
   if (mode === "dark") return {
     mode, accent,
-    frame: "#131417", panel: "#1b1c20", raised: "#222329", line: "#26272c", lineStrong: "#33343b",
+    frame: ground("#131417"), panel: ground("#1b1c20"), raised: "#222329", line: "#26272c", lineStrong: "#33343b",
     hover: "rgba(255,255,255,.05)",
     textBright: "#ececf1", textDim: "#9a9ba5", textFaint: "#84858f",
     danger: "#f87171", success: "#6ee7a0", warning: "#e8963a",
@@ -59,7 +70,7 @@ export function paletteFromColor(hex: string, mode: Mode): Palette {
   };
   return {
     mode, accent,
-    frame: "#f2f2f4", panel: "#ffffff", raised: "#f7f7f9", line: "#e3e3e8", lineStrong: "#d2d2d9",
+    frame: ground("#f2f2f4"), panel: ground("#ffffff"), raised: "#f7f7f9", line: "#e3e3e8", lineStrong: "#d2d2d9",
     hover: "rgba(20,20,30,.05)",
     textBright: "#1c1c21", textDim: "#5f6068", textFaint: "#747480",
     danger: "#dc2626", success: "#16a34a", warning: "#c2701d",

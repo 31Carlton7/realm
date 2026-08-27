@@ -24,6 +24,9 @@ input, select, textarea { font: inherit; color: inherit; }
 kbd { font: 11px ui-monospace, Menlo, monospace; }
 .muted { color: var(--rl-text-dim); }
 :focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
+/* Identity companions (V-X3): text selection inside panes wears the space colour. Scoped to .panel so
+   the terminal's own selection styling stays untouched. */
+.panel ::selection { background: color-mix(in srgb, var(--rl-accent) 30%, transparent); }
 
 /* ── Sidebar (one step darker than the content ground, behind a 1px divider) ── */
 .app { display: flex; height: 100%; background: var(--rl-panel); }
@@ -63,7 +66,9 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .item-list { display: flex; flex-direction: column; gap: 1px; }
 .item { position: relative; display: flex; align-items: center; border-radius: 7px; min-height: 28px; font-size: 12.5px; }
 .item:hover { background: var(--rl-hover); }
-.item[data-active] { background: var(--rl-hover); }
+/* Active (= focused pane's item) reads as "chosen", not merely "hovered": a faint accent wash,
+   distinct from --rl-hover (W5 carry-item). */
+.item[data-active] { background: color-mix(in srgb, var(--rl-accent) 8%, transparent); }
 .item[data-active]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--rl-accent); }
 .item[data-active] .item-row { font-weight: 550; color: var(--rl-text-bright); }
 .item-row { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px 5px 10px; color: var(--rl-text-dim); border-radius: 7px; }
@@ -72,7 +77,10 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
 .item-status { margin-left: auto; width: 6px; height: 6px; }
 .item-glyph { margin-left: auto; width: 10px; height: 10px; flex: none; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; opacity: .7; }
 .item-glyph span { background: var(--rl-line-strong); border-radius: 1px; }
-.item-glyph span[data-on] { background: var(--rl-accent); }
+/* Accent discipline (V-C1): glyph cells are neutral; only the focused pane's row keeps the accent
+   (data-active = the item in the focused leaf, per Plan 4). */
+.item-glyph span[data-on] { background: var(--rl-text-dim); }
+.item[data-active] .item-glyph span[data-on] { background: var(--rl-accent); }
 .item-close { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: 6px; color: var(--rl-text-dim); }
 .item:hover .item-close { opacity: 1; } .item-close:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .item[data-dragging] { opacity: .45; }
@@ -120,9 +128,14 @@ kbd { font: 11px ui-monospace, Menlo, monospace; }
   background: var(--rl-panel); overflow: hidden; }
 .panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--rl-line); font-size: 12px; -webkit-app-region: drag; }
 .panel-bar button, .panel-bar input { -webkit-app-region: no-drag; }
-/* W5: accent-lit focus lands here (header underline + icon); interim: a stronger header hairline. */
-.panel[data-focused] .panel-bar { box-shadow: inset 0 -1px 0 var(--rl-line-strong); }
-.panel-icon { color: var(--rl-accent); display: grid; place-items: center; }
+/* Accent-lit focus (V-C1/D3/X1): the focused pane's header underline + icon take the space colour —
+   everywhere else the accent is pulled back to neutral, so this is the one mark that says "you are
+   here, in this space". */
+.panel[data-focused] .panel-bar { box-shadow: inset 0 -2px 0 var(--rl-accent); }
+.panel[data-focused] .panel-icon { color: var(--rl-accent); }
+/* A focused EMPTY leaf has no header to underline — the pane itself takes an accent top rule. */
+.panel[data-focused][data-empty] { box-shadow: inset 0 2px 0 var(--rl-accent); }
+.panel-icon { color: var(--rl-text-dim); display: grid; place-items: center; }
 .panel-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* Click-to-rename affordance (spec §A2): the title is a quiet button. */
 button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); }
@@ -301,7 +314,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-context .git-diff { gap: 6px; font-variant-numeric: tabular-nums; }
 .composer-context .diff-add { color: var(--rl-success); }
 .composer-context .diff-del { color: var(--rl-danger); }
-.composer-input { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright); font: inherit; line-height: 1.45; padding: 8px 12px 4px; min-height: 36px; max-height: 220px; }
+.composer-input { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright); font: inherit; line-height: 1.45; padding: 8px 12px 4px; min-height: 36px; max-height: 220px; caret-color: var(--rl-accent); }
 .composer-input::placeholder { color: var(--rl-text-dim); }
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 8px 8px; }
 .composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; }
