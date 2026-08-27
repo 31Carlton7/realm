@@ -39,8 +39,7 @@ input, select, textarea { font: inherit; color: inherit; }
 kbd { font: 11px var(--font-mono); }
 .muted { color: var(--rl-text-dim); }
 :focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
-/* Identity companions (V-X3): text selection inside panes wears the space colour. Scoped to .panel so
-   the terminal's own selection styling stays untouched. */
+/* xterm paints selection via its own layer and ignores native ::selection, so terminals are unaffected. */
 .panel ::selection { background: color-mix(in srgb, var(--rl-accent) 30%, transparent); }
 
 /* ── Sidebar (one step darker than the content ground, behind a 1px divider) ── */
