@@ -19,8 +19,16 @@ export function PermissionCard({ permission, onDecide, autoFocus = false }: {
   useEffect(() => { if (autoFocus) allowRef.current?.focus(); }, [autoFocus]);
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
-    if (e.key === "Enter") { e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : "allow"); }
-    else if (e.key === "Backspace" && e.metaKey) { e.preventDefault(); onDecide("deny"); }
+    if (e.key === "Enter") {
+      // A focused control wins over the card's default: Enter on the Deny button must mean Deny,
+      // never the card-level Allow (security inversion). Buttons are activated explicitly (with
+      // preventDefault, so the browser's own Enter→click never double-fires); Enter on the details
+      // <summary> is left entirely to native toggle semantics and decides nothing.
+      const control = e.target instanceof HTMLElement ? e.target.closest("button, summary") : null;
+      if (control instanceof HTMLButtonElement) { e.preventDefault(); control.click(); return; }
+      if (control) return;
+      e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : "allow");
+    } else if (e.key === "Backspace" && e.metaKey) { e.preventDefault(); onDecide("deny"); }
   };
 
   return (

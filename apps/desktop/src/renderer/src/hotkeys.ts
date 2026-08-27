@@ -33,6 +33,11 @@ type Binding = {
 
 export function isEditableTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
+  // xterm focuses a hidden helper <textarea> inside its .xterm root whenever a terminal pane is
+  // visible — without this exemption a focused terminal dead-keys every global binding (⌘W was even
+  // consumed with no action). None of the meta/ctrl chords bound here conflict with terminal text
+  // entry, so terminals are never "editable" for guard purposes.
+  if (t.closest(".xterm")) return false;
   return t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable;
 }
 

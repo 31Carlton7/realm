@@ -53,7 +53,13 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
   useLayoutEffect(() => {
     const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     focusItem(0);
-    return () => { (returnFocusRef?.current ?? prev)?.focus?.(); };
+    return () => {
+      const target = returnFocusRef?.current ?? prev;
+      // The trigger may have unmounted with the menu (e.g. the menu's own Close/Delete removed the
+      // pane): fall back to the focused panel — a deliberate body-safe no-op when it isn't focusable.
+      if (target?.isConnected) target.focus?.();
+      else document.querySelector<HTMLElement>(".panel[data-focused]")?.focus?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/unmount only
   }, []);
 

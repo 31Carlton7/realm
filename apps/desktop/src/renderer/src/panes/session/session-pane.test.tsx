@@ -197,6 +197,24 @@ describe("permission keyboard (U-H4)", () => {
     fireEvent.keyDown(card, { key: "a" });
     expect(decided).toEqual([]);
   });
+
+  it("Enter on a FOCUSED Deny button denies — never the card-level Allow (security inversion)", async () => {
+    const { decided } = await mountFocused(true);
+    const deny = screen.getByRole("button", { name: "Deny" });
+    deny.focus();
+    fireEvent.keyDown(deny, { key: "Enter" });
+    await waitFor(() => expect(decided).toEqual(["r1:deny"]));
+    expect(decided).not.toContain("r1:allow");
+  });
+
+  it("Enter on the details summary expands without deciding (native toggle keeps its default)", async () => {
+    const { decided } = await mountFocused(true);
+    const summary = screen.getByText("Input");
+    summary.focus();
+    const notPrevented = fireEvent.keyDown(summary, { key: "Enter" }); // true = default NOT prevented
+    expect(notPrevented).toBe(true); // native <summary> Enter-toggle stays in charge
+    expect(decided).toEqual([]);
+  });
 });
 
 describe("composer context row (git chips)", () => {

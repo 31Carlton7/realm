@@ -76,6 +76,52 @@ describe("GitInfoService", () => {
     expect((await svc.get(dir))?.dirty).toBe(1); // TTL expired: recomputed
   });
 
+  /** Scripted runner: answers like a clean repo, records every argv, counts probe passes. */
+  function fakeRunner(delayMs = 0) {
+    const calls: string[][] = [];
+    let computes = 0;
+    const runGit = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const cmd = args.filter((a) => a !== "-c" && a !== "core.fsmonitor=" && a !== "--no-optional-locks")[0];
+      if (cmd === "rev-parse") computes++;
+      if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+      if (cmd === "rev-parse") return "main\n";
+      if (cmd === "rev-list") return "0\t0\n";
+      return "";
+    };
+    return { calls, runGit, computeCount: () => computes };
+  }
+
+  it("hardening: every git invocation forces core.fsmonitor off; status never takes optional locks", async () => {
+    const { calls, runGit } = fakeRunner();
+    const svc = new GitInfoService({ runGit });
+    expect(await svc.get("/some/abs/cwd")).toEqual({ branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 });
+    expect(calls).toHaveLength(4); // rev-parse, status, diff, rev-list
+    // A hostile repo-local .git/config can point core.fsmonitor at an arbitrary executable — every
+    // single argv must neutralise it before anything else.
+    for (const args of calls) expect(args.slice(0, 2)).toEqual(["-c", "core.fsmonitor="]);
+    const status = calls.find((a) => a.includes("status"))!;
+    // --no-optional-locks is a global option and must precede the subcommand.
+    expect(status.indexOf("--no-optional-locks")).toBeGreaterThanOrEqual(0);
+    expect(status.indexOf("--no-optional-locks")).toBeLessThan(status.indexOf("status"));
+  });
+
+  it("concurrent gets for one cwd share a single in-flight compute (no stacked git spawns)", async () => {
+    const { runGit, computeCount, calls } = fakeRunner(10);
+    const svc = new GitInfoService({ runGit });
+    const [a, b, c] = await Promise.all([svc.get("/abs"), svc.get("/abs"), svc.get("/abs")]);
+    expect(computeCount()).toBe(1);
+    expect(calls).toHaveLength(4); // one probe, not 3×4
+    expect(a).toEqual(b);
+    expect(b).toEqual(c);
+  });
+
+  it("hardening flags survive against a real git binary (repo behaviour unchanged)", async () => {
+    // The suite's other tests also run through execGit; this one pins the pairing explicitly.
+    const info = await new GitInfoService().get(repo);
+    expect(info).toMatchObject({ branch: "main" });
+  });
+
   it("cache entries are keyed by cwd — one repo's info never answers for another", async () => {
     const clean = makeRepo();
     const dirty = makeRepo();
