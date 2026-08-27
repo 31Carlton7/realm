@@ -303,7 +303,7 @@ describe("zoneAt (pure pointer -> edge mapping)", () => {
   });
 });
 
-/** App-shell wiring: Main renders topbar + PaneHost against the real store. */
+/** App-shell wiring: Main renders the full-bleed PaneHost against the real store. */
 async function mountMain(focusedLeafId: string) {
   const api = fakeApi({ items: { s1: [...items] } });
   const store = createAppStore(api);
@@ -323,12 +323,12 @@ describe("App shell", () => {
     expect(store.getState().focusedLeafId).toBe(findEmptySiblingOf(store.getState().layout!, "L2"));
   });
 
-  it("Breadcrumb shows the focused leaf's item, not the first leaf's", async () => {
+  it("the global topbar is retired: no breadcrumb or topbar chrome, panes render full-bleed (layout presets live in the command palette)", async () => {
     await mountMain("L2");
-    const crumb = document.querySelector<HTMLElement>(".breadcrumb");
-    expect(crumb).not.toBeNull();
-    expect(crumb!.textContent).toContain("Tab B");
-    expect(crumb!.textContent).not.toContain("Tab A");
+    expect(document.querySelector(".topbar")).toBeNull();
+    expect(document.querySelector(".breadcrumb")).toBeNull();
+    expect(document.querySelector(".layout-menu")).toBeNull();
+    expect(document.querySelectorAll(".panel")).toHaveLength(2); // PaneHost is the whole stage now
   });
 
   it("⌘\\ splits the focused leaf; ignored while a sheet is open", async () => {

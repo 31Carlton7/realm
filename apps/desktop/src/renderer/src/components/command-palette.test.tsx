@@ -49,6 +49,33 @@ describe("CommandPalette", () => {
     expect(store.getState().paletteOpen).toBe(false);
   });
 
+  it("lists all five layout presets (moved here from the retired topbar LayoutMenu)", async () => {
+    await mount();
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "layout:" } });
+    const labels = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(labels).toEqual([
+      "Layout: 1-uplayout",
+      "Layout: 2 columnslayout",
+      "Layout: 3 columnslayout",
+      "Layout: 2×2 gridlayout",
+      "Layout: 3×3 gridlayout",
+    ]);
+  });
+
+  it("picking a preset applies exactly that preset: 'Layout: 3 columns' rebuilds the layout as a 3-wide row split", async () => {
+    const { store } = await mount();
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "layout: 3 col" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // Shape-level assertion so a wrong preset id dies: two-col → 2 children, grid-2x2 → col-of-rows, one → leaf.
+    await waitFor(() => {
+      const l = store.getState().layout;
+      expect(l?.type === "split" && l.dir === "row" && l.children.length).toBe(3);
+    });
+    expect(store.getState().paletteOpen).toBe(false);
+  });
+
   it("⌘K toggles the palette", () => {
     const store = createAppStore(fakeApi());
     renderHook(() => usePaletteHotkey(store));

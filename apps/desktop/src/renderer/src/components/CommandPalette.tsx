@@ -1,4 +1,5 @@
 import { Icon } from "@realm/ui";
+import { PRESETS, type PresetName } from "@realm/contracts";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { useApp, type AppState } from "../state/store";
@@ -24,6 +25,9 @@ export function usePaletteHotkey(store: StoreApi<AppState>) {
 
 const THEMES: ThemePref[] = ["system", "light", "dark"];
 
+/** Layout presets moved here from the retired topbar LayoutMenu (spec amendment §A1). */
+const PRESET_LABELS: Record<PresetName, string> = { one: "1-up", "two-col": "2 columns", "three-col": "3 columns", "grid-2x2": "2×2 grid", "grid-3x3": "3×3 grid" };
+
 /** Search across spaces, the active space's items, and a few actions. Case-insensitive substring match. */
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen);
@@ -39,6 +43,7 @@ function PaletteBody() {
   const selectSpace = useApp((s) => s.selectSpace);
   const openItem = useApp((s) => s.openItem);
   const newTerminal = useApp((s) => s.newTerminal);
+  const applyPreset = useApp((s) => s.applyPreset);
   const setThemePref = useApp((s) => s.setThemePref);
   const openSheet = useApp((s) => s.openSheet);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
@@ -55,8 +60,9 @@ function PaletteBody() {
     { id: "act:new-session", label: "New session…", hint: "action", icon: <Icon name="session" size={15} />, run: () => openSheet({ kind: "new-session" }) },
     { id: "act:new-space", label: "New space…", hint: "action", icon: <Icon name="add" size={15} />, run: () => openSheet({ kind: "new-space" }) },
     ...(activeSpaceId ? [{ id: "act:space-settings", label: "Space settings…", hint: "action", icon: <Icon name="settings" size={15} />, run: () => openSheet({ kind: "space-settings", spaceId: activeSpaceId }) }] : []),
+    ...(activeSpaceId ? PRESETS.map<Entry>((p) => ({ id: `layout:${p}`, label: `Layout: ${PRESET_LABELS[p]}`, hint: "layout", icon: <Icon name="layout" size={15} />, run: () => run(() => applyPreset(p)) })) : []),
     ...THEMES.map<Entry>((t) => ({ id: `theme:${t}`, label: `Theme: ${t[0]!.toUpperCase()}${t.slice(1)}`, hint: themePref === t ? "current" : "theme", icon: <Icon name={t === "dark" ? "moon" : "sun"} size={15} />, run: () => run(() => setThemePref(t)) })),
-  ], [spaces, items, activeSpaceId, themePref, selectSpace, openItem, newTerminal, setThemePref, openSheet, run]);
+  ], [spaces, items, activeSpaceId, themePref, selectSpace, openItem, newTerminal, applyPreset, setThemePref, openSheet, run]);
 
   const q = query.trim().toLowerCase();
   const filtered = q ? entries.filter((e) => e.label.toLowerCase().includes(q)) : entries;

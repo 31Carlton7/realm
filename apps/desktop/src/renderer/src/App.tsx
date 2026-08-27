@@ -5,13 +5,11 @@ import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
 import { NewSessionSheet } from "./panes/session/NewSessionSheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
-import { Icon } from "@realm/ui";
 import { PaneHost } from "./components/PaneHost";
-import { LayoutMenu } from "./components/LayoutMenu";
 import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
-import { emptyLayout, itemIdOfLeaf } from "@realm/contracts";
+import { emptyLayout } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
 import "./panes";
 
@@ -61,24 +59,8 @@ function SheetHost() {
   return null;
 }
 
-/** `<space icon> <space name> / <focused item title>` — the item in the focused leaf, if any. */
-function Breadcrumb() {
-  const space = useApp((s) => s.activeSpace());
-  const items = useApp((s) => s.items);
-  const layout = useApp((s) => s.layout);
-  const focusedLeafId = useApp((s) => s.focusedLeafId);
-  if (!space) return null;
-  const focusedItemId = itemIdOfLeaf(layout, focusedLeafId);
-  const item = items.find((i) => i.id === focusedItemId);
-  return (
-    <div className="breadcrumb" aria-label="Location">
-      <Icon name={space.icon} size={14} /><span className="crumb">{space.name}</span>
-      {item && <><span className="crumb-sep">/</span><span className="crumb muted">{item.title}</span></>}
-    </div>
-  );
-}
-
-/** Topbar + PaneHost for the active space. Exported for the app-shell tests. */
+/** Full-bleed PaneHost for the active space (no topbar — spec amendment §A1; layout presets live
+ *  in the command palette). Exported for the app-shell tests. */
 export function Main() {
   const layout = useApp((s) => s.layout);
   const items = useApp((s) => s.items);
@@ -88,13 +70,11 @@ export function Main() {
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const splitFocused = useApp((s) => s.splitFocused);
   const openItemAt = useApp((s) => s.openItemAt);
-  const applyPreset = useApp((s) => s.applyPreset);
   const resizeSplit = useApp((s) => s.resizeSplit);
   const run = useApp((s) => s.run);
   if (!spaceId) return <><ErrorBar /><div className="pane-placeholder muted">Create a space with the + in the sidebar.</div></>;
   return (
     <>
-      <div className="topbar"><Breadcrumb /><LayoutMenu onPick={(p) => run(() => applyPreset(p))} /></div>
       <ErrorBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
         onFocus={focusLeaf}

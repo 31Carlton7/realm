@@ -14,6 +14,15 @@ describe("paletteFromColor (flat)", () => {
     expect(p.line).toBe("#26272c");
     expect(p.accent).not.toBe(p.frame);
   });
+  it("hover is a translucent fill per mode (visible on any surface, unlike surface-on-surface fills)", () => {
+    expect(paletteFromColor("#3ddc97", "dark").hover).toBe("rgba(255,255,255,.05)");
+    expect(paletteFromColor("#3ddc97", "light").hover).toBe("rgba(20,20,30,.05)");
+  });
+  it("light raised sits below panel (#f7f7f9 vs #ffffff), so raised-on-panel fills are visible", () => {
+    const p = paletteFromColor("#3ddc97", "light");
+    expect(p.raised).toBe("#f7f7f9");
+    expect(p.panel).toBe("#ffffff");
+  });
   it("accent is contrast-adjusted: a near-black accent is lightened in dark mode", () => {
     const p = paletteFromColor("#111111", "dark");
     expect(hexToHsl(p.accent).l).toBeGreaterThan(40);
@@ -52,6 +61,7 @@ describe("paletteFromColor (flat)", () => {
     const vars = themeToCssVars(paletteFromColor("#7c6cff", "dark"));
     expect(vars["--rl-frame"]).toBeDefined();
     expect(vars["--rl-text-bright"]).toBeDefined();
+    expect(vars["--rl-hover"]).toBe("rgba(255,255,255,.05)");
     expect(vars["--rl-mode"]).toBeUndefined();
   });
   it("applyTheme sets data-mode on the root element", () => {
