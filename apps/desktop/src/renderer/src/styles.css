@@ -143,9 +143,16 @@ button.panel-title:hover { background: var(--rl-hover); }
 .drop-zone[data-edge="bottom"] { inset: auto 6px 6px 6px; height: 32%; }
 .drop-zone[data-edge="center"] { inset: 34%; }
 
-.terminal-pane { flex: 1; min-width: 0; min-height: 0; padding: 6px; background: var(--rl-terminal-bg); display: flex; color-scheme: dark; /* its interior is always dark, in both app modes — keeps xterm's own scrollbar dark too */ }
+.terminal-pane { position: relative; flex: 1; min-width: 0; min-height: 0; padding: 10px 12px; background: var(--rl-terminal-bg); display: flex; color-scheme: dark; /* its interior is always dark, in both app modes — keeps xterm's own scrollbar dark too */ }
 .terminal-pane .xterm { height: 100%; }
 .terminal-host { flex: 1; min-width: 0; min-height: 0; height: 100%; }
+/* Empty-terminal hint (V-F3): floats centered until the first output, then fades out. Fixed light
+   colours, not text tokens — the terminal interior stays dark in both app modes. */
+.terminal-hint { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; justify-items: center; gap: 4px;
+  text-align: center; pointer-events: none; user-select: none; opacity: 1; transition: opacity .25s var(--ease); }
+.terminal-hint[data-hidden] { opacity: 0; }
+.terminal-hint-path { font: 12px ui-monospace, Menlo, monospace; color: rgba(255,255,255,.55); }
+.terminal-hint-keys { font-size: 11px; color: rgba(255,255,255,.32); }
 .error-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 6px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--rl-danger) 40%, transparent); border-radius: var(--r-ctl);
   background: color-mix(in srgb, var(--rl-danger) 10%, var(--rl-panel)); color: var(--rl-danger); font-size: 12px; -webkit-app-region: no-drag; }
 .error-bar button { color: inherit; padding: 2px 6px; }
@@ -303,10 +310,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .agent-name { font-weight: 550; } .agent-hint { margin-left: auto; font-size: 11px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 
 /* ── Scrollbars: thin + on-theme in the few containers that actually scroll ───── */
-.transcript, .space-body, .palette-list, .tool-well, .sheet { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
-.transcript::-webkit-scrollbar, .space-body::-webkit-scrollbar, .palette-list::-webkit-scrollbar, .tool-well::-webkit-scrollbar, .sheet::-webkit-scrollbar { width: 10px; }
-.transcript::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
-.transcript::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track { background: transparent; }
+.transcript, .space-body, .palette-list, .tool-well, .sheet, .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
+.transcript::-webkit-scrollbar, .space-body::-webkit-scrollbar, .palette-list::-webkit-scrollbar, .tool-well::-webkit-scrollbar, .sheet::-webkit-scrollbar, .terminal-pane .xterm-viewport::-webkit-scrollbar { width: 10px; }
+.transcript::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb, .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
+.transcript::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track, .terminal-pane .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 
 /* ── Motion (spec §4): panel settle + permission enter; nothing else ───── */
 .panel-body .pane-slot { animation: rl-settle 150ms var(--ease); }
