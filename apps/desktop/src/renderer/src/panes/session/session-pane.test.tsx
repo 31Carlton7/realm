@@ -50,6 +50,7 @@ describe("SessionPane", () => {
     fireEvent.keyDown(box, { key: "Enter", metaKey: true });
     await waitFor(() => expect(sent).toEqual(["next"]));
     expect((box as HTMLTextAreaElement).value).toBe("");
+    expect(document.querySelector(".empty-title")).toBeNull(); // a non-empty transcript never shows the empty state
   });
 
   it("Allow always / Deny map to decisions; tool card expands", async () => {
@@ -62,7 +63,40 @@ describe("SessionPane", () => {
     expect(tool).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(tool);
     expect(screen.getAllByText(/"command": "ls -la"/).length).toBeGreaterThanOrEqual(1); // tool body (and the permission card details)
+    const card = tool.closest(".tool-card") as HTMLElement;
+    expect(within(card).getByText(/"command": "ls -la"/).closest("pre")).toHaveClass("tool-well");
     expect(screen.getByLabelText("running")).toBeInTheDocument(); // no result yet while the session is live
+  });
+
+  it("empty transcript shows the centered empty state with suggestion chips for the session's agent kind; clicking one fills the composer without sending", async () => {
+    const { api } = await mount("idle", reduceAll([]));
+    const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
+    const title = document.querySelector(".empty-title");
+    expect(title).toHaveTextContent("What should we work on in Versed?");
+    expect(title?.querySelector("em")).toHaveTextContent("Versed");
+    const chip = screen.getByRole("button", { name: "Say hello" }); // default mount() session is agentKind "fake"
+    fireEvent.click(chip);
+    const box = screen.getByRole("textbox", { name: /message/i });
+    expect((box as HTMLTextAreaElement).value).toBe("Hello!");
+    expect(sent).toEqual([]); // filled, not sent
+  });
+
+  it("suggestion chips are keyed by the session's agent kind, not shared across kinds", async () => {
+    await mountKind("codex");
+    expect(screen.getByRole("button", { name: "Build a feature" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Say hello" })).toBeNull();
+  });
+
+  it("composer permission select carries data-warning only in bypassPermissions", async () => {
+    await mount("idle", reduceAll([]));
+    const select = screen.getByRole("combobox", { name: "Permission mode" });
+    expect(select).not.toHaveAttribute("data-warning");
+    fireEvent.change(select, { target: { value: "plan" } });
+    await waitFor(() => expect(select).toHaveValue("plan"));
+    expect(select).not.toHaveAttribute("data-warning");
+    fireEvent.change(select, { target: { value: "bypassPermissions" } });
+    await waitFor(() => expect(select).toHaveValue("bypassPermissions"));
+    expect(select).toHaveAttribute("data-warning");
   });
 
   it("Stop appears while running and interrupts; option selects call setSessionOptions; opens the session on mount", async () => {
@@ -163,6 +197,11 @@ describe("markdown + summaries", () => {
     expect(toolSummary("Grep", { pattern: "foo", path: "/" })).toBe("foo");
     expect(toolSummary("Whatever", { n: 1, s: "first" })).toBe("first");
     expect(toolSummary("Whatever", {})).toBe("");
+  });
+  it("summarizes Codex-style tool inputs; unknown/ACP tool names fall back to the first string field", () => {
+    expect(toolSummary("exec_command", { command: "npm test", cwd: "/repo" })).toBe("npm test");
+    expect(toolSummary("apply_patch", { changes: [{ path: "/src/a.ts" }, { path: "/src/b.ts" }] })).toBe("/src/a.ts");
+    expect(toolSummary("mcp__acp__some_tool", { foo: 1, note: "do the thing" })).toBe("do the thing");
   });
 });
 

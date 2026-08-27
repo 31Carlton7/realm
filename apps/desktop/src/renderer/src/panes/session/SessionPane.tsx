@@ -1,9 +1,10 @@
 import { Icon } from "@realm/ui";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AGENT_META, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { Composer } from "./Composer";
+import { SUGGESTIONS } from "./suggestions";
 import { Transcript } from "./Transcript";
 import { emptyTranscript } from "./transcript-model";
 
@@ -34,6 +35,7 @@ export function SessionPane({ item, visible }: PaneProps) {
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
   const entry = useApp((s) => s.transcripts[id]);
   const projects = useApp((s) => s.projects);
+  const spaces = useApp((s) => s.spaces);
   const openSession = useApp((s) => s.openSession);
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);
@@ -41,17 +43,30 @@ export function SessionPane({ item, visible }: PaneProps) {
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const run = useApp((s) => s.run);
   const transcript = entry?.t ?? emptyTranscript();
+  // Owned here (not in Composer) so a suggestion chip in the empty state can fill the draft without sending it.
+  const [draft, setDraft] = useState("");
 
   useEffect(() => { run(() => openSession(id)); }, [id, openSession, run]);
 
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
   const project = session.projectId ? projects.find((p) => p.id === session.projectId) ?? null : null;
+  const space = spaces.find((s) => s.id === session.spaceId);
   return (
     <div className="session-pane" data-visible={visible || undefined}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible}
         onDecide={(requestId, d) => run(() => respondPermission(id, requestId, d))}
-        empty={<div className="transcript-empty muted"><Icon name={AGENT_META[session.agentKind].icon} size={28} /><div>Say something to start the session.</div></div>} />
-      <Composer session={session} status={status} project={project}
+        empty={
+          <div className="transcript-empty muted">
+            <Icon name={AGENT_META[session.agentKind].icon} size={28} />
+            <div className="empty-title">What should we work on in <em>{space?.name ?? "this space"}</em>?</div>
+            <div className="suggestions">
+              {SUGGESTIONS[session.agentKind].map((s) => (
+                <button key={s.title} type="button" className="suggestion-chip" onClick={() => setDraft(s.prompt)}>{s.title}</button>
+              ))}
+            </div>
+          </div>
+        } />
+      <Composer session={session} status={status} project={project} draft={draft} onDraftChange={setDraft}
         onSend={(text) => run(() => sendMessage(id, text))}
         onStop={() => run(() => interruptSession(id))}
         onOptions={(o) => run(() => setSessionOptions(id, o))} />

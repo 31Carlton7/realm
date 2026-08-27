@@ -11,14 +11,21 @@ export function toolSummary(name: string, input: Record<string, unknown>): strin
     case "WebSearch": return str("query") ?? "";
     case "Task": case "Agent": return str("description") ?? str("prompt") ?? "";
     case "TodoWrite": return "update todos";
+    case "exec_command": return str("command") ?? "";
+    case "apply_patch": {
+      const changes = input["changes"];
+      const first = Array.isArray(changes) ? changes[0] : null;
+      const path = first && typeof first === "object" ? (first as Record<string, unknown>)["path"] : null;
+      return typeof path === "string" ? path : "";
+    }
     default: { for (const v of Object.values(input)) if (typeof v === "string" && v.trim()) return v; return ""; }
   }
 }
 
 export function toolIcon(name: string): IconName {
   switch (name) {
-    case "Bash": return "terminal";
-    case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": return "artifact";
+    case "Bash": case "exec_command": return "terminal";
+    case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": case "apply_patch": return "artifact";
     case "Glob": case "Grep": return "search";
     case "WebFetch": case "WebSearch": return "browser";
     case "Task": case "Agent": return "bot";
