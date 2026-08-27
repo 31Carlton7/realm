@@ -1,9 +1,10 @@
 import { Icon } from "@realm/ui";
-import { useEffect } from "react";
-import { AGENT_META } from "@realm/contracts";
+import { useEffect, useState } from "react";
+import { AGENT_META, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { Composer } from "./Composer";
+import { SUGGESTIONS } from "./suggestions";
 import { Transcript } from "./Transcript";
 import { emptyTranscript } from "./transcript-model";
 
@@ -11,13 +12,30 @@ const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Ne
 
 const fmtCost = (usd: number) => (usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(3)}`);
 
-/** Header strip + transcript + composer for one agent session (item.refId = session id). */
+/** PanelBar right-side meta for a session item: model label, cost (only once real spend exists), status dot.
+ *  PanelBar owns the icon + title; this is everything the old .session-header showed on its right. */
+export function SessionMeta({ item }: { item: Item }) {
+  const id = item.refId;
+  const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
+  const model = useApp((s) => s.sessions[id]?.model ?? s.transcripts[id]?.t.init?.model ?? null);
+  const usage = useApp((s) => s.transcripts[id]?.t.usage ?? null);
+  return (
+    <>
+      {model && <span>{model}</span>}
+      {usage && usage.costUsd > 0 && <span>{fmtCost(usage.costUsd)} · {usage.numTurns} {usage.numTurns === 1 ? "turn" : "turns"}</span>}
+      <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
+    </>
+  );
+}
+
+/** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
 export function SessionPane({ item, visible }: PaneProps) {
   const id = item.refId;
   const session = useApp((s) => s.sessions[id]);
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
   const entry = useApp((s) => s.transcripts[id]);
   const projects = useApp((s) => s.projects);
+  const spaces = useApp((s) => s.spaces);
   const openSession = useApp((s) => s.openSession);
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);
@@ -25,27 +43,30 @@ export function SessionPane({ item, visible }: PaneProps) {
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const run = useApp((s) => s.run);
   const transcript = entry?.t ?? emptyTranscript();
+  // Owned here (not in Composer) so a suggestion chip in the empty state can fill the draft without sending it.
+  const [draft, setDraft] = useState("");
 
   useEffect(() => { run(() => openSession(id)); }, [id, openSession, run]);
 
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
   const project = session.projectId ? projects.find((p) => p.id === session.projectId) ?? null : null;
-  const model = session.model ?? transcript.init?.model ?? null;
+  const space = spaces.find((s) => s.id === session.spaceId);
   return (
     <div className="session-pane" data-visible={visible || undefined}>
-      <div className="session-header">
-        <Icon name={AGENT_META[session.agentKind].icon} size={15} className="session-agent-icon" />
-        <span className="session-title" title={item.title}>{item.title}</span>
-        <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
-        <span className="session-meta muted">
-          {model && <span>{model}</span>}
-          {transcript.usage.numTurns > 0 && <span>{fmtCost(transcript.usage.costUsd)} · {transcript.usage.numTurns} {transcript.usage.numTurns === 1 ? "turn" : "turns"}</span>}
-        </span>
-      </div>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible}
         onDecide={(requestId, d) => run(() => respondPermission(id, requestId, d))}
-        empty={<div className="transcript-empty muted"><Icon name={AGENT_META[session.agentKind].icon} size={28} /><div>Say something to start the session.</div></div>} />
-      <Composer session={session} status={status} project={project}
+        empty={
+          <div className="transcript-empty muted">
+            <Icon name={AGENT_META[session.agentKind].icon} size={28} />
+            <div className="empty-title">What should we work on in <em>{space?.name ?? "this space"}</em>?</div>
+            <div className="suggestions">
+              {SUGGESTIONS[session.agentKind].map((s) => (
+                <button key={s.title} type="button" className="suggestion-chip" onClick={() => setDraft(s.prompt)}>{s.title}</button>
+              ))}
+            </div>
+          </div>
+        } />
+      <Composer session={session} status={status} project={project} draft={draft} onDraftChange={setDraft}
         onSend={(text) => run(() => sendMessage(id, text))}
         onStop={() => run(() => interruptSession(id))}
         onOptions={(o) => run(() => setSessionOptions(id, o))} />

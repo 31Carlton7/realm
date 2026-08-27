@@ -1,4 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useRef, type WheelEvent } from "react";
+import { allItems, emptyLayout, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/gesture";
 import { SpaceHeader } from "./SpaceHeader";
@@ -125,11 +126,27 @@ export function SpaceSwiper() {
 
 const ActiveSpaceBody = memo(function ActiveSpaceBody() {
   const items = useApp((s) => s.items);
-  const pinned = items.filter((i) => i.pinned), rest = items.filter((i) => !i.pinned);
+  const layout = useApp((s) => s.layout) ?? emptyLayout();
+  const openIds = allItems(layout);
+  const openSet = new Set(openIds);
+  const byId = new Map(items.map((i) => [i.id, i]));
+  // OPEN follows the layout's open order (allItems is depth-first), not the items array's order.
+  const open = openIds.map((id) => byId.get(id)).filter((i): i is Item => !!i);
+  const unopened = items.filter((i) => !openSet.has(i.id));
+  const pinned = unopened.filter((i) => i.pinned), rest = unopened.filter((i) => !i.pinned);
   return (
     <>
-      {pinned.length > 0 && <PinnedGrid items={pinned} />}
-      <ItemList items={rest} />
+      <div className="space-body">
+        {open.length > 0 && (
+          <>
+            <div className="group-label">Open</div>
+            <ItemList items={open} variant="open" />
+          </>
+        )}
+        <div className="group-label">Space</div>
+        {pinned.length > 0 && <PinnedGrid items={pinned} />}
+        <ItemList items={rest} variant="space" />
+      </div>
       <NewItemMenu />
     </>
   );

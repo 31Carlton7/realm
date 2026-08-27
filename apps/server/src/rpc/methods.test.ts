@@ -38,11 +38,17 @@ describe("rpc methods", () => {
     const space = (await c.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
     expect(space.folderPath).toContain("versed");
     const item = (await c.call("items.create", { spaceId: space.id, kind: "terminal", title: "zsh", refId: space.id })).result;
-    const layout = { type: "leaf", id: "L1", tabs: [item.id], activeTab: item.id };
+    const layout = { type: "leaf", id: "L1", itemId: item.id };
     const updated = (await c.call("spaces.setLayout", { id: space.id, layout })).result;
     expect(updated.layout).toEqual(layout);
     const listed = (await c.call("spaces.list", {})).result;
     expect(listed).toHaveLength(1);
+    expect(listed[0].layout).toEqual(layout); // survives the SQLite round-trip unchanged
+    // Legacy pre-Plan-4 leaf shape migrates on parse: the server stores and returns the one-item form.
+    const legacy = { type: "leaf", id: "L2", tabs: [item.id, "01ARZ3NDEKTSV4RRFFQ69G5FAV"], activeTab: item.id };
+    const migrated = (await c.call("spaces.setLayout", { id: space.id, layout: legacy })).result;
+    expect(migrated.layout).toEqual({ type: "leaf", id: "L2", itemId: item.id });
+    expect((await c.call("spaces.list", {})).result[0].layout).toEqual({ type: "leaf", id: "L2", itemId: item.id });
     await waitFor(() => ["profiles.changed", "spaces.changed", "items.changed"].every((e) => c.events.some((x) => x.event === e)));
     const info = (await c.call("system.info", {})).result;
     expect(info.realmHome).toBe(home);

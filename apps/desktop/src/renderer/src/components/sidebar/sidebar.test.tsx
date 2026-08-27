@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import type { Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, space } from "../../state/store.test-fakes";
+import { leafPositionOf } from "./ItemList";
 
 async function mount(api = fakeApi()) {
   const store = createAppStore(api); await store.getState().boot();
@@ -49,14 +51,16 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
   });
 
-  it("right-click on an item offers Pin, which moves it to the pinned grid; close removes it", async () => {
+  it("right-click on an item offers Pin, which moves it to the pinned grid; Delete removes it permanently", async () => {
     const { store, api } = await mount();
     fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Pin" }));
     await waitFor(() => expect(screen.getByRole("button", { name: /Terminal/ })).toHaveAttribute("data-tile", "true"));
     expect(store.getState().items[0]?.pinned).toBe(true);
+    // i1 is unopened (default layout is null), so Close should not even be offered here.
     fireEvent.contextMenu(screen.getByRole("button", { name: /Terminal/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Close" }));
+    expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     await waitFor(() => expect(store.getState().items).toHaveLength(0));
     expect(api.calls).toContain("deleteItem:i1");
   });
@@ -134,5 +138,256 @@ describe("Arc sidebar", () => {
     expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1" });
     fireEvent.click(screen.getByRole("button", { name: "New space" }));
     expect(store.getState().sheet).toEqual({ kind: "new-space" });
+  });
+
+  it("OPEN label is absent when nothing is open; unopened items render under SPACE", async () => {
+    await mount(); // default: layout is null, i1 "Terminal" is unopened
+    expect(screen.queryByText("Open")).not.toBeInTheDocument();
+    expect(screen.getByText("Space")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Terminal" })).toBeInTheDocument();
+  });
+
+  it("OPEN group follows layout order (not items order); SPACE holds the rest, pinned tiles first, and a pinned-and-open item appears only in OPEN", async () => {
+    // Layout order is i2 then i1 — the reverse of the items array below, so an implementation that
+    // (wrongly) used items order instead of allItems(layout) order would render them the other way.
+    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i2" },
+      { type: "leaf", id: "L2", itemId: "i1" },
+    ] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [
+        item("i1", "s1", { title: "Alpha", pinned: true }), // pinned AND open — belongs only to OPEN
+        item("i2", "s1", { title: "Beta" }),
+        item("i3", "s1", { title: "Gamma", pinned: true }), // pinned, unopened — the grid
+        item("i4", "s1", { title: "Delta" }), // unpinned, unopened — the space list
+      ] },
+    });
+    await mount(api);
+    expect(screen.getByText("Open")).toBeInTheDocument();
+    const lists = document.querySelectorAll(".item-list");
+    const openTitles = Array.from(lists[0]!.querySelectorAll(".item-title")).map((n) => n.textContent);
+    expect(openTitles).toEqual(["Beta", "Alpha"]); // layout order, not items-array order
+    const pinnedGrid = document.querySelector(".pinned-grid")!;
+    expect(pinnedGrid.textContent).toContain("Gamma");
+    expect(pinnedGrid.textContent).not.toContain("Alpha"); // open-and-pinned lives in OPEN, not the grid
+    const spaceList = lists[1]!;
+    expect(spaceList.textContent).toContain("Delta");
+    expect(spaceList.textContent).not.toContain("Gamma"); // pinned items don't also get a SPACE row
+    expect(spaceList.textContent).not.toContain("Alpha");
+  });
+
+  it("clicking a SPACE row opens it; clicking an OPEN row keeps/re-opens it (both call openItem)", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    const { store } = await mount(api);
+    fireEvent.click(screen.getByRole("button", { name: "Beta" })); // SPACE row -> opens it
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBe("i2"); });
+    fireEvent.click(screen.getByRole("button", { name: "Alpha" })); // now unopened -> click re-opens it
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBe("i1"); });
+  });
+
+  it("the x on an OPEN row closes it from the layout without deleting it; SPACE rows render no x", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    const { store } = await mount(api);
+    expect(screen.getByRole("button", { name: "Beta" }).closest(".item")!.querySelector(".item-close")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close Alpha" }));
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBeNull(); });
+    expect(api.calls).not.toContain("deleteItem:i1");
+    expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists, just unopened
+  });
+
+  it("context menu: Close only for open items (closes from layout); Delete always (destructive)", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    const { store } = await mount(api);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" })); // open
+    expect(screen.getByRole("menuitem", { name: "Close" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Close" }));
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBeNull(); });
+    expect(api.calls).not.toContain("deleteItem:i1");
+    expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Beta" })); // unopened
+    expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i2"));
+    expect(api.calls).toContain("deleteItem:i2");
+  });
+
+  it("Delete on an OPEN item removes it from both the layout and the item list", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    const { store } = await mount(api);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" })); // i1 is open in L1
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
+    expect(api.calls).toContain("deleteItem:i1");
+    const l = store.getState().layout!;
+    expect(l.type === "leaf" && l.itemId).toBeNull(); // the leaf it occupied is empty, not still pointing at i1
+  });
+
+  it("during a row split, OPEN rows render the quadrant glyph lighting the correct column", async () => {
+    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i1" },
+      { type: "leaf", id: "L2", itemId: "i2" },
+    ] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    await mount(api);
+    expect(onCells(glyphOf("Alpha"))).toEqual([0, 2]); // left child -> left column
+    expect(onCells(glyphOf("Beta"))).toEqual([1, 3]); // right child -> right column
+  });
+
+  it("during a col split, OPEN rows render the quadrant glyph lighting the correct row", async () => {
+    const layout: Layout = { type: "split", id: "root", dir: "col", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i1" },
+      { type: "leaf", id: "L2", itemId: "i2" },
+    ] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    await mount(api);
+    expect(onCells(glyphOf("Alpha"))).toEqual([0, 1]); // top child -> top row
+    expect(onCells(glyphOf("Beta"))).toEqual([2, 3]); // bottom child -> bottom row
+  });
+
+  it("in a split, data-active marks only the focused leaf's row, not every open row; clicking the other OPEN row moves the highlight", async () => {
+    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i1" },
+      { type: "leaf", id: "L2", itemId: "i2" },
+    ] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    const { store } = await mount(api);
+    // boot() focuses the first leaf (L1 -> Alpha) by default.
+    expect(store.getState().focusedLeafId).toBe("L1");
+    const rows = () => screen.getAllByRole("button", { name: /^(Alpha|Beta)$/ }).map((b) => b.closest(".item")!);
+    expect(rows().filter((r) => r.hasAttribute("data-active"))).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Alpha" }).closest(".item")).toHaveAttribute("data-active");
+    expect(screen.getByRole("button", { name: "Beta" }).closest(".item")).not.toHaveAttribute("data-active");
+    fireEvent.click(screen.getByRole("button", { name: "Beta" })); // already open -> focuses its pane, no layout move
+    await waitFor(() => expect(store.getState().focusedLeafId).toBe("L2"));
+    expect(rows().filter((r) => r.hasAttribute("data-active"))).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Beta" }).closest(".item")).toHaveAttribute("data-active");
+    expect(screen.getByRole("button", { name: "Alpha" }).closest(".item")).not.toHaveAttribute("data-active");
+  });
+
+  it("both OPEN and SPACE rows are draggable, carry the item id via application/x-realm-item on dragstart, and set/clear data-dragging", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    await mount(api);
+    const openRow = screen.getByRole("button", { name: "Alpha" }).closest(".item")!; // OPEN row
+    const spaceRow = screen.getByRole("button", { name: "Beta" }).closest(".item")!; // SPACE row
+
+    for (const [row, id] of [[openRow, "i1"], [spaceRow, "i2"]] as const) {
+      expect(row).toHaveAttribute("draggable", "true");
+      const setData = vi.fn();
+      fireEvent.dragStart(row, { dataTransfer: { setData, effectAllowed: "", getData: () => "" } });
+      expect(setData).toHaveBeenCalledWith("application/x-realm-item", id);
+      expect(row).toHaveAttribute("data-dragging");
+      fireEvent.dragEnd(row, { dataTransfer: { getData: () => "" } });
+      expect(row).not.toHaveAttribute("data-dragging");
+    }
+  });
+
+  it("dragging one row does not mark a sibling row as dragging", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    await mount(api);
+    const openRow = screen.getByRole("button", { name: "Alpha" }).closest(".item")!;
+    const spaceRow = screen.getByRole("button", { name: "Beta" }).closest(".item")!;
+    fireEvent.dragStart(spaceRow, { dataTransfer: { setData: () => {}, effectAllowed: "", getData: () => "" } });
+    expect(spaceRow).toHaveAttribute("data-dragging");
+    expect(openRow).not.toHaveAttribute("data-dragging");
+  });
+
+  it("a single-leaf layout hides the glyph entirely, even though the item is open", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" })] },
+    });
+    await mount(api);
+    expect(screen.getByRole("button", { name: "Alpha" }).querySelector(".item-glyph")).toBeNull();
+  });
+});
+
+function glyphOf(title: string): Element {
+  return screen.getByRole("button", { name: title }).querySelector(".item-glyph")!;
+}
+function onCells(glyph: Element): number[] {
+  return Array.from(glyph.querySelectorAll("span"))
+    .map((s, i) => (s.hasAttribute("data-on") ? i : null))
+    .filter((x): x is number => x !== null);
+}
+
+describe("leafPositionOf", () => {
+  const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
+  const split = (dir: "row" | "col", children: Layout[]): Layout =>
+    ({ type: "split", id: "root", dir, sizes: children.map(() => 100 / children.length), children });
+
+  it("returns null for a single-leaf layout (no split at all)", () => {
+    expect(leafPositionOf(leaf("L1", "i1"), "i1")).toBeNull();
+  });
+
+  it("returns null when the item isn't open anywhere in the tree", () => {
+    expect(leafPositionOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "i3")).toBeNull();
+  });
+
+  it("returns the child index (0/1) for a two-way split root", () => {
+    const l = split("row", [leaf("L1", "i1"), leaf("L2", "i2")]);
+    expect(leafPositionOf(l, "i1")).toBe(0);
+    expect(leafPositionOf(l, "i2")).toBe(1);
+  });
+
+  it("falls back to depth-first leaf index modulo 4 for a root with more than two children", () => {
+    const l = split("row", [leaf("L1", "i1"), leaf("L2", "i2"), leaf("L3", "i3")]);
+    expect(leafPositionOf(l, "i1")).toBe(0);
+    expect(leafPositionOf(l, "i2")).toBe(1);
+    expect(leafPositionOf(l, "i3")).toBe(2);
+  });
+
+  it("a >2-child root with a nested split still takes the DF fallback, not the two-way branch", () => {
+    // root has 3 children (not two-way), so the two-way branch never applies here even though one of
+    // those children is itself a two-way split. DF leaf order is a, b, c, d — "c" is index 2.
+    const l = split("row", [leaf("L1", "a"), split("col", [leaf("L2", "b"), leaf("L3", "c")]), leaf("L4", "d")]);
+    expect(leafPositionOf(l, "c")).toBe(2);
+  });
+
+  it("a two-way root resolves by which top-level child's subtree holds the item, not DF order (the documented contract)", () => {
+    // The root IS two-way, so the two-way branch applies: "b" lives inside child 0's subtree -> 0.
+    // A DF-fallback implementation would instead see leaves [a, b, d] and answer 1 for "b" — wrong.
+    const inner = split("col", [leaf("L1", "a"), leaf("L2", "b")]);
+    const l = split("row", [inner, leaf("L3", "d")]);
+    expect(leafPositionOf(l, "b")).toBe(0);
   });
 });

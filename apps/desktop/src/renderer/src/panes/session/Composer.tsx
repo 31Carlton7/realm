@@ -1,16 +1,18 @@
 import { AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, EFFORT_LEVELS, PERMISSION_MODES, type Project, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import type { SessionOptions } from "../../state/store";
 
 const MAX_ROWS_PX = 220;
 
-/** Message box + option selects. ⌘/Ctrl+Enter sends; Enter inserts a newline. */
-export function Composer({ session, status, project, onSend, onStop, onOptions }: {
+/** Message box + option selects. ⌘/Ctrl+Enter sends; Enter inserts a newline.
+ *  The draft text is owned by SessionPane (not this component) so a suggestion chip in the empty state
+ *  can fill it without sending. */
+export function Composer({ session, status, project, draft, onDraftChange, onSend, onStop, onOptions }: {
   session: Session; status: SessionStatus; project: Project | null;
+  draft: string; onDraftChange: (text: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
 }) {
-  const [text, setText] = useState("");
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
   const models = AGENT_MODELS[session.agentKind] as ReadonlyArray<{ id: string; label: string }>;
@@ -23,9 +25,9 @@ export function Composer({ session, status, project, onSend, onStop, onOptions }
     const el = ta.current; if (!el) return;
     el.style.height = "0px";
     el.style.height = `${Math.min(MAX_ROWS_PX, el.scrollHeight)}px`;
-  }, [text]);
+  }, [draft]);
 
-  const send = () => { const t = text.trim(); if (!t) return; onSend(t); setText(""); };
+  const send = () => { const t = draft.trim(); if (!t) return; onSend(t); onDraftChange(""); };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
   };
@@ -33,7 +35,7 @@ export function Composer({ session, status, project, onSend, onStop, onOptions }
   return (
     <div className="composer">
       <textarea ref={ta} className="composer-input" aria-label="Message" placeholder="Message the agent… (⌘↵ to send)" rows={1}
-        value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} />
+        value={draft} onChange={(e) => onDraftChange(e.target.value)} onKeyDown={onKeyDown} />
       <div className="composer-bar">
         <div className="composer-opts">
           {models.length > 0 && (
@@ -47,7 +49,8 @@ export function Composer({ session, status, project, onSend, onStop, onOptions }
             {EFFORT_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
           {canSetPermissionMode && (
-            <select aria-label="Permission mode" className="composer-select" value={session.permissionMode} onChange={(e) => onOptions({ permissionMode: e.target.value })}>
+            <select aria-label="Permission mode" className="composer-select" data-warning={session.permissionMode === "bypassPermissions" || undefined}
+              value={session.permissionMode} onChange={(e) => onOptions({ permissionMode: e.target.value })}>
               {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
           )}
@@ -57,7 +60,7 @@ export function Composer({ session, status, project, onSend, onStop, onOptions }
           {running
             ? <button className="composer-btn stop" aria-label="Stop" title="Stop (interrupt)" onClick={onStop}><Icon name="stop" size={15} /></button>
             : null}
-          <button className="composer-btn send" aria-label="Send" title="Send (⌘↵)" disabled={!text.trim()} onClick={send}><Icon name="send" size={15} /></button>
+          <button className="composer-btn send" aria-label="Send" title="Send (⌘↵)" disabled={!draft.trim()} onClick={send}><Icon name="send" size={15} /></button>
         </div>
       </div>
     </div>

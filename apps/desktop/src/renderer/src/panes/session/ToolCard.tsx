@@ -28,8 +28,8 @@ export function ToolCard({ block, sessionStatus }: { block: ToolBlock; sessionSt
       </button>
       {open && (
         <div className="tool-body">
-          <div className="tool-section"><div className="tool-label">Input</div><pre>{prettyJson(block.input)}</pre></div>
-          {block.result && <div className="tool-section"><div className="tool-label">{block.result.isError ? "Error" : "Result"}</div><pre data-error={block.result.isError || undefined}>{block.result.content || "(empty)"}</pre></div>}
+          <div className="tool-section"><div className="tool-label">Input</div><pre className="tool-well">{prettyJson(block.input)}</pre></div>
+          {block.result && <div className="tool-section"><div className="tool-label">{block.result.isError ? "Error" : "Result"}</div><pre className="tool-well" data-error={block.result.isError || undefined}>{block.result.content || "(empty)"}</pre></div>}
         </div>
       )}
     </div>

@@ -1,29 +1,62 @@
 import { describe, expect, it } from "vitest";
-import { hexToHsl, hslToHex, paletteFromColor, themeToCssVars } from "./theme";
-describe("theme", () => {
-  it("hex/hsl roundtrip", () => { expect(hslToHex(hexToHsl("#7c6cff"))).toBe("#7c6cff"); });
-  it("light palette has pale sidebar tint and near-white surface; dark has deep tint and near-black surface", () => {
-    const l = paletteFromColor("#7c6cff", "light"); const d = paletteFromColor("#7c6cff", "dark");
-    expect(hexToHsl(l.sidebarBg).l).toBeGreaterThan(80); expect(hexToHsl(l.surface).l).toBeGreaterThan(95);
-    expect(hexToHsl(d.sidebarBg).l).toBeLessThan(25); expect(hexToHsl(d.surface).l).toBeLessThan(12);
-    expect(l.accent).toBe("#7c6cff");
+import { applyTheme, hexToHsl, hslToHex, paletteFromColor, themeToCssVars } from "./theme";
+
+describe("hex/hsl roundtrip", () => {
+  it("hslToHex(hexToHsl(x)) === x", () => { expect(hslToHex(hexToHsl("#7c6cff"))).toBe("#7c6cff"); });
+});
+
+describe("paletteFromColor (flat)", () => {
+  it("dark palette uses fixed neutral surfaces and the space colour only as accent", () => {
+    const p = paletteFromColor("#3ddc97", "dark");
+    expect(p.frame).toBe("#131417");
+    expect(p.panel).toBe("#1b1c20");
+    expect(p.raised).toBe("#222329");
+    expect(p.line).toBe("#26272c");
+    expect(p.accent).not.toBe(p.frame);
   });
-  it("gray/black/white accents yield neutral sidebar tints; 3-digit hex is accepted", () => {
-    for (const hex of ["#808080", "#000000", "#ffffff"]) {
-      for (const mode of ["light", "dark"] as const) {
-        const p = paletteFromColor(hex, mode);
-        expect(hexToHsl(p.sidebarBg).s).toBe(0); expect(hexToHsl(p.sidebarBg2).s).toBe(0);
-      }
-    }
-    expect(hexToHsl(paletteFromColor("#7c6cff", "light").sidebarBg).s).toBeGreaterThan(50);
-    // low-but-nonzero saturation scales down proportionally
-    const soft = paletteFromColor(hslToHex({ h: 200, s: 15, l: 50 }), "light");
-    expect(hexToHsl(soft.sidebarBg).s).toBeLessThan(40); expect(hexToHsl(soft.sidebarBg).s).toBeGreaterThan(20);
-    expect(paletteFromColor("#f00", "dark").accent).toBe("#f00");
-    expect(hexToHsl(paletteFromColor("#f00", "dark").sidebarBg).h).toBeCloseTo(0, 0);
+  it("accent is contrast-adjusted: a near-black accent is lightened in dark mode", () => {
+    const p = paletteFromColor("#111111", "dark");
+    expect(hexToHsl(p.accent).l).toBeGreaterThan(40);
   });
-  it("themeToCssVars emits --rl-* variables", () => {
-    const vars = themeToCssVars(paletteFromColor("#3ddc97", "light"));
-    expect(vars["--rl-accent"]).toBe("#3ddc97"); expect(Object.keys(vars).every((k) => k.startsWith("--rl-"))).toBe(true);
+  it("accent is contrast-adjusted: a near-white accent is darkened in dark mode", () => {
+    const p = paletteFromColor("#ffffff", "dark");
+    expect(hexToHsl(p.accent).l).toBeLessThanOrEqual(75);
+  });
+  it("achromatic accent stays achromatic in dark mode (no fabricated hue)", () => {
+    const p = paletteFromColor("#888888", "dark");
+    const hsl = hexToHsl(p.accent);
+    expect(hsl.s).toBeLessThan(8);
+    // Round-tripped through hex (8-bit channel quantization), so allow a hair outside the [55, 75] clamp.
+    expect(hsl.l).toBeGreaterThan(54);
+    expect(hsl.l).toBeLessThan(76);
+  });
+  it("near-black accent regression: #111111 stays achromatic, not a fabricated dusty red", () => {
+    const p = paletteFromColor("#111111", "dark");
+    const hsl = hexToHsl(p.accent);
+    expect(hsl.s).toBeLessThan(8);
+    // Round-tripped through hex (8-bit channel quantization), so allow a hair outside the [55, 75] clamp.
+    expect(hsl.l).toBeGreaterThan(54);
+    expect(hsl.l).toBeLessThan(76);
+  });
+  it("washed-out hued accent still gets the saturation floor", () => {
+    const p = paletteFromColor("#8a7f9e", "dark"); // s ≈ 13.8, above the achromatic threshold
+    expect(hexToHsl(p.accent).s).toBeGreaterThanOrEqual(25);
+  });
+  it("light palette flips the ladder", () => {
+    const p = paletteFromColor("#3ddc97", "light");
+    expect(hexToHsl(p.frame).l).toBeGreaterThan(90);                        // light ground
+    expect(hexToHsl(p.frame).l).toBeLessThan(hexToHsl(p.panel).l);          // panel sits above frame
+    expect(hexToHsl(p.textBright).l).toBeLessThan(30);
+  });
+  it("css vars are kebab-cased --rl-*", () => {
+    const vars = themeToCssVars(paletteFromColor("#7c6cff", "dark"));
+    expect(vars["--rl-frame"]).toBeDefined();
+    expect(vars["--rl-text-bright"]).toBeDefined();
+    expect(vars["--rl-mode"]).toBeUndefined();
+  });
+  it("applyTheme sets data-mode on the root element", () => {
+    const root = { style: { setProperty: () => {} }, dataset: {} as Record<string, string> } as unknown as HTMLElement;
+    applyTheme(paletteFromColor("#3ddc97", "dark"), root);
+    expect(root.dataset.mode).toBe("dark");
   });
 });

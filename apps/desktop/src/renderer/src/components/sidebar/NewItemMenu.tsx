@@ -19,7 +19,7 @@ export function NewItemMenu() {
         <Menu label="New item" onClose={close} anchorRef={btnRef} items={[
           { label: "Session…", onSelect: () => openSheet({ kind: "new-session" }) },
           { label: "Terminal", onSelect: () => run(() => newTerminal()) },
-          { label: "Browser tab", disabled: true, title: "Coming in Plan 4", onSelect: () => {} },
+          { label: "Browser tab — on the roadmap", disabled: true, onSelect: () => {} },
         ]} />
       )}
     </div>
