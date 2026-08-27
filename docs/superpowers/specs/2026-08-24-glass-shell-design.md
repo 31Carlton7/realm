@@ -1,94 +1,89 @@
-# Realm Glass Shell — UI Overhaul Design
+# Realm Shell — UI Overhaul Design (Codex-flat)
 
-**Date:** 2026-08-24 · **Status:** approved in brainstorming; supersedes the visual/layout portions of Plan 2's shell. The spaces model, gesture stack, agent sessions, and all of Plan 3 are untouched.
+**Date:** 2026-08-24 · **Status:** approved in brainstorming. Supersedes the visual/layout portions of Plan 2's shell. The spaces model, gesture stack, agent sessions, and all of Plan 3 are untouched.
 
-**Decisions this records** (made interactively, with mockups): depth was diagnosed as the core visual problem; material = **vibrant glass** (Arc/Claude Desktop direction) over layered-dark and inset-panel alternatives; navigation = **Arc-true** (sidebar is the open set, TabBar retired) over differentiated-tabs and command-centric alternatives; themes = **dark-first, competent light**. Mockups: `Realm Material Study` and `Realm Shell Layouts` artifacts (2026-08-24).
+**Decision history:** depth was diagnosed as the core visual problem; an earlier draft of this spec chose vibrant glass (macOS vibrancy). **Revised the same day to the Codex-app flat direction** after reviewing OpenAI's Codex desktop app: glass is hard to replicate faithfully in React/Electron and platform-dependent, while the Codex look — panels-in-a-frame, generous consistent rounding, hairline borders, no blur — achieves the depth goal in plain CSS with identical results everywhere. Navigation = **Arc-true** (sidebar is the open set, TabBar retired). Themes = **dark-first, competent light**. References: Codex app screenshots (2026-08-24), `Realm Material Study` / `Realm Shell Layouts` artifacts.
 
 ---
 
-## 1. The material system
+## 1. The material system (panel-in-frame)
 
-Three planes. Every component sits on exactly one.
+Three flat levels. Every component sits on exactly one. No vibrancy, no backdrop blur — the BrowserWindow's vibrancy setting is removed and the window paints opaque, identically on every platform.
 
-### Plane 0 — the ground
-The window itself, using real macOS vibrancy (`under-window` material on the BrowserWindow — already enabled in `apps/desktop/src/main/index.ts`) tinted by the active space colour. Replaces today's painted gradient as the primary treatment. The tint is **strongly saturated** — the space colour is the ground's identity, and the two-finger swipe visibly changes the whole world, interpolating the tint with the drag.
+### Level 0 — the frame
+The window ground: the darkest surface (mockup starting point `#131417`). The sidebar sits directly on it with no panel of its own — its rows, search field, and strip are drawn straight on the frame, Codex-style. No space-colour tinting.
 
-`packages/ui/src/theme.ts` is rewritten: `paletteFromColor(hex, mode)` now derives —
-- `groundTint` / `groundTint2` (saturated space-hued radial pair painted behind vibrancy, and the whole fallback when vibrancy is off),
-- `accent` (the space colour, contrast-adjusted per mode),
-- alpha-step ladders for chrome and stage (below),
-- three text tiers: `textBright`, `textDim`, `textFaint`.
+### Level 1 — panels
+Every layout leaf (session, terminal, future browser pane) is a **rounded panel**: one luminance step up (`#1b1c20`), `1px` hairline border (`#26272c`), radius **12px**, with an **8px gap** between panels and against the frame edge. A split therefore reads as side-by-side rounded panels on the frame — exactly the Codex two-pane composition. Panels have **no drop shadow**; the luminance step and hairline do the separation. Terminal keeps its own darker interior but takes the same border/radius.
 
-### Plane 1 — chrome glass
-Sidebar and popovers/menus. `rgba(255,255,255,.05–.08)` fills over `backdrop-filter: blur(34px) saturate(150%)`, inset 1px right-edge hairline `rgba(255,255,255,.07)`. **No opaque fills in chrome** — rows, search, tiles, strip squares are all alpha-white steps:
-- resting `transparent`, hover `.09`, active/selected `.16` with an inset top edge-light `.18`.
+### Level 2 — raised
+True overlays only: menus, sheets, the command palette, and the floating composer. One more luminance step (`#222329`), same hairline, radius 12px, plus the only shadows in the app (`0 8px 24px rgba(0,0,0,.4)`).
 
-### Plane 2 — the stage
-The content card. Smoked glass: `rgba(16,14,26,.62)` + `blur(28px) saturate(140%)`, border `1px rgba(255,255,255,.09)`, **bright top edge** `inset 0 1px 0 rgba(255,255,255,.14)` (the signature "lit from above" detail), drop shadow `0 18px 44px rgba(0,0,0,.5)`. Radius 12px. Terminal and (future) browser panes keep opaque interiors for legibility but take the same border/edge/shadow so they sit on the same plane. Popovers/sheets are Plane 2 at higher alpha (`.82`) with a stronger edge-light.
+### Rounding and borders
+Radii are few and consistent — 12px panels/overlays, 8px controls (rows, buttons, chips, search), 6px small chips. Hairlines everywhere separation is needed; never two adjacent fills without one. This — not blur — is the "squircle" feel of the reference.
+
+### Space colour: accent only
+`paletteFromColor` shrinks: it derives `accent` (contrast-adjusted per mode) and nothing else — no ground tints, no sidebar hues. The space colour appears in exactly: the space dot next to the name, the active square in the space strip, the active sidebar row's 2px left indicator, focus rings, and the filled primary button. Switching spaces changes content + accent, not the world's colour. (If spaces later need more visual identity, a ≤4% ground tint is the escape hatch — explicitly out of scope now.)
 
 ### Tokens
-The `--rl-*` custom-property set is rebuilt (~20 tokens): plane fills, alpha steps, edge-lights, borders, text tiers, accent, ground tints, shadows, radius, easing. `applyTheme` and `data-mode` stay as the delivery mechanism. Exact values are decided in the plan; the mockup values above are the starting point.
-
-### Fallback
-If vibrancy is unavailable (platform, or a future GPU toggle): Plane 0 paints `groundTint`→`groundTint2` as an opaque gradient (today's mechanism). Planes 1–2 are pure CSS and unchanged. Blur values are the only per-platform variable.
+`--rl-*` rebuilt (~18 tokens): `frame`, `panel`, `raised`, `line`, three text tiers (`textBright #ececf1` / `textDim #9a9ba5` / `textFaint #5e5f68`), `accent`, semantic (`danger`/`success`/`warning` — warning is the Codex-style orange for permission/full-access states), radii, shadow, easing. Exact values are plan-time; the hexes above are the mockup starting points. `applyTheme`/`data-mode` delivery unchanged.
 
 ## 2. Shell structure (Arc-true)
 
 ### TabBar retires
 - Delete `apps/desktop/src/renderer/src/components/TabBar.tsx` and its CSS.
-- Contracts: a layout **leaf holds exactly one item** — `tabs: string[]`/`activeTab` becomes `itemId: string | null`. `packages/contracts/src/layout.ts` reshapes accordingly: `setActiveTab` is deleted; `addTab` becomes `openItem(l, leafId, itemId)` (replace-in-leaf); `removeTab` becomes `closeItem(l, itemId)` (keeping its collapse-the-split semantics); `allTabs`/`findLeafOfTab` become `allItems`/`findLeafOfItem`; `splitLeaf`, `gridPreset`, `updateSizes`, `firstLeaf` keep their shapes. The uniqueness invariant simplifies to "an item appears in at most one leaf". Persisted layouts migrate: each existing leaf collapses to its `activeTab` (or its first tab); displaced tabs return to the space list (a pure `migrateLayout` in contracts, applied on read).
-- `PaneHost` renders leaves without a tab strip; store drops tab-tracking state.
+- Contracts: a layout **leaf holds exactly one item** — `tabs: string[]`/`activeTab` becomes `itemId: string | null`. `packages/contracts/src/layout.ts` reshapes: `setActiveTab` deleted; `addTab` → `openItem(l, leafId, itemId)` (replace-in-leaf); `removeTab` → `closeItem(l, itemId)` (keeping its collapse-the-split semantics); `allTabs`/`findLeafOfTab` → `allItems`/`findLeafOfItem`; `splitLeaf`, `gridPreset`, `updateSizes`, `firstLeaf` keep their shapes. Uniqueness invariant: an item appears in at most one leaf. Persisted layouts migrate: each leaf collapses to its `activeTab` (or first tab); displaced tabs return to the space list (pure `migrateLayout` in contracts, applied on read).
+- `PaneHost` renders leaves as Level-1 panels with the 8px gutter; store drops tab-tracking state.
 
-### Sidebar composition (top → bottom)
-1. **Search field** — unchanged position; placeholder gains the ⌘K affordance.
-2. **Space header** — icon + name at 16px/650, ⋯ menu unchanged.
-3. **`OPEN` group** — items currently in the layout, in layout order. Active item: `.16` fill + edge-light. Hover reveals ×; closing removes from layout only. When a split is active, each open row shows a 2px position glyph (left/right/top/bottom quadrant mark), not text.
-4. **`SPACE` group** — every other item in the space. Click opens into the focused leaf (replacing its item; the replaced item returns to this group). The pinned grid renders as a compact tile row at the top of this group. An item appears in exactly one group.
+### Sidebar composition (top → bottom, drawn on the frame)
+1. **Search field** — 8px-radius recessed field; placeholder carries the ⌘K affordance.
+2. **Space header** — icon + name 15px/600 with the accent dot; ⋯ menu unchanged.
+3. **`OPEN` group** — items currently in the layout, in layout order. Active row: `panel`-level fill + 2px accent left indicator. Hover reveals ×; closing removes from layout only. During a split, each open row shows a 2px quadrant glyph for its pane position.
+4. **`SPACE` group** — everything else; click opens into the focused leaf (replaced item returns here). Pinned grid renders as a compact tile row at the top of this group. An item appears in exactly one group.
 5. **New…** footer button — unchanged behaviour.
-6. **Space strip** — unchanged (icons, drag-reorder, two-finger swipe via the existing gesture stack).
+6. **Space strip** — unchanged (icons, drag-reorder, two-finger swipe). Active square = accent fill.
 
-Group labels: 11px/500 uppercase, letter-spaced, `textFaint`.
+Group labels (`OPEN`, `SPACE`): 10.5px/500 uppercase, letter-spaced, `textFaint` — the Codex "Projects/Recents" register.
 
 ### Splits
-- `⌘\` splits the focused leaf; the next item opened from the sidebar fills the new leaf. `LayoutMenu` grid presets unchanged.
-- **New interaction:** dragging a sidebar row onto a stage edge creates a split on that edge (drop zones: 4 edges + centre-replace). This is the only new interaction in the design.
-- Closing a split leaf's item collapses the split (`closeItem` inherits `removeTab`'s collapse semantics).
+- `⌘\` splits the focused leaf; next item opened fills the new leaf. `LayoutMenu` presets unchanged.
+- **New interaction:** dragging a sidebar row onto a panel edge creates a split there (drop zones: 4 edges + centre-replace).
+- Closing a split leaf's item collapses the split (`closeItem` inherits `removeTab`'s semantics).
 
 ### Untouched
-SpaceSwiper/gesture stack, drag-reorder, item context menus, sheets (restyled only), CommandPalette (restyled only), NewSessionSheet (restyled only — logic just passed Plan 3 review).
+SpaceSwiper/gesture stack (the swipe slides sidebar content only — no ground re-tint now), drag-reorder, item context menus, sheets, CommandPalette, NewSessionSheet (all restyled only).
 
-## 3. Stage contents
+## 3. Panel contents
 
-Structure and behaviour of transcript components are preserved; they change material and type only — except the two follow-up closures noted.
+Transcript components keep structure and behaviour; material, type, and the two noted follow-ups change.
 
-- **User messages:** right-aligned bubbles, alpha-white fill one step above stage.
-- **Assistant prose:** no container — set directly on the stage glass, max measure ~72ch.
-- **Thinking:** collapsed to one dim line with a left rule; click to expand.
-- **Tool cards:** 12px mono command line; status glyph coloured running/ok/error; output in a **recessed well** inside the card (the one inset-material element in the app). Extends `toolSummary`/`toolIcon` to Codex (`exec_command`, `apply_patch`) and ACP titles — closes that Plan 3 follow-up.
-- **Permission card:** amber-tinted glass + amber border on Plane 2; buttons as alpha steps, Allow filled with accent. Behaviour untouched.
-- **Composer:** glass field; options row as 10.5px chips. Cost renders blank when `costUsd` is 0 — closes that follow-up.
-- **Type scale:** base 13px; space name 16/650; pane title 13.5/600; group labels 11/500 caps; sidebar rows 12px; tool mono 12px. Face: system stack; a bundled mono face is a plan-time decision weighed against bundle size.
+- **Empty session state:** centered, Codex-style — agent icon, "What should we work on in *<space>*?", and 3–4 suggestion chips that fill the composer (static per agent kind in v1; no new backend).
+- **User messages:** right-aligned bubbles, `raised`-level fill.
+- **Assistant prose:** no container — directly on the panel, max measure ~72ch.
+- **Thinking:** collapsed one-line with dim left rule; click to expand.
+- **Tool cards:** 12px mono command line; running/ok/error status glyph; output in a recessed well (`frame`-level fill inside the panel). Extends `toolSummary`/`toolIcon` to Codex (`exec_command`, `apply_patch`) and ACP titles — closes that Plan 3 follow-up.
+- **Permission card:** `warning`-tinted border + fill on the panel, Codex-orange register; buttons as level steps, Allow filled with accent. Behaviour untouched.
+- **Composer:** Level-2 floating rounded field docked at the panel bottom with chips inside (model/effort/permissions/cwd); permission-mode chip shows in `warning` colour when mode is `bypassPermissions` (the Codex "Full access" treatment). Cost renders blank when `costUsd` is 0 — closes that follow-up.
+- **Type scale:** base 13px; space name 15/600; pane title 13/600; group labels 10.5/500 caps; sidebar rows 12.5px; tool mono 12px. System font stack; bundling a mono face is a plan-time decision.
 
 ## 4. Motion
 
-Exactly three moments; all disabled under `prefers-reduced-motion`:
-1. Space swipe re-tints the ground continuously with the drag (extends the existing gesture pipeline's transform writes to also interpolate tint tokens).
-2. Stage settle: 150ms opacity + 4px translate when a leaf's item changes.
+Three moments, all disabled under `prefers-reduced-motion`; everything else instant:
+1. Space swipe — the existing continuous sidebar slide (no tint work).
+2. Panel settle: 150ms opacity + 4px translate when a leaf's item changes.
 3. Permission card enter: 120ms scale from 98%.
-
-Everything else is instant.
 
 ## 5. Light mode (dark-first)
 
-Same token structure, frosted-white derivation: higher-alpha white glass fills, dark text tiers, borders carry more separation than edge-lights, space tint desaturated ~20%. One derivation pass in `paletteFromColor`; no bespoke redesign. `data-mode` switching unchanged.
+Same token structure, inverted derivation: light frame (`#f2f2f4`), white panels, hairlines darker than fills, text tiers flipped, accent contrast-adjusted. Flat material makes this a straightforward single derivation pass. `data-mode` unchanged.
 
 ## 6. Verification
 
-- Contracts: layout-op removal + migration covered by updated unit tests (migration round-trips every persisted-layout shape from Plan 2 fixtures).
-- Renderer: component tests updated for the removed TabBar; sidebar open/space grouping, close-returns-to-space, and drag-to-split get new tests.
-- Visual: CDP screenshot pass on both modes × 3 space colours; text-contrast spot checks (WCAG AA on `textDim` against both stage and chrome).
-- Live: `pnpm dev` manual pass — swipe re-tint, open/close/split flows, permission card, terminal pane legibility.
+- Contracts: layout reshape + `migrateLayout` unit tests (round-trip every persisted-layout shape from Plan 2 fixtures).
+- Renderer: tests updated for removed TabBar; new tests for open/space grouping, close-returns-to-space, drag-to-split, and the empty-state suggestions filling the composer.
+- Visual: CDP screenshot pass, both modes × 3 space accents; WCAG AA spot checks (`textDim` on `panel` and `frame`).
+- Live: `pnpm dev` manual pass — swipe, open/close/split flows, permission card, terminal legibility, empty state.
 
-## 7. Out of scope (unchanged from prior roadmap)
+## 7. Out of scope (roadmap)
 
-Browser pane, realm-mcp, ACP mode mapping, model pickers, Windows/Linux styling beyond the fallback path, sidebar width preference, any server/adapter change.
+Browser pane + realm-mcp; **Pull Requests tab** (Codex-app-style PR list in the sidebar — roadmap item, records the reference app's feature); ACP mode mapping; dynamic model pickers; ground tinting for space identity; Windows/Linux polish beyond the (now trivial) shared rendering; sidebar width preference; any server/adapter change.
