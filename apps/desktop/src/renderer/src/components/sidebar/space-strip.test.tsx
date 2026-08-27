@@ -29,3 +29,29 @@ describe("SpaceStrip overflow (A-H2)", () => {
     expect(scrollSpy.mock.contexts.at(-1)).toBe(screen.getByRole("button", { name: /switch to space Homework/i }));
   });
 });
+
+describe("SpaceStrip settings gear (U-M9)", () => {
+  it("opens the space-settings sheet for the active space", async () => {
+    const { store } = await mount();
+    expect(store.getState().activeSpaceId).toBe("s1");
+    const gear = screen.getByRole("button", { name: "Settings" });
+    expect(gear).toBeEnabled();
+    fireEvent.click(gear);
+    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1" });
+  });
+
+  it("follows the active space, and is disabled with no space at all", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s2" });
+
+    const empty = await mount(fakeApi({ spaces: [], items: {} }));
+    expect(empty.store.getState().activeSpaceId).toBeNull();
+    const gears = screen.getAllByRole("button", { name: "Settings" });
+    expect(gears.at(-1)).toBeDisabled();
+    fireEvent.click(gears.at(-1)!);
+    expect(empty.store.getState().sheet).toBeNull();
+  });
+});

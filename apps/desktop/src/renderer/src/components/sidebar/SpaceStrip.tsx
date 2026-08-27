@@ -31,7 +31,8 @@ export function SpaceStrip() {
 
   return (
     <div className="space-strip">
-      <button className="icon-btn strip-side" aria-label="Settings" title="Settings" onClick={() => { /* Settings arrives with a later plan */ }}><Icon name="settings" size={16} /></button>
+      <button className="icon-btn strip-side" aria-label="Settings" title="Settings" disabled={!activeSpaceId}
+        onClick={() => { if (activeSpaceId) openSheet({ kind: "space-settings", spaceId: activeSpaceId }); }}><Icon name="settings" size={16} /></button>
       <div className="strip-spaces" aria-label="Spaces">
         {spaces.map((sp) => (
           <button key={sp.id} ref={sp.id === activeSpaceId ? activeRef : null} className="strip-space" aria-pressed={sp.id === activeSpaceId} aria-label={`Switch to space ${sp.name}`} title={sp.name}
