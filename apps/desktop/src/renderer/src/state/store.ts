@@ -109,7 +109,8 @@ export type AppState = {
   newTerminal(targetLeafId?: string | null): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
   /** Open an item into `leafId` ?? the focused leaf ?? the first leaf, replacing what it held (the
-   *  replaced item returns to the SPACE group); focuses that leaf. */
+   *  replaced item returns to the SPACE group); focuses that leaf. With no explicit `leafId`, an
+   *  already-open item is only focused (click = go there) — layout untouched, nothing persisted. */
   openItem(itemId: string, leafId?: string | null): Promise<void>;
   /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). Never deletes. */
   closeFromLayout(itemId: string): Promise<void>;
@@ -379,8 +380,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (sid && isSpace(sid)) set({ items: get().items.map((x) => (x.id === it.id ? it : x)) });
       },
       async openItem(itemId, leafId = null) {
+        const current = get().layout ?? emptyLayout();
+        // Activation without an explicit target (sidebar OPEN row, palette, pinned grid) of an item
+        // that is already open means "go there": focus its pane, touch nothing, persist nothing.
+        // Move semantics belong to gestures that name a leaf — drag-to-center via openItemAt.
+        if (leafId === null) {
+          const open = findLeafOfItem(current, itemId);
+          if (open) { set({ focusedLeafId: open.id }); return; }
+        }
         const target = leafId ?? get().focusedLeafId;
-        const layout = layoutOpen(get().layout ?? emptyLayout(), target, itemId);
+        const layout = layoutOpen(current, target, itemId);
         const leaf = findLeafOfItem(layout, itemId);
         set({ layout, focusedLeafId: leaf?.id ?? null });
         await persist();

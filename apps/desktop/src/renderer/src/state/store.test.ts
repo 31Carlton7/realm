@@ -639,6 +639,36 @@ describe("app store", () => {
       expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
     });
 
+    it("openItem on an already-open item focuses its pane instead of moving it (sidebar/palette click)", async () => {
+      twoItems();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().splitFocused("row");
+      await store.getState().openItem("i2"); // fills + focuses the fresh leaf
+      const layoutBefore = store.getState().layout!;
+      const i1Leaf = findLeafOfItem(layoutBefore, "i1")!.id;
+      expect(store.getState().focusedLeafId).not.toBe(i1Leaf);
+      const persists = api.calls.filter((c) => c.startsWith("setLayout")).length;
+      await store.getState().openItem("i1"); // OPEN row / palette: "go there", not "move it here"
+      const s = store.getState();
+      expect(s.focusedLeafId).toBe(i1Leaf);
+      expect(s.layout).toBe(layoutBefore); // same reference: no layout change
+      expect(api.calls.filter((c) => c.startsWith("setLayout")).length).toBe(persists); // no persist
+    });
+
+    it("openItemAt center still moves an already-open item to the target leaf (drag keeps move semantics)", async () => {
+      twoItems();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().splitFocused("row");
+      await store.getState().openItem("i2");
+      const i2Leaf = findLeafOfItem(store.getState().layout!, "i2")!.id;
+      await store.getState().openItemAt("i1", i2Leaf, "center");
+      const l = store.getState().layout!;
+      expect(allItems(l)).toEqual(["i1"]); // i1 moved onto i2's leaf (i2 displaced), old leaf pruned
+      expect(findLeafOfItem(l, "i1")!.id).toBe(i2Leaf);
+    });
+
     it("openItemAt center replaces the leaf's item in place", async () => {
       twoItems();
       const store = createAppStore(api); await store.getState().boot();

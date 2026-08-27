@@ -980,7 +980,7 @@ Sweep the renderer for remaining old-API call sites — `grep -rn "activateTab\|
 
 - [ ] **Step 1: Failing tests** — in `sidebar.test.tsx`, following its existing harness:
   - renders `OPEN` and `SPACE` group labels; items in the layout appear under OPEN in layout order; the rest under SPACE (pinned tiles first).
-  - clicking a SPACE row calls `openItem(id)`; clicking an OPEN row calls `openItem(id)` too (focus/activate).
+  - clicking a SPACE row calls `openItem(id)` (opens into the focused leaf); clicking an OPEN row focuses the item's existing pane only — never moves it (move is drag-only).
   - the × on an OPEN row calls `closeFromLayout`, not `deleteItem`.
   - SPACE rows show no ×.
   - context menu shows `Close` only for open items (calls `closeFromLayout`) and always shows `Delete` (danger, calls `deleteItem`).

@@ -56,8 +56,9 @@ function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
 
 /** Sidebar item rows. "open" = the OPEN group (items currently in the layout): the row's x closes the item
  *  from the layout only (it stays around, unopened), and the row shows the quadrant glyph. "space" = the
- *  SPACE group (everything else): no x, no glyph, just click-to-open. Both variants activate/focus the
- *  item on row click. */
+ *  SPACE group (everything else): no x, no glyph, just click-to-open. Row clicks call openItem either
+ *  way, but the store treats an already-open item as "go there" (focus its pane, no layout change);
+ *  only SPACE rows actually open into the focused leaf. Moving an open item is drag-only. */
 export function ItemList({ items, variant }: { items: Item[]; variant: "open" | "space" }) {
   const layout = useApp((s) => s.layout) ?? emptyLayout();
   const sessionStatus = useApp((s) => s.sessionStatus);
