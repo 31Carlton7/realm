@@ -8,22 +8,53 @@ export type Layout =
 export type LayoutLeaf = Extract<Layout, { type: "leaf" }>;
 export type LayoutSplit = Extract<Layout, { type: "split" }>;
 
-/**
- * Normalize any persisted layout — including the pre-Plan-4 leaf shape `{tabs, activeTab}` — into the
- * current one-item-per-leaf shape. A legacy leaf collapses to its active tab (else first tab, else empty);
- * displaced tabs simply stop being open, which is exactly the Arc-true semantic. Runs inside LayoutSchema's
- * preprocess, so every parse (RPC results, DB reads, tests) migrates silently.
- */
-export function migrateLayout(input: unknown): unknown {
+/** Shape-only normalization: converts a pre-Plan-4 leaf `{tabs, activeTab}` to `{itemId}`. A legacy leaf
+ *  collapses to its active tab (else first tab, else empty); displaced tabs simply stop being open, which
+ *  is exactly the Arc-true semantic. New-shape nodes pass through unchanged. Recurses through splits. */
+function migrateShape(input: unknown): unknown {
   if (typeof input !== "object" || input === null) return input;
   const n = input as Record<string, unknown>;
-  if (n.type === "split" && Array.isArray(n.children)) return { ...n, children: n.children.map(migrateLayout) };
+  if (n.type === "split" && Array.isArray(n.children)) return { ...n, children: n.children.map(migrateShape) };
   if (n.type === "leaf" && !("itemId" in n) && Array.isArray(n.tabs)) {
     const tabs = n.tabs.filter((t): t is string => typeof t === "string");
     const active = typeof n.activeTab === "string" && tabs.includes(n.activeTab) ? n.activeTab : tabs[0] ?? null;
     return { type: "leaf", id: n.id, itemId: active };
   }
   return input;
+}
+
+/** Every op in this file assumes items are unique across the layout (openItem/closeItem/splitLeaf all
+ *  key off "the leaf holding itemId", singular). That invariant isn't representable in the zod shape, so
+ *  it's enforced here instead: walk the tree depth-first and null out every itemId after its first
+ *  occurrence. Runs regardless of whether the input was legacy or already new-shape, since legacy
+ *  migration is exactly the case that manufactures duplicates — two old leaves can independently have had
+ *  the same activeTab (e.g. `{tabs:["t1","t2"],activeTab:"t1"}` and `{tabs:["t1","t3"],activeTab:"t1"}`),
+ *  which is realistic persisted data, not a hypothetical. */
+function dedupeItems(input: unknown): unknown {
+  const seen = new Set<string>();
+  function walk(node: unknown): unknown {
+    if (typeof node !== "object" || node === null) return node;
+    const n = node as Record<string, unknown>;
+    if (n.type === "leaf") {
+      if (typeof n.itemId !== "string") return n;
+      if (seen.has(n.itemId)) return { ...n, itemId: null };
+      seen.add(n.itemId);
+      return n;
+    }
+    if (n.type === "split" && Array.isArray(n.children)) return { ...n, children: n.children.map(walk) };
+    return node;
+  }
+  return walk(input);
+}
+
+/**
+ * Normalize any persisted layout — including the pre-Plan-4 leaf shape `{tabs, activeTab}` — into the
+ * current one-item-per-leaf shape, and dedupe so every itemId appears in at most one leaf (first
+ * depth-first occurrence wins). Runs inside LayoutSchema's preprocess, so every parse (RPC results, DB
+ * reads, tests) migrates and dedupes silently.
+ */
+export function migrateLayout(input: unknown): unknown {
+  return dedupeItems(migrateShape(input));
 }
 
 // `migrateLayout` already walks the whole tree recursively (see above), so by the time this schema

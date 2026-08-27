@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LayoutSchema, allItems, closeItem, emptyLayout, findLeafOfItem, firstLeaf,
-  gridPreset, migrateLayout, openItem, splitLeaf, updateSizes, type Layout, type LayoutLeaf,
+  gridPreset, migrateLayout, openItem, splitLeaf, updateSizes, type Layout, type LayoutLeaf, type LayoutSplit,
 } from "./layout";
 
 const leaf = (itemId: string | null): LayoutLeaf => ({ type: "leaf", id: `L-${itemId ?? "empty"}`, itemId });
@@ -44,6 +44,54 @@ describe("migrateLayout", () => {
       children: [{ type: "leaf", id: "a", tabs: ["t1"], activeTab: "t1" }],
     })).toThrow();
   });
+  it("LayoutSchema rejects a split whose sizes.length mismatches children.length, independent of the children>=2 check", () => {
+    // Two children (satisfies the >=2 invariant) but only one size — isolates the sizes check from
+    // the children-count check, which the garbage tests above always trip at the same time.
+    expect(() => LayoutSchema.parse({
+      type: "split", id: "s", dir: "row", sizes: [100],
+      children: [leaf("x"), leaf("y")],
+    })).toThrow(/sizes/i);
+  });
+  it("dedupes two legacy leaves that migrated to the same active tab (first depth-first occurrence wins)", () => {
+    // Realistic persisted data: two independent legacy leaves can each have had the same
+    // activeTab. Migration alone would produce a layout with the same itemId open in two
+    // leaves, breaking the uniqueness every op in this file assumes — migrateLayout must
+    // dedupe as part of normalization, not leave it to callers.
+    const legacy = {
+      type: "split", id: "s", dir: "row", sizes: [50, 50],
+      children: [
+        { type: "leaf", id: "a", tabs: ["t1", "t2"], activeTab: "t1" },
+        { type: "leaf", id: "b", tabs: ["t1", "t3"], activeTab: "t1" },
+      ],
+    };
+    const out = migrateLayout(legacy) as { children: LayoutLeaf[] };
+    expect(out.children.map((c) => c.itemId)).toEqual(["t1", null]);
+  });
+  it("LayoutSchema.parse of that same legacy input yields no duplicate items", () => {
+    const legacy = {
+      type: "split", id: "s", dir: "row", sizes: [50, 50],
+      children: [
+        { type: "leaf", id: "a", tabs: ["t1", "t2"], activeTab: "t1" },
+        { type: "leaf", id: "b", tabs: ["t1", "t3"], activeTab: "t1" },
+      ],
+    };
+    const parsed = LayoutSchema.parse(legacy);
+    expect(allItems(parsed)).toEqual(["t1"]);
+  });
+  it("LayoutSchema.parse also dedupes hand-built new-shape input with duplicate itemIds", () => {
+    // Not just a migration artifact: preprocess runs on every parse, new-shape input included,
+    // so a duplicate that bypassed the legacy path (e.g. a bug, or hand-constructed JSON) is
+    // still caught at the parse boundary.
+    const dup = {
+      type: "split", id: "s", dir: "row", sizes: [50, 50],
+      children: [
+        { type: "leaf", id: "a", itemId: "x" },
+        { type: "leaf", id: "b", itemId: "x" },
+      ],
+    };
+    const parsed = LayoutSchema.parse(dup) as { children: LayoutLeaf[] };
+    expect(parsed.children.map((c) => c.itemId)).toEqual(["x", null]);
+  });
 });
 
 describe("openItem / closeItem", () => {
@@ -72,6 +120,36 @@ describe("openItem / closeItem", () => {
     const l = row([leaf("a"), leaf("b")]);
     expect(allItems(openItem(l, null, "c"))).toEqual(["c", "b"]);
     expect(allItems(openItem(l, "nope", "c"))).toEqual(["c", "b"]);
+  });
+  it("opening an item already at the first leaf with an unknown target leafId is a no-op (sibling survives)", () => {
+    // Pins openItem's validation of the caller-supplied leafId (hasLeaf(l, leafId)). Without it,
+    // target0 would be the bogus id itself instead of falling back to the first leaf. Since "a"
+    // is already at the first leaf, the no-op guard wouldn't fire (existing.id !== bogus target0),
+    // so closeItem+mapLeaves would proceed and overwrite the sibling leaf with "a", destroying "b".
+    const l = row([leaf("a"), leaf("b")]);
+    const out = openItem(l, "totally-unknown-leaf-id", "a");
+    expect(allItems(out)).toEqual(["a", "b"]);
+  });
+  it("openItem's target re-check protects a hand-built duplicate-item layout from losing the item entirely", () => {
+    // LayoutSchema's preprocess dedupes on every *parse* (see migrateLayout tests above), but a
+    // Layout value can also be constructed directly in memory without ever passing through
+    // LayoutSchema.parse — e.g. built by hand here, or by any future code path that mutates a
+    // Layout object without re-validating it. Such a tree is a legitimate, constructible input to
+    // openItem regardless of how it came to exist. Here "x" is open in BOTH leaves; findLeafOfItem
+    // finds the first ("LA"), so the no-op guard doesn't fire when targeting the second ("LB").
+    // closeItem's prune matches by itemId, not leaf id, so it removes EVERY leaf holding "x" —
+    // including the target "LB" — leaving `base` a single leaf with neither original id. Without
+    // the `hasLeaf(base, target0)` re-check, mapLeaves would look for a leaf id ("LB") that no
+    // longer exists and silently drop the item instead of reinserting it via the first-leaf fallback.
+    const dup: Layout = {
+      type: "split", id: "S-dup", dir: "row", sizes: [50, 50],
+      children: [
+        { type: "leaf", id: "LA", itemId: "x" },
+        { type: "leaf", id: "LB", itemId: "x" },
+      ],
+    };
+    const out = openItem(dup, "LB", "x");
+    expect(allItems(out)).toEqual(["x"]);
   });
   it("moving an item into a leaf whose own pruning collapses the target's sibling structure", () => {
     // Three leaves in a row: a, b, c. Move "c" into leaf "a": closeItem prunes c's leaf, which
@@ -144,6 +222,27 @@ describe("gridPreset", () => {
     const walk = (n: Layout) => { if (n.type === "leaf") { if (n.itemId === null) empties++; } else n.children.forEach(walk); };
     walk(out);
     expect(empties).toBe(3);
+  });
+  it("three-col produces a single row split with exactly 3 leaf children", () => {
+    const out = gridPreset("three-col", ["a", "b", "c"]) as LayoutSplit;
+    expect(out.type).toBe("split");
+    expect(out.dir).toBe("row");
+    expect(out.children).toHaveLength(3);
+    expect(out.children.every((c) => c.type === "leaf")).toBe(true);
+    expect(out.children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["a", "b", "c"]);
+  });
+  it("grid-3x3 produces a col split of 3 row splits, each with 3 leaf children", () => {
+    const out = gridPreset("grid-3x3", ["a"]) as LayoutSplit;
+    expect(out.type).toBe("split");
+    expect(out.dir).toBe("col");
+    expect(out.children).toHaveLength(3);
+    out.children.forEach((rowNode) => {
+      expect(rowNode.type).toBe("split");
+      const r = rowNode as LayoutSplit;
+      expect(r.dir).toBe("row");
+      expect(r.children).toHaveLength(3);
+      r.children.forEach((c) => expect(c.type).toBe("leaf"));
+    });
   });
 });
 
