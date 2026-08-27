@@ -393,6 +393,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await persist();
       },
       async openItemAt(itemId, leafId, edge) {
+        // Self-drop: the item already occupies the target leaf. Splitting would first close the item
+        // (pruning that very leaf) and teleport it to the far side; replacing is a no-op anyway.
+        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.id === leafId) return;
         if (edge === "center") return get().openItem(itemId, leafId);
         const dir = edge === "left" || edge === "right" ? "row" : "col";
         let layout = splitLeaf(get().layout ?? emptyLayout(), leafId, dir, itemId);

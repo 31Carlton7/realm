@@ -195,20 +195,24 @@ describe("app store", () => {
     await store.getState().boot();
     await store.getState().openItem("i1");
     expect(allItems(store.getState().layout!)).toEqual(["i1"]);
+    const persists = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
     await store.getState().closeFromLayout("i1");
     expect(allItems(store.getState().layout!)).toEqual([]);
     expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]); // back in the SPACE group
     expect(api.calls.filter((c) => c.startsWith("deleteItem"))).toEqual([]);
     expect(api.disposed).toEqual([]);
-    expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true); // layout change persisted
+    expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(persists + 1); // the close itself persisted
   });
 
-  it("applyPreset rebuilds layout and persists", async () => {
+  it("applyPreset rebuilds layout, refocuses the first leaf, and persists", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().newTerminal();
+    const staleFocus = store.getState().focusedLeafId; // leaf id from the pre-preset layout
     await store.getState().applyPreset("two-col");
     expect(store.getState().layout?.type).toBe("split");
+    expect(store.getState().focusedLeafId).toBe(firstLeaf(store.getState().layout!).id);
+    expect(store.getState().focusedLeafId).not.toBe(staleFocus); // gridPreset mints fresh leaf ids
   });
 
   it("linkProject adds a project to the active space", async () => {
@@ -615,10 +619,49 @@ describe("app store", () => {
       expect(s.focusedLeafId).toBe(firstLeaf(s.layout!).id);
     });
 
+    it("openItemAt is a no-op when the item already occupies the target leaf (self-drop)", async () => {
+      twoItems();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right"); // row[i1, i2]
+      const before = store.getState().layout!;
+      const focusBefore = store.getState().focusedLeafId;
+      const persists = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      const i1Leaf = findLeafOfItem(before, "i1")!.id;
+      for (const edge of ["left", "center", "right", "top", "bottom"] as const) {
+        await store.getState().openItemAt("i1", i1Leaf, edge);
+      }
+      expect(store.getState().layout).toBe(before); // byte-identical: the very same object, untouched
+      expect(store.getState().focusedLeafId).toBe(focusBefore);
+      expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(persists); // nothing persisted
+    });
+
     it("focusLeaf sets focusedLeafId", async () => {
       const store = createAppStore(api); await store.getState().boot();
       store.getState().focusLeaf("some-leaf");
       expect(store.getState().focusedLeafId).toBe("some-leaf");
+    });
+  });
+
+  describe("selectSpace layout seeding", () => {
+    it("a legacy {tabs, activeTab} layout from the Space row seeds migrated (client-side skew defense)", async () => {
+      const legacy = { type: "leaf", id: "L", tabs: ["L1", "L2"], activeTab: "L2" } as unknown as Layout;
+      api.data.spaces.push(space("s3", "p1", "Legacy", { layout: legacy }));
+      api.data.items.s3 = [item("L1", "s3"), item("L2", "s3")];
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().selectSpace("s3");
+      expect(store.getState().layout).toEqual({ type: "leaf", id: "L", itemId: "L2" }); // collapsed to activeTab
+      expect(allItems(store.getState().layout!)).toEqual(["L2"]); // L1 displaced to the SPACE group
+      expect(store.getState().items.map((i) => i.id)).toEqual(["L1", "L2"]);
+    });
+
+    it("a corrupt layout seeds as null and reconciles to an empty leaf, items intact and unopened", async () => {
+      api.data.spaces.push(space("s4", "p1", "Corrupt", { layout: { bogus: true } as unknown as Layout }));
+      api.data.items.s4 = [item("C1", "s4")];
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().selectSpace("s4");
+      expect(store.getState().layout).toMatchObject({ type: "leaf", itemId: null });
+      expect(store.getState().items.map((i) => i.id)).toEqual(["C1"]);
     });
   });
 
