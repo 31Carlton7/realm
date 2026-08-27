@@ -25,6 +25,8 @@ export type TranscriptEntry = { lastSeq: number; t: Transcript };
  *  seams (native folder picker, local terminal disposal). Tests substitute a fake. */
 export type Api = {
   listProfiles(): Promise<Profile[]>;
+  /** Icon/color are server defaults (`user` / grey) — the sheet only asks for a name. */
+  createProfile(name: string): Promise<Profile>;
   /** Global list across all profiles, in user sort order. */
   listSpaces(): Promise<Space[]>;
   listItems(spaceId: string): Promise<Item[]>;
@@ -95,6 +97,8 @@ export type AppState = {
   selectSpace(id: string): Promise<void>;
   nextSpace(): Promise<void>;
   prevSpace(): Promise<void>;
+  /** Create a profile and merge it into `profiles`; returns it so callers can select it. */
+  createProfile(name: string): Promise<Profile>;
   createSpace(input: CreateSpaceInput): Promise<void>;
   updateSpace(input: UpdateSpaceInput): Promise<void>;
   deleteSpace(id: string): Promise<void>;
@@ -315,6 +319,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sid = get().activeSpaceId; if (!sid) return;
         const projects = await api.listProjects(sid);
         if (isSpace(sid)) set({ projects });
+      },
+      async createProfile(name) {
+        const p = await api.createProfile(name);
+        set({ profiles: [...get().profiles.filter((x) => x.id !== p.id), p] });
+        return p;
       },
       async createSpace(input) {
         const s = await api.createSpace(input);

@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { defaultAdapters } from "./app";
+import { describe, it, expect, afterEach } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createApp, defaultAdapters, type App } from "./app";
+import { openDatabase } from "./db/database";
+import { dbPath } from "./paths";
+import { ProfilesStore } from "./store/profiles";
 
 describe("defaultAdapters", () => {
   it("registers claude and codex by default", () => {
@@ -25,5 +31,30 @@ describe("defaultAdapters", () => {
     const reg = defaultAdapters();
     expect(reg["acp:cursor"]?.kind).toBe("acp:cursor");
     expect(reg["acp:gemini"]?.kind).toBe("acp:gemini");
+  });
+});
+
+describe("first-boot profile seeding", () => {
+  let apps: App[] = [];
+  afterEach(async () => { for (const a of apps) await a.close(); apps = []; });
+
+  it("a fresh home boots with exactly one default Personal profile; a second boot does not add another", async () => {
+    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const app1 = await createApp({ home, port: 0 }); apps.push(app1);
+    const first = new ProfilesStore(app1.db).list();
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ name: "Personal", icon: "user", color: "#6b7280" });
+    await app1.close(); apps = [];
+    const app2 = await createApp({ home, port: 0 }); apps.push(app2);
+    expect(new ProfilesStore(app2.db).list()).toHaveLength(1); // idempotent: seeding only when empty
+  });
+
+  it("does not seed when a profile already exists (a lone user-created profile is never joined by Personal)", async () => {
+    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const db = openDatabase(dbPath(home));
+    new ProfilesStore(db).create({ name: "Work", icon: "briefcase", color: "#123456" });
+    db.close();
+    const app = await createApp({ home, port: 0 }); apps.push(app);
+    expect(new ProfilesStore(app.db).list().map((p) => p.name)).toEqual(["Work"]);
   });
 });
