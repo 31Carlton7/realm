@@ -360,15 +360,70 @@ describe("permission keyboard (U-H4)", () => {
     expect(screen.getByRole("button", { name: "Allow" })).not.toHaveFocus();
   });
 
-  it("Enter=Allow, ⇧Enter=Always, ⌘⌫=Deny — and buttons carry visible kbd hints", async () => {
+  it("Enter=Allow, ⇧Enter=Always, ⌘⌫=Deny", async () => {
     const { decided, card } = await mountFocused(true);
     fireEvent.keyDown(card, { key: "Enter" });
     fireEvent.keyDown(card, { key: "Enter", shiftKey: true });
     fireEvent.keyDown(card, { key: "Backspace", metaKey: true });
     await waitFor(() => expect(decided).toEqual(["r1:allow", "r1:allow_always", "r1:deny"]));
-    expect(screen.getByRole("button", { name: "Allow" }).querySelector("kbd")).toHaveTextContent("⏎");
-    expect(screen.getByRole("button", { name: "Deny" }).querySelector("kbd")).toHaveTextContent("⌘⌫");
-    expect(screen.getByRole("button", { name: "Allow always" }).querySelector("kbd")).toHaveTextContent("⇧⏎");
+  });
+
+  it("options are a numbered list (§5): a number chip and its shortcut on every row, hints in the footer", async () => {
+    const { card } = await mountFocused(true);
+    const rows = within(card).getAllByRole("button").filter((b) => b.classList.contains("permission-option"));
+    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Allow", "Allow always", "Deny"]);
+    expect(rows.map((r) => r.querySelector(".permission-num")!.textContent)).toEqual(["1", "2", "3"]);
+    expect(rows.map((r) => r.querySelector(".permission-option-kbd")!.textContent)).toEqual(["⏎", "⇧⏎", "⌘⌫"]);
+    expect([...card.querySelectorAll(".permission-hints > span")].map((s) => s.textContent))
+      .toEqual(["↑↓ Navigate", "↵ Select", "esc Deny"]);
+    expect(within(card).getByRole("button", { name: "Submit" })).toHaveTextContent("↩");
+    // Amber is a dot and a pill now, not a wash over the whole head (§5).
+    expect(card.querySelector(".permission-dot")).not.toBeNull();
+    expect(card.querySelector('.status-pill[data-tone="warning"]')).toHaveTextContent("Waiting");
+  });
+
+  it("the number keys decide outright — 1 allows, 2 allows always, 3 denies", async () => {
+    const { decided, card } = await mountFocused(true);
+    for (const key of ["1", "2", "3"]) fireEvent.keyDown(card, { key });
+    await waitFor(() => expect(decided).toEqual(["r1:allow", "r1:allow_always", "r1:deny"]));
+  });
+
+  it("a modifier chord that merely contains a digit decides nothing — ⌘1 is switch-space, not Allow", async () => {
+    const { decided, card } = await mountFocused(true);
+    for (const mods of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }])
+      fireEvent.keyDown(card, { key: "1", ...mods });
+    expect(decided).toEqual([]);
+  });
+
+  it("↑↓ move the selection, Submit sends whatever is selected, and focus follows the selection", async () => {
+    const { decided, card } = await mountFocused(true);
+    const selected = () => card.querySelector<HTMLElement>(".permission-option[data-selected]")!.getAttribute("aria-label");
+    expect(selected()).toBe("Allow"); // Allow is the default, so a bare Enter still means Allow
+    fireEvent.keyDown(card, { key: "ArrowDown" });
+    fireEvent.keyDown(card, { key: "ArrowDown" });
+    expect(selected()).toBe("Deny");
+    expect(screen.getByRole("button", { name: "Deny" })).toHaveFocus();
+    fireEvent.click(within(card).getByRole("button", { name: "Submit" }));
+    await waitFor(() => expect(decided).toEqual(["r1:deny"]));
+  });
+
+  it("the selection wraps, and Enter on the card decides the SELECTED option, not a hardcoded Allow", async () => {
+    const { decided, card } = await mountFocused(true);
+    fireEvent.keyDown(card, { key: "ArrowUp" }); // wraps from Allow to Deny
+    expect(card.querySelector(".permission-option[data-selected]")).toHaveAttribute("aria-label", "Deny");
+    fireEvent.keyDown(card, { key: "Enter" }); // fired on the card, not on a button
+    await waitFor(() => expect(decided).toEqual(["r1:deny"]));
+  });
+
+  it("Escape denies (§5's footer hint) and does not leak to the app's global Escape handling", async () => {
+    const { decided, card } = await mountFocused(true);
+    const bubbled = vi.fn();
+    window.addEventListener("keydown", bubbled);
+    try {
+      fireEvent.keyDown(card, { key: "Escape" });
+      await waitFor(() => expect(decided).toEqual(["r1:deny"]));
+      expect(bubbled).not.toHaveBeenCalled();
+    } finally { window.removeEventListener("keydown", bubbled); }
   });
 
   it("plain Backspace and bare letters decide nothing", async () => {

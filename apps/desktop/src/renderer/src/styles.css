@@ -266,7 +266,6 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-sec:not(:first-child) { margin-top: 4px; }
 .palette-hint .item-glyph { display: inline-grid; vertical-align: middle; }
 .palette-hint kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: 4px; }
-.permission-actions kbd { margin-left: 5px; padding: 0 4px; border: 1px solid currentColor; border-radius: 4px; font-size: 10px; opacity: .6; }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { font-size: 11px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
@@ -373,15 +372,38 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
 .tool-body pre[data-error] { color: var(--rl-danger); }
 
-/* §5: the permission card floats (it interrupts) — neutral raised + edge + shadow; amber survives
-   only in the "Waiting" head text (full numbered-list redesign lands in W5). */
+/* §5: the permission card floats (it interrupts) — neutral raised + edge + shadow. The amber wash
+   is gone; colour survives as a 6px dot and the "Waiting" status pill, and the options are the
+   numbered-list pattern from HJz3KMT. */
 .permission-card { border-radius: var(--r-panel); padding: 12px 14px; background: var(--rl-raised); box-shadow: var(--rl-edge), var(--rl-shadow); display: flex; flex-direction: column; gap: 8px; }
-.permission-head { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--rl-warning); }
+.permission-head { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--rl-text-bright); }
+.permission-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-warning); flex: none; animation: rl-pulse 0.9s ease-in-out infinite; }
+.permission-head .status-pill { margin-left: auto; font-weight: 400; }
 .permission-tool { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .permission-tool code { font: 12px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 .permission-details summary { font-size: 11px; color: var(--rl-text-dim); cursor: default; }
 .permission-details pre { margin-top: 6px; }
-.permission-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Numbered options: kbd chip, label, shortcut hint; the selected row is an --rl-active pill (§2.7 —
+   selected is a fill, never an outline). Focus and selection are kept in step by the component. */
+.permission-options { display: flex; flex-direction: column; gap: 1px; }
+.permission-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: var(--r-ctl);
+  text-align: left; font-size: 12.5px; color: var(--rl-text-dim); }
+.permission-option:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.permission-option[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: 550; }
+.permission-option[data-decision="deny"][data-selected] { color: var(--rl-danger); }
+.permission-option-label { flex: 1; min-width: 0; }
+.permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 4px;
+  background: var(--rl-hover); color: var(--rl-text-faint); font-size: 10.5px; flex: none; }
+.permission-option[data-selected] .permission-num { color: var(--rl-text-bright); }
+.permission-option-kbd { color: var(--rl-text-faint); font-size: 10px; flex: none; }
+
+/* Footer (§5): navigation hints left, accent Submit pill right. */
+.permission-footer { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.permission-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
+.permission-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: 4px; font-size: 10px; }
+.permission-submit { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
+.permission-submit kbd { opacity: .7; }
 
 /* ── The prompter (§4): one floating card, two states, one element moving ─ */
 /* The dock carries geometry + position for BOTH states; greeting/suggestions/thinking hang off it
