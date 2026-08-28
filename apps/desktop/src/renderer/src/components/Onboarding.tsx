@@ -4,12 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { FALLBACK_AGENT, useApp } from "../state/store";
 import { agentAvailability, type AgentAvailability } from "../state/agent-availability";
 
-/** Status pill text + tone per §3 (fill = 14% color-mix, text at full strength). */
-function statusOf(a: AgentAvailability, version: string | null): { label: string; tone: "success" | "warning" | "muted" } {
+/**
+ * Status pill text + tone per §3 (fill = 14% color-mix, text at full strength).
+ *
+ * "Ready" is the tone that gets no fill. Three saturated success pills annotating the three agents you
+ * did nothing wrong with drowned the one decision on this screen; colour belongs on the states that
+ * need you — signed out, not installed.
+ */
+function statusOf(a: AgentAvailability, version: string | null): { label: string; tone: "ready" | "warning" | "muted" } {
   if (a.state === "unknown") return { label: "Checking…", tone: "muted" };
   if (a.state === "missing") return { label: "Not installed", tone: "muted" };
   if (a.state === "logged_out") return { label: "Signed out", tone: "warning" };
-  return { label: version ? `Ready · ${version}` : "Ready", tone: "success" };
+  return { label: version ? `Ready · ${version}` : "Ready", tone: "ready" };
 }
 
 /**
@@ -34,6 +40,7 @@ export function Onboarding() {
   const createProfile = useApp((s) => s.createProfile);
   const createSpace = useApp((s) => s.createSpace);
   const setDefaultAgent = useApp((s) => s.setDefaultAgent);
+  const newSessionInstant = useApp((s) => s.newSessionInstant);
   const run = useApp((s) => s.run);
   const nameRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
@@ -57,6 +64,9 @@ export function Onboarding() {
       const profileId = profiles[0]?.id ?? (await createProfile("Personal")).id;
       await setDefaultAgent(agent);
       await createSpace({ name: n, icon: "folder", profileId, color: pickSpaceColor(0) });
+      // Land in a prompter, not the empty-state placeholder: onboarding's whole promise is that
+      // you finish it ready to type.
+      await newSessionInstant();
     });
   };
 

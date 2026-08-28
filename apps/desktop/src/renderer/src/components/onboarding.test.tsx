@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { AGENT_META, SELECTABLE_AGENT_KINDS } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, allItems } from "@realm/contracts";
 import { Main } from "../App";
 import { Onboarding } from "./Onboarding";
 import { StoreContext, SETTING_LAST_AGENT, createAppStore } from "../state/store";
@@ -75,6 +75,23 @@ describe("first-run onboarding (W4)", () => {
     await waitFor(() => expect(store.getState().spaces).toHaveLength(1));
     expect(api.data.settings[SETTING_LAST_AGENT]).toBe("claude");
     expect(store.getState().spaces[0]!.profileId).toBe(store.getState().profiles[0]!.id);
+  });
+
+  it("finishing onboarding lands in a session, not the empty-state placeholder", async () => {
+    const { api, store } = await mountFresh();
+    fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), { target: { value: "Versed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create space" }));
+    await waitFor(() => expect(api.calls.filter((c) => c.startsWith("createSession"))).toHaveLength(1));
+    // ...and it is open, so the first thing after onboarding is a prompter.
+    expect(allItems(store.getState().layout!)).toHaveLength(1);
+  });
+
+  it("the session onboarding opens uses the agent just chosen", async () => {
+    const { api } = await mountFresh();
+    fireEvent.click(screen.getByRole("radio", { name: new RegExp(AGENT_META.codex.label) }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), { target: { value: "Versed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create space" }));
+    await waitFor(() => expect(api.calls).toContain("createSession:codex"));
   });
 
   it("an empty name can't create a space", async () => {

@@ -3,7 +3,7 @@ export const SPACE_ICONS = ["briefcase", "cap", "home", "folder", "terminal", "b
 export const pickSpaceColor = (i: number): string => SPACE_COLORS[i % SPACE_COLORS.length]!;
 
 export const AGENT_MODELS = {
-  claude: [{ id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
+  claude: [{ id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
   codex: [], "acp:gemini": [], "acp:cursor": [], fake: [{ id: "fake", label: "Fake" }],
 } as const;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;

@@ -420,7 +420,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 }
 .hero-greeting { position: absolute; bottom: calc(100% + 16px); left: 0; right: 0; text-align: center;
   font-size: 18px; font-weight: 650; letter-spacing: -.01em; color: var(--rl-text-bright); text-wrap: balance; }
-.hero-greeting em { font-style: normal; text-decoration: underline; text-decoration-color: var(--rl-text-faint); text-underline-offset: 3px; }
+.hero-greeting em { font-style: normal; color: var(--rl-text-bright); }
+.hero-greeting { color: var(--rl-text-dim); }
 
 /* Suggested prompts (§4): 2-up grid ≤640px below the card; raised fill, no border. */
 .suggestions { position: absolute; top: calc(100% + 12px); left: 0; right: 0;
@@ -518,6 +519,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* §3 status pills: 14% colour-mix fill, full-strength colour text. */
 .status-pill { flex: none; padding: 2px 7px; border-radius: var(--r-chip); font-size: 11px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-pill[data-tone="success"] { color: var(--rl-success); background: color-mix(in srgb, var(--rl-success) 14%, transparent); }
+.status-pill[data-tone="ready"] { color: var(--rl-text-dim); background: none; padding-inline: 0; }
 .status-pill[data-tone="warning"] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); }
 .status-pill[data-tone="muted"] { color: var(--rl-text-faint); background: var(--rl-hover); }
 
