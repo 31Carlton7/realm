@@ -146,6 +146,13 @@ describe("§6 do-NOT-animate list", () => {
     }
   });
 
+  it("the focused-pane marks are instant — §6 does not animate pane focus switching", () => {
+    // The underline, the inked header icon and the empty-leaf top rule all move when focus moves.
+    const focusRules = RULES.filter((x) => x.selectors.some((s) => /^\.panel(\[data-focused\]|-title|-icon)/.test(s)));
+    expect(focusRules.length).toBeGreaterThanOrEqual(3);
+    for (const r of focusRules) expect(r.body, r.selectors.join(",")).not.toContain("transition");
+  });
+
   it("a theme swap is fenced by a root mark that kills every transition (useTheme sets it)", () => {
     expect(bodiesFor(":root[data-theme-switching] *").join(" ")).toContain("transition: none !important");
   });
