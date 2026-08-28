@@ -2,7 +2,8 @@ import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { ToolCard, ToolGroup, RESULT_CLAMP } from "./ToolCard";
 import { GROUP_MIN, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock } from "./tool-group";
-import type { Block } from "./transcript-model";
+import { Transcript } from "./Transcript";
+import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
 const block = (content: string, isError = false): ToolBlock =>
   ({ kind: "tool", toolUseId: "t1", name: "Bash", input: { command: "ls" }, result: { content, isError }, ts: 0 });
@@ -196,5 +197,23 @@ describe("copy ✓ (§6 icon swap)", () => {
       act(() => { vi.advanceTimersByTime(2_000); });
       expect(copy).not.toHaveAttribute("data-copied");
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("tool groups inside the transcript", () => {
+  const model = (blocks: Block[]): TranscriptModel =>
+    ({ blocks, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null });
+  const run = (n: number) => model(Array.from({ length: n }, (_, k) => tool(`t${k + 1}`, "Read", { file_path: `/f${k}.ts` })));
+  const view = (n: number) => <Transcript transcript={run(n)} sessionStatus="idle" onDecide={() => {}} />;
+
+  it("keeps the group's expanded state — and each card's — as more tools land in the run", () => {
+    const { rerender } = render(view(3));
+    fireEvent.click(screen.getByRole("button", { name: "3 tool calls" }));
+    fireEvent.click(within(cards()[1]!).getByRole("button", { name: /Read tool call/ }));
+    rerender(view(4));
+    expect(screen.getByRole("button", { name: "4 tool calls" })).toBeInTheDocument();
+    expect(cards()).toHaveLength(4);            // still expanded: the group was not remounted
+    expect(cards()[1]).toHaveAttribute("data-open"); // and the open card is still the one opened
+    expect(cards()[0]).not.toHaveAttribute("data-open");
   });
 });
