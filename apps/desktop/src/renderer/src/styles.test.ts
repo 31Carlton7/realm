@@ -106,6 +106,22 @@ describe("§6 motion table", () => {
   it("W2's prompter hero→docked move keeps its 320ms ease-in-out-strong (§6 assigns that easing to on-screen movement)", () => {
     expect(bodiesFor(".composer-dock").join(" ")).toContain("transition: transform 320ms var(--ease-in-out-strong)");
   });
+
+  it("W2's suggestion-chip stagger keeps §6's 220ms / 40ms steps / 8px rise", () => {
+    const stagger = bodiesFor(".suggestions[data-animate] .suggestion-chip").join(" ");
+    expect(stagger).toContain("rl-chip-in 220ms var(--ease-out-strong)");
+    expect(stagger).toContain("calc(var(--i) * 40ms)");
+    expect(blockAfter("@keyframes rl-chip-in")).toContain("translateY(8px)");
+  });
+
+  it("the waiting status dot keeps the 0.9s pulse — §6's only looping motion at rest", () => {
+    expect(bodiesFor('.status-dot[data-status="waiting_permission"]').join(" ")).toContain("rl-pulse 0.9s ease-in-out infinite");
+  });
+
+  it("`will-change` is reserved for the swiper track (§6 performance note)", () => {
+    const owners = RULES.filter((r) => r.body.includes("will-change")).flatMap((r) => r.selectors);
+    expect(owners).toEqual([".swiper-track"]);
+  });
 });
 
 describe("§6 do-NOT-animate list", () => {
