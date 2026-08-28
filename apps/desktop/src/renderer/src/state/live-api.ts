@@ -34,6 +34,7 @@ export const liveApi = (): Api => ({
   setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),
   setSessionAgent: (id, agentKind) => rpc().call("sessions.setAgent", { id, agentKind }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),
+  openSessionTerminal: (id) => rpc().call("sessions.openTerminal", { id }),
   probeAgents: () => rpc().call("agents.probe", {}),
   gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),
 });

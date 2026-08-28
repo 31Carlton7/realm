@@ -275,6 +275,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ── Session pane ──────────────────────────────────────────────────────── */
 /* A size container so the prompter's hero lift can be expressed in cqh (pane-height units). */
 .session-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); container-type: size; }
+/* The session's terminal drawer (W4): a split INSIDE the session pane, not a layout leaf. Its divider is
+   the same 1px .resize-handle the pane host uses; the terminal keeps its full-pane treatment (§5 — no
+   border, no radius), separated from the transcript by the panel→terminal-bg luminance step alone.
+   Deliberately not animated: opening it is a resize, and §6 does not animate those. */
+.session-split { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.session-split > [data-panel] { display: flex; min-width: 0; }
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--rl-text-faint); flex: none; }
 /* §3 session status: colour = state, never chrome. Running is success (nothing running-related uses accent). */
 .status-dot[data-status="running"] { background: var(--rl-success); animation: rl-pulse 1.4s ease-in-out infinite; }

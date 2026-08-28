@@ -1048,3 +1048,109 @@ describe("app store", () => {
     });
   });
 });
+
+describe("the session's terminal side panel (W4)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const withSession = () => fakeApi({
+    items: { s1: [item("i9", "s1", { kind: "session", title: "Fake agent session", refId: "se1" })] },
+    sessions: [session("se1", "s1")],
+  });
+
+  it("is lazy: nothing reaches the server until the panel is actually opened", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openSession("se1");
+    expect(a.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+    expect(store.getState().terminalPanel["se1"]).toBeUndefined();
+    expect(store.getState().sessionTerminals["se1"]).toBeUndefined();
+  });
+
+  it("the first open creates the terminal; closing and reopening never creates a second one", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+
+    await store.getState().toggleTerminalPanel("se1");
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1);
+
+    await store.getState().toggleTerminalPanel("se1");
+    expect(store.getState().terminalPanel["se1"]!.open).toBe(false);
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1"); // the pty is not destroyed by hiding it
+
+    await store.getState().toggleTerminalPanel("se1");
+    expect(store.getState().terminalPanel["se1"]!.open).toBe(true);
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1); // still one
+  });
+
+  it("two opens racing (StrictMode double-mount) still create exactly one terminal", async () => {
+    const a = withSession();
+    a.delays["openSessionTerminal:se1"] = 10;
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await Promise.all([store.getState().ensureSessionTerminal("se1"), store.getState().ensureSessionTerminal("se1")]);
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1);
+  });
+
+  it("open/closed persists immediately; width persists on a trailing debounce", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().toggleTerminalPanel("se1");
+    vi.useFakeTimers();
+    expect(a.data.settings["ui.terminalPanel"]).toEqual({ se1: { open: true, width: 38 } });
+
+    store.getState().setTerminalPanelWidth("se1", 55);
+    expect(store.getState().terminalPanel["se1"]!.width).toBe(55); // applied at once…
+    expect((a.data.settings["ui.terminalPanel"] as Record<string, { width: number }>)["se1"]!.width).toBe(38); // …not yet written
+    store.getState().setTerminalPanelWidth("se1", 55.001); // sub-0.01 echo: ignored, timer not re-armed
+    await vi.advanceTimersByTimeAsync(PERSIST_DEBOUNCE_MS + 5);
+    expect((a.data.settings["ui.terminalPanel"] as Record<string, { width: number }>)["se1"]!.width).toBe(55);
+  });
+
+  it("boot restores the persisted panel state, so reopening a session brings its terminal back", async () => {
+    const a = withSession();
+    a.data.settings["ui.terminalPanel"] = { se1: { open: true, width: 44 } };
+    const store = createAppStore(a);
+    await store.getState().boot();
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 44 });
+    // Restoring state alone must not touch the server — the pane fetches the terminal when it renders.
+    expect(a.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+    await store.getState().ensureSessionTerminal("se1");
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
+  });
+
+  it("boot ignores a malformed persisted map instead of trusting it into the layout", async () => {
+    const a = withSession();
+    a.data.settings["ui.terminalPanel"] = { se1: { open: "yes", width: 44 }, se2: { open: true, width: "wide" }, se3: { open: true, width: 400 }, se4: 7 };
+    const store = createAppStore(a);
+    await store.getState().boot();
+    expect(store.getState().terminalPanel).toEqual({ se2: { open: true, width: 38 }, se3: { open: true, width: 38 } });
+  });
+
+  it("deleting the session drops the panel state and disposes the renderer-side terminal", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().toggleTerminalPanel("se1");
+    await store.getState().deleteItem("i9");
+    expect(a.disposed).toEqual(["term-se1"]); // the xterm + scrollback go with the session
+    expect(store.getState().terminalPanel["se1"]).toBeUndefined();
+    expect(store.getState().sessionTerminals["se1"]).toBeUndefined();
+    expect(a.data.settings["ui.terminalPanel"]).toEqual({});
+  });
+
+  it("closing the session's pane from the layout keeps the terminal — that is what makes reopening a restore", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openItem("i9");
+    await store.getState().toggleTerminalPanel("se1");
+    await store.getState().closeFromLayout("i9");
+    expect(a.disposed).toEqual([]);
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
+  });
+});

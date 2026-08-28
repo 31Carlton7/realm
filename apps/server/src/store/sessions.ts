@@ -4,11 +4,11 @@ import { NotFoundError, now } from "./rows";
 
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null;
   permission_mode: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number;
-  created_at: number; updated_at: number };
+  terminal_item_id: string | null; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
   permissionMode: r.permission_mode, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
-  lastEventSeq: r.last_event_seq, createdAt: r.created_at, updatedAt: r.updated_at,
+  lastEventSeq: r.last_event_seq, terminalItemId: r.terminal_item_id, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 export type SessionUpdate = { id: string; status?: SessionStatus; providerSessionId?: string | null; lastEventSeq?: number; title?: string;
@@ -44,6 +44,12 @@ export class SessionsStore {
         input.permissionMode ?? cur.permissionMode,
         input.agentKind ?? cur.agentKind, now(), input.id);
     return this.get(input.id)!;
+  }
+  /** Point the session at its terminal's item, or clear it. Deliberately not part of `update`: the
+   *  column is owned by SessionService.openTerminal, and SQLite clears it on its own (ON DELETE SET
+   *  NULL) when the item goes. */
+  setTerminalItem(id: string, itemId: string | null): void {
+    this.db.prepare("UPDATE sessions SET terminal_item_id = ?, updated_at = ? WHERE id = ?").run(itemId, now(), id);
   }
   /** Hot path (every persisted event): touch only the seq column. */
   setLastEventSeq(id: string, seq: number): void {

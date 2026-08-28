@@ -42,6 +42,10 @@ export const SessionSchema = z.object({
   id: IdSchema, spaceId: IdSchema, projectId: IdSchema.nullable(), agentKind: AgentKindSchema,
   model: z.string().nullable(), effort: z.string().nullable(), permissionMode: z.string(),
   cwd: z.string(), status: SessionStatusSchema, providerSessionId: z.string().nullable(),
-  title: z.string(), lastEventSeq: z.number().int(), ...Timestamps,
+  title: z.string(), lastEventSeq: z.number().int(),
+  /** The item of the session's own terminal side panel, once it has been opened at least once (W4).
+   *  That item is hidden from every item listing — the terminal belongs to the session, not the space. */
+  terminalItemId: IdSchema.nullable(),
+  ...Timestamps,
 });
 export type Session = z.infer<typeof SessionSchema>;

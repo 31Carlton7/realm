@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { sessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
+import { PanelBar } from "../../components/PanelBar";
+import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
 import { renderMarkdown } from "./Markdown";
@@ -584,5 +586,79 @@ describe("prompter agent chip (W3)", () => {
     render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" })} visible /></StoreContext.Provider>);
     await waitFor(() => expect(document.querySelector('.ghost-chip[title^="Agent:"]')).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Agent" })).toBeNull();
+  });
+});
+
+
+/** A hub over a no-op transport and a stub xterm — the drawer only has to mount, not render a shell. */
+function fakeHub() {
+  const transport: HubTransport = { on: () => () => {}, call: async () => ({ ok: true }) };
+  const term: TerminalLike = {
+    cols: 80, rows: 24, open: () => {}, write: () => {}, dispose: () => {}, focus: () => {},
+    onData: () => ({ dispose() {} }), onResize: () => ({ dispose() {} }),
+  };
+  return new TerminalHub(transport, () => ({ term, fit: { fit() {} } }));
+}
+
+describe("the session's terminal drawer (W4)", () => {
+  beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
+  afterEach(() => { setTerminalHubForTests(null); vi.unstubAllGlobals(); });
+
+  const sessionItem = item("i9", "s1", { kind: "session", refId: "se1", title: "Fake agent session" });
+
+  /** The pane AND its header, which is where the toggle lives (PanelBar renders per-kind actions). */
+  async function mountPane(panel?: { open: boolean; width: number }) {
+    setTerminalHubForTests(fakeHub());
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } }, ...(panel ? { terminalPanel: { se1: panel } } : {}) });
+    const r = render(
+      <StoreContext.Provider value={store}>
+        <PanelBar item={sessionItem} onSplit={() => {}} onClose={() => {}} />
+        <SessionPane item={sessionItem} visible />
+      </StoreContext.Provider>,
+    );
+    return { api, store, ...r };
+  }
+
+  const toggle = () => screen.getByRole("button", { name: /(Show|Hide) terminal for Fake agent session/ });
+
+  it("is absent until the header toggle is pressed — mounting a session never spawns a shell", async () => {
+    const { api, store } = await mountPane();
+    expect(document.querySelector(".terminal-pane")).toBeNull();
+    expect(toggle()).toHaveAttribute("aria-pressed", "false");
+    expect(api.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+
+    fireEvent.click(toggle());
+    await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
+    expect(api.calls).toContain("openSessionTerminal:se1");
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
+    // The drawer is INTERNAL to the session pane: the transcript is still right there beside it.
+    expect(document.querySelector(".session-split .session-pane")).not.toBeNull();
+  });
+
+  it("reopening a session whose drawer was left open restores it, at its persisted width", async () => {
+    await mountPane({ open: true, width: 44 });
+    await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
+    const panels = [...document.querySelectorAll(".session-split > [data-panel]")];
+    expect(panels).toHaveLength(2);
+    expect(panels[1]).toHaveStyle({ flexGrow: "44" }); // 38% is only the FIRST-open default
+  });
+
+  it("hiding it removes the view but keeps the terminal — nothing is disposed", async () => {
+    const { api, store } = await mountPane({ open: true, width: 38 });
+    await waitFor(() => expect(store.getState().sessionTerminals["se1"]).toBe("term-se1"));
+    fireEvent.click(toggle());
+    await waitFor(() => expect(document.querySelector(".terminal-pane")).toBeNull());
+    expect(api.disposed).toEqual([]);
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
+  });
+
+  it("a terminal item's header has no such toggle — only sessions own one", () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    render(<StoreContext.Provider value={store}><PanelBar item={item("i1", "s1", { kind: "terminal", title: "zsh" })} onSplit={() => {}} onClose={() => {}} /></StoreContext.Provider>);
+    expect(screen.queryByRole("button", { name: /terminal for zsh/ })).toBeNull();
   });
 });

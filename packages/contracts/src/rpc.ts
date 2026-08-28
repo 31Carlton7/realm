@@ -91,6 +91,9 @@ export const Methods = {
    *  model id from the old kind means nothing to the new one. */
   "sessions.setAgent": { params: z.object({ id: IdSchema, agentKind: AgentKindSchema }), result: SessionSchema },
   "sessions.events":  { params: z.object({ id: IdSchema, afterSeq: z.number().int().default(0), limit: z.number().int().default(2000) }), result: z.array(StoredSessionEventSchema) },
+  /** Get-or-create the session's terminal side panel (W4), at the session's cwd. Idempotent: the pty is
+   *  spawned on the FIRST call and only then — a session whose panel is never opened never has one. */
+  "sessions.openTerminal": { params: z.object({ id: IdSchema }), result: z.object({ terminalId: IdSchema, itemId: IdSchema }) },
   "sessions.delete":  { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 } as const;
 

@@ -91,6 +91,15 @@ const BINDINGS: Binding[] = [
     match: (e) => e.key.toLowerCase() === "n" && mod(e, { meta: true }),
     run: (s) => s.run(() => s.newSessionInstant()),
   },
+  // ⌘J → show/hide the focused session's terminal drawer (W4). `inInputs` on purpose: the two places
+  // your hands ever are in a session pane are the composer (an editable target, which the guard would
+  // otherwise swallow) and the drawer itself (exempted by isEditableTarget's .xterm clause) — a toggle
+  // that only worked from neither would be dead. ⌘J types nothing in either.
+  {
+    match: (e) => e.key.toLowerCase() === "j" && mod(e, { meta: true }),
+    inInputs: true,
+    run: (s) => { const it = focusedItem(s); if (it?.kind === "session") s.run(() => s.toggleTerminalPanel(it.refId)); },
+  },
   // Esc → interrupt the focused pane's running session (U-L9). Works from the composer.
   {
     match: (e) => e.key === "Escape" && mod(e, {}),

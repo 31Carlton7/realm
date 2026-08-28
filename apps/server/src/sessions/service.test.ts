@@ -309,3 +309,108 @@ describe("SessionService over rpc", () => {
     c2.close();
   });
 });
+
+describe("the session's terminal side panel (W4)", () => {
+  it("is lazy: creating (and using) a session never spawns a pty or a terminal row", async () => {
+    const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "ok" }] }] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => c.eventTypes(session.id).includes("usage"));
+    expect(session.terminalItemId).toBeNull();
+    expect((await c.call("sessions.get", { id: session.id })).result.terminalItemId).toBeNull();
+    expect(app.db.prepare("SELECT COUNT(*) AS n FROM terminals").get()).toEqual({ n: 0 });
+    c.close();
+  });
+
+  it("openTerminal creates it once, at the session's cwd, and is idempotent after that", async () => {
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const first = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    expect(app.terminals.has(first.terminalId)).toBe(true);
+    expect((await c.call("sessions.get", { id: session.id })).result.terminalItemId).toBe(first.itemId);
+    const row = app.db.prepare("SELECT cwd FROM terminals WHERE id = ?").get(first.terminalId);
+    expect(row).toEqual({ cwd: sp.folderPath }); // the session's cwd, not some default
+    const second = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    expect(second).toEqual(first);
+    expect(app.db.prepare("SELECT COUNT(*) AS n FROM terminals").get()).toEqual({ n: 1 });
+    c.close();
+  });
+
+  it("its item is hidden from items.list and items.listAll — it belongs to the session, not the space", async () => {
+    const { c, sp } = await boot();
+    const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const standalone = (await c.call("terminals.create", { spaceId: sp.id })).result;
+    const before = (await c.call("items.list", { spaceId: sp.id })).result.map((i: Any) => i.id);
+    expect(before).toEqual([itemId, standalone.itemId]);
+
+    const term = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    // Both listings skip it; the standalone terminal (same kind, same space) still shows — so this is
+    // the session-owned predicate, not "terminals are hidden".
+    expect((await c.call("items.list", { spaceId: sp.id })).result.map((i: Any) => i.id)).toEqual([itemId, standalone.itemId]);
+    expect((await c.call("items.listAll", {})).result.map((i: Any) => i.id).sort()).toEqual([itemId, standalone.itemId].sort());
+    // …while the row itself exists and is findable by the services that own it.
+    expect(app.db.prepare("SELECT id FROM items WHERE id = ?").get(term.itemId)).toEqual({ id: term.itemId });
+    c.close();
+  });
+
+  it("deleting the session kills its pty and its hidden item", async () => {
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const term = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    expect(app.terminals.has(term.terminalId)).toBe(true);
+
+    await c.call("sessions.delete", { id: session.id });
+    expect(app.terminals.has(term.terminalId)).toBe(false);
+    expect(app.db.prepare("SELECT id FROM items WHERE id = ?").get(term.itemId)).toBeUndefined();
+    expect(app.db.prepare("SELECT COUNT(*) AS n FROM terminals").get()).toEqual({ n: 0 });
+    c.close();
+  });
+
+  it("deleting the session's sidebar item takes the same path (items.delete → sessions.delete)", async () => {
+    const { c, sp } = await boot();
+    const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const term = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    await c.call("items.delete", { id: itemId });
+    expect(app.terminals.has(term.terminalId)).toBe(false);
+    expect(app.db.prepare("SELECT COUNT(*) AS n FROM sessions").get()).toEqual({ n: 0 });
+    c.close();
+  });
+
+  it("deleting the space takes session-owned terminals with it", async () => {
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const term = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    await c.call("spaces.delete", { id: sp.id });
+    expect(app.terminals.has(term.terminalId)).toBe(false);
+    expect(app.db.prepare("SELECT COUNT(*) AS n FROM terminals").get()).toEqual({ n: 0 });
+    c.close();
+  });
+
+  it("a recorded terminal whose pty died is replaced, not handed back dead", async () => {
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const first = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    await c.call("terminals.close", { terminalId: first.terminalId }); // e.g. the shell exited
+    // ON DELETE SET NULL cleared the pointer along with the item.
+    expect((await c.call("sessions.get", { id: session.id })).result.terminalItemId).toBeNull();
+    const next = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    expect(next.terminalId).not.toBe(first.terminalId);
+    expect(app.terminals.has(next.terminalId)).toBe(true);
+    c.close();
+  });
+
+  it("survives a restart: the pty is respawned and the session still points at it", async () => {
+    const { home, c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const term = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    c.close(); await app.close();
+
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) } });
+    const c2 = await client(app.port);
+    expect(app.terminals.has(term.terminalId)).toBe(true); // restoreAll respawned it
+    expect((await c2.call("sessions.get", { id: session.id })).result.terminalItemId).toBe(term.itemId);
+    expect((await c2.call("sessions.openTerminal", { id: session.id })).result).toEqual(term); // same trio
+    expect((await c2.call("items.list", { spaceId: sp.id })).result.some((i: Any) => i.id === term.itemId)).toBe(false);
+    c2.close();
+  });
+});

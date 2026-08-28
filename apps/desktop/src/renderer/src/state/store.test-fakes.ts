@@ -10,13 +10,15 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, createdAt: 0, updatedAt: 0, ...extra });
+    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
   settings?: Record<string, unknown>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
+  /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
+  sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
   gitInfo?: Record<string, GitInfo | null>;
 };
@@ -45,6 +47,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     settings: overrides.settings ?? {},
     sessions: overrides.sessions ?? [],
     sessionEvents: overrides.sessionEvents ?? {},
+    sessionTerminals: overrides.sessionTerminals ?? {},
     gitInfo: overrides.gitInfo ?? {},
   };
   let n = 100;
@@ -132,6 +135,19 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const s = { ...data.sessions[i]!, agentKind, model: null }; data.sessions[i] = s; return s;
     },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
+    // Mirrors the server: get-or-create, so a second call for the same session returns the same trio —
+    // and the hidden item never joins `data.items` (it is not a sidebar item).
+    openSessionTerminal: async (id) => {
+      calls.push(`openSessionTerminal:${id}`);
+      await wait(`openSessionTerminal:${id}`);
+      const known = data.sessionTerminals[id];
+      if (known) return known;
+      const made = { terminalId: `term-${id}`, itemId: `titem-${id}` };
+      data.sessionTerminals[id] = made;
+      const i = data.sessions.findIndex((s) => s.id === id);
+      if (i >= 0) data.sessions[i] = { ...data.sessions[i]!, terminalItemId: made.itemId };
+      return made;
+    },
     probeAgents: async () => { calls.push("probeAgents"); return [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]; },
     gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },
   };
