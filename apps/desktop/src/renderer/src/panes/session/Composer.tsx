@@ -36,17 +36,23 @@ function ContextRow({ session, project, gitInfo }: { session: Session; project: 
   );
 }
 
-/** Borderless ghost chip that opens an upward Menu (§4 control row). With no items it renders as a
- *  static label (e.g. an agent whose CLI owns model choice: nothing to pick, still worth naming). */
+/** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
+ *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
+ *  and a disabled button would leave the tab order and be announced as unavailable. */
 function ChipMenu({ ariaLabel, label, items, warning }: { ariaLabel: string; label: ReactNode; items: MenuItem[]; warning?: boolean }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  if (items.length === 0) {
+    return <span className="ghost-chip" data-static title={ariaLabel} data-warning={warning || undefined}><span className="chip-label">{label}</span></span>;
+  }
   return (
     <>
+      {/* Toggle, not a bare open: Menu deliberately ignores pointerdown on its own anchor, so closing
+          by clicking the chip a second time is this handler's job. */}
       <button ref={btn} type="button" className="ghost-chip" aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open}
-        data-warning={warning || undefined} disabled={items.length === 0} onClick={() => setOpen(true)}>
+        data-warning={warning || undefined} onClick={() => setOpen((v) => !v)}>
         <span className="chip-label">{label}</span>
-        {items.length > 0 && <Icon name="chevronDown" size={12} className="chip-caret" />}
+        <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <Menu items={items} onClose={() => setOpen(false)} anchorRef={btn} placement="up" label={ariaLabel} />}
     </>

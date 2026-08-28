@@ -37,7 +37,7 @@ export function PanelBar({ item, onSplit, onClose }: {
       <span className="panel-meta">{Meta ? <Meta item={item} /> : null}</span>
       <span className="panel-actions">
         <button ref={menuBtn} className="icon-btn" aria-label={`Pane menu for ${item.title}`} aria-haspopup="menu"
-          aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen(true); }}>
+          aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen((v) => !v); }}>
           <Icon name="more" size={13} />
         </button>
         <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={13} /></button>

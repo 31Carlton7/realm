@@ -135,9 +135,11 @@ kbd { font: 11px var(--font-mono); }
 .strip-badge[data-status="error"] { background: var(--rl-danger); }
 
 /* ── Menus / overlays (raised) ─────────────────────────────────────────── */
-.menu { z-index: 100; min-width: 160px; padding: 4px; display: flex; flex-direction: column;
+/* max-height + scroll: positioning clamps `top` to the viewport, so a menu taller than the screen
+   would otherwise run off the bottom edge with no way to reach its last items. */
+.menu { z-index: 100; min-width: 160px; max-height: min(60vh, calc(100vh - 24px)); overflow-y: auto; padding: 4px; display: flex; flex-direction: column;
   background: var(--rl-raised); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--rl-edge), var(--rl-shadow); }
-.menu [role="menuitem"], .menu [role="menuitemcheckbox"] { text-align: left; padding: 6px 10px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px; }
+.menu [role="menuitem"], .menu [role="menuitemcheckbox"] { flex: none; text-align: left; padding: 6px 10px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px; }
 .menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--rl-hover); }
 /* Roving focus moves programmatically, which browsers don't always mark :focus-visible — use :focus. */
 .menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--rl-hover); outline: none; }
@@ -375,6 +377,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .suggestions { position: absolute; top: calc(100% + 12px); left: 0; right: 0;
   width: min(640px, 100%); margin-inline: auto;
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+/* Below ~420px of pane the hero clamp has already pinned the card near the top and the grid would
+   run past the pane's bottom edge, clipped mid-chip by .panel's overflow. Chips are the optional
+   part of the hero — drop them cleanly and let the greeting and card keep the room. */
+@container (max-height: 420px) { .suggestions { display: none; } }
 .suggestion-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; border-radius: var(--r-ctl);
   background: var(--rl-raised); min-width: 0; }
 .suggestion-chip:hover { background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-raised); }
@@ -407,8 +413,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. */
 .ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-radius: var(--r-chip);
   color: var(--rl-text-dim); font-size: 11.5px; background: transparent; max-width: 200px; min-width: 0; }
-.ghost-chip:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
-.ghost-chip:disabled { opacity: 1; cursor: default; } /* static label (no menu), not a dimmed control */
+.ghost-chip:hover:not([data-static]) { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Nothing to pick: rendered as a <span> (see ChipMenu) — a label, never a dimmed control. */
+.ghost-chip[data-static] { cursor: default; }
 .ghost-chip[data-warning] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); } /* §3 status-pill formula */
 .ghost-chip .chip-caret { color: var(--rl-text-faint); flex: none; }
 .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -444,10 +451,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .agent-name { font-weight: 550; } .agent-hint { margin-left: auto; font-size: 11px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 
 /* ── Scrollbars: thin + on-theme in the few containers that actually scroll ───── */
-.transcript, .space-body, .palette-list, .tool-well, .sheet, .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
-.transcript::-webkit-scrollbar, .space-body::-webkit-scrollbar, .palette-list::-webkit-scrollbar, .tool-well::-webkit-scrollbar, .sheet::-webkit-scrollbar, .terminal-pane .xterm-viewport::-webkit-scrollbar { width: 10px; }
-.transcript::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb, .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
-.transcript::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track, .terminal-pane .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.transcript, .space-body, .palette-list, .menu, .tool-well, .sheet, .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
+.transcript::-webkit-scrollbar, .space-body::-webkit-scrollbar, .palette-list::-webkit-scrollbar, .menu::-webkit-scrollbar, .tool-well::-webkit-scrollbar, .sheet::-webkit-scrollbar, .terminal-pane .xterm-viewport::-webkit-scrollbar { width: 10px; }
+.transcript::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .menu::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb, .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
+.transcript::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .menu::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track, .terminal-pane .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 
 /* ── Motion (spec §4 + amendment 2026-08-27): panel settle, overlay pop-in, micro-interactions ── */
 .panel-body .pane-slot { animation: rl-settle 150ms var(--ease); }

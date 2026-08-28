@@ -204,9 +204,12 @@ describe("SessionPane", () => {
 
   it("a kind with no pickable models still names itself: static model chip with the frontier default, no menu", async () => {
     await mountKind("codex");
-    const chip = screen.getByRole("button", { name: "Model" });
+    // Nothing to pick, so it is a LABEL, not a disabled control: readable, out of the way of the tab
+    // order, and never announced as "unavailable" when naming the model is its entire job.
+    const chip = document.querySelector(".ghost-chip[data-static]");
     expect(chip).toHaveTextContent("Codex · GPT-5.6");
-    expect(chip).toBeDisabled(); // nothing to pick — a label, not a menu
+    expect(chip!.tagName).toBe("SPAN");
+    expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
   });
 
   it("the cwd context chip truncates with an ellipsis label and carries the full path as its title", async () => {
@@ -221,6 +224,56 @@ describe("SessionPane", () => {
     expect(document.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");
     act(() => store.getState().applySessionStatus("se1", "idle"));
     expect(document.querySelector(".composer-thinking")).toBeNull();
+  });
+
+  it("the Thinking… strip hides while the agent is blocked on the user (waiting_permission is not streaming)", async () => {
+    // §4 scopes the strip to streaming. waiting_permission is the opposite state — the agent is idle,
+    // waiting on a decision — so "Thinking…" there is a wrong-state message, not a slow one.
+    const { store } = await mount("waiting_permission");
+    expect(document.querySelector(".composer-thinking")).toBeNull();
+    act(() => store.getState().applySessionStatus("se1", "running"));
+    expect(document.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");
+  });
+
+  it("Ctrl+Enter sends too — it is the only send gesture on Linux/Windows", async () => {
+    const { api } = await mount("idle", reduceAll([]));
+    const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "from linux" } });
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(sent).toEqual(["from linux"]));
+    expect((box as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("a permission card arriving before the first block docks the prompter (blocks are empty but there IS something to read)", async () => {
+    // Reachable on turn one: the agent asks permission before emitting any text. Hero would float the
+    // prompter at 38% with the card stranded behind it.
+    await mount("waiting_permission", reduceAll([
+      sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }),
+    ]));
+    expect(screen.getByRole("group", { name: /Permission request/ })).toBeInTheDocument();
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "docked");
+    expect(document.querySelector(".hero-greeting")).toBeNull();
+  });
+
+  it("a pending permission that is NOT being waited on leaves the prompter in hero (nothing is on screen)", async () => {
+    // The mirror of the case above: the card is filtered out by status, so the pane really is empty.
+    await mount("idle", reduceAll([
+      sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }),
+    ]));
+    expect(screen.queryByRole("group", { name: /Permission request/ })).toBeNull();
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "hero");
+  });
+
+  it("a chip menu closes when its own chip is clicked a second time (I6)", async () => {
+    await mount("idle", reduceAll([]));
+    const chip = screen.getByRole("button", { name: "Permission mode" });
+    fireEvent.pointerDown(chip); fireEvent.click(chip);
+    expect(screen.getByRole("menu", { name: "Permission mode" })).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); // arm Menu's outside-pointerdown listener
+    fireEvent.pointerDown(chip); fireEvent.click(chip);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(chip).toHaveAttribute("aria-expanded", "false");
   });
 
   it("a pending permission is only shown while the session is waiting_permission (stale after crash/relaunch)", async () => {
@@ -362,6 +415,30 @@ describe("composer context row (git chips)", () => {
     expect(document.querySelector(".git-diff")).toBeNull();
     expect(document.querySelector(".git-dirty")).toBeNull();
     expect(document.querySelector(".composer-context .composer-chip")).toBeInTheDocument(); // cwd chip survives
+  });
+});
+
+describe("suggestion stagger runs once per session (§6 'never re-animate on revisit')", () => {
+  /** Its own session id: the played-set is module-level and every other hero mount in this file
+   *  marks "se1", which would make a first-mount assertion here order-dependent. */
+  async function mountHero(id: string) {
+    const api = fakeApi({ sessions: [session(id, "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { [id]: "idle" }, transcripts: { [id]: { lastSeq: 0, t: reduceAll([]) } } });
+    return render(<StoreContext.Provider value={store}><SessionPane item={item(`i-${id}`, "s1", { kind: "session", refId: id, title: "s" })} visible /></StoreContext.Provider>);
+  }
+
+  it("staggers on the first hero render and never again for that session, while a different session still gets its own", async () => {
+    const first = await mountHero("se-stagger-a");
+    expect(document.querySelector(".suggestions")).toHaveAttribute("data-animate");
+    first.unmount();
+    // Pane-slot keying remounts SessionPane on every tab-back; the chips must not replay.
+    const second = await mountHero("se-stagger-a");
+    expect(document.querySelector(".suggestions")).not.toHaveAttribute("data-animate");
+    second.unmount();
+    // ...but the guard is per session, not a global one-shot.
+    await mountHero("se-stagger-b");
+    expect(document.querySelector(".suggestions")).toHaveAttribute("data-animate");
   });
 });
 

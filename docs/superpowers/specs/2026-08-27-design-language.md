@@ -187,7 +187,9 @@ Codex-style centerpiece. Two states, one component. References: `HId3BEI`, `ee0a
 
 **Docked state (active transcript)**
 - Same component pinned to pane bottom: `margin: 8px auto max(12px, env(safe-area))`; transcript scrolls beneath — give transcript matching `max-width: 680px` centered column so prompter and content share rails.
-- Transition empty → docked: the card *moves* (translateY + width settle, 320ms `--ease-out-strong`); do not fade out/in two instances.
+- Transition empty → docked: the card *moves* (translateY + width settle, 320ms `--ease-in-out-strong`); do not fade out/in two instances.
+  *(Amended 2026-08-28, W2: this line originally read `--ease-out-strong`, contradicting §6's motion table.
+  §6 is authoritative — it assigns `--ease-in-out-strong` to on-screen movement, which is exactly what this is.)*
 - While streaming: "Thinking…" shimmer line docks under the bottom edge (per `ee0a8029` state 4); no skeletons inside the card.
 
 ---

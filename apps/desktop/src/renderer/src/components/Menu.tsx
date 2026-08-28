@@ -70,12 +70,20 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
   }, []);
 
   useLayoutEffect(() => {
-    const onDown = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (ref.current?.contains(target)) return;
+      // The trigger lives OUTSIDE the portal, so an anchored menu would otherwise close on its own
+      // trigger's pointerdown and the following click would reopen it — flicker, focus ping-pong, and
+      // no way to dismiss by clicking the control again. Leave the trigger to its own toggle.
+      if (anchorRef?.current?.contains(target)) return;
+      onClose();
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
     // Deferred so the click that opened the menu doesn't immediately close it.
     const id = setTimeout(() => { window.addEventListener("pointerdown", onDown); window.addEventListener("keydown", onKey, true); }, 0);
     return () => { clearTimeout(id); window.removeEventListener("pointerdown", onDown); window.removeEventListener("keydown", onKey, true); };
-  }, [onClose]);
+  }, [onClose, anchorRef]);
 
   const buttons = () =>
     Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);

@@ -132,6 +132,21 @@ describe("PaneHost", () => {
     unmount();
   });
 
+  it("⋯ menu closes when the ⋯ button is pressed a second time", async () => {
+    // Menu's outside-pointerdown handler fires on the trigger too (it lives outside the portal), so
+    // without both halves of the fix — Menu ignoring its anchor, and the trigger toggling — the second
+    // press closes and instantly reopens: flicker, and no way to dismiss from the control you opened.
+    const { unmount } = renderHost();
+    const dots = within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" });
+    fireEvent.pointerDown(dots); fireEvent.click(dots);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); // arm the outside-pointerdown listener
+    fireEvent.pointerDown(dots); fireEvent.click(dots);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(dots).toHaveAttribute("aria-expanded", "false");
+    unmount();
+  });
+
   it("⋯ menu Delete is two-step and deletes through the store on confirm", async () => {
     const { api, unmount } = renderHost({ layout: { type: "leaf", id: "L1", itemId: "A" } });
     fireEvent.click(within(panel("L1")).getByRole("button", { name: "Pane menu for Tab A" }));
