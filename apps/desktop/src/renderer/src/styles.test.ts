@@ -146,6 +146,10 @@ describe("§6 do-NOT-animate list", () => {
     }
   });
 
+  it("a theme swap is fenced by a root mark that kills every transition (useTheme sets it)", () => {
+    expect(bodiesFor(":root[data-theme-switching] *").join(" ")).toContain("transition: none !important");
+  });
+
   it("prefers-reduced-motion strips every animation and transition, and hides the spinner", () => {
     const reduced = blockAfter("@media (prefers-reduced-motion: reduce)");
     expect(reduced).toContain("animation: none !important");

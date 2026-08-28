@@ -587,6 +587,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .permission-option:active:not(:disabled), .tool-copy:active:not(:disabled) { transform: scale(.97); }
 .drop-zone { transition: opacity 80ms linear; }
 
+/* §6 "do NOT animate: theme/mode switching". useTheme sets this for a beat around a palette rewrite;
+   without it the surfaces carrying a hover transition would tween to the new theme while the rest of
+   the window snapped. */
+:root[data-theme-switching] * { transition: none !important; }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
   /* A frozen spinner reads as a hang (A-L5): hide it. .msg-working keeps its "Working…" text; the
