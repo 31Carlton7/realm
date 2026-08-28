@@ -36,13 +36,13 @@ function Well({ label, text, error = false }: { label: string; text: string; err
 }
 
 /** A tool call the agent made: compact row, click to expand input + result. */
-export function ToolCard({ block, sessionStatus }: { block: ToolBlock; sessionStatus: SessionStatus }) {
+export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean }) {
   const [open, setOpen] = useState(false);
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
   const state: ToolState = block.result ? (block.result.isError ? "error" : "ok") : live ? "running" : "none";
   const summary = clip(toolSummary(block.name, block.input));
   return (
-    <div className="tool-card" data-state={state} data-open={open || undefined}>
+    <div className="tool-card" data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
       <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={() => setOpen((o) => !o)}>
         <Icon name="chevronRight" size={12} className="tool-chevron" />
         <Icon name={toolIcon(block.name)} size={14} />

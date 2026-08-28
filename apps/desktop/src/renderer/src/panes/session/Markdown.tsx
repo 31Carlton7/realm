@@ -28,11 +28,12 @@ export function renderMarkdown(text: string): string {
   return wrapTables(DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, ADD_ATTR: ["target"] }));
 }
 
-/** Assistant prose: markdown → sanitized HTML. `streaming` appends a caret. */
-export function Markdown({ text, streaming = false, className = "" }: { text: string; streaming?: boolean; className?: string }) {
+/** Assistant prose: markdown → sanitized HTML. `streaming` appends a caret; `enter` opts the block
+ *  into the transcript's 180ms enter animation (§6 — set only for blocks that are genuinely new). */
+export function Markdown({ text, streaming = false, className = "", enter = false }: { text: string; streaming?: boolean; className?: string; enter?: boolean }) {
   const html = useMemo(() => renderMarkdown(text), [text]);
   return (
-    <div className={`md ${className}`.trim()} data-streaming={streaming || undefined}>
+    <div className={`md ${className}`.trim()} data-streaming={streaming || undefined} data-enter={enter || undefined}>
       <div dangerouslySetInnerHTML={{ __html: html }} />
       {streaming && <span className="md-caret" aria-hidden="true">▍</span>}
     </div>

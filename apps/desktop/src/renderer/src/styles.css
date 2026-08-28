@@ -516,6 +516,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .sheet-backdrop { animation: rl-fade-in 160ms var(--ease-out-strong); }
 @keyframes rl-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
+/* Transcript items (§6): 180ms, translateY 6px + fade, NEW items only. Transcript.tsx marks a block
+   with data-enter the first time it is seen after mount and never takes the mark away — so a
+   re-render, a scroll, or coming back to the session cannot replay (or abort) an entrance, and a
+   restored history animates nothing at all. */
+.transcript-col > [data-enter] { animation: rl-msg-in 180ms var(--ease-out-strong); }
+@keyframes rl-msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
 /* §6 "do NOT animate": the command palette is a 100×/day action (Raycast rule) — it appears and
    disappears instantly, and neither it nor its scrim may grow an enter animation. Deliberately
    stated rather than merely omitted, so the absence reads as a decision. */

@@ -66,6 +66,11 @@ describe("§6 motion table", () => {
     expect(blockAfter("@keyframes rl-menu-in")).toContain("scale(.97)");
   });
 
+  it("transcript items enter at 180ms with a 6px rise, gated on the data-enter mark Transcript.tsx sets", () => {
+    expect(bodiesFor(".transcript-col > [data-enter]").join(" ")).toContain("animation: rl-msg-in 180ms var(--ease-out-strong)");
+    expect(blockAfter("@keyframes rl-msg-in")).toContain("translateY(6px)");
+  });
+
   it("hover fills run 100ms on plain `ease` and touch background/colour only — never geometry", () => {
     const hover = bodiesFor(".item-row").join(" ");
     expect(hover).toContain("transition: background-color 100ms ease, color 100ms ease");

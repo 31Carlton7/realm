@@ -5,14 +5,17 @@ import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { PermissionCard } from "./PermissionCard";
 import { ToolCard } from "./ToolCard";
-import type { Transcript as TranscriptModel } from "./transcript-model";
+import { blockKey, type Transcript as TranscriptModel } from "./transcript-model";
+import { useEnterTracker } from "./transcript-enter";
 
 const NEAR_BOTTOM_PX = 80;
+/** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
+const permKey = (requestId: string) => `perm:${requestId}`;
 
-function Thinking({ text }: { text: string }) {
+function Thinking({ text, enter }: { text: string; enter?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="msg-thinking">
+    <div className="msg-thinking" data-enter={enter || undefined}>
       <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={13} /><span>Thinking…</span></button>
       {open && <div className="thinking-body">{text}</div>}
     </div>
@@ -35,6 +38,12 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
   const lastLen = lastText && "text" in lastText ? lastText.text.length : 0;
   // Permission cards only make sense while the adapter is actually waiting; stale requests (crash, restart) are closed server-side.
   const permissions = sessionStatus === "waiting_permission" ? transcript.pendingPermissions : [];
+  // §6: 180ms enter, new items only. Everything on screen at mount is seeded as already-seen, so
+  // re-rendering, scrolling, or coming back to this session never replays an entrance.
+  const isEntering = useEnterTracker([
+    ...transcript.blocks.map(blockKey),
+    ...permissions.map((p) => permKey(p.requestId)),
+  ]);
 
   const onScroll = () => {
     const el = ref.current; if (!el) return;
@@ -54,15 +63,17 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
         <div className="transcript-col">
         {transcript.blocks.map((b, i) => {
+          const key = blockKey(b, i), enter = isEntering(key);
           switch (b.kind) {
-            case "user": return <div key={i} className="msg-user-row"><div className="msg-user">{b.text}</div></div>;
-            case "assistant": return <Markdown key={i} className="msg-assistant" text={b.text} streaming={b.streaming} />;
-            case "thinking": return <Thinking key={i} text={b.text} />;
-            case "tool": return <ToolCard key={b.toolUseId} block={b} sessionStatus={sessionStatus} />;
-            case "error": return <div key={i} className="msg-error" role="alert"><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
+            case "user": return <div key={key} className="msg-user-row" data-enter={enter || undefined}><div className="msg-user">{b.text}</div></div>;
+            case "assistant": return <Markdown key={key} className="msg-assistant" text={b.text} streaming={b.streaming} enter={enter} />;
+            case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
+            case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} />;
+            case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
           }
         })}
-        {permissions.map((p, i) => <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0} onDecide={(d) => onDecide(p.requestId, d)} />)}
+        {permissions.map((p, i) => <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0}
+          enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />)}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><Icon name="spinner" size={13} className="spin" /> Working…</div>}
         </div>
       </div>

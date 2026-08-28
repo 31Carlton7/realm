@@ -17,6 +17,11 @@ export type Transcript = {
   init: { model: string; tools: string[]; providerSessionId: string } | null;
 };
 
+/** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
+ *  state; everything else keys on position, which is stable because blocks are only ever appended or
+ *  replaced in place (a streaming assistant block becomes its final self at the same index). */
+export const blockKey = (b: Block, i: number): string => (b.kind === "tool" ? `tool:${b.toolUseId}` : `${b.kind}:${i}`);
+
 export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null });
 
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };

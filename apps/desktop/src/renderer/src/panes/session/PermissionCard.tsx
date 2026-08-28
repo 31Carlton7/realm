@@ -11,8 +11,8 @@ import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
  *  Enter = Allow, ⇧Enter = Allow always, ⌘⌫ = Deny — handled on keydown with preventDefault so a
  *  focused button never double-fires its native Enter click. Buttons keep exact accessible names
  *  ("Allow", not "Allow ⏎") via aria-label; the kbd hints are visual only. */
-export function PermissionCard({ permission, onDecide, autoFocus = false }: {
-  permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean;
+export function PermissionCard({ permission, onDecide, autoFocus = false, enter = false }: {
+  permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
 }) {
   const summary = clip(toolSummary(permission.toolName, permission.input), 200);
   const allowRef = useRef<HTMLButtonElement>(null);
@@ -32,7 +32,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false }: {
   };
 
   return (
-    <div className="permission-card" role="group" aria-label="Permission request" onKeyDown={onKeyDown}>
+    <div className="permission-card" role="group" aria-label="Permission request" data-enter={enter || undefined} onKeyDown={onKeyDown}>
       <div className="permission-head"><Icon name="alert" size={15} /><span>{permission.title}</span></div>
       <div className="permission-tool"><Icon name={toolIcon(permission.toolName)} size={14} /><span className="tool-name">{permission.toolName}</span>{summary && <code>{summary}</code>}</div>
       <details className="permission-details"><summary>Input</summary><pre>{prettyJson(permission.input)}</pre></details>
