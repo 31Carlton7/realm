@@ -40,7 +40,7 @@ describe("Arc sidebar", () => {
     expect(screen.getByRole("button", { name: "Terminal" }).querySelector(".status-dot")).toBeNull();
   });
 
-  it("an empty space shows one faint hint line pointing at New… (A-L6)", async () => {
+  it("an empty space shows one faint hint line pointing at New session (A-L6)", async () => {
     await mount(fakeApi({ items: { s1: [] } }));
     expect(screen.getByText(/Nothing here yet/)).toBeInTheDocument();
   });
@@ -106,21 +106,28 @@ describe("Arc sidebar", () => {
     expect(screen.getByRole("button", { name: "Build" })).toBeInTheDocument();
   });
 
-  it("New… menu creates a terminal; Session… opens the sheet; browser entry is disabled", async () => {
-    const { store } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "New item" }));
-    expect(screen.getByRole("menuitem", { name: /Browser tab/ })).toBeDisabled();
-    fireEvent.click(screen.getByRole("menuitem", { name: /Session/ }));
-    expect(store.getState().sheet).toEqual({ kind: "new-session" });
-    fireEvent.click(screen.getByRole("button", { name: "New item" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Terminal" }));
-    await waitFor(() => expect(store.getState().items).toHaveLength(2));
+  it("the sidebar's + creates a session on the first click — no menu, no sheet, nothing to answer (W3)", async () => {
+    const { store, api } = await mount();
+    const plus = screen.getByRole("button", { name: "New session" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(plus);
+    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(store.getState().sheet).toBeNull();
+    expect(api.calls).toContain("createSession:claude");
+    const created = Object.values(store.getState().sessions)[0]!;
+    expect(store.getState().items.some((i) => i.kind === "session" && i.refId === created.id)).toBe(true);
+    // The tooltip names the agent you'll actually get, and follows the last-used memory.
+    expect(plus).toHaveAttribute("title", "New Claude session (⌘N)");
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Claude session (⌘N)"));
+    await act(() => store.getState().newSession({ agentKind: "codex" }));
+    expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Codex session (⌘N)");
   });
 
-  it("menus render in a portal with fixed positioning so ancestor overflow can't clip them (regression: the swiper's overflow:clip was hiding the New… menu)", async () => {
+  it("menus render in a portal with fixed positioning so ancestor overflow can't clip them (regression: the swiper's overflow:clip was hiding menus)", async () => {
     await mount();
-    fireEvent.click(screen.getByRole("button", { name: "New item" }));
-    const menu = screen.getByRole("menu", { name: "New item" });
+    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+    const menu = screen.getByRole("menu", { name: "Space menu" });
     expect(menu.parentElement).toBe(document.body);
     expect(menu.style.position).toBe("fixed");
   });

@@ -2,7 +2,6 @@ import { useEffect, useMemo } from "react";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
-import { NewSessionSheet } from "./panes/session/NewSessionSheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { PaneHost } from "./components/PaneHost";
 import { StoreContext, createAppStore, useApp } from "./state/store";
@@ -53,7 +52,6 @@ function SheetHost() {
   if (!sheet) return null;
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
   if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
-  if (sheet.kind === "new-session") return <NewSessionSheet />;
   return null;
 }
 

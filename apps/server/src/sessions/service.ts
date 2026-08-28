@@ -78,6 +78,28 @@ export class SessionService {
     return s;
   }
 
+  /**
+   * Re-point a session that has not started yet at another agent. Authoritative guard: one persisted
+   * event is enough to lock the kind forever — a transcript, a providerSessionId and a resume are all
+   * tied to the agent that produced them, so there is no coherent "switch" after the first message.
+   * The client hides the affordance too, but this is the check that matters.
+   *
+   * `model` is cleared because model ids are per-kind (a `claude-opus-5` on a Codex session is a lie);
+   * the new kind falls back to its adapter default until the user picks from its own model list. An
+   * untouched default title follows the new kind so the sidebar never names the wrong agent.
+   */
+  setAgent(id: string, agentKind: AgentKind): Session {
+    const s = this.get(id);
+    if (s.agentKind === agentKind) return s;
+    if (!this.d.adapters[agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${agentKind} is not registered`);
+    if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; its agent can no longer be changed");
+    const title = s.title === defaultTitle(s.agentKind) ? defaultTitle(agentKind) : s.title;
+    const updated = this.d.sessions.update({ id, agentKind, model: null, title });
+    const item = this.d.items.findByRefId(id);
+    if (item && item.title !== title) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
+    return updated;
+  }
+
   /** Dispose the live handle (if any), then remove the item and the row (events cascade). */
   async delete(id: string): Promise<void> {
     const s = this.get(id);

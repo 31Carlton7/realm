@@ -7,6 +7,15 @@ export const AGENT_MODELS = {
   codex: [], "acp:gemini": [], "acp:cursor": [], fake: [{ id: "fake", label: "Fake" }],
 } as const;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+/**
+ * Agent kinds a user can pick — the palette's one-shot entries and the prompter's agent chip.
+ *
+ * `acp:gemini` is out because Google discontinued the free personal tier (see AGENT_LOGIN_HINTS): the
+ * kind stays registered so existing sessions keep working, but offering it is offering a dead end.
+ * `fake` is the scripted dev adapter. Callers that must show a session's *current* kind prepend it when
+ * it is missing here rather than hiding the agent the session actually runs.
+ */
+export const SELECTABLE_AGENT_KINDS = ["claude", "codex", "acp:cursor"] as const satisfies ReadonlyArray<import("./entities").AgentKind>;
 /** Frontier default model label per kind — what the prompter's model chip shows while `session.model`
  *  is null (the adapter's own default). Display-only: never transmitted as a model id. */
 export const DEFAULT_MODEL_LABEL = {

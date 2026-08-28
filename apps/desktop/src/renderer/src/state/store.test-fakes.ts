@@ -124,6 +124,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
       const s = { ...data.sessions[i]!, ...o }; data.sessions[i] = s; return s;
     },
+    setSessionAgent: async (id, agentKind) => {
+      calls.push(`setSessionAgent:${id}=${agentKind}`);
+      const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
+      // Mirrors the server: a started session refuses, and a switch clears the old kind's model.
+      if (data.sessions[i]!.lastEventSeq > 0) throw new Error("this session has already run; its agent can no longer be changed");
+      const s = { ...data.sessions[i]!, agentKind, model: null }; data.sessions[i] = s; return s;
+    },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     probeAgents: async () => { calls.push("probeAgents"); return [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]; },
     gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },

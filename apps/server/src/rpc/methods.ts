@@ -79,6 +79,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode }));
+  reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
   reg("sessions.events", (p) => d.sessions.events(p.id, p.afterSeq, p.limit));
   reg("sessions.delete", async (p) => { await d.sessions.delete(p.id); return { ok: true as const }; });
 }

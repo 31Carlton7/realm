@@ -120,12 +120,28 @@ describe("useGlobalHotkeys", () => {
     expect(store.getState().layout).toEqual(grid);
   });
 
-  it("⌘T opens a terminal; ⌘N opens the new-session sheet", async () => {
-    const { store } = await mount();
+  it("⌘T opens a terminal; ⌘N creates a session immediately — no sheet, no questions (W3)", async () => {
+    const { api, store } = await mount();
     key({ key: "t", metaKey: true });
     await waitFor(() => expect(store.getState().items.some((i) => i.kind === "terminal" && i.id !== "i1")).toBe(true));
     key({ key: "n", metaKey: true });
-    expect(store.getState().sheet).toEqual({ kind: "new-session" });
+    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
+    expect(store.getState().sheet).toBeNull();
+    // No remembered agent: Claude, and the session is open and focused in its own pane.
+    expect(api.calls).toContain("createSession:claude");
+    const se = Object.values(store.getState().sessions)[0]!;
+    expect(store.getState().items.some((i) => i.kind === "session" && i.refId === se.id)).toBe(true);
+  });
+
+  it("⌘N reaches for the last-used agent, persisted across launches", async () => {
+    const { api, store } = await mount();
+    await act(() => store.getState().newSession({ agentKind: "codex" }));
+    await waitFor(() => expect(api.data.settings["ui.lastAgentKind"]).toBe("codex"));
+    key({ key: "n", metaKey: true });
+    await waitFor(() => expect(api.calls.filter((c) => c === "createSession:codex")).toHaveLength(2));
+    // A fresh store over the same settings still remembers — this is a setting, not session state.
+    const next = createAppStore(api); await next.getState().boot();
+    expect(next.getState().lastAgentKind).toBe("codex");
   });
 
   it("Esc interrupts the focused pane's session only while it is running", async () => {

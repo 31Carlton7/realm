@@ -1,6 +1,6 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, LayoutSchema,
+  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema,
   type AgentKind, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionStatus, type Space, type StoredSessionEvent,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
@@ -11,11 +11,9 @@ export type CreateSpaceInput = { name: string; icon: string; profileId: string; 
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
-/** What the last session of an agent kind was created with (one-shot palette entries). The spaceId
- *  records where the projectId is valid — projects are space-scoped, so quick-creating from another
- *  space falls back to the space folder instead of carrying a foreign project. */
-export type LastSessionConfig = Omit<CreateSessionInput, "spaceId" | "agentKind"> & { spaceId: string };
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
+/** Agent a session is created with when the user never said (first run, or a wiped setting). */
+export const FALLBACK_AGENT: AgentKind = "claude";
 export type PermissionDecision = "allow" | "allow_always" | "deny";
 /** Where a sidebar row was dropped on a pane: an edge splits there, center replaces the pane's item.
  *  Canonical home of this type — PaneHost imports it from here. */
@@ -62,6 +60,8 @@ export type Api = {
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
+  /** `sessions.setAgent` — rejected by the server once the session has any event. */
+  setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
   probeAgents(): Promise<AgentProbe[]>;
@@ -72,14 +72,16 @@ export type Api = {
 export const PERSIST_DEBOUNCE_MS = 300;
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
 export const SETTING_THEME = "ui.theme";
+/** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
+export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
 export const EVENTS_PAGE = 1000;
 
+/** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
+ *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
 export type Sheet =
   | { kind: "space-settings"; spaceId: string }
-  | { kind: "new-space" }
-  /** agentKind preselects the sheet's agent picker (palette one-shots with no remembered config). */
-  | { kind: "new-session"; agentKind?: AgentKind };
+  | { kind: "new-space" };
 
 export type AppState = {
   profiles: Profile[];
@@ -91,8 +93,9 @@ export type AppState = {
   items: Item[]; layout: Layout | null;
   /** Items across every space (palette search); refreshed when the palette opens. */
   allItems: Item[];
-  /** Last submitted new-session options per agent kind (palette one-shots). Session-local, not persisted. */
-  lastSessionConfig: Partial<Record<AgentKind, LastSessionConfig>>;
+  /** Agent of the last session created or switched to, persisted across launches; null until one exists
+   *  (then instant-create falls back to FALLBACK_AGENT). */
+  lastAgentKind: AgentKind | null;
   /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
   renamingItemId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
@@ -185,15 +188,19 @@ export type AppState = {
   applySessionStatus(sessionId: string, status: SessionStatus): void;
   /** Create a session in the active space, open its item, and open its transcript. */
   newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null): Promise<void>;
-  /** One-shot session creation with the agent's last-used options; falls back to the sheet
-   *  (preselected) when that agent has never been configured this session. */
-  newSessionQuick(agentKind: AgentKind): Promise<void>;
+  /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
+   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, adapter-default model
+   *  and permission mode. Everything else is changed on the prompter's chips afterwards. */
+  newSessionInstant(targetLeafId?: string | null): Promise<void>;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
+  /** Switch an unstarted session's agent (prompter agent chip). The server refuses once events exist —
+   *  the chip goes static there, so this is only ever called while it is legal. */
+  setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
   probeAgents(): Promise<void>;
   setDraft(sessionId: string, text: string): void;
   refreshGitInfo(cwd: string): Promise<void>;
@@ -344,6 +351,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const isSpace = (sid: string) => get().activeSpaceId === sid;
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status } });
+    /** Last-used agent: applied to state now, persisted best-effort (a failed write only costs the
+     *  memory on the next launch, so it must never fail the creation the user just asked for). */
+    const rememberAgent = (agentKind: AgentKind) => {
+      if (get().lastAgentKind === agentKind) return;
+      set({ lastAgentKind: agentKind });
+      get().run(() => api.setSetting(SETTING_LAST_AGENT, agentKind));
+    };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
     const setTranscript = (id: string, entry: TranscriptEntry) => set({ transcripts: { ...get().transcripts, [id]: entry } });
@@ -372,7 +386,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
-      allItems: [], lastSessionConfig: {}, renamingItemId: null,
+      allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, gitInfo: {},
@@ -381,10 +395,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, swipeInvert] = await Promise.all([
-          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT),
+        const [profiles, spaces, saved, theme, swipeInvert, lastAgent] = await Promise.all([
+          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LAST_AGENT),
         ]);
-        set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true });
+        const agent = AgentKindSchema.safeParse(lastAgent);
+        set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true, lastAgentKind: agent.success ? agent.data : null });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
@@ -666,26 +681,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async newSession(input, targetLeafId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
-        const { agentKind, ...rest } = input;
         const { session, itemId } = await api.createSession({ ...input, spaceId: sid });
-        // Remember this agent's options so the palette's one-shot entries can repeat them.
-        set({ lastSessionConfig: { ...get().lastSessionConfig, [agentKind]: { ...rest, spaceId: sid } } });
+        rememberAgent(input.agentKind);
         if (isSpace(sid)) mergeSession(session);
         await adoptItem(sid, itemId, targetLeafId);
         await get().openSession(session.id);
       },
-      async newSessionQuick(agentKind) {
-        const cfg = get().lastSessionConfig[agentKind];
-        if (!cfg) { get().openSheet({ kind: "new-session", agentKind }); return; }
-        const { spaceId: recordedSpace, projectId, ...rest } = cfg;
-        // Projects are space-scoped: reuse the project only in the space it was chosen in.
-        await get().newSession({ agentKind, ...rest, projectId: recordedSpace === get().activeSpaceId ? projectId : null });
+      async newSessionInstant(targetLeafId = null) {
+        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, targetLeafId);
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       async sendMessage(id, text) { await api.sendMessage(id, text); },
       async interruptSession(id) { await api.interruptSession(id); },
       async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },
       async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
+      async setSessionAgent(id, agentKind) {
+        mergeSession(await api.setSessionAgent(id, agentKind));
+        rememberAgent(agentKind);
+        // The server renames an untouched default title to match the new agent; the sidebar row shows it.
+        await get().refreshItems();
+      },
       async probeAgents() { set({ agentProbe: await api.probeAgents() }); },
       setDraft(sessionId, text) { set({ drafts: { ...get().drafts, [sessionId]: text } }); },
       async refreshGitInfo(cwd) {

@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { AGENT_META, PRESETS, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type AgentKind, type Item, type PresetName } from "@realm/contracts";
+import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type Item, type PresetName } from "@realm/contracts";
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { useApp, type AppState } from "../state/store";
@@ -58,8 +58,6 @@ export function relTime(ts: number, now = Date.now()): string {
 }
 
 const THEMES: ThemePref[] = ["system", "light", "dark"];
-/** Agents with one-shot "New X session" palette entries (ACP Gemini needs credentials; fake is dev-only). */
-const QUICK_AGENTS: AgentKind[] = ["claude", "codex", "acp:cursor"];
 
 /** Layout presets moved here from the retired topbar LayoutMenu (spec amendment §A1). */
 const PRESET_LABELS: Record<PresetName, string> = { one: "1-up", "two-col": "2 columns", "three-col": "3 columns", "grid-2x2": "2×2 grid", "grid-3x3": "3×3 grid" };
@@ -84,7 +82,8 @@ function PaletteBody() {
   const selectSpace = useApp((s) => s.selectSpace);
   const openItem = useApp((s) => s.openItem);
   const newTerminal = useApp((s) => s.newTerminal);
-  const newSessionQuick = useApp((s) => s.newSessionQuick);
+  const newSession = useApp((s) => s.newSession);
+  const newSessionInstant = useApp((s) => s.newSessionInstant);
   const splitFocused = useApp((s) => s.splitFocused);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const requestRename = useApp((s) => s.requestRename);
@@ -142,8 +141,10 @@ function PaletteBody() {
       ...(anyWaiting ? [act("respond-permission", "Respond to pending permission", "alert", () => run(() => jumpToPermission()))] : []),
       ...spaces.map((sp) => act(`space-${sp.id}`, `Switch to ${sp.name}`, sp.icon, () => run(() => selectSpace(sp.id)), sp.id === activeSpaceId ? "current" : undefined)),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), <kbd>⌘T</kbd>),
-      act("new-session", "New session…", "session", () => openSheet({ kind: "new-session" }), <kbd>⌘N</kbd>),
-      ...QUICK_AGENTS.map((a) => act(`new-${a}`, `New ${AGENT_META[a].label} session`, AGENT_META[a].icon, () => run(() => newSessionQuick(a)))),
+      // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through
+      // newSession — the only difference is whether the agent is named or inherited from last use.
+      act("new-session", "New session", "session", () => run(() => newSessionInstant()), <kbd>⌘N</kbd>),
+      ...SELECTABLE_AGENT_KINDS.map((a) => act(`new-${a}`, `New ${AGENT_META[a].label} session`, AGENT_META[a].icon, () => run(() => newSession({ agentKind: a })))),
       act("new-space", "New space…", "add", () => openSheet({ kind: "new-space" })),
       ...(activeSpaceId ? [act("space-settings", "Space settings…", "settings", () => openSheet({ kind: "space-settings", spaceId: activeSpaceId }))] : []),
       act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), <kbd>⌘\</kbd>),
@@ -163,7 +164,7 @@ function PaletteBody() {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref,
-      selectSpace, openItem, newTerminal, newSessionQuick, splitFocused, closeFromLayout, requestRename,
+      selectSpace, openItem, newTerminal, newSession, newSessionInstant, splitFocused, closeFromLayout, requestRename,
       interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, run]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked

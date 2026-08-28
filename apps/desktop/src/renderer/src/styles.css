@@ -409,8 +409,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Row 3 — control row: hairline-free, 12px padding; ghost chips left, circular send right. */
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 12px; }
 .composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; }
-.composer-agent { display: grid; place-items: center; width: 22px; color: var(--rl-text-dim); flex: none; }
-/* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. */
+/* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
+   them now (W3) — a picker until the session's first event, a plain label after. */
 .ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-radius: var(--r-chip);
   color: var(--rl-text-dim); font-size: 11.5px; background: transparent; max-width: 200px; min-width: 0; }
 .ghost-chip:hover:not([data-static]) { background: var(--rl-hover); color: var(--rl-text-bright); }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, AGENT_META, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS } from "./presets";
+import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has at least 8 colors and icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(8); });
   it("pickSpaceColor cycles by index", () => { expect(pickSpaceColor(0)).toBe(SPACE_COLORS[0]); expect(pickSpaceColor(SPACE_COLORS.length)).toBe(SPACE_COLORS[0]); });
@@ -31,5 +32,24 @@ describe("AGENT_SUPPORTS_PERMISSION_MODES", () => {
     expect(AGENT_SUPPORTS_PERMISSION_MODES["acp:gemini"]).toBe(false);
     expect(AGENT_SUPPORTS_PERMISSION_MODES.claude).toBe(true);
     expect(AGENT_SUPPORTS_PERMISSION_MODES.codex).toBe(true);
+  });
+});
+
+describe("SELECTABLE_AGENT_KINDS", () => {
+  it("only lists kinds that are real agents with display metadata, models and a default model label", () => {
+    for (const kind of SELECTABLE_AGENT_KINDS) {
+      expect(AgentKindSchema.safeParse(kind).success).toBe(true);
+      expect(AGENT_META[kind]).toBeDefined();
+      expect(AGENT_MODELS[kind]).toBeDefined();
+      expect(typeof DEFAULT_MODEL_LABEL[kind]).toBe("string");
+    }
+    expect(new Set(SELECTABLE_AGENT_KINDS).size).toBe(SELECTABLE_AGENT_KINDS.length);
+  });
+  it("deliberately withholds the dead-end and dev-only kinds while keeping them registered", () => {
+    // Both still have metadata (existing sessions keep working); neither is offered as a new choice.
+    expect(SELECTABLE_AGENT_KINDS).not.toContain("acp:gemini"); // free personal tier discontinued
+    expect(SELECTABLE_AGENT_KINDS).not.toContain("fake");       // scripted dev adapter
+    expect(AGENT_META["acp:gemini"]).toBeDefined();
+    expect(AGENT_META.fake).toBeDefined();
   });
 });

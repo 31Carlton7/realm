@@ -86,6 +86,10 @@ export const Methods = {
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]) }), result: z.object({ ok: z.literal(true) }) },
   "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional() }), result: SessionSchema },
+  /** Re-point an untouched session at another agent. Server-guarded: rejected (SESSION_STARTED) once the
+   *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a
+   *  model id from the old kind means nothing to the new one. */
+  "sessions.setAgent": { params: z.object({ id: IdSchema, agentKind: AgentKindSchema }), result: SessionSchema },
   "sessions.events":  { params: z.object({ id: IdSchema, afterSeq: z.number().int().default(0), limit: z.number().int().default(2000) }), result: z.array(StoredSessionEventSchema) },
   "sessions.delete":  { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 } as const;

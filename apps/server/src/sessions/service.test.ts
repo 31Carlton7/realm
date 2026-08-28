@@ -187,6 +187,65 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
+  describe("sessions.setAgent", () => {
+    /** Two kinds registered so a switch has somewhere to go; both are the scripted fake. */
+    async function bootTwo() {
+      const home = mkdtempSync(join(tmpdir(), "realm-"));
+      const script = [{ on: "go", emit: [{ kind: "text" as const, text: "ok" }] }];
+      app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script }), codex: new FakeAdapter({ script }) } });
+      const c = await client(app.port);
+      const p = (await c.call("profiles.create", { name: "W" })).result;
+      const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+      return { c, sp };
+    }
+
+    it("re-points an untouched session, clears the old kind's model, and renames an untouched default title", async () => {
+      const { c, sp } = await bootTwo();
+      const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", model: "fake", effort: "high", permissionMode: "plan" })).result;
+      const r = await c.call("sessions.setAgent", { id: session.id, agentKind: "codex" });
+      expect(r.ok).toBe(true);
+      // model is per-kind and must not survive; effort and permission mode are not.
+      expect(r.result).toMatchObject({ agentKind: "codex", model: null, effort: "high", permissionMode: "plan", title: "Codex session" });
+      expect((await c.call("sessions.get", { id: session.id })).result.agentKind).toBe("codex");
+      const items = (await c.call("items.list", { spaceId: sp.id })).result;
+      expect(items.find((i: Any) => i.id === itemId).title).toBe("Codex session");
+      expect(c.events.some((e) => e.event === "items.changed")).toBe(true);
+      c.close();
+    });
+
+    it("leaves a title the user chose alone", async () => {
+      const { c, sp } = await bootTwo();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", title: "Ship the parser" })).result;
+      const r = await c.call("sessions.setAgent", { id: session.id, agentKind: "codex" });
+      expect(r.result).toMatchObject({ agentKind: "codex", title: "Ship the parser" });
+      c.close();
+    });
+
+    it("refuses once the session has ANY event — the server is the authority, and it is events, not status", async () => {
+      const { c, sp } = await bootTwo();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      await c.call("sessions.send", { id: session.id, text: "go" });
+      await waitFor(() => c.eventTypes(session.id).includes("usage"));
+      // Back to idle: a status check would wave this through. It has a transcript, so it is locked.
+      await waitFor(() => c.events.some((e) => e.event === "session.status" && e.payload.sessionId === session.id && e.payload.status === "idle"));
+      expect((await c.call("sessions.get", { id: session.id })).result.status).toBe("idle");
+      const r = await c.call("sessions.setAgent", { id: session.id, agentKind: "codex" });
+      expect(r.ok).toBe(false);
+      expect(r.error.code).toBe("SESSION_STARTED");
+      expect((await c.call("sessions.get", { id: session.id })).result.agentKind).toBe("fake"); // nothing moved
+      c.close();
+    });
+
+    it("rejects an unregistered kind and an unknown session", async () => {
+      const { c, sp } = await bootTwo();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      expect((await c.call("sessions.setAgent", { id: session.id, agentKind: "acp:gemini" })).error.code).toBe("AGENT_UNAVAILABLE");
+      expect((await c.call("sessions.setAgent", { id: session.id, agentKind: "not-an-agent" })).error.code).toBe("INVALID_PARAMS");
+      expect((await c.call("sessions.setAgent", { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", agentKind: "codex" })).error.code).toBe("NOT_FOUND");
+      c.close();
+    });
+  });
+
   it("survives a restart: statuses reset on boot, dangling permission denied, events replayed, a new send resumes with providerSessionId", async () => {
     const started: Array<{ resume?: string | null }> = [];
     const script = [{ on: "go", emit: [{ kind: "tool" as const, name: "Bash", input: { command: "ls" }, needsPermission: true, result: "x" }] }];

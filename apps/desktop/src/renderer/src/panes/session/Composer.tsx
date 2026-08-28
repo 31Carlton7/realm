@@ -1,4 +1,4 @@
-import { AGENT_META, AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, PERMISSION_MODES, type GitInfo, type Project, type Session, type SessionStatus } from "@realm/contracts";
+import { AGENT_META, AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type GitInfo, type Project, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -39,17 +39,17 @@ function ContextRow({ session, project, gitInfo }: { session: Session; project: 
 /** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
-function ChipMenu({ ariaLabel, label, items, warning }: { ariaLabel: string; label: ReactNode; items: MenuItem[]; warning?: boolean }) {
+function ChipMenu({ ariaLabel, title, label, items, warning }: { ariaLabel: string; title?: string; label: ReactNode; items: MenuItem[]; warning?: boolean }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   if (items.length === 0) {
-    return <span className="ghost-chip" data-static title={ariaLabel} data-warning={warning || undefined}><span className="chip-label">{label}</span></span>;
+    return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}><span className="chip-label">{label}</span></span>;
   }
   return (
     <>
       {/* Toggle, not a bare open: Menu deliberately ignores pointerdown on its own anchor, so closing
           by clicking the chip a second time is this handler's job. */}
-      <button ref={btn} type="button" className="ghost-chip" aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open}
+      <button ref={btn} type="button" className="ghost-chip" aria-label={ariaLabel} title={title ?? ariaLabel} aria-haspopup="menu" aria-expanded={open}
         data-warning={warning || undefined} onClick={() => setOpen((v) => !v)}>
         <span className="chip-label">{label}</span>
         <Icon name="chevronDown" size={12} className="chip-caret" />
@@ -67,10 +67,13 @@ function ChipMenu({ ariaLabel, label, items, warning }: { ariaLabel: string; lab
  *  ⌘/Ctrl+Enter sends; Enter inserts a newline. The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
-export function Composer({ session, status, project, gitInfo, draft, onDraftChange, onSend, onStop, onOptions, hero, spaceName, onSuggestion }: {
+export function Composer({ session, status, project, gitInfo, draft, onDraftChange, onSend, onStop, onOptions, onAgent, canSwitchAgent, hero, spaceName, onSuggestion }: {
   session: Session; status: SessionStatus; project: Project | null; gitInfo: GitInfo | null;
   draft: string; onDraftChange: (text: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
+  onAgent: (kind: AgentKind) => void;
+  /** False once the session has produced an event — see the agent chip below. */
+  canSwitchAgent: boolean;
   hero: boolean; spaceName: string; onSuggestion: (prompt: string) => void;
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -106,6 +109,14 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
   };
 
+  // A session's own kind is always in its own list, even one (like `fake`) that is not offered fresh —
+  // hiding it would show a checkmark on none of the options.
+  const agentKinds: readonly AgentKind[] = SELECTABLE_AGENT_KINDS.includes(kind as (typeof SELECTABLE_AGENT_KINDS)[number])
+    ? SELECTABLE_AGENT_KINDS : [kind, ...SELECTABLE_AGENT_KINDS];
+  // Empty once the session has run: ChipMenu then renders a plain label, so the affordance is gone
+  // before the user can reach for it. The server refuses the switch regardless (sessions.setAgent).
+  const agentItems: MenuItem[] = canSwitchAgent
+    ? agentKinds.map((k) => ({ label: AGENT_META[k].label, checked: k === kind, onSelect: () => onAgent(k) })) : [];
   const modelItems: MenuItem[] = models.map((m) => ({ label: m.label, checked: session.model === m.id, onSelect: () => onOptions({ model: m.id }) }));
   const effortItems: MenuItem[] = EFFORT_LEVELS.map((l) => ({ label: l, checked: session.effort === l, onSelect: () => onOptions({ effort: l }) }));
   const permissionItems: MenuItem[] = PERMISSION_MODES.map((m) => ({
@@ -126,7 +137,8 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
           value={draft} onChange={(e) => onDraftChange(e.target.value)} onKeyDown={onKeyDown} />
         <div className="composer-bar">
           <div className="composer-opts">
-            <span className="composer-agent" title={AGENT_META[kind].label}><Icon name={AGENT_META[kind].icon} size={16} /></span>
+            <ChipMenu ariaLabel="Agent" title={canSwitchAgent ? `Agent: ${AGENT_META[kind].label}` : `Agent: ${AGENT_META[kind].label} — locked in once a session has run`}
+              label={<Icon name={AGENT_META[kind].icon} size={16} />} items={agentItems} />
             <ChipMenu ariaLabel="Model" label={`${AGENT_META[kind].label} · ${modelLabel}`} items={modelItems} />
             <ChipMenu ariaLabel="Effort" label={session.effort ?? "Effort"} items={effortItems} />
             {canSetPermissionMode && (

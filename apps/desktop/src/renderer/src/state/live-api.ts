@@ -32,6 +32,7 @@ export const liveApi = (): Api => ({
   interruptSession: async (id) => { await rpc().call("sessions.interrupt", { id }); },
   respondPermission: async (id, requestId, decision) => { await rpc().call("sessions.respondPermission", { id, requestId, decision }); },
   setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),
+  setSessionAgent: (id, agentKind) => rpc().call("sessions.setAgent", { id, agentKind }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),
   probeAgents: () => rpc().call("agents.probe", {}),
   gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),

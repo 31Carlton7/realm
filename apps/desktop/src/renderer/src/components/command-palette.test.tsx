@@ -102,37 +102,28 @@ describe("CommandPalette", () => {
     expect(newTerm).toBeLessThan(openTerm);
   });
 
-  it("one-shot 'New Claude session' with no remembered config opens the sheet preselected to claude", async () => {
-    const { store } = await mount();
-    fireEvent.change(input(), { target: { value: "new claude" } });
-    fireEvent.click(screen.getByRole("option", { name: /New Claude session/ }));
-    expect(store.getState().sheet).toEqual({ kind: "new-session", agentKind: "claude" });
+  it("'New session' creates instantly with the last-used agent — no sheet anywhere in the path (W3)", async () => {
+    const { store, api } = await mount();
+    fireEvent.change(input(), { target: { value: "new session" } });
+    fireEvent.click(screen.getByRole("option", { name: /New session/ }));
+    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
+    expect(api.calls).toContain("createSession:claude");
+    expect(store.getState().sheet).toBeNull();
     expect(store.getState().paletteOpen).toBe(false);
   });
 
-  it("one-shot creation reuses lastSessionConfig once the sheet has submitted for that agent", async () => {
-    const { store } = await mount();
-    // Simulate a prior sheet submission: the store records the agent's options.
-    await act(() => store.getState().newSession({ agentKind: "claude", projectId: null, model: "claude-opus-5", permissionMode: "acceptEdits" }));
-    act(() => store.setState({ paletteOpen: true }));
-    fireEvent.change(input(), { target: { value: "new claude" } });
-    fireEvent.click(screen.getByRole("option", { name: /New Claude session/ }));
-    await waitFor(() => {
-      const created = Object.values(store.getState().sessions).filter((s) => s.agentKind === "claude");
-      expect(created).toHaveLength(2);
-      expect(created[1]).toMatchObject({ model: "claude-opus-5", permissionMode: "acceptEdits" });
-    });
-    expect(store.getState().sheet).toBeNull(); // no sheet round-trip
-  });
-
-  it("newSessionQuick drops a remembered projectId when quick-creating from a different space (projects are space-scoped)", async () => {
-    const { store, api } = await mount({ projects: { s1: [{ id: "pr1", spaceId: "s1", name: "repo", rootPath: "/r", defaultBranch: "main", createdAt: 0, updatedAt: 0 }] } });
-    await act(() => store.getState().newSession({ agentKind: "claude", projectId: "pr1", model: null }));
-    await act(() => store.getState().selectSpace("s2"));
-    await act(() => store.getState().newSessionQuick("claude"));
-    const inS2 = api.data.sessions.find((s) => s.spaceId === "s2");
-    expect(inS2).toBeDefined();
-    expect(inS2!.projectId).toBeNull();
+  it("a per-agent one-shot names its agent and routes through the very same newSession path", async () => {
+    const { store, api } = await mount();
+    fireEvent.change(input(), { target: { value: "new codex" } });
+    fireEvent.click(screen.getByRole("option", { name: /New Codex session/ }));
+    await waitFor(() => expect(api.calls).toContain("createSession:codex"));
+    const created = Object.values(store.getState().sessions)[0]!;
+    // Same adoption as "+" and ⌘N: item created, opened into a pane, transcript opened.
+    await waitFor(() => expect(store.getState().transcripts[created.id]).toBeDefined());
+    expect(store.getState().items.some((i) => i.kind === "session" && i.refId === created.id)).toBe(true);
+    expect(store.getState().sheet).toBeNull();
+    // Naming an agent is also a use of it: the next unnamed create follows.
+    expect(store.getState().lastAgentKind).toBe("codex");
   });
 
   it("Close pane / Rename entries exist only with a focused non-empty leaf; Rename arms renamingItemId", async () => {

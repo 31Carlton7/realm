@@ -85,10 +85,11 @@ const BINDINGS: Binding[] = [
     match: (e) => e.key.toLowerCase() === "t" && mod(e, { meta: true }),
     run: (s) => s.run(() => s.newTerminal()),
   },
-  // ⌘N → new session sheet.
+  // ⌘N → new session, immediately (W3): no sheet, no questions — last-used agent, straight to the
+  // hero prompter, which carries every choice.
   {
     match: (e) => e.key.toLowerCase() === "n" && mod(e, { meta: true }),
-    run: (s) => s.openSheet({ kind: "new-session" }),
+    run: (s) => s.run(() => s.newSessionInstant()),
   },
   // Esc → interrupt the focused pane's running session (U-L9). Works from the composer.
   {

@@ -557,6 +557,40 @@ describe("app store", () => {
       expect(s.transcripts[created.id]).toEqual({ lastSeq: 0, t: expect.objectContaining({ blocks: [] }) });
     });
 
+    it("newSessionInstant asks nothing: last-used agent when there is one, Claude when there is not", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().newSessionInstant();
+      expect(api.calls).toContain("createSession:claude"); // no memory yet → FALLBACK_AGENT
+      expect(store.getState().sheet).toBeNull();
+      // Creating remembers, and the memory — not the fallback — decides the next one.
+      await store.getState().newSession({ agentKind: "codex" });
+      expect(store.getState().lastAgentKind).toBe("codex");
+      await store.getState().newSessionInstant();
+      expect(api.calls.filter((c) => c === "createSession:codex")).toHaveLength(2);
+      expect(api.calls.filter((c) => c === "createSession:claude")).toHaveLength(1);
+      // Persisted, so it survives a relaunch rather than resetting to Claude every morning.
+      expect(api.data.settings["ui.lastAgentKind"]).toBe("codex");
+      const relaunched = createAppStore(api); await relaunched.getState().boot();
+      expect(relaunched.getState().lastAgentKind).toBe("codex");
+    });
+
+    it("a junk ui.lastAgentKind setting degrades to the fallback instead of creating an unregistered kind", async () => {
+      api = fakeApi({ settings: { "ui.lastAgentKind": "gpt-9" } });
+      const store = createAppStore(api); await store.getState().boot();
+      expect(store.getState().lastAgentKind).toBeNull();
+      await store.getState().newSessionInstant();
+      expect(api.calls).toContain("createSession:claude");
+    });
+
+    it("setSessionAgent merges the server's session back and becomes the new last-used agent", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().setSessionAgent("se1", "codex");
+      expect(api.calls).toContain("setSessionAgent:se1=codex");
+      expect(store.getState().sessions.se1?.agentKind).toBe("codex");
+      expect(store.getState().lastAgentKind).toBe("codex");
+      expect(api.data.settings["ui.lastAgentKind"]).toBe("codex");
+    });
+
     it("sendMessage / interrupt / respondPermission / setSessionOptions call the api; options merge into the session", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().sendMessage("se1", "go");
@@ -725,8 +759,8 @@ describe("app store", () => {
       const store = createAppStore(api); await store.getState().boot();
       store.getState().setPaletteOpen(true);
       expect(store.getState().paletteOpen).toBe(true);
-      store.getState().openSheet({ kind: "new-session" });
-      expect(store.getState().sheet).toEqual({ kind: "new-session" });
+      store.getState().openSheet({ kind: "new-space" });
+      expect(store.getState().sheet).toEqual({ kind: "new-space" });
       expect(store.getState().paletteOpen).toBe(false);
     });
   });

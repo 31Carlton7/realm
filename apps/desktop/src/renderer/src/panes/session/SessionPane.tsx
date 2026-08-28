@@ -39,6 +39,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const interruptSession = useApp((s) => s.interruptSession);
   const respondPermission = useApp((s) => s.respondPermission);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
+  const setSessionAgent = useApp((s) => s.setSessionAgent);
   const run = useApp((s) => s.run);
   const transcript = entry?.t ?? emptyTranscript();
   // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
@@ -55,6 +56,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // Hero vs docked (§4): the prompter centers as the hero only while there is nothing to read —
   // no transcript blocks and no visible permission cards (pending ones only show while waiting).
   const hero = transcript.blocks.length === 0 && (status !== "waiting_permission" || transcript.pendingPermissions.length === 0);
+  // The agent is switchable only until the session's first event (W3; the server is the authority —
+  // sessions.setAgent refuses after that). Both halves matter: the row's own seq covers a session
+  // whose transcript has not been fetched yet, the transcript's covers events that arrived since.
+  const canSwitchAgent = session.lastEventSeq === 0 && (entry?.lastSeq ?? 0) === 0;
   return (
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused}
@@ -63,6 +68,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         onSend={(text) => run(() => sendMessage(id, text))}
         onStop={() => run(() => interruptSession(id))}
         onOptions={(o) => run(() => setSessionOptions(id, o))}
+        onAgent={(kind) => run(() => setSessionAgent(id, kind))} canSwitchAgent={canSwitchAgent}
         hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />
     </div>
   );
