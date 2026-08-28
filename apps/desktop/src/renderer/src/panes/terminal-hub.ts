@@ -41,7 +41,8 @@ export function terminalBackground(doc: Document = document): string {
 }
 
 const defaultFactory: TerminalFactory = () => {
-  const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "ui-monospace, Menlo, monospace", theme: { background: terminalBackground() }, allowProposedApi: true });
+  // Bundled JetBrains Mono (V-X4) first — same face as the tool cards/wells; system mono as fallback.
+  const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace', theme: { background: terminalBackground() }, allowProposedApi: true });
   const fit = new FitAddon(); term.loadAddon(fit);
   return { term, fit };
 };
@@ -55,6 +56,10 @@ export class TerminalHub {
   private entries = new Map<string, HubEntry & { opened: boolean; subs: { dispose(): void }[] }>();
   private buffers = new Map<string, TerminalBuffer>();
   private unsubscribe: (() => void) | null = null;
+  /** Terminals that have produced any output (data, exit banner, dead-terminal notice) — drives the
+   *  empty-pane hint (V-F3). */
+  private hasDataIds = new Set<string>();
+  private firstDataListeners = new Map<string, Set<() => void>>();
 
   constructor(private transport: HubTransport, private factory: TerminalFactory = defaultFactory,
     private doc: Document = document) {}
@@ -67,13 +72,35 @@ export class TerminalHub {
 
   private ensureSubscription() {
     if (this.unsubscribe) return;
-    const offData = this.transport.on("terminal.data", ({ terminalId, data }) => this.buffer(terminalId).push(data));
-    const offExit = this.transport.on("terminal.exit", ({ terminalId, exitCode }) =>
-      this.buffer(terminalId).push(`\r\n[process exited with code ${exitCode}]\r\n`));
+    const offData = this.transport.on("terminal.data", ({ terminalId, data }) => { this.buffer(terminalId).push(data); this.markData(terminalId); });
+    const offExit = this.transport.on("terminal.exit", ({ terminalId, exitCode }) => {
+      this.buffer(terminalId).push(`\r\n[process exited with code ${exitCode}]\r\n`);
+      this.markData(terminalId);
+    });
     this.unsubscribe = () => { offData(); offExit(); };
   }
 
+  private markData(id: string) {
+    if (this.hasDataIds.has(id)) return;
+    this.hasDataIds.add(id);
+    const fns = this.firstDataListeners.get(id);
+    this.firstDataListeners.delete(id);
+    if (fns) for (const fn of fns) fn();
+  }
+
   has(terminalId: string): boolean { return this.entries.has(terminalId); }
+
+  /** True once this terminal has produced any output. */
+  hasData(terminalId: string): boolean { return this.hasDataIds.has(terminalId); }
+
+  /** Fires `fn` once, on the FIRST output for this terminal. Already has output? Never fires —
+   *  check hasData() first. Returns an unsubscribe. */
+  onFirstData(terminalId: string, fn: () => void): () => void {
+    if (this.hasDataIds.has(terminalId)) return () => {};
+    const s = this.firstDataListeners.get(terminalId) ?? new Set();
+    s.add(fn); this.firstDataListeners.set(terminalId, s);
+    return () => s.delete(fn);
+  }
 
   acquire(terminalId: string): HubEntry {
     this.ensureSubscription();
@@ -88,7 +115,7 @@ export class TerminalHub {
       void this.transport.call(method, params).catch((e: unknown) => {
         if ((e as { code?: string })?.code === "NOT_FOUND") {
           // The server has no pty for this id (e.g. exited or not restored) — say so once, in the pane.
-          if (!announcedDead) { announcedDead = true; buf.push("\r\n[terminal is not running]\r\n"); }
+          if (!announcedDead) { announcedDead = true; buf.push("\r\n[terminal is not running]\r\n"); this.markData(terminalId); }
           return;
         }
         console.warn(`[terminal ${terminalId}] ${method} failed:`, e);
@@ -130,11 +157,15 @@ export class TerminalHub {
     }
     this.buffers.get(terminalId)?.detach();
     this.buffers.delete(terminalId);
+    this.hasDataIds.delete(terminalId);
+    this.firstDataListeners.delete(terminalId);
   }
 
   disposeAll() {
     for (const id of [...this.entries.keys()]) this.dispose(id);
     this.buffers.clear();
+    this.hasDataIds.clear();
+    this.firstDataListeners.clear();
     this.unsubscribe?.(); this.unsubscribe = null;
   }
 }
@@ -144,3 +175,5 @@ let singleton: TerminalHub | null = null;
 export function getTerminalHub(): TerminalHub {
   return (singleton ??= new TerminalHub(rpc()));
 }
+/** Test seam: substitute a fake-backed hub (pass null to reset). */
+export function setTerminalHubForTests(hub: TerminalHub | null): void { singleton = hub; }

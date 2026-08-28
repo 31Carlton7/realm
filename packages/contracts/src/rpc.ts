@@ -26,6 +26,19 @@ export function parseWireMessage(raw: string): WireMessage {
   throw new Error("Unrecognized wire message");
 }
 
+/** Working-tree summary for a session/terminal cwd (composer context row). Null result = not a git
+ *  repo, or git itself is missing/failing — the UI simply shows no git chips. */
+export const GitInfoSchema = z.object({
+  branch: z.string(),
+  additions: z.number().int(),
+  deletions: z.number().int(),
+  /** Entries in `git status --porcelain` (staged + unstaged + untracked). */
+  dirty: z.number().int(),
+  ahead: z.number().int(),
+  behind: z.number().int(),
+});
+export type GitInfo = z.infer<typeof GitInfoSchema>;
+
 /** Method registry: params + result schemas. Server validates params; client types results. */
 export const Methods = {
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
@@ -45,6 +58,8 @@ export const Methods = {
   "projects.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   "items.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ItemSchema) },
+  /** Every item across every space (command palette search); newest-updated first. */
+  "items.listAll": { params: z.object({}), result: z.array(ItemSchema) },
   "items.create": { params: z.object({ spaceId: IdSchema, kind: ItemKindSchema, title: z.string(), refId: IdSchema }), result: ItemSchema },
   "items.update": { params: z.object({ id: IdSchema, title: z.string().optional(), pinned: z.boolean().optional(), sortOrder: z.number().int().optional() }), result: ItemSchema },
   "items.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
@@ -59,8 +74,12 @@ export const Methods = {
 
   "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string() }) },
 
+  "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
+
   "agents.probe": { params: z.object({}), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable() })) },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
+  /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
+  "sessions.listAll": { params: z.object({}), result: z.array(SessionSchema) },
   "sessions.get":    { params: z.object({ id: IdSchema }), result: SessionSchema },
   "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().default("default"), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
   "sessions.send":   { params: z.object({ id: IdSchema, text: z.string().min(1), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ ok: z.literal(true) }) },

@@ -7,6 +7,34 @@ import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
 type ToolBlock = Extract<Block, { kind: "tool" }>;
 type ToolState = "running" | "ok" | "error" | "none";
 
+/** Giant tool results are clamped to this many chars behind a "Show all" expander (A-M2) — an agent
+ *  cat-ing a bundle must not wedge the transcript. Copy always takes the full text. */
+export const RESULT_CLAMP = 50 * 1024;
+
+/** One labelled recessed well (Input / Result / Error) with a copy button (A-M3) and, past the clamp,
+ *  a "Show all (N KB)" expander. `label` doubles as the copy button's accessible object ("Copy result"). */
+function Well({ label, text, error = false }: { label: string; text: string; error?: boolean }) {
+  const [showAll, setShowAll] = useState(false);
+  const clamped = text.length > RESULT_CLAMP && !showAll;
+  return (
+    <div className="tool-section">
+      <div className="tool-label">
+        <span>{label}</span>
+        <button className="tool-copy" aria-label={`Copy ${label.toLowerCase()}`} title="Copy"
+          onClick={() => void navigator.clipboard.writeText(text)}>
+          <Icon name="copy" size={12} />
+        </button>
+      </div>
+      <pre className="tool-well" data-error={error || undefined}>{clamped ? text.slice(0, RESULT_CLAMP) : text}</pre>
+      {clamped && (
+        <button className="tool-expand" onClick={() => setShowAll(true)}>
+          Show all ({Math.ceil(text.length / 1024)} KB)
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** A tool call the agent made: compact row, click to expand input + result. */
 export function ToolCard({ block, sessionStatus }: { block: ToolBlock; sessionStatus: SessionStatus }) {
   const [open, setOpen] = useState(false);
@@ -28,8 +56,8 @@ export function ToolCard({ block, sessionStatus }: { block: ToolBlock; sessionSt
       </button>
       {open && (
         <div className="tool-body">
-          <div className="tool-section"><div className="tool-label">Input</div><pre className="tool-well">{prettyJson(block.input)}</pre></div>
-          {block.result && <div className="tool-section"><div className="tool-label">{block.result.isError ? "Error" : "Result"}</div><pre className="tool-well" data-error={block.result.isError || undefined}>{block.result.content || "(empty)"}</pre></div>}
+          <Well label="Input" text={prettyJson(block.input)} />
+          {block.result && <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError} />}
         </div>
       )}
     </div>

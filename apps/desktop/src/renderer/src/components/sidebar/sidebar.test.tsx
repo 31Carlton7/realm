@@ -26,15 +26,23 @@ describe("Arc sidebar", () => {
     expect(screen.queryByRole("button", { name: "Terminal" })).not.toBeInTheDocument();
   });
 
-  it("session items show a status dot that follows sessionStatus (pulsing state exposed via data-status)", async () => {
+  it("session items show a status dot that follows sessionStatus, and the row's accessible name carries the status (A-L4)", async () => {
     const { store } = await mount(fakeApi({ items: { s1: [item("i1", "s1", { title: "Terminal" }), item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] } }));
-    const row = () => screen.getByRole("button", { name: "Fix the build" });
+    const row = () => screen.getByRole("button", { name: /^Fix the build/ });
     expect(row().querySelector(".status-dot")).toBeNull(); // no status known yet
+    expect(row()).toHaveAccessibleName("Fix the build");
     act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
     expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
+    expect(row()).toHaveAccessibleName("Fix the build — needs permission");
     act(() => store.getState().applySessionStatus("se1", "idle"));
     expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "idle");
+    expect(row()).toHaveAccessibleName("Fix the build — idle");
     expect(screen.getByRole("button", { name: "Terminal" }).querySelector(".status-dot")).toBeNull();
+  });
+
+  it("an empty space shows one faint hint line pointing at New… (A-L6)", async () => {
+    await mount(fakeApi({ items: { s1: [] } }));
+    expect(screen.getByText(/Nothing here yet/)).toBeInTheDocument();
   });
 
   it("pinned items render as tiles, unpinned in the list", async () => {
@@ -61,6 +69,28 @@ describe("Arc sidebar", () => {
     fireEvent.contextMenu(screen.getByRole("button", { name: /Terminal/ }));
     expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
+    await waitFor(() => expect(store.getState().items).toHaveLength(0));
+    expect(api.calls).toContain("deleteItem:i1");
+  });
+
+  it("Delete is two-step: the first click arms 'Really delete?' without deleting; reopening the menu disarms; the second click deletes", async () => {
+    const { store, api } = await mount();
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    // Armed in place: the menu stays open, the row relabels, and NOTHING was deleted.
+    expect(api.calls).not.toContain("deleteItem:i1");
+    expect(store.getState().items).toHaveLength(1);
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Really delete?" })).toBeInTheDocument();
+    // Reopening the menu resets the confirmation.
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Really delete?" })).not.toBeInTheDocument();
+    expect(api.calls).not.toContain("deleteItem:i1");
+    // Two clicks within one open menu delete for real.
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
     await waitFor(() => expect(store.getState().items).toHaveLength(0));
     expect(api.calls).toContain("deleteItem:i1");
   });
@@ -224,6 +254,7 @@ describe("Arc sidebar", () => {
     expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
     await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i2"));
     expect(api.calls).toContain("deleteItem:i2");
   });
@@ -238,6 +269,7 @@ describe("Arc sidebar", () => {
 
     fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" })); // i1 is open in L1
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
     await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
     expect(api.calls).toContain("deleteItem:i1");
     const l = store.getState().layout!;

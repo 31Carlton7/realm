@@ -1,7 +1,7 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, openItem as layoutOpen, splitLeaf, updateSizes, LayoutSchema,
-  type AgentKind, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionStatus, type Space, type StoredSessionEvent,
+  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, LayoutSchema,
+  type AgentKind, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionStatus, type Space, type StoredSessionEvent,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -11,6 +11,10 @@ export type CreateSpaceInput = { name: string; icon: string; profileId: string; 
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
+/** What the last session of an agent kind was created with (one-shot palette entries). The spaceId
+ *  records where the projectId is valid — projects are space-scoped, so quick-creating from another
+ *  space falls back to the space folder instead of carrying a foreign project. */
+export type LastSessionConfig = Omit<CreateSessionInput, "spaceId" | "agentKind"> & { spaceId: string };
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
 export type PermissionDecision = "allow" | "allow_always" | "deny";
 /** Where a sidebar row was dropped on a pane: an edge splits there, center replaces the pane's item.
@@ -25,9 +29,13 @@ export type TranscriptEntry = { lastSeq: number; t: Transcript };
  *  seams (native folder picker, local terminal disposal). Tests substitute a fake. */
 export type Api = {
   listProfiles(): Promise<Profile[]>;
+  /** Icon/color are server defaults (`user` / grey) — the sheet only asks for a name. */
+  createProfile(name: string): Promise<Profile>;
   /** Global list across all profiles, in user sort order. */
   listSpaces(): Promise<Space[]>;
   listItems(spaceId: string): Promise<Item[]>;
+  /** Every item across every space, newest-updated first (command palette search). */
+  listAllItems(): Promise<Item[]>;
   listProjects(spaceId: string): Promise<Project[]>;
   createSpace(input: CreateSpaceInput): Promise<Space>;
   updateSpace(input: UpdateSpaceInput): Promise<Space>;
@@ -46,6 +54,8 @@ export type Api = {
   /** Drop the renderer-side xterm instance/scrollback for a closed terminal. */
   disposeTerminal(terminalId: string): void;
   listSessions(spaceId: string): Promise<Session[]>;
+  /** Every session across every space (sessionId→spaceId map for cross-space badges). */
+  listAllSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
   sendMessage(id: string, text: string): Promise<void>;
@@ -55,6 +65,8 @@ export type Api = {
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
   probeAgents(): Promise<AgentProbe[]>;
+  /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
+  gitInfo(cwd: string): Promise<GitInfo | null>;
 };
 
 export const PERSIST_DEBOUNCE_MS = 300;
@@ -66,7 +78,8 @@ export const EVENTS_PAGE = 1000;
 export type Sheet =
   | { kind: "space-settings"; spaceId: string }
   | { kind: "new-space" }
-  | { kind: "new-session" };
+  /** agentKind preselects the sheet's agent picker (palette one-shots with no remembered config). */
+  | { kind: "new-session"; agentKind?: AgentKind };
 
 export type AppState = {
   profiles: Profile[];
@@ -76,25 +89,46 @@ export type AppState = {
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
   items: Item[]; layout: Layout | null;
+  /** Items across every space (palette search); refreshed when the palette opens. */
+  allItems: Item[];
+  /** Last submitted new-session options per agent kind (palette one-shots). Session-local, not persisted. */
+  lastSessionConfig: Partial<Record<AgentKind, LastSessionConfig>>;
+  /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
+  renamingItemId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
    *  layout no longer contains it. */
   focusedLeafId: string | null;
   projects: Project[];
   error: string | null;
+  /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
+  connectionState: "connected" | "reconnecting";
   paletteOpen: boolean;
   sheet: Sheet | null;
   /** Sessions of the active space, by id. */
   sessions: Record<string, Session>;
+  /** Statuses across spaces: seeded by refreshAllSessions, kept current by session.status broadcasts
+   *  (which fire for every space) — entries survive space switches. */
   sessionStatus: Record<string, SessionStatus>;
+  /** sessionId → spaceId for EVERY known session. session.status broadcasts carry only a sessionId;
+   *  this map is what lets an inactive space's strip button wear its badge. */
+  sessionSpace: Record<string, string>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
   agentProbe: AgentProbe[];
+  /** Composer drafts by session id — store-owned so layout reshapes/pane remounts never lose typed
+   *  text (A-M9). Never persisted; dropped when the session's item is deleted. */
+  drafts: Record<string, string>;
+  /** Git working-tree summaries by cwd; null = known non-repo. Refreshed event-driven only (session
+   *  status transitions to idle/error, space activation, session open) — never polled. */
+  gitInfo: Record<string, GitInfo | null>;
   activeSpace(): Space | undefined;
   activeIndex(): number;
   boot(): Promise<void>;
   selectSpace(id: string): Promise<void>;
   nextSpace(): Promise<void>;
   prevSpace(): Promise<void>;
+  /** Create a profile and merge it into `profiles`; returns it so callers can select it. */
+  createProfile(name: string): Promise<Profile>;
   createSpace(input: CreateSpaceInput): Promise<void>;
   updateSpace(input: UpdateSpaceInput): Promise<void>;
   deleteSpace(id: string): Promise<void>;
@@ -103,6 +137,7 @@ export type AppState = {
   setSwipeInvert(v: boolean): Promise<void>;
   refreshSpaces(): Promise<void>;
   refreshItems(): Promise<void>;
+  refreshAllItems(): Promise<void>;
   refreshProjects(): Promise<void>;
   linkProject(rootPath: string): Promise<void>;
   pickAndLinkProject(): Promise<void>;
@@ -123,26 +158,45 @@ export type AppState = {
    *  landing on the near side. */
   openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
   focusLeaf(leafId: string): void;
+  /** Move pane focus to the structural neighbor in that direction (see neighborLeafId); no-op without one. */
+  focusNeighbor(dir: FocusDir): void;
   applyPreset(name: PresetName): Promise<void>;
   /** Functional sizes update for one split; persisted with a trailing debounce. No-op if unchanged.
    *  Until the active space's items have loaded, sizes apply locally but never persist — PanelGroup
    *  fires onLayout at mount with normalized sizes, and that echo is not a user action. */
   resizeSplit(splitId: string, sizes: number[]): void;
+  /** Flush a pending debounced layout persist immediately — wired to `pagehide` (A-M4): a resize inside
+   *  the debounce window of quitting would otherwise never reach the server. No-op when nothing is pending. */
+  flushPersist(): Promise<void>;
+  /** On the reconnecting→connected edge, runs a boot-lite refresh (spaces/items/sessions) and catches
+   *  every open transcript up from its lastSeq — the events missed while the socket was down. */
+  applyConnectionState(state: "connected" | "reconnecting"): void;
   setPaletteOpen(open: boolean): void;
   openSheet(sheet: Sheet): void;
   closeSheet(): void;
   refreshSessions(): Promise<void>;
+  /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
+  refreshAllSessions(): Promise<void>;
+  /** Jump to a waiting_permission session anywhere: switch space if needed, open its item, focus it. */
+  jumpToPermission(): Promise<void>;
   /** Load (or catch up) a session's transcript: fetch events after the last known seq and reduce them. */
   openSession(id: string): Promise<void>;
   applySessionEvent(ev: LiveSessionEvent): void;
   applySessionStatus(sessionId: string, status: SessionStatus): void;
   /** Create a session in the active space, open its item, and open its transcript. */
   newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null): Promise<void>;
+  /** One-shot session creation with the agent's last-used options; falls back to the sheet
+   *  (preselected) when that agent has never been configured this session. */
+  newSessionQuick(agentKind: AgentKind): Promise<void>;
+  /** Arm (or with null, disarm) inline rename for the pane holding this item. */
+  requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
   probeAgents(): Promise<void>;
+  setDraft(sessionId: string, text: string): void;
+  refreshGitInfo(cwd: string): Promise<void>;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
   clearError(): void;
@@ -159,6 +213,59 @@ export function reconcileLayout(layout: Layout | null, items: Item[]): Layout {
 /** True when a leaf with this id exists anywhere in the layout (splits don't count). */
 export function hasLeafIn(l: Layout, leafId: string): boolean {
   return l.type === "leaf" ? l.id === leafId : l.children.some((c) => hasLeafIn(c, leafId));
+}
+
+/** The one status a space's strip button wears, from all its sessions. Priority: a permission is a
+ *  question for the user (most urgent), an error needs eyes, running is just progress (U-H3). */
+export function spaceBadge(
+  sessionStatus: Record<string, SessionStatus>, sessionSpace: Record<string, string>, spaceId: string,
+): "waiting_permission" | "error" | "running" | null {
+  let error = false, running = false;
+  for (const [id, st] of Object.entries(sessionStatus)) {
+    if (sessionSpace[id] !== spaceId) continue;
+    if (st === "waiting_permission") return "waiting_permission";
+    if (st === "error") error = true;
+    else if (st === "running") running = true;
+  }
+  return error ? "error" : running ? "running" : null;
+}
+
+export type FocusDir = "left" | "right" | "up" | "down";
+
+/**
+ * The leaf you land on moving `dir` from `leafId` — structurally, not geometrically: leaf rects are
+ * not in the store, so this walks the tree instead. From the leaf, climb toward the root; the first
+ * ancestor split whose axis matches the direction (row for left/right, col for up/down) and that has
+ * a sibling on that side wins. Descend into that sibling to the "nearest" leaf: at splits along the
+ * movement axis take the near edge (moving right → leftmost child, moving up → bottom child); at
+ * cross-axis splits take the first child — an approximation, since the true nearest child would
+ * depend on the origin leaf's cross-axis position, which the tree does not encode. Null = no
+ * neighbor that way (callers no-op).
+ */
+export function neighborLeafId(l: Layout, leafId: string, dir: FocusDir): string | null {
+  const axis = dir === "left" || dir === "right" ? "row" : "col";
+  const forward = dir === "right" || dir === "down";
+  // Path from the leaf up to the root (pushed post-recursion, so index 0 is the innermost split).
+  const path: { split: Extract<Layout, { type: "split" }>; index: number }[] = [];
+  const find = (n: Layout): boolean => {
+    if (n.type === "leaf") return n.id === leafId;
+    for (let i = 0; i < n.children.length; i++) {
+      if (find(n.children[i]!)) { path.push({ split: n, index: i }); return true; }
+    }
+    return false;
+  };
+  if (!find(l)) return null;
+  const descend = (n: Layout): string => {
+    if (n.type === "leaf") return n.id;
+    const pick = n.dir === axis ? (forward ? n.children[0]! : n.children.at(-1)!) : n.children[0]!;
+    return descend(pick);
+  };
+  for (const { split, index } of path) {
+    if (split.dir !== axis) continue;
+    const sibling = split.children[index + (forward ? 1 : -1)];
+    if (sibling) return descend(sibling);
+  }
+  return null;
 }
 
 /** The id of the empty leaf sitting next to `leafId` in its immediate split, if any — i.e. the leaf a
@@ -250,6 +357,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  (A concurrent items.changed refresh can't have opened it — reconcile is prune-only.) Takes an
      *  itemsFetchSeq slot so any older in-flight refreshItems response is dropped instead of pruning
      *  the item this fetch is about to open. */
+    /** Kick an event-driven git refresh for one session's cwd (no-op while the session is unknown). */
+    const refreshGitFor = (sessionId: string) => {
+      const cwd = get().sessions[sessionId]?.cwd;
+      if (cwd) get().run(() => get().refreshGitInfo(cwd));
+    };
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
@@ -260,8 +372,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
+      allItems: [], lastSessionConfig: {}, renamingItemId: null,
+      connectionState: "connected",
       paletteOpen: false, sheet: null,
-      sessions: {}, sessionStatus: {}, transcripts: {}, agentProbe: [],
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, gitInfo: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
@@ -273,6 +387,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
+        // Cross-space badges need every session's space + status, not just the active space's.
+        await get().refreshAllSessions();
       },
       async selectSpace(id) {
         await flushPersist();
@@ -282,6 +398,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], sessions: {}, error: null });
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
         await Promise.all([get().refreshProjects(), get().refreshItems(), get().refreshSessions()]);
+        // Space activation refreshes git context for the focused pane's session, if any.
+        const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
+        if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
       },
       async nextSpace() {
         const { spaces } = get(); const i = get().activeIndex();
@@ -311,10 +430,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         layoutHydrated = true;
         set({ items, layout, focusedLeafId: focusIn(layout) });
       },
+      async refreshAllItems() {
+        set({ allItems: await api.listAllItems() });
+      },
       async refreshProjects() {
         const sid = get().activeSpaceId; if (!sid) return;
         const projects = await api.listProjects(sid);
         if (isSpace(sid)) set({ projects });
+      },
+      async createProfile(name) {
+        const p = await api.createProfile(name);
+        set({ profiles: [...get().profiles.filter((x) => x.id !== p.id), p] });
+        return p;
       },
       async createSpace(input) {
         const s = await api.createSpace(input);
@@ -407,7 +534,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (it?.kind === "session") {
           dropTranscript(it.refId); loading.delete(it.refId);
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
-          set({ sessionStatus, sessions });
+          const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
+          set({ sessionStatus, sessions, drafts, sessionSpace });
         }
       },
       async splitFocused(dir) {
@@ -431,6 +559,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await persist();
       },
       focusLeaf(leafId) { set({ focusedLeafId: leafId }); },
+      focusNeighbor(dir) {
+        const { layout, focusedLeafId } = get();
+        if (!layout || !focusedLeafId) return;
+        const next = neighborLeafId(layout, focusedLeafId, dir);
+        if (next) set({ focusedLeafId: next });
+      },
       async applyPreset(name) {
         const layout = gridPreset(name, get().items.map((i) => i.id));
         set({ layout, focusedLeafId: firstLeaf(layout).id });
@@ -443,8 +577,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ layout: updateSizes(l, splitId, sizes) });
         if (layoutHydrated) schedulePersist(); // pre-hydration resizes are mount echoes, not user actions
       },
-      setPaletteOpen(open) { set({ paletteOpen: open }); },
-      openSheet(sheet) { set({ sheet }); },
+      flushPersist: () => flushPersist(),
+      applyConnectionState(state) {
+        const prev = get().connectionState;
+        if (prev === state) return;
+        set({ connectionState: state });
+        if (state !== "connected") return;
+        // The socket was down: change events were lost, so refetch what they would have delivered.
+        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions()]));
+        // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
+        for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
+      },
+      // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
+      setPaletteOpen(open) { set(open ? { paletteOpen: true, sheet: null } : { paletteOpen: false }); },
+      openSheet(sheet) { set({ sheet, paletteOpen: false }); },
       closeSheet() { set({ sheet: null }); },
       async refreshSessions() {
         const sid = get().activeSpaceId; if (!sid) return;
@@ -452,9 +598,29 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!isSpace(sid)) return;
         // Statuses are rebuilt from the list: entries for other spaces are kept only if still known there.
         const sessions: Record<string, Session> = {}; const sessionStatus: Record<string, SessionStatus> = {};
+        const sessionSpace = { ...get().sessionSpace };
         for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
-        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; }
-        set({ sessions, sessionStatus });
+        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; }
+        set({ sessions, sessionStatus, sessionSpace });
+      },
+      async refreshAllSessions() {
+        const all = await api.listAllSessions();
+        // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
+        // are written before each session.status broadcast), so they simply overwrite.
+        const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
+        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; }
+        set({ sessionSpace, sessionStatus });
+      },
+      async jumpToPermission() {
+        const waiting = Object.entries(get().sessionStatus).filter(([, st]) => st === "waiting_permission").map(([id]) => id);
+        if (waiting.length === 0) return;
+        // Prefer one in the active space (no context switch); otherwise the first known anywhere.
+        const active = get().activeSpaceId;
+        const sid = waiting.find((id) => (get().sessionSpace[id] ?? get().sessions[id]?.spaceId) === active) ?? waiting[0]!;
+        const spaceId = get().sessionSpace[sid] ?? get().sessions[sid]?.spaceId;
+        if (spaceId && spaceId !== get().activeSpaceId) await get().selectSpace(spaceId);
+        const item = get().items.find((i) => i.kind === "session" && i.refId === sid);
+        if (item) await get().openItem(item.id); // opens into the focused leaf and focuses it
       },
       async openSession(id) {
         if (loading.has(id)) return;
@@ -473,6 +639,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const [session, events] = await Promise.all([get().sessions[id] ? null : api.getSession(id), fetchAll()]);
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
+          refreshGitFor(id); // opening a session refreshes its cwd's git context
           let { lastSeq, t } = get().transcripts[id] ?? prev;
           for (const e of [...events, ...(loading.get(id) ?? [])]) if (e.seq > lastSeq) { t = reduceTranscript(t, e.event); lastSeq = e.seq; }
           setTranscript(id, { lastSeq, t });
@@ -488,21 +655,43 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(cur.t, ev.event) });
       },
       applySessionStatus(sessionId, status) {
+        const prev = get().sessionStatus[sessionId];
         const s = get().sessions[sessionId];
         set({ sessionStatus: { ...get().sessionStatus, [sessionId]: status }, ...(s ? { sessions: { ...get().sessions, [sessionId]: { ...s, status } } } : {}) });
+        // A broadcast for a session we can't place (created in another window/space since the last
+        // list): fetch the map so its space can wear the badge.
+        if (!get().sessionSpace[sessionId]) get().run(() => get().refreshAllSessions());
+        // A turn just finished (or died): the working tree likely changed, so refresh git context.
+        if (prev !== status && (status === "idle" || status === "error")) refreshGitFor(sessionId);
       },
       async newSession(input, targetLeafId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
+        const { agentKind, ...rest } = input;
         const { session, itemId } = await api.createSession({ ...input, spaceId: sid });
+        // Remember this agent's options so the palette's one-shot entries can repeat them.
+        set({ lastSessionConfig: { ...get().lastSessionConfig, [agentKind]: { ...rest, spaceId: sid } } });
         if (isSpace(sid)) mergeSession(session);
         await adoptItem(sid, itemId, targetLeafId);
         await get().openSession(session.id);
       },
+      async newSessionQuick(agentKind) {
+        const cfg = get().lastSessionConfig[agentKind];
+        if (!cfg) { get().openSheet({ kind: "new-session", agentKind }); return; }
+        const { spaceId: recordedSpace, projectId, ...rest } = cfg;
+        // Projects are space-scoped: reuse the project only in the space it was chosen in.
+        await get().newSession({ agentKind, ...rest, projectId: recordedSpace === get().activeSpaceId ? projectId : null });
+      },
+      requestRename(itemId) { set({ renamingItemId: itemId }); },
       async sendMessage(id, text) { await api.sendMessage(id, text); },
       async interruptSession(id) { await api.interruptSession(id); },
       async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },
       async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
       async probeAgents() { set({ agentProbe: await api.probeAgents() }); },
+      setDraft(sessionId, text) { set({ drafts: { ...get().drafts, [sessionId]: text } }); },
+      async refreshGitInfo(cwd) {
+        const info = await api.gitInfo(cwd);
+        set({ gitInfo: { ...get().gitInfo, [cwd]: info } });
+      },
       run(action) {
         action().catch((e: unknown) => {
           console.error(e);

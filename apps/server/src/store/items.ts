@@ -10,6 +10,10 @@ export class ItemsStore {
   list(spaceId: string): Item[] {
     return (this.db.prepare("SELECT * FROM items WHERE space_id = ? ORDER BY pinned DESC, sort_order, created_at").all(spaceId) as Row[]).map(toItem);
   }
+  /** Every item across every space, newest-updated first (command palette search). */
+  listAll(): Item[] {
+    return (this.db.prepare("SELECT * FROM items ORDER BY updated_at DESC, created_at DESC").all() as Row[]).map(toItem);
+  }
   findByRefId(refId: string): Item | null {
     const r = this.db.prepare("SELECT * FROM items WHERE ref_id = ?").get(refId) as Row | undefined; return r ? toItem(r) : null;
   }

@@ -3,7 +3,8 @@ import type { ComponentType, JSX } from "react";
 import { PlaceholderPane } from "./PlaceholderPane";
 import { SessionMeta } from "./session/SessionPane";
 
-export type PaneProps = { item: Item; visible: boolean };
+/** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
+export type PaneProps = { item: Item; visible: boolean; focused?: boolean };
 const registry: Partial<Record<Item["kind"], ComponentType<PaneProps>>> = {};
 export function registerPane(kind: Item["kind"], c: ComponentType<PaneProps>) { registry[kind] = c; }
 export function PaneFor(props: PaneProps) {

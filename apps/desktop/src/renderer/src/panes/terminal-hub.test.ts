@@ -103,6 +103,47 @@ describe("TerminalHub", () => {
     expect(terms[0]!.writes.filter((w) => w.includes("[terminal is not running]"))).toHaveLength(1);
   });
 
+  it("hasData/onFirstData: false until the first output, listeners fire exactly once, late subscribers see hasData", () => {
+    const { hub, emit } = setup();
+    hub.acquire("t1");
+    expect(hub.hasData("t1")).toBe(false);
+    let fired = 0;
+    hub.onFirstData("t1", () => fired++);
+    emit("terminal.data", { terminalId: "t1", data: "boot" });
+    expect(hub.hasData("t1")).toBe(true);
+    expect(fired).toBe(1);
+    emit("terminal.data", { terminalId: "t1", data: "more" });
+    expect(fired).toBe(1); // first data only — never again
+    // Late subscription after data exists is inert; the caller checks hasData first.
+    hub.onFirstData("t1", () => fired++);
+    emit("terminal.data", { terminalId: "t1", data: "even more" });
+    expect(fired).toBe(1);
+  });
+
+  it("onFirstData unsubscribe stops the notification; a terminal.exit also counts as first output", () => {
+    const { hub, emit } = setup();
+    hub.acquire("t1"); hub.acquire("t2");
+    let fired = 0;
+    const off = hub.onFirstData("t1", () => fired++);
+    off();
+    emit("terminal.data", { terminalId: "t1", data: "x" });
+    expect(fired).toBe(0);
+    // The exit banner is output too: the empty-pane hint must not sit on top of it.
+    expect(hub.hasData("t2")).toBe(false);
+    emit("terminal.exit", { terminalId: "t2", exitCode: 1 });
+    expect(hub.hasData("t2")).toBe(true);
+  });
+
+  it("dispose clears the hasData flag with the buffer", () => {
+    const { hub, emit } = setup();
+    const c = document.createElement("div"); document.body.appendChild(c);
+    hub.acquire("t1").attach(c);
+    emit("terminal.data", { terminalId: "t1", data: "x" });
+    expect(hub.hasData("t1")).toBe(true);
+    hub.dispose("t1");
+    expect(hub.hasData("t1")).toBe(false);
+  });
+
   it("dispose tears down xterm, host and buffer; re-acquire starts from a fresh instance", () => {
     const { hub, emit, terms } = setup();
     const c = document.createElement("div"); document.body.appendChild(c);

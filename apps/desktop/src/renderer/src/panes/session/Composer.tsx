@@ -1,15 +1,38 @@
-import { AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, EFFORT_LEVELS, PERMISSION_MODES, type Project, type Session, type SessionStatus } from "@realm/contracts";
+import { AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, EFFORT_LEVELS, PERMISSION_MODES, type GitInfo, type Project, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { SessionOptions } from "../../state/store";
 
 const MAX_ROWS_PX = 220;
 
+/** Context row (spec §A2): cwd chip always; git chips only when the cwd is a known repo. The diff and
+ *  dirty chips hide themselves at zero — an all-clean repo shows just the branch. */
+function ContextRow({ session, project, gitInfo }: { session: Session; project: Project | null; gitInfo: GitInfo | null }) {
+  const cwdName = session.cwd.replace(/\/+$/, "").split("/").pop() || session.cwd;
+  return (
+    <div className="composer-context">
+      <span className="composer-chip" title={session.cwd}><Icon name="folder" size={12} />{project ? `${project.name} · ` : ""}{cwdName}</span>
+      {gitInfo && (
+        <>
+          <span className="composer-chip git-branch" title={`Branch ${gitInfo.branch}`}>{gitInfo.branch}</span>
+          {(gitInfo.additions > 0 || gitInfo.deletions > 0) && (
+            <span className="composer-chip git-diff">
+              <span className="diff-add">+{gitInfo.additions}</span>
+              <span className="diff-del">−{gitInfo.deletions}</span>
+            </span>
+          )}
+          {gitInfo.dirty > 0 && <span className="composer-chip git-dirty">{gitInfo.dirty} changed</span>}
+        </>
+      )}
+    </div>
+  );
+}
+
 /** Message box + option selects. ⌘/Ctrl+Enter sends; Enter inserts a newline.
- *  The draft text is owned by SessionPane (not this component) so a suggestion chip in the empty state
- *  can fill it without sending. */
-export function Composer({ session, status, project, draft, onDraftChange, onSend, onStop, onOptions }: {
-  session: Session; status: SessionStatus; project: Project | null;
+ *  The draft text is owned by the store (keyed by session id, A-M9) so a suggestion chip in the empty
+ *  state can fill it without sending — and layout reshapes never lose it. */
+export function Composer({ session, status, project, gitInfo, draft, onDraftChange, onSend, onStop, onOptions }: {
+  session: Session; status: SessionStatus; project: Project | null; gitInfo: GitInfo | null;
   draft: string; onDraftChange: (text: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
 }) {
@@ -19,7 +42,15 @@ export function Composer({ session, status, project, draft, onDraftChange, onSen
   // Hidden exactly like the model picker is when the agent has no models: an option Realm cannot transmit
   // is worse than no option at all.
   const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[session.agentKind];
-  const cwdName = session.cwd.replace(/\/+$/, "").split("/").pop() || session.cwd;
+  // bypassPermissions must never be a one-click slip (U-M7): selecting it arms an inline confirm chip
+  // for 5s while the (controlled) select simply stays on the current mode; only the explicit confirm
+  // actually applies the option.
+  const [confirmBypass, setConfirmBypass] = useState(false);
+  useEffect(() => {
+    if (!confirmBypass) return;
+    const t = setTimeout(() => setConfirmBypass(false), 5000);
+    return () => clearTimeout(t);
+  }, [confirmBypass]);
 
   useLayoutEffect(() => {
     const el = ta.current; if (!el) return;
@@ -34,6 +65,7 @@ export function Composer({ session, status, project, draft, onDraftChange, onSen
 
   return (
     <div className="composer">
+      <ContextRow session={session} project={project} gitInfo={gitInfo} />
       <textarea ref={ta} className="composer-input" aria-label="Message" placeholder="Message the agent… (⌘↵ to send)" rows={1}
         value={draft} onChange={(e) => onDraftChange(e.target.value)} onKeyDown={onKeyDown} />
       <div className="composer-bar">
@@ -50,11 +82,22 @@ export function Composer({ session, status, project, draft, onDraftChange, onSen
           </select>
           {canSetPermissionMode && (
             <select aria-label="Permission mode" className="composer-select" data-warning={session.permissionMode === "bypassPermissions" || undefined}
-              value={session.permissionMode} onChange={(e) => onOptions({ permissionMode: e.target.value })}>
+              value={session.permissionMode}
+              onChange={(e) => {
+                const mode = e.target.value;
+                if (mode === "bypassPermissions" && session.permissionMode !== "bypassPermissions") { setConfirmBypass(true); return; }
+                setConfirmBypass(false);
+                onOptions({ permissionMode: mode });
+              }}>
               {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
           )}
-          <span className="composer-chip" title={session.cwd}><Icon name="folder" size={12} />{project ? `${project.name} · ` : ""}{cwdName}</span>
+          {confirmBypass && (
+            <button className="composer-chip bypass-confirm"
+              onClick={() => { setConfirmBypass(false); onOptions({ permissionMode: "bypassPermissions" }); }}>
+              Allow everything? Confirm
+            </button>
+          )}
         </div>
         <div className="composer-actions">
           {running

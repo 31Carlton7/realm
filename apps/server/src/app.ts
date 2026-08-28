@@ -10,6 +10,7 @@ import { TerminalService } from "./terminals/service";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { SessionService } from "./sessions/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
+import { GitInfoService } from "./workspace/git-info";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 
@@ -46,6 +47,10 @@ export function defaultAdapters(): AdapterRegistry {
 
 export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
+  const profiles = new ProfilesStore(db);
+  // First boot: without a profile the New Space sheet is a dead end (spaces require one), so seed a
+  // default. Only when the table is empty — reboots and user-created profiles are left alone.
+  if (profiles.list().length === 0) profiles.create({ name: "Personal", icon: "user", color: "#6b7280" });
   const rpc = new RpcServer();
   const spaces = new SpacesStore(db, opts.home);
   const items = new ItemsStore(db);
@@ -54,7 +59,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, adapters: opts.adapters ?? defaultAdapters() });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles: new ProfilesStore(db), spaces, projects, items, settings: new SettingsStore(db), terminals, sessions,
+    profiles, spaces, projects, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(),
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

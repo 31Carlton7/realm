@@ -6,8 +6,10 @@ import type { Api } from "./store";
  *  Kept out of store.ts so the store (and its tests) never pull in xterm or the rpc singleton. */
 export const liveApi = (): Api => ({
   listProfiles: () => rpc().call("profiles.list", {}),
+  createProfile: (name) => rpc().call("profiles.create", { name }),
   listSpaces: () => rpc().call("spaces.list", {}),
   listItems: (spaceId) => rpc().call("items.list", { spaceId }),
+  listAllItems: () => rpc().call("items.listAll", {}),
   listProjects: (spaceId) => rpc().call("projects.list", { spaceId }),
   createSpace: (input) => rpc().call("spaces.create", input),
   updateSpace: (input) => rpc().call("spaces.update", input),
@@ -23,6 +25,7 @@ export const liveApi = (): Api => ({
   pickFolder: () => window.realm.pickFolder(),
   disposeTerminal: (terminalId) => getTerminalHub().dispose(terminalId),
   listSessions: (spaceId) => rpc().call("sessions.list", { spaceId }),
+  listAllSessions: () => rpc().call("sessions.listAll", {}),
   getSession: (id) => rpc().call("sessions.get", { id }),
   createSession: (input) => rpc().call("sessions.create", input),
   sendMessage: async (id, text) => { await rpc().call("sessions.send", { id, text }); },
@@ -31,4 +34,5 @@ export const liveApi = (): Api => ({
   setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),
   probeAgents: () => rpc().call("agents.probe", {}),
+  gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),
 });

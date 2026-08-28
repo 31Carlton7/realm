@@ -8,9 +8,24 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
 });
 
+/** A-M1: a wide table must scroll inside its own container instead of stretching the whole transcript.
+ *  Done as a post-sanitize DOM pass — DOMParser is inert (never executes scripts), the input is already
+ *  DOMPurify-clean, and wrapping here keeps the marked renderer stock. */
+function wrapTables(html: string): string {
+  if (!html.includes("<table")) return html;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  for (const table of Array.from(doc.body.querySelectorAll("table"))) {
+    const wrap = doc.createElement("div");
+    wrap.className = "md-scroll";
+    table.replaceWith(wrap);
+    wrap.appendChild(table);
+  }
+  return doc.body.innerHTML;
+}
+
 export function renderMarkdown(text: string): string {
   const html = marked.parse(text, { async: false });
-  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, ADD_ATTR: ["target"] });
+  return wrapTables(DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, ADD_ATTR: ["target"] }));
 }
 
 /** Assistant prose: markdown → sanitized HTML. `streaming` appends a caret. */

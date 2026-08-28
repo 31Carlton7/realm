@@ -420,6 +420,24 @@ describe("app store", () => {
       await store.getState().selectSpace("s2");
       expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before + 1);
     });
+
+    it("flushPersist writes a pending debounced persist immediately (pagehide seam, A-M4) and no-ops when idle", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().newTerminal();
+      await store.getState().applyPreset("two-col");
+      const splitId = store.getState().layout!.id;
+      const count = () => api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      const before = count();
+      await store.getState().flushPersist(); // nothing pending → no write
+      expect(count()).toBe(before);
+      store.getState().resizeSplit(splitId, [10, 90]); // debounce armed, not yet persisted
+      expect(count()).toBe(before);
+      await store.getState().flushPersist();
+      expect(count()).toBe(before + 1);
+      const saved = store.getState().layout!; if (saved.type !== "split") throw new Error();
+      expect(saved.sizes).toEqual([10, 90]);
+    });
   });
 
   it("run() surfaces action errors and clearError resets", async () => {
@@ -592,6 +610,170 @@ describe("app store", () => {
       await store.getState().refreshSessions();
       expect(store.getState().sessionStatus.se1).toBeUndefined();
       expect(store.getState().sessions.se1).toBeUndefined();
+    });
+  });
+
+  describe("drafts (A-M9)", () => {
+    it("setDraft stores per session id — never under another id — and survives layout close/reopen", async () => {
+      const store = createAppStore(api); await store.getState().boot();
+      store.getState().setDraft("se1", "half-typed thought");
+      store.getState().setDraft("se2", "other");
+      expect(store.getState().drafts.se1).toBe("half-typed thought");
+      expect(store.getState().drafts.se2).toBe("other"); // keyed by its own id, not overwriting se1's
+      // Layout-only close + reopen never touches drafts (that is the whole point of store ownership).
+      store.setState({ layout: leaf("L1", "i1"), focusedLeafId: "L1" });
+      await store.getState().closeFromLayout("i1");
+      await store.getState().openItem("i1");
+      expect(store.getState().drafts.se1).toBe("half-typed thought");
+    });
+
+    it("deleteItem on a session drops its draft; other drafts stay", async () => {
+      api = fakeApi({
+        items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
+        sessions: [session("se1", "s1")],
+      });
+      const store = createAppStore(api); await store.getState().boot();
+      store.getState().setDraft("se1", "doomed");
+      store.getState().setDraft("se9", "kept");
+      await store.getState().deleteItem("i2");
+      expect(store.getState().drafts.se1).toBeUndefined();
+      expect(store.getState().drafts.se9).toBe("kept");
+    });
+  });
+
+  describe("git context (workspace.gitInfo)", () => {
+    const gi = { branch: "main", additions: 2, deletions: 1, dirty: 3, ahead: 0, behind: 0 };
+    const seedGit = () => fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
+      sessions: [session("se1", "s1", { status: "running" })],
+      gitInfo: { "/tmp": gi },
+    });
+
+    it("refreshGitInfo stores the result keyed by cwd; null for a non-repo", async () => {
+      api = seedGit(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().refreshGitInfo("/tmp");
+      await store.getState().refreshGitInfo("/not-a-repo");
+      expect(store.getState().gitInfo["/tmp"]).toEqual(gi);
+      expect(store.getState().gitInfo["/not-a-repo"]).toBeNull();
+    });
+
+    it("a status transition to idle refreshes the session's cwd; running does not; a repeat of idle does not re-fire", async () => {
+      api = seedGit(); const store = createAppStore(api); await store.getState().boot();
+      const gitCalls = () => api.calls.filter((c) => c === "gitInfo:/tmp").length;
+      const before = gitCalls();
+      store.getState().applySessionStatus("se1", "running"); // running → running: not a finish
+      await tick();
+      expect(gitCalls()).toBe(before);
+      store.getState().applySessionStatus("se1", "idle");
+      await tick();
+      expect(gitCalls()).toBe(before + 1);
+      store.getState().applySessionStatus("se1", "idle"); // redundant event: no transition, no refresh
+      await tick();
+      expect(gitCalls()).toBe(before + 1);
+      store.getState().applySessionStatus("se1", "running");
+      store.getState().applySessionStatus("se1", "error"); // a crash also lands the working tree
+      await tick();
+      expect(gitCalls()).toBe(before + 2);
+      expect(store.getState().gitInfo["/tmp"]).toEqual(gi);
+    });
+
+    it("openSession refreshes the session's cwd", async () => {
+      api = seedGit(); const store = createAppStore(api); await store.getState().boot();
+      const before = api.calls.filter((c) => c.startsWith("gitInfo:")).length;
+      await store.getState().openSession("se1");
+      await tick();
+      expect(api.calls.filter((c) => c === "gitInfo:/tmp").length).toBe(before + 1);
+    });
+
+    it("space activation refreshes git for the focused leaf's session — and only for a session leaf", async () => {
+      api = fakeApi({
+        spaces: [
+          space("s1", "p1", "Versed", { layout: leaf("L1", "i1") }),
+          space("s2", "p2", "Homework", { layout: leaf("L2", "i2") }),
+        ],
+        items: {
+          s1: [item("i1", "s1", { title: "Terminal" })],
+          s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "Sess" })],
+        },
+        sessions: [session("se2", "s2", { cwd: "/repo" })],
+        gitInfo: { "/repo": gi },
+      });
+      const store = createAppStore(api); await store.getState().boot(); // boots into s1 (terminal focused)
+      expect(api.calls.filter((c) => c.startsWith("gitInfo:"))).toEqual([]);
+      await store.getState().selectSpace("s2");
+      await tick();
+      expect(api.calls.filter((c) => c.startsWith("gitInfo:"))).toEqual(["gitInfo:/repo"]);
+      expect(store.getState().gitInfo["/repo"]).toEqual(gi);
+    });
+  });
+
+  describe("single overlay slot (U-M4/V-F5)", () => {
+    it("opening the palette closes any open sheet", async () => {
+      const store = createAppStore(api); await store.getState().boot();
+      store.getState().openSheet({ kind: "new-space" });
+      expect(store.getState().sheet).toEqual({ kind: "new-space" });
+      store.getState().setPaletteOpen(true);
+      expect(store.getState().paletteOpen).toBe(true);
+      expect(store.getState().sheet).toBeNull();
+      // Closing the palette must not resurrect or re-close anything.
+      store.getState().setPaletteOpen(false);
+      expect(store.getState().paletteOpen).toBe(false);
+      expect(store.getState().sheet).toBeNull();
+    });
+
+    it("opening a sheet closes the palette", async () => {
+      const store = createAppStore(api); await store.getState().boot();
+      store.getState().setPaletteOpen(true);
+      expect(store.getState().paletteOpen).toBe(true);
+      store.getState().openSheet({ kind: "new-session" });
+      expect(store.getState().sheet).toEqual({ kind: "new-session" });
+      expect(store.getState().paletteOpen).toBe(false);
+    });
+  });
+
+  describe("connection state", () => {
+    const stored = (sessionId: string, seq: number, event: StoredSessionEvent["event"]): StoredSessionEvent => ({ seq, sessionId, event });
+    const seed = () => fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+      sessions: [session("se1", "s1", { status: "running" })],
+      sessionEvents: { se1: [stored("se1", 1, sessionEvent("user_message", { text: "hi", attachments: [] }))] },
+    });
+
+    it("starts connected; going down flips the flag without fetching anything", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      expect(store.getState().connectionState).toBe("connected");
+      api.calls.length = 0;
+      store.getState().applyConnectionState("reconnecting");
+      expect(store.getState().connectionState).toBe("reconnecting");
+      await tick();
+      expect(api.calls).toEqual([]);
+    });
+
+    it("regaining the connection runs the boot-lite refresh and catches open transcripts up from lastSeq", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openSession("se1");
+      expect(store.getState().transcripts.se1!.lastSeq).toBe(1);
+      // Events that arrived server-side while the socket was down.
+      api.data.sessionEvents.se1!.push(stored("se1", 2, sessionEvent("assistant_text", { messageId: "m1", text: "welcome back" })));
+      store.getState().applyConnectionState("reconnecting");
+      api.calls.length = 0;
+      store.getState().applyConnectionState("connected");
+      expect(store.getState().connectionState).toBe("connected");
+      await tick(); await tick();
+      expect(api.calls).toContain("listSpaces");
+      expect(api.calls).toContain("listItems:s1");
+      expect(api.calls).toContain("listSessions:s1");
+      expect(api.calls).toContain("sessionEvents:se1:1"); // catch-up from lastSeq, not a refetch from 0
+      expect(store.getState().transcripts.se1!.lastSeq).toBe(2);
+      expect(store.getState().transcripts.se1!.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant"]);
+    });
+
+    it("a redundant connected notification does not refetch (refresh only fires on the reconnecting→connected edge)", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      api.calls.length = 0;
+      store.getState().applyConnectionState("connected");
+      await tick();
+      expect(api.calls).toEqual([]);
     });
   });
 

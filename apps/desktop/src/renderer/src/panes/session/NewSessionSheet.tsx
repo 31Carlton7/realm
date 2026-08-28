@@ -9,6 +9,8 @@ export function NewSessionSheet() {
   const probe = useApp((s) => s.agentProbe);
   const projects = useApp((s) => s.projects);
   const space = useApp((s) => s.activeSpace());
+  // A palette one-shot with no remembered config lands here with its agent preselected.
+  const preselect = useApp((s) => (s.sheet?.kind === "new-session" ? s.sheet.agentKind : undefined));
   const probeAgents = useApp((s) => s.probeAgents);
   const newSession = useApp((s) => s.newSession);
   const closeSheet = useApp((s) => s.closeSheet);
@@ -27,7 +29,12 @@ export function NewSessionSheet() {
       .finally(() => { if (alive) setProbing(false); }));
     return () => { alive = false; };
   }, [probeAgents, run]);
-  useEffect(() => { if (!agent) { const first = probe.find((p) => p.available); if (first) setAgent(first.kind); } }, [probe, agent]);
+  useEffect(() => {
+    if (agent) return;
+    const wanted = preselect ? probe.find((p) => p.kind === preselect && p.available) : undefined;
+    const first = wanted ?? probe.find((p) => p.available);
+    if (first) setAgent(first.kind);
+  }, [probe, agent, preselect]);
 
   const models = agent ? (AGENT_MODELS[agent] as ReadonlyArray<{ id: string; label: string }>) : [];
   // Hidden exactly like the model picker is when the agent has no models: an option Realm cannot transmit

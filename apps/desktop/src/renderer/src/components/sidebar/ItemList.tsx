@@ -2,7 +2,8 @@ import { Icon } from "@realm/ui";
 import { useState } from "react";
 import { allItems, emptyLayout, itemIdOfLeaf, type Item, type Layout } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { RenameInput, useItemContextMenu } from "./ItemContextMenu";
+import { RenameInput } from "../RenameInput";
+import { useItemContextMenu } from "./ItemContextMenu";
 
 const STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
 
@@ -43,7 +44,7 @@ function glyphCellsOn(layout: Layout, pos: 0 | 1 | 2 | 3): number[] {
   return [pos];
 }
 
-function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
+export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
   const pos = leafPositionOf(layout, itemId);
   if (pos === null) return null;
   const on = new Set(glyphCellsOn(layout, pos));
@@ -83,7 +84,10 @@ export function ItemList({ items, variant }: { items: Item[]; variant: "open" | 
           onContextMenu={onContextMenu(it)}>
           {renaming?.id === it.id ? <RenameInput item={it} onDone={() => setRenaming(null)} /> : (
             <>
-              <button className="item-row" aria-label={it.title} onClick={() => run(() => openItem(it.id))}>
+              {/* The status is part of the accessible name (A-L4): the dot alone is invisible to a reader. */}
+              <button className="item-row"
+                aria-label={it.kind === "session" && sessionStatus[it.refId] ? `${it.title} — ${STATUS_LABEL[sessionStatus[it.refId]!]}` : it.title}
+                onClick={() => run(() => openItem(it.id))}>
                 <Icon name={it.kind} size={14} /><span className="item-title">{it.title}</span>
                 {it.kind === "session" && sessionStatus[it.refId] && (
                   <span className="status-dot item-status" data-status={sessionStatus[it.refId]} title={STATUS_LABEL[sessionStatus[it.refId]!]} />

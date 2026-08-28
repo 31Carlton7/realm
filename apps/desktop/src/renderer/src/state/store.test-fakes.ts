@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
+import type { GitInfo, Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
 import type { Api } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -17,6 +17,8 @@ export type FakeData = {
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
   settings?: Record<string, unknown>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
+  /** By cwd; absent cwd = not a repo (null). */
+  gitInfo?: Record<string, GitInfo | null>;
 };
 
 export type FakeApi = Api & {
@@ -43,14 +45,24 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     settings: overrides.settings ?? {},
     sessions: overrides.sessions ?? [],
     sessionEvents: overrides.sessionEvents ?? {},
+    gitInfo: overrides.gitInfo ?? {},
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const api: FakeApi = {
     calls, disposed, delays: {}, onCreateTerminal: null, data,
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
+    createProfile: async (name) => {
+      calls.push(`createProfile:${name}`);
+      const p = profile(`p${++n}`, name, { icon: "user", color: "#6b7280", sortOrder: data.profiles.length });
+      data.profiles.push(p); return p;
+    },
     listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return [...data.spaces]; },
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
+    listAllItems: async () => {
+      calls.push("listAllItems");
+      return Object.values(data.items).flat().slice().sort((a, b) => b.updatedAt - a.updatedAt);
+    },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
     createSpace: async (input) => {
       const s = space(`s${++n}`, input.profileId, input.name, { icon: input.icon, color: input.color ?? "#ffb454", sortOrder: data.spaces.length });
@@ -95,6 +107,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pickFolder: async () => "/tmp/picked-repo",
     disposeTerminal: (id) => { disposed.push(id); },
     listSessions: async (sid) => { calls.push(`listSessions:${sid}`); return data.sessions.filter((s) => s.spaceId === sid); },
+    listAllSessions: async () => { calls.push("listAllSessions"); await wait("listAllSessions"); return [...data.sessions]; },
     getSession: async (id) => { calls.push(`getSession:${id}`); const s = data.sessions.find((x) => x.id === id); if (!s) throw new Error(`no session ${id}`); return s; },
     createSession: async (input) => {
       const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, projectId: input.projectId ?? null, model: input.model ?? null, effort: input.effort ?? null, permissionMode: input.permissionMode ?? "default", title: input.title ?? "Fake agent session" });
@@ -113,6 +126,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     probeAgents: async () => { calls.push("probeAgents"); return [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]; },
+    gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

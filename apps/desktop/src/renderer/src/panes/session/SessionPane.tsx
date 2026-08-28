@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { AGENT_META, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
@@ -29,7 +29,7 @@ export function SessionMeta({ item }: { item: Item }) {
 }
 
 /** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
-export function SessionPane({ item, visible }: PaneProps) {
+export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const id = item.refId;
   const session = useApp((s) => s.sessions[id]);
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
@@ -43,8 +43,11 @@ export function SessionPane({ item, visible }: PaneProps) {
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const run = useApp((s) => s.run);
   const transcript = entry?.t ?? emptyTranscript();
-  // Owned here (not in Composer) so a suggestion chip in the empty state can fill the draft without sending it.
-  const [draft, setDraft] = useState("");
+  // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
+  // suggestion chip in the empty state can fill the draft without sending it.
+  const draft = useApp((s) => s.drafts[id] ?? "");
+  const setDraft = useApp((s) => s.setDraft);
+  const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
 
   useEffect(() => { run(() => openSession(id)); }, [id, openSession, run]);
 
@@ -53,7 +56,7 @@ export function SessionPane({ item, visible }: PaneProps) {
   const space = spaces.find((s) => s.id === session.spaceId);
   return (
     <div className="session-pane" data-visible={visible || undefined}>
-      <Transcript transcript={transcript} sessionStatus={status} visible={visible}
+      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused}
         onDecide={(requestId, d) => run(() => respondPermission(id, requestId, d))}
         empty={
           <div className="transcript-empty muted">
@@ -61,12 +64,12 @@ export function SessionPane({ item, visible }: PaneProps) {
             <div className="empty-title">What should we work on in <em>{space?.name ?? "this space"}</em>?</div>
             <div className="suggestions">
               {SUGGESTIONS[session.agentKind].map((s) => (
-                <button key={s.title} type="button" className="suggestion-chip" onClick={() => setDraft(s.prompt)}>{s.title}</button>
+                <button key={s.title} type="button" className="suggestion-chip" onClick={() => setDraft(id, s.prompt)}>{s.title}</button>
               ))}
             </div>
           </div>
         } />
-      <Composer session={session} status={status} project={project} draft={draft} onDraftChange={setDraft}
+      <Composer session={session} status={status} project={project} gitInfo={gitInfo} draft={draft} onDraftChange={(t) => setDraft(id, t)}
         onSend={(text) => run(() => sendMessage(id, text))}
         onStop={() => run(() => interruptSession(id))}
         onOptions={(o) => run(() => setSessionOptions(id, o))} />

@@ -1,35 +1,17 @@
 import { useEffect, useMemo } from "react";
-import type { StoreApi } from "zustand";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
 import { NewSessionSheet } from "./panes/session/NewSessionSheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
-import { Icon } from "@realm/ui";
 import { PaneHost } from "./components/PaneHost";
-import { LayoutMenu } from "./components/LayoutMenu";
-import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
+import { StoreContext, createAppStore, useApp } from "./state/store";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
-import { emptyLayout, itemIdOfLeaf } from "@realm/contracts";
+import { emptyLayout } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
+import { useGlobalHotkeys } from "./hotkeys";
 import "./panes";
-
-/** ⌘\ splits the focused leaf to the right. Bind once at the app root. */
-export function useSplitHotkey(store: StoreApi<AppState>) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === "\\") {
-        e.preventDefault();
-        const s = store.getState();
-        if (s.sheet || s.paletteOpen) return; // a modal sheet or the command palette owns the keyboard
-        s.run(() => s.splitFocused("row"));
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [store]);
-}
 
 /** Writes the active space's palette to :root; lives under the store provider so it can read state. */
 function ThemeBridge() {
@@ -39,12 +21,26 @@ function ThemeBridge() {
   return null;
 }
 
+/** Slim persistent banner while the RPC socket is down; Retry skips the backoff wait. */
+function ConnectionBanner() {
+  const state = useApp((s) => s.connectionState);
+  if (state === "connected") return null;
+  return (
+    <div className="conn-banner" role="status">
+      <span>Connection lost — reconnecting…</span>
+      <button onClick={() => rpc().retryNow()}>Retry</button>
+    </div>
+  );
+}
+
 function ErrorBar() {
   const error = useApp((s) => s.error);
   const clearError = useApp((s) => s.clearError);
+  // The fixed conn-banner hangs over the top edge where this bar sits; step below it while it shows.
+  const underBanner = useApp((s) => s.connectionState !== "connected");
   if (!error) return null;
   return (
-    <div className="error-bar" role="alert">
+    <div className="error-bar" data-under-banner={underBanner || undefined} role="alert">
       <span>{error}</span>
       <button aria-label="Dismiss error" onClick={clearError}>✕</button>
     </div>
@@ -61,24 +57,8 @@ function SheetHost() {
   return null;
 }
 
-/** `<space icon> <space name> / <focused item title>` — the item in the focused leaf, if any. */
-function Breadcrumb() {
-  const space = useApp((s) => s.activeSpace());
-  const items = useApp((s) => s.items);
-  const layout = useApp((s) => s.layout);
-  const focusedLeafId = useApp((s) => s.focusedLeafId);
-  if (!space) return null;
-  const focusedItemId = itemIdOfLeaf(layout, focusedLeafId);
-  const item = items.find((i) => i.id === focusedItemId);
-  return (
-    <div className="breadcrumb" aria-label="Location">
-      <Icon name={space.icon} size={14} /><span className="crumb">{space.name}</span>
-      {item && <><span className="crumb-sep">/</span><span className="crumb muted">{item.title}</span></>}
-    </div>
-  );
-}
-
-/** Topbar + PaneHost for the active space. Exported for the app-shell tests. */
+/** Full-bleed PaneHost for the active space (no topbar — spec amendment §A1; layout presets live
+ *  in the command palette). Exported for the app-shell tests. */
 export function Main() {
   const layout = useApp((s) => s.layout);
   const items = useApp((s) => s.items);
@@ -88,13 +68,11 @@ export function Main() {
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const splitFocused = useApp((s) => s.splitFocused);
   const openItemAt = useApp((s) => s.openItemAt);
-  const applyPreset = useApp((s) => s.applyPreset);
   const resizeSplit = useApp((s) => s.resizeSplit);
   const run = useApp((s) => s.run);
   if (!spaceId) return <><ErrorBar /><div className="pane-placeholder muted">Create a space with the + in the sidebar.</div></>;
   return (
     <>
-      <div className="topbar"><Breadcrumb /><LayoutMenu onPick={(p) => run(() => applyPreset(p))} /></div>
       <ErrorBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
         onFocus={focusLeaf}
@@ -110,7 +88,7 @@ export function Main() {
 export function App() {
   const store = useMemo(() => createAppStore(liveApi()), []);
   usePaletteHotkey(store);
-  useSplitHotkey(store);
+  useGlobalHotkeys(store);
   useEffect(() => {
     const s = store.getState();
     s.run(() => s.boot());
@@ -121,12 +99,17 @@ export function App() {
     });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
-    return () => { offS(); offI(); offE(); offT(); };
+    const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
+    // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
+    const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
+    window.addEventListener("pagehide", onPageHide);
+    return () => { offS(); offI(); offE(); offT(); offC(); window.removeEventListener("pagehide", onPageHide); };
   }, [store]);
   return (
     <StoreContext.Provider value={store}>
       <ThemeBridge />
       <div className="app"><Sidebar /><main className="main"><Main /></main></div>
+      <ConnectionBanner />
       <SheetHost />
       <CommandPalette />
     </StoreContext.Provider>

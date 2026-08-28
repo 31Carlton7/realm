@@ -111,3 +111,9 @@ Each session pane reads like a working document with chrome that carries real co
 
 ## A3. Audit adoption
 The 2026-08-27 audit's P0 list, the P1 keyboard/command + multi-agent-visibility + accent-discipline/identity + surface-polish themes, and the P2 quick wins ride along in this same overhaul (see `docs/superpowers/plans/2026-08-27-plan-05-session-shell.md` for the authoritative work breakdown). Accent-lit focus applies to the **focused pane's header underline + icon** (borders no longer exist to tint). The bundled mono face decision resolves to **JetBrains Mono (OFL, woff2, bundled)** for tool cards, wells, kbd, terminal fallback, and palette hints.
+
+## A4. Motion amendment to §4 (2026-08-27, W5) — micro-interactions sanctioned
+§4's "everything else instant" is relaxed deliberately, not by drift (V-C2). Now also sanctioned:
+- **Hover/state feedback:** 100ms `--ease` transitions on background/border/color for interactive rows, buttons, chips, selects, palette options and menu items; `:active` scale(.96) on true buttons; drop-zone opacity eases over 80ms linear.
+- **Overlay enters:** menus, the command palette and sheets share the permission card's 120ms scale-from-98% enter (keyframes renamed `rl-perm-in` → `rl-pop-in` to reflect the shared use).
+Everything remains disabled under `prefers-reduced-motion` via the existing blanket override.

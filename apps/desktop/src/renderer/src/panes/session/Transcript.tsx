@@ -20,8 +20,10 @@ function Thinking({ text }: { text: string }) {
 }
 
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill. */
-export function Transcript({ transcript, sessionStatus, onDecide, empty, visible = true }: {
+export function Transcript({ transcript, sessionStatus, onDecide, empty, visible = true, focused = false }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision) => void; empty?: React.ReactNode; visible?: boolean;
+  /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
+  focused?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -58,7 +60,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, empty, visible
             case "error": return <div key={i} className="msg-error" role="alert"><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
           }
         })}
-        {permissions.map((p) => <PermissionCard key={p.requestId} permission={p} onDecide={(d) => onDecide(p.requestId, d)} />)}
+        {permissions.map((p, i) => <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0} onDecide={(d) => onDecide(p.requestId, d)} />)}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><Icon name="spinner" size={13} className="spin" /> Working…</div>}
       </div>
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={13} /> New messages</button>}

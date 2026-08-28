@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { sessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -87,7 +87,7 @@ describe("SessionPane", () => {
     expect(screen.queryByRole("button", { name: "Say hello" })).toBeNull();
   });
 
-  it("composer permission select carries data-warning only in bypassPermissions", async () => {
+  it("composer permission select carries data-warning only in bypassPermissions (reached via the confirm)", async () => {
     await mount("idle", reduceAll([]));
     const select = screen.getByRole("combobox", { name: "Permission mode" });
     expect(select).not.toHaveAttribute("data-warning");
@@ -95,8 +95,35 @@ describe("SessionPane", () => {
     await waitFor(() => expect(select).toHaveValue("plan"));
     expect(select).not.toHaveAttribute("data-warning");
     fireEvent.change(select, { target: { value: "bypassPermissions" } });
+    fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
     await waitFor(() => expect(select).toHaveValue("bypassPermissions"));
     expect(select).toHaveAttribute("data-warning");
+  });
+
+  it("selecting bypassPermissions applies nothing until the inline confirm is clicked (U-M7)", async () => {
+    const { api, store } = await mount("idle", reduceAll([]));
+    const select = screen.getByRole("combobox", { name: "Permission mode" });
+    fireEvent.change(select, { target: { value: "bypassPermissions" } });
+    // The select stays on the current mode and no option was transmitted — the confirm is the only path.
+    expect(select).toHaveValue("default");
+    expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+    expect(screen.queryByRole("button", { name: "Allow everything? Confirm" })).toBeNull();
+  });
+
+  it("the bypass confirm expires after 5s without applying anything", async () => {
+    const { api } = await mount("idle", reduceAll([]));
+    const select = screen.getByRole("combobox", { name: "Permission mode" });
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(select, { target: { value: "bypassPermissions" } });
+      expect(screen.getByRole("button", { name: "Allow everything? Confirm" })).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(5100); });
+      expect(screen.queryByRole("button", { name: "Allow everything? Confirm" })).toBeNull();
+      expect(select).toHaveValue("default");
+      expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
+    } finally { vi.useRealTimers(); }
   });
 
   it("Stop appears while running and interrupts; option selects call setSessionOptions; opens the session on mount", async () => {
@@ -158,6 +185,134 @@ describe("SessionPane", () => {
   });
 });
 
+describe("permission keyboard (U-H4)", () => {
+  async function mountFocused(focused: boolean) {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "waiting_permission" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "waiting_permission" }, transcripts: { se1: { lastSeq: 4, t: seeded() } } });
+    const decided: string[] = []; api.respondPermission = async (_i, r, d) => { decided.push(`${r}:${d}`); };
+    render(<StoreContext.Provider value={store}>
+      <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible focused={focused} />
+    </StoreContext.Provider>);
+    return { decided, card: screen.getByRole("group", { name: /Permission request/ }) };
+  }
+
+  it("autofocuses the Allow button on mount when the card is in the FOCUSED pane", async () => {
+    const { } = await mountFocused(true);
+    expect(screen.getByRole("button", { name: "Allow" })).toHaveFocus();
+  });
+
+  it("does NOT steal focus for an unfocused pane", async () => {
+    await mountFocused(false);
+    expect(screen.getByRole("button", { name: "Allow" })).not.toHaveFocus();
+  });
+
+  it("Enter=Allow, ⇧Enter=Always, ⌘⌫=Deny — and buttons carry visible kbd hints", async () => {
+    const { decided, card } = await mountFocused(true);
+    fireEvent.keyDown(card, { key: "Enter" });
+    fireEvent.keyDown(card, { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(card, { key: "Backspace", metaKey: true });
+    await waitFor(() => expect(decided).toEqual(["r1:allow", "r1:allow_always", "r1:deny"]));
+    expect(screen.getByRole("button", { name: "Allow" }).querySelector("kbd")).toHaveTextContent("⏎");
+    expect(screen.getByRole("button", { name: "Deny" }).querySelector("kbd")).toHaveTextContent("⌘⌫");
+    expect(screen.getByRole("button", { name: "Allow always" }).querySelector("kbd")).toHaveTextContent("⇧⏎");
+  });
+
+  it("plain Backspace and bare letters decide nothing", async () => {
+    const { decided, card } = await mountFocused(true);
+    fireEvent.keyDown(card, { key: "Backspace" });
+    fireEvent.keyDown(card, { key: "a" });
+    expect(decided).toEqual([]);
+  });
+
+  it("Enter on a FOCUSED Deny button denies — never the card-level Allow (security inversion)", async () => {
+    const { decided } = await mountFocused(true);
+    const deny = screen.getByRole("button", { name: "Deny" });
+    deny.focus();
+    fireEvent.keyDown(deny, { key: "Enter" });
+    await waitFor(() => expect(decided).toEqual(["r1:deny"]));
+    expect(decided).not.toContain("r1:allow");
+  });
+
+  it("Enter on the details summary expands without deciding (native toggle keeps its default)", async () => {
+    const { decided } = await mountFocused(true);
+    const summary = screen.getByText("Input");
+    summary.focus();
+    const notPrevented = fireEvent.keyDown(summary, { key: "Enter" }); // true = default NOT prevented
+    expect(notPrevented).toBe(true); // native <summary> Enter-toggle stays in charge
+    expect(decided).toEqual([]);
+  });
+});
+
+describe("composer context row (git chips)", () => {
+  const gi = (over: Partial<{ branch: string; additions: number; deletions: number; dirty: number }> = {}) =>
+    ({ branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0, ...over });
+
+  async function mountWithGit(info: ReturnType<typeof gi> | null) {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } },
+      gitInfo: { "/tmp": info } }); // the fake session's cwd is /tmp
+    const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    return { store, ...r };
+  }
+
+  it("renders branch + diff + dirty chips from store gitInfo for the session's cwd", async () => {
+    await mountWithGit(gi({ branch: "feat/x", additions: 12, deletions: 3, dirty: 4 }));
+    expect(document.querySelector(".composer-context .git-branch")).toHaveTextContent("feat/x");
+    expect(document.querySelector(".git-diff .diff-add")).toHaveTextContent("+12");
+    expect(document.querySelector(".git-diff .diff-del")).toHaveTextContent("−3");
+    expect(document.querySelector(".git-dirty")).toHaveTextContent("4 changed");
+    expect(document.querySelector(".composer-context .composer-chip")).toBeInTheDocument(); // cwd chip lives here too
+  });
+
+  it("hides the diff chip when both counts are zero and the dirty chip at zero", async () => {
+    await mountWithGit(gi({ branch: "main" }));
+    expect(document.querySelector(".git-branch")).toHaveTextContent("main");
+    expect(document.querySelector(".git-diff")).toBeNull();
+    expect(document.querySelector(".git-dirty")).toBeNull();
+  });
+
+  it("renders no git chips at all when the cwd is not a repo (null)", async () => {
+    await mountWithGit(null);
+    expect(document.querySelector(".git-branch")).toBeNull();
+    expect(document.querySelector(".git-diff")).toBeNull();
+    expect(document.querySelector(".git-dirty")).toBeNull();
+    expect(document.querySelector(".composer-context .composer-chip")).toBeInTheDocument(); // cwd chip survives
+  });
+});
+
+describe("durable drafts (A-M9)", () => {
+  it("a typed draft survives unmounting and remounting the pane, and is keyed to its own session", async () => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" }), session("se2", "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) }, se2: { lastSeq: 0, t: reduceAll([]) } } });
+    const pane = (ref: string) => (
+      <StoreContext.Provider value={store}><SessionPane item={item(`i-${ref}`, "s1", { kind: "session", refId: ref, title: "s" })} visible /></StoreContext.Provider>
+    );
+    const r = render(pane("se1"));
+    fireEvent.change(screen.getByRole("textbox", { name: /message/i }), { target: { value: "keep me" } });
+    expect(store.getState().drafts.se1).toBe("keep me");
+    r.unmount();
+    // Remount the same session: the draft is back.
+    const r2 = render(pane("se1"));
+    expect((screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement).value).toBe("keep me");
+    r2.unmount();
+    // A different session never sees it (keyed by session id, not by pane position).
+    render(pane("se2"));
+    expect((screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("a suggestion chip fills the store draft for that session", async () => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
+    expect(store.getState().drafts.se1).toBe("Hello!");
+  });
+});
+
 describe("SessionMeta", () => {
   function mountMeta(over: { model?: string | null; costUsd?: number; numTurns?: number; status?: "idle" | "waiting_permission" } = {}) {
     const store = createAppStore(fakeApi());
@@ -190,6 +345,12 @@ describe("markdown + summaries", () => {
     const html = renderMarkdown('hello <script>alert(1)</script> [x](https://example.com) <img src=x onerror="alert(1)">');
     expect(html).not.toContain("<script"); expect(html).not.toContain("onerror");
     expect(html).toContain('target="_blank"'); expect(html).toContain('rel="noopener noreferrer"');
+  });
+  it("wraps tables in an .md-scroll container so a wide table scrolls itself, not the transcript (A-M1)", () => {
+    const html = renderMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |");
+    expect(html).toContain('<div class="md-scroll"><table>');
+    expect(html.match(/<table>/g)).toHaveLength(1); // wrapped in place, not duplicated
+    expect(renderMarkdown("no tables here")).not.toContain("md-scroll");
   });
   it("summarizes tool inputs", () => {
     expect(toolSummary("Bash", { command: "ls" })).toBe("ls");

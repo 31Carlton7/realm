@@ -8,6 +8,7 @@ import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
+import type { GitInfoService } from "../workspace/git-info";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
 type Params<M extends MethodName> = z.infer<(typeof Methods)[M]["params"]>;
@@ -15,7 +16,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -24,6 +25,8 @@ export function registerMethods(d: Deps): void {
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
   reg("system.info", () => ({ realmHome: d.home, version: d.version }));
+
+  reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
 
   reg("profiles.list", () => d.profiles.list());
   reg("profiles.create", (p) => { const r = d.profiles.create(p); rpc.broadcast("profiles.changed", {}); return r; });
@@ -50,6 +53,7 @@ export function registerMethods(d: Deps): void {
   reg("projects.delete", (p) => { const pr = d.projects.get(p.id); d.projects.delete(p.id); if (pr) rpc.broadcast("items.changed", { spaceId: pr.spaceId }); return { ok: true as const }; });
 
   reg("items.list", (p) => d.items.list(p.spaceId));
+  reg("items.listAll", () => d.items.listAll());
   reg("items.create", (p) => { const r = d.items.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
   reg("items.update", (p) => { const r = d.items.update(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
   reg("items.delete", async (p) => {
@@ -68,6 +72,7 @@ export function registerMethods(d: Deps): void {
 
   reg("agents.probe", () => d.sessions.probeAll());
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
+  reg("sessions.listAll", () => d.sessions.listAll());
   reg("sessions.get", (p) => d.sessions.get(p.id));
   reg("sessions.create", (p) => d.sessions.create(p));
   reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments }); return { ok: true as const }; });
