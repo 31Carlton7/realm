@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import type { GitInfo, Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
-import type { Api } from "./store";
+import type { AgentProbe, Api } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
   ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
@@ -10,15 +10,20 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, createdAt: 0, updatedAt: 0, ...extra });
+    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
   settings?: Record<string, unknown>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
+  /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
+  sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
   gitInfo?: Record<string, GitInfo | null>;
+  /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
+   *  installing (or logging into) a CLI while the install card is up. */
+  agentProbe?: AgentProbe[];
 };
 
 export type FakeApi = Api & {
@@ -45,7 +50,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     settings: overrides.settings ?? {},
     sessions: overrides.sessions ?? [],
     sessionEvents: overrides.sessionEvents ?? {},
+    sessionTerminals: overrides.sessionTerminals ?? {},
     gitInfo: overrides.gitInfo ?? {},
+    agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -124,8 +131,34 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
       const s = { ...data.sessions[i]!, ...o }; data.sessions[i] = s; return s;
     },
+    setSessionAgent: async (id, agentKind) => {
+      calls.push(`setSessionAgent:${id}=${agentKind}`);
+      const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
+      // Mirrors the server: a started session refuses, and a switch clears the old kind's model.
+      if (data.sessions[i]!.lastEventSeq > 0) throw new Error("this session has already run; its agent can no longer be changed");
+      const s = { ...data.sessions[i]!, agentKind, model: null }; data.sessions[i] = s; return s;
+    },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
-    probeAgents: async () => { calls.push("probeAgents"); return [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]; },
+    // Mirrors the server: get-or-create, so a second call for the same session returns the same trio —
+    // and the hidden item never joins `data.items` (it is not a sidebar item).
+    openSessionTerminal: async (id) => {
+      calls.push(`openSessionTerminal:${id}`);
+      await wait(`openSessionTerminal:${id}`);
+      const known = data.sessionTerminals[id];
+      if (known) return known;
+      const made = { terminalId: `term-${id}`, itemId: `titem-${id}` };
+      data.sessionTerminals[id] = made;
+      const i = data.sessions.findIndex((s) => s.id === id);
+      if (i >= 0) data.sessions[i] = { ...data.sessions[i]!, terminalItemId: made.itemId };
+      return made;
+    },
+    writeTerminal: async (terminalId, data) => { calls.push(`writeTerminal:${terminalId}=${data}`); },
+    prefillTerminal: async (terminalId, command) => { calls.push(`prefillTerminal:${terminalId}=${command}`); },
+    probeAgents: async (force) => {
+      calls.push(`probeAgents:${force}`);
+      await wait("probeAgents");
+      return data.agentProbe;
+    },
     gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));

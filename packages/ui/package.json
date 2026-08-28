@@ -6,7 +6,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": { "typecheck": "tsc -p tsconfig.json --noEmit" },
-  "dependencies": { "@hugeicons/react": "^1.0.0", "@hugeicons-pro/core-stroke-rounded": "^1.0.0" },
+  "dependencies": { "@hugeicons/react": "^1.0.0", "@hugeicons-pro/core-stroke-standard": "^1.2.1" },
   "peerDependencies": { "react": "^19.0.0" },
   "devDependencies": { "@types/react": "^19.0.0", "react": "^19.0.0" }
 }

@@ -5,7 +5,7 @@ import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/
 import { SpaceHeader } from "./SpaceHeader";
 import { PinnedGrid } from "./PinnedGrid";
 import { ItemList } from "./ItemList";
-import { NewItemMenu } from "./NewItemMenu";
+import { NewSessionRow } from "./NewSessionRow";
 
 const IDLE_MS = 320;
 const DEBUG = () => { try { return localStorage.getItem("realm.debugSwipe") === "1"; } catch { return false; } };
@@ -56,16 +56,21 @@ export function SpaceSwiper() {
   };
   const tracker = () => (trackerRef.current ??= createDragSwipe({ width: hostRef.current?.clientWidth || 240, idleMs: IDLE_MS }));
 
+  // §6 does not animate "sidebar space swipes triggered by keyboard". A page slide is the tail of a
+  // gesture the fingers already started, so only a gesture commit arms it; ⌃⇥, a click on the space
+  // strip, or a space activated from anywhere else lands on the new page instantly.
+  const fromGesture = useRef(false);
+
   const apply = (r: SwipeUpdate) => {
     const i = indexRef.current;
     if (DEBUG() && r.type !== "ignore") console.debug("[swipe]", r.type, r.type === "move" ? r.offset.toFixed(1) : r.type === "commit" ? r.dir : "", "idx", i);
-    if (r.type === "move") setTransform(`translateX(calc(${-i * 100}% - ${r.offset}px))`, false);
+    if (r.type === "move") { fromGesture.current = false; setTransform(`translateX(calc(${-i * 100}% - ${r.offset}px))`, false); }
     else if (r.type === "settle") setTransform(base(i), true);
-    else if (r.type === "commit") run(() => (r.dir === "next" ? nextSpace() : prevSpace())); // layout effect eases to the new page
+    else if (r.type === "commit") { fromGesture.current = true; run(() => (r.dir === "next" ? nextSpace() : prevSpace())); } // layout effect eases to the new page
   };
 
   // React owns the resting position; gestures only deviate from it transiently.
-  useLayoutEffect(() => { setTransform(base(index), true); }, [index, spaces.length]);
+  useLayoutEffect(() => { setTransform(base(index), fromGesture.current); fromGesture.current = false; }, [index, spaces.length]);
   useLayoutEffect(() => () => { if (idleTimer.current) clearTimeout(idleTimer.current); }, []);
 
   const bounds = () => { const i = indexRef.current; return { canPrev: i > 0, canNext: i < countRef.current - 1 }; };
@@ -144,11 +149,11 @@ const ActiveSpaceBody = memo(function ActiveSpaceBody() {
           </>
         )}
         <div className="group-label">Space</div>
-        {items.length === 0 && <div className="space-empty">Nothing here yet — create something with New… below</div>}
+        {items.length === 0 && <div className="space-empty">Nothing here yet — start one with New session below</div>}
         {pinned.length > 0 && <PinnedGrid items={pinned} />}
         <ItemList items={rest} variant="space" />
       </div>
-      <NewItemMenu />
+      <NewSessionRow />
     </>
   );
 });

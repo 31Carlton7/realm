@@ -4,15 +4,15 @@ import { NotFoundError, now } from "./rows";
 
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null;
   permission_mode: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number;
-  created_at: number; updated_at: number };
+  terminal_item_id: string | null; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
   permissionMode: r.permission_mode, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
-  lastEventSeq: r.last_event_seq, createdAt: r.created_at, updatedAt: r.updated_at,
+  lastEventSeq: r.last_event_seq, terminalItemId: r.terminal_item_id, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 export type SessionUpdate = { id: string; status?: SessionStatus; providerSessionId?: string | null; lastEventSeq?: number; title?: string;
-  model?: string | null; effort?: string | null; permissionMode?: string };
+  model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind };
 
 export class SessionsStore {
   constructor(private db: Db) {}
@@ -35,14 +35,21 @@ export class SessionsStore {
   }
   update(input: SessionUpdate): Session {
     const cur = this.get(input.id); if (!cur) throw new NotFoundError("session", input.id);
-    this.db.prepare("UPDATE sessions SET status = ?, provider_session_id = ?, last_event_seq = ?, title = ?, model = ?, effort = ?, permission_mode = ?, updated_at = ? WHERE id = ?")
+    this.db.prepare("UPDATE sessions SET status = ?, provider_session_id = ?, last_event_seq = ?, title = ?, model = ?, effort = ?, permission_mode = ?, agent_kind = ?, updated_at = ? WHERE id = ?")
       .run(input.status ?? cur.status,
         input.providerSessionId === undefined ? cur.providerSessionId : input.providerSessionId,
         input.lastEventSeq ?? cur.lastEventSeq, input.title ?? cur.title,
         input.model === undefined ? cur.model : input.model,
         input.effort === undefined ? cur.effort : input.effort,
-        input.permissionMode ?? cur.permissionMode, now(), input.id);
+        input.permissionMode ?? cur.permissionMode,
+        input.agentKind ?? cur.agentKind, now(), input.id);
     return this.get(input.id)!;
+  }
+  /** Point the session at its terminal's item, or clear it. Deliberately not part of `update`: the
+   *  column is owned by SessionService.openTerminal, and SQLite clears it on its own (ON DELETE SET
+   *  NULL) when the item goes. */
+  setTerminalItem(id: string, itemId: string | null): void {
+    this.db.prepare("UPDATE sessions SET terminal_item_id = ?, updated_at = ? WHERE id = ?").run(itemId, now(), id);
   }
   /** Hot path (every persisted event): touch only the seq column. */
   setLastEventSeq(id: string, seq: number): void {
@@ -62,6 +69,10 @@ export class SessionEventsStore {
     const r = this.db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)")
       .run(sessionId, event.ts, event.type, JSON.stringify(event.payload));
     return { seq: Number(r.lastInsertRowid), sessionId, event };
+  }
+  /** Any persisted event at all — the authority behind the `sessions.setAgent` guard. */
+  hasAny(sessionId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM session_events WHERE session_id = ? LIMIT 1").get(sessionId);
   }
   hasType(sessionId: string, type: SessionEvent["type"]): boolean {
     return !!this.db.prepare("SELECT 1 FROM session_events WHERE session_id = ? AND type = ? LIMIT 1").get(sessionId, type);

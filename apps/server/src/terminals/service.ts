@@ -74,6 +74,8 @@ export class TerminalService {
   }
 
   write(terminalId: string, data: string): void { this.manager.write(terminalId, data); }
+  /** Type `command` into the terminal once its shell settles. No trailing newline — the user presses Return. */
+  prefill(terminalId: string, command: string): Promise<void> { return this.manager.writeWhenQuiet(terminalId, command); }
   resize(terminalId: string, cols: number, rows: number): void { this.manager.resize(terminalId, cols, rows); }
 
   /** Kill the pty (if still alive), delete the row and the item. Throws NOT_FOUND if none of the three exist. */
@@ -94,7 +96,10 @@ export class TerminalService {
   closeAllInSpace(spaceId: string): void {
     const ids = new Set<string>();
     for (const r of this.d.terminals.listBySpace(spaceId)) ids.add(r.id);
-    for (const it of this.d.items.list(spaceId)) if (it.kind === "terminal") ids.add(it.refId);
+    // Hidden (session-owned) terminals count too — hence listIncludingHidden, not list. Belt and
+    // braces today: every LIVE session terminal is already reached through the rows above, and the only
+    // caller (spaces.delete) cascades the items anyway. It keeps this method honest to its name.
+    for (const it of this.d.items.listIncludingHidden(spaceId)) if (it.kind === "terminal") ids.add(it.refId);
     for (const id of ids) { try { this.close(id); } catch (e) { if (!(e instanceof NotFoundError)) throw e; } }
   }
 

@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useRef, useState } from "react";
 import { Menu, type MenuItem } from "./Menu";
 
 function mount(items: MenuItem[], over: Partial<Parameters<typeof Menu>[0]> = {}) {
@@ -9,6 +10,128 @@ function mount(items: MenuItem[], over: Partial<Parameters<typeof Menu>[0]> = {}
 }
 
 const plain = (label: string, onSelect = () => {}): MenuItem => ({ label, onSelect });
+
+describe("Menu placement", () => {
+  const rect = (top: number, height: number, left = 100, width = 50) =>
+    ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  /** jsdom has no layout, so BOTH rects have to be faked: the anchor's (own property, per element)
+   *  and the menu's own (prototype spy, since the element is created inside the portal). A 0-height
+   *  menu would make `top = a.top - height - 4` indistinguishable from `top = a.top - 4` — i.e. it
+   *  would not test up-placement at all. */
+  const MENU_H = 120;
+  const anchor = (top = 500) => {
+    const el = document.createElement("button");
+    el.getBoundingClientRect = () => rect(top, 20);
+    document.body.appendChild(el);
+    return { current: el };
+  };
+  const withMenuHeight = () => {
+    const orig = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.classList.contains("menu") ? rect(0, MENU_H, 0, 160) : orig.call(this);
+    });
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  it("default placement opens below the anchor", () => {
+    withMenuHeight();
+    mount([plain("A")], { anchorRef: anchor() });
+    expect(screen.getByRole("menu").style.top).toBe("524px"); // anchor.bottom + 4
+  });
+
+  it("placement='up' subtracts the menu's own height so it clears the trigger", () => {
+    withMenuHeight();
+    mount([plain("A")], { anchorRef: anchor(), placement: "up" });
+    // 500 - 120 - 4: the menu's BOTTOM sits 4px above the trigger's top. Forgetting the height term
+    // yields 496 and the menu covers its own chip.
+    expect(screen.getByRole("menu").style.top).toBe("376px");
+  });
+
+  it("placement='up' flips below when there is no room above", () => {
+    withMenuHeight();
+    mount([plain("A")], { anchorRef: anchor(2), placement: "up" }); // 2 - 120 - 4 is off-screen
+    expect(screen.getByRole("menu").style.top).toBe("26px"); // flipped: anchor.bottom + 4
+  });
+
+  /** §6 wants the 140ms scale-in "origin-aware": the menu has to grow out of the corner it is
+   *  anchored to, which means the origin has to follow both `align` and whichever way it flipped. */
+  describe("transform-origin follows where the menu actually landed", () => {
+    const origin = () => screen.getByRole("menu").style.transformOrigin;
+
+    it("below a left-aligned trigger: grows down from its top-left", () => {
+      withMenuHeight();
+      mount([plain("A")], { anchorRef: anchor() });
+      expect(origin()).toBe("top left");
+    });
+
+    it("right-aligned: grows from the right edge, where the trigger is", () => {
+      withMenuHeight();
+      mount([plain("A")], { anchorRef: anchor(), align: "right" });
+      expect(origin()).toBe("top right");
+    });
+
+    it("opening upward: grows from the BOTTOM edge — the corner nearest the trigger", () => {
+      withMenuHeight();
+      mount([plain("A")], { anchorRef: anchor(), placement: "up" });
+      expect(origin()).toBe("bottom left");
+    });
+
+    it("a menu that flips below because there is no room above grows downward again", () => {
+      withMenuHeight();
+      mount([plain("A")], { anchorRef: anchor(2), placement: "up" });
+      expect(origin()).toBe("top left");
+    });
+
+    it("a point-placed context menu grows from the click point", () => {
+      withMenuHeight();
+      mount([plain("A")], { at: { x: 40, y: 40 } });
+      expect(origin()).toBe("top left");
+    });
+  });
+});
+
+describe("Menu dismissal by its own trigger (I6)", () => {
+  /** The regression: Menu's window pointerdown handler fires on the trigger — which lives outside the
+   *  portal — closing the menu just before the trigger's own click reopens it. Net effect for the user:
+   *  the menu never dismisses, it flickers and focus ping-pongs. Reproduced as the real event sequence. */
+  function Harness() {
+    const btn = useRef<HTMLButtonElement>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button ref={btn} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>Trigger</button>
+        {open && <Menu items={[plain("A")]} onClose={() => setOpen(false)} anchorRef={btn} label="Harness menu" />}
+      </>
+    );
+  }
+  /** What a real pointer does: pointerdown (which Menu listens for on window) then click. */
+  const press = (el: HTMLElement) => { fireEvent.pointerDown(el); fireEvent.click(el); };
+  /** Menu attaches its outside-pointerdown listener on a 0ms timeout (so the opening click doesn't
+   *  immediately close it). Without flushing that, this test would pass with the bug still present. */
+  const armed = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+  it("a second press on the trigger closes the menu instead of reopening it", async () => {
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Trigger" });
+    press(trigger);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await armed();
+    press(trigger);
+    expect(screen.queryByRole("menu")).toBeNull();
+    press(trigger); // and it still opens again afterwards — not stuck closed
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("a pointerdown anywhere else still closes it", async () => {
+    render(<Harness />);
+    press(screen.getByRole("button", { name: "Trigger" }));
+    await armed();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+});
 
 describe("Menu keyboard (U-M10/A-H3)", () => {
   it("focuses the first enabled item on open; ArrowDown/Up cycle with wrap, skipping disabled items", () => {

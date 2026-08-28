@@ -40,7 +40,7 @@ describe("Arc sidebar", () => {
     expect(screen.getByRole("button", { name: "Terminal" }).querySelector(".status-dot")).toBeNull();
   });
 
-  it("an empty space shows one faint hint line pointing at New… (A-L6)", async () => {
+  it("an empty space shows one faint hint line pointing at New session (A-L6)", async () => {
     await mount(fakeApi({ items: { s1: [] } }));
     expect(screen.getByText(/Nothing here yet/)).toBeInTheDocument();
   });
@@ -59,6 +59,35 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
   });
 
+  // §6's do-NOT-animate list names "sidebar space swipes triggered by keyboard": the page slide is
+  // the tail of a gesture the fingers began, so it belongs to gestures alone.
+  describe("space switches only slide when a gesture asked for it (§6)", () => {
+    const track = (c: HTMLElement) => c.querySelector<HTMLElement>(".swiper-track")!;
+
+    it("a keyboard/programmatic switch lands on the new page instantly", async () => {
+      const { store, container } = await mount();
+      expect(track(container).style.transform).toBe("translateX(0%)");
+      await act(async () => { await store.getState().nextSpace(); });
+      expect(track(container).style.transform).toBe("translateX(-100%)");
+      expect(track(container).style.transition).toBe("none");
+    });
+
+    it("a click on the space strip lands instantly too", async () => {
+      const { container } = await mount();
+      fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
+      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
+      expect(track(container).style.transition).toBe("none");
+    });
+
+    it("a committed two-finger swipe still eases to the page it threw", async () => {
+      const { container } = await mount();
+      const swiper = container.querySelector("[data-swiper]")!;
+      fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
+      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
+      expect(track(container).style.transition).toContain("transform 380ms");
+    });
+  });
+
   it("right-click on an item offers Pin, which moves it to the pinned grid; Delete removes it permanently", async () => {
     const { store, api } = await mount();
     fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
@@ -70,7 +99,7 @@ describe("Arc sidebar", () => {
     expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
-    await waitFor(() => expect(store.getState().items).toHaveLength(0));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
     expect(api.calls).toContain("deleteItem:i1");
   });
 
@@ -91,7 +120,7 @@ describe("Arc sidebar", () => {
     // Two clicks within one open menu delete for real.
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
-    await waitFor(() => expect(store.getState().items).toHaveLength(0));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
     expect(api.calls).toContain("deleteItem:i1");
   });
 
@@ -106,21 +135,28 @@ describe("Arc sidebar", () => {
     expect(screen.getByRole("button", { name: "Build" })).toBeInTheDocument();
   });
 
-  it("New… menu creates a terminal; Session… opens the sheet; browser entry is disabled", async () => {
-    const { store } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "New item" }));
-    expect(screen.getByRole("menuitem", { name: /Browser tab/ })).toBeDisabled();
-    fireEvent.click(screen.getByRole("menuitem", { name: /Session/ }));
-    expect(store.getState().sheet).toEqual({ kind: "new-session" });
-    fireEvent.click(screen.getByRole("button", { name: "New item" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Terminal" }));
-    await waitFor(() => expect(store.getState().items).toHaveLength(2));
+  it("the sidebar's + creates a session on the first click — no menu, no sheet, nothing to answer (W3)", async () => {
+    const { store, api } = await mount();
+    const plus = screen.getByRole("button", { name: "New session" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(plus);
+    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(store.getState().sheet).toBeNull();
+    expect(api.calls).toContain("createSession:claude");
+    const created = Object.values(store.getState().sessions)[0]!;
+    expect(store.getState().items.some((i) => i.kind === "session" && i.refId === created.id)).toBe(true);
+    // The tooltip names the agent you'll actually get, and follows the last-used memory.
+    expect(plus).toHaveAttribute("title", "New Claude session (⌘N)");
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Claude session (⌘N)"));
+    await act(() => store.getState().newSession({ agentKind: "codex" }));
+    expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Codex session (⌘N)");
   });
 
-  it("menus render in a portal with fixed positioning so ancestor overflow can't clip them (regression: the swiper's overflow:clip was hiding the New… menu)", async () => {
+  it("menus render in a portal with fixed positioning so ancestor overflow can't clip them (regression: the swiper's overflow:clip was hiding menus)", async () => {
     await mount();
-    fireEvent.click(screen.getByRole("button", { name: "New item" }));
-    const menu = screen.getByRole("menu", { name: "New item" });
+    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+    const menu = screen.getByRole("menu", { name: "Space menu" });
     expect(menu.parentElement).toBe(document.body);
     expect(menu.style.position).toBe("fixed");
   });
@@ -229,7 +265,7 @@ describe("Arc sidebar", () => {
     const { store } = await mount(api);
     expect(screen.getByRole("button", { name: "Beta" }).closest(".item")!.querySelector(".item-close")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Close Alpha" }));
-    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBeNull(); });
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).not.toBe("i1"); });
     expect(api.calls).not.toContain("deleteItem:i1");
     expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists, just unopened
   });
@@ -246,7 +282,7 @@ describe("Arc sidebar", () => {
     expect(screen.getByRole("menuitem", { name: "Close" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Close" }));
-    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBeNull(); });
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).not.toBe("i1"); });
     expect(api.calls).not.toContain("deleteItem:i1");
     expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists
 
@@ -273,7 +309,9 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
     expect(api.calls).toContain("deleteItem:i1");
     const l = store.getState().layout!;
-    expect(l.type === "leaf" && l.itemId).toBeNull(); // the leaf it occupied is empty, not still pointing at i1
+    // The leaf no longer points at i1. It isn't empty either: deleting the last open pane lands in a
+    // fresh session rather than an empty-state placeholder.
+    expect(l.type === "leaf" && l.itemId).not.toBe("i1");
   });
 
   it("during a row split, OPEN rows render the quadrant glyph lighting the correct column", async () => {

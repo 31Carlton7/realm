@@ -1,45 +1,91 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PermissionDecision } from "../../state/store";
 import type { PendingPermission } from "./transcript-model";
 import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
 
+/** §5's numbered-list pattern (`HJz3KMT`): the options are a list with kbd number chips, the
+ *  selected row is an --rl-active pill, and the footer carries the navigation hints on the left and
+ *  the accent Submit pill on the right. Order is deliberate — Allow is first, so it is what the
+ *  default selection and a bare Enter mean. */
+const OPTIONS: { decision: PermissionDecision; label: string; kbd: string }[] = [
+  { decision: "allow", label: "Allow", kbd: "⏎" },
+  { decision: "allow_always", label: "Allow always", kbd: "⇧⏎" },
+  { decision: "deny", label: "Deny", kbd: "⌘⌫" },
+];
+
 /** The agent wants to run a tool: Allow (once) / Allow always / Deny.
  *
- *  Keyboard (U-H4): with `autoFocus` (the card sits in the focused pane) the Allow button takes
+ *  Keyboard (U-H4): with `autoFocus` (the card sits in the focused pane) the Allow option takes
  *  focus on mount, so a bare Enter answers the hottest question in the app. Inside the card:
- *  Enter = Allow, ⇧Enter = Allow always, ⌘⌫ = Deny — handled on keydown with preventDefault so a
- *  focused button never double-fires its native Enter click. Buttons keep exact accessible names
- *  ("Allow", not "Allow ⏎") via aria-label; the kbd hints are visual only. */
-export function PermissionCard({ permission, onDecide, autoFocus = false }: {
-  permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean;
+ *  Enter = the selected option, ⇧Enter = Allow always, ⌘⌫ = Deny, 1/2/3 pick an option outright,
+ *  ↑/↓ move the selection, Esc denies. Buttons keep exact accessible names ("Allow", not "Allow 1")
+ *  via aria-label; the number chips and footer hints are visual only. */
+export function PermissionCard({ permission, onDecide, autoFocus = false, enter = false }: {
+  permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
 }) {
   const summary = clip(toolSummary(permission.toolName, permission.input), 200);
-  const allowRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => { if (autoFocus) allowRef.current?.focus(); }, [autoFocus]);
+  const [selected, setSelected] = useState(0);
+  const rows = useRef<(HTMLButtonElement | null)[]>([]);
+  useEffect(() => { if (autoFocus) rows.current[0]?.focus(); }, [autoFocus]);
+
+  /** Move the selection and take focus with it, so the focused control and the highlighted row are
+   *  never two different answers to the same question. */
+  const select = (i: number) => {
+    const next = (i + OPTIONS.length) % OPTIONS.length;
+    setSelected(next);
+    rows.current[next]?.focus();
+  };
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
     if (e.key === "Enter") {
-      // A focused control wins over the card's default: Enter on the Deny button must mean Deny,
-      // never the card-level Allow (security inversion). Buttons are activated explicitly (with
+      // A focused control wins over the card's default: Enter on the Deny row must mean Deny,
+      // never the card-level selection (security inversion). Buttons are activated explicitly (with
       // preventDefault, so the browser's own Enter→click never double-fires); Enter on the details
       // <summary> is left entirely to native toggle semantics and decides nothing.
       const control = e.target instanceof HTMLElement ? e.target.closest("button, summary") : null;
       if (control instanceof HTMLButtonElement) { e.preventDefault(); control.click(); return; }
       if (control) return;
-      e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : "allow");
+      e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : OPTIONS[selected]!.decision);
     } else if (e.key === "Backspace" && e.metaKey) { e.preventDefault(); onDecide("deny"); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onDecide("deny"); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); select(selected + 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); select(selected - 1); }
+    // Bare digits only: ⌘1–9 is the app's switch-space binding, and a permission decision is the
+    // last thing that may fire off a modifier chord it does not own.
+    else if (e.key >= "1" && e.key <= String(OPTIONS.length) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault(); onDecide(OPTIONS[Number(e.key) - 1]!.decision);
+    }
   };
 
   return (
-    <div className="permission-card" role="group" aria-label="Permission request" onKeyDown={onKeyDown}>
-      <div className="permission-head"><Icon name="alert" size={15} /><span>{permission.title}</span></div>
-      <div className="permission-tool"><Icon name={toolIcon(permission.toolName)} size={14} /><span className="tool-name">{permission.toolName}</span>{summary && <code>{summary}</code>}</div>
+    <div className="permission-card" role="group" aria-label="Permission request" data-enter={enter || undefined} onKeyDown={onKeyDown}>
+      {/* §5: the amber wash is gone — colour survives as a 6px dot and a "Waiting" pill. */}
+      <div className="permission-head">
+        <span className="permission-dot" />
+        <span>{permission.title}</span>
+        <span className="status-pill" data-tone="warning">Waiting</span>
+      </div>
+      <div className="permission-tool"><Icon name={toolIcon(permission.toolName)} size={16} /><span className="tool-name">{permission.toolName}</span>{summary && <code>{summary}</code>}</div>
       <details className="permission-details"><summary>Input</summary><pre>{prettyJson(permission.input)}</pre></details>
-      <div className="permission-actions">
-        <button className="btn" aria-label="Deny" onClick={() => onDecide("deny")}>Deny <kbd>⌘⌫</kbd></button>
-        <button className="btn" aria-label="Allow always" onClick={() => onDecide("allow_always")}>Allow always <kbd>⇧⏎</kbd></button>
-        <button ref={allowRef} className="btn primary" aria-label="Allow" onClick={() => onDecide("allow")}>Allow <kbd>⏎</kbd></button>
+      <div className="permission-options">
+        {OPTIONS.map((o, i) => (
+          <button key={o.decision} ref={(el) => { rows.current[i] = el; }} className="permission-option"
+            aria-label={o.label} data-selected={i === selected || undefined} data-decision={o.decision}
+            onFocus={() => setSelected(i)} onClick={() => onDecide(o.decision)}>
+            <kbd className="permission-num">{i + 1}</kbd>
+            <span className="permission-option-label">{o.label}</span>
+            <kbd className="permission-option-kbd">{o.kbd}</kbd>
+          </button>
+        ))}
+      </div>
+      <div className="permission-footer">
+        <div className="permission-hints">
+          <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span><span><kbd>esc</kbd> Deny</span>
+        </div>
+        <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(OPTIONS[selected]!.decision)}>
+          Submit <kbd>↩</kbd>
+        </button>
       </div>
     </div>
   );

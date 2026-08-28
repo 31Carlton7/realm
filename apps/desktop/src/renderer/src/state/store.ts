@@ -1,6 +1,6 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, LayoutSchema,
+  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema,
   type AgentKind, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionStatus, type Space, type StoredSessionEvent,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
@@ -11,11 +11,9 @@ export type CreateSpaceInput = { name: string; icon: string; profileId: string; 
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
-/** What the last session of an agent kind was created with (one-shot palette entries). The spaceId
- *  records where the projectId is valid — projects are space-scoped, so quick-creating from another
- *  space falls back to the space folder instead of carrying a foreign project. */
-export type LastSessionConfig = Omit<CreateSessionInput, "spaceId" | "agentKind"> & { spaceId: string };
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
+/** Agent a session is created with when the user never said (first run, or a wiped setting). */
+export const FALLBACK_AGENT: AgentKind = "claude";
 export type PermissionDecision = "allow" | "allow_always" | "deny";
 /** Where a sidebar row was dropped on a pane: an edge splits there, center replaces the pane's item.
  *  Canonical home of this type — PaneHost imports it from here. */
@@ -62,9 +60,20 @@ export type Api = {
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
+  /** `sessions.setAgent` — rejected by the server once the session has any event. */
+  setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
-  probeAgents(): Promise<AgentProbe[]>;
+  /** `sessions.openTerminal` — get-or-create the session's terminal side panel. The FIRST call is what
+   *  spawns the pty, so this must only ever be called when the panel is actually being shown. */
+  openSessionTerminal(sessionId: string): Promise<{ terminalId: string; itemId: string }>;
+  /** `terminals.write` — raw bytes into a pty. A trailing "\n" is what RUNS the line, so callers that
+   *  are only offering a command (the install card) must not send one. */
+  writeTerminal(terminalId: string, data: string): Promise<void>;
+  /** Type a command into a terminal once its shell goes quiet; never appends a newline. */
+  prefillTerminal(terminalId: string, command: string): Promise<void>;
+  /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
+  probeAgents(force: boolean): Promise<AgentProbe[]>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
 };
@@ -72,16 +81,42 @@ export type Api = {
 export const PERSIST_DEBOUNCE_MS = 300;
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
 export const SETTING_THEME = "ui.theme";
+/** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
+export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
+/** Per-session terminal-panel state (open + width), keyed by session id. */
+export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 export const EVENTS_PAGE = 1000;
+/** Plan 6 W4: the session's terminal panel takes 38% of the session pane the first time it opens. */
+export const TERMINAL_PANEL_WIDTH = 38;
 
+/** One session's terminal side panel: whether it is showing, and its share (%) of the session pane. */
+export type TerminalPanel = { open: boolean; width: number };
+
+/** Settings are `unknown` on the wire and the file is user-editable, so the persisted panel map is
+ *  validated field by field; anything malformed is dropped rather than trusted into the layout. */
+export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, TerminalPanel> = {};
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue;
+    const { open, width } = v as { open?: unknown; width?: unknown };
+    if (typeof open !== "boolean") continue;
+    out[id] = { open, width: typeof width === "number" && width > 0 && width < 100 ? width : TERMINAL_PANEL_WIDTH };
+  }
+  return out;
+}
+
+/** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
+ *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
 export type Sheet =
   | { kind: "space-settings"; spaceId: string }
-  | { kind: "new-space" }
-  /** agentKind preselects the sheet's agent picker (palette one-shots with no remembered config). */
-  | { kind: "new-session"; agentKind?: AgentKind };
+  | { kind: "new-space" };
 
 export type AppState = {
+  /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
+   *  what an unbooted store looks like, so without this the sheet would flash on every launch. */
+  booted: boolean;
   profiles: Profile[];
   /** All spaces across profiles, in user sort order. Exactly one is active at a time. */
   spaces: Space[]; activeSpaceId: string | null;
@@ -91,8 +126,9 @@ export type AppState = {
   items: Item[]; layout: Layout | null;
   /** Items across every space (palette search); refreshed when the palette opens. */
   allItems: Item[];
-  /** Last submitted new-session options per agent kind (palette one-shots). Session-local, not persisted. */
-  lastSessionConfig: Partial<Record<AgentKind, LastSessionConfig>>;
+  /** Agent of the last session created or switched to, persisted across launches; null until one exists
+   *  (then instant-create falls back to FALLBACK_AGENT). */
+  lastAgentKind: AgentKind | null;
   /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
   renamingItemId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
@@ -121,6 +157,11 @@ export type AppState = {
   /** Git working-tree summaries by cwd; null = known non-repo. Refreshed event-driven only (session
    *  status transitions to idle/error, space activation, session open) — never polled. */
   gitInfo: Record<string, GitInfo | null>;
+  /** Terminal side panel per session id (W4). Absent = never opened, which is also what keeps the pty
+   *  unspawned: nothing reaches the server until an entry turns `open`. Persisted as one setting. */
+  terminalPanel: Record<string, TerminalPanel>;
+  /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
+  sessionTerminals: Record<string, string>;
   activeSpace(): Space | undefined;
   activeIndex(): number;
   boot(): Promise<void>;
@@ -185,17 +226,37 @@ export type AppState = {
   applySessionStatus(sessionId: string, status: SessionStatus): void;
   /** Create a session in the active space, open its item, and open its transcript. */
   newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null): Promise<void>;
-  /** One-shot session creation with the agent's last-used options; falls back to the sheet
-   *  (preselected) when that agent has never been configured this session. */
-  newSessionQuick(agentKind: AgentKind): Promise<void>;
+  /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
+   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, adapter-default model
+   *  and permission mode. Everything else is changed on the prompter's chips afterwards. */
+  newSessionInstant(targetLeafId?: string | null): Promise<void>;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
-  probeAgents(): Promise<void>;
+  /** Switch an unstarted session's agent (prompter agent chip). The server refuses once events exist —
+   *  the chip goes static there, so this is only ever called while it is legal. */
+  setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
+  /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
+   *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
+  probeAgents(force?: boolean): Promise<void>;
+  /** Remember the agent a fresh session should use (onboarding's default-agent pick). Same setting the
+   *  prompter's agent chip writes, so the two never disagree. */
+  setDefaultAgent(kind: AgentKind): Promise<void>;
+  /** Show the session's terminal panel and TYPE `command` into it, without a trailing newline: Realm
+   *  offers the command, the user presses Return. Nothing here ever runs an installer. */
+  prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
+  /** Show/hide the session's terminal panel (pane-header toggle, ⌘J). Opening it is the one and only
+   *  thing that creates the terminal — and only the first time. */
+  toggleTerminalPanel(sessionId: string): Promise<void>;
+  /** Get-or-create the terminal behind an already-open panel (restore path after a reload). No-op once
+   *  known, so a session whose panel stays shut never reaches the server. */
+  ensureSessionTerminal(sessionId: string): Promise<void>;
+  /** Panel width (% of the session pane) from a resize drag; persisted with a trailing debounce. */
+  setTerminalPanelWidth(sessionId: string, width: number): void;
   refreshGitInfo(cwd: string): Promise<void>;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
@@ -339,11 +400,42 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (persistTimer) clearTimeout(persistTimer);
       persistTimer = setTimeout(() => { persistTimer = null; get().run(persist); }, PERSIST_DEBOUNCE_MS);
     };
+    /** Terminal-panel state persists as one settings blob, on its own debounce: a resize drag writes
+     *  every frame, but a toggle is a single deliberate act and writes straight through. */
+    let panelTimer: ReturnType<typeof setTimeout> | null = null;
+    const persistPanels = async () => {
+      if (panelTimer) { clearTimeout(panelTimer); panelTimer = null; }
+      await api.setSetting(SETTING_TERMINAL_PANEL, get().terminalPanel);
+    };
+    const schedulePanelPersist = () => {
+      if (panelTimer) clearTimeout(panelTimer);
+      panelTimer = setTimeout(() => { panelTimer = null; get().run(persistPanels); }, PERSIST_DEBOUNCE_MS);
+    };
+    const panelOf = (id: string): TerminalPanel => get().terminalPanel[id] ?? { open: false, width: TERMINAL_PANEL_WIDTH };
+    const setPanel = (id: string, p: TerminalPanel) => set({ terminalPanel: { ...get().terminalPanel, [id]: p } });
+    /** Sessions with an openSessionTerminal call in flight — StrictMode double-mounts and a toggle
+     *  racing the restore effect must not spawn two ptys for one session. A Map, not a Set: later
+     *  callers JOIN the in-flight call instead of returning early, so `prefillTerminal` (which races the
+     *  drawer's own restore effect) still has a terminal id to write into when it resumes. */
+    const ensuringTerminal = new Map<string, Promise<void>>();
+    /** In-flight `agents.probe` calls, kept apart by force: a forced probe must never be satisfied by a
+     *  cheap one already in flight (that one may predate the install the user just ran). */
+    const probing: { plain: Promise<void> | null; forced: Promise<void> | null } = { plain: null, forced: null };
     /** Flush a pending debounced persist before the active space changes (persist reads the current space). */
-    const flushPersist = async () => { if (persistTimer) await persist(); };
+    const flushPersist = async () => {
+      if (panelTimer) await persistPanels();
+      if (persistTimer) await persist();
+    };
     const isSpace = (sid: string) => get().activeSpaceId === sid;
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status } });
+    /** Last-used agent: applied to state now, persisted best-effort (a failed write only costs the
+     *  memory on the next launch, so it must never fail the creation the user just asked for). */
+    const rememberAgent = (agentKind: AgentKind) => {
+      if (get().lastAgentKind === agentKind) return;
+      set({ lastAgentKind: agentKind });
+      get().run(() => api.setSetting(SETTING_LAST_AGENT, agentKind));
+    };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
     const setTranscript = (id: string, entry: TranscriptEntry) => set({ transcripts: { ...get().transcripts, [id]: entry } });
@@ -371,24 +463,31 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
 
     return {
+      booted: false,
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
-      allItems: [], lastSessionConfig: {}, renamingItemId: null,
+      allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, gitInfo: {},
+      terminalPanel: {}, sessionTerminals: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, swipeInvert] = await Promise.all([
-          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT),
+        const [profiles, spaces, saved, theme, swipeInvert, lastAgent, panels] = await Promise.all([
+          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_TERMINAL_PANEL),
         ]);
-        set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true });
+        const agent = AgentKindSchema.safeParse(lastAgent);
+        set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true, lastAgentKind: agent.success ? agent.data : null,
+          terminalPanel: parseTerminalPanels(panels) });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
         await get().refreshAllSessions();
+        // Last, so `booted && spaces.length === 0` is only ever true for a genuinely empty home.
+        set({ booted: true });
       },
       async selectSpace(id) {
         await flushPersist();
@@ -523,6 +622,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const layout = layoutClose(get().layout ?? emptyLayout(), itemId);
         set({ layout, focusedLeafId: focusIn(layout) });
         await persist();
+        // Closing the last pane lands in a fresh prompter, never the empty-state placeholder.
+        // Deliberately scoped to this path: reconcileLayout also empties the layout while pruning
+        // stale items, and a server hiccup there must not manufacture sessions.
+        if (allItems(layout).length === 0) await get().newSessionInstant();
       },
       async deleteItem(itemId) {
         await get().closeFromLayout(itemId);
@@ -533,9 +636,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (it?.kind === "terminal") api.disposeTerminal(it.refId);
         if (it?.kind === "session") {
           dropTranscript(it.refId); loading.delete(it.refId);
+          // The server killed the pty with the session; drop the renderer half (xterm + scrollback) too.
+          const termId = get().sessionTerminals[it.refId];
+          if (termId) api.disposeTerminal(termId);
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
-          set({ sessionStatus, sessions, drafts, sessionSpace });
+          const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
+          set({ sessionStatus, sessions, drafts, sessionSpace, terminalPanel, sessionTerminals });
+          if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
       async splitFocused(dir) {
@@ -666,28 +774,79 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async newSession(input, targetLeafId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
-        const { agentKind, ...rest } = input;
         const { session, itemId } = await api.createSession({ ...input, spaceId: sid });
-        // Remember this agent's options so the palette's one-shot entries can repeat them.
-        set({ lastSessionConfig: { ...get().lastSessionConfig, [agentKind]: { ...rest, spaceId: sid } } });
+        rememberAgent(input.agentKind);
         if (isSpace(sid)) mergeSession(session);
         await adoptItem(sid, itemId, targetLeafId);
         await get().openSession(session.id);
       },
-      async newSessionQuick(agentKind) {
-        const cfg = get().lastSessionConfig[agentKind];
-        if (!cfg) { get().openSheet({ kind: "new-session", agentKind }); return; }
-        const { spaceId: recordedSpace, projectId, ...rest } = cfg;
-        // Projects are space-scoped: reuse the project only in the space it was chosen in.
-        await get().newSession({ agentKind, ...rest, projectId: recordedSpace === get().activeSpaceId ? projectId : null });
+      async newSessionInstant(targetLeafId = null) {
+        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, targetLeafId);
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       async sendMessage(id, text) { await api.sendMessage(id, text); },
       async interruptSession(id) { await api.interruptSession(id); },
       async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },
       async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
-      async probeAgents() { set({ agentProbe: await api.probeAgents() }); },
+      async setSessionAgent(id, agentKind) {
+        mergeSession(await api.setSessionAgent(id, agentKind));
+        rememberAgent(agentKind);
+        // The server renames an untouched default title to match the new agent; the sidebar row shows it.
+        await get().refreshItems();
+      },
+      async probeAgents(force = false) {
+        // Mount-storm guard: a split of four session panes asks four times in the same tick. The server
+        // holds the TTL cache (probe-cache.ts); this only collapses the round trips.
+        const pending = probing[force ? "forced" : "plain"];
+        if (pending) { await pending; return; }
+        const p = api.probeAgents(force)
+          .then((agentProbe) => { set({ agentProbe }); })
+          .finally(() => { probing[force ? "forced" : "plain"] = null; });
+        probing[force ? "forced" : "plain"] = p;
+        await p;
+      },
+      async setDefaultAgent(kind) {
+        set({ lastAgentKind: kind });
+        await api.setSetting(SETTING_LAST_AGENT, kind);
+      },
+      async prefillTerminal(sessionId, command) {
+        if (!panelOf(sessionId).open) {
+          setPanel(sessionId, { ...panelOf(sessionId), open: true });
+          await persistPanels();
+        }
+        await get().ensureSessionTerminal(sessionId);
+        const terminalId = get().sessionTerminals[sessionId];
+        if (!terminalId) return; // the shell never came up; the card still shows the command to copy
+        // NO trailing newline, ever: the command is offered, not run. The user presses Return.
+        // Goes through prefill (not write) so the server holds it until the shell stops printing its
+        // startup — otherwise the leading characters get eaten by that output.
+        await api.prefillTerminal(terminalId, command);
+      },
       setDraft(sessionId, text) { set({ drafts: { ...get().drafts, [sessionId]: text } }); },
+      async ensureSessionTerminal(sessionId) {
+        if (get().sessionTerminals[sessionId]) return;
+        const pending = ensuringTerminal.get(sessionId);
+        if (pending) return pending;
+        const p = api.openSessionTerminal(sessionId)
+          .then(({ terminalId }) => { set({ sessionTerminals: { ...get().sessionTerminals, [sessionId]: terminalId } }); })
+          .finally(() => { ensuringTerminal.delete(sessionId); });
+        ensuringTerminal.set(sessionId, p);
+        return p;
+      },
+      async toggleTerminalPanel(sessionId) {
+        const next = { ...panelOf(sessionId), open: !panelOf(sessionId).open };
+        // Show the panel first, then create: the toggle is instant, and the pane fills in when the
+        // shell answers. Closing never destroys anything — the pty and its scrollback wait.
+        setPanel(sessionId, next);
+        await persistPanels();
+        if (next.open) await get().ensureSessionTerminal(sessionId);
+      },
+      setTerminalPanelWidth(sessionId, width) {
+        const cur = panelOf(sessionId);
+        if (Math.abs(cur.width - width) < 0.01) return;
+        setPanel(sessionId, { ...cur, width });
+        schedulePanelPersist();
+      },
       async refreshGitInfo(cwd) {
         const info = await api.gitInfo(cwd);
         set({ gitInfo: { ...get().gitInfo, [cwd]: info } });

@@ -13,40 +13,54 @@ export type MenuItem =
 const MARGIN = 6;
 
 /** Small popup menu, rendered in a portal with fixed positioning so no ancestor overflow can clip
- *  it. Anchor it to a control via `anchorRef` (opens below, flips above near the bottom edge) or
+ *  it. Anchor it to a control via `anchorRef` (opens below, flips above near the bottom edge — or
+ *  `placement="up"` to open above, flipping below near the top edge; the prompter's chip menus) or
  *  place it at a point via `at` (context menus). Closes on outside pointerdown, Escape, or select.
  *
  *  Keyboard-first (U-M10/A-H3): the first enabled item is focused on open; ArrowUp/Down cycle with
  *  wrap, Home/End jump, Enter/Space select. Focus returns to where it was on close — the element
  *  focused at mount (normally the trigger), or `returnFocusRef` when the caller knows better.
  *  Items with a `checked` boolean render as menuitemcheckbox with aria-checked and a check icon. */
-export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "left", label }: {
+export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "left", placement = "down", label }: {
   items: MenuItem[]; onClose: () => void;
   at?: { x: number; y: number }; anchorRef?: RefObject<HTMLElement | null>;
   returnFocusRef?: RefObject<HTMLElement | null>;
-  align?: "left" | "right"; label?: string;
+  align?: "left" | "right"; placement?: "down" | "up"; label?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; origin: string } | null>(null);
 
   useLayoutEffect(() => {
     const el = ref.current; if (!el) return;
     const { width, height } = el.getBoundingClientRect();
     let left: number, top: number;
+    // §6: the 140ms scale-in is origin-aware — the menu grows out of the corner nearest its trigger.
+    // Vertical half flips with the menu itself (a menu that flipped above its anchor grows upward);
+    // the horizontal half follows `align`. A point-placed context menu grows from its click point.
+    let origin = "top left";
     if (at) { left = at.x; top = at.y; }
     else {
       const a = anchorRef?.current?.getBoundingClientRect();
       if (!a) { left = MARGIN; top = MARGIN; }
       else {
         left = align === "right" ? a.right - width : a.left;
-        top = a.bottom + 4;
-        if (top + height > window.innerHeight - MARGIN) top = a.top - height - 4; // flip above
+        let above: boolean;
+        if (placement === "up") {
+          top = a.top - height - 4;
+          above = true;
+          if (top < MARGIN) { top = a.bottom + 4; above = false; } // flip below near the top edge
+        } else {
+          top = a.bottom + 4;
+          above = false;
+          if (top + height > window.innerHeight - MARGIN) { top = a.top - height - 4; above = true; } // flip above
+        }
+        origin = `${above ? "bottom" : "top"} ${align === "right" ? "right" : "left"}`;
       }
     }
     left = Math.max(MARGIN, Math.min(left, window.innerWidth - width - MARGIN));
     top = Math.max(MARGIN, Math.min(top, window.innerHeight - height - MARGIN));
-    setPos({ left, top });
-  }, [at, anchorRef, align]);
+    setPos({ left, top, origin });
+  }, [at, anchorRef, align, placement]);
 
   // Focus-in on open + focus restore on close. The restore target is captured once at mount, before
   // the roving focus moves into the menu, so it is the trigger unless the caller overrides it.
@@ -64,12 +78,20 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
   }, []);
 
   useLayoutEffect(() => {
-    const onDown = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (ref.current?.contains(target)) return;
+      // The trigger lives OUTSIDE the portal, so an anchored menu would otherwise close on its own
+      // trigger's pointerdown and the following click would reopen it — flicker, focus ping-pong, and
+      // no way to dismiss by clicking the control again. Leave the trigger to its own toggle.
+      if (anchorRef?.current?.contains(target)) return;
+      onClose();
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
     // Deferred so the click that opened the menu doesn't immediately close it.
     const id = setTimeout(() => { window.addEventListener("pointerdown", onDown); window.addEventListener("keydown", onKey, true); }, 0);
     return () => { clearTimeout(id); window.removeEventListener("pointerdown", onDown); window.removeEventListener("keydown", onKey, true); };
-  }, [onClose]);
+  }, [onClose, anchorRef]);
 
   const buttons = () =>
     Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
@@ -89,7 +111,8 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bs[cur]?.click(); }
   };
 
-  const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, visibility: pos ? "visible" : "hidden" };
+  const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
+    visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top left" };
   return createPortal(
     <div ref={ref} role="menu" aria-label={label} className="menu" style={style} onKeyDown={onKeyDown}>
       {items.map((it, i) => it.kind === "separator"

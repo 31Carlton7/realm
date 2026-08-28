@@ -6,7 +6,9 @@ import type { ItemsStore } from "../store/items";
 import type { ProjectsStore } from "../store/projects";
 import type { SessionsStore, SessionEventsStore, SessionUpdate } from "../store/sessions";
 import type { SpacesStore } from "../store/spaces";
+import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
+import { ProbeCache } from "./probe-cache";
 
 const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
 export const TITLE_MAX = 40;
@@ -29,7 +31,13 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; adapters: AdapterRegistry }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; terminals: TerminalService; adapters: AdapterRegistry }) {}
+
+  /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
+   *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
+  private probeCache = new ProbeCache(() => this.probeAll());
+
+  probe(opts: { force?: boolean } = {}): Promise<ProbeResult[]> { return this.probeCache.get(opts); }
 
   /** One adapter's probe throwing must not hide the others; it reports as unavailable with the reason. */
   async probeAll(): Promise<ProbeResult[]> {
@@ -78,10 +86,59 @@ export class SessionService {
     return s;
   }
 
-  /** Dispose the live handle (if any), then remove the item and the row (events cascade). */
+  /**
+   * Re-point a session that has not started yet at another agent. Authoritative guard: one persisted
+   * event is enough to lock the kind forever — a transcript, a providerSessionId and a resume are all
+   * tied to the agent that produced them, so there is no coherent "switch" after the first message.
+   * The client hides the affordance too, but this is the check that matters.
+   *
+   * `model` is cleared because model ids are per-kind (a `claude-opus-5` on a Codex session is a lie);
+   * the new kind falls back to its adapter default until the user picks from its own model list. An
+   * untouched default title follows the new kind so the sidebar never names the wrong agent.
+   */
+  setAgent(id: string, agentKind: AgentKind): Session {
+    const s = this.get(id);
+    if (s.agentKind === agentKind) return s;
+    if (!this.d.adapters[agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${agentKind} is not registered`);
+    if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; its agent can no longer be changed");
+    const title = s.title === defaultTitle(s.agentKind) ? defaultTitle(agentKind) : s.title;
+    const updated = this.d.sessions.update({ id, agentKind, model: null, title });
+    const item = this.d.items.findByRefId(id);
+    if (item && item.title !== title) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
+    return updated;
+  }
+
+  /**
+   * The session's terminal side panel (W4), created on FIRST call and never before — a session whose
+   * panel is never opened must never spawn a pty. Idempotent afterwards: the same trio comes back.
+   * A recorded terminal whose pty is gone (it exited, or its cwd vanished at boot) is torn down and
+   * replaced, so opening the panel always lands you in a live shell at the session's cwd.
+   */
+  openTerminal(id: string): { terminalId: string; itemId: string } {
+    const s = this.get(id);
+    const item = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
+    if (item) {
+      if (this.d.terminals.has(item.refId)) return { terminalId: item.refId, itemId: item.id };
+      this.closeTerminalItem(item.refId); // stale: drops the row + item, which nulls the column (ON DELETE SET NULL)
+    }
+    const opened = this.d.terminals.open({ spaceId: s.spaceId, cwd: s.cwd, cols: 80, rows: 24 });
+    this.d.sessions.setTerminalItem(id, opened.itemId);
+    return opened;
+  }
+
+  /** Kill the session's terminal (pty + row + hidden item), if it has one. Tolerates a half-gone trio. */
+  private closeTerminalItem(terminalId: string): void {
+    try { this.d.terminals.close(terminalId); }
+    catch (e) { if (!(e instanceof NotFoundError)) throw e; }
+  }
+
+  /** Dispose the live handle (if any) AND the session's terminal, then remove the item and the row (events cascade). */
   async delete(id: string): Promise<void> {
     const s = this.get(id);
     await this.stop(id);
+    // The terminal belongs to the session: deleting the session must not leave its pty running.
+    const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
+    if (term) this.closeTerminalItem(term.refId);
     const item = this.d.items.findByRefId(id);
     if (item) this.d.items.delete(item.id);
     this.d.sessions.delete(id);

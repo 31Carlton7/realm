@@ -32,7 +32,11 @@ export const liveApi = (): Api => ({
   interruptSession: async (id) => { await rpc().call("sessions.interrupt", { id }); },
   respondPermission: async (id, requestId, decision) => { await rpc().call("sessions.respondPermission", { id, requestId, decision }); },
   setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),
+  setSessionAgent: (id, agentKind) => rpc().call("sessions.setAgent", { id, agentKind }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),
-  probeAgents: () => rpc().call("agents.probe", {}),
+  openSessionTerminal: (id) => rpc().call("sessions.openTerminal", { id }),
+  writeTerminal: async (terminalId, data) => { await rpc().call("terminals.write", { terminalId, data }); },
+  prefillTerminal: async (terminalId, command) => { await rpc().call("terminals.prefill", { terminalId, command }); },
+  probeAgents: (force) => rpc().call("agents.probe", { force }),
   gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),
 });

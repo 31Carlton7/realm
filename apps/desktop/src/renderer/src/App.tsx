@@ -2,9 +2,9 @@ import { useEffect, useMemo } from "react";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
-import { NewSessionSheet } from "./panes/session/NewSessionSheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { PaneHost } from "./components/PaneHost";
+import { Onboarding } from "./components/Onboarding";
 import { StoreContext, createAppStore, useApp } from "./state/store";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
@@ -53,7 +53,6 @@ function SheetHost() {
   if (!sheet) return null;
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
   if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
-  if (sheet.kind === "new-session") return <NewSessionSheet />;
   return null;
 }
 
@@ -63,6 +62,8 @@ export function Main() {
   const layout = useApp((s) => s.layout);
   const items = useApp((s) => s.items);
   const spaceId = useApp((s) => s.activeSpaceId);
+  const booted = useApp((s) => s.booted);
+  const spaces = useApp((s) => s.spaces);
   const focusedLeafId = useApp((s) => s.focusedLeafId);
   const focusLeaf = useApp((s) => s.focusLeaf);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
@@ -70,6 +71,10 @@ export function Main() {
   const openItemAt = useApp((s) => s.openItemAt);
   const resizeSplit = useApp((s) => s.resizeSplit);
   const run = useApp((s) => s.run);
+  // First run (W4): no spaces at all — the onboarding sheet, not a sentence pointing at a "+". It is
+  // gated on `booted` because an unbooted store also has zero spaces, and on the space COUNT rather than
+  // `activeSpaceId`, so it can never come back for someone who already has spaces.
+  if (booted && spaces.length === 0) return <><ErrorBar /><Onboarding /></>;
   if (!spaceId) return <><ErrorBar /><div className="pane-placeholder muted">Create a space with the + in the sidebar.</div></>;
   return (
     <>

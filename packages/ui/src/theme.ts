@@ -28,53 +28,61 @@ export function hslToHex({ h, s, l }: Hsl): string {
 }
 
 export type Palette = {
-  mode: Mode; accent: string;
+  mode: Mode;
+  /** Ink: the fixed near-white (dark) / near-black (light) emphasis colour. Primary buttons, focus
+   *  rings, active ticks, send button. Chrome is space-agnostic — never derived from the space colour. */
+  accent: string;
+  /** Text/icon colour on accent fills. */
+  accentContrast: string;
+  /** The space colour, contrast-clamped for the mode's surfaces. Feeds only the space dot and the
+   *  space-strip glyph — the one identity pixel; never chrome. */
+  space: string;
   frame: string; panel: string; raised: string; line: string; lineStrong: string;
-  /** Translucent fill for hover/selected states — reads on any surface, unlike surface-on-surface fills. */
+  /** Translucent fill for hover states — reads on any surface, unlike surface-on-surface fills. */
   hover: string;
+  /** Translucent fill for selected pills (replaces accent-tinted selection). */
+  active: string;
   textBright: string; textDim: string; textFaint: string;
   danger: string; success: string; warning: string;
   terminalBg: string; shadow: string;
+  /** 1px inset alpha hairline for floating surfaces — a box-shadow, composes with `shadow`. */
+  edge: string;
 };
 
-/** Flat Codex-style palette. Surfaces are fixed neutrals; the space colour survives only as `accent`,
- *  contrast-adjusted so it stays legible on the mode's surfaces (dark: lightness clamped to [55, 75];
- *  light: clamped to [35, 55]). The 25% saturation floor applies only when the input has real chroma
- *  (s >= 8); below that threshold hue is meaningless noise (black/white/grey), so flooring it would
- *  fabricate a colour the user never chose — achromatic input stays achromatic, relying on the
- *  lightness clamp alone for visibility. */
+/** Ink grayscale palette (design-language 2026-08-27 §3). Surfaces are fixed pure-neutral greys in
+ *  both modes; the space colour no longer tints the ground and no longer produces the accent. It
+ *  survives only as `space`, contrast-adjusted so it stays legible on the mode's surfaces (dark:
+ *  lightness clamped to [55, 75]; light: clamped to [35, 55]). The 25% saturation floor applies only
+ *  when the input has real chroma (s >= 8); below that threshold hue is meaningless noise
+ *  (black/white/grey), so flooring it would fabricate a colour the user never chose — achromatic
+ *  input stays achromatic, relying on the lightness clamp alone for visibility. */
 export function paletteFromColor(hex: string, mode: Mode): Palette {
   const h = hexToHsl(hex);
-  const chromatic = h.s >= 8;
-  const s = chromatic ? Math.max(h.s, 25) : h.s;
-  const accent = hslToHex(mode === "dark"
+  const s = h.s >= 8 ? Math.max(h.s, 25) : h.s;
+  const space = hslToHex(mode === "dark"
     ? { h: h.h, s, l: Math.min(75, Math.max(55, h.l)) }
     : { h: h.h, s, l: Math.min(55, Math.max(35, h.l)) });
-  /** Ground tint (V-X5, spec §1's "≤4% escape hatch"): frame/panel take the space colour's hue at the
-   *  base grey's own tiny saturation (≈8–10%, ~2 channel steps at these lightnesses — sub-perceptual),
-   *  same lightness. Computed here into plain hexes so no use site needs color-mix. Achromatic space
-   *  colours (same s<8 rule as the accent) skip it: their hue is noise, and greys should get the stock
-   *  neutral ground, not a fabricated cast. */
-  const ground = (base: string): string => {
-    if (!chromatic) return base;
-    const b = hexToHsl(base);
-    return hslToHex({ h: h.h, s: b.s, l: b.l });
-  };
   if (mode === "dark") return {
-    mode, accent,
-    frame: ground("#131417"), panel: ground("#1b1c20"), raised: "#222329", line: "#26272c", lineStrong: "#33343b",
-    hover: "rgba(255,255,255,.05)",
-    textBright: "#ececf1", textDim: "#9a9ba5", textFaint: "#84858f",
-    danger: "#f87171", success: "#6ee7a0", warning: "#e8963a",
-    terminalBg: "#101114", shadow: "0 8px 24px rgba(0,0,0,.4)",
+    mode, space,
+    accent: "#f2f2f2", accentContrast: "#111111",
+    frame: "#121212", panel: "#1a1a1a", raised: "#222222", line: "#252525", lineStrong: "#333333",
+    hover: "rgba(255,255,255,.06)", active: "rgba(255,255,255,.09)",
+    textBright: "#f2f2f2", textDim: "#a0a0a0", textFaint: "#6f6f6f",
+    danger: "#e5484d", success: "#46a758", warning: "#d9822b",
+    terminalBg: "#0e0e0e",
+    shadow: "0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.45)",
+    edge: "inset 0 0 0 1px rgba(255,255,255,.07)",
   };
   return {
-    mode, accent,
-    frame: ground("#f2f2f4"), panel: ground("#ffffff"), raised: "#f7f7f9", line: "#e3e3e8", lineStrong: "#d2d2d9",
-    hover: "rgba(20,20,30,.05)",
-    textBright: "#1c1c21", textDim: "#5f6068", textFaint: "#747480",
-    danger: "#dc2626", success: "#16a34a", warning: "#c2701d",
-    terminalBg: "#16171a", shadow: "0 8px 24px rgba(20,20,40,.14)",
+    mode, space,
+    accent: "#181818", accentContrast: "#ffffff",
+    frame: "#f4f4f4", panel: "#ffffff", raised: "#fafafa", line: "#e8e8e8", lineStrong: "#d6d6d6",
+    hover: "rgba(0,0,0,.05)", active: "rgba(0,0,0,.07)",
+    textBright: "#181818", textDim: "#606060", textFaint: "#8f8f8f",
+    danger: "#d93036", success: "#2f9e44", warning: "#c2701d",
+    terminalBg: "#141414", // terminals stay dark in light mode — corpus-consistent
+    shadow: "0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(20,20,20,.10)",
+    edge: "inset 0 0 0 1px rgba(0,0,0,.07)",
   };
 }
 

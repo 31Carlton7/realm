@@ -67,10 +67,11 @@ export function registerMethods(d: Deps): void {
 
   reg("terminals.create", (p) => d.terminals.open(p));
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
+  reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });
   reg("terminals.close", (p) => { d.terminals.close(p.terminalId); return { ok: true as const }; });
 
-  reg("agents.probe", () => d.sessions.probeAll());
+  reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
   reg("sessions.listAll", () => d.sessions.listAll());
   reg("sessions.get", (p) => d.sessions.get(p.id));
@@ -79,6 +80,8 @@ export function registerMethods(d: Deps): void {
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode }));
+  reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
   reg("sessions.events", (p) => d.sessions.events(p.id, p.afterSeq, p.limit));
+  reg("sessions.openTerminal", (p) => d.sessions.openTerminal(p.id));
   reg("sessions.delete", async (p) => { await d.sessions.delete(p.id); return { ok: true as const }; });
 }

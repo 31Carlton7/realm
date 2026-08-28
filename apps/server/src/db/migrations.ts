@@ -39,4 +39,9 @@ export const migrations: string[] = [
     ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
   CREATE INDEX session_events_session ON session_events(session_id, seq);
   `,
+  // v4 — a session owns an optional terminal (W4). The column points at the terminal's *item*, which is
+  // what the sidebar filters on (items.ts) and what the client never sees. ON DELETE SET NULL so closing
+  // the terminal (which deletes its item) clears the pointer without a second write; NULL for every
+  // existing session, so nobody gains a pty by migrating.
+  `ALTER TABLE sessions ADD COLUMN terminal_item_id TEXT REFERENCES items(id) ON DELETE SET NULL;`,
 ];

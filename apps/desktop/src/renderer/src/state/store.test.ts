@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, findEmptySiblingOf, hasLeafIn, swapSplitChildrenOf, PERSIST_DEBOUNCE_MS, type DropEdge } from "./store";
+import { createAppStore, findEmptySiblingOf, hasLeafIn, swapSplitChildrenOf, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, item, session, space, type FakeApi } from "./store.test-fakes";
 
@@ -183,10 +183,12 @@ describe("app store", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().openItem("i1");
+    await store.getState().splitFocused("row");
+    await store.getState().newTerminal(); // a second pane, so this delete is not a close-to-empty
     const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
     await store.getState().deleteItem("i1");
-    expect(store.getState().items).toHaveLength(0);
-    expect(store.getState().layout).toEqual(expect.objectContaining({ type: "leaf", itemId: null }));
+    expect(store.getState().items.map((i) => i.id)).not.toContain("i1");
+    expect(allItems(store.getState().layout!)).not.toContain("i1");
     expect(api.calls).toContain("deleteItem:i1");
     expect(api.disposed).toEqual(["i1"]);
     // deleteItem delegates the layout write entirely to closeFromLayout — exactly one persist, not two.
@@ -197,14 +199,71 @@ describe("app store", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().openItem("i1");
-    expect(allItems(store.getState().layout!)).toEqual(["i1"]);
+    await store.getState().splitFocused("row");
+    await store.getState().newTerminal(); // a second pane, so this close is not a close-to-empty
+    expect(allItems(store.getState().layout!)).toContain("i1");
     const persists = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
     await store.getState().closeFromLayout("i1");
-    expect(allItems(store.getState().layout!)).toEqual([]);
-    expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]); // back in the SPACE group
+    expect(allItems(store.getState().layout!)).not.toContain("i1");
+    expect(store.getState().items.map((i) => i.id)).toContain("i1"); // back in the SPACE group
     expect(api.calls.filter((c) => c.startsWith("deleteItem"))).toEqual([]);
     expect(api.disposed).toEqual([]);
     expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(persists + 1); // the close itself persisted
+  });
+
+  describe("closing the last pane", () => {
+    it("opens a fresh session rather than leaving an empty layout", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().closeFromLayout("i1");
+      // The closed item is gone from the layout but a new session took its place.
+      const open = allItems(store.getState().layout!);
+      expect(open).toHaveLength(1);
+      expect(open).not.toContain("i1");
+      expect(api.calls.filter((c) => c.startsWith("createSession"))).toHaveLength(1);
+      expect(store.getState().items.map((i) => i.id)).toContain("i1"); // close is not delete
+    });
+
+    it("uses the last-used agent, like every other create path", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().setDefaultAgent("codex");
+      await store.getState().openItem("i1");
+      await store.getState().closeFromLayout("i1");
+      expect(api.calls).toContain("createSession:codex");
+    });
+
+    it("deleting the last item also lands in a fresh session", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().deleteItem("i1");
+      expect(allItems(store.getState().layout!)).toHaveLength(1);
+      expect(api.calls.filter((c) => c.startsWith("createSession"))).toHaveLength(1);
+    });
+
+    it("closing a pane that is not the last one creates nothing", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().splitFocused("row");
+      await store.getState().newTerminal();
+      await store.getState().closeFromLayout("i1");
+      expect(api.calls.filter((c) => c.startsWith("createSession"))).toEqual([]);
+    });
+
+    it("a reconcile that empties the layout does not manufacture a session", async () => {
+      // The guard that matters: reconcileLayout prunes items the server no longer reports, and a
+      // hiccup there must not spawn sessions. Only the deliberate close path creates.
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      api.data.items["s1"] = [];               // the item vanished server-side
+      await store.getState().refreshItems();
+      expect(allItems(store.getState().layout!)).toEqual([]);
+      expect(api.calls.filter((c) => c.startsWith("createSession"))).toEqual([]);
+    });
   });
 
   it("applyPreset rebuilds layout, refocuses the first leaf, and persists", async () => {
@@ -557,6 +616,40 @@ describe("app store", () => {
       expect(s.transcripts[created.id]).toEqual({ lastSeq: 0, t: expect.objectContaining({ blocks: [] }) });
     });
 
+    it("newSessionInstant asks nothing: last-used agent when there is one, Claude when there is not", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().newSessionInstant();
+      expect(api.calls).toContain("createSession:claude"); // no memory yet → FALLBACK_AGENT
+      expect(store.getState().sheet).toBeNull();
+      // Creating remembers, and the memory — not the fallback — decides the next one.
+      await store.getState().newSession({ agentKind: "codex" });
+      expect(store.getState().lastAgentKind).toBe("codex");
+      await store.getState().newSessionInstant();
+      expect(api.calls.filter((c) => c === "createSession:codex")).toHaveLength(2);
+      expect(api.calls.filter((c) => c === "createSession:claude")).toHaveLength(1);
+      // Persisted, so it survives a relaunch rather than resetting to Claude every morning.
+      expect(api.data.settings["ui.lastAgentKind"]).toBe("codex");
+      const relaunched = createAppStore(api); await relaunched.getState().boot();
+      expect(relaunched.getState().lastAgentKind).toBe("codex");
+    });
+
+    it("a junk ui.lastAgentKind setting degrades to the fallback instead of creating an unregistered kind", async () => {
+      api = fakeApi({ settings: { "ui.lastAgentKind": "gpt-9" } });
+      const store = createAppStore(api); await store.getState().boot();
+      expect(store.getState().lastAgentKind).toBeNull();
+      await store.getState().newSessionInstant();
+      expect(api.calls).toContain("createSession:claude");
+    });
+
+    it("setSessionAgent merges the server's session back and becomes the new last-used agent", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().setSessionAgent("se1", "codex");
+      expect(api.calls).toContain("setSessionAgent:se1=codex");
+      expect(store.getState().sessions.se1?.agentKind).toBe("codex");
+      expect(store.getState().lastAgentKind).toBe("codex");
+      expect(api.data.settings["ui.lastAgentKind"]).toBe("codex");
+    });
+
     it("sendMessage / interrupt / respondPermission / setSessionOptions call the api; options merge into the session", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().sendMessage("se1", "go");
@@ -577,7 +670,7 @@ describe("app store", () => {
       expect(store.getState().transcripts.se1).toBeUndefined();
       expect(store.getState().sessionStatus.se1).toBeUndefined();
       expect(store.getState().sessions.se1).toBeUndefined();
-      expect(allItems(store.getState().layout!)).toEqual([]);
+      expect(allItems(store.getState().layout!)).not.toContain("i2"); // last pane closed → a fresh session took the leaf
       expect(api.calls).toContain("deleteItem:i2");
     });
 
@@ -586,7 +679,7 @@ describe("app store", () => {
       await store.getState().openItem("i2");
       await store.getState().openSession("se1");
       await store.getState().closeFromLayout("i2");
-      expect(allItems(store.getState().layout!)).toEqual([]);
+      expect(allItems(store.getState().layout!)).not.toContain("i2"); // last pane closed → a fresh session took the leaf
       expect(store.getState().items.some((i) => i.id === "i2")).toBe(true);
       expect(store.getState().transcripts.se1).toBeDefined();
       expect(store.getState().sessions.se1).toBeDefined();
@@ -725,8 +818,8 @@ describe("app store", () => {
       const store = createAppStore(api); await store.getState().boot();
       store.getState().setPaletteOpen(true);
       expect(store.getState().paletteOpen).toBe(true);
-      store.getState().openSheet({ kind: "new-session" });
-      expect(store.getState().sheet).toEqual({ kind: "new-session" });
+      store.getState().openSheet({ kind: "new-space" });
+      expect(store.getState().sheet).toEqual({ kind: "new-space" });
       expect(store.getState().paletteOpen).toBe(false);
     });
   });
@@ -1012,5 +1105,214 @@ describe("app store", () => {
       const l = split("s", "row", [split("s2", "col", [leaf("a", "i1"), leaf("b", null)]), leaf("c", "i2")]);
       expect(swapSplitChildrenOf(l, "a", "i2")).toEqual(l); // i2 is not a's direct sibling
     });
+  });
+});
+
+describe("the session's terminal side panel (W4)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const withSession = () => fakeApi({
+    items: { s1: [item("i9", "s1", { kind: "session", title: "Fake agent session", refId: "se1" })] },
+    sessions: [session("se1", "s1")],
+  });
+
+  it("is lazy: nothing reaches the server until the panel is actually opened", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openSession("se1");
+    expect(a.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+    expect(store.getState().terminalPanel["se1"]).toBeUndefined();
+    expect(store.getState().sessionTerminals["se1"]).toBeUndefined();
+  });
+
+  it("the first open creates the terminal; closing and reopening never creates a second one", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+
+    await store.getState().toggleTerminalPanel("se1");
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1);
+
+    await store.getState().toggleTerminalPanel("se1");
+    expect(store.getState().terminalPanel["se1"]!.open).toBe(false);
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1"); // the pty is not destroyed by hiding it
+
+    await store.getState().toggleTerminalPanel("se1");
+    expect(store.getState().terminalPanel["se1"]!.open).toBe(true);
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1); // still one
+  });
+
+  it("two opens racing (StrictMode double-mount) still create exactly one terminal", async () => {
+    const a = withSession();
+    a.delays["openSessionTerminal:se1"] = 10;
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await Promise.all([store.getState().ensureSessionTerminal("se1"), store.getState().ensureSessionTerminal("se1")]);
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1);
+  });
+
+  it("open/closed persists immediately; width persists on a trailing debounce", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().toggleTerminalPanel("se1");
+    vi.useFakeTimers();
+    expect(a.data.settings["ui.terminalPanel"]).toEqual({ se1: { open: true, width: 38 } });
+
+    store.getState().setTerminalPanelWidth("se1", 55);
+    expect(store.getState().terminalPanel["se1"]!.width).toBe(55); // applied at once…
+    expect((a.data.settings["ui.terminalPanel"] as Record<string, { width: number }>)["se1"]!.width).toBe(38); // …not yet written
+    store.getState().setTerminalPanelWidth("se1", 55.001); // sub-0.01 echo: ignored, timer not re-armed
+    await vi.advanceTimersByTimeAsync(PERSIST_DEBOUNCE_MS + 5);
+    expect((a.data.settings["ui.terminalPanel"] as Record<string, { width: number }>)["se1"]!.width).toBe(55);
+  });
+
+  it("boot restores the persisted panel state, so reopening a session brings its terminal back", async () => {
+    const a = withSession();
+    a.data.settings["ui.terminalPanel"] = { se1: { open: true, width: 44 } };
+    const store = createAppStore(a);
+    await store.getState().boot();
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 44 });
+    // Restoring state alone must not touch the server — the pane fetches the terminal when it renders.
+    expect(a.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+    await store.getState().ensureSessionTerminal("se1");
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
+  });
+
+  it("boot ignores a malformed persisted map instead of trusting it into the layout", async () => {
+    const a = withSession();
+    a.data.settings["ui.terminalPanel"] = { se1: { open: "yes", width: 44 }, se2: { open: true, width: "wide" }, se3: { open: true, width: 400 }, se4: 7 };
+    const store = createAppStore(a);
+    await store.getState().boot();
+    expect(store.getState().terminalPanel).toEqual({ se2: { open: true, width: 38 }, se3: { open: true, width: 38 } });
+  });
+
+  it("deleting the session drops the panel state and disposes the renderer-side terminal", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().toggleTerminalPanel("se1");
+    await store.getState().deleteItem("i9");
+    expect(a.disposed).toEqual(["term-se1"]); // the xterm + scrollback go with the session
+    expect(store.getState().terminalPanel["se1"]).toBeUndefined();
+    expect(store.getState().sessionTerminals["se1"]).toBeUndefined();
+    expect(a.data.settings["ui.terminalPanel"]).toEqual({});
+  });
+
+  it("closing the session's pane from the layout keeps the terminal — that is what makes reopening a restore", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openItem("i9");
+    await store.getState().toggleTerminalPanel("se1");
+    await store.getState().closeFromLayout("i9");
+    expect(a.disposed).toEqual([]);
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
+  });
+});
+
+describe("agent probe + the install card's terminal prefill (W4)", () => {
+  const withSession = () => fakeApi({
+    items: { s1: [item("i9", "s1", { kind: "session", title: "Fake agent session", refId: "se1" })] },
+    sessions: [session("se1", "s1")],
+  });
+
+  it("probeAgents passes force through and stores the answer", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().probeAgents();
+    expect(a.calls).toContain("probeAgents:false"); // the cheap, TTL-cached call
+    expect(store.getState().agentProbe).toEqual([expect.objectContaining({ kind: "fake", available: true })]);
+
+    a.data.agentProbe = [{ kind: "fake", available: false, version: null, loggedIn: null, reason: "gone" }];
+    await store.getState().probeAgents(true);
+    expect(a.calls).toContain("probeAgents:true"); // "Check again": past the cache
+    expect(store.getState().agentProbe[0]!.available).toBe(false);
+  });
+
+  it("collapses a mount storm into one call, but never lets a cheap call satisfy a forced one", async () => {
+    const a = withSession();
+    a.delays["probeAgents"] = 10;
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await Promise.all([store.getState().probeAgents(), store.getState().probeAgents(), store.getState().probeAgents()]);
+    expect(a.calls.filter((c) => c === "probeAgents:false")).toHaveLength(1);
+
+    // A forced probe running alongside cheap ones is its own request — the cheap one in flight may have
+    // asked the machine before the user finished installing.
+    const both = Promise.all([store.getState().probeAgents(), store.getState().probeAgents(true)]);
+    await both;
+    expect(a.calls.filter((c) => c === "probeAgents:true")).toHaveLength(1);
+    expect(a.calls.filter((c) => c === "probeAgents:false")).toHaveLength(2);
+  });
+
+  it("prefillTerminal opens the panel and TYPES the command — with no trailing newline, so nothing runs", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().prefillTerminal("se1", "npm install -g @anthropic-ai/claude-code");
+
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
+    expect(a.calls).toContain("openSessionTerminal:se1");
+    const write = a.calls.find((c) => c.startsWith("prefillTerminal:"))!;
+    expect(write).toBe("prefillTerminal:term-se1=npm install -g @anthropic-ai/claude-code");
+    // The mutant: a trailing "\n" (or "\r") is what EXECUTES the line. Realm offers; the user presses Return.
+    const data = write.slice("prefillTerminal:term-se1=".length);
+    expect(data).not.toMatch(/[\r\n]/);
+  });
+
+  it("prefillTerminal reuses an already-open panel and its terminal", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().toggleTerminalPanel("se1");
+    a.calls.length = 0;
+    await store.getState().prefillTerminal("se1", "codex login");
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(0); // already known
+    expect(a.calls).toContain("prefillTerminal:term-se1=codex login");
+    expect(store.getState().terminalPanel["se1"]!.open).toBe(true);
+  });
+
+  it("prefillTerminal racing the drawer's own restore effect still gets a terminal to write into", async () => {
+    // Opening the panel makes TerminalDrawer mount and call ensureSessionTerminal itself. If the dedup
+    // guard returned early instead of joining that call, prefillTerminal would resume with no terminal
+    // id and silently write nothing — the "Open in terminal" button would do nothing at all.
+    const a = withSession();
+    a.delays["openSessionTerminal:se1"] = 10;
+    const store = createAppStore(a);
+    await store.getState().boot();
+    const drawerEffect = store.getState().ensureSessionTerminal("se1"); // mounts first, in flight
+    await store.getState().prefillTerminal("se1", "codex login");
+    await drawerEffect;
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1);
+    expect(a.calls).toContain("prefillTerminal:term-se1=codex login");
+  });
+
+  it("setDefaultAgent writes the same setting the prompter's agent chip writes", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().setDefaultAgent("codex");
+    expect(store.getState().lastAgentKind).toBe("codex");
+    expect(a.data.settings[SETTING_LAST_AGENT]).toBe("codex");
+    // …and it is what the next instant session reaches for.
+    await store.getState().newSessionInstant();
+    expect(a.calls).toContain("createSession:codex");
+  });
+
+  it("booted only flips once boot has finished — onboarding must not flash on a populated home", async () => {
+    const a = fakeApi();
+    a.delays["listSpaces"] = 5;
+    const store = createAppStore(a);
+    expect(store.getState().booted).toBe(false);
+    const p = store.getState().boot();
+    expect(store.getState().booted).toBe(false); // spaces are still [] here — the flash window
+    await p;
+    expect(store.getState().booted).toBe(true);
+    expect(store.getState().spaces).toHaveLength(2);
   });
 });

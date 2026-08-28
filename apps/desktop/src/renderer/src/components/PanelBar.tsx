@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useRef, useState } from "react";
 import type { Item } from "@realm/contracts";
-import { paneMeta } from "../panes/registry";
+import { paneActions, paneMeta } from "../panes/registry";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
 import { RenameInput } from "./RenameInput";
@@ -24,6 +24,7 @@ export function PanelBar({ item, onSplit, onClose }: {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const menuBtn = useRef<HTMLButtonElement>(null);
   const Meta = paneMeta[item.kind];
+  const Actions = paneActions[item.kind];
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
   return (
     <div className="panel-bar">
@@ -36,8 +37,9 @@ export function PanelBar({ item, onSplit, onClose }: {
         )}
       <span className="panel-meta">{Meta ? <Meta item={item} /> : null}</span>
       <span className="panel-actions">
+        {Actions ? <Actions item={item} /> : null}
         <button ref={menuBtn} className="icon-btn" aria-label={`Pane menu for ${item.title}`} aria-haspopup="menu"
-          aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen(true); }}>
+          aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen((v) => !v); }}>
           <Icon name="more" size={13} />
         </button>
         <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={13} /></button>

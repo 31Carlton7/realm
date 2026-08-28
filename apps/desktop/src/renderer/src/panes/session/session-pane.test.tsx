@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
-import { sessionEvent } from "@realm/contracts";
-import { StoreContext, createAppStore } from "../../state/store";
+import { AGENT_CLI_COMMANDS, sessionEvent } from "@realm/contracts";
+import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
+import { PanelBar } from "../../components/PanelBar";
+import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
-import { NewSessionSheet } from "./NewSessionSheet";
 import { reduceAll } from "./transcript-model";
 import { renderMarkdown } from "./Markdown";
 import { toolSummary } from "./tool-summary";
@@ -50,7 +51,10 @@ describe("SessionPane", () => {
     fireEvent.keyDown(box, { key: "Enter", metaKey: true });
     await waitFor(() => expect(sent).toEqual(["next"]));
     expect((box as HTMLTextAreaElement).value).toBe("");
-    expect(document.querySelector(".empty-title")).toBeNull(); // a non-empty transcript never shows the empty state
+    // A non-empty transcript is the DOCKED prompter: no greeting, no suggestion grid.
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "docked");
+    expect(document.querySelector(".hero-greeting")).toBeNull();
+    expect(document.querySelector(".suggestions")).toBeNull();
   });
 
   it("Allow always / Deny map to decisions; tool card expands", async () => {
@@ -68,44 +72,70 @@ describe("SessionPane", () => {
     expect(screen.getByLabelText("running")).toBeInTheDocument(); // no result yet while the session is live
   });
 
-  it("empty transcript shows the centered empty state with suggestion chips for the session's agent kind; clicking one fills the composer without sending", async () => {
+  it("empty transcript is the HERO prompter: greeting + titled/described suggestion chips; clicking one fills the composer without sending", async () => {
     const { api } = await mount("idle", reduceAll([]));
     const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
-    const title = document.querySelector(".empty-title");
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "hero");
+    const title = document.querySelector(".hero-greeting");
     expect(title).toHaveTextContent("What should we work on in Versed?");
     expect(title?.querySelector("em")).toHaveTextContent("Versed");
-    const chip = screen.getByRole("button", { name: "Say hello" }); // default mount() session is agentKind "fake"
+    const chip = screen.getByRole("button", { name: /Say hello/ }); // default mount() session is agentKind "fake"
+    expect(chip.querySelector(".suggestion-title")).toHaveTextContent("Say hello");
+    expect(chip.querySelector(".suggestion-desc")).toHaveTextContent("A quick round trip through the fake agent");
     fireEvent.click(chip);
     const box = screen.getByRole("textbox", { name: /message/i });
     expect((box as HTMLTextAreaElement).value).toBe("Hello!");
     expect(sent).toEqual([]); // filled, not sent
+    expect(screen.getByRole("button", { name: "Send" })).toHaveAttribute("data-state", "send"); // idle = send face up
+  });
+
+  it("hero → docked when the first block lands, and back only exists as hero for truly empty transcripts", async () => {
+    const { store } = await mount("idle", reduceAll([]));
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "hero");
+    act(() => store.setState({ transcripts: { se1: { lastSeq: 1, t: reduceAll([sessionEvent("user_message", { text: "go", attachments: [] })]) } } }));
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "docked");
+    expect(document.querySelector(".hero-greeting")).toBeNull();
+    expect(document.querySelector(".suggestions")).toBeNull();
+  });
+
+  it("transcript content rides the centered .transcript-col rails", async () => {
+    await mount();
+    const col = document.querySelector(".transcript .transcript-col");
+    expect(col).not.toBeNull();
+    expect(col!.querySelector(".msg-user-row")).not.toBeNull(); // blocks render inside the rail column
   });
 
   it("suggestion chips are keyed by the session's agent kind, not shared across kinds", async () => {
     await mountKind("codex");
-    expect(screen.getByRole("button", { name: "Build a feature" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Say hello" })).toBeNull();
+    expect(screen.getByRole("button", { name: /Build a feature/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Say hello/ })).toBeNull();
   });
 
-  it("composer permission select carries data-warning only in bypassPermissions (reached via the confirm)", async () => {
-    await mount("idle", reduceAll([]));
-    const select = screen.getByRole("combobox", { name: "Permission mode" });
-    expect(select).not.toHaveAttribute("data-warning");
-    fireEvent.change(select, { target: { value: "plan" } });
-    await waitFor(() => expect(select).toHaveValue("plan"));
-    expect(select).not.toHaveAttribute("data-warning");
-    fireEvent.change(select, { target: { value: "bypassPermissions" } });
+  it("permission chip carries data-warning only in bypassPermissions (reached via the confirm); menu selections call setSessionOptions with the right key", async () => {
+    const { store } = await mount("idle", reduceAll([]));
+    const chip = screen.getByRole("button", { name: "Permission mode" });
+    expect(chip).not.toHaveAttribute("data-warning");
+    expect(chip).toHaveTextContent("Ask");
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
+    expect(chip).toHaveTextContent("Plan");
+    expect(chip).not.toHaveAttribute("data-warning");
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Full access" }));
     fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
-    await waitFor(() => expect(select).toHaveValue("bypassPermissions"));
-    expect(select).toHaveAttribute("data-warning");
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+    expect(chip).toHaveAttribute("data-warning");
+    expect(chip).toHaveTextContent("Full access");
   });
 
-  it("selecting bypassPermissions applies nothing until the inline confirm is clicked (U-M7)", async () => {
+  it("selecting bypassPermissions from the menu applies nothing until the inline confirm is clicked (U-M7)", async () => {
     const { api, store } = await mount("idle", reduceAll([]));
-    const select = screen.getByRole("combobox", { name: "Permission mode" });
-    fireEvent.change(select, { target: { value: "bypassPermissions" } });
-    // The select stays on the current mode and no option was transmitted — the confirm is the only path.
-    expect(select).toHaveValue("default");
+    const chip = screen.getByRole("button", { name: "Permission mode" });
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Full access" }));
+    // The chip stays on the current mode and no option was transmitted — the confirm is the only path.
+    expect(chip).toHaveTextContent("Ask");
     expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
@@ -114,30 +144,137 @@ describe("SessionPane", () => {
 
   it("the bypass confirm expires after 5s without applying anything", async () => {
     const { api } = await mount("idle", reduceAll([]));
-    const select = screen.getByRole("combobox", { name: "Permission mode" });
+    const chip = screen.getByRole("button", { name: "Permission mode" });
     vi.useFakeTimers();
     try {
-      fireEvent.change(select, { target: { value: "bypassPermissions" } });
+      fireEvent.click(chip);
+      fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Full access" }));
       expect(screen.getByRole("button", { name: "Allow everything? Confirm" })).toBeInTheDocument();
       act(() => { vi.advanceTimersByTime(5100); });
       expect(screen.queryByRole("button", { name: "Allow everything? Confirm" })).toBeNull();
-      expect(select).toHaveValue("default");
+      expect(chip).toHaveTextContent("Ask");
       expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
     } finally { vi.useRealTimers(); }
   });
 
-  it("Stop appears while running and interrupts; option selects call setSessionOptions; opens the session on mount", async () => {
+  it("send morphs to Stop while running (both icons stay in the DOM) and interrupts; chip menus call setSessionOptions; opens the session on mount", async () => {
     const { api, store } = await mount("running", reduceAll([sessionEvent("assistant_delta", { messageId: "m1", delta: "str" })]));
     expect(api.calls).toContain("sessionEvents:se1:4");
     expect(screen.getByText("str")).toBeInTheDocument();
     expect(screen.getByText("▍")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    // The morph: one button, stop face up, send face still mounted for the cross-fade (§6).
+    const morph = screen.getByRole("button", { name: "Stop" });
+    expect(morph).toHaveAttribute("data-state", "stop");
+    expect(morph.querySelector(".send-icon")).not.toBeNull();
+    expect(morph.querySelector(".stop-icon")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull(); // it IS the same button, relabeled
+    fireEvent.click(morph);
     await waitFor(() => expect(api.calls).toContain("interrupt:se1"));
-    fireEvent.change(screen.getByRole("combobox", { name: "Permission mode" }), { target: { value: "plan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Permission mode" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
-    fireEvent.change(screen.getByRole("combobox", { name: "Model" }), { target: { value: "fake" } });
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Fake" }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("fake"));
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(store.getState().sessions.se1?.effort).toBeNull(); // model menu set model, not effort
+  });
+
+  it("Send is disabled with an empty draft while idle; effort menu sets the effort option", async () => {
+    const { store } = await mount("idle", reduceAll([]));
+    const send = screen.getByRole("button", { name: "Send" });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("data-state", "send");
+    const effort = screen.getByRole("button", { name: "Effort" });
+    expect(effort).toHaveTextContent("Effort"); // placeholder while effort is null
+    fireEvent.click(effort);
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "high" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("high"));
+    expect(store.getState().sessions.se1?.model).toBeNull(); // effort menu set effort, not model
+    expect(effort).toHaveTextContent("high");
+  });
+
+  it("model chip shows DEFAULT_MODEL_LABEL for the kind while session.model is null, and the chosen model after", async () => {
+    const { store } = await mount("idle", reduceAll([]));
+    const chip = screen.getByRole("button", { name: "Model" });
+    expect(chip).toHaveTextContent("Fake agent · Fake"); // AGENT_META label + DEFAULT_MODEL_LABEL.fake
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Fake" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("fake"));
+    expect(chip).toHaveTextContent("Fake agent · Fake"); // AGENT_MODELS label for the picked id
+  });
+
+  it("a kind with no pickable models still names itself: static model chip with the frontier default, no menu", async () => {
+    await mountKind("codex");
+    // Nothing to pick, so it is a LABEL, not a disabled control: readable, out of the way of the tab
+    // order, and never announced as "unavailable" when naming the model is its entire job.
+    const chip = document.querySelector('.ghost-chip[data-static][title="Model"]');
+    expect(chip).toHaveTextContent("Codex · GPT-5.6");
+    expect(chip!.tagName).toBe("SPAN");
+    expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
+  });
+
+  it("the cwd context chip truncates with an ellipsis label and carries the full path as its title", async () => {
+    await mount("idle", reduceAll([]));
+    const chip = document.querySelector(".composer-context .composer-chip");
+    expect(chip).toHaveAttribute("title", "/tmp"); // the fake session's cwd
+    expect(chip!.querySelector(".chip-label")).not.toBeNull();
+  });
+
+  it("the Thinking… under-strip shows only while the session is running", async () => {
+    const { store } = await mount("running", reduceAll([sessionEvent("user_message", { text: "go", attachments: [] })]));
+    expect(document.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");
+    act(() => store.getState().applySessionStatus("se1", "idle"));
+    expect(document.querySelector(".composer-thinking")).toBeNull();
+  });
+
+  it("the Thinking… strip hides while the agent is blocked on the user (waiting_permission is not streaming)", async () => {
+    // §4 scopes the strip to streaming. waiting_permission is the opposite state — the agent is idle,
+    // waiting on a decision — so "Thinking…" there is a wrong-state message, not a slow one.
+    const { store } = await mount("waiting_permission");
+    expect(document.querySelector(".composer-thinking")).toBeNull();
+    act(() => store.getState().applySessionStatus("se1", "running"));
+    expect(document.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");
+  });
+
+  it("Ctrl+Enter sends too — it is the only send gesture on Linux/Windows", async () => {
+    const { api } = await mount("idle", reduceAll([]));
+    const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "from linux" } });
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(sent).toEqual(["from linux"]));
+    expect((box as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("a permission card arriving before the first block docks the prompter (blocks are empty but there IS something to read)", async () => {
+    // Reachable on turn one: the agent asks permission before emitting any text. Hero would float the
+    // prompter at 38% with the card stranded behind it.
+    await mount("waiting_permission", reduceAll([
+      sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }),
+    ]));
+    expect(screen.getByRole("group", { name: /Permission request/ })).toBeInTheDocument();
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "docked");
+    expect(document.querySelector(".hero-greeting")).toBeNull();
+  });
+
+  it("a pending permission that is NOT being waited on leaves the prompter in hero (nothing is on screen)", async () => {
+    // The mirror of the case above: the card is filtered out by status, so the pane really is empty.
+    await mount("idle", reduceAll([
+      sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }),
+    ]));
+    expect(screen.queryByRole("group", { name: /Permission request/ })).toBeNull();
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "hero");
+  });
+
+  it("a chip menu closes when its own chip is clicked a second time (I6)", async () => {
+    await mount("idle", reduceAll([]));
+    const chip = screen.getByRole("button", { name: "Permission mode" });
+    fireEvent.pointerDown(chip); fireEvent.click(chip);
+    expect(screen.getByRole("menu", { name: "Permission mode" })).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); // arm Menu's outside-pointerdown listener
+    fireEvent.pointerDown(chip); fireEvent.click(chip);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(chip).toHaveAttribute("aria-expanded", "false");
   });
 
   it("a pending permission is only shown while the session is waiting_permission (stale after crash/relaunch)", async () => {
@@ -163,6 +300,22 @@ describe("SessionPane", () => {
     expect(decided).toEqual(["r2:deny", "r1:allow"]);
   });
 
+  it("a finished run of consecutive tool calls reaches the pane as one collapsed ledger line (§5)", async () => {
+    await mount("idle", reduceAll([
+      sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "ls" }, parentToolUseId: null }),
+      sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false }),
+      sessionEvent("tool_call", { toolUseId: "t2", name: "Read", input: { file_path: "/a.ts" }, parentToolUseId: null }),
+      sessionEvent("tool_result", { toolUseId: "t2", content: "ok", isError: false }),
+      sessionEvent("tool_call", { toolUseId: "t3", name: "Edit", input: { file_path: "/a.ts" }, parentToolUseId: null }),
+      sessionEvent("tool_result", { toolUseId: "t3", content: "ok", isError: false }),
+    ]));
+    const line = screen.getByRole("button", { name: "3 tool calls" });
+    expect(line).toHaveTextContent("3 tools · 1 file · 1 command");
+    expect(screen.queryByRole("button", { name: /Bash tool call/ })).toBeNull();
+    fireEvent.click(line);
+    expect(screen.getByRole("button", { name: /Bash tool call/ })).toBeInTheDocument();
+  });
+
   it("idle session with an unresolved tool shows no spinner; error blocks render", async () => {
     await mount("idle", reduceAll([
       sessionEvent("tool_call", { toolUseId: "t1", name: "Read", input: { file_path: "/a/b.ts" }, parentToolUseId: null }),
@@ -176,12 +329,12 @@ describe("SessionPane", () => {
 
   it("offers the composer permission picker only for agents whose permission model Realm controls", async () => {
     const codex = await mountKind("codex");
-    expect(screen.getByRole("combobox", { name: "Permission mode" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Permission mode" })).toBeInTheDocument();
     codex.unmount();
     // AcpAdapter never transmits Realm's mode ids, so the picker would silently do nothing for an ACP agent.
     await mountKind("acp:cursor");
-    expect(screen.queryByRole("combobox", { name: "Permission mode" })).toBeNull();
-    expect(screen.getByRole("combobox", { name: "Effort" })).toBeInTheDocument(); // the rest of the bar is untouched
+    expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Effort" })).toBeInTheDocument(); // the rest of the bar is untouched
   });
 });
 
@@ -207,15 +360,70 @@ describe("permission keyboard (U-H4)", () => {
     expect(screen.getByRole("button", { name: "Allow" })).not.toHaveFocus();
   });
 
-  it("Enter=Allow, ⇧Enter=Always, ⌘⌫=Deny — and buttons carry visible kbd hints", async () => {
+  it("Enter=Allow, ⇧Enter=Always, ⌘⌫=Deny", async () => {
     const { decided, card } = await mountFocused(true);
     fireEvent.keyDown(card, { key: "Enter" });
     fireEvent.keyDown(card, { key: "Enter", shiftKey: true });
     fireEvent.keyDown(card, { key: "Backspace", metaKey: true });
     await waitFor(() => expect(decided).toEqual(["r1:allow", "r1:allow_always", "r1:deny"]));
-    expect(screen.getByRole("button", { name: "Allow" }).querySelector("kbd")).toHaveTextContent("⏎");
-    expect(screen.getByRole("button", { name: "Deny" }).querySelector("kbd")).toHaveTextContent("⌘⌫");
-    expect(screen.getByRole("button", { name: "Allow always" }).querySelector("kbd")).toHaveTextContent("⇧⏎");
+  });
+
+  it("options are a numbered list (§5): a number chip and its shortcut on every row, hints in the footer", async () => {
+    const { card } = await mountFocused(true);
+    const rows = within(card).getAllByRole("button").filter((b) => b.classList.contains("permission-option"));
+    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Allow", "Allow always", "Deny"]);
+    expect(rows.map((r) => r.querySelector(".permission-num")!.textContent)).toEqual(["1", "2", "3"]);
+    expect(rows.map((r) => r.querySelector(".permission-option-kbd")!.textContent)).toEqual(["⏎", "⇧⏎", "⌘⌫"]);
+    expect([...card.querySelectorAll(".permission-hints > span")].map((s) => s.textContent))
+      .toEqual(["↑↓ Navigate", "↵ Select", "esc Deny"]);
+    expect(within(card).getByRole("button", { name: "Submit" })).toHaveTextContent("↩");
+    // Amber is a dot and a pill now, not a wash over the whole head (§5).
+    expect(card.querySelector(".permission-dot")).not.toBeNull();
+    expect(card.querySelector('.status-pill[data-tone="warning"]')).toHaveTextContent("Waiting");
+  });
+
+  it("the number keys decide outright — 1 allows, 2 allows always, 3 denies", async () => {
+    const { decided, card } = await mountFocused(true);
+    for (const key of ["1", "2", "3"]) fireEvent.keyDown(card, { key });
+    await waitFor(() => expect(decided).toEqual(["r1:allow", "r1:allow_always", "r1:deny"]));
+  });
+
+  it("a modifier chord that merely contains a digit decides nothing — ⌘1 is switch-space, not Allow", async () => {
+    const { decided, card } = await mountFocused(true);
+    for (const mods of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }])
+      fireEvent.keyDown(card, { key: "1", ...mods });
+    expect(decided).toEqual([]);
+  });
+
+  it("↑↓ move the selection, Submit sends whatever is selected, and focus follows the selection", async () => {
+    const { decided, card } = await mountFocused(true);
+    const selected = () => card.querySelector<HTMLElement>(".permission-option[data-selected]")!.getAttribute("aria-label");
+    expect(selected()).toBe("Allow"); // Allow is the default, so a bare Enter still means Allow
+    fireEvent.keyDown(card, { key: "ArrowDown" });
+    fireEvent.keyDown(card, { key: "ArrowDown" });
+    expect(selected()).toBe("Deny");
+    expect(screen.getByRole("button", { name: "Deny" })).toHaveFocus();
+    fireEvent.click(within(card).getByRole("button", { name: "Submit" }));
+    await waitFor(() => expect(decided).toEqual(["r1:deny"]));
+  });
+
+  it("the selection wraps, and Enter on the card decides the SELECTED option, not a hardcoded Allow", async () => {
+    const { decided, card } = await mountFocused(true);
+    fireEvent.keyDown(card, { key: "ArrowUp" }); // wraps from Allow to Deny
+    expect(card.querySelector(".permission-option[data-selected]")).toHaveAttribute("aria-label", "Deny");
+    fireEvent.keyDown(card, { key: "Enter" }); // fired on the card, not on a button
+    await waitFor(() => expect(decided).toEqual(["r1:deny"]));
+  });
+
+  it("Escape denies (§5's footer hint) and does not leak to the app's global Escape handling", async () => {
+    const { decided, card } = await mountFocused(true);
+    const bubbled = vi.fn();
+    window.addEventListener("keydown", bubbled);
+    try {
+      fireEvent.keyDown(card, { key: "Escape" });
+      await waitFor(() => expect(decided).toEqual(["r1:deny"]));
+      expect(bubbled).not.toHaveBeenCalled();
+    } finally { window.removeEventListener("keydown", bubbled); }
   });
 
   it("plain Backspace and bare letters decide nothing", async () => {
@@ -282,6 +490,30 @@ describe("composer context row (git chips)", () => {
   });
 });
 
+describe("suggestion stagger runs once per session (§6 'never re-animate on revisit')", () => {
+  /** Its own session id: the played-set is module-level and every other hero mount in this file
+   *  marks "se1", which would make a first-mount assertion here order-dependent. */
+  async function mountHero(id: string) {
+    const api = fakeApi({ sessions: [session(id, "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { [id]: "idle" }, transcripts: { [id]: { lastSeq: 0, t: reduceAll([]) } } });
+    return render(<StoreContext.Provider value={store}><SessionPane item={item(`i-${id}`, "s1", { kind: "session", refId: id, title: "s" })} visible /></StoreContext.Provider>);
+  }
+
+  it("staggers on the first hero render and never again for that session, while a different session still gets its own", async () => {
+    const first = await mountHero("se-stagger-a");
+    expect(document.querySelector(".suggestions")).toHaveAttribute("data-animate");
+    first.unmount();
+    // Pane-slot keying remounts SessionPane on every tab-back; the chips must not replay.
+    const second = await mountHero("se-stagger-a");
+    expect(document.querySelector(".suggestions")).not.toHaveAttribute("data-animate");
+    second.unmount();
+    // ...but the guard is per session, not a global one-shot.
+    await mountHero("se-stagger-b");
+    expect(document.querySelector(".suggestions")).toHaveAttribute("data-animate");
+  });
+});
+
 describe("durable drafts (A-M9)", () => {
   it("a typed draft survives unmounting and remounting the pane, and is keyed to its own session", async () => {
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" }), session("se2", "s1", { status: "idle" })] });
@@ -308,7 +540,7 @@ describe("durable drafts (A-M9)", () => {
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
     render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
-    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
+    fireEvent.click(screen.getByRole("button", { name: /Say hello/ }));
     expect(store.getState().drafts.se1).toBe("Hello!");
   });
 });
@@ -366,70 +598,257 @@ describe("markdown + summaries", () => {
   });
 });
 
-describe("NewSessionSheet", () => {
-  it("shows a probe failure inline and in the error bar; Create stays disabled", async () => {
-    const api = fakeApi();
-    api.probeAgents = async () => { throw new Error("server down"); };
-    const store = createAppStore(api); await store.getState().boot();
-    render(<StoreContext.Provider value={store}><NewSessionSheet /></StoreContext.Provider>);
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("server down"));
-    expect(store.getState().error).toBe("server down");
-    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+/** Mounts the prompter for a session that has not run yet (no events anywhere), plus overrides. */
+async function mountFresh(extra: Partial<Parameters<typeof session>[2]> = {}, lastSeq = 0) {
+  const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", ...extra })] });
+  const store = createAppStore(api); await store.getState().boot();
+  store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq, t: reduceAll([]) } } });
+  const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" })} visible /></StoreContext.Provider>);
+  return { api, store, ...r };
+}
+
+describe("prompter agent chip (W3)", () => {
+  it("switches the agent on an unstarted session and drops the old kind's model", async () => {
+    const { api, store } = await mountFresh({ model: "claude-opus-5" });
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Claude · Claude Opus 5");
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Codex" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("codex"));
+    expect(api.calls).toContain("setSessionAgent:se1=codex");
+    // A claude model id means nothing to Codex: the chip falls back to Codex's frontier default label.
+    expect(store.getState().sessions.se1?.model).toBeNull();
+    expect(document.querySelector('.ghost-chip[title="Model"]')).toHaveTextContent("Codex · GPT-5.6");
   });
 
-  it("probes agents on open, lists projects, and creates a session with the chosen options", async () => {
-    const api = fakeApi({ projects: { s1: [{ id: "pr1", spaceId: "s1", name: "repo", rootPath: "/r", defaultBranch: "main", createdAt: 0, updatedAt: 0 }] } });
-    api.probeAgents = async () => { api.calls.push("probeAgents"); return [
-      { kind: "fake", available: true, version: "fake", loggedIn: true, reason: null },
-      { kind: "claude", available: false, version: null, loggedIn: false, reason: "claude CLI not found" },
-    ]; };
-    const store = createAppStore(api); await store.getState().boot();
-    store.getState().openSheet({ kind: "new-session" });
-    render(<StoreContext.Provider value={store}><NewSessionSheet /></StoreContext.Provider>);
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Fake agent/ })).toHaveAttribute("aria-checked", "true"));
-    expect(screen.getByRole("radio", { name: /Claude/ })).toBeDisabled();
-    fireEvent.change(screen.getByRole("combobox", { name: "Working directory" }), { target: { value: "pr1" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Model" }), { target: { value: "fake" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Permission mode" }), { target: { value: "acceptEdits" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
-    const s = Object.values(store.getState().sessions)[0]!;
-    expect(s).toMatchObject({ agentKind: "fake", projectId: "pr1", model: "fake", permissionMode: "acceptEdits" });
-    expect(store.getState().sheet).toBeNull();
-    expect(store.getState().items.some((i) => i.kind === "session" && i.refId === s.id)).toBe(true);
+  it("offers every selectable kind, with the current one checked", async () => {
+    await mountFresh();
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getAllByRole("menuitemcheckbox").map((n) => n.textContent)).toEqual(["Claude", "Codex", "Cursor"]);
+    expect(screen.getByRole("menuitemcheckbox", { name: "Claude" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("shows a login hint for the selected agent only, and it switches when the selection changes", async () => {
-    const api = fakeApi();
-    api.probeAgents = async () => [
-      { kind: "fake", available: true, version: "fake", loggedIn: true, reason: null },
-      { kind: "claude", available: true, version: "1.0", loggedIn: true, reason: null },
-    ];
-    const store = createAppStore(api); await store.getState().boot();
-    store.getState().openSheet({ kind: "new-session" });
-    render(<StoreContext.Provider value={store}><NewSessionSheet /></StoreContext.Provider>);
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Fake agent/ })).toHaveAttribute("aria-checked", "true"));
-    expect(screen.getByText(/Scripted offline agent used for development\./)).toBeInTheDocument();
-    expect(screen.queryByText(/claude auth login/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: /Claude/ }));
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Claude/ })).toHaveAttribute("aria-checked", "true"));
-    expect(screen.getByText(/claude auth login/)).toBeInTheDocument();
-    expect(screen.queryByText(/Scripted offline agent used for development\./)).not.toBeInTheDocument();
+  it("never hides a session's own kind, even one that is not offered fresh", async () => {
+    // `fake` is the dev adapter and absent from SELECTABLE_AGENT_KINDS; a fake session that could not
+    // see itself would show a menu with no checkmark anywhere.
+    await mountFresh({ agentKind: "fake" });
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getAllByRole("menuitemcheckbox").map((n) => n.textContent)).toEqual(["Fake agent", "Claude", "Codex", "Cursor"]);
+    expect(screen.getByRole("menuitemcheckbox", { name: "Fake agent" })).toHaveAttribute("aria-checked", "true");
   });
-  it("hides the Permissions field for an ACP agent and keeps it for Codex", async () => {
-    const api = fakeApi();
-    api.probeAgents = async () => [
-      { kind: "codex", available: true, version: "1.0", loggedIn: true, reason: null },
-      { kind: "acp:cursor", available: true, version: "1.0", loggedIn: true, reason: null },
-    ];
+
+  it("goes static the moment the session has an event — the affordance is gone before the server would refuse", async () => {
+    // A transcript that has already reduced one event locks it…
+    const { store } = await mountFresh({}, 1);
+    expect(screen.queryByRole("button", { name: "Agent" })).toBeNull();
+    expect(document.querySelector('.ghost-chip[data-static][title^="Agent:"]')!.tagName).toBe("SPAN");
+    // …and so does a live event arriving into an open, still-switchable prompter.
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Agent" })).toBeInTheDocument());
+    act(() => store.getState().applySessionEvent({ seq: 7, sessionId: "se1", ephemeral: false, event: sessionEvent("user_message", { text: "hi", attachments: [] }) }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Agent" })).toBeNull());
+  });
+
+  it("a session whose row already carries events is locked even before its transcript loads", async () => {
+    // lastEventSeq comes back with sessions.list; the transcript is fetched afterwards. Trusting only
+    // the transcript would flash a live agent picker on every revisit of a long-running session.
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", lastEventSeq: 12 })] });
     const store = createAppStore(api); await store.getState().boot();
-    store.getState().openSheet({ kind: "new-session" });
-    render(<StoreContext.Provider value={store}><NewSessionSheet /></StoreContext.Provider>);
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Codex/ })).toHaveAttribute("aria-checked", "true"));
-    expect(screen.getByRole("combobox", { name: "Permission mode" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: /Cursor/ }));
-    // Offering Plan for an agent that never receives it is the dangerous kind of inconsistency.
-    await waitFor(() => expect(screen.queryByRole("combobox", { name: "Permission mode" })).toBeNull());
-    expect(screen.getByRole("combobox", { name: "Working directory" })).toBeInTheDocument();
+    store.setState({ sessionStatus: { se1: "idle" } });
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" })} visible /></StoreContext.Provider>);
+    await waitFor(() => expect(document.querySelector('.ghost-chip[title^="Agent:"]')).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Agent" })).toBeNull();
+  });
+});
+
+
+/** A hub over a no-op transport and a stub xterm — the drawer only has to mount, not render a shell. */
+function fakeHub() {
+  const transport: HubTransport = { on: () => () => {}, call: async () => ({ ok: true }) };
+  const term: TerminalLike = {
+    cols: 80, rows: 24, open: () => {}, write: () => {}, dispose: () => {}, focus: () => {},
+    onData: () => ({ dispose() {} }), onResize: () => ({ dispose() {} }),
+  };
+  return new TerminalHub(transport, () => ({ term, fit: { fit() {} } }));
+}
+
+describe("the session's terminal drawer (W4)", () => {
+  beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
+  afterEach(() => { setTerminalHubForTests(null); vi.unstubAllGlobals(); });
+
+  const sessionItem = item("i9", "s1", { kind: "session", refId: "se1", title: "Fake agent session" });
+
+  /** The pane AND its header, which is where the toggle lives (PanelBar renders per-kind actions). */
+  async function mountPane(panel?: { open: boolean; width: number }) {
+    setTerminalHubForTests(fakeHub());
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } }, ...(panel ? { terminalPanel: { se1: panel } } : {}) });
+    const r = render(
+      <StoreContext.Provider value={store}>
+        <PanelBar item={sessionItem} onSplit={() => {}} onClose={() => {}} />
+        <SessionPane item={sessionItem} visible />
+      </StoreContext.Provider>,
+    );
+    return { api, store, ...r };
+  }
+
+  const toggle = () => screen.getByRole("button", { name: /(Show|Hide) terminal for Fake agent session/ });
+
+  it("is absent until the header toggle is pressed — mounting a session never spawns a shell", async () => {
+    const { api, store } = await mountPane();
+    expect(document.querySelector(".terminal-pane")).toBeNull();
+    expect(toggle()).toHaveAttribute("aria-pressed", "false");
+    expect(api.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+
+    fireEvent.click(toggle());
+    await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
+    expect(api.calls).toContain("openSessionTerminal:se1");
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
+    // The drawer is INTERNAL to the session pane: the transcript is still right there beside it.
+    expect(document.querySelector(".session-split .session-pane")).not.toBeNull();
+  });
+
+  it("reopening a session whose drawer was left open restores it, at its persisted width", async () => {
+    await mountPane({ open: true, width: 44 });
+    await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
+    const panels = [...document.querySelectorAll(".session-split > [data-panel]")];
+    expect(panels).toHaveLength(2);
+    expect(panels[1]).toHaveStyle({ flexGrow: "44" }); // 38% is only the FIRST-open default
+  });
+
+  it("hiding it removes the view but keeps the terminal — nothing is disposed", async () => {
+    const { api, store } = await mountPane({ open: true, width: 38 });
+    await waitFor(() => expect(store.getState().sessionTerminals["se1"]).toBe("term-se1"));
+    fireEvent.click(toggle());
+    await waitFor(() => expect(document.querySelector(".terminal-pane")).toBeNull());
+    expect(api.disposed).toEqual([]);
+    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
+  });
+
+  it("a terminal item's header has no such toggle — only sessions own one", () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    render(<StoreContext.Provider value={store}><PanelBar item={item("i1", "s1", { kind: "terminal", title: "zsh" })} onSplit={() => {}} onClose={() => {}} /></StoreContext.Provider>);
+    expect(screen.queryByRole("button", { name: /terminal for zsh/ })).toBeNull();
+  });
+});
+
+describe("the CLI-missing install card (W4)", () => {
+  beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
+  afterEach(() => { setTerminalHubForTests(null); vi.unstubAllGlobals(); });
+
+  const sessionItem = item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" });
+  const ready: AgentProbe = { kind: "claude", available: true, version: "2.0.1", loggedIn: true, reason: null };
+  const missing: AgentProbe = { kind: "claude", available: false, version: null, loggedIn: null, reason: "spawn claude ENOENT" };
+  const signedOut: AgentProbe = { kind: "claude", available: true, version: "2.0.1", loggedIn: false, reason: "not logged in — run `claude auth login`" };
+
+  async function mountAgent(agentProbe: AgentProbe[], status: "idle" | "running" = "idle") {
+    setTerminalHubForTests(fakeHub());
+    const api = fakeApi({ sessions: [session("se1", "s1", { status, agentKind: "claude" })], agentProbe });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: status }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    const r = render(
+      <StoreContext.Provider value={store}>
+        <PanelBar item={sessionItem} onSplit={() => {}} onClose={() => {}} />
+        <SessionPane item={sessionItem} visible />
+      </StoreContext.Provider>,
+    );
+    return { api, store, ...r };
+  }
+
+  const prompter = () => screen.queryByRole("textbox", { name: /message/i });
+
+  it("an AVAILABLE agent keeps the prompter and shows no card", async () => {
+    const { api } = await mountAgent([ready]);
+    await waitFor(() => expect(api.calls).toContain("probeAgents:false"));
+    expect(prompter()).toBeInTheDocument();
+    expect(document.querySelector(".install-card")).toBeNull();
+  });
+
+  it("an un-probed agent keeps the prompter — the card never appears on a guess", async () => {
+    const { store } = await mountAgent([{ ...ready, kind: "codex" }]);
+    await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+    expect(prompter()).toBeInTheDocument();
+    expect(document.querySelector(".install-card")).toBeNull();
+  });
+
+  it("a MISSING CLI replaces the prompter with the probe's reason and the INSTALL command", async () => {
+    await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    expect(prompter()).toBeNull(); // replaced, not merely disabled
+    expect(screen.getByRole("group", { name: /isn’t installed/ })).toBeInTheDocument();
+    expect(screen.getByText("spawn claude ENOENT")).toBeInTheDocument();
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.install)).toBeInTheDocument();
+    expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.login)).toBeNull();
+  });
+
+  it("a SIGNED-OUT CLI is a different card with the LOGIN command", async () => {
+    await mountAgent([signedOut]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    expect(screen.getByRole("group", { name: /isn’t signed in/ })).toBeInTheDocument();
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login)).toBeInTheDocument();
+    expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.install)).toBeNull();
+  });
+
+  it("never takes the prompter away mid-turn — Stop must survive a probe that goes sour", async () => {
+    const { api } = await mountAgent([missing], "running");
+    await waitFor(() => expect(api.calls).toContain("probeAgents:false"));
+    expect(document.querySelector(".install-card")).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+  });
+
+  it("'Open in terminal' opens the session's panel with the command TYPED, never run", async () => {
+    const { api } = await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("prefillTerminal:"))).toBe(true));
+    expect(api.calls).toContain("openSessionTerminal:se1");
+    expect(api.calls).toContain(`prefillTerminal:term-se1=${AGENT_CLI_COMMANDS.claude.install}`);
+    expect(api.calls.find((c) => c.startsWith("prefillTerminal:"))).not.toMatch(/[\r\n]$/);
+    await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
+  });
+
+  it("'Check again' re-probes past the cache and the prompter comes back — no restart", async () => {
+    const { api } = await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    api.data.agentProbe = [ready]; // the user installed it in another window
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(prompter()).toBeInTheDocument());
+    expect(document.querySelector(".install-card")).toBeNull();
+    expect(api.calls).toContain("probeAgents:true");
+  });
+
+  it("window focus re-probes too — the fix happens in another app", async () => {
+    const { api } = await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    api.data.agentProbe = [ready];
+    fireEvent.focus(window);
+    await waitFor(() => expect(prompter()).toBeInTheDocument());
+    expect(api.calls).toContain("probeAgents:true");
+  });
+
+  it("the agent chip labels unavailable agents but still lets you pick one — the pick leads to the card", async () => {
+    // The W3 regression this restores: the chip offered every agent unconditionally, so an uninstalled
+    // pick failed at the first message instead of at pick time.
+    const { api, store } = await mountAgent([
+      { ...ready, kind: "codex" },
+      { ...missing, kind: "claude" },
+    ]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    // Switch the session to the working agent from the card-less state: flip claude to ready first.
+    api.data.agentProbe = [ready, { ...missing, kind: "codex" }];
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(prompter()).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: /Codex — not installed/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: /^Claude/ })).not.toHaveTextContent("not installed");
+    // Pickable, not disabled: choosing it is how the user reaches the install command.
+    const codex = screen.getByRole("menuitemcheckbox", { name: /Codex — not installed/ });
+    expect(codex).toBeEnabled();
+    fireEvent.click(codex);
+    await waitFor(() => expect(store.getState().sessions.se1!.agentKind).toBe("codex"));
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    expect(prompter()).toBeNull();
   });
 });

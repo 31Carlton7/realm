@@ -16,6 +16,8 @@ async function mount(over: Parameters<typeof fakeApi>[0] = {}) {
 
 const key = (init: KeyboardEventInit & { key: string }, target: Element | Window = window) =>
   fireEvent.keyDown(target, init);
+/** Let any promise chain a binding kicked off settle, so "nothing happened" assertions are real. */
+const tick = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
 //    root (row)
 //   ┌─────┬─────┐
@@ -120,12 +122,28 @@ describe("useGlobalHotkeys", () => {
     expect(store.getState().layout).toEqual(grid);
   });
 
-  it("⌘T opens a terminal; ⌘N opens the new-session sheet", async () => {
-    const { store } = await mount();
+  it("⌘T opens a terminal; ⌘N creates a session immediately — no sheet, no questions (W3)", async () => {
+    const { api, store } = await mount();
     key({ key: "t", metaKey: true });
     await waitFor(() => expect(store.getState().items.some((i) => i.kind === "terminal" && i.id !== "i1")).toBe(true));
     key({ key: "n", metaKey: true });
-    expect(store.getState().sheet).toEqual({ kind: "new-session" });
+    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
+    expect(store.getState().sheet).toBeNull();
+    // No remembered agent: Claude, and the session is open and focused in its own pane.
+    expect(api.calls).toContain("createSession:claude");
+    const se = Object.values(store.getState().sessions)[0]!;
+    expect(store.getState().items.some((i) => i.kind === "session" && i.refId === se.id)).toBe(true);
+  });
+
+  it("⌘N reaches for the last-used agent, persisted across launches", async () => {
+    const { api, store } = await mount();
+    await act(() => store.getState().newSession({ agentKind: "codex" }));
+    await waitFor(() => expect(api.data.settings["ui.lastAgentKind"]).toBe("codex"));
+    key({ key: "n", metaKey: true });
+    await waitFor(() => expect(api.calls.filter((c) => c === "createSession:codex")).toHaveLength(2));
+    // A fresh store over the same settings still remembers — this is a setting, not session state.
+    const next = createAppStore(api); await next.getState().boot();
+    expect(next.getState().lastAgentKind).toBe("codex");
   });
 
   it("Esc interrupts the focused pane's session only while it is running", async () => {
@@ -193,6 +211,59 @@ describe("useGlobalHotkeys", () => {
     e.preventDefault();
     window.dispatchEvent(e);
     expect(store.getState().layout).toEqual(grid);
+  });
+
+  describe("⌘J — the focused session's terminal drawer (W4)", () => {
+    const focusedSession = async () => {
+      const it9 = item("i9", "s1", { kind: "session", refId: "se1" });
+      const r = await mount({ items: { s1: [it9] }, sessions: [session("se1", "s1")] });
+      act(() => r.store.setState({ layout: { type: "leaf", id: "L1", itemId: "i9" }, focusedLeafId: "L1" }));
+      return r;
+    };
+
+    it("toggles the panel open, then shut", async () => {
+      const { api, store } = await focusedSession();
+      key({ key: "j", metaKey: true });
+      await waitFor(() => expect(store.getState().terminalPanel["se1"]?.open).toBe(true));
+      expect(api.calls).toContain("openSessionTerminal:se1");
+      key({ key: "j", metaKey: true });
+      await waitFor(() => expect(store.getState().terminalPanel["se1"]?.open).toBe(false));
+    });
+
+    it("fires from inside the terminal it opened — a focused xterm must not swallow its own toggle", async () => {
+      const { store } = await focusedSession();
+      const host = document.createElement("div"); host.className = "xterm";
+      const ta = document.createElement("textarea"); ta.className = "xterm-helper-textarea";
+      host.appendChild(ta); document.body.appendChild(ta.parentElement!); ta.focus();
+      key({ key: "j", metaKey: true }, ta);
+      await waitFor(() => expect(store.getState().terminalPanel["se1"]?.open).toBe(true));
+      host.remove();
+    });
+
+    it("fires from the composer too — that is where the hands are", async () => {
+      const { store } = await focusedSession();
+      const ta = document.createElement("textarea"); document.body.appendChild(ta); ta.focus();
+      key({ key: "j", metaKey: true }, ta);
+      await waitFor(() => expect(store.getState().terminalPanel["se1"]?.open).toBe(true));
+      ta.remove();
+    });
+
+    it("does nothing when the focused pane is not a session (and never spawns a pty)", async () => {
+      const { api, store } = await mount();
+      act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i1" }, focusedLeafId: "L1", items: [item("i1", "s1", { kind: "terminal" })] }));
+      key({ key: "j", metaKey: true });
+      await tick();
+      expect(store.getState().terminalPanel).toEqual({});
+      expect(api.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+    });
+
+    it("is still governed by the overlay guard: a sheet owns the keyboard", async () => {
+      const { store } = await focusedSession();
+      act(() => store.getState().openSheet({ kind: "new-space" }));
+      key({ key: "j", metaKey: true });
+      await tick();
+      expect(store.getState().terminalPanel["se1"]).toBeUndefined();
+    });
   });
 
   it("⌘3 with three spaces reaches the third (index mapping, not offset)", async () => {
