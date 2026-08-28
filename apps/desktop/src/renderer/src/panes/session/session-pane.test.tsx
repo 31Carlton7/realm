@@ -300,6 +300,22 @@ describe("SessionPane", () => {
     expect(decided).toEqual(["r2:deny", "r1:allow"]);
   });
 
+  it("a finished run of consecutive tool calls reaches the pane as one collapsed ledger line (§5)", async () => {
+    await mount("idle", reduceAll([
+      sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "ls" }, parentToolUseId: null }),
+      sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false }),
+      sessionEvent("tool_call", { toolUseId: "t2", name: "Read", input: { file_path: "/a.ts" }, parentToolUseId: null }),
+      sessionEvent("tool_result", { toolUseId: "t2", content: "ok", isError: false }),
+      sessionEvent("tool_call", { toolUseId: "t3", name: "Edit", input: { file_path: "/a.ts" }, parentToolUseId: null }),
+      sessionEvent("tool_result", { toolUseId: "t3", content: "ok", isError: false }),
+    ]));
+    const line = screen.getByRole("button", { name: "3 tool calls" });
+    expect(line).toHaveTextContent("3 tools · 1 file · 1 command");
+    expect(screen.queryByRole("button", { name: /Bash tool call/ })).toBeNull();
+    fireEvent.click(line);
+    expect(screen.getByRole("button", { name: /Bash tool call/ })).toBeInTheDocument();
+  });
+
   it("idle session with an unresolved tool shows no spinner; error blocks render", async () => {
     await mount("idle", reduceAll([
       sessionEvent("tool_call", { toolUseId: "t1", name: "Read", input: { file_path: "/a/b.ts" }, parentToolUseId: null }),

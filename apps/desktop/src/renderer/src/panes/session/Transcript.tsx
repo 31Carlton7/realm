@@ -4,7 +4,8 @@ import type { SessionStatus } from "@realm/contracts";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { PermissionCard } from "./PermissionCard";
-import { ToolCard } from "./ToolCard";
+import { ToolCard, ToolGroup } from "./ToolCard";
+import { groupTranscript } from "./tool-group";
 import { blockKey, type Transcript as TranscriptModel } from "./transcript-model";
 import { useEnterTracker } from "./transcript-enter";
 
@@ -62,8 +63,14 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
     <div className="transcript-wrap">
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
         <div className="transcript-col">
-        {transcript.blocks.map((b, i) => {
-          const key = blockKey(b, i), enter = isEntering(key);
+        {groupTranscript(transcript.blocks).map((it) => {
+          if (it.kind === "group")
+            // The group container itself never animates in: when a run crosses the grouping
+            // threshold the cards it swallows are already on screen, and wrapping them in a fresh
+            // entrance would replay motion for items the reader has been watching.
+            return <ToolGroup key={it.key} sessionStatus={sessionStatus}
+              steps={it.steps.map((s) => ({ ...s, enter: isEntering(s.key) }))} />;
+          const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
             case "user": return <div key={key} className="msg-user-row" data-enter={enter || undefined}><div className="msg-user">{b.text}</div></div>;
             case "assistant": return <Markdown key={key} className="msg-assistant" text={b.text} streaming={b.streaming} enter={enter} />;

@@ -328,21 +328,43 @@ button.panel-title:hover { background: var(--rl-hover); }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
-/* §5: collapsed reads as a borderless row on the transcript; the card edge appears only expanded. */
-.tool-card { border-radius: var(--r-ctl); background: var(--rl-panel); font-size: 12px; overflow: hidden; }
-.tool-card[data-open] { box-shadow: var(--rl-edge); }
-.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; text-align: left; color: var(--rl-text-bright); }
+/* §5: collapsed reads as a plain row on the transcript — no fill, no border, nothing but the row.
+   The card only becomes a card when it opens: panel fill plus the --rl-edge hairline. */
+.tool-card { border-radius: var(--r-ctl); font-size: 12px; }
+.tool-card[data-open] { background: var(--rl-panel); box-shadow: var(--rl-edge); }
+.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); text-align: left; color: var(--rl-text-bright); }
 .tool-row:hover { background: var(--rl-hover); }
-.tool-chevron { color: var(--rl-text-faint); transition: transform 120ms var(--ease); flex: none; }
-.tool-card[data-open] .tool-chevron { transform: rotate(90deg); }
-.tool-name { font-weight: 600; flex: none; }
+.tool-chevron { color: var(--rl-text-faint); transition: transform 200ms var(--ease-in-out-strong); flex: none; }
+.tool-card[data-open] .tool-chevron, .tool-group[data-open] .tool-chevron { transform: rotate(90deg); }
+.tool-name { font-size: 12.5px; font-weight: 550; flex: none; }
+
+/* §6 tool-row expand: height animates via grid-template-rows 0fr→1fr over 200ms, content fades at
+   120ms. .tool-body-clip is the overflow container the 0fr row needs to clip against. */
+.tool-body-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 200ms var(--ease-in-out-strong); }
+.tool-card[data-open] .tool-body-wrap { grid-template-rows: 1fr; }
+.tool-body-clip { overflow: hidden; min-height: 0; }
+.tool-card[data-open] .tool-body { opacity: 1; }
+
+/* Grouped runs (§2.8/§5): one ledger line, steps hanging off a dashed connector when opened. */
+.tool-group { border-radius: var(--r-ctl); font-size: 12px; }
+.tool-group-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); text-align: left; color: var(--rl-text-dim); }
+.tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tool-group-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tool-group-steps { margin-left: 15px; padding-left: 10px; border-left: 1px dashed var(--rl-line-strong); display: flex; flex-direction: column; gap: 1px; }
 .tool-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
 .tool-status { display: grid; place-items: center; width: 16px; color: var(--rl-text-faint); flex: none; }
 .tool-card[data-state="ok"] .tool-status { color: var(--rl-success); }
 .tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
 .tool-card[data-state="running"] .tool-status { color: var(--rl-success); } /* §3: nothing running-related uses accent */
-.tool-body { border-top: 1px solid var(--rl-line); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.tool-body { border-top: 1px solid var(--rl-line); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;
+  opacity: 0; transition: opacity 120ms ease; }
 .tool-section { display: flex; flex-direction: column; }
+/* Copy ✓ (§6 icon swap): both glyphs stacked in one grid cell, cross-fading with scale + blur. */
+.tool-copy { position: relative; }
+.tool-copy .copy-icon, .tool-copy .copied-icon { grid-area: 1 / 1;
+  transition: opacity 160ms var(--ease-out-strong), transform 160ms var(--ease-out-strong), filter 160ms var(--ease-out-strong); }
+.tool-copy .copied-icon { color: var(--rl-success); }
+.tool-copy:not([data-copied]) .copied-icon, .tool-copy[data-copied] .copy-icon { opacity: 0; transform: scale(.25); filter: blur(4px); }
 .tool-label { display: flex; align-items: center; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-dim); margin-bottom: 4px; }
 .tool-copy { margin-left: auto; display: grid; place-items: center; width: 20px; height: 20px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
 .tool-copy:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -520,7 +542,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    with data-enter the first time it is seen after mount and never takes the mark away — so a
    re-render, a scroll, or coming back to the session cannot replay (or abort) an entrance, and a
    restored history animates nothing at all. */
-.transcript-col > [data-enter] { animation: rl-msg-in 180ms var(--ease-out-strong); }
+.transcript-col > [data-enter], .tool-group-steps > [data-enter] { animation: rl-msg-in 180ms var(--ease-out-strong); }
 @keyframes rl-msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* §6 "do NOT animate": the command palette is a 100×/day action (Raycast rule) — it appears and

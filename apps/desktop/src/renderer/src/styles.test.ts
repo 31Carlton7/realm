@@ -90,6 +90,19 @@ describe("§6 motion table", () => {
     expect(bodiesFor('.composer-send[data-state="send"] .stop-icon').join(" ")).toContain("blur(4px)");
   });
 
+  it("the tool row expands by animating grid-template-rows over 200ms, with the content fading at 120ms", () => {
+    expect(bodiesFor(".tool-body-wrap").join(" ")).toContain("transition: grid-template-rows 200ms var(--ease-in-out-strong)");
+    expect(bodiesFor(".tool-body-wrap").join(" ")).toContain("grid-template-rows: 0fr");
+    expect(bodiesFor(".tool-card[data-open] .tool-body-wrap").join(" ")).toContain("grid-template-rows: 1fr");
+    expect(bodiesFor(".tool-body").join(" ")).toContain("transition: opacity 120ms ease");
+  });
+
+  it("the copy ✓ swap uses the same 160ms opacity/scale/blur cross-fade as send↔stop", () => {
+    const swap = bodiesFor(".tool-copy .copy-icon").join(" ");
+    for (const prop of ["opacity 160ms", "transform 160ms", "filter 160ms"]) expect(swap, prop).toContain(prop);
+    expect(bodiesFor(".tool-copy:not([data-copied]) .copied-icon").join(" ")).toContain("blur(4px)");
+  });
+
   it("W2's prompter hero→docked move keeps its 320ms ease-in-out-strong (§6 assigns that easing to on-screen movement)", () => {
     expect(bodiesFor(".composer-dock").join(" ")).toContain("transition: transform 320ms var(--ease-in-out-strong)");
   });

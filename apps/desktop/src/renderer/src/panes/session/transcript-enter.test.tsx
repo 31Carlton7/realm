@@ -110,6 +110,17 @@ describe("Transcript enter animation (§6: 180ms, new items only)", () => {
     expect(entering()).toEqual([]);
   });
 
+  it("inside a live tool group, only the step that just landed animates — the group wrapper never does", () => {
+    // Three unfinished tools while the session runs: grouped, and auto-open because work is live.
+    const run = (n: number) => model(Array.from({ length: n }, (_, k) => tool(`t${k + 1}`)));
+    const { rerender } = render(view(run(3), "running"));
+    expect(entering()).toEqual([]);
+    rerender(view(run(4), "running"));
+    const steps = [...document.querySelectorAll<HTMLElement>(".tool-group-steps > *")];
+    expect(steps.map((el) => el.hasAttribute("data-enter"))).toEqual([false, false, false, true]);
+    expect(document.querySelector(".tool-group")).not.toHaveAttribute("data-enter");
+  });
+
   it("a permission card arriving mid-session animates in", () => {
     const { rerender } = render(view(model([user("hi")]), "waiting_permission"));
     rerender(view(model([user("hi")], [perm("r1")]), "waiting_permission"));
