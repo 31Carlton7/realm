@@ -74,6 +74,8 @@ export class TerminalService {
   }
 
   write(terminalId: string, data: string): void { this.manager.write(terminalId, data); }
+  /** Type `command` into the terminal once its shell settles. No trailing newline — the user presses Return. */
+  prefill(terminalId: string, command: string): Promise<void> { return this.manager.writeWhenQuiet(terminalId, command); }
   resize(terminalId: string, cols: number, rows: number): void { this.manager.resize(terminalId, cols, rows); }
 
   /** Kill the pty (if still alive), delete the row and the item. Throws NOT_FOUND if none of the three exist. */

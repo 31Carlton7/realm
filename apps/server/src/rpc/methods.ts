@@ -67,6 +67,7 @@ export function registerMethods(d: Deps): void {
 
   reg("terminals.create", (p) => d.terminals.open(p));
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
+  reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });
   reg("terminals.close", (p) => { d.terminals.close(p.terminalId); return { ok: true as const }; });
 

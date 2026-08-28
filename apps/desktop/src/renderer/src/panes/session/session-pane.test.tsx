@@ -802,10 +802,10 @@ describe("the CLI-missing install card (W4)", () => {
     const { api } = await mountAgent([missing]);
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
-    await waitFor(() => expect(api.calls.some((c) => c.startsWith("writeTerminal:"))).toBe(true));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("prefillTerminal:"))).toBe(true));
     expect(api.calls).toContain("openSessionTerminal:se1");
-    expect(api.calls).toContain(`writeTerminal:term-se1=${AGENT_CLI_COMMANDS.claude.install}`);
-    expect(api.calls.find((c) => c.startsWith("writeTerminal:"))).not.toMatch(/[\r\n]$/);
+    expect(api.calls).toContain(`prefillTerminal:term-se1=${AGENT_CLI_COMMANDS.claude.install}`);
+    expect(api.calls.find((c) => c.startsWith("prefillTerminal:"))).not.toMatch(/[\r\n]$/);
     await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
   });
 

@@ -1258,10 +1258,10 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
 
     expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
     expect(a.calls).toContain("openSessionTerminal:se1");
-    const write = a.calls.find((c) => c.startsWith("writeTerminal:"))!;
-    expect(write).toBe("writeTerminal:term-se1=npm install -g @anthropic-ai/claude-code");
+    const write = a.calls.find((c) => c.startsWith("prefillTerminal:"))!;
+    expect(write).toBe("prefillTerminal:term-se1=npm install -g @anthropic-ai/claude-code");
     // The mutant: a trailing "\n" (or "\r") is what EXECUTES the line. Realm offers; the user presses Return.
-    const data = write.slice("writeTerminal:term-se1=".length);
+    const data = write.slice("prefillTerminal:term-se1=".length);
     expect(data).not.toMatch(/[\r\n]/);
   });
 
@@ -1273,7 +1273,7 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
     a.calls.length = 0;
     await store.getState().prefillTerminal("se1", "codex login");
     expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(0); // already known
-    expect(a.calls).toContain("writeTerminal:term-se1=codex login");
+    expect(a.calls).toContain("prefillTerminal:term-se1=codex login");
     expect(store.getState().terminalPanel["se1"]!.open).toBe(true);
   });
 
@@ -1289,7 +1289,7 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
     await store.getState().prefillTerminal("se1", "codex login");
     await drawerEffect;
     expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1);
-    expect(a.calls).toContain("writeTerminal:term-se1=codex login");
+    expect(a.calls).toContain("prefillTerminal:term-se1=codex login");
   });
 
   it("setDefaultAgent writes the same setting the prompter's agent chip writes", async () => {

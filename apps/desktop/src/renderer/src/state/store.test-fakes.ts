@@ -153,6 +153,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return made;
     },
     writeTerminal: async (terminalId, data) => { calls.push(`writeTerminal:${terminalId}=${data}`); },
+    prefillTerminal: async (terminalId, command) => { calls.push(`prefillTerminal:${terminalId}=${command}`); },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");

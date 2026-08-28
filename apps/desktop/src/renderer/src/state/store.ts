@@ -70,6 +70,8 @@ export type Api = {
   /** `terminals.write` — raw bytes into a pty. A trailing "\n" is what RUNS the line, so callers that
    *  are only offering a command (the install card) must not send one. */
   writeTerminal(terminalId: string, data: string): Promise<void>;
+  /** Type a command into a terminal once its shell goes quiet; never appends a newline. */
+  prefillTerminal(terminalId: string, command: string): Promise<void>;
   /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
   probeAgents(force: boolean): Promise<AgentProbe[]>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
@@ -816,7 +818,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const terminalId = get().sessionTerminals[sessionId];
         if (!terminalId) return; // the shell never came up; the card still shows the command to copy
         // NO trailing newline, ever: the command is offered, not run. The user presses Return.
-        await api.writeTerminal(terminalId, command);
+        // Goes through prefill (not write) so the server holds it until the shell stops printing its
+        // startup — otherwise the leading characters get eaten by that output.
+        await api.prefillTerminal(terminalId, command);
       },
       setDraft(sessionId, text) { set({ drafts: { ...get().drafts, [sessionId]: text } }); },
       async ensureSessionTerminal(sessionId) {
