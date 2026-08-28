@@ -99,7 +99,7 @@ describe("Arc sidebar", () => {
     expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
-    await waitFor(() => expect(store.getState().items).toHaveLength(0));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
     expect(api.calls).toContain("deleteItem:i1");
   });
 
@@ -120,7 +120,7 @@ describe("Arc sidebar", () => {
     // Two clicks within one open menu delete for real.
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
-    await waitFor(() => expect(store.getState().items).toHaveLength(0));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
     expect(api.calls).toContain("deleteItem:i1");
   });
 
@@ -265,7 +265,7 @@ describe("Arc sidebar", () => {
     const { store } = await mount(api);
     expect(screen.getByRole("button", { name: "Beta" }).closest(".item")!.querySelector(".item-close")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Close Alpha" }));
-    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBeNull(); });
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).not.toBe("i1"); });
     expect(api.calls).not.toContain("deleteItem:i1");
     expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists, just unopened
   });
@@ -282,7 +282,7 @@ describe("Arc sidebar", () => {
     expect(screen.getByRole("menuitem", { name: "Close" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Close" }));
-    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBeNull(); });
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).not.toBe("i1"); });
     expect(api.calls).not.toContain("deleteItem:i1");
     expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists
 
@@ -309,7 +309,9 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
     expect(api.calls).toContain("deleteItem:i1");
     const l = store.getState().layout!;
-    expect(l.type === "leaf" && l.itemId).toBeNull(); // the leaf it occupied is empty, not still pointing at i1
+    // The leaf no longer points at i1. It isn't empty either: deleting the last open pane lands in a
+    // fresh session rather than an empty-state placeholder.
+    expect(l.type === "leaf" && l.itemId).not.toBe("i1");
   });
 
   it("during a row split, OPEN rows render the quadrant glyph lighting the correct column", async () => {

@@ -183,10 +183,12 @@ describe("app store", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().openItem("i1");
+    await store.getState().splitFocused("row");
+    await store.getState().newTerminal(); // a second pane, so this delete is not a close-to-empty
     const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
     await store.getState().deleteItem("i1");
-    expect(store.getState().items).toHaveLength(0);
-    expect(store.getState().layout).toEqual(expect.objectContaining({ type: "leaf", itemId: null }));
+    expect(store.getState().items.map((i) => i.id)).not.toContain("i1");
+    expect(allItems(store.getState().layout!)).not.toContain("i1");
     expect(api.calls).toContain("deleteItem:i1");
     expect(api.disposed).toEqual(["i1"]);
     // deleteItem delegates the layout write entirely to closeFromLayout — exactly one persist, not two.
@@ -197,14 +199,71 @@ describe("app store", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().openItem("i1");
-    expect(allItems(store.getState().layout!)).toEqual(["i1"]);
+    await store.getState().splitFocused("row");
+    await store.getState().newTerminal(); // a second pane, so this close is not a close-to-empty
+    expect(allItems(store.getState().layout!)).toContain("i1");
     const persists = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
     await store.getState().closeFromLayout("i1");
-    expect(allItems(store.getState().layout!)).toEqual([]);
-    expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]); // back in the SPACE group
+    expect(allItems(store.getState().layout!)).not.toContain("i1");
+    expect(store.getState().items.map((i) => i.id)).toContain("i1"); // back in the SPACE group
     expect(api.calls.filter((c) => c.startsWith("deleteItem"))).toEqual([]);
     expect(api.disposed).toEqual([]);
     expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(persists + 1); // the close itself persisted
+  });
+
+  describe("closing the last pane", () => {
+    it("opens a fresh session rather than leaving an empty layout", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().closeFromLayout("i1");
+      // The closed item is gone from the layout but a new session took its place.
+      const open = allItems(store.getState().layout!);
+      expect(open).toHaveLength(1);
+      expect(open).not.toContain("i1");
+      expect(api.calls.filter((c) => c.startsWith("createSession"))).toHaveLength(1);
+      expect(store.getState().items.map((i) => i.id)).toContain("i1"); // close is not delete
+    });
+
+    it("uses the last-used agent, like every other create path", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().setDefaultAgent("codex");
+      await store.getState().openItem("i1");
+      await store.getState().closeFromLayout("i1");
+      expect(api.calls).toContain("createSession:codex");
+    });
+
+    it("deleting the last item also lands in a fresh session", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().deleteItem("i1");
+      expect(allItems(store.getState().layout!)).toHaveLength(1);
+      expect(api.calls.filter((c) => c.startsWith("createSession"))).toHaveLength(1);
+    });
+
+    it("closing a pane that is not the last one creates nothing", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().splitFocused("row");
+      await store.getState().newTerminal();
+      await store.getState().closeFromLayout("i1");
+      expect(api.calls.filter((c) => c.startsWith("createSession"))).toEqual([]);
+    });
+
+    it("a reconcile that empties the layout does not manufacture a session", async () => {
+      // The guard that matters: reconcileLayout prunes items the server no longer reports, and a
+      // hiccup there must not spawn sessions. Only the deliberate close path creates.
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      api.data.items["s1"] = [];               // the item vanished server-side
+      await store.getState().refreshItems();
+      expect(allItems(store.getState().layout!)).toEqual([]);
+      expect(api.calls.filter((c) => c.startsWith("createSession"))).toEqual([]);
+    });
   });
 
   it("applyPreset rebuilds layout, refocuses the first leaf, and persists", async () => {
@@ -611,7 +670,7 @@ describe("app store", () => {
       expect(store.getState().transcripts.se1).toBeUndefined();
       expect(store.getState().sessionStatus.se1).toBeUndefined();
       expect(store.getState().sessions.se1).toBeUndefined();
-      expect(allItems(store.getState().layout!)).toEqual([]);
+      expect(allItems(store.getState().layout!)).not.toContain("i2"); // last pane closed → a fresh session took the leaf
       expect(api.calls).toContain("deleteItem:i2");
     });
 
@@ -620,7 +679,7 @@ describe("app store", () => {
       await store.getState().openItem("i2");
       await store.getState().openSession("se1");
       await store.getState().closeFromLayout("i2");
-      expect(allItems(store.getState().layout!)).toEqual([]);
+      expect(allItems(store.getState().layout!)).not.toContain("i2"); // last pane closed → a fresh session took the leaf
       expect(store.getState().items.some((i) => i.id === "i2")).toBe(true);
       expect(store.getState().transcripts.se1).toBeDefined();
       expect(store.getState().sessions.se1).toBeDefined();

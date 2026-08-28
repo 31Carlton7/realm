@@ -620,6 +620,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const layout = layoutClose(get().layout ?? emptyLayout(), itemId);
         set({ layout, focusedLeafId: focusIn(layout) });
         await persist();
+        // Closing the last pane lands in a fresh prompter, never the empty-state placeholder.
+        // Deliberately scoped to this path: reconcileLayout also empties the layout while pruning
+        // stale items, and a server hiccup there must not manufacture sessions.
+        if (allItems(layout).length === 0) await get().newSessionInstant();
       },
       async deleteItem(itemId) {
         await get().closeFromLayout(itemId);
