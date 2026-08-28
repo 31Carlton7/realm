@@ -130,6 +130,25 @@ describe("SessionService over rpc", () => {
     c2.close();
   });
 
+  it("agents.probe is cached; force re-asks the adapters", async () => {
+    // Probing spawns a child process per registered agent, so the prompter's per-mount call must be
+    // cheap. The install card's "Check again" is the one caller that must see through the cache.
+    let n = 0;
+    class Counting extends FakeAdapter {
+      override async probe() { return { kind: this.kind, available: true, version: `v${++n}`, loggedIn: true, reason: null }; }
+    }
+    const home = mkdtempSync(join(tmpdir(), "realm-"));
+    app = await createApp({ home, port: 0, adapters: { fake: new Counting({ script: [] }) } });
+    const c = await client(app.port);
+    expect((await c.call("agents.probe", {})).result[0].version).toBe("v1");
+    expect((await c.call("agents.probe", {})).result[0].version).toBe("v1"); // served from the cache
+    expect((await c.call("agents.probe", { force: false })).result[0].version).toBe("v1");
+    expect((await c.call("agents.probe", { force: true })).result[0].version).toBe("v2");
+    expect((await c.call("agents.probe", {})).result[0].version).toBe("v2"); // force refilled the cache
+    expect(n).toBe(2);
+    c.close();
+  });
+
   it("respondPermission without a live handle is SESSION_NOT_LIVE", async () => {
     const { c, sp } = await boot();
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
@@ -333,6 +352,27 @@ describe("the session's terminal side panel (W4)", () => {
     const second = (await c.call("sessions.openTerminal", { id: session.id })).result;
     expect(second).toEqual(first);
     expect(app.db.prepare("SELECT COUNT(*) AS n FROM terminals").get()).toEqual({ n: 1 });
+    c.close();
+  });
+
+  it("a command written without a trailing newline is TYPED into the pty and never runs (the install card's contract)", async () => {
+    // The one mutant this whole flow must survive: appending "\n" to the pre-typed command would run an
+    // installer nobody asked for. `expr` is chosen so the command TEXT and its OUTPUT share no substring —
+    // the echo of "expr 40041 + 1" can never be mistaken for the "40042" that only execution prints.
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const { terminalId } = (await c.call("sessions.openTerminal", { id: session.id })).result;
+    const out = () => c.events.filter((e) => e.event === "terminal.data" && e.payload.terminalId === terminalId)
+      .map((e) => String(e.payload.data)).join("");
+
+    await c.call("terminals.write", { terminalId, data: "expr 40041 + 1" });
+    await waitFor(() => out().includes("40041")); // the shell echoed what we typed…
+    await new Promise((r) => setTimeout(r, 250));  // …and given a generous beat, still ran nothing
+    expect(out()).not.toContain("40042");
+
+    // Proof the assertion above is not vacuous: the same pty, one Return later, does run it.
+    await c.call("terminals.write", { terminalId, data: "\n" });
+    await waitFor(() => out().includes("40042"));
     c.close();
   });
 

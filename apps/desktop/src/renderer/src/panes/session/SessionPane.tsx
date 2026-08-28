@@ -1,11 +1,13 @@
 import { Icon } from "@realm/ui";
-import { useEffect, type ReactNode } from "react";
+import { useCallback, useEffect, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { Item } from "@realm/contracts";
 import { TERMINAL_PANEL_WIDTH, useApp } from "../../state/store";
+import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { TerminalView } from "../TerminalPane";
 import type { PaneProps } from "../registry";
 import { Composer } from "./Composer";
+import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
 import { emptyTranscript } from "./transcript-model";
 
@@ -99,8 +101,16 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const setDraft = useApp((s) => s.setDraft);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
   const panelOpen = useApp((s) => s.terminalPanel[id]?.open ?? false);
+  const agentProbe = useApp((s) => s.agentProbe);
+  const probeAgents = useApp((s) => s.probeAgents);
+  const prefillTerminal = useApp((s) => s.prefillTerminal);
+  // Stable across renders: InstallCard registers it as a window "focus" listener.
+  const reprobe = useCallback(() => { run(() => probeAgents(true)); }, [probeAgents, run]);
 
   useEffect(() => { run(() => openSession(id)); }, [id, openSession, run]);
+  // Cheap by construction: the store dedups concurrent calls and the server holds a TTL cache, so a
+  // four-pane split (or a tab-back) costs one round trip, not a process spawn per agent.
+  useEffect(() => { run(() => probeAgents()); }, [id, probeAgents, run]);
 
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
   const project = session.projectId ? projects.find((p) => p.id === session.projectId) ?? null : null;
@@ -112,16 +122,29 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // sessions.setAgent refuses after that). Both halves matter: the row's own seq covers a session
   // whose transcript has not been fetched yet, the transcript's covers events that arrived since.
   const canSwitchAgent = session.lastEventSeq === 0 && (entry?.lastSeq ?? 0) === 0;
+  // The agent this session runs can't run here (W4): the prompter is REPLACED, not disabled — a text box
+  // that always fails the first message is the failure this flow exists to remove. An un-probed agent is
+  // never blocked; the card only appears on a probe that actually said no.
+  //
+  // …except while a turn is actually in flight. Stop lives on the prompter, so a probe that goes sour
+  // mid-stream (its 5s timeout losing a race under load) would otherwise take away the one control that
+  // can end the turn — and an agent that is streaming has self-evidently started.
+  const availability = agentAvailability(session.agentKind, agentProbe);
+  const blocked = isBlocked(availability) && status !== "running" && status !== "waiting_permission";
   const body = (
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused}
         onDecide={(requestId, d) => run(() => respondPermission(id, requestId, d))} />
-      <Composer session={session} status={status} project={project} gitInfo={gitInfo} draft={draft} onDraftChange={(t) => setDraft(id, t)}
-        onSend={(text) => run(() => sendMessage(id, text))}
-        onStop={() => run(() => interruptSession(id))}
-        onOptions={(o) => run(() => setSessionOptions(id, o))}
-        onAgent={(kind) => run(() => setSessionAgent(id, kind))} canSwitchAgent={canSwitchAgent}
-        hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />
+      {blocked && isBlocked(availability)
+        ? <InstallCard availability={availability} onRetry={reprobe}
+            onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))} />
+        : <Composer session={session} status={status} project={project} gitInfo={gitInfo} draft={draft} onDraftChange={(t) => setDraft(id, t)}
+            onSend={(text) => run(() => sendMessage(id, text))}
+            onStop={() => run(() => interruptSession(id))}
+            onOptions={(o) => run(() => setSessionOptions(id, o))}
+            onAgent={(kind) => run(() => setSessionAgent(id, kind))} canSwitchAgent={canSwitchAgent}
+            agentProbe={agentProbe}
+            hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />}
     </div>
   );
   if (!panelOpen) return body;

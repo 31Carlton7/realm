@@ -43,6 +43,24 @@ export const AGENT_META = {
   "acp:cursor": { label: "Cursor", icon: "bot" }, fake: { label: "Fake agent", icon: "bot" },
 } as const satisfies Record<import("./entities").AgentKind, { label: string; icon: string }>;
 
+/**
+ * The two commands that can make an agent usable: `install` puts its CLI on the machine, `login` signs it
+ * in. Rendered verbatim by the install card and pre-typed (never executed) into the session's terminal.
+ *
+ * They are deliberately NOT interchangeable — a missing CLI and a signed-out CLI are different problems,
+ * and running the wrong one gets the user nowhere.
+ *
+ * `null` means "there is no single command for this": `fake` is compiled in, and Gemini needs an API key or
+ * Vertex credentials rather than a login command (see AGENT_LOGIN_HINTS). Callers show the reason alone.
+ */
+export const AGENT_CLI_COMMANDS = {
+  claude: { install: "npm install -g @anthropic-ai/claude-code", login: "claude auth login" },
+  codex: { install: "npm install -g @openai/codex", login: "codex login" },
+  "acp:cursor": { install: "curl https://cursor.com/install -fsS | bash", login: "cursor-agent login" },
+  "acp:gemini": { install: "npm install -g @google/gemini-cli", login: null },
+  fake: { install: null, login: null },
+} as const satisfies Record<import("./entities").AgentKind, { install: string | null; login: string | null }>;
+
 /** Shown under the agent picker so a signed-out agent tells the user exactly which command to run. */
 export const AGENT_LOGIN_HINTS = {
   claude: "Uses your `claude` login — run `claude auth login` if sessions fail to authenticate.",

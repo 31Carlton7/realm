@@ -35,6 +35,7 @@ export const liveApi = (): Api => ({
   setSessionAgent: (id, agentKind) => rpc().call("sessions.setAgent", { id, agentKind }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),
   openSessionTerminal: (id) => rpc().call("sessions.openTerminal", { id }),
-  probeAgents: () => rpc().call("agents.probe", {}),
+  writeTerminal: async (terminalId, data) => { await rpc().call("terminals.write", { terminalId, data }); },
+  probeAgents: (force) => rpc().call("agents.probe", { force }),
   gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),
 });

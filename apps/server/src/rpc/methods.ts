@@ -70,7 +70,7 @@ export function registerMethods(d: Deps): void {
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });
   reg("terminals.close", (p) => { d.terminals.close(p.terminalId); return { ok: true as const }; });
 
-  reg("agents.probe", () => d.sessions.probeAll());
+  reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
   reg("sessions.listAll", () => d.sessions.listAll());
   reg("sessions.get", (p) => d.sessions.get(p.id));

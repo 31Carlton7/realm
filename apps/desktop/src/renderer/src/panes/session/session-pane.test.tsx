@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
-import { sessionEvent } from "@realm/contracts";
-import { StoreContext, createAppStore } from "../../state/store";
+import { AGENT_CLI_COMMANDS, sessionEvent } from "@realm/contracts";
+import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
@@ -660,5 +660,124 @@ describe("the session's terminal drawer (W4)", () => {
     const store = createAppStore(api);
     render(<StoreContext.Provider value={store}><PanelBar item={item("i1", "s1", { kind: "terminal", title: "zsh" })} onSplit={() => {}} onClose={() => {}} /></StoreContext.Provider>);
     expect(screen.queryByRole("button", { name: /terminal for zsh/ })).toBeNull();
+  });
+});
+
+describe("the CLI-missing install card (W4)", () => {
+  beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
+  afterEach(() => { setTerminalHubForTests(null); vi.unstubAllGlobals(); });
+
+  const sessionItem = item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" });
+  const ready: AgentProbe = { kind: "claude", available: true, version: "2.0.1", loggedIn: true, reason: null };
+  const missing: AgentProbe = { kind: "claude", available: false, version: null, loggedIn: null, reason: "spawn claude ENOENT" };
+  const signedOut: AgentProbe = { kind: "claude", available: true, version: "2.0.1", loggedIn: false, reason: "not logged in — run `claude auth login`" };
+
+  async function mountAgent(agentProbe: AgentProbe[], status: "idle" | "running" = "idle") {
+    setTerminalHubForTests(fakeHub());
+    const api = fakeApi({ sessions: [session("se1", "s1", { status, agentKind: "claude" })], agentProbe });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: status }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    const r = render(
+      <StoreContext.Provider value={store}>
+        <PanelBar item={sessionItem} onSplit={() => {}} onClose={() => {}} />
+        <SessionPane item={sessionItem} visible />
+      </StoreContext.Provider>,
+    );
+    return { api, store, ...r };
+  }
+
+  const prompter = () => screen.queryByRole("textbox", { name: /message/i });
+
+  it("an AVAILABLE agent keeps the prompter and shows no card", async () => {
+    const { api } = await mountAgent([ready]);
+    await waitFor(() => expect(api.calls).toContain("probeAgents:false"));
+    expect(prompter()).toBeInTheDocument();
+    expect(document.querySelector(".install-card")).toBeNull();
+  });
+
+  it("an un-probed agent keeps the prompter — the card never appears on a guess", async () => {
+    const { store } = await mountAgent([{ ...ready, kind: "codex" }]);
+    await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+    expect(prompter()).toBeInTheDocument();
+    expect(document.querySelector(".install-card")).toBeNull();
+  });
+
+  it("a MISSING CLI replaces the prompter with the probe's reason and the INSTALL command", async () => {
+    await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    expect(prompter()).toBeNull(); // replaced, not merely disabled
+    expect(screen.getByRole("group", { name: /isn’t installed/ })).toBeInTheDocument();
+    expect(screen.getByText("spawn claude ENOENT")).toBeInTheDocument();
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.install)).toBeInTheDocument();
+    expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.login)).toBeNull();
+  });
+
+  it("a SIGNED-OUT CLI is a different card with the LOGIN command", async () => {
+    await mountAgent([signedOut]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    expect(screen.getByRole("group", { name: /isn’t signed in/ })).toBeInTheDocument();
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login)).toBeInTheDocument();
+    expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.install)).toBeNull();
+  });
+
+  it("never takes the prompter away mid-turn — Stop must survive a probe that goes sour", async () => {
+    const { api } = await mountAgent([missing], "running");
+    await waitFor(() => expect(api.calls).toContain("probeAgents:false"));
+    expect(document.querySelector(".install-card")).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+  });
+
+  it("'Open in terminal' opens the session's panel with the command TYPED, never run", async () => {
+    const { api } = await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("writeTerminal:"))).toBe(true));
+    expect(api.calls).toContain("openSessionTerminal:se1");
+    expect(api.calls).toContain(`writeTerminal:term-se1=${AGENT_CLI_COMMANDS.claude.install}`);
+    expect(api.calls.find((c) => c.startsWith("writeTerminal:"))).not.toMatch(/[\r\n]$/);
+    await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
+  });
+
+  it("'Check again' re-probes past the cache and the prompter comes back — no restart", async () => {
+    const { api } = await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    api.data.agentProbe = [ready]; // the user installed it in another window
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(prompter()).toBeInTheDocument());
+    expect(document.querySelector(".install-card")).toBeNull();
+    expect(api.calls).toContain("probeAgents:true");
+  });
+
+  it("window focus re-probes too — the fix happens in another app", async () => {
+    const { api } = await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    api.data.agentProbe = [ready];
+    fireEvent.focus(window);
+    await waitFor(() => expect(prompter()).toBeInTheDocument());
+    expect(api.calls).toContain("probeAgents:true");
+  });
+
+  it("the agent chip labels unavailable agents but still lets you pick one — the pick leads to the card", async () => {
+    // The W3 regression this restores: the chip offered every agent unconditionally, so an uninstalled
+    // pick failed at the first message instead of at pick time.
+    const { api, store } = await mountAgent([
+      { ...ready, kind: "codex" },
+      { ...missing, kind: "claude" },
+    ]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    // Switch the session to the working agent from the card-less state: flip claude to ready first.
+    api.data.agentProbe = [ready, { ...missing, kind: "codex" }];
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(prompter()).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: /Codex — not installed/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: /^Claude/ })).not.toHaveTextContent("not installed");
+    // Pickable, not disabled: choosing it is how the user reaches the install command.
+    const codex = screen.getByRole("menuitemcheckbox", { name: /Codex — not installed/ });
+    expect(codex).toBeEnabled();
+    fireEvent.click(codex);
+    await waitFor(() => expect(store.getState().sessions.se1!.agentKind).toBe("codex"));
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    expect(prompter()).toBeNull();
   });
 });

@@ -442,6 +442,44 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-thinking { margin: -10px 10px 0; padding: 14px 14px 5px; background: var(--rl-frame);
   border-radius: 0 0 10px 10px; font-size: 11px; color: var(--rl-text-dim); }
 .composer-thinking span { display: inline-block; animation: rl-pulse 1.2s ease-in-out infinite; }
+/* ── Install card (§5 floating card) — what stands in for the prompter when the CLI can't run ── */
+/* It rides the prompter's own rails (.composer-dock), so hero vs docked positioning is already right. */
+.install-card { width: 100%; border-radius: var(--r-float); background: var(--rl-raised);
+  box-shadow: var(--rl-edge), var(--rl-shadow); padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 1; }
+.install-head { display: flex; align-items: center; gap: 8px; }
+.install-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--rl-text-bright); }
+/* Colour = state (§2.4): amber for a signed-out CLI that is present, neutral for one that is simply absent. */
+.install-card[data-state="logged_out"] .install-glyph { color: var(--rl-warning); }
+.install-card[data-state="missing"] .install-glyph { color: var(--rl-text-faint); }
+.install-reason { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
+/* The command itself: a frame-fill well (§5 tool-well treatment), selectable, with a copy button. */
+.install-cmd { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); }
+.install-cmd code { display: block; flex: 1; min-width: 0; font: 12px var(--font-mono); color: var(--rl-text-bright); overflow-x: auto; white-space: pre; user-select: text; }
+.install-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.install-note { margin: 0; font-size: 11px; color: var(--rl-text-faint); }
+
+/* ── First-run onboarding (W4): the whole pane, one centered sheet, nothing behind it ── */
+.onboarding-stage { flex: 1; display: grid; place-items: center; padding: 24px; overflow: auto; }
+/* §6 sheet timing: enter 240ms ease-out, scale .96 + fade, origin center — overriding the shared
+   .sheet pop-in, which is still on Plan 6's W5 list to bring in line for every sheet. */
+.sheet.onboarding { width: min(420px, 100%); animation: rl-sheet-in 240ms var(--ease-out-strong); }
+@keyframes rl-sheet-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+.onboarding-lead { margin: 0 0 4px; font-size: 12.5px; line-height: 1.5; }
+.cli-field { border: none; margin: 0; padding: 0; min-width: 0; }
+.cli-field legend { padding: 0; font-size: 12px; color: var(--rl-text-dim); }
+.cli-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; padding: 8px 10px; border-radius: var(--r-ctl);
+  color: var(--rl-text-dim); background: transparent; cursor: pointer; }
+.cli-row:hover { background: var(--rl-hover); }
+/* Selected ≠ outlined (§2.7): translucent pill fill + bright text. */
+.cli-row[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
+.cli-row input { accent-color: var(--rl-accent); margin: 0; }
+.cli-name { flex: 1; min-width: 0; font-size: 13px; }
+/* §3 status pills: 14% colour-mix fill, full-strength colour text. */
+.status-pill { flex: none; padding: 2px 7px; border-radius: var(--r-chip); font-size: 11px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-pill[data-tone="success"] { color: var(--rl-success); background: color-mix(in srgb, var(--rl-success) 14%, transparent); }
+.status-pill[data-tone="warning"] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); }
+.status-pill[data-tone="muted"] { color: var(--rl-text-faint); background: var(--rl-hover); }
+
 /* Custom selects (V-F1, sheets/forms only now): drop the raw Chromium arrow and draw our own chevron.
    background-image cannot use currentColor, so the chevron is one fixed mid-grey (#85868f) chosen to
    read on both modes' surfaces (≈ dark textDim, ≈ light textFaint). */

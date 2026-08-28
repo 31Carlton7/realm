@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import type { GitInfo, Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
-import type { Api } from "./store";
+import type { AgentProbe, Api } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
   ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
@@ -21,6 +21,9 @@ export type FakeData = {
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
   gitInfo?: Record<string, GitInfo | null>;
+  /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
+   *  installing (or logging into) a CLI while the install card is up. */
+  agentProbe?: AgentProbe[];
 };
 
 export type FakeApi = Api & {
@@ -49,6 +52,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     sessionEvents: overrides.sessionEvents ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
     gitInfo: overrides.gitInfo ?? {},
+    agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -148,7 +152,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (i >= 0) data.sessions[i] = { ...data.sessions[i]!, terminalItemId: made.itemId };
       return made;
     },
-    probeAgents: async () => { calls.push("probeAgents"); return [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]; },
+    writeTerminal: async (terminalId, data) => { calls.push(`writeTerminal:${terminalId}=${data}`); },
+    probeAgents: async (force) => {
+      calls.push(`probeAgents:${force}`);
+      await wait("probeAgents");
+      return data.agentProbe;
+    },
     gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));

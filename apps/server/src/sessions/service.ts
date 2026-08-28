@@ -8,6 +8,7 @@ import type { SessionsStore, SessionEventsStore, SessionUpdate } from "../store/
 import type { SpacesStore } from "../store/spaces";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
+import { ProbeCache } from "./probe-cache";
 
 const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
 export const TITLE_MAX = 40;
@@ -31,6 +32,12 @@ export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; terminals: TerminalService; adapters: AdapterRegistry }) {}
+
+  /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
+   *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
+  private probeCache = new ProbeCache(() => this.probeAll());
+
+  probe(opts: { force?: boolean } = {}): Promise<ProbeResult[]> { return this.probeCache.get(opts); }
 
   /** One adapter's probe throwing must not hide the others; it reports as unavailable with the reason. */
   async probeAll(): Promise<ProbeResult[]> {

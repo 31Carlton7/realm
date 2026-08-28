@@ -67,7 +67,11 @@ export type Api = {
   /** `sessions.openTerminal` — get-or-create the session's terminal side panel. The FIRST call is what
    *  spawns the pty, so this must only ever be called when the panel is actually being shown. */
   openSessionTerminal(sessionId: string): Promise<{ terminalId: string; itemId: string }>;
-  probeAgents(): Promise<AgentProbe[]>;
+  /** `terminals.write` — raw bytes into a pty. A trailing "\n" is what RUNS the line, so callers that
+   *  are only offering a command (the install card) must not send one. */
+  writeTerminal(terminalId: string, data: string): Promise<void>;
+  /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
+  probeAgents(force: boolean): Promise<AgentProbe[]>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
 };
@@ -108,6 +112,9 @@ export type Sheet =
   | { kind: "new-space" };
 
 export type AppState = {
+  /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
+   *  what an unbooted store looks like, so without this the sheet would flash on every launch. */
+  booted: boolean;
   profiles: Profile[];
   /** All spaces across profiles, in user sort order. Exactly one is active at a time. */
   spaces: Space[]; activeSpaceId: string | null;
@@ -230,7 +237,15 @@ export type AppState = {
   /** Switch an unstarted session's agent (prompter agent chip). The server refuses once events exist —
    *  the chip goes static there, so this is only ever called while it is legal. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
-  probeAgents(): Promise<void>;
+  /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
+   *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
+  probeAgents(force?: boolean): Promise<void>;
+  /** Remember the agent a fresh session should use (onboarding's default-agent pick). Same setting the
+   *  prompter's agent chip writes, so the two never disagree. */
+  setDefaultAgent(kind: AgentKind): Promise<void>;
+  /** Show the session's terminal panel and TYPE `command` into it, without a trailing newline: Realm
+   *  offers the command, the user presses Return. Nothing here ever runs an installer. */
+  prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
   /** Show/hide the session's terminal panel (pane-header toggle, ⌘J). Opening it is the one and only
    *  thing that creates the terminal — and only the first time. */
@@ -397,8 +412,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const panelOf = (id: string): TerminalPanel => get().terminalPanel[id] ?? { open: false, width: TERMINAL_PANEL_WIDTH };
     const setPanel = (id: string, p: TerminalPanel) => set({ terminalPanel: { ...get().terminalPanel, [id]: p } });
     /** Sessions with an openSessionTerminal call in flight — StrictMode double-mounts and a toggle
-     *  racing the restore effect must not spawn two ptys for one session. */
-    const ensuringTerminal = new Set<string>();
+     *  racing the restore effect must not spawn two ptys for one session. A Map, not a Set: later
+     *  callers JOIN the in-flight call instead of returning early, so `prefillTerminal` (which races the
+     *  drawer's own restore effect) still has a terminal id to write into when it resumes. */
+    const ensuringTerminal = new Map<string, Promise<void>>();
+    /** In-flight `agents.probe` calls, kept apart by force: a forced probe must never be satisfied by a
+     *  cheap one already in flight (that one may predate the install the user just ran). */
+    const probing: { plain: Promise<void> | null; forced: Promise<void> | null } = { plain: null, forced: null };
     /** Flush a pending debounced persist before the active space changes (persist reads the current space). */
     const flushPersist = async () => {
       if (panelTimer) await persistPanels();
@@ -441,6 +461,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
 
     return {
+      booted: false,
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
@@ -463,6 +484,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
         await get().refreshAllSessions();
+        // Last, so `booted && spaces.length === 0` is only ever true for a genuinely empty home.
+        set({ booted: true });
       },
       async selectSpace(id) {
         await flushPersist();
@@ -765,15 +788,42 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // The server renames an untouched default title to match the new agent; the sidebar row shows it.
         await get().refreshItems();
       },
-      async probeAgents() { set({ agentProbe: await api.probeAgents() }); },
+      async probeAgents(force = false) {
+        // Mount-storm guard: a split of four session panes asks four times in the same tick. The server
+        // holds the TTL cache (probe-cache.ts); this only collapses the round trips.
+        const pending = probing[force ? "forced" : "plain"];
+        if (pending) { await pending; return; }
+        const p = api.probeAgents(force)
+          .then((agentProbe) => { set({ agentProbe }); })
+          .finally(() => { probing[force ? "forced" : "plain"] = null; });
+        probing[force ? "forced" : "plain"] = p;
+        await p;
+      },
+      async setDefaultAgent(kind) {
+        set({ lastAgentKind: kind });
+        await api.setSetting(SETTING_LAST_AGENT, kind);
+      },
+      async prefillTerminal(sessionId, command) {
+        if (!panelOf(sessionId).open) {
+          setPanel(sessionId, { ...panelOf(sessionId), open: true });
+          await persistPanels();
+        }
+        await get().ensureSessionTerminal(sessionId);
+        const terminalId = get().sessionTerminals[sessionId];
+        if (!terminalId) return; // the shell never came up; the card still shows the command to copy
+        // NO trailing newline, ever: the command is offered, not run. The user presses Return.
+        await api.writeTerminal(terminalId, command);
+      },
       setDraft(sessionId, text) { set({ drafts: { ...get().drafts, [sessionId]: text } }); },
       async ensureSessionTerminal(sessionId) {
-        if (get().sessionTerminals[sessionId] || ensuringTerminal.has(sessionId)) return;
-        ensuringTerminal.add(sessionId);
-        try {
-          const { terminalId } = await api.openSessionTerminal(sessionId);
-          set({ sessionTerminals: { ...get().sessionTerminals, [sessionId]: terminalId } });
-        } finally { ensuringTerminal.delete(sessionId); }
+        if (get().sessionTerminals[sessionId]) return;
+        const pending = ensuringTerminal.get(sessionId);
+        if (pending) return pending;
+        const p = api.openSessionTerminal(sessionId)
+          .then(({ terminalId }) => { set({ sessionTerminals: { ...get().sessionTerminals, [sessionId]: terminalId } }); })
+          .finally(() => { ensuringTerminal.delete(sessionId); });
+        ensuringTerminal.set(sessionId, p);
+        return p;
       },
       async toggleTerminalPanel(sessionId) {
         const next = { ...panelOf(sessionId), open: !panelOf(sessionId).open };

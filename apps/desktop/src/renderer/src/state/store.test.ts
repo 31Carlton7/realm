@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, findEmptySiblingOf, hasLeafIn, swapSplitChildrenOf, PERSIST_DEBOUNCE_MS, type DropEdge } from "./store";
+import { createAppStore, findEmptySiblingOf, hasLeafIn, swapSplitChildrenOf, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, item, session, space, type FakeApi } from "./store.test-fakes";
 
@@ -1152,5 +1152,108 @@ describe("the session's terminal side panel (W4)", () => {
     expect(a.disposed).toEqual([]);
     expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
     expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
+  });
+});
+
+describe("agent probe + the install card's terminal prefill (W4)", () => {
+  const withSession = () => fakeApi({
+    items: { s1: [item("i9", "s1", { kind: "session", title: "Fake agent session", refId: "se1" })] },
+    sessions: [session("se1", "s1")],
+  });
+
+  it("probeAgents passes force through and stores the answer", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().probeAgents();
+    expect(a.calls).toContain("probeAgents:false"); // the cheap, TTL-cached call
+    expect(store.getState().agentProbe).toEqual([expect.objectContaining({ kind: "fake", available: true })]);
+
+    a.data.agentProbe = [{ kind: "fake", available: false, version: null, loggedIn: null, reason: "gone" }];
+    await store.getState().probeAgents(true);
+    expect(a.calls).toContain("probeAgents:true"); // "Check again": past the cache
+    expect(store.getState().agentProbe[0]!.available).toBe(false);
+  });
+
+  it("collapses a mount storm into one call, but never lets a cheap call satisfy a forced one", async () => {
+    const a = withSession();
+    a.delays["probeAgents"] = 10;
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await Promise.all([store.getState().probeAgents(), store.getState().probeAgents(), store.getState().probeAgents()]);
+    expect(a.calls.filter((c) => c === "probeAgents:false")).toHaveLength(1);
+
+    // A forced probe running alongside cheap ones is its own request — the cheap one in flight may have
+    // asked the machine before the user finished installing.
+    const both = Promise.all([store.getState().probeAgents(), store.getState().probeAgents(true)]);
+    await both;
+    expect(a.calls.filter((c) => c === "probeAgents:true")).toHaveLength(1);
+    expect(a.calls.filter((c) => c === "probeAgents:false")).toHaveLength(2);
+  });
+
+  it("prefillTerminal opens the panel and TYPES the command — with no trailing newline, so nothing runs", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().prefillTerminal("se1", "npm install -g @anthropic-ai/claude-code");
+
+    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
+    expect(a.calls).toContain("openSessionTerminal:se1");
+    const write = a.calls.find((c) => c.startsWith("writeTerminal:"))!;
+    expect(write).toBe("writeTerminal:term-se1=npm install -g @anthropic-ai/claude-code");
+    // The mutant: a trailing "\n" (or "\r") is what EXECUTES the line. Realm offers; the user presses Return.
+    const data = write.slice("writeTerminal:term-se1=".length);
+    expect(data).not.toMatch(/[\r\n]/);
+  });
+
+  it("prefillTerminal reuses an already-open panel and its terminal", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().toggleTerminalPanel("se1");
+    a.calls.length = 0;
+    await store.getState().prefillTerminal("se1", "codex login");
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(0); // already known
+    expect(a.calls).toContain("writeTerminal:term-se1=codex login");
+    expect(store.getState().terminalPanel["se1"]!.open).toBe(true);
+  });
+
+  it("prefillTerminal racing the drawer's own restore effect still gets a terminal to write into", async () => {
+    // Opening the panel makes TerminalDrawer mount and call ensureSessionTerminal itself. If the dedup
+    // guard returned early instead of joining that call, prefillTerminal would resume with no terminal
+    // id and silently write nothing — the "Open in terminal" button would do nothing at all.
+    const a = withSession();
+    a.delays["openSessionTerminal:se1"] = 10;
+    const store = createAppStore(a);
+    await store.getState().boot();
+    const drawerEffect = store.getState().ensureSessionTerminal("se1"); // mounts first, in flight
+    await store.getState().prefillTerminal("se1", "codex login");
+    await drawerEffect;
+    expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1);
+    expect(a.calls).toContain("writeTerminal:term-se1=codex login");
+  });
+
+  it("setDefaultAgent writes the same setting the prompter's agent chip writes", async () => {
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().setDefaultAgent("codex");
+    expect(store.getState().lastAgentKind).toBe("codex");
+    expect(a.data.settings[SETTING_LAST_AGENT]).toBe("codex");
+    // …and it is what the next instant session reaches for.
+    await store.getState().newSessionInstant();
+    expect(a.calls).toContain("createSession:codex");
+  });
+
+  it("booted only flips once boot has finished — onboarding must not flash on a populated home", async () => {
+    const a = fakeApi();
+    a.delays["listSpaces"] = 5;
+    const store = createAppStore(a);
+    expect(store.getState().booted).toBe(false);
+    const p = store.getState().boot();
+    expect(store.getState().booted).toBe(false); // spaces are still [] here — the flash window
+    await p;
+    expect(store.getState().booted).toBe(true);
+    expect(store.getState().spaces).toHaveLength(2);
   });
 });

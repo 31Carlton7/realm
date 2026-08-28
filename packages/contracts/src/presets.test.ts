@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has at least 8 colors and icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(8); });
@@ -16,6 +16,33 @@ describe("AGENT_LOGIN_HINTS", () => {
     expect(AGENT_LOGIN_HINTS.claude).toContain("claude auth login");
     expect(AGENT_LOGIN_HINTS.codex).toContain("codex login");
     expect(AGENT_LOGIN_HINTS["acp:cursor"]).toContain("cursor-agent login");
+  });
+});
+
+describe("AGENT_CLI_COMMANDS", () => {
+  it("has an entry for every agent kind that has display metadata", () => {
+    expect(Object.keys(AGENT_CLI_COMMANDS).sort()).toEqual(Object.keys(AGENT_META).sort());
+  });
+  it("never collapses install and login into the same command", () => {
+    // The install card picks one or the other from the probe; handing a user `codex login` when codex
+    // isn't installed (or the install command when they're merely signed out) is a dead end.
+    for (const [kind, { install, login }] of Object.entries(AGENT_CLI_COMMANDS)) {
+      if (install !== null && login !== null) expect(install, kind).not.toBe(login);
+    }
+    expect(AGENT_CLI_COMMANDS.claude.install).not.toBe(AGENT_CLI_COMMANDS.claude.login);
+    expect(AGENT_CLI_COMMANDS.codex.install).not.toBe(AGENT_CLI_COMMANDS.codex.login);
+  });
+  it("gives every selectable kind a real install command", () => {
+    for (const kind of SELECTABLE_AGENT_KINDS) expect(AGENT_CLI_COMMANDS[kind].install, kind).toBeTruthy();
+  });
+  it("agrees with the prose login hints on the command name", () => {
+    expect(AGENT_LOGIN_HINTS.claude).toContain(AGENT_CLI_COMMANDS.claude.login);
+    expect(AGENT_LOGIN_HINTS.codex).toContain(AGENT_CLI_COMMANDS.codex.login);
+    expect(AGENT_LOGIN_HINTS["acp:cursor"]).toContain(AGENT_CLI_COMMANDS["acp:cursor"].login);
+  });
+  it("is honest about the kinds with no single command", () => {
+    expect(AGENT_CLI_COMMANDS.fake).toEqual({ install: null, login: null }); // compiled in
+    expect(AGENT_CLI_COMMANDS["acp:gemini"].login).toBeNull();               // needs an API key, not a login
   });
 });
 
