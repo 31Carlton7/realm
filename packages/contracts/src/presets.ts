@@ -7,6 +7,11 @@ export const AGENT_MODELS = {
   codex: [], "acp:gemini": [], "acp:cursor": [], fake: [{ id: "fake", label: "Fake" }],
 } as const;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+/** Frontier default model label per kind — what the prompter's model chip shows while `session.model`
+ *  is null (the adapter's own default). Display-only: never transmitted as a model id. */
+export const DEFAULT_MODEL_LABEL = {
+  claude: "Fable 5", codex: "GPT-5.6", "acp:cursor": "Composer", "acp:gemini": "Gemini", fake: "Fake",
+} as const satisfies Record<import("./entities").AgentKind, string>;
 /**
  * Agent kinds whose permission model Realm can actually control.
  *

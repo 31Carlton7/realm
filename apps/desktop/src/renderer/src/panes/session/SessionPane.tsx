@@ -1,10 +1,8 @@
-import { Icon } from "@realm/ui";
 import { useEffect } from "react";
-import { AGENT_META, type Item } from "@realm/contracts";
+import type { Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { Composer } from "./Composer";
-import { SUGGESTIONS } from "./suggestions";
 import { Transcript } from "./Transcript";
 import { emptyTranscript } from "./transcript-model";
 
@@ -54,25 +52,18 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
   const project = session.projectId ? projects.find((p) => p.id === session.projectId) ?? null : null;
   const space = spaces.find((s) => s.id === session.spaceId);
+  // Hero vs docked (§4): the prompter centers as the hero only while there is nothing to read —
+  // no transcript blocks and no visible permission cards (pending ones only show while waiting).
+  const hero = transcript.blocks.length === 0 && (status !== "waiting_permission" || transcript.pendingPermissions.length === 0);
   return (
-    <div className="session-pane" data-visible={visible || undefined}>
+    <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused}
-        onDecide={(requestId, d) => run(() => respondPermission(id, requestId, d))}
-        empty={
-          <div className="transcript-empty muted">
-            <Icon name={AGENT_META[session.agentKind].icon} size={28} />
-            <div className="empty-title">What should we work on in <em>{space?.name ?? "this space"}</em>?</div>
-            <div className="suggestions">
-              {SUGGESTIONS[session.agentKind].map((s) => (
-                <button key={s.title} type="button" className="suggestion-chip" onClick={() => setDraft(id, s.prompt)}>{s.title}</button>
-              ))}
-            </div>
-          </div>
-        } />
+        onDecide={(requestId, d) => run(() => respondPermission(id, requestId, d))} />
       <Composer session={session} status={status} project={project} gitInfo={gitInfo} draft={draft} onDraftChange={(t) => setDraft(id, t)}
         onSend={(text) => run(() => sendMessage(id, text))}
         onStop={() => run(() => interruptSession(id))}
-        onOptions={(o) => run(() => setSessionOptions(id, o))} />
+        onOptions={(o) => run(() => setSessionOptions(id, o))}
+        hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />
     </div>
   );
 }

@@ -19,9 +19,11 @@ function Thinking({ text }: { text: string }) {
   );
 }
 
-/** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill. */
-export function Transcript({ transcript, sessionStatus, onDecide, empty, visible = true, focused = false }: {
-  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision) => void; empty?: React.ReactNode; visible?: boolean;
+/** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
+ *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
+ *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
+export function Transcript({ transcript, sessionStatus, onDecide, visible = true, focused = false }: {
+  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision) => void; visible?: boolean;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
 }) {
@@ -50,7 +52,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, empty, visible
   return (
     <div className="transcript-wrap">
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
-        {count === 0 && permissions.length === 0 && empty}
+        <div className="transcript-col">
         {transcript.blocks.map((b, i) => {
           switch (b.kind) {
             case "user": return <div key={i} className="msg-user-row"><div className="msg-user">{b.text}</div></div>;
@@ -62,6 +64,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, empty, visible
         })}
         {permissions.map((p, i) => <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0} onDecide={(d) => onDecide(p.requestId, d)} />)}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><Icon name="spinner" size={13} className="spin" /> Working…</div>}
+        </div>
       </div>
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={13} /> New messages</button>}
     </div>

@@ -10,6 +10,33 @@ function mount(items: MenuItem[], over: Partial<Parameters<typeof Menu>[0]> = {}
 
 const plain = (label: string, onSelect = () => {}): MenuItem => ({ label, onSelect });
 
+describe("Menu placement", () => {
+  /** Anchor with a mocked rect (jsdom has no layout); the menu's own rect stays 0×0. */
+  const anchor = () => {
+    const el = document.createElement("button");
+    el.getBoundingClientRect = () => ({ top: 500, bottom: 520, left: 100, right: 150, width: 50, height: 20, x: 100, y: 500, toJSON: () => ({}) });
+    document.body.appendChild(el);
+    return { current: el };
+  };
+
+  it("default placement opens below the anchor", () => {
+    mount([plain("A")], { anchorRef: anchor() });
+    expect(screen.getByRole("menu").style.top).toBe("524px"); // anchor.bottom + 4
+  });
+
+  it("placement='up' opens above the anchor (prompter chip menus)", () => {
+    mount([plain("A")], { anchorRef: anchor(), placement: "up" });
+    expect(screen.getByRole("menu").style.top).toBe("496px"); // anchor.top - height(0) - 4
+  });
+
+  it("placement='up' flips below when there is no room above", () => {
+    const a = anchor();
+    a.current.getBoundingClientRect = () => ({ top: 2, bottom: 22, left: 100, right: 150, width: 50, height: 20, x: 100, y: 2, toJSON: () => ({}) });
+    mount([plain("A")], { anchorRef: a, placement: "up" });
+    expect(screen.getByRole("menu").style.top).toBe("26px"); // flipped: anchor.bottom + 4
+  });
+});
+
 describe("Menu keyboard (U-M10/A-H3)", () => {
   it("focuses the first enabled item on open; ArrowDown/Up cycle with wrap, skipping disabled items", () => {
     mount([

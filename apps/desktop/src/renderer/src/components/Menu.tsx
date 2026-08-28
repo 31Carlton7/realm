@@ -13,18 +13,19 @@ export type MenuItem =
 const MARGIN = 6;
 
 /** Small popup menu, rendered in a portal with fixed positioning so no ancestor overflow can clip
- *  it. Anchor it to a control via `anchorRef` (opens below, flips above near the bottom edge) or
+ *  it. Anchor it to a control via `anchorRef` (opens below, flips above near the bottom edge — or
+ *  `placement="up"` to open above, flipping below near the top edge; the prompter's chip menus) or
  *  place it at a point via `at` (context menus). Closes on outside pointerdown, Escape, or select.
  *
  *  Keyboard-first (U-M10/A-H3): the first enabled item is focused on open; ArrowUp/Down cycle with
  *  wrap, Home/End jump, Enter/Space select. Focus returns to where it was on close — the element
  *  focused at mount (normally the trigger), or `returnFocusRef` when the caller knows better.
  *  Items with a `checked` boolean render as menuitemcheckbox with aria-checked and a check icon. */
-export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "left", label }: {
+export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "left", placement = "down", label }: {
   items: MenuItem[]; onClose: () => void;
   at?: { x: number; y: number }; anchorRef?: RefObject<HTMLElement | null>;
   returnFocusRef?: RefObject<HTMLElement | null>;
-  align?: "left" | "right"; label?: string;
+  align?: "left" | "right"; placement?: "down" | "up"; label?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -39,14 +40,19 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
       if (!a) { left = MARGIN; top = MARGIN; }
       else {
         left = align === "right" ? a.right - width : a.left;
-        top = a.bottom + 4;
-        if (top + height > window.innerHeight - MARGIN) top = a.top - height - 4; // flip above
+        if (placement === "up") {
+          top = a.top - height - 4;
+          if (top < MARGIN) top = a.bottom + 4; // flip below near the top edge
+        } else {
+          top = a.bottom + 4;
+          if (top + height > window.innerHeight - MARGIN) top = a.top - height - 4; // flip above
+        }
       }
     }
     left = Math.max(MARGIN, Math.min(left, window.innerWidth - width - MARGIN));
     top = Math.max(MARGIN, Math.min(top, window.innerHeight - height - MARGIN));
     setPos({ left, top });
-  }, [at, anchorRef, align]);
+  }, [at, anchorRef, align, placement]);
 
   // Focus-in on open + focus restore on close. The restore target is captured once at mount, before
   // the roving focus moves into the menu, so it is the trigger unless the caller overrides it.
