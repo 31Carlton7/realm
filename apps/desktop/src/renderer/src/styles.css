@@ -460,10 +460,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* ── First-run onboarding (W4): the whole pane, one centered sheet, nothing behind it ── */
 .onboarding-stage { flex: 1; display: grid; place-items: center; padding: 24px; overflow: auto; }
-/* §6 sheet timing: enter 240ms ease-out, scale .96 + fade, origin center — overriding the shared
-   .sheet pop-in, which is still on Plan 6's W5 list to bring in line for every sheet. */
-.sheet.onboarding { width: min(420px, 100%); animation: rl-sheet-in 240ms var(--ease-out-strong); }
-@keyframes rl-sheet-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+/* Timing now comes from the shared `.sheet` rule (§6: 240ms) — W5 unified it, so this is geometry only. */
+.sheet.onboarding { width: min(420px, 100%); }
 .onboarding-lead { margin: 0 0 4px; font-size: 12.5px; line-height: 1.5; }
 .cli-field { border: none; margin: 0; padding: 0; min-width: 0; }
 .cli-field legend { padding: 0; font-size: 12px; color: var(--rl-text-dim); }
@@ -500,29 +498,43 @@ button.panel-title:hover { background: var(--rl-hover); }
 .transcript::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .menu::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb, .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
 .transcript::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .menu::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track, .terminal-pane .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 
-/* ── Motion (spec §4 + amendment 2026-08-27): panel settle, overlay pop-in, micro-interactions ── */
-.panel-body .pane-slot { animation: rl-settle 150ms var(--ease); }
+/* ── Motion (§6): the whole easing/duration table, applied app-wide ───────── */
+/* A leaf's item changing IS content entering, not the "pane focus switching" §6 keeps instant — the
+   animation is keyed to item.id in PaneHost, so moving focus between panes never replays it. */
+.panel-body .pane-slot { animation: rl-settle 150ms var(--ease-out-strong); }
 @keyframes rl-settle { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-/* Overlay enter (was rl-perm-in, permission cards only): menus, palette and sheets now share it. */
-.permission-card, .menu, .palette, .sheet { animation: rl-pop-in 120ms var(--ease); }
-@keyframes rl-pop-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
 
-/* Micro-interactions (V-C2, spec §4 amendment): 100ms hover/state colour transitions on interactive
-   surfaces, a press scale on true buttons, and a fast drop-zone fade. Deliberate, not drive-by. */
-.item-row, .item-close, .icon-btn, .btn, .ghost-chip, .tool-row, .strip-space,
-.suggestion-chip, .palette-opt, .menu [role^="menuitem"] {
-  transition: background-color 100ms var(--ease), border-color 100ms var(--ease), color 100ms var(--ease);
+/* Menus / popovers (§6): 140ms, opacity + scale .97→1, origin-aware — Menu.tsx sets
+   transform-origin to the corner the menu grew from, so it appears to unfold out of its trigger. */
+.menu { animation: rl-menu-in 140ms var(--ease-out-strong); }
+@keyframes rl-menu-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+
+/* Sheets (§6): enter 240ms, scale .96 + fade, origin center; the scrim fades on its own at 160ms.
+   One rule for every sheet — W4b's `.sheet.onboarding` carve-out is gone. */
+.sheet { animation: rl-sheet-in 240ms var(--ease-out-strong); }
+@keyframes rl-sheet-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+.sheet-backdrop { animation: rl-fade-in 160ms var(--ease-out-strong); }
+@keyframes rl-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* §6 "do NOT animate": the command palette is a 100×/day action (Raycast rule) — it appears and
+   disappears instantly, and neither it nor its scrim may grow an enter animation. Deliberately
+   stated rather than merely omitted, so the absence reads as a decision. */
+.palette, .palette-backdrop { animation: none; }
+
+/* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
+   never `all`, never geometry. */
+.item-row, .item-close, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy,
+.strip-space, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"] {
+  transition: background-color 100ms ease, color 100ms ease;
 }
-.btn, .icon-btn {
-  transition: background-color 100ms var(--ease), border-color 100ms var(--ease), color 100ms var(--ease), transform 100ms var(--ease);
+/* Press (§6): 120ms to scale .97 on every pressable — buttons, chips, send, permission options.
+   Full-width rows (.tool-row, .item-row) are left out: a wide surface shrinking reads as a glitch. */
+.btn, .icon-btn, .ghost-chip, .suggestion-chip, .composer-send, .permission-option, .tool-copy {
+  transition: background-color 100ms ease, color 100ms ease, transform 120ms var(--ease-out-strong);
 }
-/* Press scale (§6): 120ms to 0.97 on all pressables, suggestion chips and send included. */
-.ghost-chip, .suggestion-chip {
-  transition: background-color 100ms var(--ease), border-color 100ms var(--ease), color 100ms var(--ease), transform 120ms var(--ease);
-}
-.composer-send { transition: transform 120ms var(--ease); }
-.btn:active:not(:disabled), .icon-btn:active:not(:disabled) { transform: scale(.96); }
-.ghost-chip:active:not(:disabled), .suggestion-chip:active:not(:disabled), .composer-send:active:not(:disabled) { transform: scale(.97); }
+.btn:active:not(:disabled), .icon-btn:active:not(:disabled), .ghost-chip:active:not(:disabled),
+.suggestion-chip:active:not(:disabled), .composer-send:active:not(:disabled),
+.permission-option:active:not(:disabled), .tool-copy:active:not(:disabled) { transform: scale(.97); }
 .drop-zone { transition: opacity 80ms linear; }
 
 @media (prefers-reduced-motion: reduce) {

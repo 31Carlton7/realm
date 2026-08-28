@@ -28,30 +28,38 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
   align?: "left" | "right"; placement?: "down" | "up"; label?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; origin: string } | null>(null);
 
   useLayoutEffect(() => {
     const el = ref.current; if (!el) return;
     const { width, height } = el.getBoundingClientRect();
     let left: number, top: number;
+    // §6: the 140ms scale-in is origin-aware — the menu grows out of the corner nearest its trigger.
+    // Vertical half flips with the menu itself (a menu that flipped above its anchor grows upward);
+    // the horizontal half follows `align`. A point-placed context menu grows from its click point.
+    let origin = "top left";
     if (at) { left = at.x; top = at.y; }
     else {
       const a = anchorRef?.current?.getBoundingClientRect();
       if (!a) { left = MARGIN; top = MARGIN; }
       else {
         left = align === "right" ? a.right - width : a.left;
+        let above: boolean;
         if (placement === "up") {
           top = a.top - height - 4;
-          if (top < MARGIN) top = a.bottom + 4; // flip below near the top edge
+          above = true;
+          if (top < MARGIN) { top = a.bottom + 4; above = false; } // flip below near the top edge
         } else {
           top = a.bottom + 4;
-          if (top + height > window.innerHeight - MARGIN) top = a.top - height - 4; // flip above
+          above = false;
+          if (top + height > window.innerHeight - MARGIN) { top = a.top - height - 4; above = true; } // flip above
         }
+        origin = `${above ? "bottom" : "top"} ${align === "right" ? "right" : "left"}`;
       }
     }
     left = Math.max(MARGIN, Math.min(left, window.innerWidth - width - MARGIN));
     top = Math.max(MARGIN, Math.min(top, window.innerHeight - height - MARGIN));
-    setPos({ left, top });
+    setPos({ left, top, origin });
   }, [at, anchorRef, align, placement]);
 
   // Focus-in on open + focus restore on close. The restore target is captured once at mount, before
@@ -103,7 +111,8 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bs[cur]?.click(); }
   };
 
-  const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, visibility: pos ? "visible" : "hidden" };
+  const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
+    visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top left" };
   return createPortal(
     <div ref={ref} role="menu" aria-label={label} className="menu" style={style} onKeyDown={onKeyDown}>
       {items.map((it, i) => it.kind === "separator"
