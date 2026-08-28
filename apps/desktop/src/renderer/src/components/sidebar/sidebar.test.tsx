@@ -59,6 +59,35 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
   });
 
+  // §6's do-NOT-animate list names "sidebar space swipes triggered by keyboard": the page slide is
+  // the tail of a gesture the fingers began, so it belongs to gestures alone.
+  describe("space switches only slide when a gesture asked for it (§6)", () => {
+    const track = (c: HTMLElement) => c.querySelector<HTMLElement>(".swiper-track")!;
+
+    it("a keyboard/programmatic switch lands on the new page instantly", async () => {
+      const { store, container } = await mount();
+      expect(track(container).style.transform).toBe("translateX(0%)");
+      await act(async () => { await store.getState().nextSpace(); });
+      expect(track(container).style.transform).toBe("translateX(-100%)");
+      expect(track(container).style.transition).toBe("none");
+    });
+
+    it("a click on the space strip lands instantly too", async () => {
+      const { container } = await mount();
+      fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
+      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
+      expect(track(container).style.transition).toBe("none");
+    });
+
+    it("a committed two-finger swipe still eases to the page it threw", async () => {
+      const { container } = await mount();
+      const swiper = container.querySelector("[data-swiper]")!;
+      fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
+      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
+      expect(track(container).style.transition).toContain("transform 380ms");
+    });
+  });
+
   it("right-click on an item offers Pin, which moves it to the pinned grid; Delete removes it permanently", async () => {
     const { store, api } = await mount();
     fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
