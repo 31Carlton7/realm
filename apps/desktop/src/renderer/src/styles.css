@@ -359,7 +359,6 @@ button.panel-title:hover { background: var(--rl-hover); }
   opacity: 0; transition: opacity 120ms ease; }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ (§6 icon swap): both glyphs stacked in one grid cell, cross-fading with scale + blur. */
-.tool-copy { position: relative; }
 .tool-copy .copy-icon, .tool-copy .copied-icon { grid-area: 1 / 1;
   transition: opacity 160ms var(--ease-out-strong), transform 160ms var(--ease-out-strong), filter 160ms var(--ease-out-strong); }
 .tool-copy .copied-icon { color: var(--rl-success); }

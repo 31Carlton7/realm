@@ -53,6 +53,42 @@ describe("Menu placement", () => {
     mount([plain("A")], { anchorRef: anchor(2), placement: "up" }); // 2 - 120 - 4 is off-screen
     expect(screen.getByRole("menu").style.top).toBe("26px"); // flipped: anchor.bottom + 4
   });
+
+  /** §6 wants the 140ms scale-in "origin-aware": the menu has to grow out of the corner it is
+   *  anchored to, which means the origin has to follow both `align` and whichever way it flipped. */
+  describe("transform-origin follows where the menu actually landed", () => {
+    const origin = () => screen.getByRole("menu").style.transformOrigin;
+
+    it("below a left-aligned trigger: grows down from its top-left", () => {
+      withMenuHeight();
+      mount([plain("A")], { anchorRef: anchor() });
+      expect(origin()).toBe("top left");
+    });
+
+    it("right-aligned: grows from the right edge, where the trigger is", () => {
+      withMenuHeight();
+      mount([plain("A")], { anchorRef: anchor(), align: "right" });
+      expect(origin()).toBe("top right");
+    });
+
+    it("opening upward: grows from the BOTTOM edge — the corner nearest the trigger", () => {
+      withMenuHeight();
+      mount([plain("A")], { anchorRef: anchor(), placement: "up" });
+      expect(origin()).toBe("bottom left");
+    });
+
+    it("a menu that flips below because there is no room above grows downward again", () => {
+      withMenuHeight();
+      mount([plain("A")], { anchorRef: anchor(2), placement: "up" });
+      expect(origin()).toBe("top left");
+    });
+
+    it("a point-placed context menu grows from the click point", () => {
+      withMenuHeight();
+      mount([plain("A")], { at: { x: 40, y: 40 } });
+      expect(origin()).toBe("top left");
+    });
+  });
 });
 
 describe("Menu dismissal by its own trigger (I6)", () => {
