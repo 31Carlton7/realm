@@ -46,7 +46,6 @@ export function SpaceStrip() {
             draggable onDragStart={(e) => { setDragId(sp.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", sp.id); }}
             onDragOver={onDragOver(sp.id)} onDragLeave={() => { if (overId === sp.id) setOverId(null); }}
             onDrop={(e) => { e.preventDefault(); drop(sp.id); }} onDragEnd={() => { setDragId(null); setOverId(null); }}
-            style={{ ["--space-color" as string]: sp.color }}
             onClick={() => run(() => selectSpace(sp.id))}>
             <Icon name={sp.icon} size={16} />
             <span className="strip-dot" aria-hidden />
