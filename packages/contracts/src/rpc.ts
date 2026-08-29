@@ -39,6 +39,102 @@ export const GitInfoSchema = z.object({
 });
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 
+/** How a path differs from what git last recorded. `untracked` and `conflicted` are not `git diff`
+ *  statuses but are what the user is looking at, so the pane needs words for them. */
+export const DiffFileStatusSchema = z.enum(["added", "modified", "deleted", "renamed", "copied", "type-changed", "untracked", "conflicted"]);
+export type DiffFileStatus = z.infer<typeof DiffFileStatusSchema>;
+
+/** One changed path. `staged` and `unstaged` are independent: a file edited after being staged is
+ *  both, and has two different patches — which is why `workspace.fileDiff` takes a side. */
+export const DiffFileSchema = z.object({
+  path: z.string(),
+  /** Where a rename or copy came from; null otherwise. */
+  oldPath: z.string().nullable(),
+  status: DiffFileStatusSchema,
+  staged: z.boolean(),
+  unstaged: z.boolean(),
+  binary: z.boolean(),
+  /** Staged plus unstaged, as `--numstat` counts them. Zero for untracked files: their content is
+   *  only read when the pane expands them (see the truncation policy in git-diff.ts). */
+  additions: z.number().int(),
+  deletions: z.number().int(),
+});
+export type DiffFile = z.infer<typeof DiffFileSchema>;
+
+/** `workspace.diff`: the whole working tree as a file list. Null result = not a git repository. */
+export const DiffSummarySchema = z.object({
+  /** The checkout root every `path` is relative to — NOT the cwd that was asked about. */
+  root: z.string(),
+  branch: z.string().nullable(),
+  /** At most DIFF_MAX_FILES entries. */
+  files: z.array(DiffFileSchema),
+  /** The true count, even when `files` was cut short. */
+  totalFiles: z.number().int(),
+  truncated: z.boolean(),
+});
+export type DiffSummary = z.infer<typeof DiffSummarySchema>;
+
+/** `meta` is git's `\ No newline at end of file`: it renders inside the hunk but numbers no line. */
+export const DiffLineSchema = z.object({
+  kind: z.enum(["context", "add", "del", "meta"]),
+  text: z.string(),
+  oldLine: z.number().int().nullable(),
+  newLine: z.number().int().nullable(),
+});
+export type DiffLine = z.infer<typeof DiffLineSchema>;
+
+export const DiffHunkSchema = z.object({
+  /** The text after `@@ … @@` — usually the enclosing function. */
+  header: z.string(),
+  oldStart: z.number().int(), oldLines: z.number().int(),
+  newStart: z.number().int(), newLines: z.number().int(),
+  lines: z.array(DiffLineSchema),
+});
+export type DiffHunk = z.infer<typeof DiffHunkSchema>;
+
+/** `workspace.fileDiff`: one file's patch, one side of the index. A binary file carries no hunks. */
+export const FileDiffSchema = z.object({
+  path: z.string(), oldPath: z.string().nullable(), staged: z.boolean(),
+  binary: z.boolean(),
+  hunks: z.array(DiffHunkSchema),
+  /** True when the patch was cut short by the size or line ceiling; `truncatedReason` says which. */
+  truncated: z.boolean(),
+  truncatedReason: z.string().nullable(),
+  additions: z.number().int(), deletions: z.number().int(),
+});
+export type FileDiff = z.infer<typeof FileDiffSchema>;
+
+/**
+ * The three steps of `workspace.ship`, each reporting an explained state rather than raw stderr.
+ *
+ * Every non-happy state here is a thing the UI has words and a next action for. `failed` is the
+ * deliberate catch-all, and only it carries git's own message.
+ */
+export const CommitOutcomeSchema = z.object({
+  state: z.enum(["committed", "nothing-to-commit", "skipped", "no-identity", "failed"]),
+  sha: z.string().nullable(), subject: z.string().nullable(), reason: z.string().nullable(),
+});
+export type CommitOutcome = z.infer<typeof CommitOutcomeSchema>;
+
+/** `no-upstream` is the one the UI must offer to fix (`--set-upstream`); `rejected` is the one it must
+ *  NOT offer to fix, because the only fix is a force-push and Realm does not have one. */
+export const PushOutcomeSchema = z.object({
+  state: z.enum(["pushed", "up-to-date", "no-remote", "no-upstream", "rejected", "detached", "skipped", "failed"]),
+  remote: z.string().nullable(), branch: z.string().nullable(), reason: z.string().nullable(),
+});
+export type PushOutcome = z.infer<typeof PushOutcomeSchema>;
+
+/** `compare` is the degraded path: no `gh`, not signed in, or not a host we can address — the user
+ *  gets a URL to open, never silence. */
+export const PrOutcomeSchema = z.object({
+  state: z.enum(["created", "existing", "compare", "unavailable", "skipped"]),
+  url: z.string().nullable(), reason: z.string().nullable(),
+});
+export type PrOutcome = z.infer<typeof PrOutcomeSchema>;
+
+export const ShipResultSchema = z.object({ commit: CommitOutcomeSchema, push: PushOutcomeSchema, pr: PrOutcomeSchema });
+export type ShipResult = z.infer<typeof ShipResultSchema>;
+
 /** What removing a worktree would destroy, asked of git at the moment of asking (Plan 7 W2).
  *  `environments.removeWorktree` re-reads these and refuses unless the acknowledgement matches, so
  *  a confirmation the user gave before the agent wrote another file fails closed. */
