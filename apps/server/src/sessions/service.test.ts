@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeAdapter } from "@realm/adapters";
@@ -569,6 +570,58 @@ describe("session port blocks", () => {
     const [ea, eb, eo] = fake.starts.map((s) => s.env!.REALM_PORT_BASE);
     expect(ea).toBe(eb);
     expect(eo).not.toBe(ea);
+    c.close();
+  });
+});
+
+/** W2 left worktree branches reading `realm/session`, `realm/session-2`, because sessions are
+ *  created untitled. The first message names the session; the branch follows it here (W3). */
+describe("a worktree's branch catches up with its session's first message", () => {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+
+  async function bootRepoSpace() {
+    const { c, sp } = await boot();
+    git(sp.folderPath, "init", "-b", "main");
+    writeFileSync(join(sp.folderPath, "a.txt"), "one\n");
+    git(sp.folderPath, "add", "."); git(sp.folderPath, "commit", "-m", "init");
+    return { c, sp };
+  }
+
+  it("renames realm/session to the message's slug, and says so", async () => {
+    const { c, sp } = await bootRepoSpace();
+    const env = (await c.call("environments.createWorktree", { spaceId: sp.id, title: null })).result;
+    expect(env.branch).toBe("realm/session");
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", environmentId: env.id })).result;
+
+    await c.call("sessions.send", { id: session.id, text: "Fix the login flow" });
+    await waitFor(() => (c.events.filter((e: Any) => e.event === "environments.changed").length > 0));
+    await waitFor(async () => (await c.call("environments.get", { id: env.id })).result.branch === "realm/fix-the-login-flow");
+    // git agrees, and the worktree is still on it.
+    expect(git(env.path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("realm/fix-the-login-flow");
+    // The directory keeps its old leaf: moving it would pull the cwd out from under a live agent.
+    expect((await c.call("sessions.get", { id: session.id })).result.cwd).toBe(env.path);
+    c.close();
+  });
+
+  it("leaves a branch alone when the session was created with a title", async () => {
+    const { c, sp } = await bootRepoSpace();
+    const env = (await c.call("environments.createWorktree", { spaceId: sp.id, title: "Refactor ports" })).result;
+    expect(env.branch).toBe("realm/refactor-ports");
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", environmentId: env.id })).result;
+    await c.call("sessions.send", { id: session.id, text: "actually do something else entirely" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.title === "actually do something else entirely");
+    expect((await c.call("environments.get", { id: env.id })).result.branch).toBe("realm/refactor-ports");
+    c.close();
+  });
+
+  it("does not touch a session running in the space's own checkout", async () => {
+    const { c, sp } = await bootRepoSpace();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "Fix the login flow" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.title === "Fix the login flow");
+    // The primary checkout is the user's own branch. Nothing here may rename it.
+    expect(git(sp.folderPath, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("main");
     c.close();
   });
 });

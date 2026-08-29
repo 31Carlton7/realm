@@ -60,6 +60,14 @@ export class EnvironmentsStore {
     return this.get(id)!;
   }
 
+  /** Record a branch rename (W3: a worktree's branch catching up with its session's first message).
+   *  The row's `path` never changes with it — see `WorktreeService.renameBranch` for why. */
+  setBranch(id: string, branch: string): Environment {
+    if (!this.get(id)) throw new NotFoundError("environment", id);
+    this.db.prepare("UPDATE environments SET branch = ?, updated_at = ? WHERE id = ?").run(branch, now(), id);
+    return this.get(id)!;
+  }
+
   /** Sessions currently running in this environment — the reason `delete` may refuse. */
   sessionCount(id: string): number {
     return (this.db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE environment_id = ?").get(id) as { n: number }).n;

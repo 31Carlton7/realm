@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BRANCH_PREFIX, NAME_ATTEMPTS, SLUG_MAX, WorktreeService, slugifyBranch } from "./worktrees";
+import { BRANCH_PREFIX, NAME_ATTEMPTS, SLUG_MAX, UNNAMED_BRANCH, WorktreeService, slugifyBranch } from "./worktrees";
 
 /**
  * Real repositories throughout. Every failure mode this service exists to handle — an empty repo, a
@@ -317,5 +317,71 @@ describe("WorktreeService.isManaged", () => {
     expect(s.isManaged(home)).toBe(false);
     expect(s.isManaged("/Users/someone/code/realm")).toBe(false);
     expect(s.isManaged(join(home, "worktrees", "..", "..", "etc"))).toBe(false);
+  });
+});
+
+/**
+ * W2 handed this over as a known weakness: sessions are created untitled, so their worktree branches
+ * read `realm/session`, `realm/session-2`. The first message names the session; this is the branch
+ * catching up. Real repositories throughout — including a real bare remote for the "already pushed"
+ * refusal, which is the only condition here whose whole point is not renaming.
+ */
+describe("renameBranch", () => {
+  it("only ever matches a branch Realm named for an untitled session", () => {
+    for (const yes of ["realm/session", "realm/session-2", "realm/session-137"]) expect(UNNAMED_BRANCH.test(yes), yes).toBe(true);
+    for (const no of ["realm/session-notes", "realm/fix-login", "main", "feat/realm/session", "realm/sessions"]) {
+      expect(UNNAMED_BRANCH.test(no), no).toBe(false);
+    }
+  });
+
+  it("renames the unnamed branch and leaves the worktree checked out on it", async () => {
+    const src = makeRepo();
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: src, title: null });
+    expect(wt.branch).toBe("realm/session");
+    const renamed = await svc().renameBranch({ path: wt.path, branch: wt.branch, title: "Fix the login flow" });
+    expect(renamed).toBe("realm/fix-the-login-flow");
+    // The worktree is still usable and still on the branch — `branch -m` moves HEAD with it.
+    expect(git(wt.path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("realm/fix-the-login-flow");
+    expect(git(src, "branch", "--list", "realm/session").trim()).toBe("");
+  });
+
+  it("refuses to rename a branch the user (or a titled session) already named", async () => {
+    const src = makeRepo();
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: src, title: "Already named" });
+    expect(await svc().renameBranch({ path: wt.path, branch: wt.branch, title: "Something else" })).toBeNull();
+    expect(git(wt.path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("realm/already-named");
+  });
+
+  it("refuses to rename a branch a remote already carries", async () => {
+    const src = makeRepo();
+    const bare = mkdtempSync(join(tmpdir(), "realm-wt-bare-"));
+    execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare]);
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: src, title: null });
+    git(wt.path, "remote", "add", "origin", bare);
+    git(wt.path, "push", "-u", "origin", "realm/session");
+    // Renaming here would orphan what is on the remote and leave the user with two branches.
+    expect(await svc().renameBranch({ path: wt.path, branch: wt.branch, title: "Fix the login flow" })).toBeNull();
+    expect(git(wt.path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("realm/session");
+    rmSync(bare, { recursive: true, force: true });
+  });
+
+  it("steps around a name that is already taken", async () => {
+    const src = makeRepo();
+    git(src, "branch", "realm/fix-the-login-flow");
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: src, title: null });
+    expect(await svc().renameBranch({ path: wt.path, branch: wt.branch, title: "Fix the login flow" })).toBe("realm/fix-the-login-flow-2");
+  });
+
+  it("does nothing when the title slugs to the same weak name", async () => {
+    const src = makeRepo();
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: src, title: null });
+    expect(await svc().renameBranch({ path: wt.path, branch: wt.branch, title: "  session  " })).toBeNull();
+  });
+
+  it("returns null rather than throwing when the worktree is gone", async () => {
+    const src = makeRepo();
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: src, title: null });
+    rmSync(wt.path, { recursive: true, force: true });
+    expect(await svc().renameBranch({ path: wt.path, branch: wt.branch, title: "Fix it" })).toBeNull();
   });
 });

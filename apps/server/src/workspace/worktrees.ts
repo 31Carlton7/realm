@@ -18,6 +18,9 @@ export const BRANCH_PREFIX = "realm/";
 export const SLUG_MAX = 40;
 /** How many `-2`, `-3`… suffixes to try before giving up on a base name. */
 export const NAME_ATTEMPTS = 200;
+/** A branch `create` produced for a session that had no title yet — the only shape `renameBranch`
+ *  will touch. Anchored on both ends: `realm/session-notes` is a real name and must survive. */
+export const UNNAMED_BRANCH = /^realm\/session(-\d+)?$/;
 
 /**
  * A branch/directory name derived from a session title. Titles are free text: spaces, slashes,
@@ -141,6 +144,47 @@ export class WorktreeService {
       return { path, branch };
     }
     throw new RpcError("WORKTREE_NAME_TAKEN", `no free name near "${base}" after ${NAME_ATTEMPTS} tries`);
+  }
+
+  /**
+   * Give a worktree's branch the name it should have had.
+   *
+   * Sessions are created untitled, so a worktree opened from "+" gets `realm/session`, `realm/session-2`
+   * — W2's own handover note. The first message names the session; this is where the branch catches up.
+   *
+   * Four conditions, and all four matter:
+   *  - the branch is still an UNNAMED one (`realm/session`, `realm/session-7`). A branch the user
+   *    named, or one from a titled session, is theirs and is never touched.
+   *  - no remote-tracking ref carries it. Renaming a pushed branch orphans what is on the remote and
+   *    leaves the user with two branches; the local check (`refs/remotes/<any>/<branch>`) is the
+   *    honest one available without a network call.
+   *  - the new name is free, by the same search `create` uses.
+   *  - `git branch -m` succeeds. It updates the worktree's own HEAD, so the checkout stays on it.
+   *
+   * The DIRECTORY keeps its old leaf name. `git worktree move` while an agent is running in that
+   * directory would pull the cwd out from under a live process; a shell prompt showing `session` next
+   * to a branch called `realm/fix-login` is the smaller of those two problems.
+   *
+   * Returns the new branch, or null when any condition said no — never throws. A title is a nicety,
+   * and it must not be able to fail the message that carried it.
+   */
+  async renameBranch(input: { path: string; branch: string; title: string }): Promise<string | null> {
+    if (!UNNAMED_BRANCH.test(input.branch)) return null;
+    const slug = slugifyBranch(input.title);
+    if (slug === "session") return null; // the title produced the same weak name
+    try {
+      if (!existsSync(input.path)) return null;
+      if ((await this.git(input.path, ["rev-parse", "--git-dir"])).code !== 0) return null;
+      const pushed = await this.git(input.path, ["for-each-ref", "--format=%(refname)", `refs/remotes/*/${input.branch}`]);
+      if (pushed.code !== 0 || pushed.stdout.trim() !== "") return null;
+      for (let n = 1; n <= NAME_ATTEMPTS; n++) {
+        const candidate = BRANCH_PREFIX + (n === 1 ? slug : `${slug}-${n}`);
+        if ((await this.git(input.path, ["show-ref", "--verify", "--quiet", `refs/heads/${candidate}`])).code === 0) continue;
+        const moved = await this.git(input.path, ["branch", "-m", input.branch, candidate]);
+        return moved.code === 0 ? candidate : null;
+      }
+      return null;
+    } catch { return null; }
   }
 
   /**

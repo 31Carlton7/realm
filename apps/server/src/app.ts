@@ -65,9 +65,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const ports = new PortAllocator(db);
   // Worktrees live under the Realm home, which is also the boundary WorktreeService refuses to
   // remove outside of — so it is given the home rather than deriving one.
-  const envService = new EnvironmentService({ environments, spaces, worktrees: new WorktreeService(opts.home), ports });
+  const worktrees = new WorktreeService(opts.home);
+  const envService = new EnvironmentService({ environments, spaces, worktrees, ports });
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
-  const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, environments, ports, terminals, adapters: opts.adapters ?? defaultAdapters() });
+  const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters() });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
     profiles, spaces, projects, environments, envService, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports,

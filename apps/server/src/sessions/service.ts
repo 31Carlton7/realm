@@ -10,6 +10,7 @@ import type { SpacesStore } from "../store/spaces";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
 import { portEnv, type PortAllocator } from "../workspace/ports";
+import type { WorktreeService } from "../workspace/worktrees";
 import { ProbeCache } from "./probe-cache";
 
 const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
@@ -33,7 +34,7 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
@@ -207,7 +208,8 @@ export class SessionService {
     } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
   }
 
-  /** The first message names an untitled session (and its sidebar item). */
+  /** The first message names an untitled session (and its sidebar item) — and, when that session
+   *  runs in a worktree Realm opened before it had a name, its BRANCH too (W3). */
   private maybeTitleFrom(id: string, text: string): void {
     const s = this.d.sessions.get(id); if (!s || s.title !== defaultTitle(s.agentKind)) return;
     if (this.d.events.hasType(id, "user_message")) return;
@@ -215,6 +217,22 @@ export class SessionService {
     this.d.sessions.update({ id, title });
     const item = this.d.items.findByRefId(id);
     if (item) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
+    // Fire-and-forget: git work must never delay (or fail) the message that carried the title.
+    // `renameBranch` swallows its own failures and returns null when any of its conditions says no.
+    void this.renameWorktreeBranch(s.environmentId, title);
+  }
+
+  /** `realm/session` → `realm/fix-the-login-flow`, when the environment is a worktree whose branch
+   *  is still the unnamed one and no remote carries it yet. Silent on every other path. */
+  private async renameWorktreeBranch(environmentId: string, title: string): Promise<void> {
+    try {
+      const env = this.d.environments.get(environmentId);
+      if (!env || env.kind !== "worktree" || !env.branch) return;
+      const renamed = await this.d.worktrees.renameBranch({ path: env.path, branch: env.branch, title });
+      if (!renamed) return;
+      this.d.environments.setBranch(env.id, renamed);
+      this.d.rpc.broadcast("environments.changed", { spaceId: env.spaceId });
+    } catch { /* a branch name is a nicety; it never fails a turn */ }
   }
 
   /** Allocate the session's environment a port block if it has none yet (W2). Async, and therefore
