@@ -25,8 +25,10 @@ export type GitResult = {
    *  the diff reader's ceiling for a generated-file diff nobody could read anyway. */
   truncated?: boolean;
 };
-/** How a service invokes git — injectable so tests can assert the exact argv without a real repo. */
-export type GitRun = (cwd: string, args: string[], opts?: { timeoutMs?: number; maxBytes?: number }) => Promise<GitResult>;
+/** How a service invokes git — injectable so tests can assert the exact argv without a real repo.
+ *  `env` is MERGED over the inherited environment, for the one caller that needs it: checkpoint capture
+ *  sets `GIT_INDEX_FILE` to a scratch copy so `git add` cannot touch the user's index. */
+export type GitRun = (cwd: string, args: string[], opts?: { timeoutMs?: number; maxBytes?: number; env?: Record<string, string> }) => Promise<GitResult>;
 
 export const GIT_EXEC_TIMEOUT_MS = 20_000;
 /** Push and PR creation talk to a network. Their own timeout, or a slow remote reads as a crash. */
@@ -48,7 +50,7 @@ export const gitCapture: GitRun = (cwd, args, opts = {}) =>
         cwd, timeout: opts.timeoutMs ?? GIT_EXEC_TIMEOUT_MS, encoding: "utf8", maxBuffer: opts.maxBytes ?? GIT_MAX_BYTES,
         // A push to a remote that wants credentials would otherwise block on a terminal prompt no
         // one can see, until the timeout kills it. Failing immediately is an error we can explain.
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...opts.env },
       },
       (err, stdout, stderr) => {
         const e = err as (Error & { code?: number | string; killed?: boolean }) | null;
