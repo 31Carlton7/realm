@@ -1,4 +1,4 @@
-import { AGENT_SUPPORTS_PERMISSION_MODES, EFFORT_LEVELS, PERMISSION_MODES, type AgentKind, type GitInfo, type Project, type Session, type SessionStatus } from "@realm/contracts";
+import { AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, type AgentKind, type GitInfo, type Project, type Session, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -60,6 +60,8 @@ function ChipMenu({ ariaLabel, title, label, items, warning }: { ariaLabel: stri
   );
 }
 
+const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id)?.label ?? id;
+
 /** The prompter (design-language §4): one floating card, two states. `hero` centers it at ~38%
  *  viewport height with the greeting above and suggestion chips below (both absolutely positioned
  *  around the card so the hero→docked move is one element transitioning transform, §6: 320ms).
@@ -68,12 +70,16 @@ function ChipMenu({ ariaLabel, title, label, items, warning }: { ariaLabel: stri
  *  ⌘/Ctrl+Enter sends; Enter inserts a newline. The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
-export function Composer({ session, status, project, gitInfo, draft, onDraftChange, onSend, onStop, onOptions, onPickModel, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion }: {
+export function Composer({ session, status, project, gitInfo, draft, onDraftChange, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion }: {
   session: Session; status: SessionStatus; project: Project | null; gitInfo: GitInfo | null;
   draft: string; onDraftChange: (text: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
   /** Sets agent AND model in one action — the picker's rows are (agent, model) pairs. */
   onPickModel: (kind: AgentKind, modelId: string | null) => void;
+  /** Build ⇄ Plan. The store parks and restores the permission mode around the trip. */
+  onMode: (mode: SessionMode) => void;
+  /** The permission mode Plan is holding for this session, if any — what returning to Build restores. */
+  planReturn: string | null;
   /** False once the session has produced an event — see ModelPicker. */
   canSwitchAgent: boolean;
   /** Latest `agents.probe`, for the picker's per-agent availability note. Empty before the first probe. */
@@ -86,6 +92,8 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
   // Hidden exactly like the model menu is empty when the agent has no models: an option Realm cannot
   // transmit is worse than no option at all.
   const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[kind];
+  const canPlan = AGENT_SUPPORTS_PLAN_MODE[kind];
+  const inPlan = session.permissionMode === PLAN_PERMISSION_MODE;
   // bypassPermissions must never be a one-click slip (U-M7): selecting it arms an inline confirm chip
   // for 5s while the chip simply stays on the current mode; only the explicit confirm applies it.
   const [confirmBypass, setConfirmBypass] = useState(false);
@@ -112,6 +120,9 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
   };
 
   const effortItems: MenuItem[] = EFFORT_LEVELS.map((l) => ({ label: l, checked: session.effort === l, onSelect: () => onOptions({ effort: l }) }));
+  const modeItems: MenuItem[] = SESSION_MODES.map((m) => ({
+    label: m.label, checked: (m.id === "plan") === inPlan, onSelect: () => onMode(m.id),
+  }));
   const permissionItems: MenuItem[] = PERMISSION_MODES.map((m) => ({
     label: m.label, checked: session.permissionMode === m.id,
     onSelect: () => {
@@ -133,9 +144,22 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
             <ModelPicker kind={kind} model={session.model} canSwitchAgent={canSwitchAgent}
               agentProbe={agentProbe} onPick={onPickModel} />
             <ChipMenu ariaLabel="Effort" label={session.effort ?? "Effort"} items={effortItems} />
+            {/* In Plan the permission mode is not in effect — Claude's `plan` replaces it outright and
+                Codex forces read-only — so the control becomes a LABEL naming what Build will restore.
+                Offering a picker whose selection changes nothing is the lie this split exists to end;
+                hiding it instead would lose the answer to "what happens when I go back?". */}
             {canSetPermissionMode && (
-              <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
-                label={PERMISSION_MODES.find((m) => m.id === session.permissionMode)?.label ?? session.permissionMode} items={permissionItems} />
+              inPlan
+                ? <ChipMenu ariaLabel="Permission mode" items={[]}
+                    title={`Plan is read-only — returning to Build restores ${permissionLabel(planReturn ?? "default")}`}
+                    label={permissionLabel(planReturn ?? "default")} />
+                : <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
+                    label={permissionLabel(session.permissionMode)} items={permissionItems} />
+            )}
+            {canPlan && (
+              <ChipMenu ariaLabel="Mode" title={inPlan ? "Mode: Plan — the agent researches and proposes, but does not edit" : "Mode: Build"}
+                label={<><Icon name={inPlan ? "plan" : "tool"} size={13} className="chip-brand" />{inPlan ? "Plan" : "Build"}</>}
+                items={modeItems} />
             )}
             {confirmBypass && (
               <button className="composer-chip bypass-confirm"

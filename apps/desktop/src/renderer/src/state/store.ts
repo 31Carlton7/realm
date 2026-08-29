@@ -1,7 +1,7 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema,
-  type AgentKind, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionStatus, type Space, type StoredSessionEvent,
+  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
+  type AgentKind, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionMode, type SessionStatus, type Space, type StoredSessionEvent,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -154,6 +154,10 @@ export type AppState = {
   /** Composer drafts by session id — store-owned so layout reshapes/pane remounts never lose typed
    *  text (A-M9). Never persisted; dropped when the session's item is deleted. */
   drafts: Record<string, string>;
+  /** The permission mode a session was on when it entered Plan, by session id — see `setSessionMode`.
+   *  Not persisted: after a restart a session already in Plan returns to `default`, which is the safe
+   *  direction to be wrong in. */
+  planReturn: Record<string, string>;
   /** Git working-tree summaries by cwd; null = known non-repo. Refreshed event-driven only (session
    *  status transitions to idle/error, space activation, session open) — never polled. */
   gitInfo: Record<string, GitInfo | null>;
@@ -236,8 +240,11 @@ export type AppState = {
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
-  /** Switch an unstarted session's agent (prompter agent chip). The server refuses once events exist —
-   *  the chip goes static there, so this is only ever called while it is legal. */
+  /** Move a session between Build and Plan (the prompter's mode chip), parking and restoring the
+   *  permission mode around the trip. See the implementation for why the parking is necessary. */
+  setSessionMode(id: string, mode: SessionMode): Promise<void>;
+  /** Switch an unstarted session's agent (prompter model picker). The server refuses once events exist —
+   *  cross-agent rows go unavailable there, so this is only ever called while it is legal. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
@@ -468,7 +475,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, gitInfo: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, planReturn: {}, gitInfo: {},
       terminalPanel: {}, sessionTerminals: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
@@ -642,7 +649,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
-          set({ sessionStatus, sessions, drafts, sessionSpace, terminalPanel, sessionTerminals });
+          const { [it.refId]: _pr, ...planReturn } = get().planReturn;
+          set({ sessionStatus, sessions, drafts, planReturn, sessionSpace, terminalPanel, sessionTerminals });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -788,6 +796,35 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async interruptSession(id) { await api.interruptSession(id); },
       async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },
       async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
+      /**
+       * Build ⇄ Plan.
+       *
+       * Build and Plan are their own axis in the prompter, but Plan still travels on the wire as
+       * `permissionMode: "plan"` (the only channel Claude and Codex read it on). So a session in Plan
+       * has nowhere left to hold the permission the user actually chose — entering Plan parks it here,
+       * and leaving Plan puts it back.
+       *
+       * Without the park, every round trip through Plan would quietly demote a session from
+       * "Full access" to "Ask", or strand it on a `permissionMode` the picker can no longer name.
+       * `default` is the fallback only when there is nothing parked (a session that was already in
+       * Plan when the app started).
+       */
+      async setSessionMode(id, mode) {
+        const s = get().sessions[id];
+        if (!s) return;
+        const inPlan = s.permissionMode === PLAN_PERMISSION_MODE;
+        if (mode === "plan") {
+          if (inPlan) return;
+          set({ planReturn: { ...get().planReturn, [id]: s.permissionMode } });
+          await get().setSessionOptions(id, { permissionMode: PLAN_PERMISSION_MODE });
+        } else {
+          if (!inPlan) return;
+          const back = get().planReturn[id] ?? "default";
+          const { [id]: _used, ...planReturn } = get().planReturn;
+          set({ planReturn });
+          await get().setSessionOptions(id, { permissionMode: back });
+        }
+      },
       async setSessionAgent(id, agentKind) {
         mergeSession(await api.setSessionAgent(id, agentKind));
         rememberAgent(agentKind);

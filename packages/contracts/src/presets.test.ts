@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has at least 8 colors and icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(8); });
@@ -43,6 +43,33 @@ describe("AGENT_CLI_COMMANDS", () => {
   it("is honest about the kinds with no single command", () => {
     expect(AGENT_CLI_COMMANDS.fake).toEqual({ install: null, login: null }); // compiled in
     expect(AGENT_CLI_COMMANDS["acp:gemini"].login).toBeNull();               // needs an API key, not a login
+  });
+});
+
+describe("AGENT_SUPPORTS_PLAN_MODE", () => {
+  it("has an entry for every agent kind that has display metadata", () => {
+    expect(Object.keys(AGENT_SUPPORTS_PLAN_MODE).sort()).toEqual(Object.keys(AGENT_META).sort());
+  });
+  it("is true exactly where an adapter actually acts on the plan mode", () => {
+    // claude: Claude Code's own `permissionMode: "plan"`.
+    // codex:  codexPolicyFor("plan") → approvalPolicy "untrusted" + sandbox "read-only".
+    expect(AGENT_SUPPORTS_PLAN_MODE.claude).toBe(true);
+    expect(AGENT_SUPPORTS_PLAN_MODE.codex).toBe(true);
+    // ACP mode ids are agent-defined; AcpAdapter never transmits Realm's, so a Plan chip would be inert.
+    expect(AGENT_SUPPORTS_PLAN_MODE["acp:cursor"]).toBe(false);
+    expect(AGENT_SUPPORTS_PLAN_MODE["acp:gemini"]).toBe(false);
+  });
+});
+
+describe("PERMISSION_MODES", () => {
+  it("no longer carries Plan — that is the mode axis, not the permission axis", () => {
+    expect(PERMISSION_MODES.map((m) => m.id)).toEqual(["default", "acceptEdits", "bypassPermissions"]);
+    expect(PERMISSION_MODES.map((m) => m.id)).not.toContain(PLAN_PERMISSION_MODE);
+  });
+  it("still names Plan's wire value, which the adapters read off `permissionMode`", () => {
+    // Splitting the axes was a UI change; the transport did not move.
+    expect(PLAN_PERMISSION_MODE).toBe("plan");
+    expect(SESSION_MODES.map((m) => m.id)).toEqual(["build", "plan"]);
   });
 });
 

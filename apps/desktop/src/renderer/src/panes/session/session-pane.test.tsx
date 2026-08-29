@@ -120,10 +120,12 @@ describe("SessionPane", () => {
     expect(chip).not.toHaveAttribute("data-warning");
     expect(chip).toHaveTextContent("Ask");
     fireEvent.click(chip);
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
-    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
-    expect(chip).toHaveTextContent("Plan");
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Accept edits" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
+    expect(chip).toHaveTextContent("Accept edits");
     expect(chip).not.toHaveAttribute("data-warning");
+    // Plan is no longer one of these: it is its own axis, on its own chip.
+    expect(screen.queryByRole("menuitemcheckbox", { name: "Plan" })).toBeNull();
     fireEvent.click(chip);
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Full access" }));
     fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
@@ -617,6 +619,68 @@ async function mountFresh(extra: Partial<Parameters<typeof session>[2]> = {}, la
 async function mountKindFresh(agentKind: "codex" | "acp:cursor") {
   return mountFresh({ agentKind });
 }
+
+describe("prompter mode chip (Build / Plan)", () => {
+  const modeChip = () => screen.getByRole("button", { name: "Mode" });
+  const permissionChip = () => screen.queryByRole("button", { name: "Permission mode" });
+  const setMode = (label: "Build" | "Plan") => {
+    fireEvent.click(modeChip());
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: label }));
+  };
+
+  it("starts on Build and moves the session onto the plan permission mode", async () => {
+    const { store } = await mountFresh();
+    expect(modeChip()).toHaveTextContent("Build");
+    setMode("Plan");
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
+    expect(modeChip()).toHaveTextContent("Plan");
+  });
+
+  it("returning to Build restores the permission the user was on, not `default`", async () => {
+    // The whole reason the store parks a value: Plan travels as `permissionMode`, so the round trip
+    // would otherwise silently demote Full access to Ask.
+    const { store } = await mountFresh({ permissionMode: "bypassPermissions" });
+    expect(permissionChip()).toHaveTextContent("Full access");
+    setMode("Plan");
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
+    setMode("Build");
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+    expect(permissionChip()).toHaveTextContent("Full access");
+    expect(store.getState().planReturn.se1).toBeUndefined(); // the park is spent, not left behind
+  });
+
+  it("survives a pane remount — the parked mode lives in the store, not the component", async () => {
+    const { store, unmount } = await mountFresh({ permissionMode: "acceptEdits" });
+    setMode("Plan");
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
+    unmount();
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" })} visible /></StoreContext.Provider>);
+    setMode("Build");
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
+  });
+
+  it("names what Build will restore while in Plan, and stops offering a picker that would do nothing", async () => {
+    const { store } = await mountFresh({ permissionMode: "acceptEdits" });
+    setMode("Plan");
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
+    // Plan is read-only regardless of permission mode, so the control is a label, not a menu.
+    expect(permissionChip()).toBeNull();
+    const label = document.querySelector('.ghost-chip[data-static][title^="Plan is read-only"]');
+    expect(label).toHaveTextContent("Accept edits");
+    expect(label!.tagName).toBe("SPAN");
+  });
+
+  it("is hidden for an agent with no plan mode, and shown for the ones that have it", async () => {
+    // Cursor: ACP mode ids are agent-defined and Realm's are never transmitted, so a Plan chip there
+    // would be a button that changes nothing.
+    const cursor = await mountKindFresh("acp:cursor");
+    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
+    cursor.unmount();
+    // Codex: codexPolicyFor("plan") really does start the thread read-only under untrusted approvals.
+    await mountKindFresh("codex");
+    expect(screen.getByRole("button", { name: "Mode" })).toBeInTheDocument();
+  });
+});
 
 describe("prompter model picker", () => {
   const rowNames = () => screen.getAllByRole("option").map((n) => n.querySelector(".mp-row-name")!.textContent);

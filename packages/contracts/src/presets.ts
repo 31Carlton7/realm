@@ -35,7 +35,49 @@ export const AGENT_SUPPORTS_PERMISSION_MODES = {
   claude: true, codex: true, "acp:cursor": false, "acp:gemini": false, fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
-export const PERMISSION_MODES = [{ id: "default", label: "Ask" }, { id: "acceptEdits", label: "Accept edits" }, { id: "plan", label: "Plan" }, { id: "bypassPermissions", label: "Full access" }] as const;
+/**
+ * How much the agent may do without asking. Ordered least → most permissive.
+ *
+ * `plan` is deliberately NOT here. It used to sit in this list, which conflated two different axes:
+ * "how freely may the agent act" and "is the agent building or thinking". Plan is now its own chip
+ * (see `AGENT_SUPPORTS_PLAN_MODE`), and the two are chosen independently.
+ */
+export const PERMISSION_MODES = [{ id: "default", label: "Ask" }, { id: "acceptEdits", label: "Accept edits" }, { id: "bypassPermissions", label: "Full access" }] as const;
+
+/**
+ * The wire value for Plan. It is still transmitted through the `permissionMode` field because that is
+ * the channel both supporting adapters read it on — Claude Code has a first-class `"plan"` permission
+ * mode, and `codexPolicyFor` maps this exact string onto `approvalPolicy: "untrusted"` +
+ * `sandbox: "read-only"`. Splitting the two axes is a UI split; the transport is unchanged.
+ *
+ * The consequence the prompter has to handle: a session in Plan is not storing the permission the user
+ * chose, so leaving Plan has to put it back rather than resetting to `default`.
+ */
+export const PLAN_PERMISSION_MODE = "plan";
+/** Build/Plan, the mode axis. Build is the absence of Plan, not a value Realm ever transmits. */
+export const SESSION_MODES = [{ id: "build", label: "Build" }, { id: "plan", label: "Plan" }] as const;
+export type SessionMode = (typeof SESSION_MODES)[number]["id"];
+
+/**
+ * Agent kinds that can actually be put into Plan.
+ *
+ * Kept apart from `AGENT_SUPPORTS_PERMISSION_MODES` because they answer different questions, even
+ * though every kind currently gives them the same answer: one asks whether Realm can set how freely
+ * the agent acts, the other whether the agent has a plan-only mode at all. An ACP agent that
+ * advertised a `plan` id through `modes.availableModes` could support the second without the first.
+ *
+ * - `claude` — Claude Code's own `permissionMode: "plan"`.
+ * - `codex` — `codexPolicyFor("plan")` starts the thread read-only under an untrusted approval policy.
+ * - `acp:cursor` / `acp:gemini` — false for the same reason they have no permission picker: ACP mode
+ *   ids are agent-defined, `AcpAdapter.start()` never reads `permissionMode`, and `session/set_mode`
+ *   rejects a foreign id. Cursor does have a `plan` mode; Realm just has no way to name it yet. The
+ *   follow-up is the same one: read `modes.availableModes` from `session/new` and map onto it.
+ * - `fake` — the scripted dev adapter ignores the field entirely, but stays true so the development
+ *   prompter shows the same controls as a real one (as it already does for permission modes).
+ */
+export const AGENT_SUPPORTS_PLAN_MODE = {
+  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false, fake: true,
+} as const satisfies Record<import("./entities").AgentKind, boolean>;
 
 /**
  * Display metadata per agent kind (icon names come from @realm/ui's icon set).
