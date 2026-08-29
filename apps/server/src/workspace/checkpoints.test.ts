@@ -184,6 +184,27 @@ describe("capture", () => {
     } finally { cleanup(repo); }
   });
 
+  it("captures the working tree mid-conflict, standing HEAD in for the unwritable index", async () => {
+    const repo = makeRepo();
+    try {
+      git(repo, "checkout", "-q", "-b", "side");
+      writeFileSync(join(repo, "tracked.txt"), "side\n");
+      git(repo, "commit", "-qam", "side");
+      git(repo, "checkout", "-q", "main");
+      writeFileSync(join(repo, "tracked.txt"), "main\n");
+      git(repo, "commit", "-qam", "main");
+      // A conflicted merge leaves unmerged entries, which `git write-tree` refuses outright.
+      expect(() => git(repo, "merge", "side")).toThrow();
+      expect(git(repo, "status", "--porcelain")).toContain("UU tracked.txt");
+
+      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
+      // The staged side fell back to HEAD's tree, and the file the user is looking at — conflict
+      // markers and all — is what the working tree tree holds.
+      expect(state.indexTree).toBe(git(repo, "rev-parse", "HEAD^{tree}").trim());
+      expect(git(repo, "show", `${state.worktreeTree}:tracked.txt`)).toContain("<<<<<<<");
+    } finally { cleanup(repo); }
+  });
+
   it("works in a repository with no commits and no index file", async () => {
     const repo = makeEmptyRepo();
     try {

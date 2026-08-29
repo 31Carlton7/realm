@@ -113,8 +113,9 @@ export type RestoreHazard = {
 export type RestoreAck = { filesChanged: number; commitsRolledBack: number };
 
 export type RestoreOutcome = {
-  hazard: RestoreHazard;
   headMoved: boolean;
+  /** Why HEAD stayed where it was, when it did. */
+  headReason: string | null;
   /** Untracked, non-ignored paths deleted because they postdate the checkpoint. */
   filesRemoved: number;
 };
@@ -296,10 +297,13 @@ export class CheckpointGit {
    */
   async restore(input: { cwd: string; state: CapturedState }): Promise<RestoreOutcome> {
     const root = await this.root(input.cwd);
-    const hazard = await this.hazard(input);
+    // Only the HEAD question is asked again here, not the whole hazard: the caller has already
+    // computed and confirmed the counts, and re-deriving them would mean snapshotting the working tree
+    // into a second tree for a number nobody reads.
+    const { movable, reason } = await this.headMovable(root, input.state);
 
     let headMoved = false;
-    if (hazard.headMovable && input.state.headSha) {
+    if (movable && input.state.headSha) {
       const reset = await this.git(root, ["reset", "--soft", input.state.headSha]);
       if (reset.code !== 0) throw new RpcError("RESTORE_FAILED", gitReason(reset));
       headMoved = true;
@@ -316,7 +320,7 @@ export class CheckpointGit {
 
     const index = await this.git(root, ["read-tree", input.state.indexTree]);
     if (index.code !== 0) throw new RpcError("RESTORE_FAILED", gitReason(index));
-    return { hazard, headMoved, filesRemoved };
+    return { headMoved, headReason: headMoved ? null : reason, filesRemoved };
   }
 
   /** Drop the hidden refs for these checkpoints. The objects become unreachable and are collected by
