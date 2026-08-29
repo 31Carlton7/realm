@@ -59,9 +59,10 @@ function ModelPopover({ rows, anchorRef, onClose, onPick }: {
 
   const shown = useMemo(() => filterRows(rows, { query, provider }), [rows, query, provider]);
   const rail = useMemo(() => railKinds(rows), [rows]);
-  // The highlight is clamped rather than stored as a key: filtering can shrink the list under it, and
-  // a highlight pointing past the end would make Enter do nothing with no visible reason why.
-  const activeRow = shown[Math.min(active, shown.length - 1)];
+  // The highlight is clamped rather than stored as a row key: filtering can shrink the list under it,
+  // and a highlight pointing past the end would make Enter do nothing with no visible reason why.
+  const cur = Math.min(active, shown.length - 1);
+  const activeRow = shown[cur];
 
   const pick = (row: ModelRow | undefined) => {
     if (!row || row.blockedReason) return; // blocked rows are readable, never actionable
@@ -70,8 +71,8 @@ function ModelPopover({ rows, anchorRef, onClose, onPick }: {
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => Math.min(shown.length - 1, Math.min(i, shown.length - 1) + 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => Math.max(0, Math.min(i, shown.length - 1) - 1)); }
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(Math.min(shown.length - 1, cur + 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(Math.max(0, cur - 1)); }
     else if (e.key === "Enter") { e.preventDefault(); pick(activeRow); }
   };
 
@@ -81,7 +82,7 @@ function ModelPopover({ rows, anchorRef, onClose, onPick }: {
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" }}>
       <div className="mp-search">
         <Icon name="search" size={14} />
-        {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the picker opens for typing; §5's palette does the same */}
+        {/* Autofocused because the picker opens for typing — the same bargain the command palette makes. */}
         <input autoFocus type="text" value={query} placeholder="Search models…" aria-label="Search models"
           role="combobox" aria-expanded aria-controls="mp-list" aria-activedescendant={activeRow ? `mp-${activeRow.key}` : undefined}
           onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onKeyDown} />
