@@ -1,6 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeAdapter } from "@realm/adapters";
@@ -452,5 +452,84 @@ describe("the session's terminal side panel (W4)", () => {
     expect((await c2.call("sessions.openTerminal", { id: session.id })).result).toEqual(term); // same trio
     expect((await c2.call("items.list", { spaceId: sp.id })).result.some((i: Any) => i.id === term.itemId)).toBe(false);
     c2.close();
+  });
+});
+
+describe("environments over rpc", () => {
+  it("a space's first session creates its primary environment, and every later one shares it", async () => {
+    const { c, sp } = await boot();
+    expect((await c.call("environments.list", { spaceId: sp.id })).result).toEqual([]); // nothing until it is needed
+    const a = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const b = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    expect(b.environmentId).toBe(a.environmentId); // one checkout, many sessions
+    const envs = (await c.call("environments.list", { spaceId: sp.id })).result;
+    expect(envs).toMatchObject([{ id: a.environmentId, spaceId: sp.id, path: sp.folderPath, kind: "primary", branch: null, portBlockStart: null }]);
+    expect(a.cwd).toBe(sp.folderPath);
+    expect((await c.call("environments.get", { id: a.environmentId })).result.path).toBe(sp.folderPath);
+    c.close();
+  });
+
+  it("a project session gets its own `checkout` environment beside the primary, and shares that", async () => {
+    const { c, sp } = await boot();
+    const pr = (await c.call("projects.create", { spaceId: sp.id, name: "repo", rootPath: "/tmp" })).result;
+    const plain = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const a = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", projectId: pr.id })).result.session;
+    const b = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", projectId: pr.id })).result.session;
+    expect(a.environmentId).toBe(b.environmentId);
+    expect(a.environmentId).not.toBe(plain.environmentId);
+    expect(a.cwd).toBe("/tmp");
+    const envs = (await c.call("environments.list", { spaceId: sp.id })).result;
+    expect(envs.map((e: Any) => [e.kind, e.path])).toEqual([["primary", sp.folderPath], ["checkout", "/tmp"]]);
+    c.close();
+  });
+
+  it("sessions.create can be pinned to an environment, and refuses one from another space", async () => {
+    const { c, sp } = await boot();
+    const sp2 = (await c.call("spaces.create", { profileId: (await c.call("profiles.list", {})).result[0].id, name: "T" })).result;
+    const mine = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const theirs = (await c.call("sessions.create", { spaceId: sp2.id, agentKind: "fake" })).result.session;
+    const pinned = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", environmentId: mine.environmentId })).result.session;
+    expect(pinned.environmentId).toBe(mine.environmentId);
+    expect((await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", environmentId: theirs.environmentId })).error.code).toBe("ENVIRONMENT_WRONG_SPACE");
+    expect((await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+
+  it("environments.delete: refused while in use, refused for a primary, and never fires on its own", async () => {
+    const { c, sp } = await boot();
+    const pr = (await c.call("projects.create", { spaceId: sp.id, name: "repo", rootPath: "/tmp" })).result;
+    const keep = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const s = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", projectId: pr.id })).result;
+    expect((await c.call("environments.delete", { id: s.session.environmentId })).error.code).toBe("ENVIRONMENT_IN_USE");
+
+    await c.call("sessions.delete", { id: s.session.id });
+    // Deleting the last session that used it leaves the checkout alone — that is the policy.
+    expect((await c.call("environments.list", { spaceId: sp.id })).result.map((e: Any) => e.path)).toEqual([sp.folderPath, "/tmp"]);
+    expect((await c.call("environments.delete", { id: s.session.environmentId })).ok).toBe(true);
+    expect((await c.call("environments.list", { spaceId: sp.id })).result.map((e: Any) => e.path)).toEqual([sp.folderPath]);
+
+    const primary = (await c.call("environments.get", { id: keep.environmentId })).result;
+    expect(primary.kind).toBe("primary");
+    expect((await c.call("environments.delete", { id: primary.id })).error.code).toBe("ENVIRONMENT_PRIMARY");
+    expect((await c.call("environments.delete", { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+
+  it("cwd follows the environment: the terminal and the agent both land where the environment points", async () => {
+    // A script with no permission step: this test tears the app down at the end, and an unanswered
+    // permission request would leave the adapter waiting rather than disposing.
+    const { c, sp, home } = await boot(new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "ok" }] }], delayMs: 1 }));
+    const s = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const moved = join(home, "moved");
+    mkdirSync(moved, { recursive: true });
+    app.db.prepare("UPDATE environments SET path = ? WHERE id = ?").run(moved, s.environmentId);
+    expect((await c.call("sessions.get", { id: s.id })).result.cwd).toBe(moved);
+    const term = (await c.call("sessions.openTerminal", { id: s.id })).result;
+    expect(app.db.prepare("SELECT cwd FROM terminals WHERE id = ?").get(term.terminalId)).toEqual({ cwd: moved });
+    await c.call("sessions.send", { id: s.id, text: "go" });
+    await waitFor(() => c.eventTypes(s.id).includes("init"));
+    const init = c.events.find((e: Any) => e.event === "session.event" && e.payload.event.type === "init");
+    expect(init.payload.event.payload.cwd).toBe(moved); // the adapter was started there, not at the old path
+    c.close();
   });
 });

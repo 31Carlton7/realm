@@ -22,7 +22,9 @@ export class EnvironmentsStore {
   constructor(private db: Db) {}
 
   list(spaceId: string): Environment[] {
-    return (this.db.prepare("SELECT * FROM environments WHERE space_id = ? ORDER BY created_at").all(spaceId) as Row[]).map(toEnvironment);
+    // `rowid` breaks created_at ties by insertion order: two environments made in the same millisecond
+    // must still come back in a stable order, or every caller that lists them is subtly flaky.
+    return (this.db.prepare("SELECT * FROM environments WHERE space_id = ? ORDER BY created_at, rowid").all(spaceId) as Row[]).map(toEnvironment);
   }
   get(id: string): Environment | null {
     const r = this.db.prepare("SELECT * FROM environments WHERE id = ?").get(id) as Row | undefined;
@@ -67,7 +69,7 @@ export class EnvironmentsStore {
     const env = this.get(id); if (!env) throw new NotFoundError("environment", id);
     if (env.kind === "primary") throw new RpcError("ENVIRONMENT_PRIMARY", "a space's primary checkout cannot be removed");
     const n = this.sessionCount(id);
-    if (n > 0) throw new RpcError("ENVIRONMENT_IN_USE", `${n} session${n === 1 ? "" : "s"} still run here`);
+    if (n > 0) throw new RpcError("ENVIRONMENT_IN_USE", n === 1 ? "1 session still runs here" : `${n} sessions still run here`);
     this.db.prepare("DELETE FROM environments WHERE id = ?").run(id);
     // The directory is left on disk: W1 owns the record, not the checkout.
   }
