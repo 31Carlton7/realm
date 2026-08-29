@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { Environment, GitInfo, Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
+import type { DiffSummary, Environment, FileDiff, GitInfo, Item, Profile, Project, Session, ShipResult, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AgentProbe, Api } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -23,6 +23,15 @@ export type FakeData = {
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
   gitInfo?: Record<string, GitInfo | null>;
+  /** `workspace.diff` by cwd; absent = not a repo (null). */
+  diffs?: Record<string, DiffSummary | null>;
+  /** `workspace.fileDiff` by `${cwd}|${path}|${staged}`. */
+  patches?: Record<string, FileDiff>;
+  /** What `workspace.ship` answers next. Replace between calls to walk a flow. */
+  shipResult?: ShipResult;
+  /** `environments.worktreeStatus` by environment id. Mutate between calls to simulate the tree
+   *  changing under an open confirmation. */
+  worktreeStatus?: Record<string, WorktreeStatus>;
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
@@ -55,6 +64,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     sessionEvents: overrides.sessionEvents ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
     gitInfo: overrides.gitInfo ?? {},
+    diffs: overrides.diffs ?? {},
+    patches: overrides.patches ?? {},
+    shipResult: overrides.shipResult ?? {
+      commit: { state: "committed", sha: "abc1234", subject: "a commit", reason: null },
+      push: { state: "pushed", remote: "origin", branch: "main", reason: null },
+      pr: { state: "created", url: "https://github.com/acme/widgets/pull/1", reason: null },
+    },
+    worktreeStatus: overrides.worktreeStatus ?? {},
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
   };
   let n = 100;
@@ -176,6 +193,43 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.agentProbe;
     },
     gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },
+    diff: async (cwd) => { calls.push(`diff:${cwd}`); await wait(`diff:${cwd}`); return data.diffs[cwd] ?? null; },
+    fileDiff: async (cwd, path, staged) => {
+      calls.push(`fileDiff:${cwd}|${path}|${staged}`);
+      await wait(`fileDiff:${path}`);
+      return data.patches[`${cwd}|${path}|${staged}`]
+        ?? { path, oldPath: null, staged, binary: false, hunks: [], truncated: false, truncatedReason: null, additions: 0, deletions: 0 };
+    },
+    stagePaths: async (cwd, paths) => { calls.push(`stage:${cwd}|${paths.join(",")}`); },
+    unstagePaths: async (cwd, paths) => { calls.push(`unstage:${cwd}|${paths.join(",")}`); },
+    ship: async (input) => {
+      calls.push(`ship:${input.cwd}|commit=${input.commit}|msg=${input.message}|push=${input.push}|upstream=${input.setUpstream}|pr=${input.openPr}`);
+      await wait("ship");
+      return data.shipResult;
+    },
+    createItem: async (spaceId, kind, title, refId) => {
+      calls.push(`createItem:${spaceId}|${kind}|${refId}`);
+      const it = item(`i${++n}`, spaceId, { kind, title, refId });
+      (data.items[spaceId] ??= []).push(it);
+      return it;
+    },
+    worktreeStatus: async (id) => {
+      calls.push(`worktreeStatus:${id}`);
+      const st = data.worktreeStatus[id];
+      if (!st) throw new Error(`no worktree status for ${id}`);
+      return st;
+    },
+    removeWorktree: async (id, ack) => {
+      calls.push(`removeWorktree:${id}|${ack.dirtyFiles},${ack.unpushedCommits}`);
+      const st = data.worktreeStatus[id];
+      // Mirrors the server: an acknowledgement that does not match what git says RIGHT NOW is refused.
+      if (st && (st.dirtyFiles !== ack.dirtyFiles || st.unpushedCommits !== ack.unpushedCommits)) throw new Error("WORKTREE_UNSAFE");
+      delete data.worktreeStatus[id];
+      for (const list of Object.values(data.environments)) {
+        const i = list.findIndex((e) => e.id === id);
+        if (i >= 0) list.splice(i, 1);
+      }
+    },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

@@ -107,6 +107,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
   const prefillTerminal = useApp((s) => s.prefillTerminal);
+  const openDiff = useApp((s) => s.openDiff);
   // Stable across renders: InstallCard registers it as a window "focus" listener.
   const reprobe = useCallback(() => { run(() => probeAgents(true)); }, [probeAgents, run]);
 
@@ -141,7 +142,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       {blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))} />
-        : <Composer session={session} status={status} project={project} gitInfo={gitInfo} environment={environment} draft={draft} onDraftChange={(t) => setDraft(id, t)}
+        : <Composer session={session} status={status} project={project} gitInfo={gitInfo} environment={environment}
+            onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
             onSend={(text) => run(() => sendMessage(id, text))}
             onStop={() => run(() => interruptSession(id))}
             onOptions={(o) => run(() => setSessionOptions(id, o))}

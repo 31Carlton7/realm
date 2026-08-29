@@ -246,7 +246,7 @@ describe("SessionPane", () => {
 
     it("names the worktree and its port block in the cwd chip's title", async () => {
       const chip = await mountIn(envRow);
-      expect(chip).toHaveAttribute("title", "Worktree · /tmp/worktrees/s1/fix-login\nPorts 41020–41029");
+      expect(chip).toHaveAttribute("title", "Worktree · /tmp/worktrees/s1/fix-login\nPorts 41020–41029 reserved");
       expect(chip.querySelector(".chip-label")).toHaveTextContent("fix-login");
     });
 

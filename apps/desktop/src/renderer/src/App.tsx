@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
+import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { PaneHost } from "./components/PaneHost";
 import { Onboarding } from "./components/Onboarding";
@@ -53,6 +54,7 @@ function SheetHost() {
   if (!sheet) return null;
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
   if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
+  if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   return null;
 }
 
@@ -106,13 +108,19 @@ export function App() {
       const st = store.getState();
       if (spaceId === st.activeSpaceId) st.run(() => st.refreshEnvironments());
     });
+    // Realm's own write to a working tree. Every held diff is refreshed, not just the one named:
+    // two panes may look at one repository through two different cwds, and only the server knows.
+    const offW = rpc().on("workspace.changed", () => {
+      const st = store.getState();
+      st.run(() => st.refreshAllDiffs());
+    });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
     // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
     const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
     window.addEventListener("pagehide", onPageHide);
-    return () => { offS(); offI(); offV(); offE(); offT(); offC(); window.removeEventListener("pagehide", onPageHide); };
+    return () => { offS(); offI(); offV(); offW(); offE(); offT(); offC(); window.removeEventListener("pagehide", onPageHide); };
   }, [store]);
   return (
     <StoreContext.Provider value={store}>
