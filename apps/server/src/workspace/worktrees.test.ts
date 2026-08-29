@@ -206,6 +206,28 @@ describe("WorktreeService.remove", () => {
     expect(existsSync(join(wt.path, "work.txt"))).toBe(true);
   });
 
+  // MUTANT (isolating): the test above is also satisfied by an unpushed-commits check alone, because
+  // a repo with no remote has both hazards at once. Here the branch is fully pushed, so ONLY the
+  // dirty-tree check stands between `--force` and an hour of uncommitted work.
+  it("refuses a dirty tree even when nothing is unpushed", async () => {
+    const origin = makeRepo("origin4");
+    const clone = mkdtempSync(join(tmpdir(), "realm-wt-clone4-"));
+    rmSync(clone, { recursive: true, force: true });
+    execFileSync("git", ["clone", "-q", origin, clone], { encoding: "utf8" });
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: clone, title: "onlydirty" });
+    writeFileSync(join(wt.path, "work.txt"), "hours of work\n");
+
+    const h = await svc().hazard({ ...wt, fallbackRepo: clone });
+    expect(h).toMatchObject({ dirtyFiles: 1, unpushedCommits: 0 });
+    await expect(svc().remove({ ...wt, fallbackRepo: clone, acknowledge: null }))
+      .rejects.toMatchObject({ code: "WORKTREE_UNSAFE", message: expect.stringContaining("1 uncommitted file") });
+    expect(existsSync(join(wt.path, "work.txt"))).toBe(true);
+
+    // …and it goes ahead once that one number is acknowledged, with -d rather than -D on the branch.
+    await svc().remove({ ...wt, fallbackRepo: clone, acknowledge: { dirtyFiles: 1, unpushedCommits: 0 } });
+    expect(existsSync(wt.path)).toBe(false);
+  });
+
   it("refuses an acknowledgement whose counts do not match what git reports now", async () => {
     const repo = makeRepo();
     const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "stale" });
