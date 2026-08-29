@@ -7,6 +7,18 @@ import { openDatabase } from "./database";
 import { migrations } from "./migrations";
 
 /**
+ * Checking a migration against a REAL home directory: never copy `realm.db` on its own. `openDatabase`
+ * runs in WAL mode, so everything committed since the last checkpoint lives in the `-wal` sidecar and a
+ * bare file copy silently hands you a stale point-in-time database — an older schema_version and missing
+ * rows, with no error to warn you. Take the snapshot with SQLite's own
+ *
+ *     sqlite3 ~/Realm/realm.db "VACUUM INTO '/somewhere/scratch/snapshot.db'"
+ *
+ * which is safe against the live writer and folds the WAL in, then migrate a copy of THAT. (Copying all
+ * three of `.db`, `-wal`, `-shm` also works; the backup API is the third option.) No fixture below does
+ * any of this — they each build their database in a scratch dir from the literal schema — but a one-off
+ * real-data check is exactly where the trap is waiting.
+ *
  * The v3 schema as it SHIPPED, written out by hand rather than replayed from `migrations` — this is a
  * fixture standing in for a real user's home directory, and it must not move when the migration list
  * does. (Deriving it from `migrations[0..2]` would make it agree with any in-place edit of an already
