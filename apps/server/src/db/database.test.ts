@@ -296,3 +296,33 @@ describe("migration v5 — environments", () => {
     db.close();
   });
 });
+
+describe("migration v6 — port blocks", () => {
+  const migrated = () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+
+  it("is appended, not folded into v5: a v4 home reaches v6 and gains the uniqueness guarantee", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(5);
+    const idx = (db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as { name: string }[]).map((i) => i.name);
+    expect(idx).toContain("environments_port_block");
+    db.close();
+  });
+
+  it("refuses two environments the same block, and is indifferent to how many have none", () => {
+    const { db } = migrated();
+    const [a, b, c] = (db.prepare("SELECT id FROM environments ORDER BY id").all() as { id: string }[]).map((r) => r.id);
+    // Every migrated row starts NULL, and several NULLs are not a conflict — SQLite treats NULLs as
+    // distinct in a unique index, so this holds with or without the index's WHERE clause.
+    expect((db.prepare("SELECT COUNT(*) AS n FROM environments WHERE port_block_start IS NULL").get() as { n: number }).n).toBeGreaterThan(1);
+    db.prepare("UPDATE environments SET port_block_start = 41000 WHERE id = ?").run(a!);
+    expect(() => db.prepare("UPDATE environments SET port_block_start = 41000 WHERE id = ?").run(b!)).toThrow(/UNIQUE/i);
+    db.prepare("UPDATE environments SET port_block_start = 41010 WHERE id = ?").run(c!);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM environments WHERE port_block_start IS NOT NULL").get() as { n: number }).n).toBe(2);
+    db.close();
+  });
+});

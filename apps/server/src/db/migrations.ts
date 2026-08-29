@@ -90,7 +90,10 @@ export const migrations: string[] = [
   // v6 — port blocks (Plan 7 W2). Two environments handed the same base port would mean two agents
   // racing for the same `pnpm dev`, which is the exact problem the block exists to solve, so the
   // invariant lives in the schema rather than in the allocator's care: a second environment claiming
-  // a taken start fails its UPDATE instead of duplicating it. Partial, because "no block yet" is the
-  // normal state of every row that has never spawned anything.
+  // a taken start fails its UPDATE instead of duplicating it.
+  //
+  // The WHERE clause only keeps the index off the rows that have no block — which is most of them,
+  // since "no block yet" is the normal state until something spawns. It is NOT what permits several
+  // blockless rows: SQLite treats NULLs as distinct in any unique index, partial or not.
   `CREATE UNIQUE INDEX environments_port_block ON environments(port_block_start) WHERE port_block_start IS NOT NULL;`,
 ];

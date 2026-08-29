@@ -261,6 +261,19 @@ describe("environments over rpc", () => {
     c.close();
   });
 
+  it("environments.delete will not forget a worktree row and strand its directory", async () => {
+    const { c, space } = await bootRepoSpace();
+    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "kept" })).result;
+    const r = await c.call("environments.delete", { id: env.id });
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe("ENVIRONMENT_IS_WORKTREE");
+    expect(existsSync(env.path)).toBe(true);
+    // Still reachable through the operation that takes the directory with it.
+    expect((await c.call("environments.removeWorktree", { id: env.id, acknowledge: { dirtyFiles: 0, unpushedCommits: 1 } })).ok).toBe(true);
+    expect(existsSync(env.path)).toBe(false);
+    c.close();
+  });
+
   it("refuses a worktree in a space folder that is not a repository", async () => {
     const { c } = await boot();
     const prof = (await c.call("profiles.create", { name: "Work" })).result;

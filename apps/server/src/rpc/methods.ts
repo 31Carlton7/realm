@@ -12,7 +12,7 @@ import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
 import type { GitInfoService } from "../workspace/git-info";
 import type { PortAllocator } from "../workspace/ports";
-import { NotFoundError } from "../store/rows";
+import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
 type Params<M extends MethodName> = z.infer<(typeof Methods)[M]["params"]>;
@@ -58,7 +58,15 @@ export function registerMethods(d: Deps): void {
 
   reg("environments.list", (p) => d.environments.list(p.spaceId));
   reg("environments.get", (p) => { const e = d.environments.get(p.id); if (!e) throw new NotFoundError("environment", p.id); return e; });
-  reg("environments.delete", (p) => { d.environments.delete(p.id); return { ok: true as const }; });
+  reg("environments.delete", (p) => {
+    // Forgetting the row of a worktree Realm made would strand the directory and its branch on disk,
+    // reachable only through `git worktree list` and no longer removable by `removeWorktree` — which
+    // needs the row to know where to look. Row and directory go together or not at all.
+    const env = d.environments.get(p.id);
+    if (env?.kind === "worktree") throw new RpcError("ENVIRONMENT_IS_WORKTREE", "Realm made this worktree; use environments.removeWorktree so the directory goes too");
+    d.environments.delete(p.id);
+    return { ok: true as const };
+  });
   reg("environments.createWorktree", async (p) => {
     const env = await d.envService.createWorktree(p);
     rpc.broadcast("environments.changed", { spaceId: p.spaceId });
