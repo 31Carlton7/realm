@@ -33,6 +33,9 @@ async function mountKind(agentKind: "codex" | "acp:cursor") {
   return render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
 }
 
+/** Opens the prompter's combined model picker (agent + model in one popover). */
+const openPicker = () => fireEvent.click(screen.getByRole("button", { name: "Model" }));
+
 describe("SessionPane", () => {
   it("renders transcript blocks, shows permission card, and sends composer text", async () => {
     const { api } = await mount();
@@ -171,12 +174,12 @@ describe("SessionPane", () => {
     fireEvent.click(morph);
     await waitFor(() => expect(api.calls).toContain("interrupt:se1"));
     fireEvent.click(screen.getByRole("button", { name: "Permission mode" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
-    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
-    fireEvent.click(screen.getByRole("button", { name: "Model" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Fake" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Accept edits" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
+    openPicker();
+    fireEvent.click(screen.getByRole("option", { name: /Fake agent/ }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("fake"));
-    expect(store.getState().sessions.se1?.effort).toBeNull(); // model menu set model, not effort
+    expect(store.getState().sessions.se1?.effort).toBeNull(); // the picker set model, not effort
   });
 
   it("Send is disabled with an empty draft while idle; effort menu sets the effort option", async () => {
@@ -196,21 +199,24 @@ describe("SessionPane", () => {
   it("model chip shows DEFAULT_MODEL_LABEL for the kind while session.model is null, and the chosen model after", async () => {
     const { store } = await mount("idle", reduceAll([]));
     const chip = screen.getByRole("button", { name: "Model" });
-    expect(chip).toHaveTextContent("Fake agent · Fake"); // AGENT_META label + DEFAULT_MODEL_LABEL.fake
-    fireEvent.click(chip);
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Fake" }));
+    expect(chip).toHaveTextContent("Fake"); // DEFAULT_MODEL_LABEL.fake
+    // The agent is named by its brand mark now, not by a "Claude · " prefix on the label.
+    expect(chip.querySelector("[data-brand]")).toBeNull(); // `fake` is the dev adapter: no vendor mark
+    openPicker();
+    fireEvent.click(screen.getByRole("option", { name: /Fake agent/ }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("fake"));
-    expect(chip).toHaveTextContent("Fake agent · Fake"); // AGENT_MODELS label for the picked id
+    expect(chip).toHaveTextContent("Fake"); // AGENT_MODELS label for the picked id
   });
 
-  it("a kind with no pickable models still names itself: static model chip with the frontier default, no menu", async () => {
+  it("a kind with no enumerable models still gets a row naming its frontier default", async () => {
+    // A provider Realm cannot enumerate is still a provider you can pick — the row stands for the
+    // adapter's own default and selects the agent alone.
     await mountKind("codex");
-    // Nothing to pick, so it is a LABEL, not a disabled control: readable, out of the way of the tab
-    // order, and never announced as "unavailable" when naming the model is its entire job.
-    const chip = document.querySelector('.ghost-chip[data-static][title="Model"]');
-    expect(chip).toHaveTextContent("Codex · GPT-5.6");
-    expect(chip!.tagName).toBe("SPAN");
-    expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("GPT-5.6");
+    openPicker();
+    const row = screen.getByRole("option", { name: /GPT-5\.6/ });
+    expect(row).toHaveTextContent("Codex");
+    expect(row).toHaveAttribute("aria-selected", "true");
   });
 
   it("the cwd context chip truncates with an ellipsis label and carries the full path as its title", async () => {
@@ -599,64 +605,159 @@ describe("markdown + summaries", () => {
 });
 
 /** Mounts the prompter for a session that has not run yet (no events anywhere), plus overrides. */
-async function mountFresh(extra: Partial<Parameters<typeof session>[2]> = {}, lastSeq = 0) {
-  const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", ...extra })] });
+async function mountFresh(extra: Partial<Parameters<typeof session>[2]> = {}, lastSeq = 0, agentProbe?: AgentProbe[]) {
+  const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", ...extra })], ...(agentProbe ? { agentProbe } : {}) });
   const store = createAppStore(api); await store.getState().boot();
   store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq, t: reduceAll([]) } } });
   const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" })} visible /></StoreContext.Provider>);
   return { api, store, ...r };
 }
 
-describe("prompter agent chip (W3)", () => {
-  it("switches the agent on an unstarted session and drops the old kind's model", async () => {
-    const { api, store } = await mountFresh({ model: "claude-opus-5" });
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Claude · Claude Opus 5");
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Codex" }));
-    await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("codex"));
-    expect(api.calls).toContain("setSessionAgent:se1=codex");
-    // A claude model id means nothing to Codex: the chip falls back to Codex's frontier default label.
-    expect(store.getState().sessions.se1?.model).toBeNull();
-    expect(document.querySelector('.ghost-chip[title="Model"]')).toHaveTextContent("Codex · GPT-5.6");
+/** `mountFresh` for a non-Claude kind — the picker's contents are relative to the session's agent. */
+async function mountKindFresh(agentKind: "codex" | "acp:cursor") {
+  return mountFresh({ agentKind });
+}
+
+describe("prompter model picker", () => {
+  const rowNames = () => screen.getAllByRole("option").map((n) => n.querySelector(".mp-row-name")!.textContent);
+
+  it("one pick sets BOTH the agent and the model, in that order", async () => {
+    // The whole point of merging the two chips. setAgent clears `model` server-side, so a pick that
+    // sent them the other way round — or sent only one — would land on the wrong model or the wrong
+    // agent. Assert the ordered pair, not just that something happened.
+    const { api, store } = await mountKindFresh("codex");
+    openPicker();
+    fireEvent.click(screen.getByRole("option", { name: /Claude Opus 5/ }));
+    await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
+    expect(store.getState().sessions.se1?.agentKind).toBe("claude");
+    const picks = api.calls.filter((c) => c.startsWith("setSessionAgent") || c.startsWith("setSessionOptions"));
+    expect(picks).toEqual(["setSessionAgent:se1=claude", "setSessionOptions:se1"]);
   });
 
-  it("offers every selectable kind, with the current one checked", async () => {
-    await mountFresh();
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    expect(screen.getAllByRole("menuitemcheckbox").map((n) => n.textContent)).toEqual(["Claude", "Codex", "Cursor"]);
-    expect(screen.getByRole("menuitemcheckbox", { name: "Claude" })).toHaveAttribute("aria-checked", "true");
+  it("picking a model inside the current agent leaves the agent alone", async () => {
+    const { api, store } = await mountFresh({ model: "claude-opus-5" });
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Claude Opus 5");
+    openPicker();
+    fireEvent.click(screen.getByRole("option", { name: /Claude Haiku 4\.5/ }));
+    await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-haiku-4-5"));
+    expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
+  });
+
+  it("picking an agent with no enumerable models switches the agent and sets no model", async () => {
+    const { api, store } = await mountFresh({ model: "claude-opus-5" });
+    openPicker();
+    fireEvent.click(screen.getByRole("option", { name: /GPT-5\.6/ }));
+    await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("codex"));
+    // A claude model id means nothing to Codex, and there is no Codex id to send in its place.
+    expect(store.getState().sessions.se1?.model).toBeNull();
+    expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("GPT-5.6");
+  });
+
+  it("lists every agent's models, current agent first, each carrying its provider's brand mark", async () => {
+    await mountKindFresh("codex");
+    openPicker();
+    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "Composer"]);
+    const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
+    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "cursor"]);
   });
 
   it("never hides a session's own kind, even one that is not offered fresh", async () => {
     // `fake` is the dev adapter and absent from SELECTABLE_AGENT_KINDS; a fake session that could not
-    // see itself would show a menu with no checkmark anywhere.
+    // see itself would show a list with nothing selected.
     await mountFresh({ agentKind: "fake" });
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    expect(screen.getAllByRole("menuitemcheckbox").map((n) => n.textContent)).toEqual(["Fake agent", "Claude", "Codex", "Cursor"]);
-    expect(screen.getByRole("menuitemcheckbox", { name: "Fake agent" })).toHaveAttribute("aria-checked", "true");
+    openPicker();
+    expect(rowNames()).toEqual(["Fake", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6", "Composer"]);
+    expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("goes static the moment the session has an event — the affordance is gone before the server would refuse", async () => {
-    // A transcript that has already reduced one event locks it…
-    const { store } = await mountFresh({}, 1);
-    expect(screen.queryByRole("button", { name: "Agent" })).toBeNull();
-    expect(document.querySelector('.ghost-chip[data-static][title^="Agent:"]')!.tagName).toBe("SPAN");
-    // …and so does a live event arriving into an open, still-switchable prompter.
-    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Agent" })).toBeInTheDocument());
-    act(() => store.getState().applySessionEvent({ seq: 7, sessionId: "se1", ephemeral: false, event: sessionEvent("user_message", { text: "hi", attachments: [] }) }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Agent" })).toBeNull());
+  it("marks an unavailable CLI but keeps it pickable — the install card is where picking it leads", async () => {
+    const { store } = await mountFresh({}, 0, [{ kind: "codex", available: false, version: null, loggedIn: null, reason: "not on PATH" }]);
+    // The probe is fired from an effect on mount; the note cannot render before it lands.
+    await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+    openPicker();
+    const row = screen.getByRole("option", { name: /GPT-5\.6/ });
+    expect(row).toHaveTextContent("not installed");
+    expect(row).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(row);
+    // Picking it switches the agent; SessionPane then swaps the prompter for the install card.
+    await waitFor(() => expect(screen.getByText(AGENT_CLI_COMMANDS.codex.install!)).toBeInTheDocument());
   });
 
-  it("a session whose row already carries events is locked even before its transcript loads", async () => {
-    // lastEventSeq comes back with sessions.list; the transcript is fetched afterwards. Trusting only
-    // the transcript would flash a live agent picker on every revisit of a long-running session.
-    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", lastEventSeq: 12 })] });
-    const store = createAppStore(api); await store.getState().boot();
-    store.setState({ sessionStatus: { se1: "idle" } });
-    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" })} visible /></StoreContext.Provider>);
-    await waitFor(() => expect(document.querySelector('.ghost-chip[title^="Agent:"]')).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Agent" })).toBeNull();
+  describe("once the session has run", () => {
+    it("shows cross-agent rows as unavailable, with the reason, and refuses to pick them", async () => {
+      const { api, store } = await mountFresh({}, 1);
+      openPicker();
+      const codex = screen.getByRole("option", { name: /GPT-5\.6/ });
+      expect(codex).toHaveAttribute("aria-disabled", "true");
+      expect(codex.getAttribute("title")).toMatch(/already run/);
+      fireEvent.click(codex);
+      // Nothing transmitted, nothing changed, and the picker is still open to explain itself.
+      expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
+      expect(store.getState().sessions.se1?.agentKind).toBe("claude");
+      expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
+    });
+
+    it("keeps models within the current agent selectable", async () => {
+      const { store } = await mountFresh({}, 1);
+      openPicker();
+      const opus = screen.getByRole("option", { name: /Claude Opus 5/ });
+      expect(opus).not.toHaveAttribute("aria-disabled");
+      fireEvent.click(opus);
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
+    });
+
+    it("locks on a live event arriving into an open prompter, and on a row that already carries events", async () => {
+      const { store } = await mountFresh({}, 0);
+      openPicker();
+      expect(screen.getByRole("option", { name: /GPT-5\.6/ })).not.toHaveAttribute("aria-disabled");
+      act(() => store.getState().applySessionEvent({ seq: 7, sessionId: "se1", ephemeral: false, event: sessionEvent("user_message", { text: "hi", attachments: [] }) }));
+      await waitFor(() => expect(screen.getByRole("option", { name: /GPT-5\.6/ })).toHaveAttribute("aria-disabled", "true"));
+
+      // lastEventSeq comes back with sessions.list; the transcript is fetched afterwards. Trusting
+      // only the transcript would flash a live agent switch on every revisit of a long session.
+      const api = fakeApi({ sessions: [session("se2", "s1", { status: "idle", agentKind: "claude", lastEventSeq: 12 })] });
+      const st = createAppStore(api); await st.getState().boot();
+      st.setState({ sessionStatus: { se2: "idle" } });
+      render(<StoreContext.Provider value={st}><SessionPane item={item("i8", "s1", { kind: "session", refId: "se2", title: "Claude session" })} visible /></StoreContext.Provider>);
+      const chips = await screen.findAllByRole("button", { name: "Model" });
+      fireEvent.click(chips[1]!);
+      await waitFor(() => expect(screen.getAllByRole("option", { name: /GPT-5\.6/ })[0]).toHaveAttribute("aria-disabled", "true"));
+    });
+  });
+
+  describe("search and the provider rail", () => {
+    it("matches the model name and the agent name, and nothing else", async () => {
+      await mountFresh();
+      openPicker();
+      const search = screen.getByRole("combobox", { name: "Search models" });
+      fireEvent.change(search, { target: { value: "opus" } }); // model name only
+      expect(rowNames()).toEqual(["Claude Opus 5"]);
+      fireEvent.change(search, { target: { value: "cursor" } }); // agent name only
+      expect(rowNames()).toEqual(["Composer"]);
+      // Model *ids* are deliberately not searched: `claude-haiku-4-5` would make this match.
+      fireEvent.change(search, { target: { value: "haiku-4-5" } });
+      expect(screen.queryAllByRole("option")).toHaveLength(0);
+      expect(screen.getByText(/No models match/)).toBeInTheDocument();
+    });
+
+    it("the rail narrows to one agent and toggles back off", async () => {
+      await mountFresh();
+      openPicker();
+      fireEvent.click(screen.getByRole("button", { name: "Cursor" }));
+      expect(rowNames()).toEqual(["Composer"]);
+      fireEvent.click(screen.getByRole("button", { name: "Cursor" }));
+      expect(rowNames().length).toBeGreaterThan(1);
+    });
+
+    it("Enter picks the highlighted row after arrowing down", async () => {
+      const { store } = await mountFresh();
+      openPicker();
+      const search = screen.getByRole("combobox", { name: "Search models" });
+      fireEvent.keyDown(search, { key: "ArrowDown" });
+      fireEvent.keyDown(search, { key: "Enter" });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5")); // row 2 of Claude's list
+    });
   });
 });
 
@@ -828,9 +929,9 @@ describe("the CLI-missing install card (W4)", () => {
     expect(api.calls).toContain("probeAgents:true");
   });
 
-  it("the agent chip labels unavailable agents but still lets you pick one — the pick leads to the card", async () => {
-    // The W3 regression this restores: the chip offered every agent unconditionally, so an uninstalled
-    // pick failed at the first message instead of at pick time.
+  it("the model picker labels unavailable agents but still lets you pick one — the pick leads to the card", async () => {
+    // The W3 regression this restores: the picker offered every agent unconditionally, so an
+    // uninstalled pick failed at the first message instead of at pick time.
     const { api, store } = await mountAgent([
       { ...ready, kind: "codex" },
       { ...missing, kind: "claude" },
@@ -840,12 +941,12 @@ describe("the CLI-missing install card (W4)", () => {
     api.data.agentProbe = [ready, { ...missing, kind: "codex" }];
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     await waitFor(() => expect(prompter()).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    expect(screen.getByRole("menuitemcheckbox", { name: /Codex — not installed/ })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemcheckbox", { name: /^Claude/ })).not.toHaveTextContent("not installed");
+    openPicker();
+    const codex = screen.getByRole("option", { name: /GPT-5\.6/ });
+    expect(codex).toHaveTextContent("not installed");
+    expect(screen.getByRole("option", { name: /Claude Fable 5/ })).not.toHaveTextContent("not installed");
     // Pickable, not disabled: choosing it is how the user reaches the install command.
-    const codex = screen.getByRole("menuitemcheckbox", { name: /Codex — not installed/ });
-    expect(codex).toBeEnabled();
+    expect(codex).not.toHaveAttribute("aria-disabled");
     fireEvent.click(codex);
     await waitFor(() => expect(store.getState().sessions.se1!.agentKind).toBe("codex"));
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());

@@ -46,6 +46,18 @@ describe("AGENT_CLI_COMMANDS", () => {
   });
 });
 
+describe("DEFAULT_MODEL_LABEL", () => {
+  it("names the head of the kind's own model list", () => {
+    // The prompter leans on this: a session with `model: null` runs the adapter's default, and the
+    // model picker marks AGENT_MODELS[kind][0] as the selected row on that basis. If the two ever
+    // drift, the picker would tick a model the session is not on.
+    for (const [kind, models] of Object.entries(AGENT_MODELS)) {
+      if (models.length === 0) continue;
+      expect(models[0]!.label, kind).toContain(DEFAULT_MODEL_LABEL[kind as keyof typeof DEFAULT_MODEL_LABEL]);
+    }
+  });
+});
+
 describe("AGENT_SUPPORTS_PERMISSION_MODES", () => {
   it("has an entry for every agent kind that has display metadata", () => {
     for (const kind of Object.keys(AGENT_META)) {

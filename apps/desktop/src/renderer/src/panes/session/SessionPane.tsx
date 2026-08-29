@@ -142,7 +142,13 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onSend={(text) => run(() => sendMessage(id, text))}
             onStop={() => run(() => interruptSession(id))}
             onOptions={(o) => run(() => setSessionOptions(id, o))}
-            onAgent={(kind) => run(() => setSessionAgent(id, kind))} canSwitchAgent={canSwitchAgent}
+            onPickModel={(kind, modelId) => run(async () => {
+              // Order matters and both halves are one user action: setAgent clears `model` (a
+              // claude-opus-5 on a Codex session is a lie), so the model has to land after it, or the
+              // pick would set the agent and drop the model the user actually chose.
+              if (kind !== session.agentKind) await setSessionAgent(id, kind);
+              if (modelId !== null) await setSessionOptions(id, { model: modelId });
+            })} canSwitchAgent={canSwitchAgent}
             agentProbe={agentProbe}
             hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />}
     </div>

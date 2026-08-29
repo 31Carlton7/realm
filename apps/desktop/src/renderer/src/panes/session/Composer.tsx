@@ -1,9 +1,9 @@
-import { AGENT_META, AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type GitInfo, type Project, type Session, type SessionStatus } from "@realm/contracts";
+import { AGENT_SUPPORTS_PERMISSION_MODES, EFFORT_LEVELS, PERMISSION_MODES, type AgentKind, type GitInfo, type Project, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
-import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe, SessionOptions } from "../../state/store";
+import { ModelPicker } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
 
 // ~10 lines of 13px/1.55 plus the 12px vertical padding (§4: autogrows to 10 lines).
@@ -68,22 +68,21 @@ function ChipMenu({ ariaLabel, title, label, items, warning }: { ariaLabel: stri
  *  ⌘/Ctrl+Enter sends; Enter inserts a newline. The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
-export function Composer({ session, status, project, gitInfo, draft, onDraftChange, onSend, onStop, onOptions, onAgent, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion }: {
+export function Composer({ session, status, project, gitInfo, draft, onDraftChange, onSend, onStop, onOptions, onPickModel, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion }: {
   session: Session; status: SessionStatus; project: Project | null; gitInfo: GitInfo | null;
   draft: string; onDraftChange: (text: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
-  onAgent: (kind: AgentKind) => void;
-  /** False once the session has produced an event — see the agent chip below. */
+  /** Sets agent AND model in one action — the picker's rows are (agent, model) pairs. */
+  onPickModel: (kind: AgentKind, modelId: string | null) => void;
+  /** False once the session has produced an event — see ModelPicker. */
   canSwitchAgent: boolean;
-  /** Latest `agents.probe`, for the agent menu's per-kind availability note. Empty before the first probe. */
+  /** Latest `agents.probe`, for the picker's per-agent availability note. Empty before the first probe. */
   agentProbe: AgentProbe[];
   hero: boolean; spaceName: string; onSuggestion: (prompt: string) => void;
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
   const kind = session.agentKind;
-  const models = AGENT_MODELS[kind] as ReadonlyArray<{ id: string; label: string }>;
-  const modelLabel = session.model ? models.find((m) => m.id === session.model)?.label ?? session.model : DEFAULT_MODEL_LABEL[kind];
   // Hidden exactly like the model menu is empty when the agent has no models: an option Realm cannot
   // transmit is worse than no option at all.
   const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[kind];
@@ -112,28 +111,6 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
   };
 
-  // A session's own kind is always in its own list, even one (like `fake`) that is not offered fresh —
-  // hiding it would show a checkmark on none of the options.
-  const agentKinds: readonly AgentKind[] = SELECTABLE_AGENT_KINDS.includes(kind as (typeof SELECTABLE_AGENT_KINDS)[number])
-    ? SELECTABLE_AGENT_KINDS : [kind, ...SELECTABLE_AGENT_KINDS];
-  // Empty once the session has run: ChipMenu then renders a plain label, so the affordance is gone
-  // before the user can reach for it. The server refuses the switch regardless (sessions.setAgent).
-  //
-  // Availability is shown, not enforced (W4, restoring what the retired New Session sheet used to say):
-  // an unavailable agent is labelled "— not installed" / "— signed out" and stays pickable, because
-  // picking it now leads somewhere — the install card, with the exact command — instead of a turn that
-  // fails at the first message. Disabling it would hide the fix behind an inert row.
-  const agentItems: MenuItem[] = canSwitchAgent
-    ? agentKinds.map((k) => {
-        const note = availabilityNote(agentAvailability(k, agentProbe));
-        return {
-          label: note ? `${AGENT_META[k].label} — ${note}` : AGENT_META[k].label,
-          title: note ? `${AGENT_META[k].label} is ${note}; pick it to see how to fix that` : undefined,
-          checked: k === kind, onSelect: () => onAgent(k),
-        };
-      })
-    : [];
-  const modelItems: MenuItem[] = models.map((m) => ({ label: m.label, checked: session.model === m.id, onSelect: () => onOptions({ model: m.id }) }));
   const effortItems: MenuItem[] = EFFORT_LEVELS.map((l) => ({ label: l, checked: session.effort === l, onSelect: () => onOptions({ effort: l }) }));
   const permissionItems: MenuItem[] = PERMISSION_MODES.map((m) => ({
     label: m.label, checked: session.permissionMode === m.id,
@@ -153,9 +130,8 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
           value={draft} onChange={(e) => onDraftChange(e.target.value)} onKeyDown={onKeyDown} />
         <div className="composer-bar">
           <div className="composer-opts">
-            <ChipMenu ariaLabel="Agent" title={canSwitchAgent ? `Agent: ${AGENT_META[kind].label}` : `Agent: ${AGENT_META[kind].label} — locked in once a session has run`}
-              label={<Icon name={AGENT_META[kind].icon} size={16} />} items={agentItems} />
-            <ChipMenu ariaLabel="Model" label={`${AGENT_META[kind].label} · ${modelLabel}`} items={modelItems} />
+            <ModelPicker kind={kind} model={session.model} canSwitchAgent={canSwitchAgent}
+              agentProbe={agentProbe} onPick={onPickModel} />
             <ChipMenu ariaLabel="Effort" label={session.effort ?? "Effort"} items={effortItems} />
             {canSetPermissionMode && (
               <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
