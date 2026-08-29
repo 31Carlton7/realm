@@ -4,6 +4,7 @@ import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
 import type { PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
+import type { CheckpointService } from "../checkpoints/service";
 
 /**
  * The environment lifecycle (Plan 7 W2): making a worktree, pricing its removal, and removing it.
@@ -15,7 +16,7 @@ import type { WorktreeService } from "../workspace/worktrees";
  * unwinds the directory if the insert fails. A half-made environment cannot exist.
  */
 export class EnvironmentService {
-  constructor(private d: { environments: EnvironmentsStore; spaces: SpacesStore; worktrees: WorktreeService; ports: PortAllocator }) {}
+  constructor(private d: { environments: EnvironmentsStore; spaces: SpacesStore; worktrees: WorktreeService; ports: PortAllocator; checkpoints?: CheckpointService }) {}
 
   list(spaceId: string): Environment[] { return this.d.environments.list(spaceId); }
   get(id: string): Environment {
@@ -79,6 +80,12 @@ export class EnvironmentService {
     const env = this.get(id);
     const blocked = this.blocker(env);
     if (blocked) throw blocked;
+    // Checkpoint refs live in the MAIN checkout's ref store (refs under `refs/` are shared across a
+    // repository's worktrees), so removing the worktree does not remove them. Left behind they would
+    // pin every object this environment ever captured, in the user's own repository, forever — with
+    // no row and no directory left to reach them from. This runs BEFORE `worktrees.remove`, while the
+    // directory git needs to resolve the ref store still exists.
+    await this.d.checkpoints?.forgetEnvironment(id);
     await this.d.worktrees.remove({ path: env.path, branch: env.branch, fallbackRepo: this.fallbackRepo(env), acknowledge });
     // Only after git succeeded: a row deleted first would strand the directory with nothing pointing
     // at it. `delete` re-checks primary/in-use, which is fine — it has been true throughout.

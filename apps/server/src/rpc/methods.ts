@@ -6,6 +6,7 @@ import type { SpacesStore } from "../store/spaces";
 import type { ProjectsStore } from "../store/projects";
 import type { EnvironmentsStore } from "../store/environments";
 import type { EnvironmentService } from "../environments/service";
+import type { CheckpointService } from "../checkpoints/service";
 import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
@@ -22,7 +23,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -95,6 +96,23 @@ export function registerMethods(d: Deps): void {
     await d.envService.removeWorktree(p.id, p.acknowledge);
     rpc.broadcast("environments.changed", { spaceId });
     return { ok: true as const };
+  });
+
+  reg("checkpoints.list", (p) => d.checkpoints.list(p.environmentId, p.sessionId));
+  reg("checkpoints.capture", async (p) => {
+    const cp = await d.checkpoints.capture({ environmentId: p.environmentId, sessionId: p.sessionId, kind: "manual", label: p.label });
+    if (!cp) throw new RpcError("NOT_A_REPOSITORY", "this checkout is not a git repository, so it cannot be checkpointed");
+    rpc.broadcast("checkpoints.changed", { environmentId: p.environmentId });
+    return cp;
+  });
+  reg("checkpoints.preview", (p) => d.checkpoints.preview(p.id));
+  reg("checkpoints.restore", async (p) => {
+    const result = await d.checkpoints.restore(p.id, p.acknowledge);
+    // A restore rewrites the working tree, so every cached diff and git chip for that checkout is
+    // stale — and it also produced a `pre-restore` checkpoint the list does not have yet.
+    changed(result.path);
+    rpc.broadcast("checkpoints.changed", { environmentId: result.environmentId });
+    return result;
   });
 
   reg("items.list", (p) => d.items.list(p.spaceId));

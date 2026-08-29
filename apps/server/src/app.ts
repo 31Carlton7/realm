@@ -17,6 +17,9 @@ import { GitWriteService } from "./workspace/git-write";
 import { PortAllocator } from "./workspace/ports";
 import { WorktreeService } from "./workspace/worktrees";
 import { EnvironmentService } from "./environments/service";
+import { CheckpointsStore } from "./store/checkpoints";
+import { CheckpointGit } from "./workspace/checkpoints";
+import { CheckpointService } from "./checkpoints/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 
@@ -66,12 +69,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Worktrees live under the Realm home, which is also the boundary WorktreeService refuses to
   // remove outside of — so it is given the home rather than deriving one.
   const worktrees = new WorktreeService(opts.home);
-  const envService = new EnvironmentService({ environments, spaces, worktrees, ports });
+  const sessionsStore = new SessionsStore(db);
+  // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
+  // services genuinely need each other: SessionService checkpoints every turn, and CheckpointService
+  // must refuse to restore under a live agent. One direction is the dependency; the other is this.
+  let sessionService: SessionService | null = null;
+  const checkpoints = new CheckpointService({
+    checkpoints: new CheckpointsStore(db), environments, sessions: sessionsStore, git: new CheckpointGit(),
+    isEnvironmentBusy: (id) => sessionService?.isEnvironmentBusy(id) ?? false,
+  });
+  const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints });
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
-  const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters() });
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), checkpoints });
+  sessionService = sessions;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports,
+    profiles, spaces, projects, environments, envService, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

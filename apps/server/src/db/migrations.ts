@@ -96,4 +96,35 @@ export const migrations: string[] = [
   // since "no block yet" is the normal state until something spawns. It is NOT what permits several
   // blockless rows: SQLite treats NULLs as distinct in any unique index, partial or not.
   `CREATE UNIQUE INDEX environments_port_block ON environments(port_block_start) WHERE port_block_start IS NOT NULL;`,
+  // v7 — checkpoints (Plan 7 W4). The row is an INDEX over a git ref; the ref is what keeps the objects
+  // alive. Neither is authoritative alone, so the two are always written and deleted together.
+  //
+  // `ON DELETE CASCADE` on environment_id and `ON DELETE SET NULL` on session_id encode the difference
+  // between them: a checkpoint belongs to a checkout, and merely mentions the session whose turn made
+  // it. Deleting a session must not throw away the ability to undo what it did; deleting the
+  // environment must, because there is no longer a working tree to restore into. The rows going is not
+  // enough on its own — `CheckpointService.forgetEnvironment` deletes the refs first, or the objects
+  // stay pinned in the repository forever with nothing pointing at them.
+  //
+  // The trees are stored because restore needs them and re-deriving them from the commit is one more
+  // git call on a destructive path. `worktree_tree` is the commit's own tree; `index_tree` is its
+  // second parent's, which is the only reason that parent exists.
+  `
+  CREATE TABLE checkpoints (
+    id TEXT PRIMARY KEY,
+    environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+    session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL,
+    ref TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    worktree_tree TEXT NOT NULL,
+    index_tree TEXT NOT NULL,
+    head_sha TEXT,
+    head_ref TEXT,
+    created_at INTEGER NOT NULL);
+  -- Every listing and every retention sweep is "this environment, newest first".
+  CREATE INDEX checkpoints_environment ON checkpoints(environment_id, created_at DESC);
+  CREATE INDEX checkpoints_session ON checkpoints(session_id, created_at DESC);
+  `,
 ];

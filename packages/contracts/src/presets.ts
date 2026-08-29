@@ -36,6 +36,30 @@ export const AGENT_SUPPORTS_PERMISSION_MODES = {
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
 /**
+ * Whether an agent can be told to forget the turns a checkpoint restore undid (Plan 7 W4).
+ *
+ * Every value is `false`, and that is a finding rather than a placeholder. All three adapters were
+ * read before this table was written, and not one of them exposes a rewind:
+ *
+ *  - **Claude** — `StartOptions.resume` becomes the Agent SDK's `resume: <session id>`, which replays a
+ *    conversation from its end. The SDK's query options have no "resume at message N".
+ *  - **Codex** — `thread/resume { threadId }`. The app-server protocol has `turn/start`, `turn/steer`
+ *    and `turn/interrupt`; there is no call that removes a completed turn from a thread.
+ *  - **ACP (Cursor, Gemini)** — `session/load` replays the whole session as `session/update`
+ *    notifications. The protocol has no truncation verb, and `loadSession` is itself optional.
+ *
+ * So a restore puts the FILES back and the agent still remembers writing them. Truncating Realm's own
+ * transcript to hide that would be a lie about the provider's context — the model would still be told
+ * about the work on the next turn — so Realm does not do it, and the confirmation says so instead.
+ *
+ * When an adapter gains the ability, flip its entry and the UI stops apologising: `checkpoints.restore`
+ * reads this table for the sentence it returns, so there is one place to change.
+ */
+export const AGENT_CONVERSATION_REWIND = {
+  claude: false, codex: false, "acp:cursor": false, "acp:gemini": false, fake: false,
+} as const satisfies Record<import("./entities").AgentKind, boolean>;
+
+/**
  * How much the agent may do without asking. Ordered least → most permissive.
  *
  * `plan` is deliberately NOT here. It used to sit in this list, which conflated two different axes:

@@ -11,6 +11,7 @@ import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
 import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
+import type { CheckpointService } from "../checkpoints/service";
 import { ProbeCache } from "./probe-cache";
 
 const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
@@ -34,7 +35,7 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; checkpoints?: CheckpointService }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
@@ -91,6 +92,11 @@ export class SessionService {
     // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
     // back off the row, so this is the only place the (async) allocation has to happen.
     await this.ensurePorts(id);
+    // The turn's checkpoint (W4), captured BEFORE the message reaches the adapter and awaited rather
+    // than fired off: a capture racing the agent's first write would record a tree that never existed.
+    // It reports its own failures and returns null — a checkpoint is a safety net, and a safety net
+    // that can refuse a message is a worse failure than not having one.
+    await this.checkpointTurn(id, msg.text);
     const handle = this.ensureLive(id);
     this.maybeTitleFrom(id, msg.text);
     this.onEvent(id, sessionEvent("user_message", msg));
@@ -233,6 +239,23 @@ export class SessionService {
       this.d.environments.setBranch(env.id, renamed);
       this.d.rpc.broadcast("environments.changed", { spaceId: env.spaceId });
     } catch { /* a branch name is a nicety; it never fails a turn */ }
+  }
+
+  /** Take the turn's checkpoint and tell clients a new one exists. Optional dependency: a server built
+   *  without it (older tests, a stripped harness) simply does not checkpoint. */
+  private async checkpointTurn(id: string, text: string): Promise<void> {
+    const service = this.d.checkpoints; if (!service) return;
+    const taken = await service.captureTurn(id, text, (line) => console.error(line));
+    if (taken) this.d.rpc.broadcast("checkpoints.changed", { environmentId: taken.environmentId });
+  }
+
+  /** Whether any session in this environment holds a live adapter handle — what stops a restore
+   *  rewriting a working tree under a running tool call. */
+  isEnvironmentBusy(environmentId: string): boolean {
+    for (const id of this.live.keys()) {
+      if (this.d.sessions.get(id)?.environmentId === environmentId) return true;
+    }
+    return false;
   }
 
   /** Allocate the session's environment a port block if it has none yet (W2). Async, and therefore

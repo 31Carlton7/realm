@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema } from "./entities";
 
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
@@ -164,6 +164,61 @@ export const WorktreeAckSchema = z.object({
 });
 export type WorktreeAck = z.infer<typeof WorktreeAckSchema>;
 
+/**
+ * What restoring a checkpoint would cost, asked of git at the moment of asking (Plan 7 W4).
+ *
+ * Restoring is the most destructive thing Realm does to a working tree, so this exists to be SHOWN
+ * before it happens, and `checkpoints.restore` re-reads it and refuses unless the acknowledgement
+ * matches — a confirmation given before the agent wrote another file fails closed.
+ *
+ * Nothing here is unrecoverable: restore captures the state it is about to overwrite as a
+ * `pre-restore` checkpoint first, and `undoCheckpointId` names it afterwards. The counts still matter,
+ * because "you can undo this" is not a reason to hide what it does.
+ */
+export const RestorePreviewSchema = z.object({
+  checkpointId: IdSchema,
+  environmentId: IdSchema,
+  /** The checkout that will be rewritten. */
+  path: z.string(),
+  label: z.string(),
+  createdAt: z.number().int(),
+  /** Paths that differ between the checkpoint and the checkout right now. */
+  filesChanged: z.number().int(),
+  /** Commits that would be rolled off the branch. Zero when HEAD cannot be moved. */
+  commitsRolledBack: z.number().int(),
+  /** False when the checkout has left the branch the checkpoint was taken on: files restore, HEAD does not. */
+  headMovable: z.boolean(),
+  headReason: z.string().nullable(),
+  /** False when the ref is gone or no longer points at the recorded commit — the checkpoint is unusable. */
+  intact: z.boolean(),
+  /** True when the session's agent could also be rewound. Always false today; see AGENT_CONVERSATION_REWIND. */
+  rewindsConversation: z.boolean(),
+});
+export type RestorePreview = z.infer<typeof RestorePreviewSchema>;
+
+/** The caller's consent, naming exactly the numbers it was shown. */
+export const RestoreAckSchema = z.object({
+  filesChanged: z.number().int().nonnegative(),
+  commitsRolledBack: z.number().int().nonnegative(),
+});
+export type RestoreAck = z.infer<typeof RestoreAckSchema>;
+
+export const RestoreResultSchema = z.object({
+  environmentId: IdSchema,
+  /** The checkout that was rewritten — what the client invalidates its diffs and git chips for. */
+  path: z.string(),
+  /** The `pre-restore` checkpoint holding what was just overwritten — restore it to undo this restore. */
+  undoCheckpointId: IdSchema.nullable(),
+  headMoved: z.boolean(),
+  filesChanged: z.number().int(),
+  commitsRolledBack: z.number().int(),
+  /** Untracked, non-ignored files deleted because they postdate the checkpoint. */
+  filesRemoved: z.number().int(),
+  /** False whenever the workspace was restored but the agent still remembers the turns. */
+  conversationRewound: z.boolean(),
+});
+export type RestoreResult = z.infer<typeof RestoreResultSchema>;
+
 /** Method registry: params + result schemas. Server validates params; client types results. */
 export const Methods = {
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
@@ -206,6 +261,29 @@ export const Methods = {
    *  carry the *exact* counts git reports at that moment (WORKTREE_UNSAFE otherwise) — `--force`
    *  and `branch -D` are unreachable without it. */
   "environments.removeWorktree": { params: z.object({ id: IdSchema, acknowledge: WorktreeAckSchema.nullable().default(null) }), result: z.object({ ok: z.literal(true) }) },
+
+  /**
+   * Checkpoints for a session, or for a whole environment when `sessionId` is null (Plan 7 W4).
+   * Newest first. Read-only, and cheap: the rows are the index, git is not consulted.
+   */
+  "checkpoints.list": { params: z.object({ environmentId: IdSchema, sessionId: IdSchema.nullable().default(null) }), result: z.array(CheckpointSchema) },
+  /** Take one now, because the user asked. The automatic per-turn capture is not an RPC — it happens
+   *  inside `sessions.send`, in front of the agent. */
+  "checkpoints.capture": { params: z.object({ environmentId: IdSchema, sessionId: IdSchema.nullable().default(null), label: z.string().default("Manual checkpoint") }), result: CheckpointSchema },
+  /** What `checkpoints.restore` would cost, and whether the checkpoint is still usable. Read-only. */
+  "checkpoints.preview": { params: z.object({ id: IdSchema }), result: RestorePreviewSchema },
+  /**
+   * Put the checkout back the way this checkpoint found it.
+   *
+   * `acknowledge` must carry the exact counts `checkpoints.preview` reports at the moment of restoring
+   * (RESTORE_UNSAFE otherwise), the same contract `environments.removeWorktree` uses. The state being
+   * overwritten is captured as a `pre-restore` checkpoint FIRST, and its id comes back as
+   * `undoCheckpointId` — so a restore of the wrong thing is itself undoable.
+   *
+   * Refused while a session is still running in that environment (CHECKPOINT_ENVIRONMENT_BUSY):
+   * rewriting a working tree under a live agent's feet corrupts whatever it is halfway through.
+   */
+  "checkpoints.restore": { params: z.object({ id: IdSchema, acknowledge: RestoreAckSchema }), result: RestoreResultSchema },
 
   "items.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ItemSchema) },
   /** Every item across every space (command palette search); newest-updated first. */
@@ -289,6 +367,9 @@ export const Events = {
   "items.changed":    z.object({ spaceId: IdSchema }),
   /** A worktree was created or removed in this space (W2) — clients re-list environments. */
   "environments.changed": z.object({ spaceId: IdSchema }),
+  /** A checkpoint was taken, restored or pruned in this environment (W4). Broadcast on every turn, so
+   *  clients holding a checkpoint list re-fetch and everyone else ignores it. */
+  "checkpoints.changed": z.object({ environmentId: IdSchema }),
   /** Realm itself changed a working tree (stage, unstage, commit, push). Carries the cwd the write
    *  went through; clients refresh every diff they hold, because two panes on the same repository may
    *  have asked from two different subdirectories and only the server knows they are the same tree. */
