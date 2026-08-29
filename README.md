@@ -12,3 +12,22 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
 ## Agent sessions
 - **Claude** sessions run on `@anthropic-ai/claude-agent-sdk`, which drives the `claude` CLI: install it and log in first (`claude auth login`). An expired login shows up as an error in the transcript.
 - Offline / UI work: `REALM_ENABLE_FAKE_AGENT=1 pnpm dev` registers a scripted **Fake agent** (echoes what you send) next to Claude in New → Session….
+
+## Skills
+
+`skills/` holds skills Realm ships, one folder per skill, laid out exactly like the library at
+`~/Realm/skills/` (spec §7) so installing one is a copy. `SkillSync` — per-profile enablement and
+the symlink into each session's `.claude/skills/` — is not built yet, so until it is, enable a
+bundled skill by hand:
+
+```sh
+ln -s "$PWD/skills/mac" ~/.claude/skills/mac
+```
+
+- **`mac`** — the [mac-cli](https://macoscli.sh) binary: Calendar, Reminders, Contacts, Mail,
+  Messages, Notes, Music, TV, Shortcuts, Finder, and iWork from the shell. Realm spawns agents and
+  terminals with its own environment inherited, so `mac` is already on a session's `PATH` whenever
+  it is on the `PATH` Realm was launched from — the skill exists to make it *discoverable*, not
+  reachable. Note that a Realm launched from Finder rather than a terminal inherits launchd's
+  minimal `PATH`, which has neither `mac` nor `claude`/`codex`/`node` on it; that is a packaging
+  problem for all of them, not a mac-cli one.
