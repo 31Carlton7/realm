@@ -69,7 +69,13 @@ describe("checkpoints over rpc", () => {
     const list = (await c.call("checkpoints.list", { environmentId: env.id, sessionId: session.id })).result;
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ kind: "turn", label: "go", sessionId: session.id, environmentId: env.id });
-    expect(c.events.some((e: Any) => e.event === "checkpoints.changed" && e.payload.environmentId === env.id)).toBe(true);
+    // Ordering, not just presence: the capture happens BEFORE the message reaches the adapter, so its
+    // broadcast lands ahead of the `user_message` event. A capture moved after the send would record a
+    // tree the agent had already started editing.
+    const captured = c.events.findIndex((e: Any) => e.event === "checkpoints.changed" && e.payload.environmentId === env.id);
+    const sent = c.events.findIndex((e: Any) => e.event === "session.event" && e.payload.event.type === "user_message");
+    expect(captured).toBeGreaterThanOrEqual(0);
+    expect(captured).toBeLessThan(sent);
 
     // Captured before the adapter ran, and it holds the file that existed at that moment.
     expect(git(sp.folderPath, "ls-tree", "-r", "--name-only", `${list[0].commitSha}`)).toContain("before.txt");
