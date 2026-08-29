@@ -130,8 +130,9 @@ CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id T
 
 /**
  * A lived-in v4 home: two spaces; two sessions sharing the first space's folder; one session running in
- * a project root inside that space; one session in the second space; a third space nobody ever used;
- * and a session that owns a terminal. Every one of those shapes has to come out of v5 unchanged.
+ * a project root inside that space — TWO of them, so that a shared checkout which is *not* a space
+ * folder is covered as well; one session in the second space; a third space nobody ever used; and a
+ * session that owns a terminal. Every one of those shapes has to come out of v5 unchanged.
  */
 function v4Fixture(path: string): void {
   const db = new DatabaseSync(path);
@@ -153,6 +154,7 @@ function v4Fixture(path: string): void {
   session.run("se1", "sp1", null, "/tmp/versed", "First", 3, 100, 100, "it-term");
   session.run("se2", "sp1", null, "/tmp/versed", "Second", 0, 101, 101, null);
   session.run("se3", "sp1", "pr1", "/tmp/versed/sub", "In the project", 7, 102, 102, null);
+  session.run("se5", "sp1", "pr1", "/tmp/versed/sub", "Also in the project", 2, 104, 104, null);
   session.run("se4", "sp2", null, "/tmp/other", "Elsewhere", 1, 103, 103, null);
   db.close();
 }
@@ -188,6 +190,7 @@ describe("migration v5 — environments", () => {
     expect(s.se1!.cwd).toBe("/tmp/versed");
     expect(s.se2!.cwd).toBe("/tmp/versed");
     expect(s.se3!.cwd).toBe("/tmp/versed/sub"); // the project-root session keeps ITS directory, not the space's
+    expect(s.se5!.cwd).toBe("/tmp/versed/sub");
     expect(s.se4!.cwd).toBe("/tmp/other");
     db.close();
   });
@@ -197,6 +200,9 @@ describe("migration v5 — environments", () => {
     const s = readSessions(db);
     expect(s.se1!.environment_id).toBe(s.se2!.environment_id);
     expect(s.se3!.environment_id).not.toBe(s.se1!.environment_id);
+    // Two sessions sharing a checkout that is NOT a space folder must still land on one environment —
+    // the only case in which the backfill's de-duplication does any work.
+    expect(s.se5!.environment_id).toBe(s.se3!.environment_id);
     expect(s.se4!.environment_id).not.toBe(s.se1!.environment_id);
     db.close();
   });
