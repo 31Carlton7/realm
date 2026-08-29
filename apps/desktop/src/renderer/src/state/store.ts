@@ -1,7 +1,7 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  type AgentKind, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionMode, type SessionStatus, type Space, type StoredSessionEvent,
+  type AgentKind, type Environment, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionMode, type SessionStatus, type Space, type StoredSessionEvent,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -10,7 +10,7 @@ import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/ses
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
-export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
 /** Agent a session is created with when the user never said (first run, or a wiped setting). */
 export const FALLBACK_AGENT: AgentKind = "claude";
@@ -35,6 +35,10 @@ export type Api = {
   /** Every item across every space, newest-updated first (command palette search). */
   listAllItems(): Promise<Item[]>;
   listProjects(spaceId: string): Promise<Project[]>;
+  /** Every checkout the space knows about: its primary, plus any worktree Realm made (W2). */
+  listEnvironments(spaceId: string): Promise<Environment[]>;
+  /** `environments.createWorktree` — makes the worktree on disk AND its row, as one operation. */
+  createWorktree(spaceId: string, title: string | null): Promise<Environment>;
   createSpace(input: CreateSpaceInput): Promise<Space>;
   updateSpace(input: UpdateSpaceInput): Promise<Space>;
   reorderSpaces(ids: string[]): Promise<void>;
@@ -135,6 +139,9 @@ export type AppState = {
    *  layout no longer contains it. */
   focusedLeafId: string | null;
   projects: Project[];
+  /** The active space's environments, by id — what tells the prompter a session is in a worktree.
+   *  Sparse by design: a space that has never run anything has none until one is created. */
+  environments: Record<string, Environment>;
   error: string | null;
   /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
   connectionState: "connected" | "reconnecting";
@@ -184,6 +191,7 @@ export type AppState = {
   refreshItems(): Promise<void>;
   refreshAllItems(): Promise<void>;
   refreshProjects(): Promise<void>;
+  refreshEnvironments(): Promise<void>;
   linkProject(rootPath: string): Promise<void>;
   pickAndLinkProject(): Promise<void>;
   newTerminal(targetLeafId?: string | null): Promise<void>;
@@ -234,6 +242,10 @@ export type AppState = {
    *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, adapter-default model
    *  and permission mode. Everything else is changed on the prompter's chips afterwards. */
   newSessionInstant(targetLeafId?: string | null): Promise<void>;
+  /** Make a fresh `git worktree` and open a session in it (W2), rather than in the space folder.
+   *  Fails loudly when the space is not a git repository — there is no worktree to fall back to,
+   *  and silently landing in the space folder would be the collision the user asked to avoid. */
+  newSessionInWorktree(targetLeafId?: string | null): Promise<void>;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
@@ -471,7 +483,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
@@ -501,9 +513,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         itemsFetchSeq++; // in-flight item fetches from the previous activation are now stale
         layoutHydrated = false;
         const space = get().spaces.find((s) => s.id === id);
-        set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], sessions: {}, error: null });
+        set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], environments: {}, sessions: {}, error: null });
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
-        await Promise.all([get().refreshProjects(), get().refreshItems(), get().refreshSessions()]);
+        await Promise.all([get().refreshProjects(), get().refreshEnvironments(), get().refreshItems(), get().refreshSessions()]);
         // Space activation refreshes git context for the focused pane's session, if any.
         const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
         if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
@@ -543,6 +555,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sid = get().activeSpaceId; if (!sid) return;
         const projects = await api.listProjects(sid);
         if (isSpace(sid)) set({ projects });
+      },
+      async refreshEnvironments() {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const list = await api.listEnvironments(sid);
+        if (isSpace(sid)) set({ environments: Object.fromEntries(list.map((e) => [e.id, e])) });
       },
       async createProfile(name) {
         const p = await api.createProfile(name);
@@ -790,6 +807,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async newSessionInstant(targetLeafId = null) {
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, targetLeafId);
+      },
+      async newSessionInWorktree(targetLeafId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        // The worktree is created FIRST and the session pinned to it. If creating it throws (not a
+        // repository, no commits yet) no session is made at all — `run` surfaces the reason.
+        const env = await api.createWorktree(sid, null);
+        if (isSpace(sid)) set({ environments: { ...get().environments, [env.id]: env } });
+        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id }, targetLeafId);
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       async sendMessage(id, text) { await api.sendMessage(id, text); },

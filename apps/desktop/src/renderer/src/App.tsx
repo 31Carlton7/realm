@@ -102,13 +102,17 @@ export function App() {
       const st = store.getState();
       if (spaceId === st.activeSpaceId) { st.run(() => st.refreshItems()); st.run(() => st.refreshSessions()); }
     });
+    const offV = rpc().on("environments.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (spaceId === st.activeSpaceId) st.run(() => st.refreshEnvironments());
+    });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
     // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
     const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
     window.addEventListener("pagehide", onPageHide);
-    return () => { offS(); offI(); offE(); offT(); offC(); window.removeEventListener("pagehide", onPageHide); };
+    return () => { offS(); offI(); offV(); offE(); offT(); offC(); window.removeEventListener("pagehide", onPageHide); };
   }, [store]);
   return (
     <StoreContext.Provider value={store}>

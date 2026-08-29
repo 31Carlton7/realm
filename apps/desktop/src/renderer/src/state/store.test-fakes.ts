@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { GitInfo, Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
+import type { Environment, GitInfo, Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
 import type { AgentProbe, Api } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -15,6 +15,8 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
+  /** By space id. `createWorktree` appends one, as the server's createWorktree does. */
+  environments?: Record<string, Environment[]>;
   settings?: Record<string, unknown>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
@@ -47,6 +49,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p2", "Homework", { color: "#3ddc97" })],
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
     projects: overrides.projects ?? {},
+    environments: overrides.environments ?? {},
     settings: overrides.settings ?? {},
     sessions: overrides.sessions ?? [],
     sessionEvents: overrides.sessionEvents ?? {},
@@ -71,6 +74,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return Object.values(data.items).flat().slice().sort((a, b) => b.updatedAt - a.updatedAt);
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
+    listEnvironments: async (sid) => { calls.push(`listEnvironments:${sid}`); await wait(`listEnvironments:${sid}`); return data.environments[sid] ?? []; },
+    createWorktree: async (sid, title) => {
+      calls.push(`createWorktree:${sid}`);
+      const slug = (title ?? "session").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const env: Environment = { id: `env${++n}`, spaceId: sid, path: `/tmp/worktrees/${sid}/${slug}`, branch: `realm/${slug}`,
+        kind: "worktree", portBlockStart: 41000 + 10 * (data.environments[sid] ?? []).length, createdAt: 0, updatedAt: 0 };
+      (data.environments[sid] ??= []).push(env); return env;
+    },
     createSpace: async (input) => {
       const s = space(`s${++n}`, input.profileId, input.name, { icon: input.icon, color: input.color ?? "#ffb454", sortOrder: data.spaces.length });
       data.spaces.push(s); return s;
@@ -117,7 +128,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     listAllSessions: async () => { calls.push("listAllSessions"); await wait("listAllSessions"); return [...data.sessions]; },
     getSession: async (id) => { calls.push(`getSession:${id}`); const s = data.sessions.find((x) => x.id === id); if (!s) throw new Error(`no session ${id}`); return s; },
     createSession: async (input) => {
-      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, projectId: input.projectId ?? null, model: input.model ?? null, effort: input.effort ?? null, permissionMode: input.permissionMode ?? "default", title: input.title ?? "Fake agent session" });
+      // `cwd` is derived from the environment server-side (W1), so the fake derives it too — a
+      // session pinned to a worktree that still reported the space folder would make the
+      // prompter's environment chip untestable.
+      const env = input.environmentId ? (data.environments[input.spaceId] ?? []).find((e) => e.id === input.environmentId) : undefined;
+      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, projectId: input.projectId ?? null, model: input.model ?? null, effort: input.effort ?? null, permissionMode: input.permissionMode ?? "default", title: input.title ?? "Fake agent session",
+        ...(env ? { environmentId: env.id, cwd: env.path } : {}) });
       data.sessions.push(s);
       const it = item(`i${++n}`, input.spaceId, { kind: "session", title: s.title, refId: s.id }); (data.items[input.spaceId] ??= []).push(it);
       calls.push(`createSession:${input.agentKind}`);

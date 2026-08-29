@@ -138,7 +138,7 @@ describe("PortAllocator", () => {
     const filler = mk(0, "/tmp/filler");
     for (let n = 0; n < PORT_BLOCK_COUNT; n++) {
       db.prepare("INSERT INTO environments (id, space_id, path, branch, kind, port_block_start, created_at, updated_at) VALUES (?, ?, ?, NULL, 'worktree', ?, 0, 0)")
-        .run(`F${String(n).padStart(25, "0")}`, spaceIds[0], `/tmp/f${n}`, PORT_POOL_START + n * PORT_BLOCK_SIZE);
+        .run(`F${String(n).padStart(25, "0")}`, spaceIds[0]!, `/tmp/f${n}`, PORT_POOL_START + n * PORT_BLOCK_SIZE);
     }
     expect(await allFree().ensureBlock(filler.id)).toBeNull();
     expect(envs.get(filler.id)!.portBlockStart).toBeNull();

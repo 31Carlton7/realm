@@ -105,11 +105,26 @@ describe("CommandPalette", () => {
   it("'New session' creates instantly with the last-used agent — no sheet anywhere in the path (W3)", async () => {
     const { store, api } = await mount();
     fireEvent.change(input(), { target: { value: "new session" } });
-    fireEvent.click(screen.getByRole("option", { name: /New session/ }));
+    fireEvent.click(screen.getByRole("option", { name: /^New session ⌘N$/ }));
     await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
     expect(api.calls).toContain("createSession:claude");
     expect(store.getState().sheet).toBeNull();
     expect(store.getState().paletteOpen).toBe(false);
+  });
+
+  it("'New session in a worktree' pins the session to a worktree it makes first (W2)", async () => {
+    const { store, api } = await mount();
+    fireEvent.change(input(), { target: { value: "worktree" } });
+    fireEvent.click(screen.getByRole("option", { name: /New session in a worktree/ }));
+    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
+    // The worktree is made BEFORE the session: a session that landed in the space folder because the
+    // worktree failed would be the collision this action exists to avoid.
+    expect(api.calls.indexOf("createWorktree:s1")).toBeGreaterThanOrEqual(0);
+    expect(api.calls.indexOf("createWorktree:s1")).toBeLessThan(api.calls.indexOf("createSession:claude"));
+    const env = api.data.environments.s1![0]!;
+    expect(env.kind).toBe("worktree");
+    expect(store.getState().environments[env.id]).toMatchObject({ kind: "worktree", branch: "realm/session" });
+    expect(store.getState().sheet).toBeNull();
   });
 
   it("a per-agent one-shot names its agent and routes through the very same newSession path", async () => {
