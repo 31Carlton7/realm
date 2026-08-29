@@ -37,10 +37,16 @@ export const AGENT_SUPPORTS_PERMISSION_MODES = {
 
 export const PERMISSION_MODES = [{ id: "default", label: "Ask" }, { id: "acceptEdits", label: "Accept edits" }, { id: "plan", label: "Plan" }, { id: "bypassPermissions", label: "Full access" }] as const;
 
-/** Display metadata per agent kind (icon names come from @realm/ui's icon set). */
+/**
+ * Display metadata per agent kind (icon names come from @realm/ui's icon set).
+ *
+ * Every real agent names its *provider's* brand mark, so the prompter's model chip reads the way the
+ * user's other tools do — the vendor's own glyph next to the model. `fake` keeps a generic Hugeicons
+ * glyph because it is the scripted dev adapter and has no vendor to stand for.
+ */
 export const AGENT_META = {
-  claude: { label: "Claude", icon: "sparkles" }, codex: { label: "Codex", icon: "bot" }, "acp:gemini": { label: "Gemini", icon: "bot" },
-  "acp:cursor": { label: "Cursor", icon: "bot" }, fake: { label: "Fake agent", icon: "bot" },
+  claude: { label: "Claude", icon: "claude" }, codex: { label: "Codex", icon: "openai" }, "acp:gemini": { label: "Gemini", icon: "gemini" },
+  "acp:cursor": { label: "Cursor", icon: "cursor" }, fake: { label: "Fake agent", icon: "bot" },
 } as const satisfies Record<import("./entities").AgentKind, { label: string; icon: string }>;
 
 /**
