@@ -101,6 +101,7 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
   const preview = useApp((s) => s.checkpointPreview);
   const result = useApp((s) => s.restoreResult);
   const ask = useApp((s) => s.askRestoreCheckpoint);
+  const capture = useApp((s) => s.captureCheckpoint);
   const closeSheet = useApp((s) => s.closeSheet);
   const run = useApp((s) => s.run);
   const now = Date.now();
@@ -130,6 +131,8 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
               ))}
             </ul>
             <div className="sheet-actions">
+              <button type="button" className="btn-quiet" onClick={() => run(() => capture(environmentId, sessionId))}>Checkpoint now</button>
+              <span className="diff-head-spacer" />
               <button type="button" className="btn" onClick={closeSheet}>Done</button>
             </div>
           </div>

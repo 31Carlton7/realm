@@ -134,6 +134,15 @@ describe("CheckpointsSheet", () => {
     expect(screen.queryByText("someone else's")).not.toBeInTheDocument();
   });
 
+  it("takes a manual checkpoint on request and shows it in the list", async () => {
+    const { api } = await open({ checkpoints: [] });
+    expect(screen.getByText(/Realm takes one before every message/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Checkpoint now" }));
+    await waitFor(() => expect(api.calls).toContain("captureCheckpoint:env1|*"));
+    expect(await screen.findByText("Manual")).toBeInTheDocument();
+    expect(screen.getByText("Manual checkpoint")).toBeInTheDocument();
+  });
+
   it("explains the empty state rather than showing a blank list", async () => {
     await open({ checkpoints: [] });
     expect(screen.getByText(/Realm takes one before every message/)).toBeInTheDocument();

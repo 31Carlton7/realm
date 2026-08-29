@@ -97,6 +97,8 @@ export type Api = {
   removeWorktree(environmentId: string, acknowledge: WorktreeAck): Promise<void>;
   /** `checkpoints.list` — a session's turns, or the whole checkout's when `sessionId` is null (W4). */
   listCheckpoints(environmentId: string, sessionId: string | null): Promise<Checkpoint[]>;
+  /** `checkpoints.capture` — take one now, because the user asked. */
+  captureCheckpoint(environmentId: string, sessionId: string | null): Promise<Checkpoint>;
   /** `checkpoints.preview` — what restoring would cost, asked of git right now. */
   previewCheckpoint(id: string): Promise<RestorePreview>;
   /** `checkpoints.restore`. The acknowledgement must equal what the server re-reads, or it refuses. */
@@ -230,8 +232,8 @@ export type AppState = {
   worktreeAckStale: string | null;
   /** `checkpoints.list` by environment id (W4). Absent = never asked. */
   checkpoints: Record<string, Checkpoint[]>;
-  /** The checkpoint the sheet is asking about, and the preview it is showing. Null = the list. */
-  checkpointSelected: string | null;
+  /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
+   *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
   /** Set when a confirmed restore's re-read disagreed with the preview the user was shown. */
   checkpointAckStale: boolean;
@@ -376,6 +378,8 @@ export type AppState = {
   /** Back to the list, forgetting the preview. */
   cancelRestoreCheckpoint(): void;
   confirmRestoreCheckpoint(id: string): Promise<void>;
+  /** `checkpoints.capture` — a point the user asked for, next to the ones every turn takes. */
+  captureCheckpoint(environmentId: string, sessionId: string | null): Promise<void>;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
   clearError(): void;
@@ -595,7 +599,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, checkpointSelected: null, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
@@ -1126,7 +1130,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const list = await api.listCheckpoints(environmentId, sessionId);
         set({
           checkpoints: { ...get().checkpoints, [environmentId]: list },
-          checkpointSelected: null, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+          checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
           sheet: { kind: "checkpoints", environmentId, sessionId }, paletteOpen: false,
         });
       },
@@ -1134,12 +1138,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const list = await api.listCheckpoints(environmentId, sessionId);
         set({ checkpoints: { ...get().checkpoints, [environmentId]: list } });
       },
+      async captureCheckpoint(environmentId, sessionId) {
+        await api.captureCheckpoint(environmentId, sessionId);
+        await get().refreshCheckpoints(environmentId, sessionId);
+      },
       async askRestoreCheckpoint(id) {
         const preview = await api.previewCheckpoint(id);
-        set({ checkpointSelected: id, checkpointPreview: preview, checkpointAckStale: false, restoreResult: null });
+        set({ checkpointPreview: preview, checkpointAckStale: false, restoreResult: null });
       },
       cancelRestoreCheckpoint() {
-        set({ checkpointSelected: null, checkpointPreview: null, checkpointAckStale: false });
+        set({ checkpointPreview: null, checkpointAckStale: false });
       },
       /**
        * Same contract as `confirmRemoveWorktree`, for the same reason: the acknowledgement is read
@@ -1156,7 +1164,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           return;
         }
         const result = await api.restoreCheckpoint(id, { filesChanged: fresh.filesChanged, commitsRolledBack: fresh.commitsRolledBack });
-        set({ checkpointSelected: null, checkpointPreview: null, checkpointAckStale: false, restoreResult: result });
+        set({ checkpointPreview: null, checkpointAckStale: false, restoreResult: result });
         // The tree was rewritten and a `pre-restore` checkpoint now exists: both views are stale.
         const sheet = get().sheet;
         await get().refreshCheckpoints(result.environmentId, sheet?.kind === "checkpoints" ? sheet.sessionId : null);

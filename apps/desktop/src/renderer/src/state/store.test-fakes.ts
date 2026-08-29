@@ -247,7 +247,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     listCheckpoints: async (environmentId, sessionId) => {
       calls.push(`listCheckpoints:${environmentId}|${sessionId ?? "*"}`);
       const all = data.checkpoints[environmentId] ?? [];
-      return sessionId ? all.filter((c) => c.sessionId === sessionId) : all;
+      // A COPY, like every real response: returning the stored array would hand the store the same
+      // reference it already holds, and a selector comparing by identity would never re-render.
+      return sessionId ? all.filter((c) => c.sessionId === sessionId) : [...all];
+    },
+    captureCheckpoint: async (environmentId, sessionId) => {
+      calls.push(`captureCheckpoint:${environmentId}|${sessionId ?? "*"}`);
+      const cp = checkpoint(`cp${++n}`, environmentId, { kind: "manual", sessionId, label: "Manual checkpoint", createdAt: Date.now() });
+      (data.checkpoints[environmentId] ??= []).unshift(cp);
+      return cp;
     },
     previewCheckpoint: async (id) => {
       calls.push(`previewCheckpoint:${id}`);
