@@ -48,6 +48,9 @@ export type CheckpointDeps = {
   /** Whether a live adapter handle is attached to any session in this environment. Injected rather than
    *  imported: `SessionService` calls INTO this service on every turn, so it cannot also be a dependency. */
   isEnvironmentBusy?: (environmentId: string) => boolean;
+  /** Retention budget per environment. Overridable only so tests can reach the pruning branch without
+   *  spawning fifty-odd git processes; production passes nothing. */
+  maxPerEnvironment?: number;
 };
 
 /**
@@ -202,7 +205,7 @@ export class CheckpointService {
   /** Retention, applied after every capture. Refs go before rows: a row deleted first would leave a ref
    *  nothing knows about, which is the leak this whole policy exists to prevent. */
   private async prune(environmentId: string, path: string): Promise<void> {
-    const doomed = this.d.checkpoints.prunable(environmentId, MAX_CHECKPOINTS_PER_ENVIRONMENT);
+    const doomed = this.d.checkpoints.prunable(environmentId, this.d.maxPerEnvironment ?? MAX_CHECKPOINTS_PER_ENVIRONMENT);
     if (doomed.length === 0) return;
     await this.d.git.deleteRefs(path, doomed.map((c) => c.ref));
     this.d.checkpoints.delete(doomed.map((c) => c.id));
