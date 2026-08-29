@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp, type App } from "../app";
@@ -178,6 +179,97 @@ describe("rpc methods", () => {
     await c.call("settings.set", { key: "ui.activeSpaceId" });
     expect((await c.call("settings.get", { key: "ui.activeSpaceId" })).result).toEqual({ value: null });
     expect((await c.call("spaces.update", { id: a.id, color: "red" })).ok).toBe(false);
+    c.close();
+  });
+});
+
+/** Plan 7 W2 over the wire: the contract shapes, the broadcast, and the sessions.create seam. */
+describe("environments over rpc", () => {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+
+  async function bootRepoSpace() {
+    const { home, c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    git(space.folderPath, "init", "-b", "main");
+    writeFileSync(join(space.folderPath, "a.txt"), "one\n");
+    git(space.folderPath, "add", "."); git(space.folderPath, "commit", "-m", "init");
+    return { home, c, space };
+  }
+
+  it("creates a worktree, lists it, and broadcasts environments.changed", async () => {
+    const { c, space } = await bootRepoSpace();
+    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "Fix login" })).result;
+    expect(env).toMatchObject({ kind: "worktree", branch: "realm/fix-login", spaceId: space.id });
+    expect(env.portBlockStart).toBeGreaterThan(0);
+    expect(existsSync(env.path)).toBe(true);
+    await waitFor(() => c.events.some((e) => e.event === "environments.changed" && e.payload.spaceId === space.id));
+    const listed = (await c.call("environments.list", { spaceId: space.id })).result;
+    expect(listed.map((e: any) => e.kind).sort()).toEqual(["primary", "worktree"]);
+    c.close();
+  });
+
+  it("runs a session in the worktree when sessions.create names it", async () => {
+    const { c, space } = await bootRepoSpace();
+    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "wt" })).result;
+    const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude", environmentId: env.id })).result;
+    expect(session.environmentId).toBe(env.id);
+    expect(session.cwd).toBe(env.path);           // cwd is derived from the environment (W1)
+    expect(session.cwd).not.toBe(space.folderPath);
+    c.close();
+  });
+
+  it("reports the hazard, refuses without a matching acknowledgement, then removes", async () => {
+    const { c, space } = await bootRepoSpace();
+    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "risk" })).result;
+    writeFileSync(join(env.path, "work.txt"), "hours\n");
+
+    const st = (await c.call("environments.worktreeStatus", { id: env.id })).result;
+    expect(st).toMatchObject({ environmentId: env.id, branch: "realm/risk", present: true, dirtyFiles: 1, unpushedCommits: 1, removable: true, blockedBy: null });
+
+    const refused = await c.call("environments.removeWorktree", { id: env.id });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.code).toBe("WORKTREE_UNSAFE");
+    expect(existsSync(env.path)).toBe(true);
+
+    const wrong = await c.call("environments.removeWorktree", { id: env.id, acknowledge: { dirtyFiles: 0, unpushedCommits: 0 } });
+    expect(wrong.error.code).toBe("WORKTREE_UNSAFE");
+    expect(existsSync(env.path)).toBe(true);
+
+    const ok = await c.call("environments.removeWorktree", { id: env.id, acknowledge: { dirtyFiles: st.dirtyFiles, unpushedCommits: st.unpushedCommits } });
+    expect(ok.ok).toBe(true);
+    expect(existsSync(env.path)).toBe(false);
+    expect((await c.call("environments.list", { spaceId: space.id })).result.map((e: any) => e.kind)).toEqual(["primary"]);
+    c.close();
+  });
+
+  // MUTANT: removal reachable for `primary`, over the wire this time.
+  it("refuses to remove a space's own checkout however it is asked", async () => {
+    const { c, space } = await bootRepoSpace();
+    // The primary environment is created lazily, on the first thing that needs a cwd.
+    await c.call("sessions.create", { spaceId: space.id, agentKind: "claude" });
+    const primary = (await c.call("environments.list", { spaceId: space.id })).result.find((e: any) => e.kind === "primary");
+    expect(primary).toBeDefined();
+    for (const acknowledge of [null, { dirtyFiles: 0, unpushedCommits: 0 }, { dirtyFiles: 99, unpushedCommits: 99 }]) {
+      const r = await c.call("environments.removeWorktree", { id: primary.id, acknowledge });
+      expect(r.ok).toBe(false);
+      expect(r.error.code).toBe("ENVIRONMENT_PRIMARY");
+    }
+    expect(existsSync(join(space.folderPath, "a.txt"))).toBe(true);
+    expect(git(space.folderPath, "branch", "--list", "main").trim()).not.toBe("");
+    c.close();
+  });
+
+  it("refuses a worktree in a space folder that is not a repository", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "Work" })).result;
+    const plain = (await c.call("spaces.create", { profileId: prof.id, name: "Notes" })).result;
+    const r = await c.call("environments.createWorktree", { spaceId: plain.id, title: "x" });
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe("NOT_A_REPOSITORY");
+    // The space itself still works: a plain directory is a normal Realm space.
+    expect((await c.call("sessions.create", { spaceId: plain.id, agentKind: "claude" })).result.session.cwd).toBe(plain.folderPath);
     c.close();
   });
 });

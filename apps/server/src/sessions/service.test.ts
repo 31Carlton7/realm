@@ -533,3 +533,42 @@ describe("environments over rpc", () => {
     c.close();
   });
 });
+
+/** The port block (Plan 7 W2) must reach the agent's process env, not just the environment row. */
+describe("session port blocks", () => {
+  class RecordingFake extends FakeAdapter {
+    starts: { cwd: string; env?: Record<string, string> }[] = [];
+    start(opts: Any) { this.starts.push({ cwd: opts.cwd, env: opts.env }); return super.start(opts); }
+  }
+
+  it("starts the agent with the environment's port block in its env", async () => {
+    const fake = new RecordingFake({ script: [] });
+    const { c, sp } = await boot(fake);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hello" });
+    await waitFor(() => fake.starts.length === 1);
+    const env = fake.starts[0]!.env!;
+    const block = (app.db.prepare("SELECT port_block_start AS s FROM environments WHERE space_id = ?").get(sp.id) as { s: number }).s;
+    expect(block).toBeGreaterThan(0);
+    expect(env).toMatchObject({ REALM_PORT_BASE: String(block), PORT: String(block), REALM_PORT_END: String(block + 9), REALM_PORT_COUNT: "10" });
+    c.close();
+  });
+
+  // MUTANT: allocate per session rather than per environment, and two sessions sharing a checkout
+  // fight over the same dev server anyway — which is the whole point of hanging it on the environment.
+  it("two sessions in one checkout share a block; a session in another space does not", async () => {
+    const fake = new RecordingFake({ script: [] });
+    const { c, sp } = await boot(fake);
+    const p2 = (await c.call("profiles.create", { name: "X" })).result;
+    const sp2 = (await c.call("spaces.create", { profileId: p2.id, name: "T" })).result;
+    const a = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const b = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const other = (await c.call("sessions.create", { spaceId: sp2.id, agentKind: "fake" })).result.session;
+    for (const s of [a, b, other]) await c.call("sessions.send", { id: s.id, text: "hi" });
+    await waitFor(() => fake.starts.length === 3);
+    const [ea, eb, eo] = fake.starts.map((s) => s.env!.REALM_PORT_BASE);
+    expect(ea).toBe(eb);
+    expect(eo).not.toBe(ea);
+    c.close();
+  });
+});
