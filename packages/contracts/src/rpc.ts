@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema } from "./entities";
+
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
 
@@ -227,6 +228,32 @@ export const Methods = {
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
 
+  /** Every changed path in the checkout containing `cwd`. Null when it is not a repository. Cheap by
+   *  design — one `status` and two `--numstat` — because patches are fetched per file, on expansion. */
+  "workspace.diff": { params: z.object({ cwd: z.string() }), result: DiffSummarySchema.nullable() },
+  /** One file's patch, on one side of the index. `path` is relative to the checkout ROOT (the `root`
+   *  `workspace.diff` reported), and is refused if it is absolute or contains `..`. */
+  "workspace.fileDiff": { params: z.object({ cwd: z.string(), path: z.string(), staged: z.boolean().default(false) }), result: FileDiffSchema },
+  /** `git add` for exactly these paths — per file, not per hunk. See git-write.ts for why. */
+  "workspace.stage": { params: z.object({ cwd: z.string(), paths: z.array(z.string()).min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /** Take these paths back out of the index. Never touches the working tree. */
+  "workspace.unstage": { params: z.object({ cwd: z.string(), paths: z.array(z.string()).min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Commit, push and open a pull request as ONE action, each step reporting its own outcome.
+   *
+   * `commit: false` is the retry path — the flow "no upstream, set one?" leads back here with the
+   * commit already made, and a second commit would be wrong. `setUpstream` is only ever true because
+   * the user was shown `no-upstream` and said yes. A commit with a blank message is refused outright
+   * (COMMIT_EMPTY_MESSAGE) rather than reported as an outcome: it is a mistake, not a state.
+   */
+  "workspace.ship": {
+    params: z.object({
+      cwd: z.string(), commit: z.boolean().default(true), message: z.string().default(""),
+      push: z.boolean().default(true), setUpstream: z.boolean().default(false), openPr: z.boolean().default(false),
+    }),
+    result: ShipResultSchema,
+  },
+
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable() })) },
@@ -262,6 +289,10 @@ export const Events = {
   "items.changed":    z.object({ spaceId: IdSchema }),
   /** A worktree was created or removed in this space (W2) — clients re-list environments. */
   "environments.changed": z.object({ spaceId: IdSchema }),
+  /** Realm itself changed a working tree (stage, unstage, commit, push). Carries the cwd the write
+   *  went through; clients refresh every diff they hold, because two panes on the same repository may
+   *  have asked from two different subdirectories and only the server knows they are the same tree. */
+  "workspace.changed": z.object({ cwd: z.string() }),
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */

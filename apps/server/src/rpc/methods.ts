@@ -11,6 +11,8 @@ import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
 import type { GitInfoService } from "../workspace/git-info";
+import type { GitDiffService } from "../workspace/git-diff";
+import type { GitWriteService } from "../workspace/git-write";
 import type { PortAllocator } from "../workspace/ports";
 import { NotFoundError, RpcError } from "../store/rows";
 
@@ -20,7 +22,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; ports: PortAllocator;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator;
 };
 
 export function registerMethods(d: Deps): void {
@@ -31,6 +33,21 @@ export function registerMethods(d: Deps): void {
   reg("system.info", () => ({ realmHome: d.home, version: d.version }));
 
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
+  reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
+  reg("workspace.fileDiff", (p) => d.gitDiff.file(p.cwd, p.path, p.staged));
+  // Realm just changed this working tree, so the numbers `workspace.gitInfo` is holding for it are
+  // wrong. Invalidating here (rather than trusting the 3s TTL) is what makes the composer's chips
+  // and the diff pane agree the moment an action finishes.
+  const changed = (cwd: string) => { d.gitInfo.invalidate(cwd); rpc.broadcast("workspace.changed", { cwd }); };
+  reg("workspace.stage", async (p) => { await d.gitWrite.stage(p.cwd, p.paths); changed(p.cwd); return { ok: true as const }; });
+  reg("workspace.unstage", async (p) => { await d.gitWrite.unstage(p.cwd, p.paths); changed(p.cwd); return { ok: true as const }; });
+  reg("workspace.ship", async (p) => {
+    const result = await d.gitWrite.ship(p);
+    // Broadcast even when a step reported a problem: a commit that succeeded before a push that was
+    // rejected still moved the tree, and the pane must show that.
+    changed(p.cwd);
+    return result;
+  });
 
   reg("profiles.list", () => d.profiles.list());
   reg("profiles.create", (p) => { const r = d.profiles.create(p); rpc.broadcast("profiles.changed", {}); return r; });

@@ -25,7 +25,9 @@ export const ProjectSchema = z.object({
 });
 export type Project = z.infer<typeof ProjectSchema>;
 
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context"]);
+/** `diff` (Plan 7 W3) is the one kind whose `refId` is an ENVIRONMENT id, not a session or terminal:
+ *  a diff is a view of a checkout, and several sessions may share one. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 export const ItemSchema = z.object({

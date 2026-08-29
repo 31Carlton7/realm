@@ -286,3 +286,106 @@ describe("environments over rpc", () => {
     c.close();
   });
 });
+
+/** Plan 7 W3 over the wire: the diff contract, the write verbs, and the cache invalidation that
+ *  makes the composer's chips agree with the pane. */
+describe("diff and the git write path over rpc", () => {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+
+  async function bootRepoSpace() {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const cwd = space.folderPath;
+    git(cwd, "init", "-b", "main");
+    git(cwd, "config", "user.email", "t@example.com");
+    git(cwd, "config", "user.name", "t");
+    git(cwd, "config", "commit.gpgsign", "false");
+    writeFileSync(join(cwd, "a.txt"), "one\n");
+    writeFileSync(join(cwd, "b.txt"), "two\n");
+    git(cwd, "add", "."); git(cwd, "commit", "-m", "init");
+    return { c, space, cwd };
+  }
+
+  it("lists changed files and fetches one file's patch", async () => {
+    const { c, cwd } = await bootRepoSpace();
+    writeFileSync(join(cwd, "a.txt"), "one\ntwo\n");
+    const summary = (await c.call("workspace.diff", { cwd })).result;
+    expect(summary.branch).toBe("main");
+    expect(summary.files).toEqual([expect.objectContaining({ path: "a.txt", staged: false, unstaged: true, additions: 1 })]);
+    const patch = (await c.call("workspace.fileDiff", { cwd, path: "a.txt", staged: false })).result;
+    expect(patch.hunks[0].lines.filter((l: any) => l.kind === "add").map((l: any) => l.text)).toEqual(["two"]);
+    c.close();
+  });
+
+  it("returns null for a space that is not a repository, exactly like gitInfo does", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const plain = (await c.call("spaces.create", { profileId: prof.id, name: "Notes" })).result;
+    expect((await c.call("workspace.diff", { cwd: plain.folderPath })).result).toBeNull();
+    c.close();
+  });
+
+  it("stages and unstages one file, broadcasting workspace.changed both times", async () => {
+    const { c, cwd } = await bootRepoSpace();
+    writeFileSync(join(cwd, "a.txt"), "A\n");
+    writeFileSync(join(cwd, "b.txt"), "B\n");
+    expect((await c.call("workspace.stage", { cwd, paths: ["a.txt"] })).result).toEqual({ ok: true });
+    await waitFor(() => c.events.some((e) => e.event === "workspace.changed" && e.payload.cwd === cwd));
+    let summary = (await c.call("workspace.diff", { cwd })).result;
+    expect(summary.files.find((f: any) => f.path === "a.txt")).toMatchObject({ staged: true, unstaged: false });
+    expect(summary.files.find((f: any) => f.path === "b.txt")).toMatchObject({ staged: false, unstaged: true });
+
+    expect((await c.call("workspace.unstage", { cwd, paths: ["a.txt"] })).result).toEqual({ ok: true });
+    summary = (await c.call("workspace.diff", { cwd })).result;
+    expect(summary.files.find((f: any) => f.path === "a.txt")).toMatchObject({ staged: false, unstaged: true });
+    c.close();
+  });
+
+  it("refuses a path that leaves the checkout", async () => {
+    const { c, cwd } = await bootRepoSpace();
+    const r = await c.call("workspace.stage", { cwd, paths: ["../escape.txt"] });
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe("INVALID_PARAMS");
+    c.close();
+  });
+
+  it("ships a commit and refreshes gitInfo inside its own TTL", async () => {
+    const { c, cwd } = await bootRepoSpace();
+    writeFileSync(join(cwd, "a.txt"), "A\n");
+    await c.call("workspace.stage", { cwd, paths: ["a.txt"] });
+    // Warm the gitInfo cache so the assertion below is about invalidation, not about a cold read.
+    expect((await c.call("workspace.gitInfo", { cwd })).result.dirty).toBe(1);
+    const ship = (await c.call("workspace.ship", { cwd, commit: true, message: "one change", push: false, openPr: false })).result;
+    expect(ship.commit).toMatchObject({ state: "committed", subject: "one change" });
+    expect(ship.push.state).toBe("skipped");
+    expect(ship.pr.state).toBe("skipped");
+    // The 3s TTL has not expired; only the explicit invalidation can make this 0.
+    expect((await c.call("workspace.gitInfo", { cwd })).result.dirty).toBe(0);
+    c.close();
+  });
+
+  it("refuses a blank commit message over the wire, leaving the index alone", async () => {
+    const { c, cwd } = await bootRepoSpace();
+    writeFileSync(join(cwd, "a.txt"), "A\n");
+    await c.call("workspace.stage", { cwd, paths: ["a.txt"] });
+    const r = await c.call("workspace.ship", { cwd, commit: true, message: "  ", push: false, openPr: false });
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe("COMMIT_EMPTY_MESSAGE");
+    expect(git(cwd, "log", "--oneline").trim().split("\n")).toHaveLength(1);
+    expect((await c.call("workspace.diff", { cwd })).result.files[0]).toMatchObject({ staged: true });
+    c.close();
+  });
+
+  it("explains a push with no remote rather than failing", async () => {
+    const { c, cwd } = await bootRepoSpace();
+    writeFileSync(join(cwd, "a.txt"), "A\n");
+    await c.call("workspace.stage", { cwd, paths: ["a.txt"] });
+    const ship = (await c.call("workspace.ship", { cwd, commit: true, message: "m", push: true, openPr: true })).result;
+    expect(ship.commit.state).toBe("committed");
+    expect(ship.push).toMatchObject({ state: "no-remote", branch: "main" });
+    expect(ship.pr.state).toBe("skipped");
+    c.close();
+  });
+});

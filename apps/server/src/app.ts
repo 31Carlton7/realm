@@ -12,6 +12,8 @@ import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
+import { GitDiffService } from "./workspace/git-diff";
+import { GitWriteService } from "./workspace/git-write";
 import { PortAllocator } from "./workspace/ports";
 import { WorktreeService } from "./workspace/worktrees";
 import { EnvironmentService } from "./environments/service";
@@ -68,7 +70,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, environments, ports, terminals, adapters: opts.adapters ?? defaultAdapters() });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(), ports,
+    profiles, spaces, projects, environments, envService, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

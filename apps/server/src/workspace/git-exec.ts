@@ -44,7 +44,12 @@ export const GIT_MAX_BYTES = 8 * 1024 * 1024;
 export const gitCapture: GitRun = (cwd, args, opts = {}) =>
   new Promise((resolve, reject) => {
     execFile("git", [...GIT_HARDENING, ...args],
-      { cwd, timeout: opts.timeoutMs ?? GIT_EXEC_TIMEOUT_MS, encoding: "utf8", maxBuffer: opts.maxBytes ?? GIT_MAX_BYTES },
+      {
+        cwd, timeout: opts.timeoutMs ?? GIT_EXEC_TIMEOUT_MS, encoding: "utf8", maxBuffer: opts.maxBytes ?? GIT_MAX_BYTES,
+        // A push to a remote that wants credentials would otherwise block on a terminal prompt no
+        // one can see, until the timeout kills it. Failing immediately is an error we can explain.
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      },
       (err, stdout, stderr) => {
         const e = err as (Error & { code?: number | string; killed?: boolean }) | null;
         // Output past maxBuffer: node kills the child, but the prefix it did capture is exactly what

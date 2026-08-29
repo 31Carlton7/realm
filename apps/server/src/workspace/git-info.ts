@@ -53,6 +53,10 @@ export class GitInfoService {
     return p;
   }
 
+  /** Drop the cached answer for a cwd. Realm's own writes (stage, commit, push) change exactly the
+   *  numbers this cache is holding, and a 3s stale branch chip after a commit reads as a bug. */
+  invalidate(cwd: string): void { this.cache.delete(cwd); }
+
   /** Every invocation carries GIT_HARDENING (`core.fsmonitor` off — see git-exec.ts for why).
    *  Defence-in-depth: this probe must stay a pure reader of untrusted directories. */
   private git(cwd: string, args: string[]): Promise<string> {
