@@ -5,11 +5,13 @@ import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { ProjectsStore } from "../store/projects";
 import type { EnvironmentsStore } from "../store/environments";
+import type { EnvironmentService } from "../environments/service";
 import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
 import type { GitInfoService } from "../workspace/git-info";
+import type { PortAllocator } from "../workspace/ports";
 import { NotFoundError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -18,7 +20,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; ports: PortAllocator;
 };
 
 export function registerMethods(d: Deps): void {
@@ -57,6 +59,18 @@ export function registerMethods(d: Deps): void {
   reg("environments.list", (p) => d.environments.list(p.spaceId));
   reg("environments.get", (p) => { const e = d.environments.get(p.id); if (!e) throw new NotFoundError("environment", p.id); return e; });
   reg("environments.delete", (p) => { d.environments.delete(p.id); return { ok: true as const }; });
+  reg("environments.createWorktree", async (p) => {
+    const env = await d.envService.createWorktree(p);
+    rpc.broadcast("environments.changed", { spaceId: p.spaceId });
+    return env;
+  });
+  reg("environments.worktreeStatus", (p) => d.envService.worktreeStatus(p.id));
+  reg("environments.removeWorktree", async (p) => {
+    const spaceId = d.envService.get(p.id).spaceId;
+    await d.envService.removeWorktree(p.id, p.acknowledge);
+    rpc.broadcast("environments.changed", { spaceId });
+    return { ok: true as const };
+  });
 
   reg("items.list", (p) => d.items.list(p.spaceId));
   reg("items.listAll", () => d.items.listAll());
@@ -71,7 +85,14 @@ export function registerMethods(d: Deps): void {
     return { ok: true as const };
   });
 
-  reg("terminals.create", (p) => d.terminals.open(p));
+  // The port block is claimed here, not in TerminalService: allocation probes the machine's ports
+  // and so is async, while `open` must stay synchronous around its pty/row/item transaction. By the
+  // time `open` reads the environment back, the block is on the row.
+  reg("terminals.create", async (p) => {
+    const env = p.cwd ? d.environments.findByPath(p.spaceId, p.cwd) : d.environments.ensurePrimary(p.spaceId);
+    if (env) await d.ports.ensureBlock(env.id);
+    return d.terminals.open(p);
+  });
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
   reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });

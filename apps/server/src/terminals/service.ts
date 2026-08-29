@@ -3,10 +3,12 @@ import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
+import type { EnvironmentsStore } from "../store/environments";
 import type { ItemsStore } from "../store/items";
 import type { SpacesStore } from "../store/spaces";
 import type { TerminalsStore } from "../store/terminals";
 import { NotFoundError } from "../store/rows";
+import { portEnv } from "../workspace/ports";
 import { TerminalManager } from "./manager";
 
 /**
@@ -16,7 +18,7 @@ import { TerminalManager } from "./manager";
 export class TerminalService {
   readonly manager: TerminalManager;
   private closed = false;
-  constructor(private d: { db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; terminals: TerminalsStore }) {
+  constructor(private d: { db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; terminals: TerminalsStore; environments: EnvironmentsStore }) {
     this.manager = new TerminalManager({
       onData: (terminalId, data) => d.rpc.broadcast("terminal.data", { terminalId, data }),
       onExit: (terminalId, exitCode) => {
@@ -32,6 +34,20 @@ export class TerminalService {
 
   has(terminalId: string): boolean { return this.manager.has(terminalId); }
 
+  /**
+   * The environment variables a shell in this cwd is spawned with: its environment's port block
+   * (W2), so `pnpm dev` typed into a worktree's terminal lands on that worktree's ports rather than
+   * on :3000 alongside two other agents.
+   *
+   * Looked up by path rather than passed in, so `restoreAll` gives a respawned pty the same block it
+   * had before the restart — the block is a column, and nothing here reallocates it. A cwd with no
+   * environment (a terminal opened somewhere ad hoc) simply gets nothing extra.
+   */
+  private envFor(spaceId: string, cwd: string): Record<string, string> {
+    const env = this.d.environments.findByPath(spaceId, cwd);
+    return env ? portEnv(env) : {};
+  }
+
   /** Boot: respawn a pty for every persisted terminal row. Rows whose cwd vanished or whose spawn fails
    *  are deleted (the item stays, so the UI can show the pane as not running). Returns ids restored. */
   restoreAll(): string[] {
@@ -40,7 +56,7 @@ export class TerminalService {
       if (this.manager.has(row.id)) continue;
       try {
         if (!existsSync(row.cwd)) throw new Error(`cwd missing: ${row.cwd}`);
-        this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols: 80, rows: 24 });
+        this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols: 80, rows: 24, env: this.envFor(row.spaceId, row.cwd) });
         restored.push(row.id);
       } catch (e) {
         console.error(`[terminals] not restoring ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
@@ -62,7 +78,7 @@ export class TerminalService {
       // Auto-title from the cwd basename (U-M1) so several terminals stay tellable-apart; "/" has no
       // basename, so it falls back to the generic label.
       itemId = this.d.items.create({ spaceId: p.spaceId, kind: "terminal", title: basename(cwd) || "Terminal", refId: terminalId }).id;
-      this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell });
+      this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell, env: this.envFor(p.spaceId, cwd) });
       this.d.db.exec("COMMIT");
     } catch (e) {
       this.d.db.exec("ROLLBACK");

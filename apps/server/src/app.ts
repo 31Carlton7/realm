@@ -12,6 +12,9 @@ import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
+import { PortAllocator } from "./workspace/ports";
+import { WorktreeService } from "./workspace/worktrees";
+import { EnvironmentService } from "./environments/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 
@@ -57,11 +60,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const items = new ItemsStore(db);
   const projects = new ProjectsStore(db);
   const environments = new EnvironmentsStore(db);
-  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db) });
-  const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, environments, terminals, adapters: opts.adapters ?? defaultAdapters() });
+  const ports = new PortAllocator(db);
+  // Worktrees live under the Realm home, which is also the boundary WorktreeService refuses to
+  // remove outside of — so it is given the home rather than deriving one.
+  const envService = new EnvironmentService({ environments, spaces, worktrees: new WorktreeService(opts.home), ports });
+  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
+  const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, environments, ports, terminals, adapters: opts.adapters ?? defaultAdapters() });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(),
+    profiles, spaces, projects, environments, envService, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(), ports,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

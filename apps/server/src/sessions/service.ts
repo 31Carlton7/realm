@@ -9,6 +9,7 @@ import type { EnvironmentsStore } from "../store/environments";
 import type { SpacesStore } from "../store/spaces";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
+import { portEnv, type PortAllocator } from "../workspace/ports";
 import { ProbeCache } from "./probe-cache";
 
 const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
@@ -32,7 +33,7 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; terminals: TerminalService; adapters: AdapterRegistry }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
@@ -86,6 +87,9 @@ export class SessionService {
 
   /** Emits `user_message` (persisted + broadcast) and hands the message to the adapter, starting it if needed. */
   async send(id: string, msg: UserMessage): Promise<void> {
+    // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
+    // back off the row, so this is the only place the (async) allocation has to happen.
+    await this.ensurePorts(id);
     const handle = this.ensureLive(id);
     this.maybeTitleFrom(id, msg.text);
     this.onEvent(id, sessionEvent("user_message", msg));
@@ -132,7 +136,8 @@ export class SessionService {
    * A recorded terminal whose pty is gone (it exited, or its cwd vanished at boot) is torn down and
    * replaced, so opening the panel always lands you in a live shell at the session's cwd.
    */
-  openTerminal(id: string): { terminalId: string; itemId: string } {
+  async openTerminal(id: string): Promise<{ terminalId: string; itemId: string }> {
+    await this.ensurePorts(id);
     const s = this.get(id);
     const item = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (item) {
@@ -212,12 +217,23 @@ export class SessionService {
     if (item) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
   }
 
+  /** Allocate the session's environment a port block if it has none yet (W2). Async, and therefore
+   *  hoisted out of the sync `ensureLive`/`openTerminal` bodies into their callers. */
+  private async ensurePorts(id: string): Promise<void> {
+    const s = this.d.sessions.get(id); if (!s) return;
+    await this.d.ports.ensureBlock(s.environmentId);
+  }
+
   private ensureLive(id: string): AgentHandle {
     const existing = this.live.get(id); if (existing) return existing.handle;
     const s = this.get(id);
     const adapter = this.d.adapters[s.agentKind];
     if (!adapter) throw new RpcError("AGENT_UNAVAILABLE", `${s.agentKind} is not registered`);
+    // The environment's port block, read back off the row that ensurePorts just settled: an agent
+    // told to `pnpm dev` in a worktree starts on that worktree's ports, not on the space's.
+    const env = this.d.environments.get(s.environmentId);
     const handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers: [], resume: s.providerSessionId,
+      env: env ? portEnv(env) : {},
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`) });
     const pump = (async () => {
       try { for await (const ev of handle.events) this.onEvent(id, ev); }

@@ -39,6 +39,34 @@ export const GitInfoSchema = z.object({
 });
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 
+/** What removing a worktree would destroy, asked of git at the moment of asking (Plan 7 W2).
+ *  `environments.removeWorktree` re-reads these and refuses unless the acknowledgement matches, so
+ *  a confirmation the user gave before the agent wrote another file fails closed. */
+export const WorktreeStatusSchema = z.object({
+  environmentId: IdSchema,
+  path: z.string(),
+  branch: z.string().nullable(),
+  /** False when the directory has already been removed by hand: removal then only prunes. */
+  present: z.boolean(),
+  /** Lines of `git status --porcelain` — uncommitted edits plus untracked files. */
+  dirtyFiles: z.number().int(),
+  /** Commits on the branch that no remote ref contains. */
+  unpushedCommits: z.number().int(),
+  /** False for `primary` and `checkout`, and while any session still runs here. */
+  removable: z.boolean(),
+  /** Why not, when `removable` is false — the same code `removeWorktree` would throw. */
+  blockedBy: z.string().nullable(),
+});
+export type WorktreeStatus = z.infer<typeof WorktreeStatusSchema>;
+
+/** The caller's informed consent to lose exactly this much work. Both numbers must equal what git
+ *  reports at removal time; `null` means "only proceed if there is nothing to lose". */
+export const WorktreeAckSchema = z.object({
+  dirtyFiles: z.number().int().nonnegative(),
+  unpushedCommits: z.number().int().nonnegative(),
+});
+export type WorktreeAck = z.infer<typeof WorktreeAckSchema>;
+
 /** Method registry: params + result schemas. Server validates params; client types results. */
 export const Methods = {
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
@@ -64,6 +92,23 @@ export const Methods = {
    *  space's primary checkout (ENVIRONMENT_PRIMARY) — deleting the last session never removes one by
    *  itself. Removes the row only: taking a worktree off disk is W2's job, with its own safety prompts. */
   "environments.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** Create a `git worktree` AND its environment row as one operation (W2). Deliberately not a bare
+   *  `environments.create`: a row pointing at an arbitrary directory could be given `kind:
+   *  "worktree"`, and `removeWorktree` would then be reachable for a checkout Realm did not make.
+   *  The only way to get a `worktree` row is for Realm to have created the worktree.
+   *
+   *  `from` names the checkout to branch off (default: the space's primary). Refuses when that is
+   *  not a git repository (NOT_A_REPOSITORY — a plain directory is a normal Realm space) or has no
+   *  commits yet (WORKTREE_NO_COMMITS). */
+  "environments.createWorktree": { params: z.object({ spaceId: IdSchema, title: z.string().nullable().default(null), from: IdSchema.nullable().default(null) }), result: EnvironmentSchema },
+  /** What `removeWorktree` would cost, and whether it is allowed at all. Read-only. */
+  "environments.worktreeStatus": { params: z.object({ id: IdSchema }), result: WorktreeStatusSchema },
+  /** Remove the worktree from disk and delete its branch. Refused outright for `primary`
+   *  (ENVIRONMENT_PRIMARY) and `checkout` (ENVIRONMENT_NOT_WORKTREE), and while a session still
+   *  runs there (ENVIRONMENT_IN_USE). A dirty tree or unpushed commits require `acknowledge` to
+   *  carry the *exact* counts git reports at that moment (WORKTREE_UNSAFE otherwise) — `--force`
+   *  and `branch -D` are unreachable without it. */
+  "environments.removeWorktree": { params: z.object({ id: IdSchema, acknowledge: WorktreeAckSchema.nullable().default(null) }), result: z.object({ ok: z.literal(true) }) },
 
   "items.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ItemSchema) },
   /** Every item across every space (command palette search); newest-updated first. */
@@ -119,6 +164,8 @@ export const Events = {
   "profiles.changed": z.object({}),
   "spaces.changed":   z.object({}),
   "items.changed":    z.object({ spaceId: IdSchema }),
+  /** A worktree was created or removed in this space (W2) — clients re-list environments. */
+  "environments.changed": z.object({ spaceId: IdSchema }),
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */

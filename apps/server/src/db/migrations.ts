@@ -87,4 +87,10 @@ export const migrations: string[] = [
     WHEN NEW.environment_id IS NULL
     BEGIN SELECT RAISE(ABORT, 'sessions.environment_id is required'); END;
   `,
+  // v6 — port blocks (Plan 7 W2). Two environments handed the same base port would mean two agents
+  // racing for the same `pnpm dev`, which is the exact problem the block exists to solve, so the
+  // invariant lives in the schema rather than in the allocator's care: a second environment claiming
+  // a taken start fails its UPDATE instead of duplicating it. Partial, because "no block yet" is the
+  // normal state of every row that has never spawned anything.
+  `CREATE UNIQUE INDEX environments_port_block ON environments(port_block_start) WHERE port_block_start IS NOT NULL;`,
 ];
