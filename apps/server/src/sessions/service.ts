@@ -71,12 +71,13 @@ export class SessionService {
    * Where a new session runs, in priority order: an environment the caller named (the seam W2 uses to
    * start a session in a worktree), the project's own checkout, or the space's primary. The get-or-create
    * is what makes several sessions in one place share one environment rather than accumulate rows.
+   * Whether a named environment belongs to this space is `SessionsStore.create`'s check, not a second
+   * copy here.
    */
   private resolveEnvironment(spaceId: string, environmentId: string | null, projectRoot: string | null) {
     if (environmentId) {
       const env = this.d.environments.get(environmentId);
       if (!env) throw new NotFoundError("environment", environmentId);
-      if (env.spaceId !== spaceId) throw new RpcError("ENVIRONMENT_WRONG_SPACE", "that environment belongs to another space");
       return env;
     }
     if (projectRoot) return this.d.environments.ensureAt(spaceId, projectRoot, "checkout");
