@@ -44,6 +44,13 @@ export type ShipInput = {
  *  2. **Nothing here can lose committed work.** There is no force-push, no `--force-with-lease`, no
  *     reset, no checkout. `rejected` — the remote moved — therefore has no "fix it" button, because
  *     the fix is a rebase the user should watch happen.
+ *
+ * On hardening, and where it stops: the READ side (git-info, git-diff) is defended against a hostile
+ * checkout's own config, because merely looking at a directory must not execute anything from it.
+ * This file is the write side, and `git add` runs `filter.<driver>.clean`, `git commit` runs
+ * pre-commit hooks. Those are what committing to a repository MEANS; a user pressing "Commit" has
+ * asked for exactly the thing `git commit` does. Realm does not disable them, and must not: a
+ * `--no-verify` the user did not ask for is a worse failure than a slow hook.
  */
 export class GitWriteService {
   private git: GitRun;
@@ -106,9 +113,11 @@ export class GitWriteService {
   }
 
   /** Anything in the index that differs from HEAD. Read from `status` rather than
-   *  `diff --cached`, which has no HEAD to compare against in a repository with no commits. */
+   *  `diff --cached`, which has no HEAD to compare against in a repository with no commits.
+   *  `-uno`, unlike the diff listing's `-uall`: untracked files are by definition not staged, and
+   *  enumerating a large ignored-but-unlisted tree to learn that would be work for nothing. */
   private async hasStaged(root: string): Promise<boolean> {
-    const r = await this.git(root, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "-uall"]);
+    const r = await this.git(root, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "-uno"]);
     if (r.code !== 0) return false;
     return parseStatus(r.stdout, new Map()).some((f) => f.staged);
   }
@@ -143,8 +152,10 @@ export class GitWriteService {
     if (!await this.hasStaged(root)) {
       return { state: "nothing-to-commit", sha: null, subject: null, reason: "nothing is staged" };
     }
-    // -m, never an editor: git with no tty and no -m fails in a way nobody can act on.
-    const r = await this.git(root, ["commit", "-m", message]);
+    // -m, never an editor: git with no tty and no -m fails in a way nobody can act on. Hooks DO run
+    // — a repository's pre-commit hook is part of what committing means — which is why this gets the
+    // long timeout: a lint-staged run is routinely slower than the 20s a read is allowed.
+    const r = await this.git(root, ["commit", "-m", message], { timeoutMs: GIT_NETWORK_TIMEOUT_MS });
     if (r.code !== 0) {
       const text = `${r.stdout}\n${r.stderr}`;
       // git's own words here are four paragraphs of `git config` instructions. The state is the answer.
