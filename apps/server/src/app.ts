@@ -8,6 +8,7 @@ import { SettingsStore } from "./store/settings";
 import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
+import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
@@ -55,11 +56,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const spaces = new SpacesStore(db, opts.home);
   const items = new ItemsStore(db);
   const projects = new ProjectsStore(db);
+  const environments = new EnvironmentsStore(db);
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db) });
-  const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, terminals, adapters: opts.adapters ?? defaultAdapters() });
+  const sessions = new SessionService({ db, rpc, sessions: new SessionsStore(db), events: new SessionEventsStore(db), items, spaces, projects, environments, terminals, adapters: opts.adapters ?? defaultAdapters() });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(),
+    profiles, spaces, projects, environments, items, settings: new SettingsStore(db), terminals, sessions, gitInfo: new GitInfoService(),
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

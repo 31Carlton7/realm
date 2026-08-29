@@ -1,15 +1,23 @@
 import type { Db } from "../db/database";
 import { newId, SessionEventSchema, type AgentKind, type Session, type SessionEvent, type SessionStatus, type StoredSessionEvent } from "@realm/contracts";
-import { NotFoundError, now } from "./rows";
+import { NotFoundError, RpcError, now } from "./rows";
 
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null;
-  permission_mode: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number;
+  permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number;
   terminal_item_id: string | null; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
-  permissionMode: r.permission_mode, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
+  permissionMode: r.permission_mode, environmentId: r.environment_id, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
   lastEventSeq: r.last_event_seq, terminalItemId: r.terminal_item_id, createdAt: r.created_at, updatedAt: r.updated_at,
 });
+
+/**
+ * `cwd` is not a column (Plan 7 W1): it is the session's environment's path, read through this join on
+ * every read, so moving an environment moves every session in it with no cache to invalidate. The join
+ * is inner on purpose — the schema's triggers make a session without an environment unwritable, so a
+ * row that failed to match would be corruption, not a state to render.
+ */
+const SELECT = "SELECT s.*, e.path AS cwd FROM sessions s JOIN environments e ON e.id = s.environment_id";
 
 export type SessionUpdate = { id: string; status?: SessionStatus; providerSessionId?: string | null; lastEventSeq?: number; title?: string;
   model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind };
@@ -17,20 +25,25 @@ export type SessionUpdate = { id: string; status?: SessionStatus; providerSessio
 export class SessionsStore {
   constructor(private db: Db) {}
   list(spaceId: string): Session[] {
-    return (this.db.prepare("SELECT * FROM sessions WHERE space_id = ? ORDER BY created_at").all(spaceId) as Row[]).map(toSession);
+    return (this.db.prepare(`${SELECT} WHERE s.space_id = ? ORDER BY s.created_at`).all(spaceId) as Row[]).map(toSession);
   }
   listAll(): Session[] {
-    return (this.db.prepare("SELECT * FROM sessions ORDER BY created_at").all() as Row[]).map(toSession);
+    return (this.db.prepare(`${SELECT} ORDER BY s.created_at`).all() as Row[]).map(toSession);
   }
   get(id: string): Session | null {
-    const r = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as Row | undefined; return r ? toSession(r) : null;
+    const r = this.db.prepare(`${SELECT} WHERE s.id = ?`).get(id) as Row | undefined; return r ? toSession(r) : null;
   }
-  create(input: { spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null; permissionMode: string; cwd: string; title: string }): Session {
+  create(input: { spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null; permissionMode: string; environmentId: string; title: string }): Session {
     if (!this.db.prepare("SELECT 1 FROM spaces WHERE id = ?").get(input.spaceId)) throw new NotFoundError("space", input.spaceId);
+    const env = this.db.prepare("SELECT space_id FROM environments WHERE id = ?").get(input.environmentId) as { space_id: string } | undefined;
+    if (!env) throw new NotFoundError("environment", input.environmentId);
+    // A session in space A running in space B's checkout would give the sidebar one cwd and the space
+    // header another; there is no reading of that which is not a bug.
+    if (env.space_id !== input.spaceId) throw new RpcError("ENVIRONMENT_WRONG_SPACE", "that environment belongs to another space");
     const id = newId(); const t = now();
-    this.db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, cwd, status, provider_session_id, title, last_event_seq, created_at, updated_at)
+    this.db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, environment_id, status, provider_session_id, title, last_event_seq, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, 0, ?, ?)`)
-      .run(id, input.spaceId, input.projectId, input.agentKind, input.model, input.effort, input.permissionMode, input.cwd, input.title, t, t);
+      .run(id, input.spaceId, input.projectId, input.agentKind, input.model, input.effort, input.permissionMode, input.environmentId, input.title, t, t);
     return this.get(id)!;
   }
   update(input: SessionUpdate): Session {

@@ -5,6 +5,7 @@ import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
 import type { ProjectsStore } from "../store/projects";
 import type { SessionsStore, SessionEventsStore, SessionUpdate } from "../store/sessions";
+import type { EnvironmentsStore } from "../store/environments";
 import type { SpacesStore } from "../store/spaces";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
@@ -19,7 +20,7 @@ export function titleFromMessage(text: string): string {
   return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1).trimEnd()}…` : one;
 }
 
-export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; model: string | null; effort: string | null; permissionMode: string; title?: string };
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string; title?: string };
 type Live = { handle: AgentHandle; pump: Promise<void> };
 
 /**
@@ -31,7 +32,7 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; terminals: TerminalService; adapters: AdapterRegistry }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; terminals: TerminalService; adapters: AdapterRegistry }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
@@ -58,12 +59,28 @@ export class SessionService {
     if (!this.d.adapters[input.agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${input.agentKind} is not registered`);
     const project = input.projectId ? this.d.projects.get(input.projectId) : null;
     if (input.projectId && !project) throw new NotFoundError("project", input.projectId);
-    const cwd = project?.rootPath ?? space.folderPath;
+    const env = this.resolveEnvironment(input.spaceId, input.environmentId ?? null, project?.rootPath ?? null);
     const title = input.title?.trim() || defaultTitle(input.agentKind);
-    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode: input.permissionMode, cwd, title });
+    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode: input.permissionMode, environmentId: env.id, title });
     const item = this.d.items.create({ spaceId: input.spaceId, kind: "session", title, refId: session.id });
     this.d.rpc.broadcast("items.changed", { spaceId: input.spaceId });
     return { session, itemId: item.id };
+  }
+
+  /**
+   * Where a new session runs, in priority order: an environment the caller named (the seam W2 uses to
+   * start a session in a worktree), the project's own checkout, or the space's primary. The get-or-create
+   * is what makes several sessions in one place share one environment rather than accumulate rows.
+   */
+  private resolveEnvironment(spaceId: string, environmentId: string | null, projectRoot: string | null) {
+    if (environmentId) {
+      const env = this.d.environments.get(environmentId);
+      if (!env) throw new NotFoundError("environment", environmentId);
+      if (env.spaceId !== spaceId) throw new RpcError("ENVIRONMENT_WRONG_SPACE", "that environment belongs to another space");
+      return env;
+    }
+    if (projectRoot) return this.d.environments.ensureAt(spaceId, projectRoot, "checkout");
+    return this.d.environments.ensurePrimary(spaceId);
   }
 
   /** Emits `user_message` (persisted + broadcast) and hands the message to the adapter, starting it if needed. */

@@ -9,7 +9,7 @@ export const space = (id: string, profileId: string, name: string, extra: Partia
 export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): Item =>
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
-  ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", cwd: "/tmp", status: "idle",
+  ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 
 export type FakeData = {

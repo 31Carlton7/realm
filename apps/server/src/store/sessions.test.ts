@@ -5,6 +5,7 @@ import { openDatabase } from "../db/database";
 import { ProfilesStore } from "./profiles";
 import { SpacesStore } from "./spaces";
 import { SessionsStore, SessionEventsStore } from "./sessions";
+import { EnvironmentsStore } from "./environments";
 import { NotFoundError } from "./rows";
 
 function fresh() {
@@ -12,14 +13,15 @@ function fresh() {
   const db = openDatabase(join(home, "realm.db"));
   const p = new ProfilesStore(db).create({ name: "W", icon: "x", color: "#000" });
   const space = new SpacesStore(db, home).create({ profileId: p.id, name: "S", icon: "f" });
-  return { db, home, space };
+  const env = new EnvironmentsStore(db).ensurePrimary(space.id);
+  return { db, home, space, env };
 }
-const input = (spaceId: string) => ({ spaceId, projectId: null, agentKind: "fake" as const, model: null, effort: null, permissionMode: "default", cwd: "/tmp", title: "New session" });
+const input = (spaceId: string, environmentId: string) => ({ spaceId, projectId: null, agentKind: "fake" as const, model: null, effort: null, permissionMode: "default", environmentId, title: "New session" });
 
 describe("SessionsStore + SessionEventsStore", () => {
   it("creates a session, appends events with increasing seq, lists after seq, updates status/lastEventSeq", () => {
-    const { db, space } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
-    const sess = s.create(input(space.id));
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = s.create(input(space.id, env.id));
     expect(sess.status).toBe("idle"); expect(sess.lastEventSeq).toBe(0); expect(sess.providerSessionId).toBeNull();
     const a = ev.append(sess.id, sessionEvent("status", { status: "running" }));
     const b = ev.append(sess.id, sessionEvent("assistant_text", { messageId: "m", text: "hi" }));
@@ -34,8 +36,8 @@ describe("SessionsStore + SessionEventsStore", () => {
     expect(s.listAll()).toHaveLength(1);
   });
   it("update patches title/model/effort/permissionMode and delete cascades events", () => {
-    const { db, space } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
-    const sess = s.create(input(space.id));
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = s.create(input(space.id, env.id));
     ev.append(sess.id, sessionEvent("status", { status: "running" }));
     const u = s.update({ id: sess.id, title: "hello", model: "m1", effort: "high", permissionMode: "plan" });
     expect(u).toMatchObject({ title: "hello", model: "m1", effort: "high", permissionMode: "plan" });
@@ -47,15 +49,15 @@ describe("SessionsStore + SessionEventsStore", () => {
     expect(() => s.update({ id: sess.id, title: "x" })).toThrow(NotFoundError);
   });
   it("skips stored events that no longer validate", () => {
-    const { db, space } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
-    const sess = s.create(input(space.id));
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = s.create(input(space.id, env.id));
     db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)").run(sess.id, 1, "bogus", "{}");
     ev.append(sess.id, sessionEvent("error", { message: "e" }));
     expect(ev.listAfter(sess.id, 0, 10).map((e) => e.event.type)).toEqual(["error"]);
   });
   it("setLastEventSeq touches only the seq; findDanglingPermissions reports every unanswered request", () => {
-    const { db, space } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
-    const sess = s.create(input(space.id));
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = s.create(input(space.id, env.id));
     s.setLastEventSeq(sess.id, 42);
     expect(s.get(sess.id)).toMatchObject({ lastEventSeq: 42, status: "idle", title: "New session" });
     expect(ev.findDanglingPermissions(sess.id)).toEqual([]);
@@ -70,7 +72,24 @@ describe("SessionsStore + SessionEventsStore", () => {
     expect(ev.hasType(sess.id, "usage")).toBe(false);
   });
   it("rejects a session for an unknown space", () => {
-    const { db } = fresh();
-    expect(() => new SessionsStore(db).create(input("01ARZ3NDEKTSV4RRFFQ69G5FAV"))).toThrow(NotFoundError);
+    const { db, env } = fresh();
+    expect(() => new SessionsStore(db).create(input("01ARZ3NDEKTSV4RRFFQ69G5FAV", env.id))).toThrow(NotFoundError);
+  });
+  it("rejects a session for an unknown environment, and for one belonging to another space", () => {
+    const { db, home, space } = fresh();
+    const s = new SessionsStore(db); const envs = new EnvironmentsStore(db);
+    expect(() => s.create(input(space.id, "01ARZ3NDEKTSV4RRFFQ69G5FAV"))).toThrow(NotFoundError);
+    const other = new SpacesStore(db, home).create({ profileId: new ProfilesStore(db).list()[0]!.id, name: "Other", icon: "f" });
+    const otherEnv = envs.ensurePrimary(other.id);
+    expect(() => s.create(input(space.id, otherEnv.id))).toThrow(/another space/);
+  });
+  it("cwd comes off the environment: moving the environment moves every session in it", () => {
+    const { db, space, env } = fresh(); const s = new SessionsStore(db);
+    const a = s.create(input(space.id, env.id));
+    const b = s.create(input(space.id, env.id));
+    expect(a.cwd).toBe(env.path); expect(b.environmentId).toBe(env.id);
+    db.prepare("UPDATE environments SET path = ? WHERE id = ?").run("/moved", env.id);
+    expect(s.get(a.id)!.cwd).toBe("/moved");
+    expect(s.list(space.id).map((x) => x.cwd)).toEqual(["/moved", "/moved"]);
   });
 });

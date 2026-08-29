@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema } from "./entities";
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
 
@@ -57,6 +57,14 @@ export const Methods = {
   "projects.create": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), rootPath: z.string(), defaultBranch: z.string().default("main") }), result: ProjectSchema },
   "projects.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
+  /** Every checkout the space knows about — its primary, plus any project root or worktree (W2). */
+  "environments.list": { params: z.object({ spaceId: IdSchema }), result: z.array(EnvironmentSchema) },
+  "environments.get":  { params: z.object({ id: IdSchema }), result: EnvironmentSchema },
+  /** Forget an environment. Refused while any session still references it (ENVIRONMENT_IN_USE) and for a
+   *  space's primary checkout (ENVIRONMENT_PRIMARY) — deleting the last session never removes one by
+   *  itself. Removes the row only: taking a worktree off disk is W2's job, with its own safety prompts. */
+  "environments.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
   "items.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ItemSchema) },
   /** Every item across every space (command palette search); newest-updated first. */
   "items.listAll": { params: z.object({}), result: z.array(ItemSchema) },
@@ -85,7 +93,9 @@ export const Methods = {
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
   "sessions.listAll": { params: z.object({}), result: z.array(SessionSchema) },
   "sessions.get":    { params: z.object({ id: IdSchema }), result: SessionSchema },
-  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().default("default"), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
+  /** `environmentId` pins the session to an existing checkout (the seam W2 uses to open one in a
+   *  worktree). Omitted, the session lands in the project's checkout, or the space's primary. */
+  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().default("default"), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
   "sessions.send":   { params: z.object({ id: IdSchema, text: z.string().min(1), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ ok: z.literal(true) }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]) }), result: z.object({ ok: z.literal(true) }) },

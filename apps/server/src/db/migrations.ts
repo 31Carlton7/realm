@@ -44,4 +44,47 @@ export const migrations: string[] = [
   // the terminal (which deletes its item) clears the pointer without a second write; NULL for every
   // existing session, so nobody gains a pty by migrating.
   `ALTER TABLE sessions ADD COLUMN terminal_item_id TEXT REFERENCES items(id) ON DELETE SET NULL;`,
+  // v5 — Environment as a first-class record (Plan 7 W1). A session no longer stores where it runs;
+  // it points at an environment, and `cwd` is read back off that row. Several sessions may share one.
+  //
+  // `hex(randomblob(13))` is 26 uppercase hex chars, which is a strict subset of Crockford base32 (no
+  // I/L/O/U appear in 0-9A-F), so backfilled ids satisfy IdSchema without a ULID generator in SQL.
+  // Nothing orders environments by id — `created_at` carries the time.
+  //
+  // The backfill must be invisible: every space gets a primary environment at its own folder, every
+  // *other* cwd a session was already running in (a project root) gets a `checkout` environment, and
+  // each session adopts the one matching the cwd it had. `checkout` exists so W2's worktree removal can
+  // never reach a directory Realm did not create.
+  `
+  CREATE TABLE environments (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    path TEXT NOT NULL, branch TEXT, kind TEXT NOT NULL, port_block_start INTEGER,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  -- One environment per checkout per space: two sessions that shared a cwd cannot end up on two rows.
+  CREATE UNIQUE INDEX environments_space_path ON environments(space_id, path);
+  -- At most one primary per space, enforced by the database rather than by whoever writes next.
+  CREATE UNIQUE INDEX environments_one_primary ON environments(space_id) WHERE kind = 'primary';
+  ALTER TABLE sessions ADD COLUMN environment_id TEXT REFERENCES environments(id);
+
+  INSERT INTO environments (id, space_id, path, branch, kind, port_block_start, created_at, updated_at)
+    SELECT hex(randomblob(13)), s.id, s.folder_path, NULL, 'primary', NULL, s.created_at, s.updated_at FROM spaces s;
+  INSERT INTO environments (id, space_id, path, branch, kind, port_block_start, created_at, updated_at)
+    SELECT hex(randomblob(13)), d.space_id, d.cwd, NULL, 'checkout', NULL, d.created_at, d.created_at
+      FROM (SELECT space_id, cwd, MIN(created_at) AS created_at FROM sessions GROUP BY space_id, cwd) d
+      WHERE NOT EXISTS (SELECT 1 FROM environments e WHERE e.space_id = d.space_id AND e.path = d.cwd);
+  UPDATE sessions SET environment_id =
+    (SELECT e.id FROM environments e WHERE e.space_id = sessions.space_id AND e.path = sessions.cwd);
+
+  ALTER TABLE sessions DROP COLUMN cwd;
+
+  -- environment_id cannot be declared NOT NULL after the fact without rebuilding the table, and a
+  -- rebuild needs foreign_keys OFF, which is a no-op inside the migration's transaction. Triggers get
+  -- the same guarantee: a session with no environment has no cwd, and must not be writable.
+  CREATE TRIGGER sessions_environment_required_insert BEFORE INSERT ON sessions
+    WHEN NEW.environment_id IS NULL
+    BEGIN SELECT RAISE(ABORT, 'sessions.environment_id is required'); END;
+  CREATE TRIGGER sessions_environment_required_update BEFORE UPDATE OF environment_id ON sessions
+    WHEN NEW.environment_id IS NULL
+    BEGIN SELECT RAISE(ABORT, 'sessions.environment_id is required'); END;
+  `,
 ];
