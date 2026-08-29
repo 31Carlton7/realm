@@ -93,6 +93,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const respondPermission = useApp((s) => s.respondPermission);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
+  const setSessionMode = useApp((s) => s.setSessionMode);
+  const planReturn = useApp((s) => s.planReturn[id] ?? null);
   const run = useApp((s) => s.run);
   const transcript = entry?.t ?? emptyTranscript();
   // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
@@ -142,7 +144,15 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onSend={(text) => run(() => sendMessage(id, text))}
             onStop={() => run(() => interruptSession(id))}
             onOptions={(o) => run(() => setSessionOptions(id, o))}
-            onAgent={(kind) => run(() => setSessionAgent(id, kind))} canSwitchAgent={canSwitchAgent}
+            onPickModel={(kind, modelId) => run(async () => {
+              // Order matters and both halves are one user action: setAgent clears `model` (a
+              // claude-opus-5 on a Codex session is a lie), so the model has to land after it, or the
+              // pick would set the agent and drop the model the user actually chose.
+              if (kind !== session.agentKind) await setSessionAgent(id, kind);
+              if (modelId !== null) await setSessionOptions(id, { model: modelId });
+            })}
+            onMode={(mode) => run(() => setSessionMode(id, mode))} planReturn={planReturn}
+            canSwitchAgent={canSwitchAgent}
             agentProbe={agentProbe}
             hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />}
     </div>

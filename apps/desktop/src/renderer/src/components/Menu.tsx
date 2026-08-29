@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
-import { useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useAnchoredPopover } from "./use-anchored-popover";
 
 export type MenuItem =
   | { kind?: "item"; label: ReactNode; onSelect: () => void; disabled?: boolean; title?: string; checked?: boolean; danger?: boolean;
@@ -9,8 +10,6 @@ export type MenuItem =
       /** Selecting keeps the menu open (two-step confirms rebuild their items in place). */
       keepOpen?: boolean }
   | { kind: "separator" };
-
-const MARGIN = 6;
 
 /** Small popup menu, rendered in a portal with fixed positioning so no ancestor overflow can clip
  *  it. Anchor it to a control via `anchorRef` (opens below, flips above near the bottom edge — or
@@ -28,70 +27,14 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
   align?: "left" | "right"; placement?: "down" | "up"; label?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number; origin: string } | null>(null);
+  const pos = useAnchoredPopover({ ref, anchorRef, at, align, placement, onClose, returnFocusRef });
 
+  // Focus-in on open. The hook already captured the restore target at mount, so the roving focus
+  // this moves into the menu never becomes the thing focus returns to.
   useLayoutEffect(() => {
-    const el = ref.current; if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
-    let left: number, top: number;
-    // §6: the 140ms scale-in is origin-aware — the menu grows out of the corner nearest its trigger.
-    // Vertical half flips with the menu itself (a menu that flipped above its anchor grows upward);
-    // the horizontal half follows `align`. A point-placed context menu grows from its click point.
-    let origin = "top left";
-    if (at) { left = at.x; top = at.y; }
-    else {
-      const a = anchorRef?.current?.getBoundingClientRect();
-      if (!a) { left = MARGIN; top = MARGIN; }
-      else {
-        left = align === "right" ? a.right - width : a.left;
-        let above: boolean;
-        if (placement === "up") {
-          top = a.top - height - 4;
-          above = true;
-          if (top < MARGIN) { top = a.bottom + 4; above = false; } // flip below near the top edge
-        } else {
-          top = a.bottom + 4;
-          above = false;
-          if (top + height > window.innerHeight - MARGIN) { top = a.top - height - 4; above = true; } // flip above
-        }
-        origin = `${above ? "bottom" : "top"} ${align === "right" ? "right" : "left"}`;
-      }
-    }
-    left = Math.max(MARGIN, Math.min(left, window.innerWidth - width - MARGIN));
-    top = Math.max(MARGIN, Math.min(top, window.innerHeight - height - MARGIN));
-    setPos({ left, top, origin });
-  }, [at, anchorRef, align, placement]);
-
-  // Focus-in on open + focus restore on close. The restore target is captured once at mount, before
-  // the roving focus moves into the menu, so it is the trigger unless the caller overrides it.
-  useLayoutEffect(() => {
-    const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     focusItem(0);
-    return () => {
-      const target = returnFocusRef?.current ?? prev;
-      // The trigger may have unmounted with the menu (e.g. the menu's own Close/Delete removed the
-      // pane): fall back to the focused panel — a deliberate body-safe no-op when it isn't focusable.
-      if (target?.isConnected) target.focus?.();
-      else document.querySelector<HTMLElement>(".panel[data-focused]")?.focus?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/unmount only
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
   }, []);
-
-  useLayoutEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      const target = e.target as Node;
-      if (ref.current?.contains(target)) return;
-      // The trigger lives OUTSIDE the portal, so an anchored menu would otherwise close on its own
-      // trigger's pointerdown and the following click would reopen it — flicker, focus ping-pong, and
-      // no way to dismiss by clicking the control again. Leave the trigger to its own toggle.
-      if (anchorRef?.current?.contains(target)) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
-    // Deferred so the click that opened the menu doesn't immediately close it.
-    const id = setTimeout(() => { window.addEventListener("pointerdown", onDown); window.addEventListener("keydown", onKey, true); }, 0);
-    return () => { clearTimeout(id); window.removeEventListener("pointerdown", onDown); window.removeEventListener("keydown", onKey, true); };
-  }, [onClose, anchorRef]);
 
   const buttons = () =>
     Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
