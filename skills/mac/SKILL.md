@@ -89,8 +89,14 @@ mac doctor --json
 #  {"capability":"fullDiskAccess","status":"granted"}, …]
 ```
 
-Statuses are `granted`, `denied`, `notRequested`, and `unknown` (an Automation target that has never
-been launched — open the app once and re-run). Entries that need action carry a `fix` string.
+Statuses are `granted`, `denied`, `notRequested`, `writeOnly`, and `unknown`. Every entry that needs
+action carries a `fix` string — quote it rather than inventing your own instructions. Two are easy
+to misread:
+
+- **`writeOnly`** is macOS 14's add-only Calendar grant. Writes succeed and **reads fail**, so a
+  `calendar list` that returns nothing here is a permissions problem, not an empty calendar.
+- **`unknown`** usually means an Automation target that has never been launched. Open the app once,
+  re-run `mac doctor`.
 
 **On exit 2, stop and tell the user.** Do not retry, do not fall back to `osascript` (it hits the
 same gate). Run `mac doctor --json`, quote the failing capability's `fix`, and name the toggle:
