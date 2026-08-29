@@ -166,6 +166,7 @@ export function DiffPane({ item }: PaneProps) {
   const stagePaths = useApp((s) => s.stagePaths);
   const unstagePaths = useApp((s) => s.unstagePaths);
   const ship = useApp((s) => s.ship);
+  const openCheckpoints = useApp((s) => s.openCheckpoints);
   const run = useApp((s) => s.run);
 
   useEffect(() => { if (cwd) run(() => refreshDiff(cwd)); }, [cwd, refreshDiff, run]);
@@ -194,6 +195,8 @@ export function DiffPane({ item }: PaneProps) {
         <span className="diff-head-spacer" />
         {stageable.length > 0 && <button type="button" className="btn-quiet" onClick={() => run(() => stagePaths(cwd, stageable))}>Stage all</button>}
         {unstageable.length > 0 && <button type="button" className="btn-quiet" onClick={() => run(() => unstagePaths(cwd, unstageable))}>Unstage all</button>}
+        <button type="button" className="btn-quiet" title="Checkpoints taken before each turn (W4)"
+          onClick={() => run(() => openCheckpoints(environmentId, null))}>History</button>
         <button type="button" className="icon-btn" aria-label="Refresh changes" title="Refresh" onClick={() => run(() => refreshDiff(cwd))}>
           <Icon name="diff" size={13} />
         </button>

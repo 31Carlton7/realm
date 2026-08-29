@@ -1,7 +1,7 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  type AgentKind, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Checkpoint, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -95,6 +95,12 @@ export type Api = {
   /** `environments.removeWorktree`. The acknowledgement must equal what the server reads at the
    *  moment it runs, or it refuses — see `confirmRemoveWorktree`. */
   removeWorktree(environmentId: string, acknowledge: WorktreeAck): Promise<void>;
+  /** `checkpoints.list` — a session's turns, or the whole checkout's when `sessionId` is null (W4). */
+  listCheckpoints(environmentId: string, sessionId: string | null): Promise<Checkpoint[]>;
+  /** `checkpoints.preview` — what restoring would cost, asked of git right now. */
+  previewCheckpoint(id: string): Promise<RestorePreview>;
+  /** `checkpoints.restore`. The acknowledgement must equal what the server re-reads, or it refuses. */
+  restoreCheckpoint(id: string, acknowledge: { filesChanged: number; commitsRolledBack: number }): Promise<RestoreResult>;
 };
 
 /** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
@@ -147,7 +153,10 @@ export type Sheet =
   | { kind: "new-space" }
   /** Removing a worktree: the one destructive confirm in Plan 7, which must name what would be lost
    *  and pass an acknowledgement it re-read at the moment of confirming (W3). */
-  | { kind: "remove-worktree"; environmentId: string };
+  | { kind: "remove-worktree"; environmentId: string }
+  /** A checkout's checkpoints, and the confirm for restoring one (W4). One sheet in two states: the
+   *  list, and — once `selected` is set — the confirmation naming exactly what restoring would cost. */
+  | { kind: "checkpoints"; environmentId: string; sessionId: string | null };
 
 export type AppState = {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
@@ -219,6 +228,15 @@ export type AppState = {
   /** Set when a confirmed removal's re-read disagreed with the numbers the user was shown: the sheet
    *  says the tree moved and asks again rather than acknowledging a count nobody saw. */
   worktreeAckStale: string | null;
+  /** `checkpoints.list` by environment id (W4). Absent = never asked. */
+  checkpoints: Record<string, Checkpoint[]>;
+  /** The checkpoint the sheet is asking about, and the preview it is showing. Null = the list. */
+  checkpointSelected: string | null;
+  checkpointPreview: RestorePreview | null;
+  /** Set when a confirmed restore's re-read disagreed with the preview the user was shown. */
+  checkpointAckStale: boolean;
+  /** The last restore's outcome, so the sheet can say what happened and name the undo. */
+  restoreResult: RestoreResult | null;
   /** Terminal side panel per session id (W4). Absent = never opened, which is also what keeps the pty
    *  unspawned: nothing reaches the server until an entry turns `open`. Persisted as one setting. */
   terminalPanel: Record<string, TerminalPanel>;
@@ -349,6 +367,15 @@ export type AppState = {
   askRemoveWorktree(environmentId: string): Promise<void>;
   /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
   confirmRemoveWorktree(environmentId: string): Promise<void>;
+  /** Open the checkpoint sheet for a checkout, listing that session's turns (or all of them). */
+  openCheckpoints(environmentId: string, sessionId?: string | null): Promise<void>;
+  /** Re-list without opening anything — what the `checkpoints.changed` broadcast triggers. */
+  refreshCheckpoints(environmentId: string, sessionId: string | null): Promise<void>;
+  /** Move the sheet from its list state into its confirm state, with a freshly read preview. */
+  askRestoreCheckpoint(id: string): Promise<void>;
+  /** Back to the list, forgetting the preview. */
+  cancelRestoreCheckpoint(): void;
+  confirmRestoreCheckpoint(id: string): Promise<void>;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
   clearError(): void;
@@ -568,6 +595,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
+      checkpoints: {}, checkpointSelected: null, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
@@ -1093,6 +1121,46 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const item = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
         if (item) await get().deleteItem(item.id);
         await get().refreshEnvironments();
+      },
+      async openCheckpoints(environmentId, sessionId = null) {
+        const list = await api.listCheckpoints(environmentId, sessionId);
+        set({
+          checkpoints: { ...get().checkpoints, [environmentId]: list },
+          checkpointSelected: null, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+          sheet: { kind: "checkpoints", environmentId, sessionId }, paletteOpen: false,
+        });
+      },
+      async refreshCheckpoints(environmentId, sessionId) {
+        const list = await api.listCheckpoints(environmentId, sessionId);
+        set({ checkpoints: { ...get().checkpoints, [environmentId]: list } });
+      },
+      async askRestoreCheckpoint(id) {
+        const preview = await api.previewCheckpoint(id);
+        set({ checkpointSelected: id, checkpointPreview: preview, checkpointAckStale: false, restoreResult: null });
+      },
+      cancelRestoreCheckpoint() {
+        set({ checkpointSelected: null, checkpointPreview: null, checkpointAckStale: false });
+      },
+      /**
+       * Same contract as `confirmRemoveWorktree`, for the same reason: the acknowledgement is read
+       * HERE, freshly, and never taken from what the sheet happens to be displaying. An agent that
+       * wrote another file while the confirm was open has changed what "yes" means, so a moved count
+       * shows the new numbers and restores nothing.
+       */
+      async confirmRestoreCheckpoint(id) {
+        const shown = get().checkpointPreview;
+        const fresh = await api.previewCheckpoint(id);
+        set({ checkpointPreview: fresh });
+        if (!shown || fresh.filesChanged !== shown.filesChanged || fresh.commitsRolledBack !== shown.commitsRolledBack) {
+          set({ checkpointAckStale: true });
+          return;
+        }
+        const result = await api.restoreCheckpoint(id, { filesChanged: fresh.filesChanged, commitsRolledBack: fresh.commitsRolledBack });
+        set({ checkpointSelected: null, checkpointPreview: null, checkpointAckStale: false, restoreResult: result });
+        // The tree was rewritten and a `pre-restore` checkpoint now exists: both views are stale.
+        const sheet = get().sheet;
+        await get().refreshCheckpoints(result.environmentId, sheet?.kind === "checkpoints" ? sheet.sessionId : null);
+        if (result.path in get().diffs) await get().refreshDiff(result.path);
       },
       run(action) {
         action().catch((e: unknown) => {

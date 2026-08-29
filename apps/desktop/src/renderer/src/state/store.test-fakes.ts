@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { DiffSummary, Environment, FileDiff, GitInfo, Item, Profile, Project, Session, ShipResult, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, Profile, Project, RestorePreview, Session, ShipResult, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AgentProbe, Api } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -11,6 +11,13 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
+
+export const checkpoint = (id: string, environmentId: string, extra: Partial<Checkpoint> = {}): Checkpoint =>
+  ({ id, environmentId, sessionId: null, kind: "turn", label: "a turn", ref: `refs/realm/checkpoints/${environmentId}/${id}`,
+    commitSha: `sha-${id}`, headSha: "head", headRef: "refs/heads/main", createdAt: 0, ...extra });
+export const preview = (id: string, environmentId: string, extra: Partial<RestorePreview> = {}): RestorePreview =>
+  ({ checkpointId: id, environmentId, path: "/tmp", label: "a turn", createdAt: 0, filesChanged: 0, commitsRolledBack: 0,
+    headMovable: true, headReason: null, intact: true, rewindsConversation: false, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
@@ -32,6 +39,11 @@ export type FakeData = {
   /** `environments.worktreeStatus` by environment id. Mutate between calls to simulate the tree
    *  changing under an open confirmation. */
   worktreeStatus?: Record<string, WorktreeStatus>;
+  /** `checkpoints.list` by environment id (W4). */
+  checkpoints?: Record<string, Checkpoint[]>;
+  /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
+   *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
+  checkpointPreview?: Record<string, RestorePreview>;
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
@@ -72,6 +84,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       pr: { state: "created", url: "https://github.com/acme/widgets/pull/1", reason: null },
     },
     worktreeStatus: overrides.worktreeStatus ?? {},
+    checkpoints: overrides.checkpoints ?? {},
+    checkpointPreview: overrides.checkpointPreview ?? {},
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
   };
   let n = 100;
@@ -229,6 +243,29 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         const i = list.findIndex((e) => e.id === id);
         if (i >= 0) list.splice(i, 1);
       }
+    },
+    listCheckpoints: async (environmentId, sessionId) => {
+      calls.push(`listCheckpoints:${environmentId}|${sessionId ?? "*"}`);
+      const all = data.checkpoints[environmentId] ?? [];
+      return sessionId ? all.filter((c) => c.sessionId === sessionId) : all;
+    },
+    previewCheckpoint: async (id) => {
+      calls.push(`previewCheckpoint:${id}`);
+      const p = data.checkpointPreview[id];
+      if (!p) throw new Error(`no preview for ${id}`);
+      return p;
+    },
+    restoreCheckpoint: async (id, ack) => {
+      calls.push(`restoreCheckpoint:${id}|${ack.filesChanged},${ack.commitsRolledBack}`);
+      const p = data.checkpointPreview[id];
+      if (!p) throw new Error(`no preview for ${id}`);
+      // Mirrors the server: an acknowledgement that does not match what git says RIGHT NOW is refused.
+      if (p.filesChanged !== ack.filesChanged || p.commitsRolledBack !== ack.commitsRolledBack) throw new Error("RESTORE_UNSAFE");
+      const undo = checkpoint(`cp-undo-${id}`, p.environmentId, { kind: "pre-restore", label: `Before restoring \u201c${p.label}\u201d` });
+      (data.checkpoints[p.environmentId] ??= []).unshift(undo);
+      return { environmentId: p.environmentId, path: p.path, undoCheckpointId: undo.id,
+        headMoved: p.headMovable, filesChanged: p.filesChanged, commitsRolledBack: p.headMovable ? p.commitsRolledBack : 0,
+        filesRemoved: 0, conversationRewound: false };
     },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));

@@ -30,6 +30,7 @@ async function mount(data: FakeData = {}, diffs: Record<string, DiffSummary | nu
     environments: { s1: [env()] },
     sessions: [session("se1", "s1", { environmentId: "env1", cwd: CWD })],
     diffs,
+    checkpoints: { env1: [] },
     ...data,
   });
   const store = createAppStore(api);
@@ -205,5 +206,14 @@ describe("DiffPane", () => {
     const { store } = await mount();
     store.setState({ environments: {} });
     await waitFor(() => expect(screen.getByText("This checkout no longer exists.")).toBeInTheDocument());
+  });
+});
+
+describe("checkpoint history", () => {
+  it("opens the checkout's checkpoints from the header, scoped to the environment", async () => {
+    const { api, store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    await waitFor(() => expect(api.calls).toContain("listCheckpoints:env1|*"));
+    expect(store.getState().sheet).toEqual({ kind: "checkpoints", environmentId: "env1", sessionId: null });
   });
 });

@@ -49,4 +49,7 @@ export const liveApi = (): Api => ({
   createItem: (spaceId, kind, title, refId) => rpc().call("items.create", { spaceId, kind, title, refId }),
   worktreeStatus: (id) => rpc().call("environments.worktreeStatus", { id }),
   removeWorktree: async (id, acknowledge) => { await rpc().call("environments.removeWorktree", { id, acknowledge }); },
+  listCheckpoints: (environmentId, sessionId) => rpc().call("checkpoints.list", { environmentId, sessionId }),
+  previewCheckpoint: (id) => rpc().call("checkpoints.preview", { id }),
+  restoreCheckpoint: (id, acknowledge) => rpc().call("checkpoints.restore", { id, acknowledge }),
 });
