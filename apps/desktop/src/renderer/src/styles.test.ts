@@ -66,6 +66,17 @@ describe("§6 motion table", () => {
     expect(blockAfter("@keyframes rl-menu-in")).toContain("scale(.97)");
   });
 
+  it("the model picker is a popover and enters on the same rule as menus, not one of its own", () => {
+    // It shares `.menu`'s declaration rather than carrying a copy: §6 gives every popover one timing,
+    // and a second animation here is how the prompter's picker drifts away from every other surface.
+    expect(bodiesFor(".model-picker").join(" ")).toContain("animation: rl-menu-in 140ms var(--ease-out-strong)");
+    // Its interactive rows honour the hover rule — background/colour only, never geometry.
+    for (const sel of [".mp-row", ".mp-rail-btn"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("transition: background-color 100ms ease, color 100ms ease");
+      expect(bodiesFor(sel).join(" "), sel).not.toContain("transform");
+    }
+  });
+
   it("transcript items enter at 180ms with a 6px rise, gated on the data-enter mark Transcript.tsx sets", () => {
     expect(bodiesFor(".transcript-col > [data-enter]").join(" ")).toContain("animation: rl-msg-in 180ms var(--ease-out-strong)");
     expect(blockAfter("@keyframes rl-msg-in")).toContain("translateY(6px)");

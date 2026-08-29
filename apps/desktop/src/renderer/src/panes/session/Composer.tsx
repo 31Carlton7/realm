@@ -40,11 +40,14 @@ function ContextRow({ session, project, gitInfo }: { session: Session; project: 
 /** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
-function ChipMenu({ ariaLabel, title, label, items, warning }: { ariaLabel: string; title?: string; label: ReactNode; items: MenuItem[]; warning?: boolean }) {
+function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string; items: MenuItem[]; warning?: boolean }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  // A sibling of chip-label, never inside it: chip-label truncates with an ellipsis, which needs a
+  // plain inline box — an icon nested in there gets no gap and sits off the text's centre line.
+  const glyph = icon ? <Icon name={icon} size={13} className="chip-brand" /> : null;
   if (items.length === 0) {
-    return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}><span className="chip-label">{label}</span></span>;
+    return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}>{glyph}<span className="chip-label">{label}</span></span>;
   }
   return (
     <>
@@ -52,6 +55,7 @@ function ChipMenu({ ariaLabel, title, label, items, warning }: { ariaLabel: stri
           by clicking the chip a second time is this handler's job. */}
       <button ref={btn} type="button" className="ghost-chip" aria-label={ariaLabel} title={title ?? ariaLabel} aria-haspopup="menu" aria-expanded={open}
         data-warning={warning || undefined} onClick={() => setOpen((v) => !v)}>
+        {glyph}
         <span className="chip-label">{label}</span>
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
@@ -158,8 +162,7 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
             )}
             {canPlan && (
               <ChipMenu ariaLabel="Mode" title={inPlan ? "Mode: Plan — the agent researches and proposes, but does not edit" : "Mode: Build"}
-                label={<><Icon name={inPlan ? "plan" : "tool"} size={13} className="chip-brand" />{inPlan ? "Plan" : "Build"}</>}
-                items={modeItems} />
+                icon={inPlan ? "plan" : "tool"} label={inPlan ? "Plan" : "Build"} items={modeItems} />
             )}
             {confirmBypass && (
               <button className="composer-chip bypass-confirm"
