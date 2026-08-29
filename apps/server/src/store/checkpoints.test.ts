@@ -40,7 +40,9 @@ describe("ordering", () => {
     // Two checkpoints in one millisecond is not hypothetical: a restore captures its undo point
     // microseconds before it runs, so `created_at` alone would make "the newest" ambiguous.
     const a = add("turn", "a"); const b = add("turn", "b"); const c = add("turn", "c");
-    expect(a.createdAt).toBe(c.createdAt);
+    // Forced rather than raced: three inserts usually land in one millisecond, but "usually" would
+    // make this test tell the truth only most of the time.
+    db.exec("UPDATE checkpoints SET created_at = 5");
     expect(store.list(envId).map((x) => x.id)).toEqual([c.id, b.id, a.id]);
   });
 });
