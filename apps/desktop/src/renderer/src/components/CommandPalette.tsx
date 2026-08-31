@@ -82,6 +82,7 @@ function PaletteBody() {
   const selectSpace = useApp((s) => s.selectSpace);
   const openItem = useApp((s) => s.openItem);
   const newTerminal = useApp((s) => s.newTerminal);
+  const newBrowser = useApp((s) => s.newBrowser);
   const newSession = useApp((s) => s.newSession);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
@@ -143,6 +144,7 @@ function PaletteBody() {
       ...(anyWaiting ? [act("respond-permission", "Respond to pending permission", "alert", () => run(() => jumpToPermission()))] : []),
       ...spaces.map((sp) => act(`space-${sp.id}`, `Switch to ${sp.name}`, sp.icon, () => run(() => selectSpace(sp.id)), sp.id === activeSpaceId ? "current" : undefined)),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), <kbd>⌘T</kbd>),
+      act("new-browser", "New browser", "browser", () => run(() => newBrowser())),
       // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through
       // newSession — the only difference is whether the agent is named or inherited from last use.
       act("new-session", "New session", "session", () => run(() => newSessionInstant()), <kbd>⌘N</kbd>),
@@ -169,7 +171,7 @@ function PaletteBody() {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref,
-      selectSpace, openItem, newTerminal, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
+      selectSpace, openItem, newTerminal, newBrowser, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
       interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openActivity, run]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked

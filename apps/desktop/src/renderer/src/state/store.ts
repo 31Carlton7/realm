@@ -66,6 +66,8 @@ export type Api = {
   createProject(spaceId: string, name: string, rootPath: string): Promise<Project>;
   setLayout(spaceId: string, layout: Layout): Promise<Space>;
   createTerminal(spaceId: string): Promise<{ terminalId: string; itemId: string }>;
+  /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
+  createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
   updateItem(input: UpdateItemInput): Promise<Item>;
   /** Deleting a terminal item closes its pty server-side. */
   deleteItem(id: string): Promise<void>;
@@ -381,6 +383,8 @@ export type AppState = {
   linkProject(rootPath: string): Promise<void>;
   pickAndLinkProject(): Promise<void>;
   newTerminal(targetLeafId?: string | null): Promise<void>;
+  /** New browser pane in the active space (opens into the target/focused leaf). */
+  newBrowser(targetLeafId?: string | null): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
   /** Open an item into `leafId` ?? the focused leaf ?? the first leaf, replacing what it held (the
    *  replaced item returns to the SPACE group); focuses that leaf. With no explicit `leafId`, an
@@ -950,6 +954,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async newTerminal(targetLeafId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
         const { itemId } = await api.createTerminal(sid);
+        await adoptItem(sid, itemId, targetLeafId);
+      },
+      async newBrowser(targetLeafId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const { itemId } = await api.createBrowser(sid);
         await adoptItem(sid, itemId, targetLeafId);
       },
       async updateItem(input) {

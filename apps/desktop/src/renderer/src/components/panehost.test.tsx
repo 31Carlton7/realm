@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within, renderHook, act } from "@testing-library/react";
 import type { Item, Layout } from "@realm/contracts";
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
@@ -6,6 +6,20 @@ import { Main } from "../App";
 import { useGlobalHotkeys } from "../hotkeys";
 import { StoreContext, createAppStore, findEmptySiblingOf } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
+import { setBrowserBridgesForTests, type BrowserBridges } from "../panes/browser/browser-client";
+
+// Item "A" below is a browser item, and BrowserPane (registered since Plan 11 W1) needs its bridges
+// and a ResizeObserver on mount. These tests are about the HOST — inert fakes are enough.
+beforeEach(() => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
+  setBrowserBridgesForTests({
+    host: { create: async () => {}, destroy: async () => {}, navigate: async () => null, nav: async () => {},
+      setAllowlist: async () => {}, setBounds: () => {}, onState: () => () => {} },
+    server: { get: async (id) => ({ id, spaceId: "s1", url: "", title: "Browser", createdAt: 0, updatedAt: 0 }),
+      update: async () => {}, allowlist: async () => null },
+  } satisfies BrowserBridges);
+});
+afterEach(() => { setBrowserBridgesForTests(null); vi.unstubAllGlobals(); });
 
 const items: Item[] = [
   item("A", "s1", { kind: "browser", title: "Tab A", refId: "A" }),

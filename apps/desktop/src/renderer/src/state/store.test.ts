@@ -171,6 +171,18 @@ describe("app store", () => {
     expect(s.focusedLeafId).toBe(findLeafOfItem(s.layout!, created)!.id);
   });
 
+  it("newBrowser creates a browser item and opens it into the focused leaf", async () => {
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().newBrowser();
+    const s = store.getState();
+    expect(api.calls).toContain("createBrowser:s1");
+    const created = s.items.find((i) => i.id !== "i1")!;
+    expect(created.kind).toBe("browser");
+    expect(allItems(s.layout!)).toEqual([created.id]);
+    expect(s.focusedLeafId).toBe(findLeafOfItem(s.layout!, created.id)!.id);
+  });
+
   it("persist merges the returned Space so a later selectSpace seeds from the newest layout", async () => {
     const store = createAppStore(api);
     await store.getState().boot();

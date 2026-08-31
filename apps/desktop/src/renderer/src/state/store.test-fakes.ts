@@ -211,6 +211,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       api.onCreateTerminal?.(); await wait("createTerminal");
       return { terminalId: it.refId, itemId: it.id };
     },
+    createBrowser: async (sid) => {
+      calls.push(`createBrowser:${sid}`);
+      const it = item(`i${++n}`, sid, { kind: "browser", title: "Browser" }); (data.items[sid] ??= []).push(it);
+      await wait("createBrowser");
+      return { browserId: it.refId, itemId: it.id, url: "" };
+    },
     updateItem: async (input) => {
       for (const list of Object.values(data.items)) {
         const i = list.findIndex((x) => x.id === input.id);
