@@ -2,6 +2,7 @@ import { MCP_SECRET_STORAGE_NOTE, type McpOauthStatus, type McpServer, type McpS
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import type { McpServerInput, McpServerRow, McpServersStore } from "../store/mcp";
+import { readOauthState } from "./oauth";
 
 /**
  * Per-space **enabled** ids — the opposite of W1's skills key, and deliberately so.
@@ -169,9 +170,13 @@ function normalize(f: McpServerFields, transport: McpTransport, base: Omit<McpSe
  * `envKeys` or `headerKeys`, and `oauthJson` becomes `oauthStatus` — the values of neither are carried.
  *
  * `status` is the hub's live connection state, handed in rather than read here (see the constructor's
- * `statusOf` doc comment). `oauthStatus` is the coarse W1 read of `oauthJson` — `""` means OAuth has
- * never completed, anything else means it has; the `reconnect_needed` state needs the hub's refresh
- * logic (W5) to ever be produced.
+ * `statusOf` doc comment). `oauthStatus` is `oauthStatusOf`'s three-state read of the same column.
+ *
+ * `authKind` deliberately keys on the column being NON-EMPTY rather than on the parsed state, so it
+ * answers a different question than `oauthStatus`: which auth mechanism this server uses, not whether it
+ * currently works. A row whose refresh failed, whose flow was abandoned, or whose blob went corrupt all
+ * still report `"oauth"` — which is what makes the settings UI show a Connect button (the thing that
+ * fixes all three) instead of falling back to the API-key form.
  */
 function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | null, status: McpServerStatus): McpServer {
   const keys = Object.keys(r.secrets).sort();
@@ -193,14 +198,23 @@ function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | 
 }
 
 /**
- * The coarse W1 read of `oauthJson`: `""` (OAuth has never run) → `"unconfigured"`, anything else →
- * `"connected"`. `reconnect_needed` needs the hub's refresh logic (W5) to ever be produced.
+ * `oauthJson` → the three-state enum a client sees. The ONE derivation site.
  *
- * Exported (rather than kept private to `toContract`) so `app.ts`'s hub `onStatus` callback — which
- * broadcasts `mcp.serverStatus` independently of `list()`/`toContract`, since a status flip can happen
- * between `mcp.list` calls — derives `oauthStatus` the SAME way instead of keeping its own copy. W5 adds
- * `reconnect_needed` here and must only have one call site to teach it that.
+ * - Nothing stored (or an unreadable blob — `readOauthState` degrades corruption to empty rather than
+ *   throwing) → `unconfigured`.
+ * - The refresh-failed flag set → `reconnect_needed`, checked FIRST: such a row still holds its (now
+ *   useless) tokens, and reporting it `connected` would badge a server that cannot make a single call.
+ * - Otherwise, tokens present → `connected`.
+ *
+ * A row with a PENDING flow but no tokens stays `unconfigured`: the user clicked Connect and never came
+ * back from the browser, which is exactly "not connected". Only a completed callback flips it.
+ *
+ * Exported (rather than kept private to `toContract`) so `app.ts`'s status callbacks — which broadcast
+ * `mcp.serverStatus` independently of `list()`/`toContract`, since a status flip can happen between
+ * `mcp.list` calls — derive `oauthStatus` the SAME way instead of keeping a second copy.
  */
 export function oauthStatusOf(row: McpServerRow): McpOauthStatus {
-  return row.oauthJson ? "connected" : "unconfigured";
+  const state = readOauthState(row.oauthJson);
+  if (state.reconnectNeeded) return "reconnect_needed";
+  return state.tokens ? "connected" : "unconfigured";
 }

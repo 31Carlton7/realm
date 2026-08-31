@@ -15,6 +15,7 @@ import { McpServersStore, McpCallLogStore } from "./store/mcp";
 import { McpService, oauthStatusOf } from "./mcp/service";
 import { McpHub } from "./mcp/hub";
 import { McpGateway } from "./mcp/gateway";
+import { McpOauth } from "./mcp/oauth";
 import type { McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
@@ -105,11 +106,38 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // same late-bound-closure pattern `sessionService` above uses for the same reason: two things that
   // genuinely need each other, with one direction as the constructor dependency and the other as this.
   let gateway: McpGateway | null = null;
+  // Constructed BEFORE the hub (whose `authHeaders` seam calls into it) but referring back to both the
+  // hub and the gateway from its callbacks — the same knot `gateway` above is tied with, and untied the
+  // same way: nothing in here runs during construction, only later from a live flow. `boundPort` is null
+  // until `listen()`, and `oauth.start` refuses rather than minting a redirect URI nothing answers.
+  const oauth = new McpOauth({
+    servers: mcpServersStore,
+    gatewayPort: () => gateway?.boundPort ?? null,
+    // A row's OAuth state changed: connected after a callback, `reconnect_needed` after a failed silent
+    // refresh, unconfigured after a disconnect.
+    onStatus: (id) => {
+      // FIRST, before anything else: a hub client built with the OLD credentials must not keep serving.
+      // This is the whole reason the callback exists — a disconnected server whose live client still
+      // holds a working Bearer would go on making authenticated calls after the user revoked it. (A
+      // failed refresh is the one case where there is no live client to drop: `headers()` only ever runs
+      // while the hub is BUILDING a transport. Invalidating is a cheap no-op there, and the cases where
+      // it matters are exactly the two where it isn't.)
+      mcpHub.invalidate(id);
+      const row = mcpServersStore.get(id);
+      // Same single derivation site the hub's own `onStatus` uses below.
+      rpc.broadcast("mcp.serverStatus", { id, status: mcpStatus.get(id) ?? "idle", oauthStatus: row ? oauthStatusOf(row) : "unconfigured" });
+      // Both directions warrant it: a server that just connected can contribute tools it could not
+      // before, and one that just disconnected can no longer contribute the ones it was. `invalidate`
+      // above may already have emitted an equivalent notification — status events can repeat (see
+      // `hub.ts`) and `notifyToolsChanged` tolerates that.
+      gateway?.notifyToolsChanged();
+    },
+  });
   const mcpHub = new McpHub({
     servers: mcpServersStore,
-    // W5 wires `McpOauth.headers(row)` in here without this file (or `hub.ts`) changing; until then no
-    // server has OAuth state, so there is nothing to add beyond `row.secrets`.
-    authHeaders: async () => ({}),
+    // The OAuth seam. `McpOauth` sanitizes its own errors — the hub cannot redact a token that only ever
+    // existed inside an error thrown in here (see the seam's own doc comment in `hub.ts`).
+    authHeaders: (row) => oauth.headers(row),
     onStatus: (id, status) => {
       mcpStatus.set(id, status);
       // `oauthStatusOf` is the ONE place `oauthJson` → `oauthStatus` derivation lives (see its own doc
@@ -134,14 +162,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       gateway?.notifyToolsChanged();
     },
   });
-  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore });
+  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url) });
   gateway = mcpGateway;
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir });
   const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints });
   sessionService = sessions;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, calls: mcpCalls, memory, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

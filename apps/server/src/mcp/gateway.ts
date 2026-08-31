@@ -62,7 +62,25 @@ export class McpGateway {
    *  `release` — never written anywhere else. */
   private readonly tokenToSession = new Map<string, string>();
 
-  constructor(private readonly d: { hub: McpHub; mcp: McpService; sessions: SessionsStore; calls: McpCallLogStore; rpc: RpcServer; servers: McpServersStore }) {}
+  constructor(private readonly d: {
+    hub: McpHub; mcp: McpService; sessions: SessionsStore; calls: McpCallLogStore; rpc: RpcServer; servers: McpServersStore;
+    /**
+     * `GET /oauth/callback` handler — `McpOauth.handleCallback`, wired in `app.ts`. A seam rather than an
+     * `McpOauth` dependency so this file stays ignorant of OAuth entirely: it owns the loopback listener
+     * that the redirect URI necessarily points at, and its whole job here is to turn one URL into one of
+     * two static pages. Unwired (older tests, a harness with no OAuth), the route keeps its honest 501.
+     *
+     * Rejections are rendered as the failure page using `Error.message`, so the handler must return
+     * messages that are safe to show — `McpOauth` sanitizes its own errors for exactly this reason.
+     */
+    onOauthCallback?: (url: string) => Promise<{ serverId: string }>;
+  }) {}
+
+  /** The bound loopback port, or `null` before `listen()`. Read by the OAuth redirect URI, which cannot
+   *  exist until there is a listener to redirect to. */
+  get boundPort(): number | null {
+    return this.port;
+  }
 
   /** Binds 127.0.0.1:0 (OS-assigned — see the plan's port-0 amendment) and returns the bound port. */
   async listen(): Promise<number> {
@@ -148,10 +166,7 @@ export class McpGateway {
   private async handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     if (url.pathname === "/oauth/callback") {
-      // W5 replaces this. A 501 (not 404) says "the route exists, the feature does not" — the
-      // distinction a redirect-URI-not-found error would otherwise hide from whoever is debugging it.
-      res.writeHead(501, { "Content-Type": "text/plain" });
-      res.end("OAuth arrives in a later workstream");
+      await this.handleOauthCallback(url, res);
       return;
     }
     if (url.pathname !== "/mcp") {
@@ -193,6 +208,35 @@ export class McpGateway {
     }
     const { transport } = await this.ensureSessionServer(sessionId, entry);
     await transport.handleRequest(req, res);
+  }
+
+  /**
+   * The OAuth redirect target. The user's browser lands here, so both outcomes are a tiny static page
+   * addressed to a human — never JSON, never a redirect back to anything.
+   *
+   * **Neither page carries user data or a token.** The success page says one sentence and names no
+   * server (the browser tab is a dead end; Realm's own window is where the connection now shows up).
+   * The failure page adds the handler's sanitized reason — see the `onOauthCallback` doc comment — and
+   * HTML-escapes it, because that reason can quote text an upstream authorization server wrote.
+   */
+  private async handleOauthCallback(url: URL, res: ServerResponse): Promise<void> {
+    if (!this.d.onOauthCallback) {
+      // A 501 (not 404) says "the route exists, the feature is not wired here" — the distinction a
+      // redirect-URI-not-found error would otherwise hide from whoever is debugging it.
+      res.writeHead(501, { "Content-Type": "text/plain" });
+      res.end("OAuth is not enabled on this gateway");
+      return;
+    }
+    try {
+      // Re-based on the real bound port so the handler sees the exact URL the authorization server
+      // redirected to, not `handleHttp`'s portless parsing base.
+      await this.d.onOauthCallback(new URL(url.pathname + url.search, `http://127.0.0.1:${this.port}`).toString());
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(oauthPage("Connected", "Connected — return to Realm."));
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(oauthPage("Connection failed", "Connection failed — try again from Realm settings.", err instanceof Error ? err.message : String(err)));
+    }
   }
 
   /** Get-or-create this session's SDK `Server` + `StreamableHTTPServerTransport` pair. Created on the
@@ -366,6 +410,17 @@ function longestPrefixMatch(fullName: string, rows: readonly McpServerRow[]): { 
 }
 
 const errorResult = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
+
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** The whole OAuth callback UI: a title, a sentence, and — on failure only — the reason. No stylesheet,
+ *  no script, no link back (a loopback page cannot focus the Realm window anyway), and nothing
+ *  interpolated that has not been escaped. */
+const oauthPage = (title: string, message: string, detail?: string): string =>
+  `<!doctype html><meta charset="utf-8"><title>Realm — ${escapeHtml(title)}</title>` +
+  `<body style="font: 15px/1.5 system-ui, sans-serif; margin: 4rem auto; max-width: 32rem; padding: 0 1.5rem">` +
+  `<p>${escapeHtml(message)}</p>${detail ? `<p style="color:#777">${escapeHtml(detail)}</p>` : ""}</body>`;
 
 /** First text-content block, truncated to `SUMMARY_MAX` chars — never the full payload (an
  *  upstream tool result can be arbitrarily large; Activity shows an excerpt, not a mirror). */

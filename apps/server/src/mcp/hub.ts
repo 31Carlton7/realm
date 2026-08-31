@@ -53,8 +53,8 @@ type Entry = {
  * access, not a client-per-caller split) — created lazily on first `tools()`/`call()`, never at
  * construction.
  *
- * `authHeaders` is the OAuth seam: W2's caller passes `async () => ({})`; W5 wires `McpOauth.headers`
- * in without this file changing.
+ * `authHeaders` is the OAuth seam — see its own doc comment on the constructor, including the
+ * sanitization contract it places on whatever is wired into it.
  */
 export class McpHub {
   private readonly entries = new Map<string, Entry>();
@@ -65,6 +65,16 @@ export class McpHub {
   constructor(private readonly d: {
     servers: McpServersStore;
     onStatus: (id: string, status: UpstreamStatus) => void;
+    /**
+     * The OAuth seam (`McpOauth.headers`). Returns the credential headers to merge on top of
+     * `row.secrets` for an http/sse row — `{}` for a row with no OAuth connection.
+     *
+     * **Contract: the provider sanitizes its own errors.** `Entry.redact` lets `sanitize()` scrub
+     * `row.secrets` and the headers this hub built, but a token that appears ONLY inside an error thrown
+     * by `authHeaders` itself — an authorization server quoting a rejected refresh token back in a 400
+     * body — is a value the hub has never seen and cannot redact. Anything this function rejects with
+     * must therefore already be free of token, refresh-token, and client-secret values.
+     */
     authHeaders: (row: McpServerRow) => Promise<Record<string, string>>;
     /** Test-only seam: replaces real stdio/http/sse transport construction with whatever a test wants a
      *  row to connect through (an `InMemoryTransport`, typically — `stub-server.ts`'s `connectInMemory`

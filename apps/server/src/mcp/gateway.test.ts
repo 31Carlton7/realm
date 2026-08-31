@@ -58,7 +58,9 @@ afterEach(async () => {
   for (const app of activeApps.splice(0)) { await app.gateway.close(); app.db.close(); }
 });
 
-async function setupApp(): Promise<App> {
+/** `onOauthCallback` is the only construction option a test overrides — everything else about the
+ *  gateway is the same wiring `app.ts` builds. Left unset, the callback route keeps its 501. */
+async function setupApp(opts: { onOauthCallback?: (url: string) => Promise<{ serverId: string }> } = {}): Promise<App> {
   const home = mkdtempSync(join(tmpdir(), "realm-mcp-gw-"));
   const db = openDatabase(join(home, "realm.db"));
   const servers = new McpServersStore(db);
@@ -92,7 +94,7 @@ async function setupApp(): Promise<App> {
     },
   });
   const rpc = new RecordingRpc();
-  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers });
+  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers, onOauthCallback: opts.onOauthCallback });
   const port = await gateway.listen();
 
   const app: App = {
@@ -455,10 +457,44 @@ describe("concurrent first-touch calls to the session-creation path share one Se
 });
 
 describe("routes", () => {
-  it("/oauth/callback returns 501 — W5 replaces this, so the route exists but says the feature does not", async () => {
+  it("/oauth/callback returns 501 when no OAuth handler is wired — the route exists, the feature is not enabled", async () => {
     const app = await setupApp();
     const res = await fetch(`http://127.0.0.1:${app.port}/oauth/callback`);
     expect(res.status).toBe(501);
+  });
+
+  it("/oauth/callback hands the full request URL to the handler and renders the success page", async () => {
+    const seen: string[] = [];
+    const app = await setupApp({ onOauthCallback: async (url) => { seen.push(url); return { serverId: "srv_1" }; } });
+    const res = await fetch(`http://127.0.0.1:${app.port}/oauth/callback?code=abc&state=xyz`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    // The handler needs the query verbatim (state and code both live there) and the real bound port, not
+    // the portless base the router parses paths against.
+    expect(seen).toEqual([`http://127.0.0.1:${app.port}/oauth/callback?code=abc&state=xyz`]);
+    const body = await res.text();
+    expect(body).toContain("Connected — return to Realm.");
+    // The page is for a human closing a browser tab: nothing from the request is echoed into it.
+    expect(body).not.toContain("abc");
+    expect(body).not.toContain("xyz");
+    expect(body).not.toContain("srv_1");
+  });
+
+  it("/oauth/callback renders the failure page with the handler's sanitized reason", async () => {
+    const app = await setupApp({ onOauthCallback: async () => { throw new Error("the authorization server refused: [redacted] is revoked"); } });
+    const res = await fetch(`http://127.0.0.1:${app.port}/oauth/callback?code=secret-code-value&state=nope`);
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("Connection failed — try again from Realm settings.");
+    expect(body).toContain("the authorization server refused: [redacted] is revoked");
+    expect(body).not.toContain("secret-code-value");
+  });
+
+  it("/oauth/callback escapes a reason that carries markup, so an upstream message cannot inject into the page", async () => {
+    const app = await setupApp({ onOauthCallback: async () => { throw new Error(`<script>alert("x")</script>`); } });
+    const body = await (await fetch(`http://127.0.0.1:${app.port}/oauth/callback`)).text();
+    expect(body).not.toContain("<script>");
+    expect(body).toContain("&lt;script&gt;");
   });
 
   it("an unrecognized path 404s", async () => {

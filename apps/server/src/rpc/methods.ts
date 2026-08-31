@@ -13,6 +13,7 @@ import type { SkillsService } from "../skills/service";
 import type { McpService } from "../mcp/service";
 import type { McpHub } from "../mcp/hub";
 import type { McpGateway } from "../mcp/gateway";
+import type { McpOauth } from "../mcp/oauth";
 import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
@@ -29,7 +30,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -151,10 +152,24 @@ export function registerMethods(d: Deps): void {
     return { ok: true as const };
   });
   reg("mcp.calls.list", (p) => ({ calls: d.calls.list(p) }));
-  // W5 replaces both of these; until then the contract stays honest about OAuth being absent rather than
-  // silently no-oping or pretending a connection was made.
-  reg("mcp.oauth.start", () => { throw new RpcError("MCP_OAUTH_UNAVAILABLE", "OAuth lands in a later workstream"); });
-  reg("mcp.oauth.disconnect", () => { throw new RpcError("MCP_OAUTH_UNAVAILABLE", "OAuth lands in a later workstream"); });
+  /** Returns the authorization URL and nothing else — the RENDERER opens it in the system browser, and
+   *  the redirect comes back to the gateway's own `/oauth/callback`, never through RPC. Every state
+   *  change from here on is announced by `mcp.serverStatus`, not by this call's result. */
+  reg("mcp.oauth.start", async (p) => {
+    const started = await d.oauth.start(p.id);
+    // The row now carries a client registration and a pending flow, so `authKind` reads `"oauth"` even
+    // though `oauthStatus` is still `unconfigured` — the settings list has to re-read to show that.
+    rpc.broadcast("mcp.changed", {});
+    return started;
+  });
+  reg("mcp.oauth.disconnect", (p) => {
+    // `McpOauth.disconnect` clears the row's state and fires its status callback, which is what
+    // invalidates the hub client still holding the revoked Bearer and broadcasts the new `oauthStatus`.
+    // `mcp.changed` on top of that is for the settings list itself (`authKind` flips back too).
+    d.oauth.disconnect(p.id);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
   reg("mcp.retry", async (p) => { await d.hub.retry(p.id); rpc.broadcast("mcp.changed", {}); return { ok: true as const }; });
 
   // Space existence is checked for the same reason the skills and mcp handlers do it: the memory doc,

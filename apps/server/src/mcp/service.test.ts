@@ -24,6 +24,10 @@ beforeEach(() => {
 
 const stdio = (name: string) => ({ name, transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { AIRTABLE_API_KEY: KEY } });
 const http = (name: string) => ({ name, transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: `Bearer ${KEY}` } });
+/** A completed OAuth connection, in the real `oauthJson` shape `McpOauthState` documents — writing the
+ *  shape by hand here (rather than importing a builder) keeps these tests honest about what the column
+ *  actually holds when `oauthStatus` says `connected`. */
+const connectedOauthState = (accessToken: string) => JSON.stringify({ tokens: { access_token: accessToken, token_type: "Bearer" } });
 
 describe("per-space scoping", () => {
   it("enables a new server ONLY in the space it was added from", () => {
@@ -86,7 +90,7 @@ describe("secrets", () => {
     // row never becomes a field on the wire, only the derived `oauthStatus`.
     const TOKEN = "oauth-token-do-not-leak-me";
     const s = mcp.add(http("linear"), WORK);
-    servers.setOauth(s.id, JSON.stringify({ accessToken: TOKEN }));
+    servers.setOauth(s.id, connectedOauthState(TOKEN));
     const listed = mcp.list(WORK);
     expect(JSON.stringify(listed)).not.toContain(TOKEN);
     expect(listed.servers[0]).toMatchObject({ authKind: "oauth", oauthStatus: "connected" });
@@ -171,10 +175,12 @@ describe("gateway fields (Plan 9 W1 — schema and derivation only)", () => {
     expect(mcp.list(WORK).servers[0]!.authKind).toBe("oauth");
   });
 
-  it("oauthStatus is unconfigured until oauthJson is set, then connected — the richer states are W5", () => {
+  it("oauthStatus is unconfigured until tokens are stored, then connected", () => {
+    // The three-state derivation itself (including `reconnect_needed`, corruption, and a half-finished
+    // flow) is `oauth.test.ts`'s `oauthStatusOf` block; this only pins that `list()` carries it through.
     const s = mcp.add(stdio("airtable"), WORK);
     expect(mcp.list(WORK).servers[0]).toMatchObject({ oauthStatus: "unconfigured" });
-    servers.setOauth(s.id, JSON.stringify({ accessToken: "t" }));
+    servers.setOauth(s.id, connectedOauthState("t"));
     expect(mcp.list(WORK).servers[0]).toMatchObject({ oauthStatus: "connected" });
   });
 

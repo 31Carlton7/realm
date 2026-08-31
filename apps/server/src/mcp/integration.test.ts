@@ -7,9 +7,14 @@ import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } fr
 import { sessionEvent, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
+import { makeStubAuthServer, type StubAuthServer } from "./fixtures/stub-auth-server";
 
 let app: App;
-afterEach(async () => { await app?.close(); });
+const authServers: StubAuthServer[] = [];
+afterEach(async () => {
+  await app?.close();
+  for (const as of authServers.splice(0)) await as.close();
+});
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -154,6 +159,63 @@ describe("mcp over rpc", () => {
     await c.call("mcp.remove", { id: server.id });
     expect((await c.call("mcp.list", { spaceId: school.id })).result.servers).toEqual([]);
     expect((await c.call("mcp.list", { spaceId: work.id })).result.servers).toEqual([]);
+    c.close();
+  });
+});
+
+describe("oauth over rpc — the whole flow through a real app", () => {
+  it("connects a remote server end to end: RPC start → browser redirect → gateway callback → status", async () => {
+    // The only test that exercises `app.ts`'s actual wiring: the RPC handler, `McpOauth`, the real
+    // gateway listener's callback route, and the status broadcast, against a stub authorization server
+    // on loopback. Nothing here touches a real provider.
+    const { c, work } = await boot();
+    const as = await makeStubAuthServer();
+    authServers.push(as);
+    const server = (await c.call("mcp.add", { spaceId: work.id, name: "remote", transport: "http", url: `${as.url}/mcp` })).result;
+    expect(server).toMatchObject({ authKind: "none", oauthStatus: "unconfigured" });
+
+    const { authUrl } = (await c.call("mcp.oauth.start", { id: server.id })).result;
+    // The redirect URI the flow minted points at THIS app's gateway port, so following the stub's
+    // redirect is exactly what the user's browser would do.
+    const redirect = as.authorize(authUrl);
+    expect(redirect).toContain("/oauth/callback");
+    const page = await fetch(redirect);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Connected — return to Realm.");
+
+    await waitFor(() => c.events.some((e: Any) => e.event === "mcp.serverStatus" && e.payload.id === server.id && e.payload.oauthStatus === "connected"));
+    const listed = await c.call("mcp.list", { spaceId: work.id });
+    expect(listed.result.servers[0]).toMatchObject({ authKind: "oauth", oauthStatus: "connected" });
+    // The token exists on the row by now, and no result or event has ever carried it.
+    expect(JSON.stringify([listed, c.events])).not.toContain(as.lastIssuedAccessToken()!);
+
+    await c.call("mcp.oauth.disconnect", { id: server.id });
+    await waitFor(() => c.events.some((e: Any) => e.event === "mcp.serverStatus" && e.payload.id === server.id && e.payload.oauthStatus === "unconfigured"));
+    expect((await c.call("mcp.list", { spaceId: work.id })).result.servers[0]).toMatchObject({ authKind: "none", oauthStatus: "unconfigured" });
+    c.close();
+  });
+
+  it("refuses to start a flow for a stdio server rather than opening a browser that goes nowhere", async () => {
+    const { c, work } = await boot();
+    const server = (await addStdio(c, work.id, "airtable")).result;
+    expect((await c.call("mcp.oauth.start", { id: server.id })).error?.code).toBe("MCP_OAUTH_UNSUPPORTED");
+    c.close();
+  });
+
+  it("the gateway's callback route rejects a state nobody is waiting on, and echoes nothing back", async () => {
+    const { c, work } = await boot();
+    const as = await makeStubAuthServer();
+    authServers.push(as);
+    const server = (await c.call("mcp.add", { spaceId: work.id, name: "remote", transport: "http", url: `${as.url}/mcp` })).result;
+    const { authUrl } = (await c.call("mcp.oauth.start", { id: server.id })).result;
+    const callbackBase = new URL(new URL(authUrl).searchParams.get("redirect_uri")!);
+
+    const res = await fetch(`${callbackBase}?code=some-forged-code&state=forged-state`);
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("Connection failed — try again from Realm settings.");
+    expect(body).not.toContain("some-forged-code");
+    expect((await c.call("mcp.list", { spaceId: work.id })).result.servers[0]).toMatchObject({ oauthStatus: "unconfigured" });
     c.close();
   });
 });
