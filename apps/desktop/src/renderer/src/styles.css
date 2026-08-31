@@ -484,6 +484,24 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-context .git-diff { gap: 6px; font-variant-numeric: tabular-nums; }
 .composer-context .diff-add { color: var(--rl-success); }
 .composer-context .diff-del { color: var(--rl-danger); }
+/* Row 1b — pending attachments: the same raised-on-raised chip treatment as the context row (§4),
+   wrapping, because a chip row that clips is a chip row that hides a file the user thinks is going. */
+.composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 8px 12px 0; list-style: none; }
+.attach-chip { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px 0 8px; height: 24px; border-radius: var(--r-chip);
+  font-size: 11px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
+.attach-chip .attach-glyph { flex: none; color: var(--rl-text-faint); }
+/* A file the agent will simply discard must not look like one it will read (§2.4: colour = state). */
+.attach-chip[data-disposition="ignored"] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); }
+.attach-chip[data-disposition="ignored"] .attach-glyph { color: var(--rl-warning); }
+.attach-remove { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; flex: none; color: inherit; opacity: .6; }
+.attach-remove:hover { opacity: 1; background: var(--rl-hover); }
+/* The honesty row: what THIS agent does with these files, named before the message goes. */
+.composer-attach-note { display: flex; align-items: baseline; gap: 5px; margin: 6px 0 0; padding: 0 12px; font-size: 11px; line-height: 1.45; color: var(--rl-text-faint); }
+.composer-attach-note[data-disposition="ignored"] { color: var(--rl-warning); }
+.composer-attach-note .attach-note-glyph { flex: none; align-self: center; }
+.composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 10.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
 /* Row 2 — input: 13px/1.55, grows to ~10 lines (matches MAX_ROWS_PX in Composer.tsx). */
 .composer-input { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright); font: inherit; font-size: 13px; line-height: 1.55; padding: 12px 14px; min-height: 44px; max-height: 226px; caret-color: var(--rl-accent); }
 .composer-input::placeholder { color: var(--rl-text-faint); }
@@ -508,6 +526,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 .bypass-confirm { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); cursor: pointer; }
 .bypass-confirm:hover { background: color-mix(in srgb, var(--rl-warning) 20%, transparent); }
 .composer-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.composer-attach { color: var(--rl-text-dim); }
+.composer-attach:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
+/* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).
+   §6 forbids animating during an active drag, so this is a static swap — no transition here, and the
+   card declares none. The hint is a label, not a scrim: pointer-events off, so the drop still lands. */
+.composer[data-dropping] { box-shadow: var(--rl-edge), 0 0 0 2px var(--rl-accent), var(--rl-shadow); }
+.composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+  border-radius: var(--r-float); background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
+  font-size: 12px; font-weight: 550; color: var(--rl-text-bright); }
 /* Send↔stop morph (§4/§6): 28px accent circle; both icons in the DOM, cross-fading 160ms with
    opacity + scale .25→1 + 4px blur. data-state picks which one is up. */
 .composer-send { position: relative; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;

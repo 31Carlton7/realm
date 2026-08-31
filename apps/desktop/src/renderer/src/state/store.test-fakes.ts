@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, Profile, Project, RestorePreview, Session, ShipResult, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
-import type { AgentProbe, Api } from "./store";
+import type { Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, Profile, Project, RestorePreview, Session, ShipResult, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentProbe, Api, PickedAttachment } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
   ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
@@ -44,6 +44,8 @@ export type FakeData = {
   /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
    *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
   checkpointPreview?: Record<string, RestorePreview>;
+  /** What the next `pickFiles()` answers with; consumed by the call (queue, not a constant). */
+  pickFiles?: PickedAttachment[];
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
@@ -53,6 +55,8 @@ export type FakeApi = Api & {
   /** Method-call log, e.g. `listItems:s1`, `setLayout:s1`, `setSetting:ui.theme=dark`. */
   calls: string[];
   disposed: string[];
+  /** Every `sendMessage`, with the attachments that actually went on the wire. */
+  sent: { id: string; text: string; attachments: Attachment[] }[];
   /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
   delays: Record<string, number>;
   onCreateTerminal: (() => void) | null;
@@ -65,6 +69,7 @@ export type FakeApi = Api & {
 export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
+  const sent: { id: string; text: string; attachments: Attachment[] }[] = [];
   const data: Required<FakeData> = {
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p2", "Homework", { color: "#3ddc97" })],
@@ -86,12 +91,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     worktreeStatus: overrides.worktreeStatus ?? {},
     checkpoints: overrides.checkpoints ?? {},
     checkpointPreview: overrides.checkpointPreview ?? {},
+    pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const api: FakeApi = {
-    calls, disposed, delays: {}, onCreateTerminal: null, data,
+    calls, disposed, sent, delays: {}, onCreateTerminal: null, data,
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
     createProfile: async (name) => {
       calls.push(`createProfile:${name}`);
@@ -154,6 +160,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     getSetting: async (key) => { calls.push(`getSetting:${key}`); return data.settings[key] ?? null; },
     setSetting: async (key, value) => { calls.push(`setSetting:${key}=${String(value)}`); data.settings[key] = value; },
     pickFolder: async () => "/tmp/picked-repo",
+    // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
+    pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
+    // Electron hands a dropped File its real path; a pasted one has none, which is how attachFiles
+    // tells the two apart. Tests set `path` on the fake File to say which it is.
+    pathForFile: (file) => (file as File & { path?: string }).path ?? "",
+    saveTempAttachment: async (name, mime, bytes) => {
+      calls.push(`saveTempAttachment:${name}`);
+      return { path: `/realm-home/tmp/attachments/aa-${name}`, mime: mime || "application/octet-stream", name, size: bytes.byteLength };
+    },
     disposeTerminal: (id) => { disposed.push(id); },
     listSessions: async (sid) => { calls.push(`listSessions:${sid}`); return data.sessions.filter((s) => s.spaceId === sid); },
     listAllSessions: async () => { calls.push("listAllSessions"); await wait("listAllSessions"); return [...data.sessions]; },
@@ -170,7 +185,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`createSession:${input.agentKind}`);
       return { session: s, itemId: it.id };
     },
-    sendMessage: async (id, text) => { calls.push(`sendMessage:${id}=${text}`); },
+    sendMessage: async (id, text, attachments) => {
+      calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
+      sent.push({ id, text, attachments });
+    },
     interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
     respondPermission: async (id, requestId, decision) => { calls.push(`respondPermission:${id}:${requestId}:${decision}`); },
     setSessionOptions: async (id, o) => {

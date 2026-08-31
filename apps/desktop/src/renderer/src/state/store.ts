@@ -1,7 +1,8 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  type AgentKind, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Checkpoint, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mimeForPath,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -12,6 +13,9 @@ export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
+/** A pending attachment as the prompter holds it. `path`/`mime` are the wire fields; `name` labels the
+ *  chip and `size` is what the MAX_ATTACHMENT_BYTES check reads — neither is transmitted. */
+export type PickedAttachment = Attachment & { name: string; size: number };
 /** Agent a session is created with when the user never said (first run, or a wiped setting). */
 export const FALLBACK_AGENT: AgentKind = "claude";
 export type PermissionDecision = "allow" | "allow_always" | "deny";
@@ -53,6 +57,14 @@ export type Api = {
   setSetting(key: string, value: unknown): Promise<void>;
   /** Native folder picker; resolves null when cancelled. */
   pickFolder(): Promise<string | null>;
+  /** Native multi-select file picker; resolves [] when cancelled. */
+  pickFiles(): Promise<PickedAttachment[]>;
+  /** The filesystem path behind a dropped File. "" when it has none — a pasted image, which has to be
+   *  written out with `saveTempAttachment` before any adapter can be given a path. */
+  pathForFile(file: File): string;
+  /** Write a pathless (pasted) file under Realm's home so it HAS a path. `mime` is what the browser
+   *  reported for the clipboard item; the main process falls back to the extension when it is empty. */
+  saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedAttachment>;
   /** Drop the renderer-side xterm instance/scrollback for a closed terminal. */
   disposeTerminal(terminalId: string): void;
   listSessions(spaceId: string): Promise<Session[]>;
@@ -60,7 +72,7 @@ export type Api = {
   listAllSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
-  sendMessage(id: string, text: string): Promise<void>;
+  sendMessage(id: string, text: string, attachments: Attachment[]): Promise<void>;
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
@@ -204,6 +216,10 @@ export type AppState = {
   /** Composer drafts by session id — store-owned so layout reshapes/pane remounts never lose typed
    *  text (A-M9). Never persisted; dropped when the session's item is deleted. */
   drafts: Record<string, string>;
+  /** Pending attachments by session id. Store-owned for exactly the reason drafts are: they are part of
+   *  the draft, and a pane remount must not silently drop the file the user just dragged in. Cleared by
+   *  a successful send, and with the session's item. */
+  pendingAttachments: Record<string, PickedAttachment[]>;
   /** The permission mode a session was on when it entered Plan, by session id — see `setSessionMode`.
    *  Not persisted: after a restart a session already in Plan returns to `default`, which is the safe
    *  direction to be wrong in. */
@@ -339,6 +355,13 @@ export type AppState = {
    *  offers the command, the user presses Return. Nothing here ever runs an installer. */
   prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
+  /** Attach dropped or pasted Files. A dropped file already has a path; a pasted one does not, and is
+   *  written under Realm's home first (see main/attachments.ts). */
+  attachFiles(sessionId: string, files: readonly File[]): Promise<void>;
+  /** The prompter's attach button — the native multi-select picker. */
+  attachFromPicker(sessionId: string): Promise<void>;
+  /** Drop one pending attachment (its chip's ×). Keyed by path, which is unique within the row. */
+  removeAttachment(sessionId: string, path: string): void;
   /** Show/hide the session's terminal panel (pane-header toggle, ⌘J). Opening it is the one and only
    *  thing that creates the terminal — and only the first time. */
   toggleTerminalPanel(sessionId: string): Promise<void>;
@@ -568,6 +591,27 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const loading = new Map<string, StoredSessionEvent[]>();
     const setTranscript = (id: string, entry: TranscriptEntry) => set({ transcripts: { ...get().transcripts, [id]: entry } });
     const dropTranscript = (id: string) => { const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
+    /**
+     * Append to a session's chip row, refusing anything over the cap and skipping anything already there.
+     *
+     * The cap is enforced HERE rather than left to the Claude adapter's throw, and it is enforced for
+     * every agent kind — see MAX_ATTACHMENT_BYTES. The refusal rides the app's one error channel so it
+     * says which file and which ceiling, instead of the file simply not appearing.
+     */
+    const addAttachments = (sessionId: string, picked: readonly PickedAttachment[]) => {
+      const current = get().pendingAttachments[sessionId] ?? [];
+      const seen = new Set(current.map((a) => a.path));
+      const next = [...current];
+      const refused: string[] = [];
+      for (const a of picked) {
+        if (seen.has(a.path)) continue; // the same file dropped twice is one attachment
+        if (a.size > MAX_ATTACHMENT_BYTES) { refused.push(`${a.name} (${formatAttachmentSize(a.size)})`); continue; }
+        seen.add(a.path);
+        next.push(a);
+      }
+      set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: next } });
+      if (refused.length > 0) set({ error: `Too large to attach — the limit is ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}: ${refused.join(", ")}` });
+    };
     /** Focus keeps its leaf while the layout still has it; otherwise it resets to the first leaf. */
     const focusIn = (layout: Layout) => {
       const f = get().focusedLeafId;
@@ -596,7 +640,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, planReturn: {}, gitInfo: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -783,7 +827,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
-          set({ sessionStatus, sessions, drafts, planReturn, sessionSpace, terminalPanel, sessionTerminals });
+          const { [it.refId]: _at, ...pendingAttachments } = get().pendingAttachments;
+          set({ sessionStatus, sessions, drafts, pendingAttachments, planReturn, sessionSpace, terminalPanel, sessionTerminals });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -933,7 +978,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id }, targetLeafId);
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
-      async sendMessage(id, text) { await api.sendMessage(id, text); },
+      /**
+       * The one path attachments travel. The prompter never passes them in — it cannot forget to, and
+       * cannot pass a chip the user already removed, because the list is read here from the same state
+       * the chip row renders.
+       */
+      async sendMessage(id, text) {
+        const pending = get().pendingAttachments[id] ?? [];
+        await api.sendMessage(id, text, pending.map(({ path, mime }) => ({ path, mime })));
+        // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
+        // chip row would leave the user with no record of what they had attached, and a file dragged in
+        // while the request was in flight was never part of this message.
+        if (pending.length === 0) return;
+        const sent = new Set(pending.map((a) => a.path));
+        const left = (get().pendingAttachments[id] ?? []).filter((a) => !sent.has(a.path));
+        set({ pendingAttachments: { ...get().pendingAttachments, [id]: left } });
+      },
       async interruptSession(id) { await api.interruptSession(id); },
       async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },
       async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
@@ -1001,6 +1061,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.prefillTerminal(terminalId, command);
       },
       setDraft(sessionId, text) { set({ drafts: { ...get().drafts, [sessionId]: text } }); },
+      async attachFiles(sessionId, files) {
+        const picked: PickedAttachment[] = [];
+        for (const f of files) {
+          const path = api.pathForFile(f);
+          // A dropped file is already on disk. A pasted one is not — and every adapter's contract is a
+          // path, so it has to be written out before it can be attached at all.
+          if (path) picked.push({ path, mime: f.type || mimeForPath(f.name || path), name: f.name || basenameOf(path), size: f.size });
+          else picked.push(await api.saveTempAttachment(f.name || "pasted", f.type, new Uint8Array(await f.arrayBuffer())));
+        }
+        addAttachments(sessionId, picked);
+      },
+      async attachFromPicker(sessionId) { addAttachments(sessionId, await api.pickFiles()); },
+      removeAttachment(sessionId, path) {
+        const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => a.path !== path);
+        set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: left } });
+      },
       async ensureSessionTerminal(sessionId) {
         if (get().sessionTerminals[sessionId]) return;
         const pending = ensuringTerminal.get(sessionId);

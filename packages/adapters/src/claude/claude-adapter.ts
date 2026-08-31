@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { newId, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -9,7 +9,6 @@ import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartO
 type QueryFn = typeof sdkQuery;
 
 const STDERR_TAIL_LINES = 50;
-const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const DISPOSE_TIMEOUT_MS = 3000;
 
 /** Claude adapter on the Agent SDK in streaming-input mode. `canUseTool` is bridged to permission_request/response events. */

@@ -2,7 +2,7 @@ import { Icon } from "@realm/ui";
 import { useCallback, useEffect, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { Item } from "@realm/contracts";
-import { TERMINAL_PANEL_WIDTH, useApp } from "../../state/store";
+import { TERMINAL_PANEL_WIDTH, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { TerminalView } from "../TerminalPane";
 import type { PaneProps } from "../registry";
@@ -10,6 +10,10 @@ import { Composer } from "./Composer";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
 import { emptyTranscript } from "./transcript-model";
+
+/** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
+ *  re-render (and warn) forever. */
+const NO_ATTACHMENTS: PickedAttachment[] = [];
 
 const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Needs permission", error: "Error", ended: "Ended" } as const;
 
@@ -101,6 +105,11 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // suggestion chip in the empty state can fill the draft without sending it.
   const draft = useApp((s) => s.drafts[id] ?? "");
   const setDraft = useApp((s) => s.setDraft);
+  // Attachments are part of the draft and are held the same way, for the same reason.
+  const attachments = useApp((s) => s.pendingAttachments[id] ?? NO_ATTACHMENTS);
+  const attachFiles = useApp((s) => s.attachFiles);
+  const attachFromPicker = useApp((s) => s.attachFromPicker);
+  const removeAttachment = useApp((s) => s.removeAttachment);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
   const environment = useApp((s) => { const e = s.sessions[id]?.environmentId; return e ? s.environments[e] ?? null : null; });
   const panelOpen = useApp((s) => s.terminalPanel[id]?.open ?? false);
@@ -144,6 +153,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))} />
         : <Composer session={session} status={status} project={project} gitInfo={gitInfo} environment={environment}
             onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
+            attachments={attachments}
+            onAttachPick={() => run(() => attachFromPicker(id))}
+            onAttachFiles={(files) => run(() => attachFiles(id, files))}
+            onRemoveAttachment={(path) => removeAttachment(id, path)}
             onSend={(text) => run(() => sendMessage(id, text))}
             onStop={() => run(() => interruptSession(id))}
             onOptions={(o) => run(() => setSessionOptions(id, o))}

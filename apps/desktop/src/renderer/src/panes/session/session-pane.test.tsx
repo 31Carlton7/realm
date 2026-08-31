@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, sessionEvent, type Environment } from "@realm/contracts";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
@@ -1050,5 +1050,217 @@ describe("the CLI-missing install card (W4)", () => {
     await waitFor(() => expect(store.getState().sessions.se1!.agentKind).toBe("codex"));
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     expect(prompter()).toBeNull();
+  });
+});
+
+/**
+ * Attachments in the prompter.
+ *
+ * The backend has taken `attachments` all along; what was missing was any way to put one there — and,
+ * more importantly, any warning that the three adapters do three different things with the same file.
+ * These lean hardest on that last part: the note must name the session's OWN agent and its OWN fate
+ * for the file, because a note that is merely plausible is worse than none.
+ */
+describe("prompter attachments", () => {
+  beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const picked = (path: string, mime: string, size = 10) =>
+    ({ path, mime, name: path.split("/").pop()!, size });
+
+  /** A dropped File carries its real path (Electron resolves it); a pasted one does not. */
+  const dropped = (path: string, type: string, size = 10) =>
+    Object.assign(new File([new Uint8Array(size)], path.split("/").pop()!, { type }), { path }) as unknown as File;
+  const pastedImage = (name = "image.png") =>
+    Object.assign(new File([new Uint8Array(4)], name, { type: "image/png" }),
+      { arrayBuffer: async () => new ArrayBuffer(4) }) as unknown as File;
+
+  /** Mount a fresh (hero) prompter for a given agent kind. */
+  async function mountFor(agentKind: "claude" | "codex" | "acp:cursor" | "fake", pickFiles: ReturnType<typeof picked>[] = []) {
+    const api = fakeApi({
+      sessions: [session("se1", "s1", { status: "idle", agentKind })],
+      agentProbe: [{ kind: agentKind, available: true, version: "1", loggedIn: true, reason: null }],
+      pickFiles,
+    });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    return { api, store, ...r };
+  }
+
+  const attach = () => fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
+  const chips = () => Array.from(document.querySelectorAll(".attach-chip")).map((c) => c.textContent ?? "");
+  const notes = () => Array.from(document.querySelectorAll(".composer-attach-note")).map((n) => n.textContent ?? "");
+  const composer = () => document.querySelector(".composer") as HTMLElement;
+  const dt = (files: File[]) => ({ dataTransfer: { files, items: files.map(() => ({ kind: "file" })), types: ["Files"] } });
+
+  it("the attach button opens the native picker and its files become chips", async () => {
+    const { api } = await mountFor("claude", [picked("/x/shot.png", "image/png")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    expect(chips()[0]).toContain("shot.png");
+    expect(api.calls).toContain("pickFiles");
+  });
+
+  it("says what CLAUDE will do — and warns that a PDF is dropped on the floor", async () => {
+    await mountFor("claude", [picked("/x/shot.png", "image/png"), picked("/x/report.pdf", "application/pdf")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(2));
+    const warn = notes().find((t) => /ignores/.test(t))!;
+    expect(warn).toContain("Claude");
+    expect(warn).toContain("ignores non-image attachments");
+    expect(warn).toContain("report.pdf");
+    expect(warn).not.toContain("shot.png"); // the image is fine, and must not be tarred with it
+    expect(notes().some((t) => /Claude reads image attachments inline/.test(t))).toBe(true);
+    // The doomed chip wears the warning fate; the image does not.
+    const marked = Array.from(document.querySelectorAll(".attach-chip[data-disposition='ignored']"));
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveTextContent("report.pdf");
+  });
+
+  it("says something DIFFERENT for Codex — the same PDF, a path it will open", async () => {
+    await mountFor("codex", [picked("/x/report.pdf", "application/pdf")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    expect(notes().join(" ")).toContain("Codex");
+    expect(notes().join(" ")).toContain("file path");
+    expect(notes().join(" ")).not.toMatch(/ignores/);
+    expect(document.querySelectorAll(".attach-chip[data-disposition='ignored']")).toHaveLength(0);
+  });
+
+  it("says something DIFFERENT again for Cursor — a link", async () => {
+    await mountFor("acp:cursor", [picked("/x/report.pdf", "application/pdf")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    expect(notes().join(" ")).toContain("Cursor");
+    expect(notes().join(" ")).toContain("link");
+  });
+
+  it("never names an agent other than the session's own", async () => {
+    await mountFor("codex", [picked("/x/report.pdf", "application/pdf")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    const text = notes().join(" ") + (document.querySelector(".attach-chip")!.getAttribute("title") ?? "");
+    for (const other of ["Claude", "Cursor", "Gemini"]) expect(text, other).not.toContain(other);
+  });
+
+  it("the chip's tooltip carries the full path, the size and the same verdict", async () => {
+    await mountFor("claude", [picked("/very/long/path/report.pdf", "application/pdf", 2048)]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    const title = document.querySelector(".attach-chip")!.getAttribute("title")!;
+    expect(title).toContain("/very/long/path/report.pdf");
+    expect(title).toContain("2.0 KB");
+    expect(title).toContain("Claude ignores non-image attachments");
+  });
+
+  it("a removed chip is gone from the row AND never reaches the wire", async () => {
+    const { api } = await mountFor("codex", [picked("/x/a.png", "image/png"), picked("/x/b.png", "image/png")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Remove b.png" }));
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "look" } });
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.sent[0]!.attachments).toEqual([{ path: "/x/a.png", mime: "image/png" }]);
+  });
+
+  it("sending clears the row — the next message must not carry them again", async () => {
+    const { api } = await mountFor("codex", [picked("/x/a.png", "image/png")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "one" } });
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(chips()).toHaveLength(0));
+    expect(document.querySelectorAll(".composer-attach-note")).toHaveLength(0);
+    fireEvent.change(box, { target: { value: "two" } });
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(2));
+    expect(api.sent[1]!.attachments).toEqual([]);
+  });
+
+  it("refuses a file over the 20 MB cap in the UI, with the reason", async () => {
+    const { store } = await mountFor("claude", [picked("/x/huge.png", "image/png", 21 * 1024 * 1024)]);
+    attach();
+    await waitFor(() => expect(store.getState().error).toBeTruthy());
+    expect(chips()).toHaveLength(0);
+    expect(store.getState().error).toContain("huge.png");
+    expect(store.getState().error).toContain("20 MB");
+  });
+
+  it("dropping files on the card attaches them and marks the card while the drag is over it", async () => {
+    const { api } = await mountFor("codex");
+    const files = [dropped("/Users/me/a.png", "image/png"), dropped("/Users/me/b.pdf", "application/pdf")];
+    fireEvent.dragEnter(composer(), dt(files));
+    expect(composer()).toHaveAttribute("data-dropping");
+    expect(screen.getByText("Drop to attach")).toBeInTheDocument();
+    fireEvent.drop(composer(), dt(files));
+    await waitFor(() => expect(chips()).toHaveLength(2));
+    expect(composer()).not.toHaveAttribute("data-dropping");
+    // A drop is not a copy: the files are attached at the paths they already have.
+    expect(api.calls.filter((c) => c.startsWith("saveTempAttachment"))).toHaveLength(0);
+  });
+
+  it("a drag that carries no files is left alone — Realm drags its own sidebar rows onto panes", async () => {
+    await mountFor("codex");
+    fireEvent.dragEnter(composer(), { dataTransfer: { files: [], items: [], types: ["application/x-realm-item"] } });
+    expect(composer()).not.toHaveAttribute("data-dropping");
+  });
+
+  it("nested dragenter/dragleave does not flicker the drop target off", async () => {
+    await mountFor("codex");
+    const files = [dropped("/x/a.png", "image/png")];
+    fireEvent.dragEnter(composer(), dt(files));
+    fireEvent.dragEnter(screen.getByRole("textbox", { name: /message/i }), dt(files)); // crossing into a child
+    fireEvent.dragLeave(composer(), dt(files));                                        // …and out of the parent
+    expect(composer()).toHaveAttribute("data-dropping");
+    fireEvent.dragLeave(composer(), dt(files));
+    await waitFor(() => expect(composer()).not.toHaveAttribute("data-dropping"));
+  });
+
+  it("pasting an image attaches it — it has no path, so it is written out first", async () => {
+    const { api } = await mountFor("claude");
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.paste(box, { clipboardData: { files: [pastedImage()], items: [{ kind: "file" }], getData: () => "" } });
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    expect(api.calls).toContain("saveTempAttachment:image.png");
+    expect(chips()[0]).toContain("image.png");
+  });
+
+  it("pasting plain text is still just a paste", async () => {
+    await mountFor("claude");
+    const box = screen.getByRole("textbox", { name: /message/i });
+    const e = createEvent.paste(box, { clipboardData: { files: [], items: [], getData: () => "hello" } });
+    fireEvent(box, e);
+    expect(e.defaultPrevented).toBe(false);
+    expect(chips()).toHaveLength(0);
+  });
+
+  it("attachments survive a pane remount, exactly like the draft they belong to", async () => {
+    const { store, unmount } = await mountFor("codex", [picked("/x/a.png", "image/png")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    unmount();
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    expect(chips()[0]).toContain("a.png");
+  });
+
+  it("with attachments but no text the send button says why it is disabled", async () => {
+    await mountFor("codex", [picked("/x/a.png", "image/png")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    const send = screen.getByRole("button", { name: "Send" });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("title", "Add a message to send with these files");
+  });
+
+  it("shows no chip row and no notes with nothing attached", async () => {
+    await mountFor("claude");
+    expect(document.querySelector(".composer-attachments")).toBeNull();
+    expect(notes()).toHaveLength(0);
   });
 });

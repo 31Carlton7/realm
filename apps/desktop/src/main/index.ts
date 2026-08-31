@@ -2,8 +2,11 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstruc
 import { join } from "node:path";
 import { startServer } from "./server-process";
 import { startScrollPhaseStream } from "./scroll-phase";
+import { describeFiles, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
+/** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
+let realmHome: string | null = null;
 
 /** With no explicit application menu, Electron installs its default one, whose File → Close Window
  *  binds ⌘W — and menu accelerators fire in the main process before the renderer ever sees the
@@ -58,6 +61,21 @@ ipcMain.handle("pick-folder", async () => {
   return r.canceled ? null : r.filePaths[0] ?? null;
 });
 
+/** The prompter's attach button. Multi-select, and it answers with mime and size alongside the path:
+ *  `sessions.send` wants the mime, and the prompter needs the size to enforce MAX_ATTACHMENT_BYTES
+ *  itself rather than letting the Claude adapter throw after the user pressed send. */
+ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
+  const r = await dialog.showOpenDialog({ properties: ["openFile", "multiSelections"] });
+  return r.canceled ? [] : describeFiles(r.filePaths);
+});
+
+/** Paste. A pasted image has no path, and every adapter's contract is a path — so one is made here.
+ *  Refuses before the server has announced its home; the renderer surfaces the message. */
+ipcMain.handle("save-temp-attachment", async (_e, name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> => {
+  if (!realmHome) throw new Error("Realm is still starting up; try the paste again in a moment");
+  return saveTempAttachment(realmHome, name, mime, bytes);
+});
+
 app.whenReady().then(async () => {
   try {
     installMenu();
@@ -66,6 +84,10 @@ app.whenReady().then(async () => {
     // TODO(plan-2): reconnect/restart when server exits after ready
     child.on("exit", () => { serverChild = null; });
     const info = await ready;
+    realmHome = info.home;
+    // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
+    // restarts the app is bounded too.
+    void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});
     await createWindow(info);
   } catch (e) {
     console.error(e);

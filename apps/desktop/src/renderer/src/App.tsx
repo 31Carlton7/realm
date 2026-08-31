@@ -132,7 +132,19 @@ export function App() {
     // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
     const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
     window.addEventListener("pagehide", onPageHide);
-    return () => { offS(); offI(); offV(); offW(); offP(); offE(); offT(); offC(); window.removeEventListener("pagehide", onPageHide); };
+    // A file dropped anywhere OUTSIDE the prompter would otherwise be navigated to — in a packaged
+    // build the app itself is a file:// document, so main's will-navigate guard reads that as in-app
+    // and lets it through, replacing Realm with the dropped file. The prompter's own handlers call
+    // preventDefault first, so they are unaffected; this only catches the misses.
+    const swallowDrop = (e: Event) => e.preventDefault();
+    window.addEventListener("dragover", swallowDrop);
+    window.addEventListener("drop", swallowDrop);
+    return () => {
+      offS(); offI(); offV(); offW(); offP(); offE(); offT(); offC();
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("dragover", swallowDrop);
+      window.removeEventListener("drop", swallowDrop);
+    };
   }, [store]);
   return (
     <StoreContext.Provider value={store}>

@@ -150,6 +150,17 @@ describe("§6 do-NOT-animate list", () => {
     }
   });
 
+  it("the prompter's drop target is instant — §6 does not animate anything during an active drag", () => {
+    for (const sel of [".composer[data-dropping]", ".composer-drop-hint"]) {
+      for (const body of bodiesFor(sel)) {
+        expect(body, `${sel} { ${body} }`).not.toContain("transition");
+        expect(body, `${sel} { ${body} }`).not.toContain("animation");
+      }
+    }
+    // …and the hint never eats the drop it is describing.
+    expect(bodiesFor(".composer-drop-hint").join(" ")).toContain("pointer-events: none");
+  });
+
   it("resize handles carry no transition or animation — a drag must track the pointer exactly", () => {
     for (const r of RULES.filter((x) => x.selectors.some((s) => s.startsWith(".resize-handle")))) {
       expect(r.body, r.selectors.join(",")).not.toContain("transition");
