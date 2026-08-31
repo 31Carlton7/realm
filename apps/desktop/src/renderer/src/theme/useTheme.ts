@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { applyTheme, paletteFromColor, type Mode } from "@realm/ui";
+import { applyTheme, type Mode } from "@realm/ui";
 
 export type ThemePref = "system" | "light" | "dark";
 
@@ -30,14 +30,16 @@ export function suppressTransitions(root: HTMLElement, ms = SETTLE_MS): () => vo
   return () => { clearTimeout(id); root.removeAttribute("data-theme-switching"); };
 }
 
-/** Resolves the effective mode from the user preference and writes the space palette to `:root`. */
+/** Resolves the effective mode from the user preference and stamps it (plus the space colour) on
+ *  `:root`. The palette itself is static CSS now (Plan 9 W1: BUI tokens in theme/tokens.css keyed
+ *  on `data-mode`) — the only runtime writes left are `--rl-space` and the mode attribute. */
 export function useApplyTheme(color: string | null, pref: ThemePref): Mode {
   const sys = useSystemMode();
   const mode: Mode = pref === "system" ? sys : pref;
-  // Layout effect so the first paint already carries the palette (no flash of default vars).
+  // Layout effect so the first paint already carries the mode (no flash of default vars).
   useLayoutEffect(() => {
     const done = suppressTransitions(document.documentElement);
-    applyTheme(paletteFromColor(color ?? "#7c6cff", mode));
+    applyTheme(color ?? "#7c6cff", mode);
     return done;
   }, [color, mode]);
   return mode;

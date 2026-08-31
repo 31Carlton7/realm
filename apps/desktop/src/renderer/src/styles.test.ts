@@ -136,9 +136,11 @@ describe("§6 motion table", () => {
 });
 
 describe("Ara refresh §3/§4 geometry", () => {
-  it("the user message is Ara's signature: raised card, radius 14, 14px 16px padding, 85% wide, ragged-left", () => {
+  it("the user message is Ara's signature: raised card, window radius (BUI 14), 14px 16px padding, 85% wide, ragged-left", () => {
+    // Plan 9 W1 re-pin: the literal 14px became var(--r-float), which the bridge pins to BUI's
+    // --radius-window (14px) — same geometry, now on the token scale.
     const body = bodiesFor(".msg-user").join(" ");
-    for (const decl of ["text-align: right", "max-width: 85%", "border-radius: 14px", "padding: 14px 16px", "background: var(--rl-raised)"])
+    for (const decl of ["text-align: right", "max-width: 85%", "border-radius: var(--r-float)", "padding: 14px 16px", "background: var(--rl-raised)"])
       expect(body, decl).toContain(decl);
   });
 
@@ -170,6 +172,66 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(body).toContain("flex-wrap: nowrap");
     expect(body).toContain("overflow: hidden");
     expect(bodiesFor(".composer-opts > *").join(" ")).toContain("flex: none");
+  });
+});
+
+describe("Plan 9 W1 — the BUI bridge", () => {
+  const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+
+  it("the foundation imports Tailwind v4 and shadow-plugin, and keys dark on Realm's data-mode", () => {
+    expect(tokens).toContain('@import "tailwindcss"');
+    expect(tokens).toContain('@import "shadow-plugin/unprefixed"');
+    // BUI ships `@custom-variant dark (.dark)`; Realm's theme mechanism stamps data-mode instead.
+    expect(tokens).toMatch(/@custom-variant dark[^;]*data-mode="dark"/);
+    // Dark is the primary palette: the base :root block carries the dark surface ramp…
+    expect(tokens).toMatch(/:root \{[^}]*--surface: oklch\(0\.26 0\.006 271\.191\)/);
+    // …and BUI's light-first values live under the light mode attribute.
+    expect(tokens).toMatch(/:root\[data-mode="light"\] \{[^}]*--surface: oklch\(1 0 0\)/);
+  });
+
+  it("every legacy --rl-* colour token resolves to a BUI token — the app can never be half-themed", () => {
+    const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
+    for (const [token, source] of [
+      ["--rl-accent", "var(--accent)"],
+      ["--rl-frame", "var(--page)"],
+      ["--rl-panel", "var(--canvas)"],
+      ["--rl-raised", "var(--surface)"],
+      ["--rl-line", "var(--line)"],
+      ["--rl-line-strong", "var(--line-strong)"],
+      ["--rl-hairline", "var(--line)"],
+      ["--rl-text-bright", "var(--ink)"],
+      ["--rl-text-dim", "var(--ink-2)"],
+      ["--rl-text-faint", "var(--ink-3)"],
+      ["--rl-danger", "var(--red)"],
+      ["--rl-success", "var(--green)"],
+      ["--rl-warning", "var(--orange)"],
+      ["--rl-edge", "var(--shadow-hairline)"],
+    ] as const) expect(root, token).toContain(`${token}: ${source}`);
+  });
+
+  it("the radius scale is BUI's: chip 6, control 8, card 10 (rows + panels), window 14", () => {
+    const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
+    for (const decl of ["--r-chip: 6px", "--r-ctl: 8px", "--r-row: 10px", "--r-panel: 10px", "--r-float: 14px"])
+      expect(root, decl).toContain(decl);
+    // No component may dodge the scale with a hardcoded control-ish radius (ticks/dots/pills excepted).
+    expect(css).not.toMatch(/border-radius:\s*(?:4|6|8|10|12|14|16)px/);
+  });
+
+  it("the sidebar keeps its vibrancy: BUI --page at 82%, one mode-agnostic rule", () => {
+    expect(bodiesFor(".sidebar").join(" ")).toContain("color-mix(in srgb, var(--page) 82%, transparent)");
+    // The old per-mode rgba override is gone — --page flips with data-mode on its own.
+    expect(css).not.toContain("rgba(244,244,244,.82)");
+  });
+
+  it("Inter and JetBrains Mono are self-hosted with Inter leading the UI stack", () => {
+    expect(css).toContain('src: url("./assets/fonts/InterVariable.woff2") format("woff2")');
+    expect(css).toMatch(/--font-ui:\s*"Inter"/);
+    expect(css).toMatch(/--font-mono:\s*"JetBrains Mono"/);
+  });
+
+  it("markdown lists survive Tailwind preflight's list-style reset", () => {
+    expect(bodiesFor(".md ul").join(" ")).toContain("list-style: disc");
+    expect(bodiesFor(".md ol").join(" ")).toContain("list-style: decimal");
   });
 });
 

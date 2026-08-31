@@ -1,10 +1,13 @@
-/* Realm — ink grayscale (design-language 2026-08-27 §3/§5). Luminance is the border: separation
-   comes from stacked grey steps (frame → panel → raised) and translucent fills; hairlines survive
-   only where scrolling regions meet. Shadow means floating — detached surfaces (menus, palette,
-   sheets, composer, banners) wear `var(--rl-edge), var(--rl-shadow)`; nothing resting casts one.
-   Accent is ink (near-white dark / near-black light); the space colour survives only as --rl-space
-   on the space dot and strip glyph. Tokens are written by applyTheme(); these are pre-boot
-   fallbacks (dark). */
+/* Realm — Beautiful UI skin over the Ara structure (Plan 9 W1). The BUI token ramps live in
+   theme/tokens.css (`--page/--canvas/--surface`, the ink ramp, `--line`, `--accent`, semantic
+   colors, the shadow stacks), themed dark-first and flipped by `data-mode` on :root. This file
+   keeps Ara's STRUCTURE — layout, hero prompter, translucent sidebar, pane system — and re-skins
+   every component through the BRIDGE below: each legacy `--rl-*` token is redefined in terms of a
+   BUI token, so the whole app changes skin in one place and nothing is ever half-themed.
+   Shadow still means floating — detached surfaces (menus, palette, sheets, composer, banners)
+   wear `var(--rl-edge), var(--rl-shadow)`; nothing resting casts one. The space colour survives
+   only as --rl-space (space dot + strip glyph), the one token still written at runtime by
+   applyTheme() alongside `data-mode`. */
 /* Bundled mono face (V-X4, spec §A3): JetBrains Mono, © JetBrains — licensed under the SIL Open Font
    License 1.1, which permits bundling and redistribution with software (attribution kept here; the
    font files are unmodified originals from github.com/JetBrains/JetBrainsMono). */
@@ -18,30 +21,82 @@
   src: url("./assets/fonts/JetBrainsMono-Medium.woff2") format("woff2");
   font-weight: 500; font-style: normal; font-display: swap;
 }
+/* Bundled UI face (Plan 9 W1): Inter, © The Inter Project Authors — SIL Open Font License 1.1
+   (OFL-Inter.txt beside the files; unmodified variable originals from rsms.me/inter — bundling and
+   redistribution with software are permitted, attribution kept here). One variable file per style
+   covers the whole 100–900 weight axis, including the 550s this stylesheet leans on. */
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/InterVariable-Italic.woff2") format("woff2");
+  font-weight: 100 900; font-style: italic; font-display: swap;
+}
 
+/* ═══ THE BRIDGE (Plan 9 W1) ══════════════════════════════════════════════════
+   Every legacy `--rl-*` token, redefined in terms of the BUI ramps from
+   theme/tokens.css. The BUI variables flip themselves on `data-mode`, so one
+   mapping serves both themes unless noted (per-mode overrides sit in the
+   `:root[data-mode="light"]` block that follows). applyTheme() writes ONLY
+   `--rl-space` and `data-mode` now — everything else is static CSS truth. */
 :root {
-  --rl-accent: #f2f2f2; --rl-accent-contrast: #111111; --rl-space: #7c6cff;
-  /* Ara refresh §1: the app is set in the Apple system stack; JetBrains Mono survives only in
-     terminals, diffs, code and kbd. */
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
-  --rl-frame: #121212; --rl-panel: #1a1a1a; --rl-raised: #222222;
-  --rl-line: #252525; --rl-line-strong: #333333;
-  --rl-hover: rgba(255,255,255,.06); --rl-active: rgba(255,255,255,.09);
-  --rl-text-bright: #f2f2f2; --rl-text-dim: #a0a0a0; --rl-text-faint: #6f6f6f;
-  --rl-danger: #e5484d; --rl-success: #46a758; --rl-warning: #d9822b;
-  --rl-terminal-bg: #0e0e0e;
-  --rl-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.45);
-  --rl-edge: inset 0 0 0 1px rgba(255,255,255,.07);
-  --r-panel: 12px; --r-ctl: 8px; --r-chip: 8px; --r-row: 10px; --r-float: 16px;
+  /* accent: BUI's blue condiment replaces the ink accent — primary buttons, send,
+     focus rings, active ticks, links, carets all take --accent; white text rides on it. */
+  --rl-accent: var(--accent);                    /* BUI --accent */
+  --rl-accent-contrast: oklch(1 0 0);            /* white on the accent fill, both modes */
+  --rl-space: #7c6cff;                           /* runtime: applyTheme() overwrites per space */
+  /* type (Ara §1 revised): Inter is the UI face (BUI layout.tsx stacks); JetBrains Mono
+     survives in terminals, diffs, code and kbd. */
+  --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* surface ladder: frame → panel → raised keeps its meaning, stepped on BUI's ramp */
+  --rl-frame: var(--page);                       /* BUI --page: window ground + sunken wells */
+  --rl-panel: var(--canvas);                     /* BUI --canvas: the working ground */
+  --rl-raised: var(--surface);                   /* BUI --surface: cards, menus, sheets, composer */
+  /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
+  --rl-line: var(--line);                        /* BUI --line */
+  --rl-line-strong: var(--line-strong);          /* BUI --line-strong */
+  --rl-hairline: var(--line);                    /* BUI --line (the old 75% alpha derivation is gone) */
+  /* translucent interaction fills: kept alpha (BUI's opaque --hover only reads on its own
+     ground; these land on every surface incl. the translucent sidebar). Light overrides below. */
+  --rl-hover: oklch(1 0 0 / 0.06);
+  --rl-active: oklch(1 0 0 / 0.09);
+  /* ink ramp */
+  --rl-text-bright: var(--ink);                  /* BUI --ink */
+  --rl-text-dim: var(--ink-2);                   /* BUI --ink-2 */
+  --rl-text-faint: var(--ink-3);                 /* BUI --ink-3 */
+  /* semantic: colour stays a condiment — state only, never chrome */
+  --rl-danger: var(--red);                       /* BUI --red */
+  --rl-success: var(--green);                    /* BUI --green */
+  --rl-warning: var(--orange);                   /* BUI --orange */
+  /* terminals stay dark in both modes, one step below BUI's dark --page (cool-tinted,
+     oklch(.17 .004 264) ≈ #0e0f11). Hex literal: xterm parses it once at hub creation. */
+  --rl-terminal-bg: #0e0f11;
+  /* floating surfaces compose `var(--rl-edge), var(--rl-shadow)` — together they equal BUI's
+     --shadow-overlay: the hairline ring half and the layered-shadow half, split so the few
+     places using --rl-edge alone still get the BUI hairline ring. Light override below. */
+  --rl-edge: var(--shadow-hairline);             /* BUI --shadow-hairline (0 0 0 1px line) */
+  --rl-shadow: 0 8px 28px oklch(0 0 0 / 0.34);   /* BUI dark --shadow-overlay, shadow half */
+  /* radii: the BUI scale — chip 6, control 8, card 10, window 14 */
+  --r-chip: 6px;                                 /* BUI --radius-chip */
+  --r-ctl: 8px;                                  /* BUI --radius-control */
+  --r-row: 10px;                                 /* BUI --radius-card (rows keep card rounding) */
+  --r-panel: 10px;                               /* BUI --radius-card: menus, pickers, permission card */
+  --r-float: 14px;                               /* BUI --radius-window: composer, sheets, palette */
   --sidebar-w: 280px; --prompter-w: 720px;
-  /* Ara refresh §2: where a real border remains it drops ~25% of its strength — Ara reads as almost
-     borderless; the --rl-edge shadows stay as they are. Derived, so the ink palette is untouched. */
-  --rl-hairline: color-mix(in srgb, var(--rl-line) 75%, transparent);
-  /* §6 easings. --ease stays as an alias of ease-out-strong so existing references keep working. */
+  /* §6 easings — identical curves to BUI's @theme; --ease stays as the legacy alias. */
   --ease-out-strong: cubic-bezier(.23,1,.32,1);
   --ease-in-out-strong: cubic-bezier(.77,0,.175,1);
   --ease: var(--ease-out-strong);
+}
+/* The per-mode residue: the three tokens whose dark/light values do not flow from a BUI var. */
+:root[data-mode="light"] {
+  --rl-hover: oklch(0 0 0 / 0.05);
+  --rl-active: oklch(0 0 0 / 0.07);
+  --rl-shadow: var(--shadow-lg);                 /* shadow-plugin's smooth lg stack (BUI light --shadow-overlay, shadow half) */
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font: 14px/1.5 var(--font-ui); -webkit-font-smoothing: antialiased; }
@@ -61,9 +116,10 @@ kbd { font: 11px var(--font-mono); }
 
 /* ── Sidebar (one step darker than the content ground, behind a 1px divider) ── */
 .app { display: flex; height: 100%; background: transparent; }
+/* §5 + Plan 9 W1: the sidebar paints the BUI window ground (--page) at ~0.82 so the macOS
+   vibrancy material shows through; --page flips with data-mode, so one rule serves both themes. */
 .sidebar { width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
-  background: rgba(18,18,18,.82); border-right: 1px solid var(--rl-hairline); -webkit-app-region: drag; }
-:root[data-mode="light"] .sidebar { background: rgba(244,244,244,.82); }
+  background: color-mix(in srgb, var(--page) 82%, transparent); border-right: 1px solid var(--rl-hairline); -webkit-app-region: drag; }
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
 .sb-top { padding: 40px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
 .search { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border-radius: var(--r-ctl);
@@ -313,7 +369,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-float); overflow: hidden; background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--rl-edge), var(--rl-shadow); }
 .palette-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-dim); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
-.palette-input kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: 4px; } /* kbd chips keep line-strong (§3) */
+.palette-input kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
 .palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
 .palette-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-ctl); cursor: pointer; }
 .palette-opt.selected, .palette-opt:hover { background: var(--rl-hover); }
@@ -321,7 +377,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-sec { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
 .palette-sec:not(:first-child) { margin-top: 4px; }
 .palette-hint .item-glyph { display: inline-grid; vertical-align: middle; }
-.palette-hint kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: 4px; }
+.palette-hint kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { font-size: 11px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
@@ -358,7 +414,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .msg-user-row:first-child { margin-top: 0; }
 /* Ara refresh §4: the user's message is a raised card on the column's RIGHT edge — radius 14,
    14px 16px padding, 85% max — and, copying Ara exactly, ragged-left (text-align: right). */
-.msg-user { max-width: 85%; padding: 14px 16px; border-radius: 14px; background: var(--rl-raised); text-align: right;
+.msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: right;
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Ara refresh §4: assistant prose is plain — 15px/1.6, no card. */
 .msg-assistant { max-width: 72ch; font-size: 15px; line-height: 1.6; }
@@ -366,10 +422,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .msg-assistant.md { line-height: 1.6; }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; } .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
+/* Tailwind v4 preflight strips list markers app-wide; markdown lists must keep theirs. */
+.md ul { list-style: disc; } .md ol { list-style: decimal; }
 /* Heading scale per audit T2: h1 17/650 tightened, h2 15/650, h3 13/600 differentiated by colour. */
 .md h1, .md h2, .md h3, .md h4 { margin: 12px 0 6px; font-weight: 600; line-height: 1.3; }
 .md h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; } .md h2 { font-size: 15px; font-weight: 650; } .md h3 { font-size: 13px; color: var(--rl-text-bright); }
-.md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: 4px; background: var(--rl-raised); }
+.md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip); background: var(--rl-raised); }
 .md pre { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--rl-frame); overflow-x: auto; }
 .md pre code { padding: 0; background: none; }
 .md a { color: var(--rl-accent); text-decoration: underline; text-underline-offset: 2px; } /* Ara refresh §4: ink underline, no hue */
@@ -455,7 +513,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .permission-option[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: 550; }
 .permission-option[data-decision="deny"][data-selected] { color: var(--rl-danger); }
 .permission-option-label { flex: 1; min-width: 0; }
-.permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 4px;
+.permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-chip);
   background: var(--rl-hover); color: var(--rl-text-faint); font-size: 10.5px; flex: none; }
 .permission-option[data-selected] .permission-num { color: var(--rl-text-bright); }
 .permission-option-kbd { color: var(--rl-text-faint); font-size: 10px; flex: none; }
@@ -463,7 +521,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Footer (§5): navigation hints left, accent Submit pill right. */
 .permission-footer { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
 .permission-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
-.permission-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: 4px; font-size: 10px; }
+.permission-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 10px; }
 .permission-submit { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
 .permission-submit kbd { opacity: .7; }
 
@@ -589,7 +647,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Under-strip (§4): "Thinking…" shimmer tucked under the card's bottom edge while streaming —
    frame fill sliding out from beneath the card (z-index 1 on .composer keeps the card on top). */
 .composer-thinking { margin: -10px 10px 0; padding: 14px 14px 5px; background: var(--rl-frame);
-  border-radius: 0 0 10px 10px; font-size: 11px; color: var(--rl-text-dim); }
+  border-radius: 0 0 var(--r-panel) var(--r-panel); font-size: 11px; color: var(--rl-text-dim); }
 .composer-thinking span { display: inline-block; animation: rl-pulse 1.2s ease-in-out infinite; }
 /* ── Install card (§5 floating card) — what stands in for the prompter when the CLI can't run ── */
 /* It rides the prompter's own rails (.composer-dock), so hero vs docked positioning is already right. */
