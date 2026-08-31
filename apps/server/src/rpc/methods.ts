@@ -9,6 +9,9 @@ import type { EnvironmentService } from "../environments/service";
 import type { CheckpointService } from "../checkpoints/service";
 import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
+import type { SkillsService } from "../skills/service";
+import type { McpService } from "../mcp/service";
+import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
 import type { GitInfoService } from "../workspace/git-info";
@@ -23,7 +26,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; memory: MemoryService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -69,6 +72,73 @@ export function registerMethods(d: Deps): void {
 
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("settings.set", (p) => { d.settings.set(p.key, p.value); return { ok: true as const }; });
+
+  // Both check the space exists: the enabled set is keyed by space id, so a typo would silently read and
+  // write preferences for a space that is not there rather than saying so.
+  reg("skills.list", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.skills.list(p.spaceId);
+  });
+  reg("skills.setEnabled", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.skills.setEnabled(p.spaceId, p.id, p.enabled);
+    rpc.broadcast("skills.changed", { spaceId: p.spaceId });
+    return { ok: true as const };
+  });
+
+  // Every one of these checks the space exists first, for the same reason the skills pair does: the
+  // enable set is keyed by space id, so a typo would silently read and write preferences for a space
+  // that is not there rather than saying so.
+  reg("mcp.list", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.mcp.list(p.spaceId);
+  });
+  reg("mcp.add", (p) => {
+    if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const server = d.mcp.add(p, p.spaceId);
+    rpc.broadcast("mcp.changed", {});
+    return server;
+  });
+  reg("mcp.update", (p) => {
+    if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const server = d.mcp.update(p.id, p, p.spaceId);
+    rpc.broadcast("mcp.changed", {});
+    return server;
+  });
+  reg("mcp.remove", (p) => {
+    d.mcp.remove(p.id, d.spaces.listAll().map((s) => s.id));
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
+  reg("mcp.setEnabled", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.mcp.setEnabled(p.spaceId, p.id, p.enabled);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
+
+  // Space existence is checked for the same reason the skills and mcp handlers do it: the memory doc,
+  // its settings flag and the AGENTS.md target are all keyed by space id, so a typo would silently
+  // read and write another space's memory rather than saying so.
+  reg("memory.get", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.memory.state(p.spaceId);
+  });
+  reg("memory.set", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const r = d.memory.set(p.spaceId, p.doc);
+    rpc.broadcast("memory.changed", { spaceId: p.spaceId });
+    return r;
+  });
+  reg("memory.setAgentsFile", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const r = d.memory.setAgentsFile(p.spaceId, p.enabled);
+    rpc.broadcast("memory.changed", { spaceId: p.spaceId });
+    return r;
+  });
+  // Per-session on purpose: the SessionService joins the session row (agent kind, space, cwd) to the
+  // ground truth that belongs to that session and no other.
+  reg("memory.sources", (p) => d.sessions.memorySources(p.sessionId));
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });

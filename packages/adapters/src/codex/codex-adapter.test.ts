@@ -1,7 +1,10 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
-import { CodexAdapter, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
+import { CodexAdapter, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
 import type { AgentHandle, StartOptions } from "../types";
 
 /**
@@ -188,7 +191,7 @@ describe("CodexAdapter", () => {
   it("passes mcp servers through config.mcp_servers", async () => {
     const { handle, evs } = await booted({
       model: "reflect",
-      mcpServers: [{ name: "realm", command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1" } }],
+      mcpServers: [{ name: "realm", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1" } }],
     });
     const params = JSON.parse(of(evs, "init")[0]!.payload.model) as { config: { mcp_servers: Record<string, unknown> } };
     expect(params.config.mcp_servers).toEqual({ realm: { command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1" } } });
@@ -666,5 +669,186 @@ describe("CodexAdapter", () => {
     await handle.dispose();
     await expect(handle.send({ text: "hi", attachments: [] })).resolves.toBeUndefined();
     expect(types(evs)).not.toContain("assistant_text");
+  });
+});
+
+/**
+ * `skills/extraRoots/set` is per-CONNECTION, not per-thread, and CodexAdapter shares one connection across
+ * every session — so these tests are as much about the union and the refcount as about the call itself.
+ * The live counterpart (against the real 0.146.0 binary) is `apps/server/scripts/live-skills-check.ts`.
+ */
+describe("CodexAdapter skills", () => {
+  const roots = async (adapter: CodexAdapter) =>
+    (await (await adapter.connection!).request<{ extraRoots: string[] | null; calls: number }>("$test/extraRoots"));
+
+  it("sets the session's skills root on the connection once the thread exists", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } }));
+    const { evs } = drain(handle);
+    await waitFor(() => expect(types(evs)).toContain("init"));
+    await waitFor(async () => expect((await roots(adapter)).extraRoots).toEqual(["/tmp/realm-plugin/skills"]));
+  });
+
+  it("never calls it at all for a session with no skills", async () => {
+    const { adapter, evs } = await booted();
+    expect(types(evs)).toContain("init");
+    expect((await roots(adapter)).calls).toBe(0);
+    expect(adapter.extraRootCount).toBe(0);
+  });
+
+  it("unions the roots of every live session and drops each one as its session ends", async () => {
+    const adapter = newAdapter();
+    const a = adapter.start(startOpts({ skills: { pluginPath: "/tmp/a", root: "/tmp/a/skills" } }));
+    const evsA = drain(a).evs;
+    await waitFor(() => expect(types(evsA)).toContain("init"));
+    const b = adapter.start(startOpts({ skills: { pluginPath: "/tmp/b", root: "/tmp/b/skills" } }));
+    const evsB = drain(b).evs;
+    await waitFor(() => expect(types(evsB)).toContain("init"));
+    await waitFor(async () => expect((await roots(adapter)).extraRoots).toEqual(["/tmp/a/skills", "/tmp/b/skills"]));
+    // One session ending must not take the other's skills away with it.
+    await b.dispose();
+    await waitFor(async () => expect((await roots(adapter)).extraRoots).toEqual(["/tmp/a/skills"]));
+    expect(adapter.extraRootCount).toBe(1);
+  });
+
+  it("counts two sessions sharing one root and only drops it when the last of them goes", async () => {
+    const adapter = newAdapter();
+    const skills = { pluginPath: "/tmp/same", root: "/tmp/same/skills" };
+    const a = adapter.start(startOpts({ skills }));
+    const evsA = drain(a).evs;
+    await waitFor(() => expect(types(evsA)).toContain("init"));
+    const b = adapter.start(startOpts({ skills }));
+    const evsB = drain(b).evs;
+    await waitFor(() => expect(types(evsB)).toContain("init"));
+    expect(adapter.extraRootCount).toBe(1);
+    await b.dispose();
+    await waitFor(async () => expect((await roots(adapter)).extraRoots).toEqual(["/tmp/same/skills"]));
+  });
+
+  it("starts the session anyway on a codex build that has no skills/extraRoots/set", async () => {
+    // The whole point of the feature detection: this machine runs a preview build ahead of the public
+    // release, so -32601 is the expected answer from an older binary and must cost the user nothing but skills.
+    const adapter = newAdapter();
+    const logs: string[] = [];
+    const handle = adapter.start(startOpts({
+      env: { FAKE_CODEX_NO_EXTRA_ROOTS: "1" },
+      skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" },
+      onLog: (l) => logs.push(l),
+    }));
+    const { evs } = drain(handle);
+    await waitFor(() => expect(types(evs)).toContain("init"));
+    expect(statuses(evs)).toContain("idle");
+    expect(types(evs)).not.toContain("error");
+    await waitFor(() => expect(logs.join("\n")).toContain("no skills/extraRoots/set"));
+    expect(adapter.skillsSupported).toBe(false);
+    // Sticky: a second session must not pay for the same round trip to learn the same thing.
+    const before = logs.length;
+    const b = adapter.start(startOpts({ env: { FAKE_CODEX_NO_EXTRA_ROOTS: "1" }, skills: { pluginPath: "/tmp/b", root: "/tmp/b/skills" }, onLog: (l) => logs.push(l) }));
+    const evsB = drain(b).evs;
+    await waitFor(() => expect(types(evsB)).toContain("init"));
+    expect(logs.slice(before).join("\n")).not.toContain("no skills/extraRoots/set");
+    // And the turn still runs.
+    await b.send({ text: "hello", attachments: [] });
+    await waitFor(() => expect(texts(evsB).join("")).toContain("hello"));
+  });
+
+  it("starts the session anyway when the method exists but fails", async () => {
+    const adapter = newAdapter();
+    const logs: string[] = [];
+    const handle = adapter.start(startOpts({
+      env: { FAKE_CODEX_EXTRA_ROOTS_FAIL: "1" },
+      skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" },
+      onLog: (l) => logs.push(l),
+    }));
+    const { evs } = drain(handle);
+    await waitFor(() => expect(types(evs)).toContain("init"));
+    expect(types(evs)).not.toContain("error");
+    await waitFor(() => expect(logs.join("\n")).toContain("skills/extraRoots/set failed"));
+    // A transient failure is not a missing method: the next session must try again.
+    expect(adapter.skillsSupported).toBe(true);
+    await handle.send({ text: "hello", attachments: [] });
+    await waitFor(() => expect(texts(evs).join("")).toContain("hello"));
+  });
+});
+
+describe("codexMcpConfig", () => {
+  const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
+  const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
+  const sse = { name: "legacy", transport: "sse" as const, url: "https://sse.example/mcp", headers: { A: "b" } };
+
+  it("writes a stdio server as command/args/env under its name", () => {
+    expect(codexMcpConfig([stdio])).toEqual({ mcp_servers: { airtable: { command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } } });
+  });
+
+  it("writes an http server as url/http_headers — Codex's own key, not `headers`", () => {
+    expect(codexMcpConfig([http])).toEqual({ mcp_servers: { vercel: { url: "https://mcp.vercel.com", http_headers: { Authorization: "Bearer t" } } } });
+  });
+
+  it("drops an sse server entirely and says so, because Codex has no SSE transport", () => {
+    const lines: string[] = [];
+    expect(codexMcpConfig([sse], (l) => lines.push(l))).toBeUndefined();
+    expect(lines.join("")).toContain('"legacy"');
+    // `thread/start` does not validate `config` keys, so a wrong shape here would be accepted in
+    // silence — which is why it must never be produced.
+    expect(JSON.stringify(codexMcpConfig([stdio, sse]))).not.toContain("legacy");
+  });
+
+  it("omits empty args and env rather than sending empty collections", () => {
+    const bare = { name: "bare", transport: "stdio" as const, command: "/bin/x", args: [], env: {} };
+    expect(codexMcpConfig([bare])).toEqual({ mcp_servers: { bare: { command: "/bin/x" } } });
+  });
+
+  it("is undefined when nothing survives, so `config` is omitted from thread/start", () => {
+    expect(codexMcpConfig([])).toBeUndefined();
+  });
+});
+
+/**
+ * W3's memory channel on Codex: the same `StartOptions.systemContext` the Claude adapter appends to its
+ * system prompt goes to Codex as `thread/start` `developerInstructions` — and the start response's
+ * `instructionSources` (the exact files Codex loaded) comes back on this session's init event.
+ * `model: "reflect"` makes the fixture echo the whole thread/start params as the model string, which is
+ * how the tests see exactly what went on the wire.
+ */
+describe("CodexAdapter memory", () => {
+  const reflected = (evs: SessionEvent[]) => JSON.parse(of(evs, "init")[0]!.payload.model) as Record<string, unknown>;
+
+  it("sends systemContext as developerInstructions on thread/start", async () => {
+    const { evs } = await booted({ model: "reflect", systemContext: "REALM CONTEXT 4417" });
+    expect(reflected(evs).developerInstructions).toBe("REALM CONTEXT 4417");
+  });
+
+  it("omits the field entirely when there is no context, rather than sending an empty string", async () => {
+    const { evs } = await booted({ model: "reflect" });
+    expect("developerInstructions" in reflected(evs)).toBe(false);
+  });
+
+  it("does not send it on thread/resume — a resumed thread keeps what it was started with", async () => {
+    const { evs } = await booted({ model: "reflect", resume: "th_prior", systemContext: "REALM CONTEXT 4417" });
+    const params = reflected(evs);
+    expect(params.threadId).toBe("th_prior");
+    expect("developerInstructions" in params).toBe(false);
+  });
+
+  it("surfaces the thread's own instructionSources on init — each session gets its own thread's list", async () => {
+    // Two sessions on ONE adapter: the shared-process design is exactly where a cross-thread mixup would live.
+    // The spawn needs a real cwd (the first session's); the second thread's cwd is only a thread/start param.
+    const adapter = newAdapter();
+    const cwdA = mkdtempSync(join(tmpdir(), "realm-mem-a-"));
+    const cwdB = mkdtempSync(join(tmpdir(), "realm-mem-b-"));
+    const a = adapter.start(startOpts({ cwd: cwdA }));
+    const evsA = drain(a).evs;
+    const b = adapter.start(startOpts({ cwd: cwdB }));
+    const evsB = drain(b).evs;
+    await waitFor(() => expect(types(evsA)).toContain("init"));
+    await waitFor(() => expect(types(evsB)).toContain("init"));
+    // The fixture derives the list from cwd, so a cross-thread mixup would show as the wrong path here.
+    expect(of(evsA, "init")[0]!.payload.instructionSources).toEqual([`${cwdA}/AGENTS.md`]);
+    expect(of(evsB, "init")[0]!.payload.instructionSources).toEqual([`${cwdB}/AGENTS.md`]);
+  });
+
+  it("leaves instructionSources absent when the server does not report it (older build), not []", async () => {
+    const { evs } = await booted({ env: { FAKE_CODEX_NO_INSTRUCTION_SOURCES: "1" } });
+    expect("instructionSources" in of(evs, "init")[0]!.payload).toBe(false);
   });
 });

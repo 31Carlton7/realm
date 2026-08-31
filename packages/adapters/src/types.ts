@@ -1,6 +1,41 @@
 import type { AgentKind, SessionEvent } from "@realm/contracts";
 
-export type McpStdioConfig = { name: string; command: string; args?: string[]; env?: Record<string, string> };
+/**
+ * One MCP server on its way to an agent, secrets and all.
+ *
+ * This is the ONLY shape a secret value travels in. It is built per session by `McpService.configFor`
+ * and handed straight to an adapter; nothing persists it, logs it, or puts it on an event.
+ *
+ * Every adapter must filter by `transport` against `AGENT_MCP_TRANSPORTS` before translating — Codex
+ * has no SSE, and an SSE server passed to it as though it were HTTP would connect to nothing while
+ * looking configured.
+ */
+export type McpServerConfig =
+  | { name: string; transport: "stdio"; command: string; args: string[]; env: Record<string, string> }
+  | { name: string; transport: "http" | "sse"; url: string; headers: Record<string, string> };
+
+/**
+ * Realm's skills library, handed to an agent **per invocation**. Nothing is ever written into
+ * `~/.claude`, `~/.codex`, `~/.cursor` or `~/.agents` — the two routes below are the whole mechanism.
+ *
+ * The server stages one directory per space that is simultaneously both shapes, because the two agents
+ * want the same tree from different heights:
+ *
+ *   <staged>/                      ← `pluginPath`: a Claude local plugin
+ *     .claude-plugin/plugin.json
+ *     skills/                      ← `root`: a Codex extra skills root
+ *       <id>/SKILL.md              (a symlink to <realmHome>/skills/<id>; both agents follow it)
+ *
+ * Absent (`undefined`) means "Realm is not managing skills for this session" — every adapter must then
+ * behave exactly as it did before this option existed. That is not the same as an empty library: see
+ * ClaudeAdapter, where being handed a library also isolates the session from the user's own settings.
+ */
+export type SkillsInjection = {
+  /** Claude Code: `plugins: [{ type: "local", path: pluginPath }]`. */
+  pluginPath: string;
+  /** Codex: `skills/extraRoots/set { extraRoots: [root] }`. Contains `<id>/SKILL.md` directly. */
+  root: string;
+};
 
 export type StartOptions = {
   cwd: string;
@@ -8,7 +43,12 @@ export type StartOptions = {
   effort?: string | null;
   permissionMode?: string;
   systemContext?: string;
-  mcpServers: McpStdioConfig[];
+  /** This space's enabled servers. Each adapter drops the transports its agent cannot reach and says so
+   *  through `onLog`; a server that is silently absent is the failure this option exists to prevent. */
+  mcpServers: McpServerConfig[];
+  /** Omitted for agents Realm cannot inject skills into (see AGENT_SKILL_SUPPORT), and for a space
+   *  whose enabled skill set is empty. */
+  skills?: SkillsInjection;
   resume?: string | null;
   env?: Record<string, string>;
   /** Diagnostic sink for provider stderr / log lines. */

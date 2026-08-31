@@ -4,9 +4,27 @@ import { MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent } from "@r
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper } from "./map-sdk-message";
 import { probeClaude } from "./probe";
-import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { selectMcpServers } from "../mcp-transport";
+import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type QueryFn = typeof sdkQuery;
+
+/**
+ * `Options.mcpServers` for the SDK: a record keyed by name (`sdk.d.ts:1734`), whose members are the
+ * three process transports — `{type:'stdio',command,args,env}` and `{type:'http'|'sse',url,headers}`.
+ *
+ * Claude is the one agent that takes all three, so nothing is ever dropped here in practice; the filter
+ * stays because `AGENT_MCP_TRANSPORTS` is the single source of truth for which agent takes what, and an
+ * adapter that decides for itself is one that can disagree with the UI.
+ */
+export function claudeMcpServers(servers: readonly McpServerConfig[], onLog?: (line: string) => void): Record<string, unknown> {
+  return Object.fromEntries(selectMcpServers("claude", servers, onLog).map((s) => [
+    s.name,
+    s.transport === "stdio"
+      ? { type: "stdio" as const, command: s.command, args: s.args, env: s.env }
+      : { type: s.transport, url: s.url, headers: s.headers },
+  ]));
+}
 
 const STDERR_TAIL_LINES = 50;
 const DISPOSE_TIMEOUT_MS = 3000;
@@ -80,7 +98,23 @@ export class ClaudeAdapter implements AgentAdapter {
       abortController: abort,
       resume: opts.resume ?? undefined,
       systemPrompt: opts.systemContext ? { type: "preset", preset: "claude_code", append: opts.systemContext } : undefined,
-      mcpServers: Object.fromEntries(opts.mcpServers.map((s) => [s.name, { type: "stdio" as const, command: s.command, args: s.args, env: s.env }])),
+      // A RECORD keyed by name, not an array: `sdk.d.ts` `mcpServers?: Record<string, McpServerConfig>`.
+      // Some documentation shows an array; disk wins.
+      mcpServers: claudeMcpServers(opts.mcpServers, opts.onLog) as Options["mcpServers"],
+      // Realm's skills library as a local plugin, and `settingSources: []` so it is the ONLY library
+      // this session has. The two go together and neither works alone for what Realm wants:
+      //
+      //   - without `plugins`, there is no way to add a skills directory at all;
+      //   - without `settingSources: []`, the user's own `~/.claude/skills` (29 of them here) load
+      //     alongside Realm's, so the library the UI lists is not the library the agent has.
+      //
+      // Proven live in scripts/live-skills-check.ts: this shape surfaces `realm:<id>` and leaks nothing;
+      // dropping `settingSources` takes the command count from 53 to 147.
+      //
+      // The cost is real and deliberate: `settingSources: []` also drops the user's `~/.claude/CLAUDE.md`
+      // and the repo's `.claude/` settings. That is why the option is only present when the space
+      // actually has enabled skills — a space that manages none is left exactly as it was.
+      ...(opts.skills ? { settingSources: [], plugins: [{ type: "local" as const, path: opts.skills.pluginPath, skipMcpDiscovery: true }] } : {}),
       env: { ...process.env, ...opts.env },
       stderr: onStderr,
       pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,

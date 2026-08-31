@@ -5,4 +5,7 @@ export * from "./layout";
 export * from "./rpc";
 export * from "./presets";
 export * from "./attachments";
+export * from "./skills";
+export * from "./mcp";
+export * from "./memory";
 export * from "./session-events";

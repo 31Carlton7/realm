@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, realpath, symlink, truncate, writeFile } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
-import { AcpAdapter, acpBootFailureMessage, MAX_FS_READ_BYTES, pickAcpOption, sliceLines, type AcpAgentSpec } from "./acp-adapter";
+import { AcpAdapter, acpBootFailureMessage, acpMcpServers, MAX_FS_READ_BYTES, pickAcpOption, sliceLines, type AcpAgentSpec } from "./acp-adapter";
 import { JsonRpcCallError } from "../jsonrpc/stdio";
 import type { AgentHandle, StartOptions } from "../types";
 
@@ -543,7 +543,7 @@ describe("AcpAdapter", () => {
   });
 
   it("sends mcp servers with env as name/value pairs, not a record", async () => {
-    const { handle, evs } = await booted({ mcpServers: [{ name: "realm", command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1", B: "2" } }] });
+    const { handle, evs } = await booted({ mcpServers: [{ name: "realm", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1", B: "2" } }] });
     await turn(handle, evs, "REVEAL");
     const journal = JSON.parse(texts(evs)[0]!) as { newParams: { cwd: string; mcpServers: unknown[] } };
     expect(journal.newParams.mcpServers).toEqual([
@@ -788,5 +788,46 @@ describe("AcpAdapter", () => {
     expect(types(evs)).not.toContain("permission_request");
     expect(statuses(evs)).not.toContain("waiting_permission");
     await handle.dispose();
+  });
+});
+
+describe("acpMcpServers", () => {
+  const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { A: "1", B: "2" } };
+  const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
+  const sse = { name: "legacy", transport: "sse" as const, url: "https://sse.example/mcp", headers: {} };
+
+  it("sends stdio env as an ARRAY of name/value pairs, not a record", () => {
+    // The named mutant. Cursor validates with zod before its own lenient normalizer runs, so a record
+    // here is rejected `invalid_union` and session/new fails outright — proven live in
+    // scripts/live-mcp-check.ts, which watches the fixture server's env verdict.
+    const [out] = acpMcpServers("acp:cursor", [stdio]) as [Record<string, unknown>];
+    expect(out.env).toEqual([{ name: "A", value: "1" }, { name: "B", value: "2" }]);
+    expect(Array.isArray(out.env)).toBe(true);
+  });
+
+  it("keeps args and env present even when empty — both are required, not optional", () => {
+    const [out] = acpMcpServers("acp:cursor", [{ name: "bare", transport: "stdio", command: "/bin/x", args: [], env: {} }]) as [Record<string, unknown>];
+    expect(out).toEqual({ name: "bare", command: "/bin/x", args: [], env: [] });
+  });
+
+  it("gives the stdio variant no `type` discriminant, and the remote ones one", () => {
+    expect(acpMcpServers("acp:cursor", [stdio])[0]).not.toHaveProperty("type");
+    expect(acpMcpServers("acp:cursor", [http])).toEqual([
+      { type: "http", name: "vercel", url: "https://mcp.vercel.com", headers: [{ name: "Authorization", value: "Bearer t" }] },
+    ]);
+    expect(acpMcpServers("acp:cursor", [sse])).toEqual([{ type: "sse", name: "legacy", url: "https://sse.example/mcp", headers: [] }]);
+  });
+
+  it("believes the handshake over the static table when a build advertises less", () => {
+    const lines: string[] = [];
+    // An agent that omits mcpCapabilities is saying stdio only. Sending it an http server would fail
+    // session/new for the whole session, not just that server.
+    expect(acpMcpServers("acp:cursor", [stdio, http, sse], {}, (l) => lines.push(l)).map((s) => s.name)).toEqual(["airtable"]);
+    expect(lines.join("\n")).toContain("mcpCapabilities.http");
+    expect(acpMcpServers("acp:cursor", [http, sse], { http: true }).map((s) => s.name)).toEqual(["vercel"]);
+  });
+
+  it("assumes both when nothing is passed, which is what both installed agents advertise", () => {
+    expect(acpMcpServers("acp:cursor", [stdio, http, sse])).toHaveLength(3);
   });
 });

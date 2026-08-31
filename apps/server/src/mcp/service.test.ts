@@ -1,0 +1,142 @@
+import { describe, expect, it, beforeEach } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openDatabase } from "../db/database";
+import { SettingsStore } from "../store/settings";
+import { McpServersStore } from "../store/mcp";
+import { McpService } from "./service";
+
+const WORK = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const SCHOOL = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
+/** Never a real key, and never printed: every assertion below is about it NOT being somewhere. */
+const KEY = "pat-do-not-leak-me";
+
+let mcp: McpService;
+beforeEach(() => {
+  const db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-mcp-")), "realm.db"));
+  mcp = new McpService({ servers: new McpServersStore(db), settings: new SettingsStore(db) });
+});
+
+const stdio = (name: string) => ({ name, transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { AIRTABLE_API_KEY: KEY } });
+const http = (name: string) => ({ name, transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: `Bearer ${KEY}` } });
+
+describe("per-space scoping", () => {
+  it("enables a new server ONLY in the space it was added from", () => {
+    // The deliberate inversion of W1's disabled-set: an MCP server is a process to spawn or a URL to
+    // send a key to, so it must not arm itself in a space the user never opened it in.
+    const s = mcp.add(stdio("airtable"), WORK);
+    expect(s.enabled).toBe(true);
+    expect(mcp.list(WORK).servers.map((x) => [x.name, x.enabled])).toEqual([["airtable", true]]);
+    expect(mcp.list(SCHOOL).servers.map((x) => [x.name, x.enabled])).toEqual([["airtable", false]]);
+  });
+
+  it("enables it nowhere when no space is named", () => {
+    mcp.add(stdio("airtable"), null);
+    expect(mcp.list(WORK).servers[0]!.enabled).toBe(false);
+    expect(mcp.configFor(WORK)).toEqual([]);
+  });
+
+  it("keeps one space's servers out of another's session config", () => {
+    // The named mutant: key the enable set on anything but the space id and this leaks.
+    const a = mcp.add(stdio("work_only"), WORK);
+    mcp.add(stdio("school_only"), SCHOOL);
+    expect(mcp.configFor(WORK).map((s) => s.name)).toEqual(["work_only"]);
+    expect(mcp.configFor(SCHOOL).map((s) => s.name)).toEqual(["school_only"]);
+    mcp.setEnabled(SCHOOL, a.id, true);
+    expect(mcp.configFor(SCHOOL).map((s) => s.name).sort()).toEqual(["school_only", "work_only"]);
+  });
+
+  it("stops passing a server the moment it is disabled", () => {
+    // The named mutant: a disabled server still passed.
+    const s = mcp.add(stdio("airtable"), WORK);
+    expect(mcp.configFor(WORK)).toHaveLength(1);
+    mcp.setEnabled(WORK, s.id, false);
+    expect(mcp.configFor(WORK)).toEqual([]);
+    expect(mcp.list(WORK).servers[0]!.enabled).toBe(false);
+  });
+
+  it("forgets every space's opt-in when the server is removed, so a re-add starts off", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    mcp.setEnabled(SCHOOL, s.id, true);
+    mcp.remove(s.id, [WORK, SCHOOL]);
+    expect(mcp.list(WORK).servers).toEqual([]);
+    // Same id would be impossible, but the stale entry must not linger to poison an unrelated one.
+    expect(mcp.isEnabled(WORK, s.id)).toBe(false);
+    expect(mcp.isEnabled(SCHOOL, s.id)).toBe(false);
+  });
+});
+
+describe("secrets", () => {
+  it("never returns a secret value from list()", () => {
+    // The named mutant: put `env` on McpServerSchema (or stop projecting) and this fails.
+    mcp.add(stdio("airtable"), WORK);
+    mcp.add(http("vercel"), WORK);
+    const listed = mcp.list(WORK);
+    expect(JSON.stringify(listed)).not.toContain(KEY);
+    expect(listed.servers.map((s) => [s.envKeys, s.headerKeys])).toEqual([[["AIRTABLE_API_KEY"], []], [[], ["Authorization"]]]);
+  });
+
+  it("never returns one from add() or update() either", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    expect(JSON.stringify(s)).not.toContain(KEY);
+    expect(JSON.stringify(mcp.update(s.id, { name: "renamed" }, WORK))).not.toContain(KEY);
+  });
+
+  it("does deliver the value to configFor — the one exit that exists", () => {
+    mcp.add(stdio("airtable"), WORK);
+    const [cfg] = mcp.configFor(WORK);
+    expect(cfg).toMatchObject({ transport: "stdio", env: { AIRTABLE_API_KEY: KEY } });
+  });
+
+  it("keeps a stored key when an edit omits env, because a client was never given it to send back", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    mcp.update(s.id, { name: "airtable2", args: ["/abs/other.mjs"] }, WORK);
+    expect(mcp.configFor(WORK)[0]).toMatchObject({ name: "airtable2", args: ["/abs/other.mjs"], env: { AIRTABLE_API_KEY: KEY } });
+  });
+
+  it("replaces the whole map when env IS passed, which is how a key is removed", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    mcp.update(s.id, { env: {} }, WORK);
+    expect(mcp.configFor(WORK)[0]).toMatchObject({ env: {} });
+    expect(mcp.list(WORK).servers[0]!.envKeys).toEqual([]);
+  });
+});
+
+describe("definitions", () => {
+  it("carries nothing across a transport switch", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    const after = mcp.update(s.id, { transport: "http", url: "https://mcp.vercel.com" }, WORK);
+    expect(after).toMatchObject({ transport: "http", command: "", args: [], url: "https://mcp.vercel.com" });
+    // The old env keys would be meaningless as headers, and keeping them would silently ship an API key
+    // to a host in a header nobody chose.
+    expect(after.headerKeys).toEqual([]);
+    expect(JSON.stringify(mcp.configFor(WORK))).not.toContain(KEY);
+  });
+
+  it("refuses a definition that cannot connect to anything", () => {
+    expect(() => mcp.add({ name: "empty", transport: "stdio" }, WORK)).toThrow(/needs a command/);
+    expect(() => mcp.add({ name: "empty", transport: "http" }, WORK)).toThrow(/needs a url/);
+    expect(() => mcp.add({ name: "empty", transport: "sse" }, WORK)).toThrow(/needs a url/);
+    expect(mcp.list(WORK).servers).toEqual([]);
+  });
+
+  it("refuses to strand an existing server by editing its endpoint away", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    expect(() => mcp.update(s.id, { command: "" }, WORK)).toThrow(/needs a command/);
+    expect(mcp.configFor(WORK)[0]).toMatchObject({ command: "/usr/bin/node" });
+  });
+
+  it("refuses a duplicate name, because a name is the key every agent addresses it by", () => {
+    mcp.add(stdio("airtable"), WORK);
+    expect(() => mcp.add(stdio("airtable"), WORK)).toThrow(/already exists/);
+    const other = mcp.add(stdio("other"), WORK);
+    expect(() => mcp.update(other.id, { name: "airtable" }, WORK)).toThrow(/already exists/);
+    // Renaming to its own name is not a clash.
+    expect(mcp.update(other.id, { name: "other" }, WORK).name).toBe("other");
+  });
+
+  it("reports an unknown id rather than creating one", () => {
+    expect(() => mcp.update("01ARZ3NDEKTSV4RRFFQ69G5FAZ", { name: "x" })).toThrow(/not found/);
+  });
+});

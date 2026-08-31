@@ -101,6 +101,16 @@ export class SessionEventsStore {
     }
     return [...open];
   }
+  /** The newest persisted event of one type, or null. Skips rows that fail schema validation. */
+  lastOfType(sessionId: string, type: SessionEvent["type"]): SessionEvent | null {
+    const r = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1")
+      .get(sessionId, type) as EventRow | undefined;
+    if (!r) return null;
+    let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { return null; }
+    const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
+    return p.success ? p.data : null;
+  }
+
   /** Events with seq > afterSeq, ascending. Rows that fail schema validation (e.g. from an older build) are skipped. */
   listAfter(sessionId: string, afterSeq: number, limit: number): StoredSessionEvent[] {
     const rows = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?").all(sessionId, afterSeq, limit) as EventRow[];

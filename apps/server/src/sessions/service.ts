@@ -13,6 +13,10 @@ import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
 import type { CheckpointService } from "../checkpoints/service";
 import { ProbeCache } from "./probe-cache";
+import type { SkillsService } from "../skills/service";
+import type { McpService } from "../mcp/service";
+import type { MemoryService } from "../memory/service";
+import type { MemorySources } from "@realm/contracts";
 
 const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
 export const TITLE_MAX = 40;
@@ -35,7 +39,7 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; checkpoints?: CheckpointService }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; mcp: McpService; memory: MemoryService; checkpoints?: CheckpointService }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
@@ -249,6 +253,22 @@ export class SessionService {
     if (taken) this.d.rpc.broadcast("checkpoints.changed", { environmentId: taken.environmentId });
   }
 
+  /**
+   * What durable context this session's agent loads (memory.sources). The Codex report comes from THIS
+   * session's own persisted `init` event and nowhere else — the store query is keyed by the session id,
+   * which is what keeps one session's `instructionSources` from ever dressing up another's pane.
+   */
+  memorySources(id: string): MemorySources {
+    const s = this.get(id);
+    const skillsInjected = this.d.skills.wouldInject(s.spaceId, s.agentKind);
+    let reported: string[] | null = null;
+    if (s.agentKind === "codex") {
+      const ev = this.d.events.lastOfType(id, "init");
+      reported = ev?.type === "init" ? ev.payload.instructionSources ?? null : null;
+    }
+    return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, skillsInjected, reported });
+  }
+
   /** Whether any session in this environment holds a live adapter handle — what stops a restore
    *  rewriting a working tree under a running tool call. */
   isEnvironmentBusy(environmentId: string): boolean {
@@ -273,7 +293,26 @@ export class SessionService {
     // The environment's port block, read back off the row that ensurePorts just settled: an agent
     // told to `pnpm dev` in a worktree starts on that worktree's ports, not on the space's.
     const env = this.d.environments.get(s.environmentId);
-    const handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers: [], resume: s.providerSessionId,
+    // Realm's skills library, staged for this space and handed over per-invocation (W1). Null for an
+    // agent that has no route for it and for a space with nothing enabled — and null must stay null
+    // rather than becoming an empty root, because on Claude the option's presence is also what isolates
+    // the session from the user's own settings.
+    const skills = this.d.skills.injectionFor(s.spaceId, s.agentKind) ?? undefined;
+    // This space's enabled MCP servers, resolved at start and handed over per-session (W2). Nothing is
+    // written to `~/.claude.json`, `~/.codex/config.toml` or `~/.cursor/mcp.json` to get them there.
+    //
+    // This is the ONLY place API keys leave the database, and they go straight into `adapter.start` —
+    // never onto an event, a broadcast or a log line. `onLog` below prints the SESSION id and the
+    // provider's own output; it never sees this array.
+    const mcpServers = this.d.mcp.configFor(s.spaceId);
+    // The session's durable context (W3): THIS space's Realm memory document, plus — when the skills
+    // injection above is active on a Claude session — the CLAUDE.md content that `settingSources: []`
+    // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
+    // isolation on, so the re-injection can never disagree with it.
+    const systemContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    const handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers, resume: s.providerSessionId,
+      skills,
+      systemContext,
       env: env ? portEnv(env) : {},
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`) });
     const pump = (async () => {

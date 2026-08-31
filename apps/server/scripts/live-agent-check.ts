@@ -14,6 +14,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { liveWorkspace } from "./live-workspace";
 import type { AgentKind, SessionEvent } from "@realm/contracts";
 import { createApp, defaultAdapters } from "../src/app";
 import { ProfilesStore } from "../src/store/profiles";
@@ -60,7 +61,10 @@ async function drain(read: () => SessionEvent[], from: number, timeoutMs: number
 
 async function main() {
   const home = mkdtempSync(join(tmpdir(), "realm-live-"));
-  const work = mkdtempSync(join(tmpdir(), "realm-work-"));
+  // A FIXED path, not a mkdtemp: codex records every cwd it starts a thread in as a trusted project in
+  // the user's ~/.codex/config.toml and offers no way to opt out, so a per-run temp directory leaves a
+  // dead entry behind on every run. See live-workspace.ts for the whole finding.
+  const work = liveWorkspace();
   writeFileSync(join(work, "NOTES.txt"), "realm live check\n");
 
   const app = await createApp({ home, port: 0, adapters: defaultAdapters() });
@@ -130,7 +134,7 @@ async function main() {
 
   await app.close();
   rmSync(home, { recursive: true, force: true });
-  rmSync(work, { recursive: true, force: true });
+  // `work` is deliberately left on disk: removing it is what turns codex's trust entry into a dead one.
   console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);
 }

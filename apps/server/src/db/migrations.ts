@@ -127,4 +127,26 @@ export const migrations: string[] = [
   CREATE INDEX checkpoints_environment ON checkpoints(environment_id, created_at DESC);
   CREATE INDEX checkpoints_session ON checkpoints(session_id, created_at DESC);
   `,
+  // v8 — MCP server definitions (Plan 8 W2). Global rows; which spaces use them is per-space state in
+  // `settings` (`mcp.enabled:<spaceId>`), the same split W1 used for skills.
+  //
+  // `name` is UNIQUE because it is the key every agent addresses the server by — a record key for
+  // Claude, a `[mcp_servers.NAME]` table for Codex, a `name` field for ACP. Two rows sharing a name
+  // would be one server on the wire, with whichever Realm serialized last silently winning.
+  //
+  // `secrets_json` is named for exactly what it is: the stdio `env` map or the http/sse header map,
+  // **in plain text**. Realm has no secret store, and this column is the whole of the honesty about
+  // that — see MCP_SECRET_STORAGE_NOTE, which every surface that takes a key must show. It is one
+  // column rather than two because a server has one kind or the other, never both.
+  `
+  CREATE TABLE mcp_servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    transport TEXT NOT NULL,
+    command TEXT NOT NULL DEFAULT '',
+    args_json TEXT NOT NULL DEFAULT '[]',
+    url TEXT NOT NULL DEFAULT '',
+    secrets_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  `,
 ];

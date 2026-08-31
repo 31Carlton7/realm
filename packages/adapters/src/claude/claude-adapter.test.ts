@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter } from "./claude-adapter";
+import { ClaudeAdapter, claudeMcpServers } from "./claude-adapter";
 import type { SessionEvent } from "@realm/contracts";
+import type { StartOptions } from "../types";
 import { readFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
 
@@ -188,5 +189,94 @@ describe("ClaudeAdapter", () => {
     await new Promise<void>((res) => { const t = setInterval(() => { if (types(seen).includes("usage")) { clearInterval(t); res(); } }, 5); });
     expect(statuses(seen).filter((s) => s === "idle")).toHaveLength(1);
     await h.dispose(); await c;
+  });
+});
+
+/**
+ * The two halves of Claude's skills channel, proven live in `apps/server/scripts/live-skills-check.ts`:
+ * `plugins` is what adds Realm's library, and `settingSources: []` is what stops the user's own 29 skills
+ * (and their `~/.claude/CLAUDE.md`) loading alongside it. Either one alone is a different product.
+ */
+describe("ClaudeAdapter skills", () => {
+  /** Captures the options object the SDK was called with, without running a turn. */
+  function capture(opts: Partial<StartOptions>) {
+    let seen: Record<string, unknown> | null = null;
+    const adapter = new ClaudeAdapter({
+      query: ((args: { options: Record<string, unknown> }) => {
+        seen = args.options;
+        const gen = (async function* () { /* no messages: nothing here needs a turn */ })();
+        return Object.assign(gen, { interrupt: async () => {}, setPermissionMode: async () => {}, setModel: async () => {} });
+      }) as never,
+    });
+    const handle = adapter.start({ cwd: "/tmp", mcpServers: [], ...opts });
+    return { handle, options: () => seen as unknown as Record<string, unknown> | null };
+  }
+
+  it("passes the staged plugin and isolates the session from the user's own settings", async () => {
+    const { handle, options } = capture({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await handle.send({ text: "hi", attachments: [] });
+    const o = options()!;
+    expect(o.plugins).toEqual([{ type: "local", path: "/tmp/realm-plugin", skipMcpDiscovery: true }]);
+    // Dropping this is the silent mutation: the session still works, and quietly loads every skill the
+    // user has installed on top of the library Realm's UI is listing.
+    expect(o.settingSources).toEqual([]);
+    await handle.dispose();
+  });
+
+  it("appends systemContext to the claude_code preset prompt — W3's memory channel, and the only route the user's CLAUDE.md has back into a settingSources: [] session", async () => {
+    const { handle, options } = capture({
+      systemContext: "REALM CONTEXT 4417",
+      skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" },
+    });
+    await handle.send({ text: "hi", attachments: [] });
+    // The preset base prompt must survive: replacing it instead of appending would cost far more than memory.
+    expect(options()!.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "REALM CONTEXT 4417" });
+    await handle.dispose();
+  });
+
+  it("leaves systemPrompt untouched when there is no context", async () => {
+    const { handle, options } = capture({});
+    await handle.send({ text: "hi", attachments: [] });
+    expect(options()!.systemPrompt).toBeUndefined();
+    await handle.dispose();
+  });
+
+  it("touches neither option when Realm is not managing this session's skills", async () => {
+    const { handle, options } = capture({});
+    await handle.send({ text: "hi", attachments: [] });
+    const o = options()!;
+    expect(o.plugins).toBeUndefined();
+    // Undefined, NOT []: the SDK reads an omitted settingSources as "all sources, like the CLI", which is
+    // what every Realm session did before skills existed and what a space with none must keep doing.
+    expect("settingSources" in o).toBe(false);
+    await handle.dispose();
+  });
+});
+
+describe("claudeMcpServers", () => {
+  const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
+  const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
+  const sse = { name: "legacy", transport: "sse" as const, url: "https://sse.example/mcp", headers: {} };
+
+  it("is a RECORD keyed by name, not an array (sdk.d.ts:1734 — some docs say otherwise)", () => {
+    const out = claudeMcpServers([stdio, http]);
+    expect(Array.isArray(out)).toBe(false);
+    expect(Object.keys(out)).toEqual(["airtable", "vercel"]);
+  });
+
+  it("tags each entry with its transport and carries only that transport's fields", () => {
+    expect(claudeMcpServers([stdio])).toEqual({ airtable: { type: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } });
+    expect(claudeMcpServers([http])).toEqual({ vercel: { type: "http", url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } } });
+    expect(claudeMcpServers([sse])).toEqual({ legacy: { type: "sse", url: "https://sse.example/mcp", headers: {} } });
+  });
+
+  it("drops nothing, because Claude is the one agent that takes all three", () => {
+    const lines: string[] = [];
+    expect(Object.keys(claudeMcpServers([stdio, http, sse], (l) => lines.push(l)))).toHaveLength(3);
+    expect(lines).toEqual([]);
+  });
+
+  it("is empty — not absent — when there is nothing configured", () => {
+    expect(claudeMcpServers([])).toEqual({});
   });
 });
