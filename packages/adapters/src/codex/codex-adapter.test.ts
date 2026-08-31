@@ -1,4 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
 import { CodexAdapter, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
@@ -797,5 +800,55 @@ describe("codexMcpConfig", () => {
 
   it("is undefined when nothing survives, so `config` is omitted from thread/start", () => {
     expect(codexMcpConfig([])).toBeUndefined();
+  });
+});
+
+/**
+ * W3's memory channel on Codex: the same `StartOptions.systemContext` the Claude adapter appends to its
+ * system prompt goes to Codex as `thread/start` `developerInstructions` — and the start response's
+ * `instructionSources` (the exact files Codex loaded) comes back on this session's init event.
+ * `model: "reflect"` makes the fixture echo the whole thread/start params as the model string, which is
+ * how the tests see exactly what went on the wire.
+ */
+describe("CodexAdapter memory", () => {
+  const reflected = (evs: SessionEvent[]) => JSON.parse(of(evs, "init")[0]!.payload.model) as Record<string, unknown>;
+
+  it("sends systemContext as developerInstructions on thread/start", async () => {
+    const { evs } = await booted({ model: "reflect", systemContext: "REALM CONTEXT 4417" });
+    expect(reflected(evs).developerInstructions).toBe("REALM CONTEXT 4417");
+  });
+
+  it("omits the field entirely when there is no context, rather than sending an empty string", async () => {
+    const { evs } = await booted({ model: "reflect" });
+    expect("developerInstructions" in reflected(evs)).toBe(false);
+  });
+
+  it("does not send it on thread/resume — a resumed thread keeps what it was started with", async () => {
+    const { evs } = await booted({ model: "reflect", resume: "th_prior", systemContext: "REALM CONTEXT 4417" });
+    const params = reflected(evs);
+    expect(params.threadId).toBe("th_prior");
+    expect("developerInstructions" in params).toBe(false);
+  });
+
+  it("surfaces the thread's own instructionSources on init — each session gets its own thread's list", async () => {
+    // Two sessions on ONE adapter: the shared-process design is exactly where a cross-thread mixup would live.
+    // The spawn needs a real cwd (the first session's); the second thread's cwd is only a thread/start param.
+    const adapter = newAdapter();
+    const cwdA = mkdtempSync(join(tmpdir(), "realm-mem-a-"));
+    const cwdB = mkdtempSync(join(tmpdir(), "realm-mem-b-"));
+    const a = adapter.start(startOpts({ cwd: cwdA }));
+    const evsA = drain(a).evs;
+    const b = adapter.start(startOpts({ cwd: cwdB }));
+    const evsB = drain(b).evs;
+    await waitFor(() => expect(types(evsA)).toContain("init"));
+    await waitFor(() => expect(types(evsB)).toContain("init"));
+    // The fixture derives the list from cwd, so a cross-thread mixup would show as the wrong path here.
+    expect(of(evsA, "init")[0]!.payload.instructionSources).toEqual([`${cwdA}/AGENTS.md`]);
+    expect(of(evsB, "init")[0]!.payload.instructionSources).toEqual([`${cwdB}/AGENTS.md`]);
+  });
+
+  it("leaves instructionSources absent when the server does not report it (older build), not []", async () => {
+    const { evs } = await booted({ env: { FAKE_CODEX_NO_INSTRUCTION_SOURCES: "1" } });
+    expect("instructionSources" in of(evs, "init")[0]!.payload).toBe(false);
   });
 });

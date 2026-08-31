@@ -223,6 +223,24 @@ describe("ClaudeAdapter skills", () => {
     await handle.dispose();
   });
 
+  it("appends systemContext to the claude_code preset prompt — W3's memory channel, and the only route the user's CLAUDE.md has back into a settingSources: [] session", async () => {
+    const { handle, options } = capture({
+      systemContext: "REALM CONTEXT 4417",
+      skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" },
+    });
+    await handle.send({ text: "hi", attachments: [] });
+    // The preset base prompt must survive: replacing it instead of appending would cost far more than memory.
+    expect(options()!.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "REALM CONTEXT 4417" });
+    await handle.dispose();
+  });
+
+  it("leaves systemPrompt untouched when there is no context", async () => {
+    const { handle, options } = capture({});
+    await handle.send({ text: "hi", attachments: [] });
+    expect(options()!.systemPrompt).toBeUndefined();
+    await handle.dispose();
+  });
+
   it("touches neither option when Realm is not managing this session's skills", async () => {
     const { handle, options } = capture({});
     await handle.send({ text: "hi", attachments: [] });
