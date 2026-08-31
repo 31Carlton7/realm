@@ -5,4 +5,5 @@ export * from "./layout";
 export * from "./rpc";
 export * from "./presets";
 export * from "./attachments";
+export * from "./skills";
 export * from "./session-events";

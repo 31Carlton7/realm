@@ -9,6 +9,7 @@ import type { EnvironmentService } from "../environments/service";
 import type { CheckpointService } from "../checkpoints/service";
 import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
+import type { SkillsService } from "../skills/service";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
 import type { GitInfoService } from "../workspace/git-info";
@@ -23,7 +24,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -69,6 +70,19 @@ export function registerMethods(d: Deps): void {
 
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("settings.set", (p) => { d.settings.set(p.key, p.value); return { ok: true as const }; });
+
+  // Both check the space exists: the enabled set is keyed by space id, so a typo would silently read and
+  // write preferences for a space that is not there rather than saying so.
+  reg("skills.list", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.skills.list(p.spaceId);
+  });
+  reg("skills.setEnabled", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.skills.setEnabled(p.spaceId, p.id, p.enabled);
+    rpc.broadcast("skills.changed", { spaceId: p.spaceId });
+    return { ok: true as const };
+  });
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });

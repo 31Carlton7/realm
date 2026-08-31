@@ -63,6 +63,17 @@ export function pickAcpOption(decision: PermissionDecision, options: readonly un
   return null;
 }
 
+/**
+ * `StartOptions.skills` is deliberately unread here, and there is no TODO attached to it.
+ *
+ * ACP `session/new` is `{cwd, mcpServers}` and nothing else, `cursor-agent acp` accepts no flags of its
+ * own, and no `CURSOR_SKILLS*` env var exists. Cursor's one filesystem route — picking up other agents'
+ * skill directories — is gated behind a server-side predicate Realm can neither read nor set, and it
+ * returned different answers on different runs of the same binary (research §1.1.3). A skills path built
+ * on that would work for some users and silently not for others, which is worse than not having one.
+ * `AGENT_SKILL_SUPPORT` says `unsupported` for both ACP kinds so the UI can say so out loud.
+ */
+
 /** `McpServer[]` for `session/new`/`session/load`. Stdio `env` is an array of pairs, NOT a record (§2.3). */
 export function acpMcpServers(servers: McpStdioConfig[]): Bag[] {
   return servers.map((s) => ({

@@ -15,6 +15,11 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 const DISPOSE_TIMEOUT_MS = 3000;
 /** thread/start loads config, resolves the model and checks auth — slower than initialize, never unbounded. */
 const BOOT_TIMEOUT_MS = 30_000;
+/** `skills/extraRoots/set` only rescans a couple of directories, and nothing about the session depends on
+ *  its answer — so it gets a short leash rather than the boot budget. */
+const EXTRA_ROOTS_TIMEOUT_MS = 10_000;
+/** JSON-RPC "method not found": the signal that this codex build predates `skills/extraRoots/set`. */
+const METHOD_NOT_FOUND = -32601;
 
 const APPROVAL_METHODS: Record<string, { toolName: string; title: string }> = {
   "item/commandExecution/requestApproval": { toolName: "exec_command", title: "Run this command?" },
@@ -83,6 +88,22 @@ export class CodexAdapter implements AgentAdapter {
   private readonly bootTimeoutMs?: number;
   private conn: Promise<CodexConnection> | null = null;
   private refs = 0;
+  /**
+   * Skills roots contributed by live sessions, refcounted by root.
+   *
+   * `skills/extraRoots/set` takes `{ extraRoots }` and **no `threadId`** — it is per-connection, and
+   * CodexAdapter deliberately shares one `codex app-server` across every Realm session. So the roots of
+   * every live session are unioned and the whole set is re-sent on each change; a Work space and a School
+   * space with different skills enabled will each see both sets in Codex. That is the documented trade
+   * (research §2) — the alternative is a process per space, which loses the refcount this class exists for.
+   */
+  private readonly extraRoots = new Map<string, number>();
+  /**
+   * Feature detection, sticky per adapter. This machine runs a codex preview ahead of the public release;
+   * an older binary answers `skills/extraRoots/set` with -32601 and must degrade to "Codex sees no Realm
+   * skills", never throw and never fail a session.
+   */
+  private extraRootsSupported = true;
 
   constructor(deps: { bin?: string; args?: string[]; bootTimeoutMs?: number } = {}) {
     this.bin = deps.bin;
@@ -131,11 +152,50 @@ export class CodexAdapter implements AgentAdapter {
     }
   }
 
+  /** Visible for tests: the roots currently unioned onto the shared connection. */
+  get extraRootCount(): number { return this.extraRoots.size; }
+  /** Visible for tests: false once a codex build has answered -32601 to `skills/extraRoots/set`. */
+  get skillsSupported(): boolean { return this.extraRootsSupported; }
+
+  /**
+   * Re-sends the union to the shared connection. Never throws and never rejects: a skills root that does
+   * not land is a session with fewer skills, not a session that failed to start — and this is awaited on
+   * the boot path, where a throw would be reported to the user as a dead agent.
+   */
+  private async syncExtraRoots(conn: CodexConnection, onLog?: (line: string) => void): Promise<void> {
+    if (!this.extraRootsSupported) return;
+    try {
+      await conn.request("skills/extraRoots/set", { extraRoots: [...this.extraRoots.keys()] }, EXTRA_ROOTS_TIMEOUT_MS);
+    } catch (e) {
+      if (e instanceof JsonRpcCallError && e.code === METHOD_NOT_FOUND) {
+        this.extraRootsSupported = false;
+        onLog?.("[codex] this codex build has no skills/extraRoots/set; Realm skills will not be visible to Codex");
+        return;
+      }
+      onLog?.(`[codex] skills/extraRoots/set failed: ${message(e)}`);
+    }
+  }
+
+  private async addExtraRoot(conn: CodexConnection, root: string, onLog?: (line: string) => void): Promise<void> {
+    this.extraRoots.set(root, (this.extraRoots.get(root) ?? 0) + 1);
+    await this.syncExtraRoots(conn, onLog);
+  }
+
+  private async dropExtraRoot(conn: CodexConnection, root: string, onLog?: (line: string) => void): Promise<void> {
+    const next = (this.extraRoots.get(root) ?? 0) - 1;
+    if (next > 0) this.extraRoots.set(root, next);
+    else this.extraRoots.delete(root);
+    await this.syncExtraRoots(conn, onLog);
+  }
+
   private async release(): Promise<void> {
     this.refs -= 1;
     if (this.refs > 0) return;
     const pending = this.conn;
     this.conn = null;
+    // The roots live on the connection, not on the adapter: a later session gets a fresh process that has
+    // never been told anything, so a leftover entry here would make syncExtraRoots think it already had.
+    this.extraRoots.clear();
     if (!pending) return;
     try { await (await pending).dispose(); } catch { /* open() already tore down its own child */ }
   }
@@ -150,6 +210,8 @@ export class CodexAdapter implements AgentAdapter {
     let acquired = false;
     let released = false;
     let disposed = false;
+    /** Set only once this session's root is counted into the union, so shutdown drops exactly what boot added. */
+    let ownedRoot: string | null = null;
 
     const fail = (text: string) => {
       events.push(sessionEvent("error", { message: text }));
@@ -188,6 +250,9 @@ export class CodexAdapter implements AgentAdapter {
       disposed = true;
       denyAllPending();
       if (conn && threadId) conn.detach(threadId);
+      // Before releasing: the process may be about to go, but while other sessions still hold it their
+      // union must stop including a root this session is no longer entitled to.
+      if (conn && ownedRoot) { const r = ownedRoot; ownedRoot = null; await this.dropExtraRoot(conn, r, opts.onLog); }
       for (const e of mapper.closeOpenTools("session closed")) events.push(e);
       events.push(sessionEvent("status", { status: "ended" }));
       events.close();
@@ -269,6 +334,9 @@ export class CodexAdapter implements AgentAdapter {
         events.push(sessionEvent("init", { providerSessionId: id, model: str(res.model) || str(opts.model), tools: [], cwd: str(res.cwd) || opts.cwd }));
         events.push(sessionEvent("status", { status: "idle" }));
         c.attach(id, listener);
+        // After the thread exists, per the protocol's own ordering, and awaited inside boot so that the
+        // first send() — which awaits boot — cannot start a turn before Codex knows about the skills.
+        if (opts.skills) { ownedRoot = opts.skills.root; await this.addExtraRoot(c, opts.skills.root, opts.onLog); }
       } catch (e) {
         if (disposed) return;
         fail(bootFailureMessage(e));

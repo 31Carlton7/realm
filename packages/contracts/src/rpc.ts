@@ -3,6 +3,7 @@ import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, 
 
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
+import { SkillSchema, SkillIdSchema } from "./skills";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -302,6 +303,19 @@ export const Methods = {
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
+  /**
+   * Realm's skills library as this space sees it: every directory under `<realmHome>/skills`, each
+   * carrying that space's own enabled flag. Read off disk every call — the library is a folder the
+   * user is expected to edit, so there is nothing to invalidate.
+   *
+   * Malformed skills are listed with `valid: false` rather than dropped. They are never given to an
+   * agent, but a skill that vanished because of a typo in its frontmatter has to be findable.
+   */
+  "skills.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ root: z.string(), skills: z.array(SkillSchema) }) },
+  /** Turn one skill on or off for one space. Unknown ids are accepted: a skill can be removed from
+   *  disk and put back, and the preference should survive that. */
+  "skills.setEnabled": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+
   "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string() }) },
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
@@ -370,6 +384,9 @@ export const Events = {
   /** A checkpoint was taken, restored or pruned in this environment (W4). Broadcast on every turn, so
    *  clients holding a checkpoint list re-fetch and everyone else ignores it. */
   "checkpoints.changed": z.object({ environmentId: IdSchema }),
+  /** A space's skill set changed — either the library on disk or that space's enabled flags. Clients
+   *  holding a skills list re-fetch; a session already running keeps the set it started with. */
+  "skills.changed":   z.object({ spaceId: IdSchema }),
   /** Realm itself changed a working tree (stage, unstage, commit, push). Carries the cwd the write
    *  went through; clients refresh every diff they hold, because two panes on the same repository may
    *  have asked from two different subdirectories and only the server knows they are the same tree. */

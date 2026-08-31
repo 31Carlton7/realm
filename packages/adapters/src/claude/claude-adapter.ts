@@ -81,6 +81,20 @@ export class ClaudeAdapter implements AgentAdapter {
       resume: opts.resume ?? undefined,
       systemPrompt: opts.systemContext ? { type: "preset", preset: "claude_code", append: opts.systemContext } : undefined,
       mcpServers: Object.fromEntries(opts.mcpServers.map((s) => [s.name, { type: "stdio" as const, command: s.command, args: s.args, env: s.env }])),
+      // Realm's skills library as a local plugin, and `settingSources: []` so it is the ONLY library
+      // this session has. The two go together and neither works alone for what Realm wants:
+      //
+      //   - without `plugins`, there is no way to add a skills directory at all;
+      //   - without `settingSources: []`, the user's own `~/.claude/skills` (29 of them here) load
+      //     alongside Realm's, so the library the UI lists is not the library the agent has.
+      //
+      // Proven live in scripts/live-skills-check.ts: this shape surfaces `realm:<id>` and leaks nothing;
+      // dropping `settingSources` takes the command count from 53 to 147.
+      //
+      // The cost is real and deliberate: `settingSources: []` also drops the user's `~/.claude/CLAUDE.md`
+      // and the repo's `.claude/` settings. That is why the option is only present when the space
+      // actually has enabled skills — a space that manages none is left exactly as it was.
+      ...(opts.skills ? { settingSources: [], plugins: [{ type: "local" as const, path: opts.skills.pluginPath, skipMcpDiscovery: true }] } : {}),
       env: { ...process.env, ...opts.env },
       stderr: onStderr,
       pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,
