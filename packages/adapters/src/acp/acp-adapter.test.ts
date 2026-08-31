@@ -825,6 +825,9 @@ describe("acpMcpServers", () => {
     expect(acpMcpServers([stdio, http, sse], {}, (l) => lines.push(l)).map((s) => s.name)).toEqual(["airtable"]);
     expect(lines.join("\n")).toContain("mcpCapabilities.http");
     expect(acpMcpServers([http, sse], { http: true }).map((s) => s.name)).toEqual(["vercel"]);
+    // The post-W3 reality: the gateway entry is the agent's ONLY server, so a no-http build gets
+    // nothing at all — the case W6's settings surface has to explain to the user.
+    expect(acpMcpServers([http], {})).toEqual([]);
   });
 
   it("assumes both when nothing is passed, which is what both installed agents advertise", () => {

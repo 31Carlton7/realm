@@ -245,6 +245,12 @@ class McpGateway {
 - [ ] Manual live check (not CI): add `mcp.vercel.com` as an http server, Connect, watch tools land.
   Gates. Commit `feat(server): OAuth 2.1 + PKCE for remote MCP servers, tokens never leave realm-server`.
 
+> **Amendment from W4 review:** an ACP build that does not advertise `mcpCapabilities.http` silently
+> drops the gateway entry — its only route to any tool — and today that logs only to realm-server's
+> stderr while `mcpSupportNote` promises the gateway works. W6 must surface this honestly: when the
+> session's agent is ACP-kind, the settings copy must note that a build without http MCP support gets
+> no tools (the adapter's onLog line and `acpMcpServers([http], {}) === []` test pin the behavior).
+
 ### W6 — Settings UI: servers, auth, per-tool policy
 
 - [ ] `components/sidebar/McpSection.tsx`, rendered inside `SpaceSettingsSheet` below
