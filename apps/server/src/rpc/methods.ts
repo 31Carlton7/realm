@@ -216,7 +216,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.listAll", () => d.sessions.listAll());
   reg("sessions.get", (p) => d.sessions.get(p.id));
   reg("sessions.create", (p) => d.sessions.create(p));
-  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments }); return { ok: true as const }; });
+  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions }); return { ok: true as const }; });
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode }));

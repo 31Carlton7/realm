@@ -1,5 +1,5 @@
-import { AGENT_META, PERSISTED_EVENT_TYPES, sessionEvent, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
-import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, UserMessage } from "@realm/adapters";
+import { AGENT_META, AGENT_SKILL_SUPPORT, PERSISTED_EVENT_TYPES, SkillIdSchema, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -28,7 +28,10 @@ export function titleFromMessage(text: string): string {
 }
 
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string; title?: string };
-type Live = { handle: AgentHandle; pump: Promise<void> };
+/** `skillsInjected` remembers whether THIS handle was started with Realm's library — the fact mention
+ *  resolution gates on, because a `/realm:<name>` prepend into a session that never loaded the plugin
+ *  is a command that does not exist there. */
+type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
 
 /**
  * Owns the session trio: DB row + sidebar item + live adapter handle. Adapter handles are started lazily on the
@@ -92,7 +95,7 @@ export class SessionService {
   }
 
   /** Emits `user_message` (persisted + broadcast) and hands the message to the adapter, starting it if needed. */
-  async send(id: string, msg: UserMessage): Promise<void> {
+  async send(id: string, msg: { text: string; attachments: { path: string; mime: string }[]; mentions?: string[] }): Promise<void> {
     // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
     // back off the row, so this is the only place the (async) allocation has to happen.
     await this.ensurePorts(id);
@@ -103,8 +106,42 @@ export class SessionService {
     await this.checkpointTurn(id, msg.text);
     const handle = this.ensureLive(id);
     this.maybeTitleFrom(id, msg.text);
-    this.onEvent(id, sessionEvent("user_message", msg));
-    await handle.send(msg);
+    // The transcript records what the USER wrote — `@mac` and all. Only the wire below is rewritten.
+    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments }));
+    await handle.send(this.resolveMentions(id, msg));
+  }
+
+  /**
+   * `@`-mention resolution (Plan 8 W4). The one rule: a literal `@name` must never reach an agent —
+   * `@` means nothing defined on any of the three wires. So every token the prompter declared as a
+   * mention loses its `@` here (the id stays in place, keeping the sentence readable), whether or not
+   * it still resolves — a skill disabled or deleted between typing and sending degrades to plain text.
+   *
+   * The FIRST declared mention that still holds up becomes the message's resolved skill; the rest stay
+   * as de-@'d text (`turn/start` takes one skill item sanely, and `/realm:a /realm:b` is one command
+   * plus literal text — a second resolution would silently not happen, which is the failure this plan
+   * bans). "Holds up" means all of: it actually appears as a token in the text (the declared list is a
+   * claim, not an instruction), the skill is currently enabled and valid in the session's space, the
+   * agent has an injection route at all, and THIS live session was started with the library — a
+   * `/realm:` prepend into a session that never loaded the plugin invokes nothing.
+   */
+  private resolveMentions(id: string, msg: { text: string; attachments: { path: string; mime: string }[]; mentions?: string[] }): UserMessage {
+    const declared = [...new Set(msg.mentions ?? [])].filter((m) => SkillIdSchema.safeParse(m).success);
+    const base = { text: msg.text, attachments: msg.attachments };
+    if (declared.length === 0) return base;
+    const tokens = scanMentions(msg.text, declared);
+    if (tokens.length === 0) return base;
+    const text = stripMentionAts(msg.text, tokens);
+    const s = this.get(id);
+    let skill: SkillMention | undefined;
+    if (AGENT_SKILL_SUPPORT[s.agentKind] === "injected" && this.live.get(id)?.skillsInjected) {
+      const library = this.d.skills.list(s.spaceId).skills;
+      for (const t of tokens) {
+        const k = library.find((x) => x.id === t.id && x.enabled && x.valid);
+        if (k) { skill = { id: k.id, name: k.name, path: k.path }; break; }
+      }
+    }
+    return { text, attachments: msg.attachments, ...(skill ? { skill } : {}) };
   }
   async interrupt(id: string): Promise<void> { this.get(id); await this.live.get(id)?.handle.interrupt(); }
   respondPermission(id: string, requestId: string, decision: PermissionDecision): void {
@@ -320,7 +357,7 @@ export class SessionService {
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
       finally { if (this.live.get(id)?.handle === handle) this.live.delete(id); }
     })();
-    this.live.set(id, { handle, pump });
+    this.live.set(id, { handle, pump, skillsInjected: skills !== undefined });
     return handle;
   }
 
