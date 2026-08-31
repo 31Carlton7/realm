@@ -46,7 +46,12 @@ export function SessionPanelActions({ item }: { item: Item }) {
  *  branch chip drives; this is chrome-level access to it (Ara refresh §6). */
 function SessionDiffButton({ item }: { item: Item }) {
   const id = item.refId;
-  const environmentId = useApp((s) => s.sessions[id]?.environmentId ?? null);
+  // Gated on the environment being loaded — openDiff's own precondition. A button that could only
+  // no-op is dead chrome, and §7 says dead chrome is worse than none.
+  const environmentId = useApp((s) => {
+    const e = s.sessions[id]?.environmentId;
+    return e && s.environments[e] ? e : null;
+  });
   const openDiff = useApp((s) => s.openDiff);
   const run = useApp((s) => s.run);
   if (!environmentId) return null;
