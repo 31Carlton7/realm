@@ -17,8 +17,12 @@ three agents" — is **false**. All three CLIs ship first-class `SKILL.md`. Two 
   isolated out entirely.
 - **Codex**: `skills/extraRoots/set`, an app-server JSON-RPC method (found by generating TS bindings from the
   0.146.0 binary). No config key or CLI flag exists — the protocol method is the only route.
-- **Cursor**: read-only. Its discovery globs for `.claude/skills`, `.codex/skills` and `CLAUDE.md` are marked
-  `requiresThirdParty` and dropped unless a server-gated predicate returns true. Realm cannot set it.
+- **Cursor**: **do not build a skills path at all.** Its discovery globs are marked `requiresThirdParty` and
+  dropped unless a server-gated predicate returns true. Three probes returned 19 commands; a parallel probe
+  returned 64, and the difference could not be reproduced under any condition — including with
+  `CURSOR_CONFIG_DIR` redirected. Realm can neither read nor set the predicate, and it varied between runs of
+  the same binary. Cursor's MCP support, by contrast, is genuine and verified: ACP `session/new` `mcpServers`
+  was honored (a client-supplied server's marker file appeared).
 
 **MCP is already per-session on all three**, and Realm's adapters already pass it correctly — including ACP's
 stdio-`env`-as-array quirk. The only gap is upstream: `apps/server/src/sessions/service.ts:276` hardcodes
@@ -67,6 +71,10 @@ the pane rather than a guess. Claude has `CLAUDE.md` with an import hierarchy. *
 parameter at all** (ACP `session/new` is `{cwd, mcpServers}`), so it is a read-only row.
 
 One opt-in `AGENTS.md` in Realm-**created** space folders only. Never in a directory the user made.
+
+There is also an unwired seam worth using: `StartOptions.systemContext` is read **only** by the Claude adapter.
+Codex accepts the same thing as `developerInstructions` on `thread/start`. Wiring that gives the memory manager
+a real per-session channel on two agents instead of one.
 
 ### W4 — `@`-mention in the prompter
 
