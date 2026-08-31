@@ -84,6 +84,7 @@ function PaletteBody() {
   const newTerminal = useApp((s) => s.newTerminal);
   const newSession = useApp((s) => s.newSession);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
+  const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
   const splitFocused = useApp((s) => s.splitFocused);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const requestRename = useApp((s) => s.requestRename);
@@ -144,6 +145,7 @@ function PaletteBody() {
       // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through
       // newSession — the only difference is whether the agent is named or inherited from last use.
       act("new-session", "New session", "session", () => run(() => newSessionInstant()), <kbd>⌘N</kbd>),
+      act("new-session-worktree", "New session in a worktree", "branch", () => run(() => newSessionInWorktree())),
       ...SELECTABLE_AGENT_KINDS.map((a) => act(`new-${a}`, `New ${AGENT_META[a].label} session`, AGENT_META[a].icon, () => run(() => newSession({ agentKind: a })))),
       act("new-space", "New space…", "add", () => openSheet({ kind: "new-space" })),
       ...(activeSpaceId ? [act("space-settings", "Space settings…", "settings", () => openSheet({ kind: "space-settings", spaceId: activeSpaceId }))] : []),
@@ -164,7 +166,7 @@ function PaletteBody() {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref,
-      selectSpace, openItem, newTerminal, newSession, newSessionInstant, splitFocused, closeFromLayout, requestRename,
+      selectSpace, openItem, newTerminal, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
       interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, run]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked

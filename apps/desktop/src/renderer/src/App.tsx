@@ -2,6 +2,8 @@ import { useEffect, useMemo } from "react";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
+import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
+import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { PaneHost } from "./components/PaneHost";
 import { Onboarding } from "./components/Onboarding";
@@ -53,6 +55,8 @@ function SheetHost() {
   if (!sheet) return null;
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
   if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
+  if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
+  if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   return null;
 }
 
@@ -102,13 +106,33 @@ export function App() {
       const st = store.getState();
       if (spaceId === st.activeSpaceId) { st.run(() => st.refreshItems()); st.run(() => st.refreshSessions()); }
     });
+    const offV = rpc().on("environments.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (spaceId === st.activeSpaceId) st.run(() => st.refreshEnvironments());
+    });
+    // Realm's own write to a working tree. Every held diff is refreshed, not just the one named:
+    // two panes may look at one repository through two different cwds, and only the server knows.
+    const offW = rpc().on("workspace.changed", () => {
+      const st = store.getState();
+      st.run(() => st.refreshAllDiffs());
+    });
+    // A checkpoint was taken, restored or pruned. Only re-listed when the sheet is actually showing
+    // that environment: this fires on every turn, and a store holding a list nobody is looking at is
+    // work for nothing.
+    const offP = rpc().on("checkpoints.changed", ({ environmentId }) => {
+      const st = store.getState();
+      const sheet = st.sheet;
+      if (sheet?.kind === "checkpoints" && sheet.environmentId === environmentId) {
+        st.run(() => st.refreshCheckpoints(environmentId, sheet.sessionId));
+      }
+    });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
     // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
     const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
     window.addEventListener("pagehide", onPageHide);
-    return () => { offS(); offI(); offE(); offT(); offC(); window.removeEventListener("pagehide", onPageHide); };
+    return () => { offS(); offI(); offV(); offW(); offP(); offE(); offT(); offC(); window.removeEventListener("pagehide", onPageHide); };
   }, [store]);
   return (
     <StoreContext.Provider value={store}>

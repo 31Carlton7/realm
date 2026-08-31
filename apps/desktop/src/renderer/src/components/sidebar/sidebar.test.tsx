@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import type { Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -151,6 +151,20 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Claude session (⌘N)"));
     await act(() => store.getState().newSession({ agentKind: "codex" }));
     expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Codex session (⌘N)");
+  });
+
+  it("the space menu opens a session in a fresh worktree, leaving \"+\" as the no-questions path (W2)", async () => {
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "Space menu" })).getByText("New session in a worktree"));
+    await waitFor(() => expect(api.calls).toContain("createWorktree:s1"));
+    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
+    const env = api.data.environments.s1![0]!;
+    const created = Object.values(store.getState().sessions)[0]!;
+    // Pinned to the worktree, and its cwd follows the environment rather than the space folder (W1).
+    expect(created.environmentId).toBe(env.id);
+    expect(created.cwd).toBe(env.path);
+    expect(store.getState().environments[env.id]).toMatchObject({ kind: "worktree" });
   });
 
   it("menus render in a portal with fixed positioning so ancestor overflow can't clip them (regression: the swiper's overflow:clip was hiding menus)", async () => {

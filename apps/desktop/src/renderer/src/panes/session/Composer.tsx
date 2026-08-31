@@ -1,4 +1,4 @@
-import { AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, type AgentKind, type GitInfo, type Project, type Session, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, type AgentKind, type Environment, type GitInfo, type Project, type Session, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -16,14 +16,25 @@ const staggerPlayed = new Set<string>();
 
 /** Context row (§4 row 1): cwd chip always; git chips only when the cwd is a known repo. The diff and
  *  dirty chips hide themselves at zero — an all-clean repo shows just the branch. */
-function ContextRow({ session, project, gitInfo }: { session: Session; project: Project | null; gitInfo: GitInfo | null }) {
+function ContextRow({ session, project, gitInfo, environment, onOpenDiff }: { session: Session; project: Project | null; gitInfo: GitInfo | null; environment: Environment | null; onOpenDiff: () => void }) {
   const cwdName = session.cwd.replace(/\/+$/, "").split("/").pop() || session.cwd;
+  // A session in a worktree Realm made (W2) swaps the folder glyph for a branch one and says so in
+  // the tooltip, alongside the port block its `pnpm dev` will land on. No new chip and no new colour:
+  // that this session is isolated is metadata, and metadata lives in chips (design language §2.5).
+  const worktree = environment?.kind === "worktree";
+  const ports = environment?.portBlockStart ?? null;
+  const where = [worktree ? `Worktree · ${session.cwd}` : session.cwd,
+    // The block is a RANGE Realm reserved, not a promise about what is listening on it.
+    ports === null ? null : `Ports ${ports}–${ports + 9} reserved`].filter(Boolean).join("\n");
   return (
     <div className="composer-context">
-      <span className="composer-chip" title={session.cwd}><Icon name="folder" size={12} /><span className="chip-label">{project ? `${project.name} · ` : ""}{cwdName}</span></span>
+      <span className="composer-chip" title={where}><Icon name={worktree ? "branch" : "folder"} size={12} /><span className="chip-label">{worktree ? "Worktree · " : ""}{project ? `${project.name} · ` : ""}{cwdName}</span></span>
       {gitInfo && (
-        <>
-          <span className="composer-chip git-branch" title={`Branch ${gitInfo.branch}`}><span className="chip-label">{gitInfo.branch}</span></span>
+        // W3: the chips that already showed the branch and the diff counts become the way IN to the
+        // diff pane. One button, not three — the whole group means "show me these changes".
+        <button type="button" className="composer-git" onClick={onOpenDiff}
+          title={gitInfo.dirty > 0 ? `Show ${gitInfo.dirty} changed ${gitInfo.dirty === 1 ? "file" : "files"} on ${gitInfo.branch}` : `Show changes on ${gitInfo.branch}`}>
+          <span className="composer-chip git-branch"><span className="chip-label">{gitInfo.branch}</span></span>
           {(gitInfo.additions > 0 || gitInfo.deletions > 0) && (
             <span className="composer-chip git-diff">
               <span className="diff-add">+{gitInfo.additions}</span>
@@ -31,7 +42,7 @@ function ContextRow({ session, project, gitInfo }: { session: Session; project: 
             </span>
           )}
           {gitInfo.dirty > 0 && <span className="composer-chip git-dirty">{gitInfo.dirty} changed</span>}
-        </>
+        </button>
       )}
     </div>
   );
@@ -74,8 +85,12 @@ const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id
  *  ⌘/Ctrl+Enter sends; Enter inserts a newline. The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
-export function Composer({ session, status, project, gitInfo, draft, onDraftChange, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion }: {
+export function Composer({ session, status, project, gitInfo, environment, onOpenDiff, draft, onDraftChange, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion }: {
   session: Session; status: SessionStatus; project: Project | null; gitInfo: GitInfo | null;
+  /** The checkout this session runs in (W2) — null until the space's environments have loaded. */
+  environment: Environment | null;
+  /** Open the diff pane for that checkout (W3) — what the branch/diff chips do. */
+  onOpenDiff: () => void;
   draft: string; onDraftChange: (text: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
   /** Sets agent AND model in one action — the picker's rows are (agent, model) pairs. */
@@ -140,7 +155,7 @@ export function Composer({ session, status, project, gitInfo, draft, onDraftChan
     <div className="composer-dock">
       {hero && <div className="hero-greeting">What should we work on in <em>{spaceName}</em>?</div>}
       <div className="composer">
-        <ContextRow session={session} project={project} gitInfo={gitInfo} />
+        <ContextRow session={session} project={project} gitInfo={gitInfo} environment={environment} onOpenDiff={onOpenDiff} />
         <textarea ref={ta} className="composer-input" aria-label="Message" placeholder="Message the agent…" rows={1}
           value={draft} onChange={(e) => onDraftChange(e.target.value)} onKeyDown={onKeyDown} />
         <div className="composer-bar">

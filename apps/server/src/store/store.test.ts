@@ -8,7 +8,9 @@ import { SpacesStore } from "./spaces";
 import { ProjectsStore } from "./projects";
 import { ItemsStore } from "./items";
 import { TerminalsStore } from "./terminals";
-import { NotFoundError } from "./rows";
+import { EnvironmentsStore } from "./environments";
+import { SessionsStore } from "./sessions";
+import { NotFoundError, RpcError } from "./rows";
 import { emptyLayout } from "@realm/contracts";
 
 let db: Db; let home: string;
@@ -125,5 +127,64 @@ describe("ItemsStore", () => {
     expect(b.sortOrder).toBeGreaterThan(a.sortOrder);
     expect(items.update({ id: a.id, title: "renamed", pinned: true }).pinned).toBe(true);
     expect(items.get(a.id)?.title).toBe("renamed");
+  });
+});
+
+describe("EnvironmentsStore", () => {
+  const space = () => {
+    const p = new ProfilesStore(db).create({ name: "W", icon: "x", color: "#000" });
+    return new SpacesStore(db, home).create({ profileId: p.id, name: "S", icon: "f" });
+  };
+
+  it("ensurePrimary is get-or-create at the space folder — two callers never make two primaries", () => {
+    const envs = new EnvironmentsStore(db); const sp = space();
+    const a = envs.ensurePrimary(sp.id);
+    expect(a).toMatchObject({ spaceId: sp.id, path: sp.folderPath, kind: "primary", branch: null, portBlockStart: null });
+    expect(envs.ensurePrimary(sp.id).id).toBe(a.id);
+    expect(envs.list(sp.id)).toHaveLength(1);
+  });
+
+  it("ensureAt is get-or-create by path, and is per space", () => {
+    const envs = new EnvironmentsStore(db);
+    const a = space(); const b = space();
+    const one = envs.ensureAt(a.id, "/tmp/repo", "checkout");
+    expect(envs.ensureAt(a.id, "/tmp/repo", "checkout").id).toBe(one.id);
+    // Same path in a different space is a different environment: environments belong to a space.
+    expect(envs.ensureAt(b.id, "/tmp/repo", "checkout").id).not.toBe(one.id);
+    expect(envs.list(a.id).map((e) => e.path)).toEqual(["/tmp/repo"]);
+  });
+
+  it("rejects an environment for an unknown space", () => {
+    expect(() => new EnvironmentsStore(db).create({ spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", path: "/tmp", kind: "worktree" })).toThrow(NotFoundError);
+    expect(() => new EnvironmentsStore(db).ensurePrimary("01ARZ3NDEKTSV4RRFFQ69G5FAV")).toThrow(NotFoundError);
+  });
+
+  it("deleting the last session leaves the environment standing; removing it is explicit and refused while in use", () => {
+    const envs = new EnvironmentsStore(db); const sessions = new SessionsStore(db); const sp = space();
+    const wt = envs.create({ spaceId: sp.id, path: "/tmp/wt", kind: "worktree" });
+    const s = sessions.create({ spaceId: sp.id, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: wt.id, title: "t" });
+    expect(envs.sessionCount(wt.id)).toBe(1);
+    expect(() => envs.delete(wt.id)).toThrow(/1 session still runs here/);
+    sessions.delete(s.id);
+    // The policy: nothing removed it implicitly — the checkout outlives the task that used it.
+    expect(envs.get(wt.id)).not.toBeNull();
+    envs.delete(wt.id);
+    expect(envs.get(wt.id)).toBeNull();
+  });
+
+  it("refuses to remove a space's primary checkout, and 404s an unknown id", () => {
+    const envs = new EnvironmentsStore(db); const sp = space();
+    const primary = envs.ensurePrimary(sp.id);
+    expect(() => envs.delete(primary.id)).toThrow(RpcError);
+    expect(() => envs.delete(primary.id)).toThrow(/primary checkout cannot be removed/);
+    expect(envs.get(primary.id)).not.toBeNull();
+    expect(() => envs.delete("01ARZ3NDEKTSV4RRFFQ69G5FAV")).toThrow(NotFoundError);
+  });
+
+  it("space delete cascades to its environments", () => {
+    const envs = new EnvironmentsStore(db); const spaces = new SpacesStore(db, home); const sp = space();
+    envs.ensurePrimary(sp.id); envs.create({ spaceId: sp.id, path: "/tmp/wt", kind: "worktree" });
+    spaces.delete(sp.id);
+    expect(envs.list(sp.id)).toEqual([]);
   });
 });

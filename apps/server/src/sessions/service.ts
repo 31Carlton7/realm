@@ -5,9 +5,13 @@ import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
 import type { ProjectsStore } from "../store/projects";
 import type { SessionsStore, SessionEventsStore, SessionUpdate } from "../store/sessions";
+import type { EnvironmentsStore } from "../store/environments";
 import type { SpacesStore } from "../store/spaces";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
+import { portEnv, type PortAllocator } from "../workspace/ports";
+import type { WorktreeService } from "../workspace/worktrees";
+import type { CheckpointService } from "../checkpoints/service";
 import { ProbeCache } from "./probe-cache";
 
 const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
@@ -19,7 +23,7 @@ export function titleFromMessage(text: string): string {
   return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1).trimEnd()}…` : one;
 }
 
-export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; model: string | null; effort: string | null; permissionMode: string; title?: string };
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string; title?: string };
 type Live = { handle: AgentHandle; pump: Promise<void> };
 
 /**
@@ -31,7 +35,7 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; terminals: TerminalService; adapters: AdapterRegistry }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; checkpoints?: CheckpointService }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
@@ -58,16 +62,41 @@ export class SessionService {
     if (!this.d.adapters[input.agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${input.agentKind} is not registered`);
     const project = input.projectId ? this.d.projects.get(input.projectId) : null;
     if (input.projectId && !project) throw new NotFoundError("project", input.projectId);
-    const cwd = project?.rootPath ?? space.folderPath;
+    const env = this.resolveEnvironment(input.spaceId, input.environmentId ?? null, project?.rootPath ?? null);
     const title = input.title?.trim() || defaultTitle(input.agentKind);
-    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode: input.permissionMode, cwd, title });
+    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode: input.permissionMode, environmentId: env.id, title });
     const item = this.d.items.create({ spaceId: input.spaceId, kind: "session", title, refId: session.id });
     this.d.rpc.broadcast("items.changed", { spaceId: input.spaceId });
     return { session, itemId: item.id };
   }
 
+  /**
+   * Where a new session runs, in priority order: an environment the caller named (the seam W2 uses to
+   * start a session in a worktree), the project's own checkout, or the space's primary. The get-or-create
+   * is what makes several sessions in one place share one environment rather than accumulate rows.
+   * Whether a named environment belongs to this space is `SessionsStore.create`'s check, not a second
+   * copy here.
+   */
+  private resolveEnvironment(spaceId: string, environmentId: string | null, projectRoot: string | null) {
+    if (environmentId) {
+      const env = this.d.environments.get(environmentId);
+      if (!env) throw new NotFoundError("environment", environmentId);
+      return env;
+    }
+    if (projectRoot) return this.d.environments.ensureAt(spaceId, projectRoot, "checkout");
+    return this.d.environments.ensurePrimary(spaceId);
+  }
+
   /** Emits `user_message` (persisted + broadcast) and hands the message to the adapter, starting it if needed. */
   async send(id: string, msg: UserMessage): Promise<void> {
+    // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
+    // back off the row, so this is the only place the (async) allocation has to happen.
+    await this.ensurePorts(id);
+    // The turn's checkpoint (W4), captured BEFORE the message reaches the adapter and awaited rather
+    // than fired off: a capture racing the agent's first write would record a tree that never existed.
+    // It reports its own failures and returns null — a checkpoint is a safety net, and a safety net
+    // that can refuse a message is a worse failure than not having one.
+    await this.checkpointTurn(id, msg.text);
     const handle = this.ensureLive(id);
     this.maybeTitleFrom(id, msg.text);
     this.onEvent(id, sessionEvent("user_message", msg));
@@ -114,7 +143,8 @@ export class SessionService {
    * A recorded terminal whose pty is gone (it exited, or its cwd vanished at boot) is torn down and
    * replaced, so opening the panel always lands you in a live shell at the session's cwd.
    */
-  openTerminal(id: string): { terminalId: string; itemId: string } {
+  async openTerminal(id: string): Promise<{ terminalId: string; itemId: string }> {
+    await this.ensurePorts(id);
     const s = this.get(id);
     const item = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (item) {
@@ -184,7 +214,8 @@ export class SessionService {
     } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
   }
 
-  /** The first message names an untitled session (and its sidebar item). */
+  /** The first message names an untitled session (and its sidebar item) — and, when that session
+   *  runs in a worktree Realm opened before it had a name, its BRANCH too (W3). */
   private maybeTitleFrom(id: string, text: string): void {
     const s = this.d.sessions.get(id); if (!s || s.title !== defaultTitle(s.agentKind)) return;
     if (this.d.events.hasType(id, "user_message")) return;
@@ -192,6 +223,46 @@ export class SessionService {
     this.d.sessions.update({ id, title });
     const item = this.d.items.findByRefId(id);
     if (item) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
+    // Fire-and-forget: git work must never delay (or fail) the message that carried the title.
+    // `renameBranch` swallows its own failures and returns null when any of its conditions says no.
+    void this.renameWorktreeBranch(s.environmentId, title);
+  }
+
+  /** `realm/session` → `realm/fix-the-login-flow`, when the environment is a worktree whose branch
+   *  is still the unnamed one and no remote carries it yet. Silent on every other path. */
+  private async renameWorktreeBranch(environmentId: string, title: string): Promise<void> {
+    try {
+      const env = this.d.environments.get(environmentId);
+      if (!env || env.kind !== "worktree" || !env.branch) return;
+      const renamed = await this.d.worktrees.renameBranch({ path: env.path, branch: env.branch, title });
+      if (!renamed) return;
+      this.d.environments.setBranch(env.id, renamed);
+      this.d.rpc.broadcast("environments.changed", { spaceId: env.spaceId });
+    } catch { /* a branch name is a nicety; it never fails a turn */ }
+  }
+
+  /** Take the turn's checkpoint and tell clients a new one exists. Optional dependency: a server built
+   *  without it (older tests, a stripped harness) simply does not checkpoint. */
+  private async checkpointTurn(id: string, text: string): Promise<void> {
+    const service = this.d.checkpoints; if (!service) return;
+    const taken = await service.captureTurn(id, text, (line) => console.error(line));
+    if (taken) this.d.rpc.broadcast("checkpoints.changed", { environmentId: taken.environmentId });
+  }
+
+  /** Whether any session in this environment holds a live adapter handle — what stops a restore
+   *  rewriting a working tree under a running tool call. */
+  isEnvironmentBusy(environmentId: string): boolean {
+    for (const id of this.live.keys()) {
+      if (this.d.sessions.get(id)?.environmentId === environmentId) return true;
+    }
+    return false;
+  }
+
+  /** Allocate the session's environment a port block if it has none yet (W2). Async, and therefore
+   *  hoisted out of the sync `ensureLive`/`openTerminal` bodies into their callers. */
+  private async ensurePorts(id: string): Promise<void> {
+    const s = this.d.sessions.get(id); if (!s) return;
+    await this.d.ports.ensureBlock(s.environmentId);
   }
 
   private ensureLive(id: string): AgentHandle {
@@ -199,7 +270,11 @@ export class SessionService {
     const s = this.get(id);
     const adapter = this.d.adapters[s.agentKind];
     if (!adapter) throw new RpcError("AGENT_UNAVAILABLE", `${s.agentKind} is not registered`);
+    // The environment's port block, read back off the row that ensurePorts just settled: an agent
+    // told to `pnpm dev` in a worktree starts on that worktree's ports, not on the space's.
+    const env = this.d.environments.get(s.environmentId);
     const handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers: [], resume: s.providerSessionId,
+      env: env ? portEnv(env) : {},
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`) });
     const pump = (async () => {
       try { for await (const ev of handle.events) this.onEvent(id, ev); }

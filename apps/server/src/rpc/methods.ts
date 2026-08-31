@@ -4,11 +4,18 @@ import type { RpcServer } from "./server";
 import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { ProjectsStore } from "../store/projects";
+import type { EnvironmentsStore } from "../store/environments";
+import type { EnvironmentService } from "../environments/service";
+import type { CheckpointService } from "../checkpoints/service";
 import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
 import type { GitInfoService } from "../workspace/git-info";
+import type { GitDiffService } from "../workspace/git-diff";
+import type { GitWriteService } from "../workspace/git-write";
+import type { PortAllocator } from "../workspace/ports";
+import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
 type Params<M extends MethodName> = z.infer<(typeof Methods)[M]["params"]>;
@@ -16,7 +23,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -27,6 +34,21 @@ export function registerMethods(d: Deps): void {
   reg("system.info", () => ({ realmHome: d.home, version: d.version }));
 
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
+  reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
+  reg("workspace.fileDiff", (p) => d.gitDiff.file(p.cwd, p.path, p.staged));
+  // Realm just changed this working tree, so the numbers `workspace.gitInfo` is holding for it are
+  // wrong. Invalidating here (rather than trusting the 3s TTL) is what makes the composer's chips
+  // and the diff pane agree the moment an action finishes.
+  const changed = (cwd: string) => { d.gitInfo.invalidate(cwd); rpc.broadcast("workspace.changed", { cwd }); };
+  reg("workspace.stage", async (p) => { await d.gitWrite.stage(p.cwd, p.paths); changed(p.cwd); return { ok: true as const }; });
+  reg("workspace.unstage", async (p) => { await d.gitWrite.unstage(p.cwd, p.paths); changed(p.cwd); return { ok: true as const }; });
+  reg("workspace.ship", async (p) => {
+    const result = await d.gitWrite.ship(p);
+    // Broadcast even when a step reported a problem: a commit that succeeded before a push that was
+    // rejected still moved the tree, and the pane must show that.
+    changed(p.cwd);
+    return result;
+  });
 
   reg("profiles.list", () => d.profiles.list());
   reg("profiles.create", (p) => { const r = d.profiles.create(p); rpc.broadcast("profiles.changed", {}); return r; });
@@ -52,6 +74,47 @@ export function registerMethods(d: Deps): void {
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
   reg("projects.delete", (p) => { const pr = d.projects.get(p.id); d.projects.delete(p.id); if (pr) rpc.broadcast("items.changed", { spaceId: pr.spaceId }); return { ok: true as const }; });
 
+  reg("environments.list", (p) => d.environments.list(p.spaceId));
+  reg("environments.get", (p) => { const e = d.environments.get(p.id); if (!e) throw new NotFoundError("environment", p.id); return e; });
+  reg("environments.delete", (p) => {
+    // Forgetting the row of a worktree Realm made would strand the directory and its branch on disk,
+    // reachable only through `git worktree list` and no longer removable by `removeWorktree` — which
+    // needs the row to know where to look. Row and directory go together or not at all.
+    const env = d.environments.get(p.id);
+    if (env?.kind === "worktree") throw new RpcError("ENVIRONMENT_IS_WORKTREE", "Realm made this worktree; use environments.removeWorktree so the directory goes too");
+    d.environments.delete(p.id);
+    return { ok: true as const };
+  });
+  reg("environments.createWorktree", async (p) => {
+    const env = await d.envService.createWorktree(p);
+    rpc.broadcast("environments.changed", { spaceId: p.spaceId });
+    return env;
+  });
+  reg("environments.worktreeStatus", (p) => d.envService.worktreeStatus(p.id));
+  reg("environments.removeWorktree", async (p) => {
+    const spaceId = d.envService.get(p.id).spaceId;
+    await d.envService.removeWorktree(p.id, p.acknowledge);
+    rpc.broadcast("environments.changed", { spaceId });
+    return { ok: true as const };
+  });
+
+  reg("checkpoints.list", (p) => d.checkpoints.list(p.environmentId, p.sessionId));
+  reg("checkpoints.capture", async (p) => {
+    const cp = await d.checkpoints.capture({ environmentId: p.environmentId, sessionId: p.sessionId, kind: "manual", label: p.label });
+    if (!cp) throw new RpcError("NOT_A_REPOSITORY", "this checkout is not a git repository, so it cannot be checkpointed");
+    rpc.broadcast("checkpoints.changed", { environmentId: p.environmentId });
+    return cp;
+  });
+  reg("checkpoints.preview", (p) => d.checkpoints.preview(p.id));
+  reg("checkpoints.restore", async (p) => {
+    const result = await d.checkpoints.restore(p.id, p.acknowledge);
+    // A restore rewrites the working tree, so every cached diff and git chip for that checkout is
+    // stale — and it also produced a `pre-restore` checkpoint the list does not have yet.
+    changed(result.path);
+    rpc.broadcast("checkpoints.changed", { environmentId: result.environmentId });
+    return result;
+  });
+
   reg("items.list", (p) => d.items.list(p.spaceId));
   reg("items.listAll", () => d.items.listAll());
   reg("items.create", (p) => { const r = d.items.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
@@ -65,7 +128,14 @@ export function registerMethods(d: Deps): void {
     return { ok: true as const };
   });
 
-  reg("terminals.create", (p) => d.terminals.open(p));
+  // The port block is claimed here, not in TerminalService: allocation probes the machine's ports
+  // and so is async, while `open` must stay synchronous around its pty/row/item transaction. By the
+  // time `open` reads the environment back, the block is on the row.
+  reg("terminals.create", async (p) => {
+    const env = p.cwd ? d.environments.findByPath(p.spaceId, p.cwd) : d.environments.ensurePrimary(p.spaceId);
+    if (env) await d.ports.ensureBlock(env.id);
+    return d.terminals.open(p);
+  });
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
   reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });

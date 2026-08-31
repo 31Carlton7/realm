@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { SpaceSettingsSheet } from "./SpaceSettingsSheet";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi } from "../../state/store.test-fakes";
+import { fakeApi, session } from "../../state/store.test-fakes";
+import type { Environment } from "@realm/contracts";
 
 async function mount() {
   const api = fakeApi(); const store = createAppStore(api); await store.getState().boot();
@@ -44,5 +45,56 @@ describe("SpaceSettingsSheet", () => {
     const { store } = await mount();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(store.getState().sheet).toBeNull();
+  });
+});
+
+/** W1 split the checkout out of the session and W2 made worktrees; this list is where that split is
+ *  finally visible, and the only route to removing a worktree after its session is gone (W3). */
+describe("the space's checkouts", () => {
+  const envs: Environment[] = [
+    { id: "envP", spaceId: "s1", path: "/tmp/versed", branch: "main", kind: "primary", portBlockStart: 41000, createdAt: 0, updatedAt: 0 },
+    { id: "envW", spaceId: "s1", path: "/tmp/worktrees/s1/fix-login", branch: "realm/fix-login", kind: "worktree", portBlockStart: 41020, createdAt: 0, updatedAt: 0 },
+  ];
+
+  async function openSettings(extra: Partial<Parameters<typeof fakeApi>[0]> = {}) {
+    const api = fakeApi({
+      environments: { s1: envs },
+      sessions: [session("se1", "s1", { environmentId: "envW" }), session("se2", "s1", { environmentId: "envW" })],
+      worktreeStatus: { envW: { environmentId: "envW", path: "/tmp/worktrees/s1/fix-login", branch: "realm/fix-login", present: true, dirtyFiles: 0, unpushedCommits: 0, removable: true, blockedBy: null } },
+      ...extra,
+    });
+    const store = createAppStore(api); await store.getState().boot();
+    const r = render(<StoreContext.Provider value={store}><SpaceSettingsSheet spaceId="s1" /></StoreContext.Provider>);
+    return { api, store, ...r };
+  }
+
+  it("names each checkout, its kind, its reserved port range and who is in it", async () => {
+    await openSettings();
+    const worktree = screen.getByText("realm/fix-login").closest(".env-row") as HTMLElement;
+    expect(within(worktree).getByText("Worktree")).toBeInTheDocument();
+    expect(within(worktree).getByText("/tmp/worktrees/s1/fix-login")).toBeInTheDocument();
+    // A RANGE Realm holds — never a claim about what is listening on it.
+    expect(within(worktree).getByText("ports 41020–41029 reserved")).toBeInTheDocument();
+    expect(within(worktree).getByText("2 sessions")).toBeInTheDocument();
+    const primary = screen.getByText("main").closest(".env-row") as HTMLElement;
+    expect(within(primary).getByText("Space folder")).toBeInTheDocument();
+    expect(within(primary).getByText("no sessions")).toBeInTheDocument();
+  });
+
+  it("offers removal only for the worktree, never for the space's own folder", async () => {
+    const { api, store } = await openSettings();
+    const primary = screen.getByText("main").closest(".env-row") as HTMLElement;
+    expect(within(primary).queryByRole("button", { name: "Remove…" })).toBeNull();
+    const worktree = screen.getByText("realm/fix-login").closest(".env-row") as HTMLElement;
+    fireEvent.click(within(worktree).getByRole("button", { name: "Remove…" }));
+    // The button opens the confirm (App renders it), having first read what removal would cost.
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "remove-worktree", environmentId: "envW" }));
+    expect(api.calls).toContain("worktreeStatus:envW");
+  });
+
+  it("says a brand-new space has no checkout on record rather than rendering an empty list", async () => {
+    // environments.list is empty until a space actually runs something — the primary row is lazy.
+    await openSettings({ environments: {} });
+    expect(screen.getByText(/has not run anything yet/)).toBeInTheDocument();
   });
 });

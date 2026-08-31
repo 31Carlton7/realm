@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { GitInfo, Item, Profile, Project, Session, Space, StoredSessionEvent } from "@realm/contracts";
+import type { Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, Profile, Project, RestorePreview, Session, ShipResult, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AgentProbe, Api } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -9,18 +9,41 @@ export const space = (id: string, profileId: string, name: string, extra: Partia
 export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): Item =>
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
-  ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", cwd: "/tmp", status: "idle",
+  ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
+
+export const checkpoint = (id: string, environmentId: string, extra: Partial<Checkpoint> = {}): Checkpoint =>
+  ({ id, environmentId, sessionId: null, kind: "turn", label: "a turn", ref: `refs/realm/checkpoints/${environmentId}/${id}`,
+    commitSha: `sha-${id}`, headSha: "head", headRef: "refs/heads/main", createdAt: 0, ...extra });
+export const preview = (id: string, environmentId: string, extra: Partial<RestorePreview> = {}): RestorePreview =>
+  ({ checkpointId: id, environmentId, path: "/tmp", label: "a turn", createdAt: 0, filesChanged: 0, commitsRolledBack: 0,
+    headMovable: true, headReason: null, intact: true, rewindsConversation: false, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
+  /** By space id. `createWorktree` appends one, as the server's createWorktree does. */
+  environments?: Record<string, Environment[]>;
   settings?: Record<string, unknown>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
   gitInfo?: Record<string, GitInfo | null>;
+  /** `workspace.diff` by cwd; absent = not a repo (null). */
+  diffs?: Record<string, DiffSummary | null>;
+  /** `workspace.fileDiff` by `${cwd}|${path}|${staged}`. */
+  patches?: Record<string, FileDiff>;
+  /** What `workspace.ship` answers next. Replace between calls to walk a flow. */
+  shipResult?: ShipResult;
+  /** `environments.worktreeStatus` by environment id. Mutate between calls to simulate the tree
+   *  changing under an open confirmation. */
+  worktreeStatus?: Record<string, WorktreeStatus>;
+  /** `checkpoints.list` by environment id (W4). */
+  checkpoints?: Record<string, Checkpoint[]>;
+  /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
+   *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
+  checkpointPreview?: Record<string, RestorePreview>;
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
@@ -47,11 +70,22 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p2", "Homework", { color: "#3ddc97" })],
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
     projects: overrides.projects ?? {},
+    environments: overrides.environments ?? {},
     settings: overrides.settings ?? {},
     sessions: overrides.sessions ?? [],
     sessionEvents: overrides.sessionEvents ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
     gitInfo: overrides.gitInfo ?? {},
+    diffs: overrides.diffs ?? {},
+    patches: overrides.patches ?? {},
+    shipResult: overrides.shipResult ?? {
+      commit: { state: "committed", sha: "abc1234", subject: "a commit", reason: null },
+      push: { state: "pushed", remote: "origin", branch: "main", reason: null },
+      pr: { state: "created", url: "https://github.com/acme/widgets/pull/1", reason: null },
+    },
+    worktreeStatus: overrides.worktreeStatus ?? {},
+    checkpoints: overrides.checkpoints ?? {},
+    checkpointPreview: overrides.checkpointPreview ?? {},
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
   };
   let n = 100;
@@ -71,6 +105,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return Object.values(data.items).flat().slice().sort((a, b) => b.updatedAt - a.updatedAt);
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
+    listEnvironments: async (sid) => { calls.push(`listEnvironments:${sid}`); await wait(`listEnvironments:${sid}`); return data.environments[sid] ?? []; },
+    createWorktree: async (sid, title) => {
+      calls.push(`createWorktree:${sid}`);
+      const slug = (title ?? "session").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const env: Environment = { id: `env${++n}`, spaceId: sid, path: `/tmp/worktrees/${sid}/${slug}`, branch: `realm/${slug}`,
+        kind: "worktree", portBlockStart: 41000 + 10 * (data.environments[sid] ?? []).length, createdAt: 0, updatedAt: 0 };
+      (data.environments[sid] ??= []).push(env); return env;
+    },
     createSpace: async (input) => {
       const s = space(`s${++n}`, input.profileId, input.name, { icon: input.icon, color: input.color ?? "#ffb454", sortOrder: data.spaces.length });
       data.spaces.push(s); return s;
@@ -117,7 +159,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     listAllSessions: async () => { calls.push("listAllSessions"); await wait("listAllSessions"); return [...data.sessions]; },
     getSession: async (id) => { calls.push(`getSession:${id}`); const s = data.sessions.find((x) => x.id === id); if (!s) throw new Error(`no session ${id}`); return s; },
     createSession: async (input) => {
-      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, projectId: input.projectId ?? null, model: input.model ?? null, effort: input.effort ?? null, permissionMode: input.permissionMode ?? "default", title: input.title ?? "Fake agent session" });
+      // `cwd` is derived from the environment server-side (W1), so the fake derives it too — a
+      // session pinned to a worktree that still reported the space folder would make the
+      // prompter's environment chip untestable.
+      const env = input.environmentId ? (data.environments[input.spaceId] ?? []).find((e) => e.id === input.environmentId) : undefined;
+      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, projectId: input.projectId ?? null, model: input.model ?? null, effort: input.effort ?? null, permissionMode: input.permissionMode ?? "default", title: input.title ?? "Fake agent session",
+        ...(env ? { environmentId: env.id, cwd: env.path } : {}) });
       data.sessions.push(s);
       const it = item(`i${++n}`, input.spaceId, { kind: "session", title: s.title, refId: s.id }); (data.items[input.spaceId] ??= []).push(it);
       calls.push(`createSession:${input.agentKind}`);
@@ -160,6 +207,74 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.agentProbe;
     },
     gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },
+    diff: async (cwd) => { calls.push(`diff:${cwd}`); await wait(`diff:${cwd}`); return data.diffs[cwd] ?? null; },
+    fileDiff: async (cwd, path, staged) => {
+      calls.push(`fileDiff:${cwd}|${path}|${staged}`);
+      await wait(`fileDiff:${path}`);
+      return data.patches[`${cwd}|${path}|${staged}`]
+        ?? { path, oldPath: null, staged, binary: false, hunks: [], truncated: false, truncatedReason: null, additions: 0, deletions: 0 };
+    },
+    stagePaths: async (cwd, paths) => { calls.push(`stage:${cwd}|${paths.join(",")}`); },
+    unstagePaths: async (cwd, paths) => { calls.push(`unstage:${cwd}|${paths.join(",")}`); },
+    ship: async (input) => {
+      calls.push(`ship:${input.cwd}|commit=${input.commit}|msg=${input.message}|push=${input.push}|upstream=${input.setUpstream}|pr=${input.openPr}`);
+      await wait("ship");
+      return data.shipResult;
+    },
+    createItem: async (spaceId, kind, title, refId) => {
+      calls.push(`createItem:${spaceId}|${kind}|${refId}`);
+      const it = item(`i${++n}`, spaceId, { kind, title, refId });
+      (data.items[spaceId] ??= []).push(it);
+      return it;
+    },
+    worktreeStatus: async (id) => {
+      calls.push(`worktreeStatus:${id}`);
+      const st = data.worktreeStatus[id];
+      if (!st) throw new Error(`no worktree status for ${id}`);
+      return st;
+    },
+    removeWorktree: async (id, ack) => {
+      calls.push(`removeWorktree:${id}|${ack.dirtyFiles},${ack.unpushedCommits}`);
+      const st = data.worktreeStatus[id];
+      // Mirrors the server: an acknowledgement that does not match what git says RIGHT NOW is refused.
+      if (st && (st.dirtyFiles !== ack.dirtyFiles || st.unpushedCommits !== ack.unpushedCommits)) throw new Error("WORKTREE_UNSAFE");
+      delete data.worktreeStatus[id];
+      for (const list of Object.values(data.environments)) {
+        const i = list.findIndex((e) => e.id === id);
+        if (i >= 0) list.splice(i, 1);
+      }
+    },
+    listCheckpoints: async (environmentId, sessionId) => {
+      calls.push(`listCheckpoints:${environmentId}|${sessionId ?? "*"}`);
+      const all = data.checkpoints[environmentId] ?? [];
+      // A COPY, like every real response: returning the stored array would hand the store the same
+      // reference it already holds, and a selector comparing by identity would never re-render.
+      return sessionId ? all.filter((c) => c.sessionId === sessionId) : [...all];
+    },
+    captureCheckpoint: async (environmentId, sessionId) => {
+      calls.push(`captureCheckpoint:${environmentId}|${sessionId ?? "*"}`);
+      const cp = checkpoint(`cp${++n}`, environmentId, { kind: "manual", sessionId, label: "Manual checkpoint", createdAt: Date.now() });
+      (data.checkpoints[environmentId] ??= []).unshift(cp);
+      return cp;
+    },
+    previewCheckpoint: async (id) => {
+      calls.push(`previewCheckpoint:${id}`);
+      const p = data.checkpointPreview[id];
+      if (!p) throw new Error(`no preview for ${id}`);
+      return p;
+    },
+    restoreCheckpoint: async (id, ack) => {
+      calls.push(`restoreCheckpoint:${id}|${ack.filesChanged},${ack.commitsRolledBack}`);
+      const p = data.checkpointPreview[id];
+      if (!p) throw new Error(`no preview for ${id}`);
+      // Mirrors the server: an acknowledgement that does not match what git says RIGHT NOW is refused.
+      if (p.filesChanged !== ack.filesChanged || p.commitsRolledBack !== ack.commitsRolledBack) throw new Error("RESTORE_UNSAFE");
+      const undo = checkpoint(`cp-undo-${id}`, p.environmentId, { kind: "pre-restore", label: `Before restoring \u201c${p.label}\u201d` });
+      (data.checkpoints[p.environmentId] ??= []).unshift(undo);
+      return { environmentId: p.environmentId, path: p.path, undoCheckpointId: undo.id,
+        headMoved: p.headMovable, filesChanged: p.filesChanged, commitsRolledBack: p.headMovable ? p.commitsRolledBack : 0,
+        filesRemoved: 0, conversationRewound: false };
+    },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

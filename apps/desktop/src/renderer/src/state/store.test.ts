@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, findEmptySiblingOf, hasLeafIn, swapSplitChildrenOf, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
+import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, item, session, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
@@ -1314,5 +1314,70 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
     await p;
     expect(store.getState().booted).toBe(true);
     expect(store.getState().spaces).toHaveLength(2);
+  });
+});
+
+/** Plan 7 W3: the diff pane's own item, and the refreshes that keep it honest. */
+describe("diff panes", () => {
+  const env: Environment = { id: "env1", spaceId: "s1", path: "/tmp/wt", branch: "realm/x", kind: "worktree", portBlockStart: 41010, createdAt: 0, updatedAt: 0 };
+  const withEnv = () => fakeApi({ environments: { s1: [env] }, diffs: { "/tmp/wt": { root: "/tmp/wt", branch: "realm/x", files: [], totalFiles: 0, truncated: false } } });
+
+  it("makes one diff item per environment and goes back to it the second time", async () => {
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openDiff("env1");
+    const created = a.calls.filter((c) => c.startsWith("createItem:"));
+    expect(created).toEqual(["createItem:s1|diff|env1"]);
+    const itemId = store.getState().items.find((i) => i.kind === "diff")!.id;
+    await store.getState().openDiff("env1");
+    // A second "show changes" focuses the pane that exists; it does not accumulate panes.
+    expect(a.calls.filter((c) => c.startsWith("createItem:"))).toEqual(created);
+    expect(store.getState().items.filter((i) => i.kind === "diff").map((i) => i.id)).toEqual([itemId]);
+  });
+
+  it("refreshes gitInfo alongside the diff, so the prompter's chips cannot disagree with the pane", async () => {
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().refreshDiff("/tmp/wt");
+    expect(a.calls).toContain("diff:/tmp/wt");
+    expect(a.calls).toContain("gitInfo:/tmp/wt");
+  });
+
+  it("re-reads every held diff on a workspace change, not only the one that was written", async () => {
+    const a = fakeApi({ diffs: {
+      "/tmp/one": { root: "/tmp/one", branch: "a", files: [], totalFiles: 0, truncated: false },
+      "/tmp/two": { root: "/tmp/two", branch: "b", files: [], totalFiles: 0, truncated: false },
+    } });
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await Promise.all([store.getState().refreshDiff("/tmp/one"), store.getState().refreshDiff("/tmp/two")]);
+    a.calls.length = 0;
+    await store.getState().refreshAllDiffs();
+    // Two panes may be looking at ONE repository through two cwds; only the server knows they match.
+    expect(a.calls.filter((c) => c.startsWith("diff:")).sort()).toEqual(["diff:/tmp/one", "diff:/tmp/two"]);
+  });
+
+  it("drops a patch for a file that is no longer changed", async () => {
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    store.setState({ patches: { [patchKey("/tmp/wt", "gone.ts", false)]: {
+      path: "gone.ts", oldPath: null, staged: false, binary: false, hunks: [], truncated: false, truncatedReason: null, additions: 0, deletions: 0,
+    } } });
+    await store.getState().refreshDiff("/tmp/wt"); // the fake's summary has no files
+    expect(store.getState().patches).toEqual({});
+  });
+
+  it("clears diffs when the space changes, so a pane never opens on the previous space's tree", async () => {
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().refreshDiff("/tmp/wt");
+    expect(store.getState().diffs["/tmp/wt"]).not.toBeUndefined();
+    await store.getState().selectSpace("s2");
+    expect(store.getState().diffs).toEqual({});
+    expect(store.getState().patches).toEqual({});
   });
 });

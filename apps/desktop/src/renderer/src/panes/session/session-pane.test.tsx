@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, sessionEvent } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, sessionEvent, type Environment } from "@realm/contracts";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
@@ -226,6 +226,41 @@ describe("SessionPane", () => {
     const chip = document.querySelector(".composer-context .composer-chip");
     expect(chip).toHaveAttribute("title", "/tmp"); // the fake session's cwd
     expect(chip!.querySelector(".chip-label")).not.toBeNull();
+  });
+
+  /** W2: the prompter has to answer "which checkout is this session in?" without a new surface. */
+  describe("the environment chip", () => {
+    const envRow: Environment = { id: "env1", spaceId: "s1", path: "/tmp/worktrees/s1/fix-login", branch: "realm/fix-login",
+      kind: "worktree", portBlockStart: 41020, createdAt: 0, updatedAt: 0 };
+
+    async function mountIn(environment: Environment | null) {
+      const api = fakeApi({
+        sessions: [session("se1", "s1", { status: "idle", ...(environment ? { environmentId: environment.id, cwd: environment.path } : {}) })],
+        environments: environment ? { s1: [environment] } : {},
+      });
+      const store = createAppStore(api); await store.getState().boot();
+      store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+      render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+      return document.querySelector(".composer-context .composer-chip")!;
+    }
+
+    it("names the worktree and its port block in the cwd chip's title", async () => {
+      const chip = await mountIn(envRow);
+      expect(chip).toHaveAttribute("title", "Worktree · /tmp/worktrees/s1/fix-login\nPorts 41020–41029 reserved");
+      expect(chip.querySelector(".chip-label")).toHaveTextContent("fix-login");
+    });
+
+    it("stays the plain folder chip for a session in the space's own checkout", async () => {
+      const chip = await mountIn(null);
+      expect(chip).toHaveAttribute("title", "/tmp");
+      expect(chip.getAttribute("title")).not.toContain("Worktree");
+    });
+
+    it("does not claim a port block the environment has not got", async () => {
+      const chip = await mountIn({ ...envRow, portBlockStart: null });
+      expect(chip.getAttribute("title")).toContain("Worktree");
+      expect(chip.getAttribute("title")).not.toContain("Ports");
+    });
   });
 
   it("the Thinking… under-strip shows only while the session is running", async () => {

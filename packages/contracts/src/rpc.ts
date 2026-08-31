@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema } from "./entities";
+
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
 
@@ -39,6 +40,185 @@ export const GitInfoSchema = z.object({
 });
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 
+/** How a path differs from what git last recorded. `untracked` and `conflicted` are not `git diff`
+ *  statuses but are what the user is looking at, so the pane needs words for them. */
+export const DiffFileStatusSchema = z.enum(["added", "modified", "deleted", "renamed", "copied", "type-changed", "untracked", "conflicted"]);
+export type DiffFileStatus = z.infer<typeof DiffFileStatusSchema>;
+
+/** One changed path. `staged` and `unstaged` are independent: a file edited after being staged is
+ *  both, and has two different patches — which is why `workspace.fileDiff` takes a side. */
+export const DiffFileSchema = z.object({
+  path: z.string(),
+  /** Where a rename or copy came from; null otherwise. */
+  oldPath: z.string().nullable(),
+  status: DiffFileStatusSchema,
+  staged: z.boolean(),
+  unstaged: z.boolean(),
+  binary: z.boolean(),
+  /** Staged plus unstaged, as `--numstat` counts them. Zero for untracked files: their content is
+   *  only read when the pane expands them (see the truncation policy in git-diff.ts). */
+  additions: z.number().int(),
+  deletions: z.number().int(),
+});
+export type DiffFile = z.infer<typeof DiffFileSchema>;
+
+/** `workspace.diff`: the whole working tree as a file list. Null result = not a git repository. */
+export const DiffSummarySchema = z.object({
+  /** The checkout root every `path` is relative to — NOT the cwd that was asked about. */
+  root: z.string(),
+  branch: z.string().nullable(),
+  /** At most DIFF_MAX_FILES entries. */
+  files: z.array(DiffFileSchema),
+  /** The true count, even when `files` was cut short. */
+  totalFiles: z.number().int(),
+  truncated: z.boolean(),
+});
+export type DiffSummary = z.infer<typeof DiffSummarySchema>;
+
+/** `meta` is git's `\ No newline at end of file`: it renders inside the hunk but numbers no line. */
+export const DiffLineSchema = z.object({
+  kind: z.enum(["context", "add", "del", "meta"]),
+  text: z.string(),
+  oldLine: z.number().int().nullable(),
+  newLine: z.number().int().nullable(),
+});
+export type DiffLine = z.infer<typeof DiffLineSchema>;
+
+export const DiffHunkSchema = z.object({
+  /** The text after `@@ … @@` — usually the enclosing function. */
+  header: z.string(),
+  oldStart: z.number().int(), oldLines: z.number().int(),
+  newStart: z.number().int(), newLines: z.number().int(),
+  lines: z.array(DiffLineSchema),
+});
+export type DiffHunk = z.infer<typeof DiffHunkSchema>;
+
+/** `workspace.fileDiff`: one file's patch, one side of the index. A binary file carries no hunks. */
+export const FileDiffSchema = z.object({
+  path: z.string(), oldPath: z.string().nullable(), staged: z.boolean(),
+  binary: z.boolean(),
+  hunks: z.array(DiffHunkSchema),
+  /** True when the patch was cut short by the size or line ceiling; `truncatedReason` says which. */
+  truncated: z.boolean(),
+  truncatedReason: z.string().nullable(),
+  additions: z.number().int(), deletions: z.number().int(),
+});
+export type FileDiff = z.infer<typeof FileDiffSchema>;
+
+/**
+ * The three steps of `workspace.ship`, each reporting an explained state rather than raw stderr.
+ *
+ * Every non-happy state here is a thing the UI has words and a next action for. `failed` is the
+ * deliberate catch-all, and only it carries git's own message.
+ */
+export const CommitOutcomeSchema = z.object({
+  state: z.enum(["committed", "nothing-to-commit", "skipped", "no-identity", "failed"]),
+  sha: z.string().nullable(), subject: z.string().nullable(), reason: z.string().nullable(),
+});
+export type CommitOutcome = z.infer<typeof CommitOutcomeSchema>;
+
+/** `no-upstream` is the one the UI must offer to fix (`--set-upstream`); `rejected` is the one it must
+ *  NOT offer to fix, because the only fix is a force-push and Realm does not have one. */
+export const PushOutcomeSchema = z.object({
+  state: z.enum(["pushed", "up-to-date", "no-remote", "no-upstream", "rejected", "detached", "skipped", "failed"]),
+  remote: z.string().nullable(), branch: z.string().nullable(), reason: z.string().nullable(),
+});
+export type PushOutcome = z.infer<typeof PushOutcomeSchema>;
+
+/** `compare` is the degraded path: no `gh`, not signed in, or not a host we can address — the user
+ *  gets a URL to open, never silence. */
+export const PrOutcomeSchema = z.object({
+  state: z.enum(["created", "existing", "compare", "unavailable", "skipped"]),
+  url: z.string().nullable(), reason: z.string().nullable(),
+});
+export type PrOutcome = z.infer<typeof PrOutcomeSchema>;
+
+export const ShipResultSchema = z.object({ commit: CommitOutcomeSchema, push: PushOutcomeSchema, pr: PrOutcomeSchema });
+export type ShipResult = z.infer<typeof ShipResultSchema>;
+
+/** What removing a worktree would destroy, asked of git at the moment of asking (Plan 7 W2).
+ *  `environments.removeWorktree` re-reads these and refuses unless the acknowledgement matches, so
+ *  a confirmation the user gave before the agent wrote another file fails closed. */
+export const WorktreeStatusSchema = z.object({
+  environmentId: IdSchema,
+  path: z.string(),
+  branch: z.string().nullable(),
+  /** False when the directory has already been removed by hand: removal then only prunes. */
+  present: z.boolean(),
+  /** Lines of `git status --porcelain` — uncommitted edits plus untracked files. */
+  dirtyFiles: z.number().int(),
+  /** Commits on the branch that no remote ref contains. */
+  unpushedCommits: z.number().int(),
+  /** False for `primary` and `checkout`, and while any session still runs here. */
+  removable: z.boolean(),
+  /** Why not, when `removable` is false — the same code `removeWorktree` would throw. */
+  blockedBy: z.string().nullable(),
+});
+export type WorktreeStatus = z.infer<typeof WorktreeStatusSchema>;
+
+/** The caller's informed consent to lose exactly this much work. Both numbers must equal what git
+ *  reports at removal time; `null` means "only proceed if there is nothing to lose". */
+export const WorktreeAckSchema = z.object({
+  dirtyFiles: z.number().int().nonnegative(),
+  unpushedCommits: z.number().int().nonnegative(),
+});
+export type WorktreeAck = z.infer<typeof WorktreeAckSchema>;
+
+/**
+ * What restoring a checkpoint would cost, asked of git at the moment of asking (Plan 7 W4).
+ *
+ * Restoring is the most destructive thing Realm does to a working tree, so this exists to be SHOWN
+ * before it happens, and `checkpoints.restore` re-reads it and refuses unless the acknowledgement
+ * matches — a confirmation given before the agent wrote another file fails closed.
+ *
+ * Nothing here is unrecoverable: restore captures the state it is about to overwrite as a
+ * `pre-restore` checkpoint first, and `undoCheckpointId` names it afterwards. The counts still matter,
+ * because "you can undo this" is not a reason to hide what it does.
+ */
+export const RestorePreviewSchema = z.object({
+  checkpointId: IdSchema,
+  environmentId: IdSchema,
+  /** The checkout that will be rewritten. */
+  path: z.string(),
+  label: z.string(),
+  createdAt: z.number().int(),
+  /** Paths that differ between the checkpoint and the checkout right now. */
+  filesChanged: z.number().int(),
+  /** Commits that would be rolled off the branch. Zero when HEAD cannot be moved. */
+  commitsRolledBack: z.number().int(),
+  /** False when the checkout has left the branch the checkpoint was taken on: files restore, HEAD does not. */
+  headMovable: z.boolean(),
+  headReason: z.string().nullable(),
+  /** False when the ref is gone or no longer points at the recorded commit — the checkpoint is unusable. */
+  intact: z.boolean(),
+  /** True when the session's agent could also be rewound. Always false today; see AGENT_CONVERSATION_REWIND. */
+  rewindsConversation: z.boolean(),
+});
+export type RestorePreview = z.infer<typeof RestorePreviewSchema>;
+
+/** The caller's consent, naming exactly the numbers it was shown. */
+export const RestoreAckSchema = z.object({
+  filesChanged: z.number().int().nonnegative(),
+  commitsRolledBack: z.number().int().nonnegative(),
+});
+export type RestoreAck = z.infer<typeof RestoreAckSchema>;
+
+export const RestoreResultSchema = z.object({
+  environmentId: IdSchema,
+  /** The checkout that was rewritten — what the client invalidates its diffs and git chips for. */
+  path: z.string(),
+  /** The `pre-restore` checkpoint holding what was just overwritten — restore it to undo this restore. */
+  undoCheckpointId: IdSchema.nullable(),
+  headMoved: z.boolean(),
+  filesChanged: z.number().int(),
+  commitsRolledBack: z.number().int(),
+  /** Untracked, non-ignored files deleted because they postdate the checkpoint. */
+  filesRemoved: z.number().int(),
+  /** False whenever the workspace was restored but the agent still remembers the turns. */
+  conversationRewound: z.boolean(),
+});
+export type RestoreResult = z.infer<typeof RestoreResultSchema>;
+
 /** Method registry: params + result schemas. Server validates params; client types results. */
 export const Methods = {
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
@@ -56,6 +236,54 @@ export const Methods = {
   "projects.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ProjectSchema) },
   "projects.create": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), rootPath: z.string(), defaultBranch: z.string().default("main") }), result: ProjectSchema },
   "projects.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /** Every checkout the space knows about — its primary, plus any project root or worktree (W2). */
+  "environments.list": { params: z.object({ spaceId: IdSchema }), result: z.array(EnvironmentSchema) },
+  "environments.get":  { params: z.object({ id: IdSchema }), result: EnvironmentSchema },
+  /** Forget an environment. Refused while any session still references it (ENVIRONMENT_IN_USE) and for a
+   *  space's primary checkout (ENVIRONMENT_PRIMARY) — deleting the last session never removes one by
+   *  itself. Removes the row only: taking a worktree off disk is W2's job, with its own safety prompts. */
+  "environments.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** Create a `git worktree` AND its environment row as one operation (W2). Deliberately not a bare
+   *  `environments.create`: a row pointing at an arbitrary directory could be given `kind:
+   *  "worktree"`, and `removeWorktree` would then be reachable for a checkout Realm did not make.
+   *  The only way to get a `worktree` row is for Realm to have created the worktree.
+   *
+   *  `from` names the checkout to branch off (default: the space's primary). Refuses when that is
+   *  not a git repository (NOT_A_REPOSITORY — a plain directory is a normal Realm space) or has no
+   *  commits yet (WORKTREE_NO_COMMITS). */
+  "environments.createWorktree": { params: z.object({ spaceId: IdSchema, title: z.string().nullable().default(null), from: IdSchema.nullable().default(null) }), result: EnvironmentSchema },
+  /** What `removeWorktree` would cost, and whether it is allowed at all. Read-only. */
+  "environments.worktreeStatus": { params: z.object({ id: IdSchema }), result: WorktreeStatusSchema },
+  /** Remove the worktree from disk and delete its branch. Refused outright for `primary`
+   *  (ENVIRONMENT_PRIMARY) and `checkout` (ENVIRONMENT_NOT_WORKTREE), and while a session still
+   *  runs there (ENVIRONMENT_IN_USE). A dirty tree or unpushed commits require `acknowledge` to
+   *  carry the *exact* counts git reports at that moment (WORKTREE_UNSAFE otherwise) — `--force`
+   *  and `branch -D` are unreachable without it. */
+  "environments.removeWorktree": { params: z.object({ id: IdSchema, acknowledge: WorktreeAckSchema.nullable().default(null) }), result: z.object({ ok: z.literal(true) }) },
+
+  /**
+   * Checkpoints for a session, or for a whole environment when `sessionId` is null (Plan 7 W4).
+   * Newest first. Read-only, and cheap: the rows are the index, git is not consulted.
+   */
+  "checkpoints.list": { params: z.object({ environmentId: IdSchema, sessionId: IdSchema.nullable().default(null) }), result: z.array(CheckpointSchema) },
+  /** Take one now, because the user asked. The automatic per-turn capture is not an RPC — it happens
+   *  inside `sessions.send`, in front of the agent. */
+  "checkpoints.capture": { params: z.object({ environmentId: IdSchema, sessionId: IdSchema.nullable().default(null), label: z.string().default("Manual checkpoint") }), result: CheckpointSchema },
+  /** What `checkpoints.restore` would cost, and whether the checkpoint is still usable. Read-only. */
+  "checkpoints.preview": { params: z.object({ id: IdSchema }), result: RestorePreviewSchema },
+  /**
+   * Put the checkout back the way this checkpoint found it.
+   *
+   * `acknowledge` must carry the exact counts `checkpoints.preview` reports at the moment of restoring
+   * (RESTORE_UNSAFE otherwise), the same contract `environments.removeWorktree` uses. The state being
+   * overwritten is captured as a `pre-restore` checkpoint FIRST, and its id comes back as
+   * `undoCheckpointId` — so a restore of the wrong thing is itself undoable.
+   *
+   * Refused while a session is still running in that environment (CHECKPOINT_ENVIRONMENT_BUSY):
+   * rewriting a working tree under a live agent's feet corrupts whatever it is halfway through.
+   */
+  "checkpoints.restore": { params: z.object({ id: IdSchema, acknowledge: RestoreAckSchema }), result: RestoreResultSchema },
 
   "items.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ItemSchema) },
   /** Every item across every space (command palette search); newest-updated first. */
@@ -78,6 +306,32 @@ export const Methods = {
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
 
+  /** Every changed path in the checkout containing `cwd`. Null when it is not a repository. Cheap by
+   *  design — one `status` and two `--numstat` — because patches are fetched per file, on expansion. */
+  "workspace.diff": { params: z.object({ cwd: z.string() }), result: DiffSummarySchema.nullable() },
+  /** One file's patch, on one side of the index. `path` is relative to the checkout ROOT (the `root`
+   *  `workspace.diff` reported), and is refused if it is absolute or contains `..`. */
+  "workspace.fileDiff": { params: z.object({ cwd: z.string(), path: z.string(), staged: z.boolean().default(false) }), result: FileDiffSchema },
+  /** `git add` for exactly these paths — per file, not per hunk. See git-write.ts for why. */
+  "workspace.stage": { params: z.object({ cwd: z.string(), paths: z.array(z.string()).min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /** Take these paths back out of the index. Never touches the working tree. */
+  "workspace.unstage": { params: z.object({ cwd: z.string(), paths: z.array(z.string()).min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Commit, push and open a pull request as ONE action, each step reporting its own outcome.
+   *
+   * `commit: false` is the retry path — the flow "no upstream, set one?" leads back here with the
+   * commit already made, and a second commit would be wrong. `setUpstream` is only ever true because
+   * the user was shown `no-upstream` and said yes. A commit with a blank message is refused outright
+   * (COMMIT_EMPTY_MESSAGE) rather than reported as an outcome: it is a mistake, not a state.
+   */
+  "workspace.ship": {
+    params: z.object({
+      cwd: z.string(), commit: z.boolean().default(true), message: z.string().default(""),
+      push: z.boolean().default(true), setUpstream: z.boolean().default(false), openPr: z.boolean().default(false),
+    }),
+    result: ShipResultSchema,
+  },
+
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable() })) },
@@ -85,7 +339,9 @@ export const Methods = {
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
   "sessions.listAll": { params: z.object({}), result: z.array(SessionSchema) },
   "sessions.get":    { params: z.object({ id: IdSchema }), result: SessionSchema },
-  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().default("default"), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
+  /** `environmentId` pins the session to an existing checkout (the seam W2 uses to open one in a
+   *  worktree). Omitted, the session lands in the project's checkout, or the space's primary. */
+  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().default("default"), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
   "sessions.send":   { params: z.object({ id: IdSchema, text: z.string().min(1), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ ok: z.literal(true) }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]) }), result: z.object({ ok: z.literal(true) }) },
@@ -109,6 +365,15 @@ export const Events = {
   "profiles.changed": z.object({}),
   "spaces.changed":   z.object({}),
   "items.changed":    z.object({ spaceId: IdSchema }),
+  /** A worktree was created or removed in this space (W2) — clients re-list environments. */
+  "environments.changed": z.object({ spaceId: IdSchema }),
+  /** A checkpoint was taken, restored or pruned in this environment (W4). Broadcast on every turn, so
+   *  clients holding a checkpoint list re-fetch and everyone else ignores it. */
+  "checkpoints.changed": z.object({ environmentId: IdSchema }),
+  /** Realm itself changed a working tree (stage, unstage, commit, push). Carries the cwd the write
+   *  went through; clients refresh every diff they hold, because two panes on the same repository may
+   *  have asked from two different subdirectories and only the server knows they are the same tree. */
+  "workspace.changed": z.object({ cwd: z.string() }),
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */

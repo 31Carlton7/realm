@@ -15,6 +15,7 @@ export function SpaceHeader({ space }: { space: Space }) {
   const setSwipeInvert = useApp((s) => s.setSwipeInvert);
   const openSheet = useApp((s) => s.openSheet);
   const newTerminal = useApp((s) => s.newTerminal);
+  const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
   const run = useApp((s) => s.run);
   const [menu, setMenu] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -31,6 +32,9 @@ export function SpaceHeader({ space }: { space: Space }) {
           <Menu align="right" anchorRef={btnRef} label="Space menu" onClose={closeMenu} items={[
               { label: "Space settings…", onSelect: openSettings },
               { label: "New terminal", onSelect: () => run(() => newTerminal()) },
+              // Not on "+"/⌘N: those stay the no-questions path (W3). A worktree is a
+              // deliberate choice — it makes a branch — so it lives behind the menu.
+              { label: "New session in a worktree", onSelect: () => run(() => newSessionInWorktree()) },
               { kind: "separator" },
               ...THEMES.map((t) => ({ label: `Theme: ${t.label}`, checked: themePref === t.pref, onSelect: () => run(() => setThemePref(t.pref)) })),
               { kind: "separator" as const },

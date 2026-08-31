@@ -1,7 +1,7 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  type AgentKind, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Session, type SessionMode, type SessionStatus, type Space, type StoredSessionEvent,
+  type AgentKind, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type Checkpoint, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -10,7 +10,7 @@ import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/ses
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
-export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
 /** Agent a session is created with when the user never said (first run, or a wiped setting). */
 export const FALLBACK_AGENT: AgentKind = "claude";
@@ -35,6 +35,10 @@ export type Api = {
   /** Every item across every space, newest-updated first (command palette search). */
   listAllItems(): Promise<Item[]>;
   listProjects(spaceId: string): Promise<Project[]>;
+  /** Every checkout the space knows about: its primary, plus any worktree Realm made (W2). */
+  listEnvironments(spaceId: string): Promise<Environment[]>;
+  /** `environments.createWorktree` — makes the worktree on disk AND its row, as one operation. */
+  createWorktree(spaceId: string, title: string | null): Promise<Environment>;
   createSpace(input: CreateSpaceInput): Promise<Space>;
   updateSpace(input: UpdateSpaceInput): Promise<Space>;
   reorderSpaces(ids: string[]): Promise<void>;
@@ -76,7 +80,44 @@ export type Api = {
   probeAgents(force: boolean): Promise<AgentProbe[]>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
+  /** `workspace.diff` — the changed-file list. Null when cwd is not a repo. */
+  diff(cwd: string): Promise<DiffSummary | null>;
+  /** `workspace.fileDiff` — one file's patch, one side of the index. */
+  fileDiff(cwd: string, path: string, staged: boolean): Promise<FileDiff>;
+  stagePaths(cwd: string, paths: string[]): Promise<void>;
+  unstagePaths(cwd: string, paths: string[]): Promise<void>;
+  /** `workspace.ship` — commit, push and open a PR as one call. */
+  ship(input: ShipInput): Promise<ShipResult>;
+  /** `items.create` — used only for the diff pane's item, whose refId is an ENVIRONMENT id. */
+  createItem(spaceId: string, kind: Item["kind"], title: string, refId: string): Promise<Item>;
+  /** `environments.worktreeStatus` — what removal would cost, asked of git right now. */
+  worktreeStatus(environmentId: string): Promise<WorktreeStatus>;
+  /** `environments.removeWorktree`. The acknowledgement must equal what the server reads at the
+   *  moment it runs, or it refuses — see `confirmRemoveWorktree`. */
+  removeWorktree(environmentId: string, acknowledge: WorktreeAck): Promise<void>;
+  /** `checkpoints.list` — a session's turns, or the whole checkout's when `sessionId` is null (W4). */
+  listCheckpoints(environmentId: string, sessionId: string | null): Promise<Checkpoint[]>;
+  /** `checkpoints.capture` — take one now, because the user asked. */
+  captureCheckpoint(environmentId: string, sessionId: string | null): Promise<Checkpoint>;
+  /** `checkpoints.preview` — what restoring would cost, asked of git right now. */
+  previewCheckpoint(id: string): Promise<RestorePreview>;
+  /** `checkpoints.restore`. The acknowledgement must equal what the server re-reads, or it refuses. */
+  restoreCheckpoint(id: string, acknowledge: { filesChanged: number; commitsRolledBack: number }): Promise<RestoreResult>;
 };
+
+/** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
+export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean };
+
+/**
+ * One file's patch, keyed by which side of the index it is. Two sides of one path are two entries:
+ * they are genuinely different patches.
+ *
+ * NUL separates the parts, because it is the one byte a path cannot contain — a space would make
+ * `a/b c.ts` and the pair (`a/b`, `c.ts`) the same key. Spelled as the escape `\u0000` and never as
+ * a literal byte: a source file containing one is "binary" to grep, which then silently finds
+ * nothing in it.
+ */
+export const patchKey = (cwd: string, path: string, staged: boolean) => `${cwd}\u0000${path}\u0000${staged ? "s" : "u"}`;
 
 export const PERSIST_DEBOUNCE_MS = 300;
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
@@ -111,7 +152,13 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
  *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
 export type Sheet =
   | { kind: "space-settings"; spaceId: string }
-  | { kind: "new-space" };
+  | { kind: "new-space" }
+  /** Removing a worktree: the one destructive confirm in Plan 7, which must name what would be lost
+   *  and pass an acknowledgement it re-read at the moment of confirming (W3). */
+  | { kind: "remove-worktree"; environmentId: string }
+  /** A checkout's checkpoints, and the confirm for restoring one (W4). One sheet in two states: the
+   *  list, and — once `selected` is set — the confirmation naming exactly what restoring would cost. */
+  | { kind: "checkpoints"; environmentId: string; sessionId: string | null };
 
 export type AppState = {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
@@ -135,6 +182,9 @@ export type AppState = {
    *  layout no longer contains it. */
   focusedLeafId: string | null;
   projects: Project[];
+  /** The active space's environments, by id — what tells the prompter a session is in a worktree.
+   *  Sparse by design: a space that has never run anything has none until one is created. */
+  environments: Record<string, Environment>;
   error: string | null;
   /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
   connectionState: "connected" | "reconnecting";
@@ -161,6 +211,34 @@ export type AppState = {
   /** Git working-tree summaries by cwd; null = known non-repo. Refreshed event-driven only (session
    *  status transitions to idle/error, space activation, session open) — never polled. */
   gitInfo: Record<string, GitInfo | null>;
+  /** `workspace.diff` by checkout path; null = known non-repo, absent = never asked (W3). */
+  diffs: Record<string, DiffSummary | null>;
+  /** Checkouts with a diff fetch in flight — the pane's only spinner. */
+  diffLoading: Record<string, boolean>;
+  /** Patches by `patchKey(cwd, path, staged)`. Fetched on expansion, never with the list: the
+   *  truncation policy in git-diff.ts is only affordable because of this. */
+  patches: Record<string, FileDiff>;
+  /** The commit message being typed, per checkout. Store-owned like `drafts`, for the same reason:
+   *  a pane remount must not eat it. */
+  commitMessages: Record<string, string>;
+  /** The last `workspace.ship` outcome per checkout — what the pane turns into an explained state. */
+  shipResults: Record<string, ShipResult>;
+  /** Checkouts with a ship in flight, so the button can refuse to fire twice. */
+  shipping: Record<string, boolean>;
+  /** `environments.worktreeStatus` by environment id — what the removal sheet shows. */
+  worktreeStatuses: Record<string, WorktreeStatus>;
+  /** Set when a confirmed removal's re-read disagreed with the numbers the user was shown: the sheet
+   *  says the tree moved and asks again rather than acknowledging a count nobody saw. */
+  worktreeAckStale: string | null;
+  /** `checkpoints.list` by environment id (W4). Absent = never asked. */
+  checkpoints: Record<string, Checkpoint[]>;
+  /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
+   *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
+  checkpointPreview: RestorePreview | null;
+  /** Set when a confirmed restore's re-read disagreed with the preview the user was shown. */
+  checkpointAckStale: boolean;
+  /** The last restore's outcome, so the sheet can say what happened and name the undo. */
+  restoreResult: RestoreResult | null;
   /** Terminal side panel per session id (W4). Absent = never opened, which is also what keeps the pty
    *  unspawned: nothing reaches the server until an entry turns `open`. Persisted as one setting. */
   terminalPanel: Record<string, TerminalPanel>;
@@ -184,6 +262,7 @@ export type AppState = {
   refreshItems(): Promise<void>;
   refreshAllItems(): Promise<void>;
   refreshProjects(): Promise<void>;
+  refreshEnvironments(): Promise<void>;
   linkProject(rootPath: string): Promise<void>;
   pickAndLinkProject(): Promise<void>;
   newTerminal(targetLeafId?: string | null): Promise<void>;
@@ -234,6 +313,10 @@ export type AppState = {
    *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, adapter-default model
    *  and permission mode. Everything else is changed on the prompter's chips afterwards. */
   newSessionInstant(targetLeafId?: string | null): Promise<void>;
+  /** Make a fresh `git worktree` and open a session in it (W2), rather than in the space folder.
+   *  Fails loudly when the space is not a git repository — there is no worktree to fall back to,
+   *  and silently landing in the space folder would be the collision the user asked to avoid. */
+  newSessionInWorktree(targetLeafId?: string | null): Promise<void>;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
@@ -265,6 +348,38 @@ export type AppState = {
   /** Panel width (% of the session pane) from a resize drag; persisted with a trailing debounce. */
   setTerminalPanelWidth(sessionId: string, width: number): void;
   refreshGitInfo(cwd: string): Promise<void>;
+  /** Re-read one checkout's changed-file list. Also refreshes `gitInfo` for it, so the prompter's
+   *  chips and the diff pane can never disagree about the same tree. */
+  refreshDiff(cwd: string): Promise<void>;
+  /** Re-read every checkout the client currently holds a diff for. What a `workspace.changed`
+   *  broadcast triggers: two panes may be looking at one repository through two different cwds, and
+   *  only the server knows they are the same tree. */
+  refreshAllDiffs(): Promise<void>;
+  /** Fetch one file's patch, if it is not already held. */
+  loadPatch(cwd: string, path: string, staged: boolean): Promise<void>;
+  stagePaths(cwd: string, paths: string[]): Promise<void>;
+  unstagePaths(cwd: string, paths: string[]): Promise<void>;
+  setCommitMessage(cwd: string, text: string): void;
+  /** Commit, push and open a PR as one action; stores the outcome for the pane to explain. */
+  ship(input: ShipInput): Promise<void>;
+  /** Open (or focus) the diff pane for an environment. The pane's item has the ENVIRONMENT's id as
+   *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
+  openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
+  /** Open the removal confirmation for a worktree, reading its cost first. */
+  askRemoveWorktree(environmentId: string): Promise<void>;
+  /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
+  confirmRemoveWorktree(environmentId: string): Promise<void>;
+  /** Open the checkpoint sheet for a checkout, listing that session's turns (or all of them). */
+  openCheckpoints(environmentId: string, sessionId?: string | null): Promise<void>;
+  /** Re-list without opening anything — what the `checkpoints.changed` broadcast triggers. */
+  refreshCheckpoints(environmentId: string, sessionId: string | null): Promise<void>;
+  /** Move the sheet from its list state into its confirm state, with a freshly read preview. */
+  askRestoreCheckpoint(id: string): Promise<void>;
+  /** Back to the list, forgetting the preview. */
+  cancelRestoreCheckpoint(): void;
+  confirmRestoreCheckpoint(id: string): Promise<void>;
+  /** `checkpoints.capture` — a point the user asked for, next to the ones every turn takes. */
+  captureCheckpoint(environmentId: string, sessionId: string | null): Promise<void>;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
   clearError(): void;
@@ -381,6 +496,12 @@ function findSplitSizes(l: Layout, splitId: string): number[] | null {
 const sameSizes = (a: number[], b: number[]) => a.length === b.length && a.every((v, i) => Math.abs(v - (b[i] ?? NaN)) < 0.01);
 const isThemePref = (x: unknown): x is ThemePref => x === "system" || x === "light" || x === "dark";
 
+/** Forget both sides of every named path in one checkout — what staging or unstaging invalidates. */
+function dropPatches(patches: Record<string, FileDiff>, cwd: string, paths: string[]): Record<string, FileDiff> {
+  const doomed = new Set(paths.flatMap((p) => [patchKey(cwd, p, true), patchKey(cwd, p, false)]));
+  return Object.fromEntries(Object.entries(patches).filter(([k]) => !doomed.has(k)));
+}
+
 export function createAppStore(api: Api): StoreApi<AppState> {
   return createStore<AppState>((set, get) => {
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -471,11 +592,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], error: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, planReturn: {}, gitInfo: {},
+      diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
+      worktreeStatuses: {}, worktreeAckStale: null,
+      checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
@@ -501,9 +625,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         itemsFetchSeq++; // in-flight item fetches from the previous activation are now stale
         layoutHydrated = false;
         const space = get().spaces.find((s) => s.id === id);
-        set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], sessions: {}, error: null });
+        // Diffs and patches go with the space: they are keyed by checkout path, and every pane that
+        // could show one belongs to the space being left. Keeping them would mean a diff pane opening
+        // on stale hunks from before the switch.
+        set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], environments: {}, sessions: {}, error: null,
+          diffs: {}, diffLoading: {}, patches: {} });
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
-        await Promise.all([get().refreshProjects(), get().refreshItems(), get().refreshSessions()]);
+        await Promise.all([get().refreshProjects(), get().refreshEnvironments(), get().refreshItems(), get().refreshSessions()]);
         // Space activation refreshes git context for the focused pane's session, if any.
         const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
         if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
@@ -543,6 +671,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sid = get().activeSpaceId; if (!sid) return;
         const projects = await api.listProjects(sid);
         if (isSpace(sid)) set({ projects });
+      },
+      async refreshEnvironments() {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const list = await api.listEnvironments(sid);
+        if (isSpace(sid)) set({ environments: Object.fromEntries(list.map((e) => [e.id, e])) });
       },
       async createProfile(name) {
         const p = await api.createProfile(name);
@@ -791,6 +924,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async newSessionInstant(targetLeafId = null) {
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, targetLeafId);
       },
+      async newSessionInWorktree(targetLeafId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        // The worktree is created FIRST and the session pinned to it. If creating it throws (not a
+        // repository, no commits yet) no session is made at all — `run` surfaces the reason.
+        const env = await api.createWorktree(sid, null);
+        if (isSpace(sid)) set({ environments: { ...get().environments, [env.id]: env } });
+        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id }, targetLeafId);
+      },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       async sendMessage(id, text) { await api.sendMessage(id, text); },
       async interruptSession(id) { await api.interruptSession(id); },
@@ -887,6 +1028,147 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshGitInfo(cwd) {
         const info = await api.gitInfo(cwd);
         set({ gitInfo: { ...get().gitInfo, [cwd]: info } });
+      },
+      async refreshDiff(cwd) {
+        set({ diffLoading: { ...get().diffLoading, [cwd]: true } });
+        try {
+          const summary = await api.diff(cwd);
+          // Patches for files that are no longer in the list are dropped here rather than left to
+          // rot: a stale patch under a collapsed row is what makes a diff pane lie after a commit.
+          const live = new Set((summary?.files ?? []).map((f) => f.path));
+          const patches = Object.fromEntries(Object.entries(get().patches).filter(([key, p]) => !key.startsWith(`${cwd}\u0000`) || live.has(p.path)));
+          set({ diffs: { ...get().diffs, [cwd]: summary }, patches });
+        } finally {
+          const { [cwd]: _done, ...rest } = get().diffLoading;
+          set({ diffLoading: rest });
+        }
+        await get().refreshGitInfo(cwd);
+      },
+      async refreshAllDiffs() {
+        await Promise.all(Object.keys(get().diffs).map((cwd) => get().refreshDiff(cwd)));
+      },
+      async loadPatch(cwd, path, staged) {
+        const key = patchKey(cwd, path, staged);
+        if (get().patches[key]) return;
+        const patch = await api.fileDiff(cwd, path, staged);
+        set({ patches: { ...get().patches, [key]: patch } });
+      },
+      async stagePaths(cwd, paths) {
+        if (paths.length === 0) return;
+        await api.stagePaths(cwd, paths);
+        // Both sides of every touched path are now different patches. Drop them BEFORE refreshing so
+        // an expanded row cannot render the pre-staging hunks under the post-staging label.
+        set({ patches: dropPatches(get().patches, cwd, paths) });
+        await get().refreshDiff(cwd);
+      },
+      async unstagePaths(cwd, paths) {
+        if (paths.length === 0) return;
+        await api.unstagePaths(cwd, paths);
+        set({ patches: dropPatches(get().patches, cwd, paths) });
+        await get().refreshDiff(cwd);
+      },
+      setCommitMessage(cwd, text) { set({ commitMessages: { ...get().commitMessages, [cwd]: text } }); },
+      async ship(input) {
+        if (get().shipping[input.cwd]) return; // one ship per checkout; the button is disabled too
+        set({ shipping: { ...get().shipping, [input.cwd]: true } });
+        try {
+          const result = await api.ship(input);
+          set({ shipResults: { ...get().shipResults, [input.cwd]: result } });
+          // A commit that landed has emptied the index; the message it used has been spent.
+          if (result.commit.state === "committed") get().setCommitMessage(input.cwd, "");
+        } finally {
+          const { [input.cwd]: _done, ...rest } = get().shipping;
+          set({ shipping: rest });
+        }
+        // Unconditional: a rejected push still leaves a commit the pane must stop offering to make.
+        await get().refreshDiff(input.cwd);
+      },
+      async openDiff(environmentId, targetLeafId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const env = get().environments[environmentId];
+        if (!env) return;
+        // One diff pane per environment: a second "show changes" on the same checkout goes to the
+        // pane that already exists rather than accumulating identical panes.
+        const existing = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
+        if (existing) { await get().openItem(existing.id, targetLeafId); return; }
+        const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
+        const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
+        await adoptItem(sid, created.id, targetLeafId);
+      },
+      async askRemoveWorktree(environmentId) {
+        const status = await api.worktreeStatus(environmentId);
+        set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: status }, worktreeAckStale: null,
+          sheet: { kind: "remove-worktree", environmentId }, paletteOpen: false });
+      },
+      /**
+       * The acknowledgement is read HERE, not taken from what the sheet is displaying.
+       *
+       * The server refuses an acknowledgement whose counts do not match what git reports at the
+       * moment of removal, and it is right to: an agent that wrote another file since the sheet
+       * opened has changed what "yes" means. So this re-reads, and if the numbers moved it shows the
+       * new ones and removes nothing — the user says yes to a number they have actually seen.
+       */
+      async confirmRemoveWorktree(environmentId) {
+        const shown = get().worktreeStatuses[environmentId];
+        const fresh = await api.worktreeStatus(environmentId);
+        set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: fresh } });
+        if (!shown || fresh.dirtyFiles !== shown.dirtyFiles || fresh.unpushedCommits !== shown.unpushedCommits) {
+          set({ worktreeAckStale: environmentId });
+          return;
+        }
+        await api.removeWorktree(environmentId, { dirtyFiles: fresh.dirtyFiles, unpushedCommits: fresh.unpushedCommits });
+        const { [environmentId]: _gone, ...worktreeStatuses } = get().worktreeStatuses;
+        set({ worktreeStatuses, worktreeAckStale: null, sheet: null });
+        // The environment is gone; so is anything keyed to its checkout.
+        const { [fresh.path]: _d, ...diffs } = get().diffs;
+        set({ diffs });
+        const item = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
+        if (item) await get().deleteItem(item.id);
+        await get().refreshEnvironments();
+      },
+      async openCheckpoints(environmentId, sessionId = null) {
+        const list = await api.listCheckpoints(environmentId, sessionId);
+        set({
+          checkpoints: { ...get().checkpoints, [environmentId]: list },
+          checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+          sheet: { kind: "checkpoints", environmentId, sessionId }, paletteOpen: false,
+        });
+      },
+      async refreshCheckpoints(environmentId, sessionId) {
+        const list = await api.listCheckpoints(environmentId, sessionId);
+        set({ checkpoints: { ...get().checkpoints, [environmentId]: list } });
+      },
+      async captureCheckpoint(environmentId, sessionId) {
+        await api.captureCheckpoint(environmentId, sessionId);
+        await get().refreshCheckpoints(environmentId, sessionId);
+      },
+      async askRestoreCheckpoint(id) {
+        const preview = await api.previewCheckpoint(id);
+        set({ checkpointPreview: preview, checkpointAckStale: false, restoreResult: null });
+      },
+      cancelRestoreCheckpoint() {
+        set({ checkpointPreview: null, checkpointAckStale: false });
+      },
+      /**
+       * Same contract as `confirmRemoveWorktree`, for the same reason: the acknowledgement is read
+       * HERE, freshly, and never taken from what the sheet happens to be displaying. An agent that
+       * wrote another file while the confirm was open has changed what "yes" means, so a moved count
+       * shows the new numbers and restores nothing.
+       */
+      async confirmRestoreCheckpoint(id) {
+        const shown = get().checkpointPreview;
+        const fresh = await api.previewCheckpoint(id);
+        set({ checkpointPreview: fresh });
+        if (!shown || fresh.filesChanged !== shown.filesChanged || fresh.commitsRolledBack !== shown.commitsRolledBack) {
+          set({ checkpointAckStale: true });
+          return;
+        }
+        const result = await api.restoreCheckpoint(id, { filesChanged: fresh.filesChanged, commitsRolledBack: fresh.commitsRolledBack });
+        set({ checkpointPreview: null, checkpointAckStale: false, restoreResult: result });
+        // The tree was rewritten and a `pre-restore` checkpoint now exists: both views are stale.
+        const sheet = get().sheet;
+        await get().refreshCheckpoints(result.environmentId, sheet?.kind === "checkpoints" ? sheet.sessionId : null);
+        if (result.path in get().diffs) await get().refreshDiff(result.path);
       },
       run(action) {
         action().catch((e: unknown) => {

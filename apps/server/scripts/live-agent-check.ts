@@ -85,7 +85,8 @@ async function main() {
       model: null, effort: null, permissionMode: "bypassPermissions",
     });
     // Run in a scratch dir rather than the space folder so file tools have something harmless to touch.
-    app.db.prepare("UPDATE sessions SET cwd = ? WHERE id = ?").run(work, session.id);
+    // cwd lives on the environment now, so move the environment rather than the session.
+    app.db.prepare("UPDATE environments SET path = ? WHERE id = ?").run(work, session.environmentId);
 
     const read = () => app.sessions.events(session.id, 0, 1000).map((s) => s.event);
 

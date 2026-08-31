@@ -635,3 +635,114 @@ button.panel-title:hover { background: var(--rl-hover); }
   .spin { display: none; }
   .tool-card[data-state="running"] .tool-status::after { content: "…"; }
 }
+
+/* ── Diff pane (Plan 7 W3) ─────────────────────────────────────────────────
+   Luminance, not lines: the pane is `panel`, its sticky header and commit dock step to `raised`,
+   and the only hairlines are the two seams where content scrolls beneath them (§2.1). Colour is
+   state only — the add/del tints and the status letters — never chrome. */
+.diff-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--rl-panel); }
+.diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rl-line); }
+.diff-head-count { font-size: 11.5px; color: var(--rl-text-dim); }
+.diff-head-spacer { flex: 1; }
+.diff-list { flex: 1; overflow: auto; min-height: 0; }
+.diff-empty { padding: 32px 16px; text-align: center; font-size: 12.5px; color: var(--rl-text-faint); }
+.diff-note { padding: 8px 12px; font-size: 11.5px; color: var(--rl-text-faint); }
+.diff-loading { padding: 8px 12px; font-size: 11.5px; color: var(--rl-text-faint); }
+/* Table-style rows (§5): one hairline between, no vertical rules, no card chrome. */
+.diff-file + .diff-file { border-top: 1px solid var(--rl-line); }
+.diff-row { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 4px; min-height: 30px; }
+.diff-row:hover { background: var(--rl-hover); }
+.diff-expand { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 6px; text-align: left; border-radius: var(--r-chip); }
+/* The status letter is the row's only colour, and it is state: added green, deleted red, the rest gray. */
+.diff-status { flex: none; display: grid; place-items: center; width: 16px; font-family: var(--font-mono); font-size: 11px; color: var(--rl-text-faint); }
+.diff-status[data-status="added"], .diff-status[data-status="untracked"] { color: var(--rl-success); }
+.diff-status[data-status="deleted"] { color: var(--rl-danger); }
+.diff-status[data-status="conflicted"] { color: var(--rl-warning); }
+.diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.diff-dir { color: var(--rl-text-faint); }
+.diff-base { color: var(--rl-text-bright); }
+.diff-counts { flex: none; display: flex; gap: 6px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.diff-counts .diff-add { color: var(--rl-success); }
+.diff-counts .diff-del { color: var(--rl-danger); }
+.diff-actions { flex: none; display: flex; gap: 4px; opacity: 0; }
+.diff-row:hover .diff-actions, .diff-row:focus-within .diff-actions { opacity: 1; }
+/* Quiet inline action: a text button, not a control with a box (§3 ghost tier). */
+.btn-quiet { height: 22px; padding: 0 7px; border-radius: var(--r-chip); font-size: 11.5px; color: var(--rl-text-dim); background: transparent; }
+.btn-quiet:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.diff-body { padding: 0 0 6px 26px; }
+.diff-side { padding: 4px 8px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
+/* The patch itself sits in a well at frame luminance — one step below the panel, like tool output. */
+.diff-hunks { background: var(--rl-frame); border-radius: var(--r-chip); overflow: auto; }
+.diff-hunk-head { padding: 3px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--rl-text-faint); background: var(--rl-hover); }
+.diff-line { display: flex; align-items: baseline; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre; }
+.diff-gutter { flex: none; width: 42px; padding-right: 8px; text-align: right; color: var(--rl-text-faint); font-size: 11px; user-select: none; }
+.diff-mark { flex: none; width: 14px; text-align: center; color: var(--rl-text-faint); user-select: none; }
+.diff-text { flex: 1; min-width: 0; padding-right: 8px; color: var(--rl-text-dim); }
+/* §2.4: diff tints are one of the three places colour is allowed at all. */
+.diff-line[data-kind="add"] { background: color-mix(in srgb, var(--rl-success) 10%, transparent); }
+.diff-line[data-kind="add"] .diff-mark, .diff-line[data-kind="add"] .diff-text { color: var(--rl-success); }
+.diff-line[data-kind="del"] { background: color-mix(in srgb, var(--rl-danger) 10%, transparent); }
+.diff-line[data-kind="del"] .diff-mark, .diff-line[data-kind="del"] .diff-text { color: var(--rl-danger); }
+.diff-line[data-kind="meta"] .diff-text { color: var(--rl-text-faint); font-style: italic; }
+/* Commit dock: raised, hairline above, primary action bottom-right (§5 sheets/footer pattern). */
+.diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--rl-raised); border-top: 1px solid var(--rl-line); }
+.commit-message { border: none; outline: none; resize: none; background: var(--rl-hover); border-radius: var(--r-ctl); color: var(--rl-text-bright);
+  font: inherit; font-size: 12.5px; line-height: 1.5; padding: 8px 10px; caret-color: var(--rl-accent); }
+.commit-message::placeholder { color: var(--rl-text-faint); }
+.commit-message:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.diff-commit-bar { display: flex; align-items: center; gap: 8px; }
+.diff-staged-count { flex: 1; font-size: 11.5px; color: var(--rl-text-faint); }
+.ship-report { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--rl-text-dim); }
+.ship-report p { margin: 0; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.ship-report code { font-family: var(--font-mono); font-size: 11px; }
+.ship-report a { color: var(--rl-text-bright); text-decoration: underline; text-underline-offset: 2px; }
+/* Red is reserved for "something is wrong" (§2.4); the fill stays at 8% so it tints rather than shouts. */
+.ship-bad { color: var(--rl-danger); }
+/* The composer's git chips are one button now (W3): the group is the entry point to this pane. */
+.composer-git { display: inline-flex; align-items: center; gap: 6px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
+.composer-git:hover .composer-chip { background: var(--rl-active); color: var(--rl-text-bright); }
+
+/* ── Worktree removal confirm (W3) ─────────────────────────────────────── */
+.wt-target { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wt-path { font-family: var(--font-mono); font-size: 11px; color: var(--rl-text-faint); word-break: break-all; }
+.wt-hazard { margin: 0; font-size: 12.5px; color: var(--rl-text-dim); }
+.wt-hazard[data-risky] { color: var(--rl-danger); }
+.wt-note { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+.wt-stale, .wt-blocked { margin: 0; font-size: 12px; color: var(--rl-warning); }
+
+/* Checkpoints (W4). Same vocabulary as the worktree sheet — hazard in danger ink, caveats in faint,
+   the stale-count warning in amber — because they are the same question asked about a different
+   destructive act, and two different-looking confirms would teach the user to stop reading. */
+.cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
+.cp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-ctl); }
+.cp-row + .cp-row { border-top: 1px solid var(--rl-line); }
+.cp-row:hover { background: var(--rl-hover); }
+/* The undo point is the one row whose meaning differs from its neighbours, so it is the one row that
+   is allowed a colour. */
+.cp-row[data-kind="pre-restore"] .cp-kind { color: var(--rl-warning); }
+.cp-kind { flex: none; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); width: 74px; }
+.cp-label { flex: 1; min-width: 0; font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-when { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.cp-target { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cp-hazard { margin: 0; font-size: 12.5px; color: var(--rl-text-dim); }
+.cp-hazard[data-risky] { color: var(--rl-danger); }
+.cp-note { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+.cp-report { margin: 0; font-size: 12px; color: var(--rl-text-dim); }
+.cp-stale, .cp-blocked { margin: 0; font-size: 12px; color: var(--rl-warning); }
+.sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+/* §3: destructive confirms are the ONE place a red-filled button is allowed. */
+.btn.destructive { background: var(--rl-danger); color: #ffffff; }
+.btn.destructive:hover:not(:disabled) { background: var(--rl-danger); }
+.btn:disabled { opacity: .45; }
+
+/* ── Space settings: the space's checkouts (W1/W2 made visible in W3) ───── */
+.env-empty { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+.env-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.env-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 0; }
+.env-row + .env-row { border-top: 1px solid var(--rl-line); }
+.env-main { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--rl-text-dim); }
+.env-name { font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.env-kind { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
+.env-meta { grid-column: 1; display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--rl-text-faint); }
+.env-path { font-family: var(--font-mono); font-size: 10.5px; word-break: break-all; }
+.env-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }

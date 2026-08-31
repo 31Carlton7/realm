@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { isAbsolute } from "node:path";
 import type { GitInfo } from "@realm/contracts";
 import { RpcError } from "../store/rows";
+import { GIT_HARDENING } from "./git-exec";
 
 const GIT_TIMEOUT_MS = 3000;
 export const GIT_INFO_TTL_MS = 3000;
@@ -52,12 +53,14 @@ export class GitInfoService {
     return p;
   }
 
-  /** Every invocation forces `core.fsmonitor` OFF: it is repo-LOCAL config that names an arbitrary
-   *  command git runs for status/diff — a hostile cwd (e.g. a tarball an agent extracted with a
-   *  crafted .git/config) would otherwise get code execution the moment its chips refresh.
+  /** Drop the cached answer for a cwd. Realm's own writes (stage, commit, push) change exactly the
+   *  numbers this cache is holding, and a 3s stale branch chip after a commit reads as a bug. */
+  invalidate(cwd: string): void { this.cache.delete(cwd); }
+
+  /** Every invocation carries GIT_HARDENING (`core.fsmonitor` off — see git-exec.ts for why).
    *  Defence-in-depth: this probe must stay a pure reader of untrusted directories. */
   private git(cwd: string, args: string[]): Promise<string> {
-    return this.runGit(cwd, ["-c", "core.fsmonitor=", ...args]);
+    return this.runGit(cwd, [...GIT_HARDENING, ...args]);
   }
 
   /** Null when cwd is not a repo, git is missing, or the basic queries fail. The two optional

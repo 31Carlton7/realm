@@ -82,7 +82,7 @@ describe("GitInfoService", () => {
     let computes = 0;
     const runGit = async (_cwd: string, args: string[]) => {
       calls.push(args);
-      const cmd = args.filter((a) => a !== "-c" && a !== "core.fsmonitor=" && a !== "--no-optional-locks")[0];
+      const cmd = args.filter((a) => a !== "-c" && !a.startsWith("core.") && !a.startsWith("diff.") && a !== "--no-optional-locks")[0];
       if (cmd === "rev-parse") computes++;
       if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
       if (cmd === "rev-parse") return "main\n";
@@ -97,9 +97,9 @@ describe("GitInfoService", () => {
     const svc = new GitInfoService({ runGit });
     expect(await svc.get("/some/abs/cwd")).toEqual({ branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 });
     expect(calls).toHaveLength(4); // rev-parse, status, diff, rev-list
-    // A hostile repo-local .git/config can point core.fsmonitor at an arbitrary executable — every
-    // single argv must neutralise it before anything else.
-    for (const args of calls) expect(args.slice(0, 2)).toEqual(["-c", "core.fsmonitor="]);
+    // A hostile repo-local .git/config can point core.fsmonitor OR diff.external at an arbitrary
+    // executable — every single argv must neutralise both before anything else.
+    for (const args of calls) expect(args.slice(0, 4)).toEqual(["-c", "core.fsmonitor=", "-c", "diff.external="]);
     const status = calls.find((a) => a.includes("status"))!;
     // --no-optional-locks is a global option and must precede the subcommand.
     expect(status.indexOf("--no-optional-locks")).toBeGreaterThanOrEqual(0);

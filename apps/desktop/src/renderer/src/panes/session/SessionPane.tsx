@@ -102,10 +102,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const draft = useApp((s) => s.drafts[id] ?? "");
   const setDraft = useApp((s) => s.setDraft);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
+  const environment = useApp((s) => { const e = s.sessions[id]?.environmentId; return e ? s.environments[e] ?? null : null; });
   const panelOpen = useApp((s) => s.terminalPanel[id]?.open ?? false);
   const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
   const prefillTerminal = useApp((s) => s.prefillTerminal);
+  const openDiff = useApp((s) => s.openDiff);
   // Stable across renders: InstallCard registers it as a window "focus" listener.
   const reprobe = useCallback(() => { run(() => probeAgents(true)); }, [probeAgents, run]);
 
@@ -140,7 +142,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       {blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))} />
-        : <Composer session={session} status={status} project={project} gitInfo={gitInfo} draft={draft} onDraftChange={(t) => setDraft(id, t)}
+        : <Composer session={session} status={status} project={project} gitInfo={gitInfo} environment={environment}
+            onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
             onSend={(text) => run(() => sendMessage(id, text))}
             onStop={() => run(() => interruptSession(id))}
             onOptions={(o) => run(() => setSessionOptions(id, o))}
