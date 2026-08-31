@@ -56,6 +56,21 @@ Realm owns `~/Realm/skills/<name>/SKILL.md`. Nothing is copied, symlinked, or wr
 Per-space enable/disable, since a Work space and a School space want different skills. The mac-cli skill
 already written in `skills/mac/SKILL.md` is the first consumer and stops being latent.
 
+### W1 carry-forwards (found while implementing, must not be dropped)
+
+**`settingSources: []` is a bigger hammer than "skills isolation" implies.** It also drops the user's
+`~/.claude/CLAUDE.md`, the repo's `.claude/` settings, and `.mcp.json`. So enabling one skill in a space
+silently changes what that space's Claude sessions inherit. W1 contained it — the option is *absent*, not
+empty, when a space has no enabled skills, so today's behaviour is exactly preserved for any space that
+manages none. Two follow-ups are now required, not optional:
+
+- **W3 must re-inject `~/.claude/CLAUDE.md`** through the `systemContext` seam it is already wiring.
+- **W5 must say this out loud** beside the toggle: Realm's library replaces your installed skills for this space.
+
+**Codex extra roots are per-connection, not per-thread.** `skills/extraRoots/set` takes no `threadId` and the
+adapter shares one process, so two spaces with different skills enabled each see the other's. This is the
+documented trade (the alternative loses the process refcount). W4 scopes it prompt-side; W5 should name it.
+
 ### W2 — MCP connections
 
 Fill the `mcpServers: []` gap at `service.ts:276`. Servers configured in Realm, scoped per space, passed
