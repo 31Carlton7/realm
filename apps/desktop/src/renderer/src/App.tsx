@@ -132,6 +132,18 @@ export function App() {
       const st = store.getState();
       if (st.spaceSkills[spaceId]) st.run(() => st.refreshSkills(spaceId));
     });
+    // An MCP server was defined, edited, removed or toggled. The broadcast is unscoped (definitions
+    // are global); every space whose panel has fetched a list re-reads its own, because each list
+    // carries that space's enable flags.
+    const offM = rpc().on("mcp.changed", () => {
+      const st = store.getState();
+      for (const spaceId of Object.keys(st.spaceMcp)) st.run(() => st.refreshMcp(spaceId));
+    });
+    // A space's memory document or AGENTS.md changed. Same held-only rule as skills.
+    const offMem = rpc().on("memory.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
+    });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
@@ -146,7 +158,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offK(); offE(); offT(); offC();
+      offS(); offI(); offV(); offW(); offP(); offK(); offM(); offMem(); offE(); offT(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

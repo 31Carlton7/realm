@@ -2,7 +2,7 @@ import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
   AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpServer, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -23,6 +23,16 @@ export type PermissionDecision = "allow" | "allow_always" | "deny";
  *  Canonical home of this type — PaneHost imports it from here. */
 export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
 export type AgentProbe = MethodResult<"agents.probe">[number];
+/**
+ * What the MCP form sends. `env` (stdio) and `headers` (http/sse) are the ONLY place a secret value
+ * ever exists client-side: typed into the form, sent, gone. `mcp.list` returns key names, so nothing
+ * held in the store can leak one.
+ */
+export type McpAddInput = { spaceId: string | null; name: string; transport: McpTransport; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> };
+/** An omitted `env`/`headers` keeps the stored values — how a rename saves without wiping a key the
+ *  client was never shown. Passing either REPLACES the whole map. */
+export type McpUpdateInput = { id: string; spaceId: string | null; name?: string; transport?: McpTransport; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> };
+export type McpTestResult = { reached: boolean; detail: string };
 /** A `session.event` broadcast: persisted rows carry their seq; ephemeral ones (deltas) have seq -1. */
 export type LiveSessionEvent = StoredSessionEvent & { ephemeral: boolean };
 export type TranscriptEntry = { lastSeq: number; t: Transcript };
@@ -72,8 +82,31 @@ export type Api = {
   listAllSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
-  /** `skills.list` for a space, skills only — what the prompter's `@`-mention picker offers (W4). */
-  listSkills(spaceId: string): Promise<Skill[]>;
+  /** `skills.list` for a space: the library folder and every skill in it, valid or not — the mention
+   *  picker (W4) reads the skills, the settings panel (W5) also shows the root and the invalid rows. */
+  listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
+  /** `skills.setEnabled` — one skill, one SPACE. The store is a per-space disabled set. */
+  setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.list` — every server with THIS space's enable flag, plus the storage note the panel must show. */
+  listMcp(spaceId: string): Promise<{ servers: McpServer[]; secretNote: string }>;
+  /** `mcp.add` — defines the server and enables it in `input.spaceId` only (opt-in everywhere else). */
+  addMcpServer(input: McpAddInput): Promise<McpServer>;
+  /** `mcp.update` — omitted `env`/`headers` keep their stored values; passed ones replace the map. */
+  updateMcpServer(input: McpUpdateInput): Promise<McpServer>;
+  /** `mcp.remove` — forgets the server everywhere, secrets and every space's opt-in included. */
+  removeMcpServer(id: string): Promise<void>;
+  /** `mcp.setEnabled` — one server, one SPACE (the per-space opt-in set). */
+  setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.test` — a live connection attempt from realm-server; resolves reached/failed with a sentence. */
+  testMcpServer(id: string): Promise<McpTestResult>;
+  /** `memory.get` — this space's Realm memory document and its AGENTS.md state. */
+  getMemory(spaceId: string): Promise<MemoryState>;
+  /** `memory.set` — replaces the document; the server refuses past MEMORY_DOC_MAX rather than truncate. */
+  setMemory(spaceId: string, doc: string): Promise<MemoryState>;
+  /** `memory.setAgentsFile` — the one permitted write outside Realm's home; refused off primary folders. */
+  setAgentsFile(spaceId: string, enabled: boolean): Promise<MemoryState>;
+  /** `memory.sources` — what one session's agent actually loads, on the best authority per agent. */
+  memorySources(sessionId: string): Promise<MemorySources>;
   /** `mentions` are the skill ids the draft's `@`-tokens were recognised as; the server re-validates
    *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
   sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[]): Promise<void>;
@@ -232,6 +265,17 @@ export type AppState = {
   /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
    *  skills-capable session opens and on `skills.changed`. */
   spaceSkills: Record<string, Skill[]>;
+  /** Where the library lives on disk (`skills.list` root) — the settings panel's "drop a folder here"
+   *  hint. Global, not per-space; "" until the first fetch. */
+  skillsRoot: string;
+  /** `mcp.list` by space id — the settings panel's server list. Only spaces whose panel was opened are
+   *  held; `mcp.changed` refreshes exactly those. Secret VALUES never appear here: the wire has no
+   *  field for them. */
+  spaceMcp: Record<string, { servers: McpServer[]; secretNote: string }>;
+  /** `memory.get` by space id — the memory panel's document + AGENTS.md state. */
+  spaceMemory: Record<string, MemoryState>;
+  /** `memory.sources` by session id — fetched when the memory panel asks about a session. */
+  sessionMemorySources: Record<string, MemorySources>;
   /** The permission mode a session was on when it entered Plan, by session id — see `setSessionMode`.
    *  Not persisted: after a restart a session already in Plan returns to `default`, which is the safe
    *  direction to be wrong in. */
@@ -369,6 +413,29 @@ export type AppState = {
   setDraft(sessionId: string, text: string): void;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
+  /** Toggle one skill for ONE space (the settings panel), then re-read that space's library. */
+  setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** Fetch a space's MCP servers into `spaceMcp` (panel open, `mcp.changed`). */
+  refreshMcp(spaceId: string): Promise<void>;
+  addMcpServer(input: McpAddInput): Promise<void>;
+  updateMcpServer(input: McpUpdateInput): Promise<void>;
+  /** `spaceId` is only which list to re-read; removal itself is global (the server forgets every
+   *  space's opt-in with the row). */
+  removeMcpServer(spaceId: string, id: string): Promise<void>;
+  /** Toggle one server for ONE space (the per-space opt-in set), then re-read that space's list. */
+  setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.test`, resolved to the caller: the result is per-click UI state, not store state. */
+  testMcpServer(id: string): Promise<McpTestResult>;
+  /** Fetch a space's memory document + AGENTS.md state into `spaceMemory`. */
+  refreshMemory(spaceId: string): Promise<void>;
+  /** Replace the memory document. The caller must already be under MEMORY_DOC_MAX — the panel refuses
+   *  to send an over-cap doc rather than let the server truncate or reject it invisibly. */
+  saveMemoryDoc(spaceId: string, doc: string): Promise<void>;
+  /** Turn the managed AGENTS.md on/off. The server refuses outside Realm-created folders; the panel
+   *  never offers the toggle there, so a refusal here is a real race, surfaced via `run`. */
+  setAgentsFile(spaceId: string, enabled: boolean): Promise<void>;
+  /** Fetch what one session's agent actually loads into `sessionMemorySources`. */
+  refreshMemorySources(sessionId: string): Promise<void>;
   /** Attach dropped or pasted Files. A dropped file already has a path; a pasted one does not, and is
    *  written under Realm's home first (see main/attachments.ts). */
   attachFiles(sessionId: string, files: readonly File[]): Promise<void>;
@@ -662,7 +729,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, planReturn: {}, gitInfo: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMcp: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -1102,8 +1169,52 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ drafts: { ...get().drafts, [sessionId]: text }, draftMentions: { ...get().draftMentions, [sessionId]: mentions } });
       },
       async refreshSkills(spaceId) {
-        const skills = await api.listSkills(spaceId);
-        set({ spaceSkills: { ...get().spaceSkills, [spaceId]: skills } });
+        const { root, skills } = await api.listSkills(spaceId);
+        set({ spaceSkills: { ...get().spaceSkills, [spaceId]: skills }, skillsRoot: root });
+      },
+      async setSkillEnabled(spaceId, id, enabled) {
+        // The spaceId travels verbatim: the store is a per-space disabled set, and writing any other
+        // space's key is the named mutant this exists to kill. Re-read rather than patched locally, so
+        // what the panel shows is what the server persisted.
+        await api.setSkillEnabled(spaceId, id, enabled);
+        await get().refreshSkills(spaceId);
+      },
+      async refreshMcp(spaceId) {
+        const r = await api.listMcp(spaceId);
+        set({ spaceMcp: { ...get().spaceMcp, [spaceId]: r } });
+      },
+      async addMcpServer(input) {
+        await api.addMcpServer(input);
+        if (input.spaceId) await get().refreshMcp(input.spaceId);
+      },
+      async updateMcpServer(input) {
+        await api.updateMcpServer(input);
+        if (input.spaceId) await get().refreshMcp(input.spaceId);
+      },
+      async removeMcpServer(spaceId, id) {
+        await api.removeMcpServer(id);
+        await get().refreshMcp(spaceId);
+      },
+      async setMcpEnabled(spaceId, id, enabled) {
+        await api.setMcpEnabled(spaceId, id, enabled);
+        await get().refreshMcp(spaceId);
+      },
+      testMcpServer: (id) => api.testMcpServer(id),
+      async refreshMemory(spaceId) {
+        const state = await api.getMemory(spaceId);
+        set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async saveMemoryDoc(spaceId, doc) {
+        const state = await api.setMemory(spaceId, doc);
+        set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async setAgentsFile(spaceId, enabled) {
+        const state = await api.setAgentsFile(spaceId, enabled);
+        set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async refreshMemorySources(sessionId) {
+        const sources = await api.memorySources(sessionId);
+        set({ sessionMemorySources: { ...get().sessionMemorySources, [sessionId]: sources } });
       },
       async attachFiles(sessionId, files) {
         const picked: PickedAttachment[] = [];

@@ -46,6 +46,21 @@ describe("SpaceSettingsSheet", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(store.getState().sheet).toBeNull();
   });
+
+  it("the tabs move between General, Skills, Connections and Memory — one settings home (W5)", async () => {
+    await mount();
+    // General is the default, so every pre-W5 flow above lands where it always did.
+    expect(screen.getByRole("textbox", { name: "Space name" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Skills" }));
+    expect(await screen.findByText(/isolates this space's Claude sessions/)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Space name" })).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Connections" }));
+    expect(await screen.findByText(/stored in plain text in Realm's database/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+    expect(await screen.findByRole("textbox", { name: "Space memory document" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    expect(screen.getByRole("textbox", { name: "Space name" })).toBeInTheDocument();
+  });
 });
 
 /** W1 split the checkout out of the session and W2 made worktrees; this list is where that split is
