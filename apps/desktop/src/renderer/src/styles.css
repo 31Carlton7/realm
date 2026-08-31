@@ -221,6 +221,17 @@ kbd { font: 11px var(--font-mono); }
 .menu-sep { height: 1px; background: var(--rl-hairline); margin: 4px 2px; }
 .menu-kbd { margin-left: auto; padding-left: 18px; color: var(--rl-text-dim); }
 
+/* ── Mention picker (prompter, W4): @-completion over the space's enabled skills ── */
+/* Same raised-surface language as .menu; rows echo .mp-row but focus never enters — the highlight is
+   driven from the textarea's own keyboard, so there is no :focus styling to define. */
+.mention-picker { z-index: 100; width: min(380px, 80vw); max-height: min(40vh, 280px); overflow-y: auto; padding: 6px;
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
+.mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
+  transition: background-color 100ms ease; }
+.mention-row[data-active] { background: var(--hover); }
+.mention-row-id { flex: none; font-family: var(--font-mono); font-size: 12px; font-weight: 550; color: var(--rl-text-bright); }
+.mention-row-desc { flex: 1; min-width: 0; font-size: 11.5px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ── Model picker (prompter): search + provider rail + (agent, model) rows ── */
 .model-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }

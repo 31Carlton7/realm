@@ -1,8 +1,9 @@
-import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, isImageMime, type AgentKind, type Environment, type GitInfo, type Project, type Session, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, isImageMime, type AgentKind, type Environment, type GitInfo, type Project, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import type { AgentProbe, PickedAttachment, SessionOptions } from "../../state/store";
+import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
 import { ModelPicker, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
 
@@ -128,7 +129,7 @@ const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id
  *  ⌘/Ctrl+Enter sends; Enter inserts a newline. The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
-export function Composer({ session, status, project, gitInfo, environment, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion }: {
+export function Composer({ session, status, project, gitInfo, environment, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [] }: {
   session: Session; status: SessionStatus; project: Project | null; gitInfo: GitInfo | null;
   /** The checkout this session runs in (W2) — null until the space's environments have loaded. */
   environment: Environment | null;
@@ -154,6 +155,13 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
   /** Latest `agents.probe`, for the picker's per-agent availability note. Empty before the first probe. */
   agentProbe: AgentProbe[];
   hero: boolean; spaceName: string; onSuggestion: (prompt: string) => void;
+  /** What `@` may complete to HERE (W4): the space's enabled, valid skills — and only for an agent
+   *  Realm can inject skills into. Empty (the default) means typing `@` opens nothing, which is how a
+   *  Cursor session never grows an affordance that would silently do nothing. */
+  mentionSkills?: Skill[];
+  /** Recognised mentions still in the draft whose skill has since been disabled or deleted — shown in
+   *  the warning tone, because at send they degrade to plain text (the `@` stripped) and do not invoke. */
+  staleMentions?: string[];
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
@@ -208,9 +216,55 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
     el.style.height = `${Math.min(MAX_ROWS_PX, el.scrollHeight)}px`;
   }, [draft]);
 
+  // ── @-mention picker (W4) ──────────────────────────────────────────────
+  // The caret is tracked as state (onSelect fires for typing, clicks and arrow moves alike) because
+  // the token under it is what decides whether the popover shows. The token itself is derived, never
+  // stored — the draft is the only source of truth, so a pane remount that restores the draft
+  // restores the mention with it.
+  const [caret, setCaret] = useState(0);
+  const [mentionActive, setMentionActive] = useState(0);
+  /** Token start Esc was pressed on: that token stays closed until it is left or retyped. */
+  const [mentionDismissed, setMentionDismissed] = useState<number | null>(null);
+  /** Where the caret belongs after a pick rewrites the draft; applied once the new text renders. */
+  const pendingCaret = useRef<number | null>(null);
+  const mentionToken = useMemo(
+    () => (mentionSkills.length > 0 ? mentionQueryAt(draft, Math.min(caret, draft.length)) : null),
+    [mentionSkills.length, draft, caret],
+  );
+  const mentionMatches = useMemo(
+    () => (mentionToken ? filterMentionSkills(mentionSkills, mentionToken.query) : []),
+    [mentionSkills, mentionToken],
+  );
+  const mentionOpen = mentionToken !== null && mentionMatches.length > 0 && mentionDismissed !== mentionToken.start;
+  // Leaving the token (or deleting it) clears the dismissal, so a fresh `@` in the same spot reopens.
+  useEffect(() => { if (mentionToken === null && mentionDismissed !== null) setMentionDismissed(null); }, [mentionToken, mentionDismissed]);
+  useLayoutEffect(() => {
+    if (pendingCaret.current === null) return;
+    const pos = pendingCaret.current; pendingCaret.current = null;
+    const el = ta.current;
+    if (el) { el.focus(); el.setSelectionRange(pos, pos); }
+    setCaret(pos);
+  }, [draft]);
+  /** Insert `@id ` over the WHOLE token (start..end, not start..caret — `@ma|c` must not leave a
+   *  stray `c`). The trailing space is the canonical delimiter the send-time scan expects. */
+  const pickMention = (s: Skill) => {
+    if (!mentionToken) return;
+    const insert = `@${s.id} `;
+    onDraftChange(draft.slice(0, mentionToken.start) + insert + draft.slice(mentionToken.end));
+    pendingCaret.current = mentionToken.start + insert.length;
+    setMentionActive(0);
+  };
+  const mentionCur = Math.min(mentionActive, mentionMatches.length - 1);
+
   const send = () => { const t = draft.trim(); if (!t) return; onSend(t); onDraftChange(""); };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+    // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); return; }
+    if (!mentionOpen) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setMentionActive(Math.min(mentionMatches.length - 1, mentionCur + 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setMentionActive(Math.max(0, mentionCur - 1)); }
+    else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(mentionMatches[mentionCur]!); }
+    // Escape reaches us through the popover hook's own window listener → onClose → dismissal.
   };
 
   // Deliberately narrow (no `MenuItem[]`): these double as the model menu's overflow groups when the
@@ -265,8 +319,26 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
       <div className="composer" data-dropping={dragDepth > 0 || undefined}
         onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
+        {/* A mention whose skill vanished after typing (W4): warning tone, same row language as the
+            attachment fates — the last moment the degradation is actionable is before send. */}
+        {staleMentions.length > 0 && (
+          <p className="composer-attach-note composer-mention-note" data-disposition="ignored">
+            <Icon name="alert" size={12} className="attach-note-glyph" />
+            <span>{staleMentions.length === 1 ? "No longer an enabled skill — sent as plain text, without the @:" : "No longer enabled skills — sent as plain text, without the @:"}</span>
+            <span className="attach-note-files">{staleMentions.map((m) => `@${m}`).join(", ")}</span>
+          </p>
+        )}
         <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={`Ask ${AGENT_META[kind].label} anything…`} rows={1}
-          value={draft} onChange={(e) => onDraftChange(e.target.value)} onKeyDown={onKeyDown} onPaste={onPaste} />
+          value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+          onKeyDown={onKeyDown} onPaste={onPaste}
+          aria-controls={mentionOpen ? "mention-list" : undefined}
+          aria-activedescendant={mentionOpen ? `mention-${mentionMatches[mentionCur]!.id}` : undefined} />
+        {mentionOpen && (
+          <MentionPicker skills={mentionMatches} activeIndex={mentionCur} anchorRef={ta}
+            onPick={pickMention} onHover={setMentionActive}
+            onClose={() => setMentionDismissed(mentionToken.start)} />
+        )}
         {dragDepth > 0 && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
         <div className="composer-bar">
           <div className="composer-opts" ref={optsRef} data-collapsed={collapsed || undefined}>

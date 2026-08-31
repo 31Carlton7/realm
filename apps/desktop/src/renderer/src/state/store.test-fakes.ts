@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, Profile, Project, RestorePreview, Session, ShipResult, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, Profile, Project, RestorePreview, Session, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AgentProbe, Api, PickedAttachment } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -11,6 +11,9 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
+
+export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
+  ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null, ...extra });
 
 export const checkpoint = (id: string, environmentId: string, extra: Partial<Checkpoint> = {}): Checkpoint =>
   ({ id, environmentId, sessionId: null, kind: "turn", label: "a turn", ref: `refs/realm/checkpoints/${environmentId}/${id}`,
@@ -44,6 +47,8 @@ export type FakeData = {
   /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
    *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
   checkpointPreview?: Record<string, RestorePreview>;
+  /** `skills.list` by space id — what the prompter's @-mention picker offers (W4). */
+  skills?: Record<string, Skill[]>;
   /** What the next `pickFiles()` answers with; consumed by the call (queue, not a constant). */
   pickFiles?: PickedAttachment[];
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
@@ -55,8 +60,9 @@ export type FakeApi = Api & {
   /** Method-call log, e.g. `listItems:s1`, `setLayout:s1`, `setSetting:ui.theme=dark`. */
   calls: string[];
   disposed: string[];
-  /** Every `sendMessage`, with the attachments that actually went on the wire. */
-  sent: { id: string; text: string; attachments: Attachment[] }[];
+  /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
+   *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
+  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[];
   /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
   delays: Record<string, number>;
   onCreateTerminal: (() => void) | null;
@@ -69,7 +75,7 @@ export type FakeApi = Api & {
 export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
-  const sent: { id: string; text: string; attachments: Attachment[] }[] = [];
+  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[] = [];
   const data: Required<FakeData> = {
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p2", "Homework", { color: "#3ddc97" })],
@@ -91,6 +97,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     worktreeStatus: overrides.worktreeStatus ?? {},
     checkpoints: overrides.checkpoints ?? {},
     checkpointPreview: overrides.checkpointPreview ?? {},
+    skills: overrides.skills ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
   };
@@ -185,10 +192,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`createSession:${input.agentKind}`);
       return { session: s, itemId: it.id };
     },
-    sendMessage: async (id, text, attachments) => {
+    sendMessage: async (id, text, attachments, mentions) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
-      sent.push({ id, text, attachments });
+      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}) });
     },
+    listSkills: async (spaceId) => { calls.push(`listSkills:${spaceId}`); return data.skills[spaceId] ?? []; },
     interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
     respondPermission: async (id, requestId, decision) => { calls.push(`respondPermission:${id}:${requestId}:${decision}`); },
     setSessionOptions: async (id, o) => {

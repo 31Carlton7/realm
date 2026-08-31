@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import type { Item } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, type Item, type Skill } from "@realm/contracts";
 import { TERMINAL_PANEL_WIDTH, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { TerminalView } from "../TerminalPane";
@@ -14,6 +14,8 @@ import { emptyTranscript } from "./transcript-model";
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
  *  re-render (and warn) forever. */
 const NO_ATTACHMENTS: PickedAttachment[] = [];
+const NO_SKILLS: Skill[] = [];
+const NO_MENTIONS: string[] = [];
 
 const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Needs permission", error: "Error", ended: "Ended" } as const;
 
@@ -135,6 +137,22 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const setDraft = useApp((s) => s.setDraft);
   // Attachments are part of the draft and are held the same way, for the same reason.
   const attachments = useApp((s) => s.pendingAttachments[id] ?? NO_ATTACHMENTS);
+  // The @-mention picker's source (W4): the space's library, narrowed to what THIS session's agent can
+  // be handed — empty for a Cursor (or fake) session, which is what keeps `@` from opening anything
+  // there. `spaceSkills` rows are store-held references, so the memo only re-filters on real change.
+  const spaceSkillList = useApp((s) => { const sess = s.sessions[id]; return (sess && s.spaceSkills[sess.spaceId]) || NO_SKILLS; });
+  const agentKind = useApp((s) => s.sessions[id]?.agentKind);
+  const mentionSkills = useMemo(
+    () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
+    [agentKind, spaceSkillList],
+  );
+  const draftMentionIds = useApp((s) => s.draftMentions[id] ?? NO_MENTIONS);
+  // Recognised mentions whose skill has since been disabled/deleted — the draft still carries the
+  // token, so the prompter warns that it will go as plain text.
+  const staleMentions = useMemo(() => {
+    const live = new Set(mentionSkills.map((k) => k.id));
+    return draftMentionIds.filter((m) => !live.has(m));
+  }, [draftMentionIds, mentionSkills]);
   const attachFiles = useApp((s) => s.attachFiles);
   const attachFromPicker = useApp((s) => s.attachFromPicker);
   const removeAttachment = useApp((s) => s.removeAttachment);
@@ -198,6 +216,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onMode={(mode) => run(() => setSessionMode(id, mode))} planReturn={planReturn}
             canSwitchAgent={canSwitchAgent}
             agentProbe={agentProbe}
+            mentionSkills={mentionSkills} staleMentions={staleMentions}
             hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />}
     </div>
   );

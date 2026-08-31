@@ -126,6 +126,12 @@ export function App() {
         st.run(() => st.refreshCheckpoints(environmentId, sheet.sessionId));
       }
     });
+    // A skill was toggled (or the library edited). Only spaces already holding a library refresh —
+    // the mention picker fetches on session open, so a space nobody is prompting in stays unfetched.
+    const offK = rpc().on("skills.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (st.spaceSkills[spaceId]) st.run(() => st.refreshSkills(spaceId));
+    });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
@@ -140,7 +146,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offE(); offT(); offC();
+      offS(); offI(); offV(); offW(); offP(); offK(); offE(); offT(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);
