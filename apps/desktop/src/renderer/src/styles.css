@@ -938,6 +938,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .btn.destructive { background: var(--rl-danger); color: #ffffff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
 .btn.destructive:hover:not(:disabled) { background: var(--rl-danger); filter: brightness(0.95); } /* BUI's filled-hover for tones with no -ink step */
 .btn:disabled { opacity: .45; }
+/* A disabled primary must not wear the accent — 45% opacity on a filled blue button still reads as
+   THE action (caught in the W4 visual pass: "Commit, push & PR" looked live over "Nothing staged"). */
+.btn.primary:disabled { background: var(--rl-raised); color: var(--rl-text-faint); box-shadow: none; }
 
 /* ── Space settings: the space's checkouts (W1/W2 made visible in W3) ───── */
 .env-empty { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
