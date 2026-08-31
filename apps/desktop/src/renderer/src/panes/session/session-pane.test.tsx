@@ -7,7 +7,7 @@ import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
-import { renderMarkdown } from "./Markdown";
+import { Markdown, renderMarkdown } from "./Markdown";
 import { toolSummary } from "./tool-summary";
 
 const seeded = () => reduceAll([
@@ -172,7 +172,10 @@ describe("SessionPane", () => {
     const { api, store } = await mount("running", reduceAll([sessionEvent("assistant_delta", { messageId: "m1", delta: "str" })]));
     expect(api.calls).toContain("sessionEvents:se1:4");
     expect(screen.getByText("str")).toBeInTheDocument();
-    expect(screen.getByText("▍")).toBeInTheDocument();
+    // Plan 9 W2 re-pin: the caret is BUI StreamText's element (a 2px ink bar, .md-caret), not the
+    // old ▍ glyph. Same meaning — a live stream shows a caret; what it pins is that the caret
+    // exists exactly while `streaming` is true.
+    expect(document.querySelector(".md[data-streaming] .md-caret")).not.toBeNull();
     // The morph: one button, stop face up, send face still mounted for the cross-fade (§6).
     const morph = screen.getByRole("button", { name: "Stop" });
     expect(morph).toHaveAttribute("data-state", "stop");
@@ -722,6 +725,47 @@ describe("markdown + summaries", () => {
     expect(toolSummary("exec_command", { command: "npm test", cwd: "/repo" })).toBe("npm test");
     expect(toolSummary("apply_patch", { changes: [{ path: "/src/a.ts" }, { path: "/src/b.ts" }] })).toBe("/src/a.ts");
     expect(toolSummary("mcp__acp__some_tool", { foo: 1, note: "do the thing" })).toBe("do the thing");
+  });
+});
+
+describe("fenced code (Plan 9 W2 — BUI CodeBlock)", () => {
+  it("wraps a fence in an editor panel: a header naming the language beside a copy control, the <pre> as the body", () => {
+    const html = renderMarkdown("```ts\nconst a = 1;\n```");
+    expect(html).toContain('<div class="md-code">');
+    expect(html).toContain('<span class="md-code-lang">ts</span>');
+    expect(html).toMatch(/<button[^>]*aria-label="Copy code"/);
+    expect(html.match(/<pre>/g)).toHaveLength(1); // wrapped in place, not duplicated
+    expect(renderMarkdown("no code here")).not.toContain("md-code");
+  });
+
+  it("Copy code puts the fence's exact text on the clipboard and holds the ✓ for a beat (§6 icon swap)", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    vi.useFakeTimers();
+    try {
+      render(<Markdown text={"```ts\nconst a = 1;\nconst b = 2;\n```"} />);
+      const copy = screen.getByRole("button", { name: "Copy code" });
+      // Both glyphs stay mounted (the .tool-copy cross-fade rule serves this button too).
+      expect(copy.querySelector(".copy-icon")).not.toBeNull();
+      expect(copy.querySelector(".copied-icon")).not.toBeNull();
+      fireEvent.click(copy);
+      expect(writeText).toHaveBeenCalledWith("const a = 1;\nconst b = 2;\n");
+      expect(copy).toHaveAttribute("data-copied");
+      act(() => { vi.advanceTimersByTime(2_000); });
+      expect(copy).not.toHaveAttribute("data-copied");
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("a streaming block renders everything that has arrived, immediately — the wire paces the stream, no reveal timer to replay", () => {
+    // The mutant this kills: a BUI-style char-reveal interval, which would re-play settled text on
+    // every re-render (the transcript-enter regression named in Plan 9 W2).
+    const { rerender, container } = render(<Markdown text="alpha beta" streaming />);
+    expect(container.textContent).toContain("alpha beta");
+    expect(container.querySelector(".md-caret")).not.toBeNull();
+    rerender(<Markdown text="alpha beta gamma" streaming />);
+    expect(container.textContent).toContain("alpha beta gamma");
+    rerender(<Markdown text="alpha beta gamma" />);
+    expect(container.querySelector(".md-caret")).toBeNull(); // caret exists exactly while streaming
   });
 });
 
