@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { ToolCard, ToolGroup, RESULT_CLAMP } from "./ToolCard";
+import { editStat } from "./tool-summary";
 import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock } from "./tool-group";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
@@ -120,6 +121,38 @@ describe("tool-run summary line", () => {
   });
 });
 
+describe("editStat (Plan 9 W2: ThinkingState's measured +/− counts)", () => {
+  it("counts an Edit's lines from both sides of its own payload", () => {
+    expect(editStat("Edit", { file_path: "/a", old_string: "one", new_string: "one\ntwo" })).toEqual({ add: 2, del: 1 });
+    expect(editStat("Edit", { file_path: "/a", old_string: "", new_string: "x" })).toEqual({ add: 1, del: 0 });
+  });
+
+  it("sums a MultiEdit's edits and counts a Write's content as pure adds", () => {
+    expect(editStat("MultiEdit", { edits: [
+      { old_string: "a", new_string: "a\nb" },
+      { old_string: "c\nd", new_string: "e" },
+    ] })).toEqual({ add: 3, del: 3 });
+    expect(editStat("Write", { file_path: "/a", content: "l1\nl2\nl3" })).toEqual({ add: 3, del: 0 });
+  });
+
+  it("refuses to invent counts where the payload does not carry both sides", () => {
+    expect(editStat("Edit", { file_path: "/a" })).toBeNull();       // permission previews carry no strings
+    expect(editStat("Read", { file_path: "/a" })).toBeNull();
+    expect(editStat("Bash", { command: "ls" })).toBeNull();
+    expect(editStat("MultiEdit", { edits: "nope" })).toBeNull();
+    expect(editStat("apply_patch", { changes: [{ path: "/a" }] })).toBeNull();
+  });
+
+  it("renders the counts on the row — green adds, red deletes", () => {
+    render(<ToolCard sessionStatus="idle" block={
+      { kind: "tool", toolUseId: "t1", name: "Edit", input: { file_path: "/a.ts", old_string: "x", new_string: "x\ny\nz" }, result: { content: "ok", isError: false }, ts: 0 }
+    } />);
+    const stat = document.querySelector(".tool-stat")!;
+    expect(stat.querySelector(".tool-stat-add")).toHaveTextContent("+3");
+    expect(stat.querySelector(".tool-stat-del")).toHaveTextContent("−1");
+  });
+});
+
 const steps = (blocks: ToolBlock[]) => blocks.map((b) => ({ key: b.toolUseId, block: b, enter: false }));
 const cards = () => [...document.querySelectorAll<HTMLElement>(".tool-card")];
 const bodyOf = (card: HTMLElement) => card.querySelector(".tool-body");
@@ -192,6 +225,21 @@ describe("ToolGroup", () => {
   it("does not auto-open a finished run just because the session is live again", () => {
     render(<ToolGroup steps={steps(run)} sessionStatus="running" />);
     expect(cards()).toHaveLength(0);
+  });
+
+  /** Plan 9 W2 mutant: ThinkingState marking a step done while its tool call is still unsettled.
+   *  The spinner→check progression must be each block's REAL result, never a clock. */
+  it("a step settles only when its own result lands: unfinished steps say running, finished say done", () => {
+    const live = [run[0]!, run[1]!, tool("t3", "Read", { file_path: "/c" }, 0, false)];
+    const { rerender } = render(<ToolGroup steps={steps(live)} sessionStatus="running" />);
+    const labels = () => cards().map((c) => c.querySelector(".tool-status")!.getAttribute("aria-label"));
+    expect(labels()).toEqual(["done", "done", "running"]);
+    // The header shimmers exactly while a step is unsettled — data-working is derived, not timed.
+    expect(document.querySelector(".tool-group")).toHaveAttribute("data-working");
+    rerender(<ToolGroup steps={steps([run[0]!, run[1]!, tool("t3", "Read", { file_path: "/c" })])} sessionStatus="running" />);
+    expect(document.querySelector(".tool-group")).not.toHaveAttribute("data-working");
+    fireEvent.click(screen.getByRole("button", { name: "3 tool calls" })); // settled runs fold; reopen to see the steps
+    expect(labels()).toEqual(["done", "done", "done"]);
   });
 });
 
