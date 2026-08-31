@@ -1,6 +1,6 @@
 import { describe, expect, it, afterEach, vi } from "vitest";
 import WebSocket from "ws";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions, type UserMessage } from "@realm/adapters";
@@ -180,11 +180,12 @@ describe("@-mention resolution at send (W4)", () => {
     await waitFor(() => claude.sent.length === 1);
     // The named mutant: a literal `@name` reaching an adapter wire. And its quieter siblings — a skill
     // resolved under its directory id (which Claude's plugin would not recognise), or a wire path that
-    // is not the library's own SKILL.md.
+    // is not the CANONICAL library SKILL.md (Codex matches the item against skills it discovered by
+    // resolved path, and silently ignores one it cannot place — proven in live-mention-check.ts).
     expect(claude.sent[0]).toEqual({
       text: "use mac to list reminders",
       attachments: [],
-      skill: { id: "mac", name: "mac-skill", path: join(home, "skills", "mac", "SKILL.md") },
+      skill: { id: "mac", name: "mac-skill", path: realpathSync(join(home, "skills", "mac", "SKILL.md")) },
     });
     const evs = (await c.call("sessions.events", { id: session.id })).result;
     expect(evs.find((e: Any) => e.event.type === "user_message").event.payload.text).toBe("use @mac to list reminders");

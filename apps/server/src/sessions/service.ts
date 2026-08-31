@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { AGENT_META, AGENT_SKILL_SUPPORT, PERSISTED_EVENT_TYPES, SkillIdSchema, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
@@ -138,11 +139,22 @@ export class SessionService {
       const library = this.d.skills.list(s.spaceId).skills;
       for (const t of tokens) {
         const k = library.find((x) => x.id === t.id && x.enabled && x.valid);
-        if (k) { skill = { id: k.id, name: k.name, path: k.path }; break; }
+        // The path goes out CANONICALIZED: Codex matches a skill input item against the skills it
+        // discovered by resolved path, and silently ignores one it cannot place (proven live — a
+        // `/var/...` path for a skill it knew as `/private/var/...` invoked nothing). realpath of the
+        // library file is exactly what the staged symlink resolves to, so the two always agree.
+        if (k) { skill = { id: k.id, name: k.name, path: this.canonical(k.path) }; break; }
       }
     }
     return { text, attachments: msg.attachments, ...(skill ? { skill } : {}) };
   }
+
+  /** Best-effort realpath. A file that cannot be resolved (racing deletion) keeps its library path —
+   *  a mention is a nicety, and a nicety never fails the message carrying it. */
+  private canonical(path: string): string {
+    try { return realpathSync(path); } catch { return path; }
+  }
+
   async interrupt(id: string): Promise<void> { this.get(id); await this.live.get(id)?.handle.interrupt(); }
   respondPermission(id: string, requestId: string, decision: PermissionDecision): void {
     this.get(id);
