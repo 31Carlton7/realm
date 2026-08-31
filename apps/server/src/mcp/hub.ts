@@ -12,9 +12,11 @@ import type { McpServerRow, McpServersStore, McpToolRow } from "../store/mcp";
  *  wire (`McpServerStatusSchema`), so the gateway/UI never need a second vocabulary for it. */
 type UpstreamStatus = McpServerStatus;
 
-/** Consecutive failures (a failed connect, `tools/list`, or `tools/call` — including a `tools/call`
- *  result that comes back `isError: true`, which MCP returns as a normal result, not a rejection) that
- *  trip the breaker. Any success, of any kind, resets the count to zero. */
+/** Consecutive THROWN failures — a rejected connect, `tools/list`, or `tools/call` — that trip the
+ *  breaker. Deliberately not `isError: true` results: that is a normal, successfully round-tripped MCP
+ *  response where the *tool* reported a problem (bad arguments, a lint finding, ...), not the connection.
+ *  Three of those from one confused agent must not circuit-open a server that is working fine. Any
+ *  success, of any kind, resets the count to zero. */
 const CIRCUIT_THRESHOLD = 3;
 
 type Entry = {
@@ -37,6 +39,9 @@ type Entry = {
  */
 export class McpHub {
   private readonly entries = new Map<string, Entry>();
+  /** Set once by `close()`. A connect that resolves after this flips (it started before shutdown, the
+   *  handshake just took a while) must be reaped, not adopted — see `connect()`'s post-resolve check. */
+  private closed = false;
 
   constructor(private readonly d: {
     servers: McpServersStore;
@@ -69,7 +74,7 @@ export class McpHub {
       return rows;
     } catch (err) {
       this.recordFailure(id, entry);
-      throw sanitize(id, err);
+      throw sanitize(id, err, this.d.servers.get(id));
     }
   }
 
@@ -81,13 +86,15 @@ export class McpHub {
     const entry = this.entry(id);
     try {
       const result = (await client.callTool({ name: tool, arguments: args as Record<string, unknown> | undefined })) as CallToolResult;
-      // A tool error is a normal MCP result (`isError: true`), not a thrown error — the breaker has to
-      // look inside the result, or a tool that always fails "cleanly" would never trip it.
-      if (result.isError) this.recordFailure(id, entry); else this.recordSuccess(id, entry);
+      // `isError: true` is a normal, successfully round-tripped MCP result (the tool ran and reported a
+      // problem) — it counts as a working connection, same as any other resolved call. Only a REJECTED
+      // `callTool()` (transport/protocol failure, not a tool-level error) reaches the catch below and
+      // counts against the breaker; see `CIRCUIT_THRESHOLD`'s doc comment for why that split matters.
+      this.recordSuccess(id, entry);
       return result;
     } catch (err) {
       this.recordFailure(id, entry);
-      throw sanitize(id, err);
+      throw sanitize(id, err, this.d.servers.get(id));
     }
   }
 
@@ -114,9 +121,16 @@ export class McpHub {
     this.d.onStatus(id, "idle");
   }
 
-  /** Server shutdown: best-effort close of every live client, never throws. */
+  /**
+   * Server shutdown: best-effort close of every live client, never throws. Also awaits every in-flight
+   * `connecting` promise rather than abandoning it — a connect racing shutdown must be reaped by its own
+   * post-resolve check in `connect()` (see `closed`), not left to finish adopting a client after `close()`
+   * has already returned and the process is on its way out.
+   */
   async close(): Promise<void> {
+    this.closed = true;
     for (const entry of this.entries.values()) {
+      if (entry.connecting) { try { await entry.connecting; } catch { /* superseded or already failed; nothing left to close once it settles */ } }
       if (entry.client) { try { await entry.client.close(); } catch { /* shutting down anyway */ } }
     }
     this.entries.clear();
@@ -129,8 +143,10 @@ export class McpHub {
   }
 
   /** Get-or-create the shared client for a row: an existing client is reused, an in-flight connect is
-   *  awaited (never restarted), and a tripped circuit fails fast without touching the network. */
+   *  awaited (never restarted), a tripped circuit fails fast without touching the network, and a closed
+   *  hub refuses new work outright rather than starting a connect it will only have to reap. */
   private async ensureClient(id: string): Promise<Client> {
+    if (this.closed) throw supersededError(id);
     const entry = this.entry(id);
     if (entry.status === "circuit_open") throw circuitOpenError(id);
     if (entry.client) return entry.client;
@@ -139,23 +155,38 @@ export class McpHub {
   }
 
   private async connect(id: string, entry: Entry): Promise<Client> {
+    const row = this.d.servers.get(id);
+    // The gateway only ever calls the hub with ids it read from the store a moment earlier, so a
+    // missing row here means it was deleted in that window — treat it like any other connect failure
+    // rather than a distinct case the caller has to special-case.
+    if (!row) {
+      entry.connecting = null;
+      this.recordFailure(id, entry);
+      throw sanitize(id, new Error(`mcp server ${id} not found`), null);
+    }
     try {
-      const row = this.d.servers.get(id);
-      // The gateway only ever calls the hub with ids it read from the store a moment earlier, so a
-      // missing row here means it was deleted in that window — treat it like any other connect failure
-      // rather than a distinct case the caller has to special-case.
-      if (!row) throw new Error(`mcp server ${id} not found`);
       const client = new Client({ name: "realm-hub", version: "1.0.0" });
       client.setNotificationHandler(ToolListChangedNotificationSchema, () => this.onToolsChanged(id));
       await client.connect(await this.buildTransport(row));
+      // The handshake just resolved, but `invalidate()`/`retry()`/`close()` may have raced it — this
+      // entry may no longer be the hub's live state for `id`, or the hub may be shutting down entirely.
+      // Either way the client has no owner: adopting it would leak exactly the dangling child
+      // process/socket the reviewer reproduced, so close it here instead of storing it.
+      if (this.closed || this.entries.get(id) !== entry) {
+        await client.close().catch(() => {});
+        throw supersededError(id);
+      }
       entry.client = client;
       entry.connecting = null;
       this.recordSuccess(id, entry);
       return client;
     } catch (err) {
       entry.connecting = null;
+      // A superseded connect is Realm changing its mind mid-handshake, not the server failing — it must
+      // not trip the breaker or have its message rewritten into an upstream-failure error.
+      if (err instanceof RpcError && err.code === "MCP_SUPERSEDED") throw err;
       this.recordFailure(id, entry);
-      throw sanitize(id, err);
+      throw sanitize(id, err, row);
     }
   }
 
@@ -215,11 +246,22 @@ export class McpHub {
   }
 }
 
-/** Wraps an upstream failure as a structured, sanitized error — `err.message` only, and never anything
- *  built from `row.secrets`/`oauthJson`, which is the whole discipline this function exists to enforce
- *  in one place rather than at every throw site. */
-function sanitize(id: string, err: unknown): RpcError {
-  const message = err instanceof Error ? err.message : String(err);
+/**
+ * Wraps an upstream failure as a structured error: `err.message`, with every value in `row.secrets`
+ * (≥4 chars — shorter values would turn ordinary words into swiss cheese) scrubbed to `[redacted]`.
+ *
+ * Not just defensive: never *constructing* a message from `row.secrets` isn't enough, because a
+ * transport error can legitimately echo part of a failed request back (`Error POSTing to endpoint:
+ * ${responseBody}`), and a "bad key" response body is exactly the kind of body that contains the key.
+ * `row` is `null` only for the "row not found" case, where there is nothing to redact against.
+ */
+function sanitize(id: string, err: unknown, row: McpServerRow | null): RpcError {
+  let message = err instanceof Error ? err.message : String(err);
+  if (row) {
+    for (const value of Object.values(row.secrets)) {
+      if (value.length >= 4) message = message.split(value).join("[redacted]");
+    }
+  }
   return new RpcError("MCP_UPSTREAM_ERROR", `mcp server ${id}: ${message}`);
 }
 
@@ -228,4 +270,10 @@ function sanitize(id: string, err: unknown): RpcError {
  *  do about it. */
 function circuitOpenError(id: string): RpcError {
   return new RpcError("MCP_CIRCUIT_OPEN", `mcp server ${id} is unavailable after repeated failures — retry from settings (mcp.retry)`);
+}
+
+/** A connect that lost the race to `invalidate()`/`retry()`/`close()` — see `connect()`'s post-resolve
+ *  check. Its own code so callers (and `connect()`'s own catch) can tell it apart from a real failure. */
+function supersededError(id: string): RpcError {
+  return new RpcError("MCP_SUPERSEDED", `mcp server ${id}: connection attempt superseded by a config change or shutdown`);
 }

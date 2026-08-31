@@ -94,7 +94,7 @@ importers:
         specifier: ^0.3.233
         version: 0.3.233(@anthropic-ai/sdk@0.117.1(zod@3.25.76))(@modelcontextprotocol/sdk@1.30.0(zod@3.25.76))(zod@3.25.76)
       '@modelcontextprotocol/sdk':
-        specifier: ^1.0.0
+        specifier: ^1.30.0
         version: 1.30.0(zod@3.25.76)
       '@realm/adapters':
         specifier: workspace:*
