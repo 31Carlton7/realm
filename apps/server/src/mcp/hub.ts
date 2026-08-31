@@ -26,6 +26,12 @@ type Entry = {
    *  connection attempt instead of racing two SDK `Client`s onto the same process or socket. */
   connecting: Promise<Client> | null;
   failures: number;
+  /** Every credential VALUE (`row.secrets`, and for http/sse the merged `authHeaders` result too)
+   *  that went into the most recent transport attempt for this row — captured by `buildTransport` before
+   *  it does anything that can throw, and read by `sanitize()` instead of re-fetching the row at throw
+   *  time, which would silently skip redaction if the row was deleted in between. Overwritten (not
+   *  accumulated) on every attempt; a fresh `Entry` after `invalidate()`/`retry()` starts empty. */
+  redact: string[];
 };
 
 /**
@@ -64,8 +70,7 @@ export class McpHub {
    * now" without erroring the whole `tools/list` response.
    */
   async tools(id: string): Promise<McpToolRow[]> {
-    const client = await this.ensureClient(id);
-    const entry = this.entry(id);
+    const { client, entry } = await this.ensureClient(id);
     try {
       const { tools } = await client.listTools();
       const rows = tools.map((t): McpToolRow => ({ name: t.name, description: t.description ?? "" }));
@@ -74,7 +79,7 @@ export class McpHub {
       return rows;
     } catch (err) {
       this.recordFailure(id, entry);
-      throw sanitize(id, err, this.d.servers.get(id));
+      throw sanitize(id, err, entry.redact);
     }
   }
 
@@ -82,8 +87,7 @@ export class McpHub {
    *  stale the moment an upstream server changes its schema (see `McpToolSchema`'s own doc comment for
    *  why the cache carries no input schema to validate against in the first place). */
   async call(id: string, tool: string, args: unknown): Promise<CallToolResult> {
-    const client = await this.ensureClient(id);
-    const entry = this.entry(id);
+    const { client, entry } = await this.ensureClient(id);
     try {
       const result = (await client.callTool({ name: tool, arguments: args as Record<string, unknown> | undefined })) as CallToolResult;
       // `isError: true` is a normal, successfully round-tripped MCP result (the tool ran and reported a
@@ -94,7 +98,7 @@ export class McpHub {
       return result;
     } catch (err) {
       this.recordFailure(id, entry);
-      throw sanitize(id, err, this.d.servers.get(id));
+      throw sanitize(id, err, entry.redact);
     }
   }
 
@@ -138,36 +142,53 @@ export class McpHub {
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { status: "idle", client: null, connecting: null, failures: 0 }; this.entries.set(id, e); }
+    if (!e) { e = { status: "idle", client: null, connecting: null, failures: 0, redact: [] }; this.entries.set(id, e); }
     return e;
   }
 
-  /** Get-or-create the shared client for a row: an existing client is reused, an in-flight connect is
-   *  awaited (never restarted), a tripped circuit fails fast without touching the network, and a closed
-   *  hub refuses new work outright rather than starting a connect it will only have to reap. */
-  private async ensureClient(id: string): Promise<Client> {
+  /**
+   * Get-or-create the shared client for a row: an existing client is reused, an in-flight connect is
+   * awaited (never restarted), a tripped circuit fails fast without touching the network, and a closed
+   * hub refuses new work outright rather than starting a connect it will only have to reap.
+   *
+   * Returns the `Entry` alongside the `Client` — `tools()`/`call()` need it for `recordSuccess`/
+   * `recordFailure`/`sanitize`, and re-deriving it themselves via a second `this.entry(id)` after their
+   * own `await` would reopen a race: an `invalidate()` landing in that gap would find no entry, silently
+   * create a fresh "zombie" one, and have this call's failure/success count against a row nothing else
+   * is using anymore. Handing back the exact `Entry` this call resolved against closes that gap.
+   */
+  private async ensureClient(id: string): Promise<{ client: Client; entry: Entry }> {
     if (this.closed) throw supersededError(id);
     const entry = this.entry(id);
     if (entry.status === "circuit_open") throw circuitOpenError(id);
-    if (entry.client) return entry.client;
-    if (!entry.connecting) entry.connecting = this.connect(id, entry);
-    return entry.connecting;
+    if (entry.client) return { client: entry.client, entry };
+    if (!entry.connecting) {
+      const row = this.d.servers.get(id);
+      // The gateway only ever calls the hub with ids it read from the store a moment earlier, so a
+      // missing row here means it was deleted in that window — treat it like any other connect failure.
+      //
+      // Checked HERE, before `entry.connecting` is ever assigned, not inside `connect()`. `connect()` is
+      // async, so throwing synchronously from inside it (before its first `await`) still returns a
+      // rejected promise to this call site — and the assignment `entry.connecting = this.connect(...)`
+      // only happens AFTER that call returns. Any `entry.connecting = null` written from inside
+      // `connect()` before the throw would therefore be overwritten by the rejected promise a moment
+      // later, wedging the entry: every future call would see `entry.connecting` already set and replay
+      // the same cached rejection forever, without ever reaching `recordFailure` again. Failing fast
+      // right here, before there is any promise to assign, avoids the whole class of bug.
+      if (!row) {
+        this.recordFailure(id, entry);
+        throw sanitize(id, new Error("server row not found"), entry.redact);
+      }
+      entry.connecting = this.connect(id, entry, row);
+    }
+    return { client: await entry.connecting, entry };
   }
 
-  private async connect(id: string, entry: Entry): Promise<Client> {
-    const row = this.d.servers.get(id);
-    // The gateway only ever calls the hub with ids it read from the store a moment earlier, so a
-    // missing row here means it was deleted in that window — treat it like any other connect failure
-    // rather than a distinct case the caller has to special-case.
-    if (!row) {
-      entry.connecting = null;
-      this.recordFailure(id, entry);
-      throw sanitize(id, new Error(`mcp server ${id} not found`), null);
-    }
+  private async connect(id: string, entry: Entry, row: McpServerRow): Promise<Client> {
     try {
       const client = new Client({ name: "realm-hub", version: "1.0.0" });
       client.setNotificationHandler(ToolListChangedNotificationSchema, () => this.onToolsChanged(id));
-      await client.connect(await this.buildTransport(row));
+      await client.connect(await this.buildTransport(row, entry));
       // The handshake just resolved, but `invalidate()`/`retry()`/`close()` may have raced it — this
       // entry may no longer be the hub's live state for `id`, or the hub may be shutting down entirely.
       // Either way the client has no owner: adopting it would leak exactly the dangling child
@@ -186,17 +207,21 @@ export class McpHub {
       // not trip the breaker or have its message rewritten into an upstream-failure error.
       if (err instanceof RpcError && err.code === "MCP_SUPERSEDED") throw err;
       this.recordFailure(id, entry);
-      throw sanitize(id, err, row);
+      throw sanitize(id, err, entry.redact);
     }
   }
 
-  private async buildTransport(row: McpServerRow): Promise<Transport> {
+  private async buildTransport(row: McpServerRow, entry: Entry): Promise<Transport> {
     if (row.transport === "stdio") {
+      // Captured before `makeTransport`/`StdioClientTransport` run, so a failure in either still has
+      // something to redact against in `connect()`'s catch — see `Entry.redact`'s doc comment.
+      entry.redact = Object.values(row.secrets);
       return (await this.d.makeTransport?.(row, {})) ?? new StdioClientTransport({ command: row.command, args: row.args, env: row.secrets });
     }
     // OAuth (W5) is merged in last so a completed connection overrides a leftover header of the same
     // name from before the server was switched to OAuth (mirrors `authKind`'s "oauth beats secrets").
     const headers = { ...row.secrets, ...(await this.d.authHeaders(row)) };
+    entry.redact = Object.values(headers);
     if (this.d.makeTransport) return this.d.makeTransport(row, headers);
     return row.transport === "http"
       ? new StreamableHTTPClientTransport(new URL(row.url), { requestInit: { headers } })
@@ -247,20 +272,21 @@ export class McpHub {
 }
 
 /**
- * Wraps an upstream failure as a structured error: `err.message`, with every value in `row.secrets`
- * (≥4 chars — shorter values would turn ordinary words into swiss cheese) scrubbed to `[redacted]`.
+ * Wraps an upstream failure as a structured error: `err.message`, with every value in `redact` (≥4
+ * chars — shorter values would turn ordinary words into swiss cheese) scrubbed to `[redacted]`.
  *
- * Not just defensive: never *constructing* a message from `row.secrets` isn't enough, because a
- * transport error can legitimately echo part of a failed request back (`Error POSTing to endpoint:
- * ${responseBody}`), and a "bad key" response body is exactly the kind of body that contains the key.
- * `row` is `null` only for the "row not found" case, where there is nothing to redact against.
+ * Not just defensive: never *constructing* a message from a secret isn't enough, because a transport
+ * error can legitimately echo part of a failed request back (`Error POSTing to endpoint: ${responseBody}`,
+ * a 401 body quoting the bearer token it rejected), and a "bad credential" response body is exactly the
+ * kind of body that contains the credential. `redact` is `Entry.redact` — row secrets AND, for http/sse,
+ * whatever `authHeaders` (the OAuth seam) merged in — captured at transport-build time rather than
+ * re-read from the row here, so a row deleted between the failure and this call doesn't silently skip
+ * redaction (a fresh `servers.get(id)` at throw time can come back `null`; `Entry.redact` can't).
  */
-function sanitize(id: string, err: unknown, row: McpServerRow | null): RpcError {
+function sanitize(id: string, err: unknown, redact: string[]): RpcError {
   let message = err instanceof Error ? err.message : String(err);
-  if (row) {
-    for (const value of Object.values(row.secrets)) {
-      if (value.length >= 4) message = message.split(value).join("[redacted]");
-    }
+  for (const value of redact) {
+    if (value.length >= 4) message = message.split(value).join("[redacted]");
   }
   return new RpcError("MCP_UPSTREAM_ERROR", `mcp server ${id}: ${message}`);
 }

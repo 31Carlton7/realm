@@ -21,6 +21,8 @@ beforeEach(() => {
 const noAuth = async () => ({});
 const newRow = (secrets: Record<string, string> = {}): McpServerRow =>
   servers.create({ name: `s-${Math.random().toString(36).slice(2)}`, transport: "stdio", command: "unused-in-memory", args: [], url: "", secrets });
+const newHttpRow = (secrets: Record<string, string> = {}): McpServerRow =>
+  servers.create({ name: `s-${Math.random().toString(36).slice(2)}`, transport: "http", command: "", args: [], url: "https://example.invalid/mcp", secrets });
 
 /** Builds a hub wired to `stub` through the in-memory transport seam, counting how many times the
  *  transport was actually built — the assertion every "lazy"/"shared" test below hangs on. */
@@ -187,6 +189,68 @@ describe("circuit breaker", () => {
     expect(attempts).toBe(3); // three real attempts, the third one trips the breaker
     await expect(hub.tools(row.id)).rejects.toThrow(/mcp\.retry/);
     expect(attempts).toBe(3); // the 4th call fails fast — no 4th attempt
+  });
+
+  it("counts a missing-row failure toward the breaker instead of caching the rejection forever", async () => {
+    // The named bug: `connect()`'s `!row` branch used to write `entry.connecting = null` before the
+    // OUTER `entry.connecting = this.connect(...)` assignment (in `ensureClient`) had landed — `connect`
+    // throws before its first `await`, so the null write happens first and then gets clobbered by the
+    // rejected promise a moment later. Every later `tools()` call then saw `entry.connecting` already
+    // set and replayed that same cached rejection forever, without ever calling `recordFailure` again —
+    // three calls produced `["error"]`, not `["error","error","circuit_open"]`, and the entry wedged.
+    const row = newRow();
+    servers.delete(row.id); // defined, then removed — same shape as "the gateway raced a row delete"
+    const statuses: string[] = [];
+    const hub = new McpHub({ servers, onStatus: (_id, s) => statuses.push(s), authHeaders: noAuth });
+    await expect(hub.tools(row.id)).rejects.toThrow();
+    await expect(hub.tools(row.id)).rejects.toThrow();
+    await expect(hub.tools(row.id)).rejects.toThrow();
+    expect(statuses).toEqual(["error", "error", "circuit_open"]);
+    await expect(hub.tools(row.id)).rejects.toThrow(/mcp\.retry/); // fail-fast, same as any other class
+    expect(statuses).toEqual(["error", "error", "circuit_open"]); // the 4th call added nothing new
+  });
+
+  it("does not double-wrap the missing-row message", async () => {
+    const row = newRow();
+    servers.delete(row.id);
+    const hub = new McpHub({ servers, onStatus: () => {}, authHeaders: noAuth });
+    let err: unknown;
+    try { await hub.tools(row.id); } catch (e) { err = e; }
+    expect((err as Error).message).toBe(`mcp server ${row.id}: server row not found`);
+  });
+});
+
+describe("authHeaders seam (http/sse)", () => {
+  it("merges row.secrets with authHeaders, authHeaders winning on a key collision, and both reach the transport builder", async () => {
+    // Every other test row in this file is stdio, so `buildTransport`'s http/sse branch — and the merge
+    // order OAuth (W5) depends on — had zero coverage until this test.
+    const row = newHttpRow({ Authorization: "Bearer stale-secret-key", "X-Extra": "extra-value" });
+    const stub = makeStubServer();
+    let captured: Record<string, string> | null = null;
+    const hub = new McpHub({
+      servers, onStatus: () => {},
+      authHeaders: async () => ({ Authorization: "Bearer fresh-oauth-token" }),
+      makeTransport: async (_row, headers): Promise<Transport> => { captured = headers; return stub.connectInMemory(); },
+    });
+    await hub.tools(row.id);
+    expect(captured).toEqual({ Authorization: "Bearer fresh-oauth-token", "X-Extra": "extra-value" });
+  });
+
+  it("redacts an authHeaders value from an error message the same as a row secret", async () => {
+    // HARDENING: `sanitize()` used to scrub only `row.secrets`. A W5 OAuth bearer token arrives via
+    // `authHeaders`, never `row.secrets`, so a 401 body quoting it back would have sailed through
+    // unredacted. This row has NO secrets at all — the sentinel arrives purely via `authHeaders`.
+    const SENTINEL = "oauth-bearer-do-not-leak-me";
+    const row = newHttpRow();
+    const hub = new McpHub({
+      servers, onStatus: () => {},
+      authHeaders: async () => ({ Authorization: `Bearer ${SENTINEL}` }),
+      makeTransport: () => { throw new Error(`401: invalid token "Bearer ${SENTINEL}"`); },
+    });
+    let err: unknown;
+    try { await hub.tools(row.id); } catch (e) { err = e; }
+    expect((err as Error).message).not.toContain(SENTINEL);
+    expect((err as Error).message).toContain("[redacted]");
   });
 });
 
