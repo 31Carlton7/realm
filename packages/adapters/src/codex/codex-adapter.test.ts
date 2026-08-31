@@ -774,23 +774,13 @@ describe("CodexAdapter skills", () => {
 describe("codexMcpConfig", () => {
   const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
-  const sse = { name: "legacy", transport: "sse" as const, url: "https://sse.example/mcp", headers: { A: "b" } };
 
   it("writes a stdio server as command/args/env under its name", () => {
     expect(codexMcpConfig([stdio])).toEqual({ mcp_servers: { airtable: { command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } } });
   });
 
-  it("writes an http server as url/http_headers — Codex's own key, not `headers`", () => {
+  it("writes an http server as url/http_headers — Codex's own key, not `headers` — which is the only shape that ever reaches here (the gateway's own entry)", () => {
     expect(codexMcpConfig([http])).toEqual({ mcp_servers: { vercel: { url: "https://mcp.vercel.com", http_headers: { Authorization: "Bearer t" } } } });
-  });
-
-  it("drops an sse server entirely and says so, because Codex has no SSE transport", () => {
-    const lines: string[] = [];
-    expect(codexMcpConfig([sse], (l) => lines.push(l))).toBeUndefined();
-    expect(lines.join("")).toContain('"legacy"');
-    // `thread/start` does not validate `config` keys, so a wrong shape here would be accepted in
-    // silence — which is why it must never be produced.
-    expect(JSON.stringify(codexMcpConfig([stdio, sse]))).not.toContain("legacy");
   });
 
   it("omits empty args and env rather than sending empty collections", () => {

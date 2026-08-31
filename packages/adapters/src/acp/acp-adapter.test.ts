@@ -800,34 +800,34 @@ describe("acpMcpServers", () => {
     // The named mutant. Cursor validates with zod before its own lenient normalizer runs, so a record
     // here is rejected `invalid_union` and session/new fails outright — proven live in
     // scripts/live-mcp-check.ts, which watches the fixture server's env verdict.
-    const [out] = acpMcpServers("acp:cursor", [stdio]) as [Record<string, unknown>];
+    const [out] = acpMcpServers([stdio]) as [Record<string, unknown>];
     expect(out.env).toEqual([{ name: "A", value: "1" }, { name: "B", value: "2" }]);
     expect(Array.isArray(out.env)).toBe(true);
   });
 
   it("keeps args and env present even when empty — both are required, not optional", () => {
-    const [out] = acpMcpServers("acp:cursor", [{ name: "bare", transport: "stdio", command: "/bin/x", args: [], env: {} }]) as [Record<string, unknown>];
+    const [out] = acpMcpServers([{ name: "bare", transport: "stdio", command: "/bin/x", args: [], env: {} }]) as [Record<string, unknown>];
     expect(out).toEqual({ name: "bare", command: "/bin/x", args: [], env: [] });
   });
 
   it("gives the stdio variant no `type` discriminant, and the remote ones one", () => {
-    expect(acpMcpServers("acp:cursor", [stdio])[0]).not.toHaveProperty("type");
-    expect(acpMcpServers("acp:cursor", [http])).toEqual([
+    expect(acpMcpServers([stdio])[0]).not.toHaveProperty("type");
+    expect(acpMcpServers([http])).toEqual([
       { type: "http", name: "vercel", url: "https://mcp.vercel.com", headers: [{ name: "Authorization", value: "Bearer t" }] },
     ]);
-    expect(acpMcpServers("acp:cursor", [sse])).toEqual([{ type: "sse", name: "legacy", url: "https://sse.example/mcp", headers: [] }]);
+    expect(acpMcpServers([sse])).toEqual([{ type: "sse", name: "legacy", url: "https://sse.example/mcp", headers: [] }]);
   });
 
-  it("believes the handshake over the static table when a build advertises less", () => {
+  it("believes the handshake when a build advertises less than the default assumption", () => {
     const lines: string[] = [];
     // An agent that omits mcpCapabilities is saying stdio only. Sending it an http server would fail
     // session/new for the whole session, not just that server.
-    expect(acpMcpServers("acp:cursor", [stdio, http, sse], {}, (l) => lines.push(l)).map((s) => s.name)).toEqual(["airtable"]);
+    expect(acpMcpServers([stdio, http, sse], {}, (l) => lines.push(l)).map((s) => s.name)).toEqual(["airtable"]);
     expect(lines.join("\n")).toContain("mcpCapabilities.http");
-    expect(acpMcpServers("acp:cursor", [http, sse], { http: true }).map((s) => s.name)).toEqual(["vercel"]);
+    expect(acpMcpServers([http, sse], { http: true }).map((s) => s.name)).toEqual(["vercel"]);
   });
 
   it("assumes both when nothing is passed, which is what both installed agents advertise", () => {
-    expect(acpMcpServers("acp:cursor", [stdio, http, sse])).toHaveLength(3);
+    expect(acpMcpServers([stdio, http, sse])).toHaveLength(3);
   });
 });

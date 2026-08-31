@@ -4,7 +4,6 @@ import { MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent } from "@r
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper } from "./map-sdk-message";
 import { probeClaude } from "./probe";
-import { selectMcpServers } from "../mcp-transport";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type QueryFn = typeof sdkQuery;
@@ -13,12 +12,11 @@ type QueryFn = typeof sdkQuery;
  * `Options.mcpServers` for the SDK: a record keyed by name (`sdk.d.ts:1734`), whose members are the
  * three process transports — `{type:'stdio',command,args,env}` and `{type:'http'|'sse',url,headers}`.
  *
- * Claude is the one agent that takes all three, so nothing is ever dropped here in practice; the filter
- * stays because `AGENT_MCP_TRANSPORTS` is the single source of truth for which agent takes what, and an
- * adapter that decides for itself is one that can disagree with the UI.
+ * No filtering happens here: since Plan 9 W3 `servers` is always exactly the gateway's own `http` entry
+ * (or empty), and Claude takes every transport anyway. Translation only.
  */
-export function claudeMcpServers(servers: readonly McpServerConfig[], onLog?: (line: string) => void): Record<string, unknown> {
-  return Object.fromEntries(selectMcpServers("claude", servers, onLog).map((s) => [
+export function claudeMcpServers(servers: readonly McpServerConfig[]): Record<string, unknown> {
+  return Object.fromEntries(servers.map((s) => [
     s.name,
     s.transport === "stdio"
       ? { type: "stdio" as const, command: s.command, args: s.args, env: s.env }
@@ -100,7 +98,7 @@ export class ClaudeAdapter implements AgentAdapter {
       systemPrompt: opts.systemContext ? { type: "preset", preset: "claude_code", append: opts.systemContext } : undefined,
       // A RECORD keyed by name, not an array: `sdk.d.ts` `mcpServers?: Record<string, McpServerConfig>`.
       // Some documentation shows an array; disk wins.
-      mcpServers: claudeMcpServers(opts.mcpServers, opts.onLog) as Options["mcpServers"],
+      mcpServers: claudeMcpServers(opts.mcpServers) as Options["mcpServers"],
       // Realm's skills library as a local plugin, and `settingSources: []` so it is the ONLY library
       // this session has. The two go together and neither works alone for what Realm wants:
       //

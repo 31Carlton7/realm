@@ -270,10 +270,8 @@ describe("claudeMcpServers", () => {
     expect(claudeMcpServers([sse])).toEqual({ legacy: { type: "sse", url: "https://sse.example/mcp", headers: {} } });
   });
 
-  it("drops nothing, because Claude is the one agent that takes all three", () => {
-    const lines: string[] = [];
-    expect(Object.keys(claudeMcpServers([stdio, http, sse], (l) => lines.push(l)))).toHaveLength(3);
-    expect(lines).toEqual([]);
+  it("keeps every entry — no per-agent transport filtering happens here any more", () => {
+    expect(Object.keys(claudeMcpServers([stdio, http, sse]))).toHaveLength(3);
   });
 
   it("is empty — not absent — when there is nothing configured", () => {

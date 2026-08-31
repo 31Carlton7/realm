@@ -15,8 +15,12 @@ export const McpServerNameSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_
   "server name must be letters, digits, underscore or hyphen");
 
 /**
- * How Realm reaches the server. All three are real; none of them reaches every agent (see
- * `AGENT_MCP_TRANSPORTS`), which is why the transport is stored rather than inferred from the URL.
+ * How the hub reaches this upstream server. Stored rather than inferred from the URL because a URL
+ * alone cannot distinguish `http` from `sse` — both are ordinary HTTP(S) URLs, and the hub needs to pick
+ * `StreamableHTTPClientTransport` vs `SSEClientTransport` before it ever makes a request (see
+ * `mcp/hub.ts`'s `buildTransport`). Since Plan 9 W3 this is purely an upstream concern: agents never see
+ * it, because every agent is handed the gateway's own single `http` entry regardless of what an upstream
+ * server speaks.
  */
 export const McpTransportSchema = z.enum(["stdio", "http", "sse"]);
 export type McpTransport = z.infer<typeof McpTransportSchema>;
@@ -120,41 +124,34 @@ export type McpServer = z.infer<typeof McpServerSchema>;
 export const McpSecretsSchema = z.record(z.string().min(1), z.string());
 
 /**
- * What each agent will actually connect to, proven against the installed CLIs
- * (`docs/superpowers/specs/2026-08-29-agent-config-surfaces.md` §1.2).
+ * Whether an agent takes MCP servers at all.
  *
- * **Codex has no SSE at all.** That is the one asymmetry that bites: an SSE server configured in Realm
- * reaches Claude and Cursor and is silently missing on Codex unless somebody says so out loud, which is
- * what `mcpSupportNote` and the adapters' drop-logging are for.
+ * Before Plan 9 W3, this used to be a per-transport table (`AGENT_MCP_TRANSPORTS`): Codex had no SSE,
+ * so an SSE server configured in Realm silently vanished for Codex sessions unless something said so out
+ * loud. That asymmetry is gone. Since W3 no agent ever sees a third-party server's transport at all — the
+ * gateway (`apps/server/src/mcp/gateway.ts`) is the only thing that dials stdio/http/sse upstream, and
+ * every agent is handed exactly one `McpServerConfig`: the gateway's own `http` entry
+ * (`McpGateway.register`). A transport asymmetry between agents is now the gateway's problem to hide, not
+ * something an agent-side table needs to track — so the only question left on this side is whether an
+ * agent reads `mcpServers` at all.
  *
- * `fake` takes none: the scripted adapter never spawns anything, and claiming otherwise would make an
- * offline dev session look like it had tools it does not have.
+ * `fake` is the one holdout: the scripted adapter never reads `mcpServers`, and claiming otherwise would
+ * make an offline dev session look like it had tools it does not have.
  */
-export const AGENT_MCP_TRANSPORTS = {
-  // claude-adapter.ts → SDK `mcpServers`; sdk.d.ts has McpStdioServerConfig / McpSSEServerConfig / McpHttpServerConfig.
-  claude: ["stdio", "http", "sse"],
-  // codex-adapter.ts → `thread/start` `config.mcp_servers`. RawMcpServerConfig carries `url` + `http_headers`; no SSE variant exists.
-  codex: ["stdio", "http"],
-  // acp-adapter.ts → `session/new` `mcpServers`. Cursor advertises `mcpCapabilities:{http:true,sse:true}` (verified live).
-  "acp:cursor": ["stdio", "http", "sse"],
-  // Same shape; Gemini advertises the same capabilities (research §7).
-  "acp:gemini": ["stdio", "http", "sse"],
-  // fake-adapter.ts never reads `mcpServers`.
-  fake: [],
-} as const satisfies Record<AgentKind, readonly McpTransport[]>;
-
-export const agentSupportsTransport = (kind: AgentKind, transport: McpTransport): boolean =>
-  (AGENT_MCP_TRANSPORTS[kind] as readonly McpTransport[]).includes(transport);
+export const AGENT_HAS_MCP: Record<AgentKind, boolean> = {
+  claude: true,
+  codex: true,
+  "acp:cursor": true,
+  "acp:gemini": true,
+  fake: false,
+};
 
 /**
- * One sentence naming the agent and the transports it will take. Always names the agent, so a note
- * rendered against the wrong session is visibly wrong rather than quietly misleading.
+ * One sentence naming the agent and what happens to this space's MCP servers there. Always names the
+ * agent, so a note rendered against the wrong session is visibly wrong rather than quietly misleading.
  */
 export function mcpSupportNote(kind: AgentKind): string {
   const label = AGENT_META[kind].label;
-  const supported = AGENT_MCP_TRANSPORTS[kind] as readonly McpTransport[];
-  if (supported.length === 0) return `${label} does not connect to MCP servers, so this space's servers are ignored there.`;
-  const missing = (McpTransportSchema.options as readonly McpTransport[]).filter((t) => !supported.includes(t));
-  const takes = `${label} connects to this space's enabled ${supported.join(" and ")} servers`;
-  return missing.length === 0 ? `${takes}.` : `${takes}; it has no ${missing.join(" or ")} support, so those are skipped.`;
+  if (!AGENT_HAS_MCP[kind]) return `${label} does not connect to MCP servers, so this space's servers are ignored there.`;
+  return `${label} reaches this space's enabled servers through Realm's gateway; calls appear in Activity.`;
 }

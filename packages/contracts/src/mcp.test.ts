@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_MCP_TRANSPORTS, MCP_SECRET_STORAGE_NOTE, McpCallSchema, McpOauthStatusSchema, McpServerNameSchema,
-  McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, agentSupportsTransport, mcpSupportNote,
+  AGENT_HAS_MCP, MCP_SECRET_STORAGE_NOTE, McpCallSchema, McpOauthStatusSchema, McpServerNameSchema,
+  McpServerSchema, McpServerStatusSchema, McpToolSchema, mcpSupportNote,
 } from "./mcp";
 import { AGENT_META } from "./presets";
 import { Methods, Events } from "./rpc";
@@ -11,25 +11,19 @@ const kinds = Object.keys(AGENT_META) as AgentKind[];
 const SPACE = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const SERVER = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
 
-describe("AGENT_MCP_TRANSPORTS", () => {
+describe("AGENT_HAS_MCP", () => {
   it("has a row for every agent kind", () => {
-    expect(Object.keys(AGENT_MCP_TRANSPORTS).sort()).toEqual(kinds.sort());
+    expect(Object.keys(AGENT_HAS_MCP).sort()).toEqual(kinds.sort());
   });
 
-  it("gives Codex stdio and http but NOT sse", () => {
-    // The one asymmetry that bites. `codex`'s RawMcpServerConfig has `url`/`http_headers` and no SSE
-    // variant, so an sse row here would produce a server that is configured, listed, and dials nothing.
-    expect([...AGENT_MCP_TRANSPORTS.codex]).toEqual(["stdio", "http"]);
-    expect(agentSupportsTransport("codex", "sse")).toBe(false);
-    expect(agentSupportsTransport("codex", "http")).toBe(true);
-  });
-
-  it("gives every other real agent all three, and the fake none", () => {
-    for (const kind of ["claude", "acp:cursor", "acp:gemini"] as const) {
-      expect([...AGENT_MCP_TRANSPORTS[kind]].sort()).toEqual(["http", "sse", "stdio"]);
+  it("is true for every live agent — since W3 each one gets exactly the gateway's http entry", () => {
+    for (const kind of ["claude", "codex", "acp:cursor", "acp:gemini"] as const) {
+      expect(AGENT_HAS_MCP[kind]).toBe(true);
     }
-    expect([...AGENT_MCP_TRANSPORTS.fake]).toEqual([]);
-    for (const t of McpTransportSchema.options) expect(agentSupportsTransport("fake", t)).toBe(false);
+  });
+
+  it("is false only for the fake agent, which never reads mcpServers", () => {
+    expect(AGENT_HAS_MCP.fake).toBe(false);
   });
 });
 
@@ -38,14 +32,11 @@ describe("mcpSupportNote", () => {
     for (const kind of kinds) expect(mcpSupportNote(kind)).toContain(AGENT_META[kind].label);
   });
 
-  it("says out loud that Codex will skip an sse server", () => {
-    expect(mcpSupportNote("codex")).toMatch(/no sse support/);
-    expect(mcpSupportNote("codex")).toMatch(/skipped/);
-  });
-
-  it("promises nothing extra for the agents that take everything", () => {
-    expect(mcpSupportNote("claude")).not.toMatch(/skipped/);
-    expect(mcpSupportNote("acp:cursor")).not.toMatch(/skipped/);
+  it("explains the gateway for every agent that takes MCP", () => {
+    for (const kind of ["claude", "codex", "acp:cursor", "acp:gemini"] as const) {
+      expect(mcpSupportNote(kind)).toMatch(/Realm's gateway/);
+      expect(mcpSupportNote(kind)).toMatch(/Activity/);
+    }
   });
 
   it("says the fake agent ignores them entirely", () => {
