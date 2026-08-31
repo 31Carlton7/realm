@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter } from "./claude-adapter";
+import { ClaudeAdapter, claudeMcpServers } from "./claude-adapter";
 import type { SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -232,5 +232,33 @@ describe("ClaudeAdapter skills", () => {
     // what every Realm session did before skills existed and what a space with none must keep doing.
     expect("settingSources" in o).toBe(false);
     await handle.dispose();
+  });
+});
+
+describe("claudeMcpServers", () => {
+  const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
+  const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
+  const sse = { name: "legacy", transport: "sse" as const, url: "https://sse.example/mcp", headers: {} };
+
+  it("is a RECORD keyed by name, not an array (sdk.d.ts:1734 — some docs say otherwise)", () => {
+    const out = claudeMcpServers([stdio, http]);
+    expect(Array.isArray(out)).toBe(false);
+    expect(Object.keys(out)).toEqual(["airtable", "vercel"]);
+  });
+
+  it("tags each entry with its transport and carries only that transport's fields", () => {
+    expect(claudeMcpServers([stdio])).toEqual({ airtable: { type: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } });
+    expect(claudeMcpServers([http])).toEqual({ vercel: { type: "http", url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } } });
+    expect(claudeMcpServers([sse])).toEqual({ legacy: { type: "sse", url: "https://sse.example/mcp", headers: {} } });
+  });
+
+  it("drops nothing, because Claude is the one agent that takes all three", () => {
+    const lines: string[] = [];
+    expect(Object.keys(claudeMcpServers([stdio, http, sse], (l) => lines.push(l)))).toHaveLength(3);
+    expect(lines).toEqual([]);
+  });
+
+  it("is empty — not absent — when there is nothing configured", () => {
+    expect(claudeMcpServers([])).toEqual({});
   });
 });

@@ -48,9 +48,13 @@ export type McpServerInput = { name: string; transport: McpTransport; command: s
 export class McpServersStore {
   constructor(private db: Db) {}
 
-  /** Every server, oldest first — the order a settings list shows them in and the order they reach an agent. */
+  /**
+   * Every server, oldest first — the order a settings list shows them in and the order they reach an
+   * agent. `name` breaks ties rather than `id`: two servers added in the same millisecond have ULIDs
+   * whose random suffixes order arbitrarily, so an id tiebreak makes the list flicker between calls.
+   */
   list(): McpServerRow[] {
-    return (this.db.prepare("SELECT * FROM mcp_servers ORDER BY created_at, id").all() as Row[]).map(toServer);
+    return (this.db.prepare("SELECT * FROM mcp_servers ORDER BY created_at, name").all() as Row[]).map(toServer);
   }
   get(id: string): McpServerRow | null {
     const r = this.db.prepare("SELECT * FROM mcp_servers WHERE id = ?").get(id) as Row | undefined;
