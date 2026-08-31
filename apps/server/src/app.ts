@@ -11,6 +11,8 @@ import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
 import { SkillsService } from "./skills/service";
+import { McpServersStore } from "./store/mcp";
+import { McpService } from "./mcp/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
@@ -86,11 +88,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const skills = new SkillsService({ home: opts.home, settings });
   const installed = skills.installBundled();
   if (installed.length) console.error(`[skills] installed bundled skill(s): ${installed.join(", ")}`);
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, checkpoints });
+  const mcp = new McpService({ servers: new McpServersStore(db), settings });
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, mcp, checkpoints });
   sessionService = sessions;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings, skills, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

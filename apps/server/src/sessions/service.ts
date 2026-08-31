@@ -14,6 +14,7 @@ import type { WorktreeService } from "../workspace/worktrees";
 import type { CheckpointService } from "../checkpoints/service";
 import { ProbeCache } from "./probe-cache";
 import type { SkillsService } from "../skills/service";
+import type { McpService } from "../mcp/service";
 
 const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
 export const TITLE_MAX = 40;
@@ -36,7 +37,7 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; checkpoints?: CheckpointService }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; mcp: McpService; checkpoints?: CheckpointService }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
@@ -279,7 +280,14 @@ export class SessionService {
     // rather than becoming an empty root, because on Claude the option's presence is also what isolates
     // the session from the user's own settings.
     const skills = this.d.skills.injectionFor(s.spaceId, s.agentKind) ?? undefined;
-    const handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers: [], resume: s.providerSessionId,
+    // This space's enabled MCP servers, resolved at start and handed over per-session (W2). Nothing is
+    // written to `~/.claude.json`, `~/.codex/config.toml` or `~/.cursor/mcp.json` to get them there.
+    //
+    // This is the ONLY place API keys leave the database, and they go straight into `adapter.start` —
+    // never onto an event, a broadcast or a log line. `onLog` below prints the SESSION id and the
+    // provider's own output; it never sees this array.
+    const mcpServers = this.d.mcp.configFor(s.spaceId);
+    const handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers, resume: s.providerSessionId,
       skills,
       env: env ? portEnv(env) : {},
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`) });

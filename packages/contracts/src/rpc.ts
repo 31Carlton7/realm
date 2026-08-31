@@ -4,6 +4,7 @@ import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, 
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
 import { SkillSchema, SkillIdSchema } from "./skills";
+import { McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpTransportSchema } from "./mcp";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -316,6 +317,58 @@ export const Methods = {
    *  disk and put back, and the preference should survive that. */
   "skills.setEnabled": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
 
+  /**
+   * Every MCP server Realm knows about, each carrying this space's own enabled flag.
+   *
+   * The server list is global; only the enable flag is per-space. `secretNote` is `MCP_SECRET_STORAGE_NOTE`
+   * and is returned on every call rather than left for the UI to remember, because a surface that takes an
+   * API key has to say where the key is going.
+   *
+   * Secret VALUES never appear in the result — see `McpServerSchema`.
+   */
+  "mcp.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ servers: z.array(McpServerSchema), secretNote: z.string() }) },
+  /**
+   * Define a server. `spaceId` is the space it was added from and the ONLY space it is enabled in:
+   * a server is a process to spawn or a URL to send credentials to, so it is opt-in per space rather
+   * than live everywhere the moment it exists. Pass `null` to add it enabled nowhere.
+   *
+   * `env` (stdio) and `headers` (http/sse) carry secret values in the clear, both on this wire and at
+   * rest. `MCP_SECRET_STORAGE_NOTE` says so; do not build a UI for this method that does not.
+   */
+  "mcp.add": {
+    params: z.object({
+      spaceId: IdSchema.nullable().default(null),
+      name: McpServerNameSchema,
+      transport: McpTransportSchema,
+      command: z.string().default(""), args: z.array(z.string()).default([]), env: McpSecretsSchema.default({}),
+      url: z.string().default(""), headers: McpSecretsSchema.default({}),
+    }),
+    result: McpServerSchema,
+  },
+  /**
+   * Change a server in place. Every field is optional and an omitted one is left alone — including
+   * `env` and `headers`, so a UI that never received the secret values (it cannot: `mcp.list` does not
+   * return them) can save a rename without wiping the API key it was not shown.
+   *
+   * Passing `env`/`headers` REPLACES the whole map, which is how a key is removed.
+   */
+  "mcp.update": {
+    params: z.object({
+      id: IdSchema,
+      /** Only so the result can report `enabled` truthfully for the space the editor is open in.
+       *  Editing a server never changes which spaces use it. */
+      spaceId: IdSchema.nullable().default(null),
+      name: McpServerNameSchema.optional(), transport: McpTransportSchema.optional(),
+      command: z.string().optional(), args: z.array(z.string()).optional(), env: McpSecretsSchema.optional(),
+      url: z.string().optional(), headers: McpSecretsSchema.optional(),
+    }),
+    result: McpServerSchema,
+  },
+  /** Forget a server everywhere, secrets included. Its per-space enable flags go with it. */
+  "mcp.remove": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
+  "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+
   "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string() }) },
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
@@ -387,6 +440,10 @@ export const Events = {
   /** A space's skill set changed — either the library on disk or that space's enabled flags. Clients
    *  holding a skills list re-fetch; a session already running keeps the set it started with. */
   "skills.changed":   z.object({ spaceId: IdSchema }),
+  /** An MCP server was added, edited, removed, or toggled for a space. Carries no payload because the
+   *  server list is global: add/edit/remove change what EVERY space lists, and a per-space event would
+   *  leave the other spaces' open settings panes stale. Clients holding a list re-fetch. */
+  "mcp.changed":      z.object({}),
   /** Realm itself changed a working tree (stage, unstage, commit, push). Carries the cwd the write
    *  went through; clients refresh every diff they hold, because two panes on the same repository may
    *  have asked from two different subdirectories and only the server knows they are the same tree. */

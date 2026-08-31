@@ -10,6 +10,7 @@ import type { CheckpointService } from "../checkpoints/service";
 import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { SkillsService } from "../skills/service";
+import type { McpService } from "../mcp/service";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
 import type { GitInfoService } from "../workspace/git-info";
@@ -24,7 +25,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -81,6 +82,37 @@ export function registerMethods(d: Deps): void {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.skills.setEnabled(p.spaceId, p.id, p.enabled);
     rpc.broadcast("skills.changed", { spaceId: p.spaceId });
+    return { ok: true as const };
+  });
+
+  // Every one of these checks the space exists first, for the same reason the skills pair does: the
+  // enable set is keyed by space id, so a typo would silently read and write preferences for a space
+  // that is not there rather than saying so.
+  reg("mcp.list", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.mcp.list(p.spaceId);
+  });
+  reg("mcp.add", (p) => {
+    if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const server = d.mcp.add(p, p.spaceId);
+    rpc.broadcast("mcp.changed", {});
+    return server;
+  });
+  reg("mcp.update", (p) => {
+    if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const server = d.mcp.update(p.id, p, p.spaceId);
+    rpc.broadcast("mcp.changed", {});
+    return server;
+  });
+  reg("mcp.remove", (p) => {
+    d.mcp.remove(p.id, d.spaces.listAll().map((s) => s.id));
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
+  reg("mcp.setEnabled", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.mcp.setEnabled(p.spaceId, p.id, p.enabled);
+    rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
 

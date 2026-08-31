@@ -543,7 +543,7 @@ describe("AcpAdapter", () => {
   });
 
   it("sends mcp servers with env as name/value pairs, not a record", async () => {
-    const { handle, evs } = await booted({ mcpServers: [{ name: "realm", command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1", B: "2" } }] });
+    const { handle, evs } = await booted({ mcpServers: [{ name: "realm", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1", B: "2" } }] });
     await turn(handle, evs, "REVEAL");
     const journal = JSON.parse(texts(evs)[0]!) as { newParams: { cwd: string; mcpServers: unknown[] } };
     expect(journal.newParams.mcpServers).toEqual([

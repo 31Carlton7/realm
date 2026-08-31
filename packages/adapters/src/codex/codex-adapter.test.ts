@@ -188,7 +188,7 @@ describe("CodexAdapter", () => {
   it("passes mcp servers through config.mcp_servers", async () => {
     const { handle, evs } = await booted({
       model: "reflect",
-      mcpServers: [{ name: "realm", command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1" } }],
+      mcpServers: [{ name: "realm", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1" } }],
     });
     const params = JSON.parse(of(evs, "init")[0]!.payload.model) as { config: { mcp_servers: Record<string, unknown> } };
     expect(params.config.mcp_servers).toEqual({ realm: { command: "/usr/bin/node", args: ["/abs/realm-mcp.mjs"], env: { A: "1" } } });

@@ -5,7 +5,8 @@ import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
 import { probeAcp } from "./probe";
-import type { AgentAdapter, AgentHandle, McpStdioConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { selectMcpServers } from "../mcp-transport";
+import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type Bag = Record<string, unknown>;
 const obj = (v: unknown): Bag => (v && typeof v === "object" ? (v as Bag) : {});
@@ -74,14 +75,39 @@ export function pickAcpOption(decision: PermissionDecision, options: readonly un
  * `AGENT_SKILL_SUPPORT` says `unsupported` for both ACP kinds so the UI can say so out loud.
  */
 
-/** `McpServer[]` for `session/new`/`session/load`. Stdio `env` is an array of pairs, NOT a record (§2.3). */
-export function acpMcpServers(servers: McpStdioConfig[]): Bag[] {
-  return servers.map((s) => ({
-    name: s.name,
-    command: s.command,
-    args: s.args ?? [],
-    env: Object.entries(s.env ?? {}).map(([name, value]) => ({ name, value })),
-  }));
+/**
+ * `McpServer[]` for `session/new` / `session/load` (§2.3).
+ *
+ * Two shapes, and the difference between them is not cosmetic:
+ *
+ *   - stdio — `{name, command, args, env}` with **`env` an ARRAY of `{name,value}` pairs, not a record**,
+ *     and both `args` and `env` required. Cursor validates with zod *before* its own more lenient
+ *     normalizer runs, so a record here is rejected `invalid_union` and `session/new` fails outright.
+ *   - http / sse — `{type, name, url, headers}`, with `headers` the same array-of-pairs shape.
+ *
+ * The stdio variant carries no `type` discriminant; the remote ones do. Sending `type: "stdio"` is not
+ * part of 0.4.5's union.
+ */
+export function acpMcpServers(
+  kind: AgentKind,
+  servers: readonly McpServerConfig[],
+  /** `initialize`'s `agentCapabilities.mcpCapabilities`, verbatim. Both installed agents advertise
+   *  `{http:true,sse:true}`, but the field is optional in 0.4.5 and an agent that omits it is telling
+   *  Realm it takes stdio only — believing the static table over the handshake is how a session ends up
+   *  rejected at `session/new` for a server the agent never claimed to support. */
+  advertised: { http?: unknown; sse?: unknown } = { http: true, sse: true },
+  onLog?: (line: string) => void,
+): Bag[] {
+  const pairs = (m: Record<string, string>): Bag[] => Object.entries(m).map(([name, value]) => ({ name, value }));
+  const usable = selectMcpServers(kind, servers, onLog).filter((s) => {
+    if (s.transport === "stdio" || advertised[s.transport] === true) return true;
+    onLog?.(`[mcp] skipping "${s.name}": this build did not advertise mcpCapabilities.${s.transport}`);
+    return false;
+  });
+  return usable.map((s) =>
+    s.transport === "stdio"
+      ? { name: s.name, command: s.command, args: s.args, env: pairs(s.env) }
+      : { type: s.transport, name: s.name, url: s.url, headers: pairs(s.headers) });
 }
 
 /** User-visible copy for the stop reasons that are outcomes rather than plain completions (§3). */
@@ -343,7 +369,7 @@ export class AcpAdapter implements AgentAdapter {
         authMethods = Array.isArray(init.authMethods) ? init.authMethods : [];
         if (disposed) return;
 
-        const mcpServers = acpMcpServers(opts.mcpServers);
+        const mcpServers = acpMcpServers(spec.kind, opts.mcpServers, obj(caps.mcpCapabilities), log);
         let id: string | null = null;
         let session: Bag = {};
         if (opts.resume && caps.loadSession === true) {
