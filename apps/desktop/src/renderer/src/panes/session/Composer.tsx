@@ -1,8 +1,8 @@
-import { AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, type AgentKind, type Environment, type GitInfo, type Project, type Session, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, isImageMime, type AgentKind, type Environment, type GitInfo, type Project, type Session, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
-import type { AgentProbe, SessionOptions } from "../../state/store";
+import type { AgentProbe, PickedAttachment, SessionOptions } from "../../state/store";
 import { ModelPicker } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
 
@@ -75,6 +75,42 @@ function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel
   );
 }
 
+/**
+ * Pending attachments (§4 row 1): one removable chip per file, then one note row per distinct fate.
+ *
+ * The notes are the point of this row. The three adapters do three different things with the same
+ * file — Claude inlines an image and DROPS a PDF without a word, Codex hands over paths, an ACP agent
+ * gets a link — and the only moment that difference is actionable is before the message is sent. So
+ * the note names the agent and says what will happen, and a file that will simply be discarded says so
+ * in the warning tone rather than looking exactly like one that will be read.
+ */
+function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attachments: PickedAttachment[]; onRemove: (path: string) => void }) {
+  if (attachments.length === 0) return null;
+  return (
+    <>
+      <ul className="composer-attachments" aria-label="Attachments">
+        {attachments.map((a) => (
+          <li key={a.path} className="attach-chip" data-disposition={attachmentDisposition(kind, a.mime)}
+            title={`${a.path} · ${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}>
+            <Icon name={isImageMime(a.mime) ? "image" : "artifact"} size={12} className="attach-glyph" />
+            <span className="chip-label">{a.name}</span>
+            <button type="button" className="attach-remove" aria-label={`Remove ${a.name}`} onClick={() => onRemove(a.path)}>
+              <Icon name="close" size={11} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      {attachmentSummary(kind, attachments).map((row) => (
+        <p key={row.disposition} className="composer-attach-note" data-disposition={row.disposition}>
+          {row.disposition === "ignored" && <Icon name="alert" size={12} className="attach-note-glyph" />}
+          <span>{row.note}</span>
+          <span className="attach-note-files">{row.files.join(", ")}</span>
+        </p>
+      ))}
+    </>
+  );
+}
+
 const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id)?.label ?? id;
 
 /** The prompter (design-language §4): one floating card, two states. `hero` centers it at ~38%
@@ -85,13 +121,20 @@ const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id
  *  ⌘/Ctrl+Enter sends; Enter inserts a newline. The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
-export function Composer({ session, status, project, gitInfo, environment, onOpenDiff, draft, onDraftChange, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion }: {
+export function Composer({ session, status, project, gitInfo, environment, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion }: {
   session: Session; status: SessionStatus; project: Project | null; gitInfo: GitInfo | null;
   /** The checkout this session runs in (W2) — null until the space's environments have loaded. */
   environment: Environment | null;
   /** Open the diff pane for that checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
   draft: string; onDraftChange: (text: string) => void;
+  /** Part of the draft, and store-owned for the same reason: a remount must not drop them. */
+  attachments: PickedAttachment[];
+  /** The attach button — the native multi-select picker. */
+  onAttachPick: () => void;
+  /** Dropped or pasted Files. The store resolves paths (and writes pathless pastes out). */
+  onAttachFiles: (files: File[]) => void;
+  onRemoveAttachment: (path: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
   /** Sets agent AND model in one action — the picker's rows are (agent, model) pairs. */
   onPickModel: (kind: AgentKind, modelId: string | null) => void;
@@ -121,6 +164,31 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
     const t = setTimeout(() => setConfirmBypass(false), 5000);
     return () => clearTimeout(t);
   }, [confirmBypass]);
+
+  // Drag depth, not a boolean: dragging across a child element fires leave-then-enter, and a boolean
+  // flickers the drop target off on every internal boundary. Reset outright on drop.
+  const [dragDepth, setDragDepth] = useState(0);
+  // Realm already drags its own sidebar rows onto panes (DropEdge). Only a drag carrying FILES is ours;
+  // anything else must fall through to the pane's own drop handling untouched.
+  const carriesFiles = (e: DragEvent) => e.dataTransfer?.types?.includes("Files") ?? false;
+  const onDragEnter = (e: DragEvent) => { if (!carriesFiles(e)) return; e.preventDefault(); setDragDepth((d) => d + 1); };
+  const onDragOver = (e: DragEvent) => { if (!carriesFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; };
+  const onDragLeave = (e: DragEvent) => { if (!carriesFiles(e)) return; setDragDepth((d) => Math.max(0, d - 1)); };
+  const onDrop = (e: DragEvent) => {
+    if (!carriesFiles(e)) return;
+    e.preventDefault();
+    setDragDepth(0);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) onAttachFiles(files);
+  };
+  /** Pasting an image: it has no path yet, which the store handles. A paste with no files is text —
+   *  fall through untouched, or ⌘V would stop working in the one box people paste into most. */
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (files.length === 0) return;
+    e.preventDefault();
+    onAttachFiles(files);
+  };
 
   // First-render-only stagger (§6): decided once at mount (so a mid-animation re-render — typing,
   // status — never strips the attribute and snaps the chips), then marked as played for the app run.
@@ -154,10 +222,15 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
   return (
     <div className="composer-dock">
       {hero && <div className="hero-greeting">What should we work on in <em>{spaceName}</em>?</div>}
-      <div className="composer">
+      {/* The whole card is the drop target — aiming at a 44px textarea with a file in hand is a chore.
+          §6 forbids animating during a drag, so the state change is a static ring, not a transition. */}
+      <div className="composer" data-dropping={dragDepth > 0 || undefined}
+        onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
         <ContextRow session={session} project={project} gitInfo={gitInfo} environment={environment} onOpenDiff={onOpenDiff} />
+        <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
         <textarea ref={ta} className="composer-input" aria-label="Message" placeholder="Message the agent…" rows={1}
-          value={draft} onChange={(e) => onDraftChange(e.target.value)} onKeyDown={onKeyDown} />
+          value={draft} onChange={(e) => onDraftChange(e.target.value)} onKeyDown={onKeyDown} onPaste={onPaste} />
+        {dragDepth > 0 && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
         <div className="composer-bar">
           <div className="composer-opts">
             <ModelPicker kind={kind} model={session.model} canSwitchAgent={canSwitchAgent}
@@ -187,10 +260,17 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
             )}
           </div>
           <div className="composer-actions">
+            <button type="button" className="icon-btn composer-attach" aria-label="Attach files"
+              title="Attach files (or drop them here)" onClick={onAttachPick}>
+              <Icon name="attach" size={15} />
+            </button>
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
+            {/* `sessions.send` requires non-empty text (rpc.ts), so attachments alone cannot be sent.
+                Rather than let the button look broken, it says why. */}
             <button className="composer-send" data-state={running ? "stop" : "send"}
-              aria-label={running ? "Stop" : "Send"} title={running ? "Stop (interrupt)" : "Send (⌘↵)"}
+              aria-label={running ? "Stop" : "Send"}
+              title={running ? "Stop (interrupt)" : (!draft.trim() && attachments.length > 0 ? "Add a message to send with these files" : "Send (⌘↵)")}
               disabled={!running && !draft.trim()}
               onClick={() => (running ? onStop() : send())}>
               <Icon name="arrowUp" size={15} className="send-icon" />

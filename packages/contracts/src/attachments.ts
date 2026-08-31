@@ -104,11 +104,11 @@ export function attachmentNote(kind: AgentKind, mime: string): string {
   const label = AGENT_META[kind].label;
   switch (attachmentDisposition(kind, mime)) {
     case "inline": return `${label} reads image attachments inline.`;
-    case "path": return `${label} gets the file path in your message and opens the file itself.`;
+    case "path": return `${label} gets the file path in your message and opens it itself.`;
     case "link": return `${label} gets a link to the file and opens it itself.`;
     case "ignored": return isImageMime(mime)
-      ? `${label} ignores attachments — it will never see this file.`
-      : `${label} ignores non-image attachments — it will never see this file.`;
+      ? `${label} ignores attachments and will never see them.`
+      : `${label} ignores non-image attachments and will never see them.`;
   }
 }
 
