@@ -3,10 +3,14 @@ import { join } from "node:path";
 import { startServer } from "./server-process";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { describeFiles, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
+import { createBrowserPaneHost } from "./browser-pane";
+import type { BrowserPaneHost, ViewRect } from "./browser-host";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
 let realmHome: string | null = null;
+/** The window's browser-pane views (Plan 11 W1). Set in createWindow; null before/after. */
+let browserHost: BrowserPaneHost | null = null;
 
 /** With no explicit application menu, Electron installs its default one, whose File → Close Window
  *  binds ⌘W — and menu accelerators fire in the main process before the renderer ever sees the
@@ -61,8 +65,18 @@ async function createWindow(info: { port: number; home: string }) {
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   // Native trackpad phases for the space swiper (macOS; optional helper).
   const phases = startScrollPhaseStream(win);
-  win.on("closed", () => phases.stop());
+  browserHost = createBrowserPaneHost(win); // destroys its views on win "closed" itself
+  win.on("closed", () => { phases.stop(); browserHost = null; });
 }
+
+// Browser pane (Plan 11 W1): the renderer drives the native WebContentsViews over this surface.
+// Mutations are invokes; the per-frame bounds sync is a plain send (no reply to wait on).
+ipcMain.handle("browser:create", (_e, id: string, url: string, allowlist: string[] | null) => { browserHost?.create(id, url, allowlist); });
+ipcMain.handle("browser:destroy", (_e, id: string) => { browserHost?.destroy(id); });
+ipcMain.handle("browser:navigate", (_e, id: string, input: string): string | null => browserHost?.navigate(id, input) ?? null);
+ipcMain.handle("browser:nav", (_e, id: string, action: "back" | "forward" | "reload" | "stop") => { browserHost?.navAction(id, action); });
+ipcMain.handle("browser:set-allowlist", (_e, id: string, allowlist: string[] | null) => { browserHost?.setAllowlist(id, allowlist); });
+ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { browserHost?.setBounds(id, rect, dpr, visible); });
 
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
