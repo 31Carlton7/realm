@@ -21,13 +21,24 @@ import { filterRows, modelRows, railKinds, type ModelRow } from "./model-rows";
  *  wrapping the row. Items mirror the chips' own menu items exactly — same labels, same handlers. */
 export type OverflowGroup = { label: string; items: { label: string; checked?: boolean; onSelect: () => void }[] };
 
-export function ModelPicker({ kind, model, canSwitchAgent, agentProbe, onPick, overflow }: {
+/** Display form of an effort level: capitalised, with `xhigh` as "XHigh" — the id's two morphemes
+ *  each get their cap, and no hyphen is invented that the CLIs never print. One formatter for the
+ *  chip's suffix and the picker's effort buttons, so the two can never disagree. */
+export const formatEffort = (e: string): string => (e === "xhigh" ? "XHigh" : e.charAt(0).toUpperCase() + e.slice(1));
+
+export function ModelPicker({ kind, model, effort, canSwitchAgent, agentProbe, onPick, effortItems, overflow }: {
   kind: AgentKind;
   model: string | null;
+  /** The session's effort level — the chip's gray suffix. `null` (unset) shows nothing at all. */
+  effort: string | null;
   /** False once the session has produced an event — cross-agent rows go unavailable, not invisible. */
   canSwitchAgent: boolean;
   agentProbe: AgentProbe[];
   onPick: (kind: AgentKind, modelId: string | null) => void;
+  /** The effort options, permanently housed in the popover (prompter rework: the standalone effort
+   *  chip is retired, and this menu is where clicking the suffix leads). Same shape as an overflow
+   *  group's items — labels formatted, handlers applying via setSessionOptions. */
+  effortItems: OverflowGroup["items"];
   overflow?: OverflowGroup[];
 }) {
   const btn = useRef<HTMLButtonElement>(null);
@@ -39,23 +50,28 @@ export function ModelPicker({ kind, model, canSwitchAgent, agentProbe, onPick, o
 
   return (
     <>
-      {/* Ara refresh §3: the chip is plain text + caret — the brand mark comes OFF the chip but
-          stays on the picker's rows, where the provider needs naming. */}
+      {/* Prompter rework: the vendor's mark rides the chip IN COLOUR (the one place the provider's
+          identity is the point), and the session's effort trails the label as a dimmer suffix —
+          "Claude Fable 5 Max". Clicking the chip opens the picker, where both are edited. */}
       <button ref={btn} type="button" className="ghost-chip model-chip" aria-label="Model"
-        title={`Model: ${AGENT_META[kind].label} · ${label}`} aria-haspopup="dialog" aria-expanded={open}
+        title={`Model: ${AGENT_META[kind].label} · ${label}${effort ? ` · ${formatEffort(effort)} effort` : ""}`}
+        aria-haspopup="dialog" aria-expanded={open}
         onClick={() => setOpen((v) => !v)}>
+        <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
         <span className="chip-label">{label}</span>
+        {effort && <span className="chip-effort">{formatEffort(effort)}</span>}
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
-      {open && <ModelPopover rows={rows} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick} overflow={overflow} />}
+      {open && <ModelPopover rows={rows} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick} effortItems={effortItems} overflow={overflow} />}
     </>
   );
 }
 
-function ModelPopover({ rows, anchorRef, onClose, onPick, overflow }: {
+function ModelPopover({ rows, anchorRef, onClose, onPick, effortItems, overflow }: {
   rows: ModelRow[];
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   onClose: () => void; onPick: (kind: AgentKind, modelId: string | null) => void;
+  effortItems: OverflowGroup["items"];
   overflow?: OverflowGroup[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -119,7 +135,7 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, overflow }: {
                 <span className="mp-row-text">
                   <span className="mp-row-name">{r.label}</span>
                   <span className="mp-row-provider">
-                    <Icon name={r.icon} size={11} />
+                    <Icon name={r.icon} size={11} colored />
                     {r.agentLabel}
                     {r.note && <span className="mp-note"> — {r.note}</span>}
                   </span>
@@ -131,23 +147,23 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, overflow }: {
           {shown.length === 0 && <div className="mp-empty">No models match “{query.trim()}”.</div>}
         </div>
       </div>
-      {overflow && overflow.length > 0 && (
-        // The collapsed control-row chips (§3): rendered whole rather than filtered — the search box
-        // above narrows MODELS, and hiding a permission mode behind a model query would be absurd.
-        <div className="mp-overflow">
-          {overflow.map((g) => (
-            <div key={g.label} className="mp-overflow-group" role="group" aria-label={g.label}>
-              <span className="mp-overflow-label">{g.label}</span>
-              <div className="mp-overflow-opts">
-                {g.items.map((it, i) => (
-                  <button key={i} type="button" className="mp-overflow-opt" aria-pressed={!!it.checked}
-                    onClick={() => { it.onSelect(); onClose(); }}>{it.label}</button>
-                ))}
-              </div>
+      {/* Effort lives here PERMANENTLY (prompter rework): the chip's gray suffix names the level,
+          this strip edits it. Collapsed control-row groups (§3) append below when the row overflows —
+          rendered whole rather than filtered, because the search box above narrows MODELS, and hiding
+          a permission mode behind a model query would be absurd. */}
+      <div className="mp-overflow">
+        {[{ label: "Effort", items: effortItems }, ...(overflow ?? [])].map((g) => (
+          <div key={g.label} className="mp-overflow-group" role="group" aria-label={g.label}>
+            <span className="mp-overflow-label">{g.label}</span>
+            <div className="mp-overflow-opts">
+              {g.items.map((it, i) => (
+                <button key={i} type="button" className="mp-overflow-opt" aria-pressed={!!it.checked}
+                  onClick={() => { it.onSelect(); onClose(); }}>{it.label}</button>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        ))}
+      </div>
       {rows.some((r) => r.blockedReason) && (
         <div className="mp-foot">A session’s agent can only change before its first message.</div>
       )}

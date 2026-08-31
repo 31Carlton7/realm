@@ -119,7 +119,6 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const session = useApp((s) => s.sessions[id]);
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
   const entry = useApp((s) => s.transcripts[id]);
-  const projects = useApp((s) => s.projects);
   const spaces = useApp((s) => s.spaces);
   const openSession = useApp((s) => s.openSession);
   const sendMessage = useApp((s) => s.sendMessage);
@@ -157,7 +156,6 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const attachFromPicker = useApp((s) => s.attachFromPicker);
   const removeAttachment = useApp((s) => s.removeAttachment);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
-  const environment = useApp((s) => { const e = s.sessions[id]?.environmentId; return e ? s.environments[e] ?? null : null; });
   const panelOpen = useApp((s) => s.terminalPanel[id]?.open ?? false);
   const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
@@ -172,7 +170,6 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   useEffect(() => { run(() => probeAgents()); }, [id, probeAgents, run]);
 
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
-  const project = session.projectId ? projects.find((p) => p.id === session.projectId) ?? null : null;
   const space = spaces.find((s) => s.id === session.spaceId);
   // Hero vs docked (§4): the prompter centers as the hero only while there is nothing to read —
   // no transcript blocks and no visible permission cards (pending ones only show while waiting).
@@ -197,7 +194,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       {blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))} />
-        : <Composer session={session} status={status} project={project} gitInfo={gitInfo} environment={environment}
+        : <Composer session={session} status={status} gitInfo={gitInfo}
             onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}

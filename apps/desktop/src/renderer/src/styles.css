@@ -671,13 +671,11 @@ button.panel-title:hover { background: var(--rl-hover); }
    circular send on the RIGHT. */
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 12px 8px; }
 /* The left group never wraps (§3): it clips, and Composer.tsx measures scrollWidth > clientWidth to
-   collapse effort+permission into the model menu instead. Children must not shrink, or ellipsizing
+   collapse the permission chip into the model menu instead. Children must not shrink, or ellipsizing
    chips would eat the overflow the measurement is looking for. */
 .composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
 .composer-opts > * { flex: none; }
-.composer-cwd { max-width: 180px; }
-/* The branch group moved down with the rest of the context chips (§3): still one button, still the
-   way into the diff pane. */
+/* The branch group (§3): still one button, still the way into the diff pane. */
 .composer-git { display: inline-flex; align-items: center; gap: 2px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
 .composer-git:hover .ghost-chip { background: var(--rl-hover); color: var(--rl-text-bright); }
 .composer-git .git-branch { max-width: 160px; }
@@ -697,6 +695,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
 .ghost-chip .chip-brand { flex: none; }
 .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* The model chip's effort suffix — "Claude Fable 5 Max" with the Max a shade grayer. A sibling of
+   chip-label (which truncates), never inside it, and never shrunk: the level should survive a
+   squeezed row even when the model name ellipsizes. */
+.model-chip .chip-effort { flex: none; color: var(--rl-text-faint); }
 .composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
 .bypass-confirm { color: var(--orange); background: var(--orange-tint); cursor: pointer; }
