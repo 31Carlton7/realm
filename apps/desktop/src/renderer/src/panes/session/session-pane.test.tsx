@@ -352,7 +352,7 @@ describe("SessionPane", () => {
     expect(decided).toEqual(["r2:deny", "r1:allow"]);
   });
 
-  it("a finished run of consecutive tool calls reaches the pane as one collapsed ledger line (§5)", async () => {
+  it("a finished run of consecutive tool calls reaches the pane as one collapsed `Worked for` ledger row (§5, Ara refresh §4)", async () => {
     await mount("idle", reduceAll([
       sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "ls" }, parentToolUseId: null }),
       sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false }),
@@ -362,7 +362,8 @@ describe("SessionPane", () => {
       sessionEvent("tool_result", { toolUseId: "t3", content: "ok", isError: false }),
     ]));
     const line = screen.getByRole("button", { name: "3 tool calls" });
-    expect(line).toHaveTextContent("3 tools · 1 file · 1 command");
+    expect(line).toHaveTextContent(/^Worked for /); // the events above land within the same second
+    expect(line).toHaveAttribute("title", "3 tools · 1 file · 1 command"); // the counts survive as the tooltip
     expect(screen.queryByRole("button", { name: /Bash tool call/ })).toBeNull();
     fireEvent.click(line);
     expect(screen.getByRole("button", { name: /Bash tool call/ })).toBeInTheDocument();

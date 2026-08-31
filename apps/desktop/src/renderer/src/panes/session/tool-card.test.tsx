@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { ToolCard, ToolGroup, RESULT_CLAMP } from "./ToolCard";
-import { GROUP_MIN, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock } from "./tool-group";
+import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock } from "./tool-group";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
@@ -110,6 +110,14 @@ describe("tool-run summary line", () => {
     expect(formatToolRun({ tools: 3, files: 0, commands: 0, durationMs: 0 })).toBe("3 tools");
     expect(formatToolRun({ tools: 1, files: 1, commands: 1, durationMs: 4_000 })).toBe("1 tool · 1 file · 1 command · 4s");
   });
+
+  it("formats the collapsed row's `Worked for` duration — a sub-second run says <1s, never 0s", () => {
+    expect(formatDuration(0)).toBe("<1s");
+    expect(formatDuration(400)).toBe("<1s");
+    expect(formatDuration(4_000)).toBe("4s");
+    expect(formatDuration(59_400)).toBe("59s");
+    expect(formatDuration(372_000)).toBe("6m 12s");
+  });
 });
 
 const steps = (blocks: ToolBlock[]) => blocks.map((b) => ({ key: b.toolUseId, block: b, enter: false }));
@@ -123,10 +131,35 @@ describe("ToolGroup", () => {
     tool("t3", "Read", { file_path: "/charlie.ts" }),
   ];
 
-  it("a finished run collapses to its summary line and shows no cards", () => {
+  it("a finished run collapses to its `Worked for` row (Ara refresh §4) and shows no cards; the counts line survives as the tooltip", () => {
     render(<ToolGroup steps={steps(run)} sessionStatus="idle" />);
-    expect(screen.getByRole("button", { name: "3 tool calls" })).toHaveTextContent("3 tools · 1 file · 2 commands");
+    const row = screen.getByRole("button", { name: "3 tool calls" });
+    expect(row).toHaveTextContent("Worked for <1s"); // all three stamps are 0 — settled, sub-second
+    expect(row).toHaveAttribute("title", "3 tools · 1 file · 2 commands");
     expect(cards()).toHaveLength(0);
+  });
+
+  it("the collapsed row live-ticks off the run's first stamp while working, then freezes on first→last when settled", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000);
+      const working = [
+        tool("t1", "Bash", { command: "ls" }, 90_000),
+        tool("t2", "Read", { file_path: "/a" }, 95_000),
+        tool("t3", "Read", { file_path: "/b" }, 98_000, false), // still running
+      ];
+      const { rerender } = render(<ToolGroup steps={steps(working)} sessionStatus="running" />);
+      const row = () => screen.getByRole("button", { name: "3 tool calls" });
+      expect(row()).toHaveTextContent("Worked for 10s"); // now − first stamp, not last − first
+      act(() => { vi.advanceTimersByTime(5_000); });
+      expect(row()).toHaveTextContent("Worked for 15s"); // ticking
+      // The run settles: the label freezes on the group's own stamps and stops ticking.
+      const settled = [working[0]!, working[1]!, tool("t3", "Read", { file_path: "/b" }, 98_000)];
+      rerender(<ToolGroup steps={steps(settled)} sessionStatus="idle" />);
+      expect(row()).toHaveTextContent("Worked for 8s"); // 98s − 90s
+      act(() => { vi.advanceTimersByTime(5_000); });
+      expect(row()).toHaveTextContent("Worked for 8s"); // frozen
+    } finally { vi.useRealTimers(); }
   });
 
   it("expanding reveals every step of the run", () => {

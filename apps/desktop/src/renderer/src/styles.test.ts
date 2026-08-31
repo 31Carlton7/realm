@@ -135,7 +135,21 @@ describe("§6 motion table", () => {
   });
 });
 
-describe("Ara refresh §3 geometry", () => {
+describe("Ara refresh §3/§4 geometry", () => {
+  it("the user message is Ara's signature: raised card, radius 14, 14px 16px padding, 85% wide, ragged-left", () => {
+    const body = bodiesFor(".msg-user").join(" ");
+    for (const decl of ["text-align: right", "max-width: 85%", "border-radius: 14px", "padding: 14px 16px", "background: var(--rl-raised)"])
+      expect(body, decl).toContain(decl);
+  });
+
+  it("transcript prose reads at 15px/1.6 — user card and assistant prose alike", () => {
+    for (const sel of [".msg-user", ".msg-assistant"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("font-size: 15px");
+      expect(body, sel).toContain("line-height: 1.6");
+    }
+  });
+
   it("suggestions are a single-column list, not a grid", () => {
     const body = bodiesFor(".suggestions").join(" ");
     expect(body).toContain("flex-direction: column");

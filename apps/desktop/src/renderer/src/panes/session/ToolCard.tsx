@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import type { Block } from "./transcript-model";
 import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
-import { formatToolRun, summarizeToolRun, type ToolBlock } from "./tool-group";
+import { formatDuration, formatToolRun, summarizeToolRun, type ToolBlock } from "./tool-group";
 
 type ToolState = "running" | "ok" | "error" | "none";
 
@@ -89,21 +89,40 @@ export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolB
   );
 }
 
+/** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still
+ *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's
+ *  first→last span — the same duration the counts line has always computed. */
+function useWorkedFor(working: boolean, firstTs: number, settledMs: number): string {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!working) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [working]);
+  return formatDuration(working ? Math.max(0, now - firstTs) : settledMs);
+}
+
 /** §2.8/§5: a run of consecutive tool calls, folded behind one ledger line with a dashed connector.
  *  It opens itself while the agent is still working through the run — collapsing live activity out
- *  of sight is the one thing this treatment must not do — and a manual toggle then wins for good. */
+ *  of sight is the one thing this treatment must not do — and a manual toggle then wins for good.
+ *  The collapsed row reads `Worked for <duration> ›` (Ara refresh §4); the counts line the ledger
+ *  still computes ("3 tools · 1 file · 2 commands") survives as the row's tooltip. */
 export function ToolGroup({ steps, sessionStatus }: {
   steps: { key: string; block: ToolBlock; enter: boolean }[]; sessionStatus: SessionStatus;
 }) {
   const [manual, setManual] = useState<boolean | null>(null);
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
-  const open = manual ?? (live && steps.some((s) => !s.block.result));
-  const line = formatToolRun(summarizeToolRun(steps.map((s) => s.block)));
+  const working = live && steps.some((s) => !s.block.result);
+  const open = manual ?? working;
+  const summary = summarizeToolRun(steps.map((s) => s.block));
+  const workedFor = useWorkedFor(working, steps[0]!.block.ts, summary.durationMs);
   return (
     <div className="tool-group" data-open={open || undefined}>
-      <button className="tool-group-row" aria-expanded={open} aria-label={`${steps.length} tool calls`} onClick={() => setManual(!open)}>
+      <button className="tool-group-row" aria-expanded={open} aria-label={`${steps.length} tool calls`}
+        title={formatToolRun(summary)} onClick={() => setManual(!open)}>
+        <span className="tool-group-summary">Worked for {workedFor}</span>
         <Icon name="chevronRight" size={12} className="tool-chevron" />
-        <span className="tool-group-summary">{line}</span>
       </button>
       {open && (
         <div className="tool-group-steps">
