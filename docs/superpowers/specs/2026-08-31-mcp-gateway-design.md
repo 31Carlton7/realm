@@ -33,7 +33,7 @@ agent CLI ──http──▶ gateway listener (127.0.0.1:<port>, Bearer <sessio
                     third-party servers        (later: in-process Realm providers)
 ```
 
-- At startup realm-server binds a **second loopback HTTP listener** on port 0 (OS-assigned; `PortAllocator` reserves dev-server blocks for environments, a different job) speaking Streamable HTTP MCP. The bound port is read back and used for session endpoints and the OAuth redirect.
+- At startup realm-server binds a **second loopback HTTP listener** (port from the existing `PortAllocator`) speaking Streamable HTTP MCP.
 - Each session gets a **random bearer token** minted at start. Adapters receive **exactly one** MCP server:
   `{ name: "realm", transport: "http", url: "http://127.0.0.1:<port>/mcp", headers: { Authorization: "Bearer <token>" } }`.
   The token travels in a header, not the URL, so it stays out of argv and request logs. All three live adapters carry http headers (verified: Claude SDK `McpHttpServerConfig`, Codex `http_headers`, ACP http config — `packages/contracts/src/mcp.ts` §`AGENT_MCP_TRANSPORTS`).
