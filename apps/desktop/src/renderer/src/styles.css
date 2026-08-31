@@ -214,7 +214,10 @@ kbd { font: 11px var(--font-mono); }
 /* Focused-pane mark (§5): a 2px ink underline on the title itself — not a full-width bar — plus the
    header icon lifted to ink. The pane-header keeps its 1px --rl-line bottom border: content scrolls
    beneath it, so it is a scroll seam (§5 wants it sticky-only; the header here is always sticky). */
-.panel[data-focused] .panel-title { box-shadow: inset 0 -2px 0 var(--rl-accent); }
+/* Focused pane: the title brightens instead of underlining — the ink bar read as decoration
+   (and as a permanent oddity with a single pane), but focus must stay legible in a split. */
+.panel .panel-title { color: var(--rl-text-dim); }
+.panel[data-focused] .panel-title { color: var(--rl-text-bright); }
 .panel[data-focused] .panel-icon { color: var(--rl-accent); }
 /* A focused EMPTY leaf has no header to underline — the pane itself takes an accent top rule. */
 .panel[data-focused][data-empty] { box-shadow: inset 0 2px 0 var(--rl-accent); }
