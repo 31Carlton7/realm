@@ -340,7 +340,29 @@ merge protocol.
 ```
 
 Realm did not write those — **Codex did, on Realm's behalf**, when Realm spawned it in
-temporary worktrees the user then trusted. All four point at directories that no longer exist.
+temporary directories. All four point at directories that no longer exist.
+
+**Mechanism, isolated during Plan 8 W2 (codex-cli 0.146.0, scratch `CODEX_HOME`, six probe
+configurations):** `thread/start` records its `cwd` as
+`[projects."<canonicalized cwd>"] trust_level = "trusted"` whenever `$CODEX_HOME/config.toml`
+has no entry for that path. Verified properties:
+
+- It happens for **every** approval policy and sandbox mode, `untrusted`/`read-only` included —
+  it is not a consequence of `bypassPermissions`, and the original guess that "the user then
+  trusted" them is wrong; no user action is involved.
+- `initialize` alone writes nothing. `ephemeral: true` does not suppress it. `ThreadStartParams`
+  (fields recovered from the binary's TS bindings) has no opt-out.
+- The write is **flushed asynchronously**: a client that kills the process ~800ms after
+  `thread/start` never sees it, which is why a first probe found nothing.
+- An existing entry for that path suppresses it, `trust_level = "untrusted"` included.
+
+So Realm cannot prevent it, and should not want to for a real space folder or worktree — those
+are stable directories under `~/Realm` that a user would expect to see trusted. What Realm
+*could* prevent is pointing Codex at a directory that then stops existing. The four entries came
+from `apps/server/scripts/live-agent-check.ts` calling `mkdtempSync(tmpdir(), "realm-work-")`,
+once per run. Fixed in W2: the live checks share one fixed path
+(`$TMPDIR/realm-live-workspace`, see `apps/server/scripts/live-workspace.ts`) and leave it on
+disk, so at most one entry exists and it always points somewhere real.
 That is the failure mode in miniature: an agent CLI treats its config as a mutable state store,
 and a host app driving it accumulates garbage in the user's file. Small and harmless today; the
 same mechanism becomes a data-loss vector once the writes get larger.
