@@ -99,6 +99,10 @@ export function registerMethods(d: Deps): void {
   reg("mcp.add", (p) => {
     if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     const server = d.mcp.add(p, p.spaceId);
+    // A new server is enabled ONLY in the space it was added from (`McpService.add`'s own doc comment) —
+    // but a live session already running in exactly that space needs to see it show up without a
+    // restart. This is the add-server flow W6's settings UI drives end to end.
+    if (p.spaceId) d.gateway.notifyPolicyChanged(p.spaceId);
     rpc.broadcast("mcp.changed", {});
     return server;
   });

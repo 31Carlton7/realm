@@ -6,12 +6,12 @@ import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, typ
 import type { McpServerConfig } from "@realm/adapters";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
-import type { McpCallLogStore, McpServersStore, McpToolRow } from "../store/mcp";
+import type { McpCallLogStore, McpServerRow, McpServersStore, McpToolRow } from "../store/mcp";
 import type { McpHub } from "./hub";
 import type { McpService } from "./service";
 
-const TOOL_ERROR_TRUNCATE = 200;
-const truncate = (s: string): string => (s.length > TOOL_ERROR_TRUNCATE ? s.slice(0, TOOL_ERROR_TRUNCATE) : s);
+const SUMMARY_MAX = 200;
+const truncate = (s: string): string => (s.length > SUMMARY_MAX ? s.slice(0, SUMMARY_MAX) : s);
 
 /** One registered Realm session: its bearer token, the space it belongs to, and — created lazily on the
  *  first authorized request — the SDK `Server`/`StreamableHTTPServerTransport` pair the agent's own MCP
@@ -22,13 +22,19 @@ type SessionEntry = {
   spaceId: string;
   server: Server | null;
   transport: StreamableHTTPServerTransport | null;
-  /** Set while the FIRST authorized request is still creating this session's `Server`/transport pair.
-   *  A Streamable HTTP client's `connect()` fires more than one request close together (the initial POST,
-   *  then a standalone GET for its server-push stream) — without this, two of those racing `handleMcp`
-   *  calls would each create their OWN pair, and the loser's transport (often the one the client's real
-   *  SSE stream ends up bound to) would be silently orphaned: notifications sent through the map's
-   *  `entry.server` would never reach a client listening on the other one. Mirrors `hub.ts`'s `connecting`
-   *  field for the exact same reason. */
+  /**
+   * Set while the FIRST authorized request is still creating this session's `Server`/transport pair.
+   *
+   * `connectSession` has no genuine I/O await today — creating and wiring the SDK `Server` is pure
+   * in-process setup, so two calls to `ensureSessionServer` issued back-to-back in the SAME synchronous
+   * tick are guaranteed (by ordinary JS scheduling, not by this field) to see `entry.connecting` already
+   * set before the second one could ever start its own `connectSession`. This field is therefore a
+   * PRE-EMPTIVE guard against a hazard that is not observably reachable yet, not a fix for a bug that was
+   * caught happening — two real concurrent HTTP requests (the case that motivated adding it) did not
+   * reproduce it in testing. It earns its keep the moment this path gains a real await (W5's OAuth token
+   * check is the obvious candidate) — see `hub.ts`'s own `connecting` field, which guards the identical
+   * shape of race in a place where the await is real today.
+   */
   connecting: Promise<{ server: Server; transport: StreamableHTTPServerTransport }> | null;
 };
 
@@ -250,21 +256,37 @@ export class McpGateway {
    * corruption is a bug, not an attacker, and failing closed would silently kill tools with no UI
    * explaining why); this handler does not re-litigate it.
    *
-   * A blocked call is never forwarded to the hub and never logged — nothing left realm-server, so there
-   * is nothing for Activity to have a row about (the tool error text is the whole of what a policy
-   * decision produces here).
+   * A blocked call is never forwarded to the hub, but IS logged (ok: false, `resultSummary` naming the
+   * policy that blocked it) and broadcast, same as any other call — Activity is Realm's own record of
+   * what agents tried to do through it, and a denied call is exactly the kind of thing a space owner
+   * wants visible there (this is what W7's Activity view surfaces policy denials from).
    */
   private async handleCall(sessionId: string, spaceId: string, fullName: string, args: unknown): Promise<CallToolResult> {
+    const argsJson = JSON.stringify(args ?? {});
+    // Routing (which server actually receives an ALLOWED call) only ever considers ENABLED servers — see
+    // `resolveCall`'s own comment on why that is what keeps the longest-prefix match unambiguous. A
+    // blocked call's log entry still deserves real attribution when one exists, so a name that matches a
+    // known but DISABLED server is looked up separately, purely for that log row — it never feeds back
+    // into routing or the enabled-only prefix match above it.
     const resolved = this.resolveCall(spaceId, fullName);
     if (!resolved) {
-      return errorResult(`mcp: no MCP server enabled in this space provides "${fullName}" — check Space Settings → MCP.`);
+      const disabled = this.resolveAnyServer(fullName);
+      if (disabled) {
+        return this.blocked(sessionId, disabled.row.id, disabled.row.name, disabled.tool, argsJson,
+          `mcp: "${disabled.row.name}" is disabled for this space — turn it on in Space Settings → MCP.`,
+          `blocked: ${disabled.row.name} is disabled in this space`);
+      }
+      return this.blocked(sessionId, null, "", fullName, argsJson,
+        `mcp: no MCP server enabled in this space provides "${fullName}" — check Space Settings → MCP.`,
+        `blocked: no server provides "${fullName}"`);
     }
     const { serverId, serverName, tool } = resolved;
     const allowed = this.d.mcp.allowedTools(spaceId, serverId);
     if (allowed && !allowed.includes(tool)) {
-      return errorResult(`mcp: "${tool}" on "${serverName}" is not enabled for this space — turn it on in Space Settings → MCP → ${serverName}.`);
+      return this.blocked(sessionId, serverId, serverName, tool, argsJson,
+        `mcp: "${tool}" on "${serverName}" is not enabled for this space — turn it on in Space Settings → MCP → ${serverName}.`,
+        `blocked: tool not in this space's allowlist`);
     }
-    const argsJson = JSON.stringify(args ?? {});
     const start = Date.now();
     try {
       const result = await this.d.hub.call(serverId, tool, args);
@@ -286,28 +308,53 @@ export class McpGateway {
     }
   }
 
-  private record(sessionId: string, serverId: string, serverName: string, tool: string, argsJson: string, ok: boolean, durationMs: number, resultSummary: string): void {
+  /** A policy-blocked call: logs it (ok: false, `durationMs: 0` — nothing actually reached the hub) and
+   *  returns the tool error the AGENT sees. `agentMessage` is the fuller, addressed-to-a-human text (names
+   *  the space setting to change); `logSummary` is the short form Activity's `resultSummary` column shows. */
+  private blocked(sessionId: string, serverId: string | null, serverName: string, tool: string, argsJson: string, agentMessage: string, logSummary: string): CallToolResult {
+    this.record(sessionId, serverId, serverName, tool, argsJson, false, 0, logSummary);
+    return errorResult(agentMessage);
+  }
+
+  private record(sessionId: string, serverId: string | null, serverName: string, tool: string, argsJson: string, ok: boolean, durationMs: number, resultSummary: string): void {
     const row = this.d.calls.append({ sessionId, serverId, serverName, tool, argsJson, resultSummary, ok, durationMs });
     this.d.rpc.broadcast("mcp.call", row);
   }
 
   /** See the class doc comment's "Tool naming" section for why this is a longest-enabled-prefix match
-   *  rather than a split on the first `__`. */
+   *  rather than a split on the first `__`. Enabled servers ONLY — see `handleCall`'s comment on why a
+   *  disabled server's name must never win this match. */
   private resolveCall(spaceId: string, fullName: string): { serverId: string; serverName: string; tool: string } | null {
-    let best: { id: string; name: string } | null = null;
-    for (const id of this.d.mcp.enabledServerIds(spaceId)) {
-      const row = this.d.servers.get(id);
-      if (!row) continue;
-      const prefix = `${row.name}__`;
-      if (fullName.startsWith(prefix) && (!best || row.name.length > best.name.length)) best = { id, name: row.name };
-    }
-    return best ? { serverId: best.id, serverName: best.name, tool: fullName.slice(best.name.length + 2) } : null;
+    const match = longestPrefixMatch(fullName, this.d.mcp.enabledServerIds(spaceId).map((id) => this.d.servers.get(id)).filter((r): r is McpServerRow => r !== null));
+    return match ? { serverId: match.row.id, serverName: match.row.name, tool: match.tool } : null;
   }
+
+  /** Same longest-prefix match as `resolveCall`, but over EVERY known server row regardless of
+   *  enablement — used only to attribute a blocked-call log entry to a real (if disabled) server, never
+   *  for routing. Keeping this a separate method (rather than an "include disabled" flag on `resolveCall`)
+   *  is what guarantees a disabled server's longer name can never shadow an enabled one's shorter name
+   *  in the match that actually decides where a call goes. */
+  private resolveAnyServer(fullName: string): { row: McpServerRow; tool: string } | null {
+    return longestPrefixMatch(fullName, this.d.servers.list());
+  }
+}
+
+/** The longest `"<row.name>__"` prefix of `fullName` among `rows`, or null if none matches. Shared by
+ *  `resolveCall` (enabled rows, for routing) and `resolveAnyServer` (every row, for blocked-call
+ *  attribution) so the matching rule itself — and the reasoning in the class doc comment's "Tool naming"
+ *  section for why it is longest-match rather than split-on-first-`__` — lives in exactly one place. */
+function longestPrefixMatch(fullName: string, rows: readonly McpServerRow[]): { row: McpServerRow; tool: string } | null {
+  let best: McpServerRow | null = null;
+  for (const row of rows) {
+    const prefix = `${row.name}__`;
+    if (fullName.startsWith(prefix) && (!best || row.name.length > best.name.length)) best = row;
+  }
+  return best ? { row: best, tool: fullName.slice(best.name.length + 2) } : null;
 }
 
 const errorResult = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
 
-/** First text-content block, truncated to `TOOL_ERROR_TRUNCATE` chars — never the full payload (an
+/** First text-content block, truncated to `SUMMARY_MAX` chars — never the full payload (an
  *  upstream tool result can be arbitrarily large; Activity shows an excerpt, not a mirror). */
 function summarize(result: CallToolResult): string {
   const first = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");

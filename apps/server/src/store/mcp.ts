@@ -182,8 +182,11 @@ export class McpCallLogStore {
    * review; the same-ms tie-break test below proves the case is real: three rows can share one `ts`, and
    * a naive `ts < boundary` would skip straight past all of them instead of resuming mid-tie). The filter
    * `(ts < ? OR (ts = ? AND id < ?))`, ordered `ts DESC, id DESC`, resumes exactly after the last row the
-   * caller saw — id is a ULID, so `id DESC` agrees with insertion order among same-ts siblings, matching
-   * `list()`'s own tie-break.
+   * caller saw. `id` is what breaks the tie, NOT because it reflects insertion order (see line 77:
+   * `newId()` is the plain, non-monotonic `ulid()` — two ids minted in the same millisecond have no
+   * guaranteed relative order) but because any total order that agrees between the `WHERE` filter and the
+   * `ORDER BY` is enough to page through a tied boundary without skipping or repeating a row; `id DESC` is
+   * simply an arbitrary, STABLE order (unique per row, always comparable) that both clauses share.
    *
    * `limit` is clamped to [1, CALL_LOG_MAX_LIMIT] so a client cannot ask for the whole table in one call.
    */
