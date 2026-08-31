@@ -75,7 +75,7 @@ describe("SessionPane", () => {
     expect(screen.getByLabelText("running")).toBeInTheDocument(); // no result yet while the session is live
   });
 
-  it("empty transcript is the HERO prompter: greeting + titled/described suggestion chips; clicking one fills the composer without sending", async () => {
+  it("empty transcript is the HERO prompter: greeting + title-only suggestion rows; clicking one fills the composer without sending", async () => {
     const { api } = await mount("idle", reduceAll([]));
     const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
     expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "hero");
@@ -84,10 +84,16 @@ describe("SessionPane", () => {
     expect(title?.querySelector("em")).toHaveTextContent("Versed");
     const chip = screen.getByRole("button", { name: /Say hello/ }); // default mount() session is agentKind "fake"
     expect(chip.querySelector(".suggestion-title")).toHaveTextContent("Say hello");
-    expect(chip.querySelector(".suggestion-desc")).toHaveTextContent("A quick round trip through the fake agent");
+    // Ara refresh §3: rows are a leading glyph + one title line; the description line is retired
+    // from the UI (the data keeps it, nothing renders it).
+    expect(chip.querySelector(".suggestion-glyph")).not.toBeNull();
+    expect(chip.querySelector(".suggestion-desc")).toBeNull();
+    expect(chip).not.toHaveTextContent("A quick round trip through the fake agent");
     fireEvent.click(chip);
     const box = screen.getByRole("textbox", { name: /message/i });
     expect((box as HTMLTextAreaElement).value).toBe("Hello!");
+    // Ara refresh §1: the placeholder names the session's agent, not "the agent".
+    expect(box).toHaveAttribute("placeholder", "Ask Fake agent anything…");
     expect(sent).toEqual([]); // filled, not sent
     expect(screen.getByRole("button", { name: "Send" })).toHaveAttribute("data-state", "send"); // idle = send face up
   });
@@ -202,8 +208,9 @@ describe("SessionPane", () => {
     const { store } = await mount("idle", reduceAll([]));
     const chip = screen.getByRole("button", { name: "Model" });
     expect(chip).toHaveTextContent("Fake"); // DEFAULT_MODEL_LABEL.fake
-    // The agent is named by its brand mark now, not by a "Claude · " prefix on the label.
-    expect(chip.querySelector("[data-brand]")).toBeNull(); // `fake` is the dev adapter: no vendor mark
+    // Ara refresh §3: the chip is plain text — no brand mark for ANY kind (the mark lives on the
+    // picker's rows), and no "Claude · " prefix on the label.
+    expect(chip.querySelector("[data-brand]")).toBeNull();
     openPicker();
     fireEvent.click(screen.getByRole("option", { name: /Fake agent/ }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("fake"));
@@ -221,14 +228,15 @@ describe("SessionPane", () => {
     expect(row).toHaveAttribute("aria-selected", "true");
   });
 
-  it("the cwd context chip truncates with an ellipsis label and carries the full path as its title", async () => {
+  it("the cwd context chip lives in the control row's left group, truncates with an ellipsis label and carries the full path as its title", async () => {
     await mount("idle", reduceAll([]));
-    const chip = document.querySelector(".composer-context .composer-chip");
+    const chip = document.querySelector(".composer-opts .composer-cwd");
     expect(chip).toHaveAttribute("title", "/tmp"); // the fake session's cwd
     expect(chip!.querySelector(".chip-label")).not.toBeNull();
   });
 
-  /** W2: the prompter has to answer "which checkout is this session in?" without a new surface. */
+  /** W2: the prompter has to answer "which checkout is this session in?" without a new surface.
+   *  Ara refresh §3 gives that answer its own chip — the "Work locally" slot — in the control row. */
   describe("the environment chip", () => {
     const envRow: Environment = { id: "env1", spaceId: "s1", path: "/tmp/worktrees/s1/fix-login", branch: "realm/fix-login",
       kind: "worktree", portBlockStart: 41020, createdAt: 0, updatedAt: 0 };
@@ -241,18 +249,19 @@ describe("SessionPane", () => {
       const store = createAppStore(api); await store.getState().boot();
       store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
       render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
-      return document.querySelector(".composer-context .composer-chip")!;
+      return document.querySelector(".composer-opts .composer-env")!;
     }
 
-    it("names the worktree and its port block in the cwd chip's title", async () => {
+    it("says Worktree, and names the path and port block in its title; the cwd chip keeps the basename", async () => {
       const chip = await mountIn(envRow);
+      expect(chip).toHaveTextContent("Worktree");
       expect(chip).toHaveAttribute("title", "Worktree · /tmp/worktrees/s1/fix-login\nPorts 41020–41029 reserved");
-      expect(chip.querySelector(".chip-label")).toHaveTextContent("fix-login");
+      expect(document.querySelector(".composer-cwd .chip-label")).toHaveTextContent("fix-login");
     });
 
-    it("stays the plain folder chip for a session in the space's own checkout", async () => {
+    it("says Work locally for a session in the space's own checkout", async () => {
       const chip = await mountIn(null);
-      expect(chip).toHaveAttribute("title", "/tmp");
+      expect(chip).toHaveTextContent("Work locally");
       expect(chip.getAttribute("title")).not.toContain("Worktree");
     });
 
@@ -508,13 +517,13 @@ describe("composer context row (git chips)", () => {
     return { store, ...r };
   }
 
-  it("renders branch + diff + dirty chips from store gitInfo for the session's cwd", async () => {
+  it("renders branch + diff + dirty chips from store gitInfo for the session's cwd, in the control row's left group", async () => {
     await mountWithGit(gi({ branch: "feat/x", additions: 12, deletions: 3, dirty: 4 }));
-    expect(document.querySelector(".composer-context .git-branch")).toHaveTextContent("feat/x");
+    expect(document.querySelector(".composer-opts .git-branch")).toHaveTextContent("feat/x");
     expect(document.querySelector(".git-diff .diff-add")).toHaveTextContent("+12");
     expect(document.querySelector(".git-diff .diff-del")).toHaveTextContent("−3");
     expect(document.querySelector(".git-dirty")).toHaveTextContent("4 changed");
-    expect(document.querySelector(".composer-context .composer-chip")).toBeInTheDocument(); // cwd chip lives here too
+    expect(document.querySelector(".composer-opts .composer-cwd")).toBeInTheDocument(); // cwd chip lives here too
   });
 
   it("hides the diff chip when both counts are zero and the dirty chip at zero", async () => {
@@ -529,7 +538,81 @@ describe("composer context row (git chips)", () => {
     expect(document.querySelector(".git-branch")).toBeNull();
     expect(document.querySelector(".git-diff")).toBeNull();
     expect(document.querySelector(".git-dirty")).toBeNull();
-    expect(document.querySelector(".composer-context .composer-chip")).toBeInTheDocument(); // cwd chip survives
+    expect(document.querySelector(".composer-opts .composer-cwd")).toBeInTheDocument(); // cwd chip survives
+  });
+});
+
+describe("control-row reshuffle (Ara refresh §3)", () => {
+  it("the '+' attach button leads the left group; the model chip and send sit in the right group", async () => {
+    await mount("idle", reduceAll([]));
+    const opts = document.querySelector(".composer-opts")!;
+    // The attach affordance IS the row's first control — the paperclip's picker behind a "+" glyph.
+    expect(opts.firstElementChild).toBe(screen.getByRole("button", { name: "Attach files" }));
+    // Context chips follow it, then the option chips — all in the LEFT group.
+    expect(opts.querySelector(".composer-cwd")).not.toBeNull();
+    expect(opts.querySelector(".composer-env")).not.toBeNull();
+    expect(opts.contains(screen.getByRole("button", { name: "Effort" }))).toBe(true);
+    const actions = document.querySelector(".composer-actions")!;
+    expect(actions.contains(screen.getByRole("button", { name: "Model" }))).toBe(true);
+    expect(actions.lastElementChild).toBe(screen.getByRole("button", { name: "Send" }));
+  });
+
+  it("the model chip is plain text — no brand mark on the chip, brand marks only on the picker's rows", async () => {
+    await mountFresh(); // a real vendor (claude), so a mark WOULD render if the chip still carried one
+    const chip = screen.getByRole("button", { name: "Model" });
+    expect(chip.querySelector("[data-brand]")).toBeNull();
+    expect(chip.querySelector(".chip-caret")).not.toBeNull(); // `Fable 5 ⌄`
+    openPicker();
+    expect(document.querySelectorAll(".mp-row [data-brand]").length).toBeGreaterThan(0);
+  });
+
+  describe("overflow collapse", () => {
+    /** jsdom has no layout, so the row's overflow is staged through the prototype getters the
+     *  measurement reads: scrollWidth (what the chips need) vs clientWidth (what the row has). */
+    function stageWidths(scroll: number, client: number) {
+      Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, get() { return (this as HTMLElement).classList.contains("composer-opts") ? scroll : 0; } });
+      Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get() { return (this as HTMLElement).classList.contains("composer-opts") ? client : 0; } });
+    }
+    afterEach(() => {
+      delete (HTMLElement.prototype as { scrollWidth?: unknown }).scrollWidth;
+      delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
+    });
+
+    it("an overflowing row folds effort + permission into the model menu instead of wrapping", async () => {
+      stageWidths(700, 500);
+      const { store } = await mountFresh();
+      // The chips are gone from the row…
+      expect(screen.queryByRole("button", { name: "Effort" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
+      expect(document.querySelector(".composer-opts")).toHaveAttribute("data-collapsed");
+      // …and live in the model menu as labelled groups, with working handlers.
+      openPicker();
+      const effort = screen.getByRole("group", { name: "Effort" });
+      expect(screen.getByRole("group", { name: "Permissions" })).toBeInTheDocument();
+      fireEvent.click(within(effort).getByRole("button", { name: "high" }));
+      await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("high"));
+      expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull(); // picking closes the menu
+    });
+
+    it("bypassPermissions from the collapsed menu still goes through the inline confirm (U-M7)", async () => {
+      stageWidths(700, 500);
+      const { api, store } = await mountFresh();
+      openPicker();
+      fireEvent.click(within(screen.getByRole("group", { name: "Permissions" })).getByRole("button", { name: "Full access" }));
+      // Nothing transmitted yet — the confirm chip on the row is still the only path in.
+      expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
+      fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
+      await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+    });
+
+    it("a row that fits keeps its chips and offers no overflow groups in the model menu", async () => {
+      stageWidths(400, 500);
+      await mountFresh();
+      expect(screen.getByRole("button", { name: "Effort" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Permission mode" })).toBeInTheDocument();
+      openPicker();
+      expect(document.querySelector(".mp-overflow")).toBeNull();
+    });
   });
 });
 

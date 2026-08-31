@@ -190,6 +190,16 @@ kbd { font: 11px var(--font-mono); }
 .mp-check { flex: none; color: var(--rl-accent); }
 .mp-blocked { flex: none; color: var(--rl-text-faint); }
 .mp-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
+/* Overflow home (Ara refresh §3): when the prompter's control row cannot fit its chips, effort +
+   permission live here — labelled option groups under the model list, whole (never search-filtered). */
+.mp-overflow { border-top: 1px solid var(--rl-hairline); padding: 8px 11px; display: flex; flex-direction: column; gap: 6px; }
+.mp-overflow-group { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mp-overflow-label { flex: none; font-size: 11px; color: var(--rl-text-faint); min-width: 68px; }
+.mp-overflow-opts { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.mp-overflow-opt { padding: 3px 8px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim);
+  transition: background-color 100ms ease, color 100ms ease; }
+.mp-overflow-opt:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.mp-overflow-opt[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
 .mp-foot { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); font-size: 11px; color: var(--rl-text-faint); }
 
 /* ── Main: full-bleed pane host (no topbar; pane headers carry the window drag) ── */
@@ -465,19 +475,20 @@ button.panel-title:hover { background: var(--rl-hover); }
   font-size: 30px; font-weight: 600; letter-spacing: -0.02em; color: var(--rl-text-bright); text-wrap: balance; }
 .hero-greeting em { font-style: normal; }
 
-/* Suggested prompts (§4): 2-up grid ≤640px below the card; raised fill, no border. */
+/* Suggested prompts (Ara refresh §3): a single-column LIST at full prompter width under the card —
+   transparent rows, hover fill, one 14px title line behind a faint leading glyph. */
 .suggestions { position: absolute; top: calc(100% + 12px); left: 0; right: 0;
-  width: min(640px, 100%); margin-inline: auto;
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  display: flex; flex-direction: column; gap: 8px; }
 /* Below ~420px of pane the hero clamp has already pinned the card near the top and the grid would
    run past the pane's bottom edge, clipped mid-chip by .panel's overflow. Chips are the optional
    part of the hero — drop them cleanly and let the greeting and card keep the room. */
 @container (max-height: 420px) { .suggestions { display: none; } }
-.suggestion-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; border-radius: var(--r-ctl);
-  background: var(--rl-raised); min-width: 0; }
-.suggestion-chip:hover { background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-raised); }
-.suggestion-title { font-size: 12.5px; font-weight: 550; color: var(--rl-text-bright); }
-.suggestion-desc { font-size: 11.5px; color: var(--rl-text-dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-chip { display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px; border-radius: var(--r-row);
+  background: transparent; min-width: 0; }
+.suggestion-chip:hover { background: var(--rl-hover); }
+.suggestion-glyph { color: var(--rl-text-faint); flex: none; }
+.suggestion-title { font-size: 14px; color: var(--rl-text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-chip:hover .suggestion-title { color: var(--rl-text-bright); }
 /* Stagger-in (§6): 220ms ease-out, 8px rise, 40ms steps — first render of a session's hero only
    (the data-animate guard is set from a module-level seen-set, so tab-backs never replay). */
 .suggestions[data-animate] .suggestion-chip { animation: rl-chip-in 220ms var(--ease-out-strong) backwards; animation-delay: calc(var(--i) * 40ms); }
@@ -488,16 +499,10 @@ button.panel-title:hover { background: var(--rl-hover); }
   box-shadow: var(--rl-edge), var(--rl-shadow); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
   box-shadow: var(--rl-edge), 0 0 0 2px color-mix(in srgb, var(--rl-accent) 30%, transparent), var(--rl-shadow); }
-/* Row 1 — context chips: raised-on-raised, 11px, quiet. */
-.composer-context { display: flex; align-items: center; gap: 6px; padding: 10px 12px 0; color: var(--rl-text-dim); overflow: hidden; }
-.composer-context:empty { display: none; }
-.composer-context .git-branch { font-family: var(--font-mono); font-size: 11px; }
-.composer-context .git-diff { gap: 6px; font-variant-numeric: tabular-nums; }
-.composer-context .diff-add { color: var(--rl-success); }
-.composer-context .diff-del { color: var(--rl-danger); }
-/* Row 1b — pending attachments: the same raised-on-raised chip treatment as the context row (§4),
-   wrapping, because a chip row that clips is a chip row that hides a file the user thinks is going. */
-.composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 8px 12px 0; list-style: none; }
+/* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
+   attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a
+   chip row that hides a file the user thinks is going. */
+.composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 12px 16px 0; list-style: none; }
 .attach-chip { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px 0 8px; height: 24px; border-radius: var(--r-chip);
   font-size: 11px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
 .attach-chip .attach-glyph { flex: none; color: var(--rl-text-faint); }
@@ -513,12 +518,30 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 10.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
-/* Row 2 — input: 13px/1.55, grows to ~10 lines (matches MAX_ROWS_PX in Composer.tsx). */
-.composer-input { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright); font: inherit; font-size: 13px; line-height: 1.55; padding: 12px 14px; min-height: 44px; max-height: 226px; caret-color: var(--rl-accent); }
+/* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding
+   (§2), grows to ~10 lines (matches MAX_ROWS_PX in Composer.tsx). */
+.composer-input { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright); font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 6px; min-height: 44px; max-height: 254px; caret-color: var(--rl-accent); }
 .composer-input::placeholder { color: var(--rl-text-faint); }
-/* Row 3 — control row: hairline-free, 12px padding; ghost chips left, circular send right. */
-.composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 12px; }
-.composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; }
+/* Hero (§2): the empty card reads as an invitation — ~56px of input before any growth. */
+.session-pane[data-composer="hero"] .composer-input { min-height: 56px; }
+/* Row 3 — control row (Ara refresh §3): 40px, hairline-free, 12px inline padding; "+" attach, then
+   the context chips and the effort/permission chips on the LEFT; plain-text model chip and the
+   circular send on the RIGHT. */
+.composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 12px 8px; }
+/* The left group never wraps (§3): it clips, and Composer.tsx measures scrollWidth > clientWidth to
+   collapse effort+permission into the model menu instead. Children must not shrink, or ellipsizing
+   chips would eat the overflow the measurement is looking for. */
+.composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.composer-opts > * { flex: none; }
+.composer-cwd { max-width: 180px; }
+/* The branch group moved down with the rest of the context chips (§3): still one button, still the
+   way into the diff pane. */
+.composer-git { display: inline-flex; align-items: center; gap: 2px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
+.composer-git:hover .ghost-chip { background: var(--rl-hover); color: var(--rl-text-bright); }
+.composer-git .git-branch { max-width: 160px; }
+.composer-git .git-diff { gap: 6px; font-variant-numeric: tabular-nums; }
+.composer-git .diff-add { color: var(--rl-success); }
+.composer-git .diff-del { color: var(--rl-danger); }
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
    them now (W3) — a picker until the session's first event, a plain label after. */
 .ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--r-chip);
@@ -546,9 +569,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
   border-radius: var(--r-float); background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
   font-size: 12px; font-weight: 550; color: var(--rl-text-bright); }
-/* Send↔stop morph (§4/§6): 28px accent circle; both icons in the DOM, cross-fading 160ms with
-   opacity + scale .25→1 + 4px blur. data-state picks which one is up. */
-.composer-send { position: relative; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+/* Send↔stop morph (§6; Ara refresh §2 sizes it up to 32px): accent circle; both icons in the DOM,
+   cross-fading 160ms with opacity + scale .25→1 + 4px blur. data-state picks which one is up. */
+.composer-send { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
   background: var(--rl-accent); color: var(--rl-accent-contrast); flex: none; }
 .composer-send svg { grid-area: 1 / 1;
   transition: opacity 160ms var(--ease-out-strong), transform 160ms var(--ease-out-strong), filter 160ms var(--ease-out-strong); }
@@ -736,9 +759,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .ship-report a { color: var(--rl-text-bright); text-decoration: underline; text-underline-offset: 2px; }
 /* Red is reserved for "something is wrong" (§2.4); the fill stays at 8% so it tints rather than shouts. */
 .ship-bad { color: var(--rl-danger); }
-/* The composer's git chips are one button now (W3): the group is the entry point to this pane. */
-.composer-git { display: inline-flex; align-items: center; gap: 6px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
-.composer-git:hover .composer-chip { background: var(--rl-active); color: var(--rl-text-bright); }
+/* (The composer's git group — the entry point to this pane, W3 — is styled with the control row.) */
 
 /* ── Worktree removal confirm (W3) ─────────────────────────────────────── */
 .wt-target { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

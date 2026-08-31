@@ -1,7 +1,8 @@
 import type { AgentKind } from "@realm/contracts";
 
-/** Static empty-state prompt starters per agent kind (design-language §4): title + one-line dim
- *  description on the chip; clicking fills the composer with `prompt`, never auto-sends. */
+/** Static empty-state prompt starters per agent kind. The Ara refresh (§3) renders them as a
+ *  single-column list of title-only rows — `description` stays in the data but is no longer drawn.
+ *  Clicking fills the composer with `prompt`, never auto-sends. */
 export const SUGGESTIONS: Record<AgentKind, { title: string; description: string; prompt: string }[]> = {
   claude: [
     { title: "Explore this project", description: "Structure, entry points, how it all fits", prompt: "Give me a tour of this project: structure, entry points, and how the pieces fit together." },

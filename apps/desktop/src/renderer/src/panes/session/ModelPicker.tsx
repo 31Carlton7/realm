@@ -16,13 +16,19 @@ import { filterRows, modelRows, railKinds, type ModelRow } from "./model-rows";
  * Layout follows the picker the user already lives in (T3 Code): a search field, a vertical provider
  * rail that narrows to one agent, and rows of model name over provider name + brand mark.
  */
-export function ModelPicker({ kind, model, canSwitchAgent, agentProbe, onPick }: {
+/** Controls the control row could not fit (Ara refresh §3): when the prompter's left group overflows,
+ *  the effort + permission chips collapse into this menu as labelled option groups instead of
+ *  wrapping the row. Items mirror the chips' own menu items exactly — same labels, same handlers. */
+export type OverflowGroup = { label: string; items: { label: string; checked?: boolean; onSelect: () => void }[] };
+
+export function ModelPicker({ kind, model, canSwitchAgent, agentProbe, onPick, overflow }: {
   kind: AgentKind;
   model: string | null;
   /** False once the session has produced an event — cross-agent rows go unavailable, not invisible. */
   canSwitchAgent: boolean;
   agentProbe: AgentProbe[];
   onPick: (kind: AgentKind, modelId: string | null) => void;
+  overflow?: OverflowGroup[];
 }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -33,22 +39,24 @@ export function ModelPicker({ kind, model, canSwitchAgent, agentProbe, onPick }:
 
   return (
     <>
+      {/* Ara refresh §3: the chip is plain text + caret — the brand mark comes OFF the chip but
+          stays on the picker's rows, where the provider needs naming. */}
       <button ref={btn} type="button" className="ghost-chip model-chip" aria-label="Model"
         title={`Model: ${AGENT_META[kind].label} · ${label}`} aria-haspopup="dialog" aria-expanded={open}
         onClick={() => setOpen((v) => !v)}>
-        <Icon name={AGENT_META[kind].icon} size={14} className="chip-brand" />
         <span className="chip-label">{label}</span>
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
-      {open && <ModelPopover rows={rows} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick} />}
+      {open && <ModelPopover rows={rows} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick} overflow={overflow} />}
     </>
   );
 }
 
-function ModelPopover({ rows, anchorRef, onClose, onPick }: {
+function ModelPopover({ rows, anchorRef, onClose, onPick, overflow }: {
   rows: ModelRow[];
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   onClose: () => void; onPick: (kind: AgentKind, modelId: string | null) => void;
+  overflow?: OverflowGroup[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => onClose(), [onClose]);
@@ -123,6 +131,23 @@ function ModelPopover({ rows, anchorRef, onClose, onPick }: {
           {shown.length === 0 && <div className="mp-empty">No models match “{query.trim()}”.</div>}
         </div>
       </div>
+      {overflow && overflow.length > 0 && (
+        // The collapsed control-row chips (§3): rendered whole rather than filtered — the search box
+        // above narrows MODELS, and hiding a permission mode behind a model query would be absurd.
+        <div className="mp-overflow">
+          {overflow.map((g) => (
+            <div key={g.label} className="mp-overflow-group" role="group" aria-label={g.label}>
+              <span className="mp-overflow-label">{g.label}</span>
+              <div className="mp-overflow-opts">
+                {g.items.map((it, i) => (
+                  <button key={i} type="button" className="mp-overflow-opt" aria-pressed={!!it.checked}
+                    onClick={() => { it.onSelect(); onClose(); }}>{it.label}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       {rows.some((r) => r.blockedReason) && (
         <div className="mp-foot">A session’s agent can only change before its first message.</div>
       )}

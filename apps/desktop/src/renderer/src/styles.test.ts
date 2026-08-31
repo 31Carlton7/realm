@@ -135,6 +135,30 @@ describe("§6 motion table", () => {
   });
 });
 
+describe("Ara refresh §3 geometry", () => {
+  it("suggestions are a single-column list, not a grid", () => {
+    const body = bodiesFor(".suggestions").join(" ");
+    expect(body).toContain("flex-direction: column");
+    expect(body).not.toContain("grid");
+    expect(bodiesFor(".suggestion-chip").join(" ")).toContain("background: transparent"); // transparent at rest, --rl-hover on hover
+    expect(bodiesFor(".suggestion-chip:hover").join(" ")).toContain("var(--rl-hover)");
+  });
+
+  it("the send button is a 32px circle; the hero textarea starts at ~56px", () => {
+    const send = bodiesFor(".composer-send").join(" ");
+    expect(send).toContain("width: 32px");
+    expect(send).toContain("height: 32px");
+    expect(bodiesFor('.session-pane[data-composer="hero"] .composer-input').join(" ")).toContain("min-height: 56px");
+  });
+
+  it("the control row's left group clips instead of wrapping — the measured collapse depends on it", () => {
+    const body = bodiesFor(".composer-opts").join(" ");
+    expect(body).toContain("flex-wrap: nowrap");
+    expect(body).toContain("overflow: hidden");
+    expect(bodiesFor(".composer-opts > *").join(" ")).toContain("flex: none");
+  });
+});
+
 describe("§6 do-NOT-animate list", () => {
   it("never uses `transition: all` anywhere", () => {
     expect(css).not.toMatch(/transition:\s*all\b/);
