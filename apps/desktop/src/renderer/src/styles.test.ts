@@ -292,6 +292,92 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
   });
 });
 
+describe("Plan 9 W3 — composer + chrome in BUI language", () => {
+  it("the composer wears PromptBar's field card: surface on shadow-card, focus = the line-strong border-brighten (the 30% accent glow is gone)", () => {
+    const card = bodiesFor(".composer").join(" ");
+    expect(card).toContain("background: var(--surface)");
+    expect(card).toContain("box-shadow: var(--shadow-card)");
+    const focus = bodiesFor(".composer:focus-within").join(" ");
+    expect(focus).toContain("0 0 0 1px var(--line-strong)");
+    expect(focus).not.toContain("--rl-accent");
+  });
+
+  it("attachment chips are the field-fill chip: field ground behind a hairline ring, 11.5 ink-2", () => {
+    const chip = bodiesFor(".attach-chip").join(" ");
+    expect(chip).toContain("background: var(--field)");
+    expect(chip).toContain("box-shadow: var(--shadow-hairline)");
+    expect(chip).toContain("font-size: 11.5px");
+  });
+
+  it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's line-strong disabled fill", () => {
+    expect(bodiesFor(".composer-send").join(" ")).toContain("inset 0 1px 0 rgba(255,255,255,0.14)");
+    expect(bodiesFor(".composer-send:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
+    const off = bodiesFor(".composer-send:disabled").join(" ");
+    expect(off).toContain("background: var(--line-strong)");
+    expect(off).toContain("color: var(--ink-2)");
+  });
+
+  it("the Thinking strip shimmers on the shared shimmer-text gradient — no opacity pulse", () => {
+    expect(bodiesFor(".composer-thinking span").join(" ")).not.toContain("rl-pulse");
+    // one shimmer rule serves all three surfaces; membership is the pin
+    const shimmer = RULES.find((r) => r.selectors.includes(".shimmer-text"));
+    expect(shimmer?.selectors).toContain(".composer-thinking span");
+  });
+
+  it("warning pills speak the orange tone pair (StatusPill), not the old color-mix formula", () => {
+    const pill = bodiesFor(".bypass-confirm").join(" ");
+    expect(pill).toContain("color: var(--orange)");
+    expect(pill).toContain("background: var(--orange-tint)");
+    expect(bodiesFor('.ghost-chip[data-warning]').join(" ")).toContain("var(--orange-tint)");
+  });
+
+  it("menus and the model picker are surface cards on shadow-raised with the opaque hover ladder (GlideMenu's surface, minus its JS glide layer)", () => {
+    for (const sel of [".menu", ".model-picker"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("background: var(--surface)");
+      expect(body, sel).toContain("box-shadow: var(--shadow-raised)");
+      expect(body, sel).not.toContain("--rl-shadow");
+    }
+    expect(bodiesFor('.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus'.split(", ")[0]!).join(" ")).toContain("var(--hover)");
+  });
+
+  it("sheets and the palette are surface cards at window radius on shadow-overlay — and the palette stays instant (pinned above)", () => {
+    for (const sel of [".sheet", ".palette"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("background: var(--surface)");
+      expect(body, sel).toContain("box-shadow: var(--shadow-overlay)");
+    }
+  });
+
+  it("sidebar actives are a fill alone — SidebarNav has no accent tick and no weight bump", () => {
+    expect(RULES.some((r) => r.selectors.includes(".item[data-active]::before"))).toBe(false);
+    const active = bodiesFor(".item[data-active] .item-row").join(" ");
+    expect(active).toContain("color: var(--rl-text-bright)");
+    expect(active).not.toContain("font-weight");
+    // the fills stay TRANSLUCENT (--rl-active), the W1 vibrancy carve-out for the material column
+    expect(bodiesFor(".item[data-active]").join(" ")).toContain("background: var(--rl-active)");
+  });
+
+  it("the sidebar search is SidebarNav's field: field fill behind a hairline ring at 13/500; rows and labels take BUI's 8px/12.5px", () => {
+    const search = bodiesFor(".search").join(" ");
+    expect(search).toContain("background: var(--field)");
+    expect(search).toContain("box-shadow: var(--shadow-hairline)");
+    expect(search).toContain("font-size: 13px");
+    expect(bodiesFor(".item").join(" ")).toContain("border-radius: var(--r-ctl)");
+    expect(bodiesFor(".group-label").join(" ")).toContain("font-size: 12.5px");
+  });
+
+  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn stepping to inset; primary = accent with the filled highlight and accent-ink hover", () => {
+    const btn = bodiesFor(".btn").join(" ");
+    expect(btn).toContain("background: var(--surface)");
+    expect(btn).toContain("box-shadow: var(--shadow-btn)");
+    expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).toContain("background: var(--inset)");
+    const primary = bodiesFor(".btn.primary").join(" ");
+    expect(primary).toContain("inset 0 1px 0 rgba(255,255,255,0.14)");
+    expect(bodiesFor(".btn.primary:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
+  });
+});
+
 describe("§6 do-NOT-animate list", () => {
   it("never uses `transition: all` anywhere", () => {
     expect(css).not.toMatch(/transition:\s*all\b/);

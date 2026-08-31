@@ -122,9 +122,12 @@ kbd { font: 11px var(--font-mono); }
   background: color-mix(in srgb, var(--page) 82%, transparent); border-right: 1px solid var(--rl-hairline); -webkit-app-region: drag; }
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
 .sb-top { padding: 40px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
+/* Plan 9 W3 — BUI SidebarNav's chat-search field: field fill behind a hairline ring, 13/500,
+   ink-3 → ink-2 as the pointer arrives (the fill itself does not change; the field IS the state). */
 .search { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border-radius: var(--r-ctl);
-  background: var(--rl-raised); border: none; color: var(--rl-text-faint); text-align: left; }
-.search:hover { color: var(--rl-text-dim); background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-raised); }
+  background: var(--field); box-shadow: var(--shadow-hairline); border: none; color: var(--rl-text-faint); text-align: left;
+  font-size: 13px; font-weight: 500; }
+.search:hover { color: var(--rl-text-dim); }
 .search span { flex: 1; } .search kbd { opacity: .7; }
 
 .swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
@@ -138,15 +141,15 @@ kbd { font: 11px var(--font-mono); }
 .space-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rl-space); flex: none; }
 .space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .space-header-actions { display: flex; align-items: center; gap: 2px; flex: none; }
-.pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--rl-raised); color: var(--rl-text-dim); }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
 .icon-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-ctl); color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way. */
 .icon-btn, .item-close { position: relative; }
 .icon-btn::after, .item-close::after { content: ""; position: absolute; inset: -6px; }
 
-/* Ara refresh §1: sentence case, 13px/500, text-faint — the letterspaced smallcaps are gone. */
-.group-label { font-size: 13px; font-weight: 500; color: var(--rl-text-faint); padding: 12px 8px 4px; }
+/* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
+.group-label { font-size: 12.5px; font-weight: 500; color: var(--rl-text-faint); padding: 12px 8px 4px; }
 
 .pinned-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding-bottom: 4px; }
 .tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1; border-radius: var(--r-ctl);
@@ -156,14 +159,15 @@ kbd { font: 11px var(--font-mono); }
 .tile-rename { aspect-ratio: auto; grid-column: 1 / -1; padding: 0; }
 
 .item-list { display: flex; flex-direction: column; gap: 1px; }
-.item { position: relative; display: flex; align-items: center; border-radius: var(--r-row); min-height: 32px; font-size: 14px; }
+.item { position: relative; display: flex; align-items: center; border-radius: var(--r-ctl); min-height: 32px; font-size: 14px; }
 .item:hover { background: var(--rl-hover); }
-/* Active (= focused pane's item) reads as "chosen", not merely "hovered": the --rl-active pill,
-   one step stronger than --rl-hover, plus a 2px ink tick (§5). */
+/* Active (Plan 9 W3 — BUI SidebarNav): a fill one step past hover and ink text, nothing else —
+   the 2px accent tick and the 550 weight bump are gone (BUI actives never outline or embolden).
+   The fills stay translucent (--rl-hover/--rl-active), the W1 vibrancy carve-out: BUI's opaque
+   --hover-2 only reads on its own opaque ground, and this column is macOS material. */
 .item[data-active] { background: var(--rl-active); }
-.item[data-active]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--rl-accent); }
-.item[data-active] .item-row { font-weight: 550; color: var(--rl-text-bright); }
-.item-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px; font-weight: 500; color: var(--rl-text-dim); border-radius: var(--r-row); }
+.item[data-active] .item-row { color: var(--rl-text-bright); }
+.item-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px; font-weight: 500; color: var(--rl-text-dim); border-radius: var(--r-ctl); }
 .item:hover .item-row { color: var(--rl-text-bright); }
 .item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-status { margin-left: auto; width: 6px; height: 6px; }
@@ -171,16 +175,16 @@ kbd { font: 11px var(--font-mono); }
 .item-glyph span { background: var(--rl-line-strong); border-radius: 1px; }
 /* Glyph cells are neutral; the focused pane's row lifts them to ink (accent = ink now, V-C1 kept). */
 .item-glyph span[data-on] { background: var(--rl-text-dim); }
-.item[data-active] .item-glyph span[data-on] { background: var(--rl-accent); }
+.item[data-active] .item-glyph span[data-on] { background: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
 .item-close { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
 .item:hover .item-close { opacity: 1; } .item-close:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .item-close:focus-visible { opacity: 1; } /* the hover-only x must also appear for keyboard focus (A-M8) */
 .item[data-dragging] { opacity: .45; }
-.rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-bright); outline: none; }
+.rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
 /* Ara refresh §5: the row sits at the sidebar's top now, first row under the search field. */
 .new-item { flex: none; }
-.new-row { color: var(--rl-text-dim); width: 100%; border-radius: var(--r-row); min-height: 32px; }
+.new-row { color: var(--rl-text-dim); width: 100%; border-radius: var(--r-ctl); min-height: 32px; }
 .new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 
 .space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 10px; }
@@ -206,11 +210,11 @@ kbd { font: 11px var(--font-mono); }
 /* max-height + scroll: positioning clamps `top` to the viewport, so a menu taller than the screen
    would otherwise run off the bottom edge with no way to reach its last items. */
 .menu { z-index: 100; min-width: 160px; max-height: min(60vh, calc(100vh - 24px)); overflow-y: auto; padding: 4px; display: flex; flex-direction: column;
-  background: var(--rl-raised); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--rl-edge), var(--rl-shadow); }
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
 .menu [role="menuitem"], .menu [role="menuitemcheckbox"] { flex: none; text-align: left; padding: 6px 10px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px; }
-.menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--rl-hover); }
+.menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--hover); }
 /* Roving focus moves programmatically, which browsers don't always mark :focus-visible — use :focus. */
-.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--rl-hover); outline: none; }
+.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--hover); outline: none; }
 .menu .menu-check { margin-left: auto; color: var(--rl-accent); flex: none; }
 .menu [role="menuitem"].danger { color: var(--rl-danger); }
 .menu-label { flex: 1; }
@@ -219,7 +223,7 @@ kbd { font: 11px var(--font-mono); }
 
 /* ── Model picker (prompter): search + provider rail + (agent, model) rows ── */
 .model-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--rl-raised); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--rl-edge), var(--rl-shadow); }
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
 .mp-search { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
@@ -229,12 +233,12 @@ kbd { font: 11px var(--font-mono); }
 .mp-rail { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-right: 1px solid var(--rl-hairline); }
 .mp-rail-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-chip); color: var(--rl-text-faint);
   transition: background-color 100ms ease, color 100ms ease; }
-.mp-rail-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.mp-rail-btn[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
+.mp-rail-btn:hover { background: var(--hover); color: var(--rl-text-bright); }
+.mp-rail-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .mp-list { flex: 1; min-width: 0; max-height: min(46vh, 320px); overflow-y: auto; padding: 6px; }
 .mp-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
   transition: background-color 100ms ease, color 100ms ease; }
-.mp-row[data-active] { background: var(--rl-hover); }
+.mp-row[data-active] { background: var(--hover); }
 /* Unavailable, not hidden: dimmed and non-interactive, but still readable and still explaining itself
    through its title and the footer line. */
 .mp-row[data-blocked] { opacity: .45; cursor: default; }
@@ -254,8 +258,8 @@ kbd { font: 11px var(--font-mono); }
 .mp-overflow-opts { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .mp-overflow-opt { padding: 3px 8px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim);
   transition: background-color 100ms ease, color 100ms ease; }
-.mp-overflow-opt:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.mp-overflow-opt[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
+.mp-overflow-opt:hover { background: var(--hover); color: var(--rl-text-bright); }
+.mp-overflow-opt[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .mp-foot { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); font-size: 11px; color: var(--rl-text-faint); }
 
 /* ── Main: full-bleed pane host (no topbar; pane headers carry the window drag) ── */
@@ -324,21 +328,21 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Socket down: slim fixed banner, above panes but below sheets/palette. */
 .conn-banner { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 12px;
   padding: 5px 12px; border-radius: 0 0 var(--r-ctl) var(--r-ctl);
-  background: color-mix(in srgb, var(--rl-warning) 8%, var(--rl-raised)); color: var(--rl-warning); font-size: 12px; box-shadow: var(--rl-edge), var(--rl-shadow); -webkit-app-region: no-drag; }
+  background: color-mix(in srgb, var(--rl-warning) 8%, var(--surface)); color: var(--rl-warning); font-size: 12px; box-shadow: var(--shadow-raised); -webkit-app-region: no-drag; }
 .conn-banner button { color: inherit; font-weight: 600; padding: 2px 6px; border-radius: var(--r-chip); }
 .conn-banner button:hover { background: var(--rl-hover); }
 
 /* ── Sheets / palette (raised) ─────────────────────────────────────────── */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0,0,0,.45); }
-.sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; border-radius: var(--r-float); background: var(--rl-raised); color: var(--rl-text-bright);
-  box-shadow: var(--rl-edge), var(--rl-shadow); outline: none; }
+.sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; border-radius: var(--r-float); background: var(--surface); color: var(--rl-text-bright);
+  box-shadow: var(--shadow-overlay); outline: none; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 6px; }
 .sheet-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .sheet-body { padding: 8px 16px 16px; }
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; color: var(--rl-text-dim); }
-.field input, .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-bright); outline: none; }
+.field input, .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 /* One focus-ring formula for every text-entry surface (§3): neutral ink at 35%, 2px. */
 .field input:focus, .field select:focus, .rename:focus, .hex:focus {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
@@ -346,15 +350,17 @@ button.panel-title:hover { background: var(--rl-hover); }
 .profile-add-row { display: flex; gap: 6px; } .profile-add-row input { flex: 1; min-width: 0; }
 .profile-add-link { align-self: flex-start; font-size: 12px; color: var(--rl-text-dim); padding: 1px 0; }
 .profile-add-link:hover { color: var(--rl-text-bright); }
-/* §3 button tiers. Secondary = raised fill; the translucent hover layer keeps it visible when it
-   sits ON a raised sheet (raised-on-raised alone would vanish). */
+/* Plan 9 W3 — BUI Button's tiers. Secondary = surface on shadow-btn (the ring is what makes it
+   read on a surface sheet; the old translucent-layer hack is gone), hover steps to the inset fill.
+   Primary = the accent treatment: inset top highlight, accent-ink hover ladder. Press stays §6's
+   app-wide .97 (BUI's own is .96 — one press scale everywhere beats a per-atom fork). */
 .btn { height: 30px; padding: 0 12px; border-radius: var(--r-ctl); border: none;
-  background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-raised); }
-.btn:hover:not(:disabled) { background: linear-gradient(var(--rl-active), var(--rl-active)) var(--rl-raised); }
-.btn.primary { background: var(--rl-accent); color: var(--rl-accent-contrast); }
-.btn.primary:hover:not(:disabled) { background: var(--rl-accent); }
-.btn.danger { background: none; color: var(--rl-danger); }
-.btn.danger:hover:not(:disabled) { background: var(--rl-hover); }
+  background: var(--surface); box-shadow: var(--shadow-btn); }
+.btn:hover:not(:disabled) { background: var(--inset); }
+.btn.primary { background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
+.btn.primary:hover:not(:disabled) { background: var(--accent-ink); }
+.btn.danger { background: none; color: var(--rl-danger); box-shadow: none; }
+.btn.danger:hover:not(:disabled) { background: var(--hover); }
 .icon-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .icon-choice { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-dim); }
 .icon-choice:hover { color: var(--rl-text-bright); } .icon-choice[data-selected] { border-color: var(--rl-accent); color: var(--rl-accent); }
@@ -366,13 +372,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .danger-zone .muted { flex: 1; }
 
 .palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: rgba(0,0,0,.35); }
-.palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-float); overflow: hidden; background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--rl-edge), var(--rl-shadow); }
+.palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-float); overflow: hidden; background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-overlay); }
 .palette-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-dim); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
 .palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
 .palette-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-ctl); cursor: pointer; }
-.palette-opt.selected, .palette-opt:hover { background: var(--rl-hover); }
+.palette-opt.selected, .palette-opt:hover { background: var(--hover); }
 .palette-opt.disabled { opacity: .45; cursor: default; }
 .palette-sec { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
 .palette-sec:not(:first-child) { margin-top: 4px; }
@@ -460,12 +466,21 @@ button.panel-title:hover { background: var(--rl-hover); }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
-/* ═══ Plan 9 W2 — transcript primitives ══════════════════════════════════════
-   The component blocks tagged "Plan 9 W2" below carry visual language vendored from beautiful-ui
-   (github.com/slev12397/beautiful-ui, MIT © its authors) — ThinkingState, ApprovalCard, StreamText,
-   CodeBlock, DiffTable, ToolChips, LoadingState/Shimmer, StatusPill — rewritten onto Realm's class
-   names and DRIVEN BY REAL SESSION STATE: every demo timer (STAGES/useSequence/VARIANTS) is
-   stripped; spinners, shimmers and checks key off results, statuses and data attributes only. */
+/* ═══ Vendored design language — beautiful-ui (MIT) ══════════════════════════
+   Realm's skin adapts visual language from beautiful-ui (github.com/slev12397/beautiful-ui,
+   MIT © its authors). This is the one consolidated notice; theme/tokens.css carries the matching
+   note for the token foundation it vendors (app/globals.css, generic blocks + shadow-plugin).
+   Adapted sources, by workstream:
+   - W1 foundation: app/globals.css token ramps, radii, shadow stacks, base hygiene (tokens.css).
+   - W2 transcript primitives (blocks tagged "Plan 9 W2" below): ThinkingState, ApprovalCard,
+     StreamText, CodeBlock, DiffTable, ToolChips, LoadingState/Shimmer, StatusPill.
+   - W3 composer + chrome (blocks tagged "Plan 9 W3"): PromptBar/ChatComposer (composer field,
+     chips, send, menus' surface), SidebarNav (rows, actives, search, section labels), GlideMenu
+     (menu surface language), atoms Button/Chip/StatusPill.
+   Everything is rewritten onto Realm's class names and DRIVEN BY REAL SESSION STATE: every demo
+   timer (STAGES/useSequence/VARIANTS/AUTO_STEPS) is stripped; spinners, shimmers and checks key
+   off results, statuses and data attributes only. Central icons (commercial) are NOT vendored —
+   Hugeicons remain — and glimm/cuelume/dialkit are omitted per the recipe's own outs. */
 
 /* Plan 9 W2 — BUI ThinkingState (coding) is the tool row's language now. Collapsed still reads as
    a plain row on the transcript; the card only becomes a card when it opens. The row leads with the
@@ -503,7 +518,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-group-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
    Driven by data-working — the group's own unsettled steps — never by a demo clock. */
-.shimmer-text, .tool-group[data-working] .tool-group-summary {
+.shimmer-text, .tool-group[data-working] .tool-group-summary, .composer-thinking span {
   background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
   background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: shimmer-text 1.4s linear infinite; }
@@ -597,7 +612,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    run past the pane's bottom edge, clipped mid-chip by .panel's overflow. Chips are the optional
    part of the hero — drop them cleanly and let the greeting and card keep the room. */
 @container (max-height: 420px) { .suggestions { display: none; } }
-.suggestion-chip { display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px; border-radius: var(--r-row);
+.suggestion-chip { display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px; border-radius: var(--r-ctl);
   background: transparent; min-width: 0; }
 .suggestion-chip:hover { background: var(--rl-hover); }
 .suggestion-glyph { color: var(--rl-text-faint); flex: none; }
@@ -608,20 +623,22 @@ button.panel-title:hover { background: var(--rl-hover); }
 .suggestions[data-animate] .suggestion-chip { animation: rl-chip-in 220ms var(--ease-out-strong) backwards; animation-delay: calc(var(--i) * 40ms); }
 @keyframes rl-chip-in { from { opacity: 0; transform: translateY(8px); } }
 
-/* The card (§4): raised, --r-float, borderless — edge hairline + shadow; ring at 30% on focus. */
-.composer { width: 100%; border-radius: var(--r-float); background: var(--rl-raised);
-  box-shadow: var(--rl-edge), var(--rl-shadow); display: flex; flex-direction: column; position: relative; z-index: 1; }
+/* The card (Plan 9 W3 — BUI PromptBar): a surface field on shadow-card (the hairline ring is part
+   of the stack), --r-float, borderless. Focus is BUI's border-brighten — the ring steps to
+   line-strong — replacing the old 30% accent glow (PromptBar's focus-within:border-line-strong). */
+.composer { width: 100%; border-radius: var(--r-float); background: var(--surface);
+  box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
-  box-shadow: var(--rl-edge), 0 0 0 2px color-mix(in srgb, var(--rl-accent) 30%, transparent), var(--rl-shadow); }
+  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
    attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a
    chip row that hides a file the user thinks is going. */
 .composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 12px 16px 0; list-style: none; }
 .attach-chip { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px 0 8px; height: 24px; border-radius: var(--r-chip);
-  font-size: 11px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
+  font-size: 11.5px; color: var(--ink-2); background: var(--field); box-shadow: var(--shadow-hairline); max-width: 220px; min-width: 0; white-space: nowrap; }
 .attach-chip .attach-glyph { flex: none; color: var(--rl-text-faint); }
 /* A file the agent will simply discard must not look like one it will read (§2.4: colour = state). */
-.attach-chip[data-disposition="ignored"] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); }
+.attach-chip[data-disposition="ignored"] { color: var(--orange); background: var(--orange-tint); box-shadow: none; }
 .attach-chip[data-disposition="ignored"] .attach-glyph { color: var(--rl-warning); }
 .attach-remove { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; flex: none; color: inherit; opacity: .6; }
 .attach-remove:hover { opacity: 1; background: var(--rl-hover); }
@@ -658,35 +675,39 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-git .diff-del { color: var(--rl-danger); }
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
    them now (W3) — a picker until the session's first event, a plain label after. */
-.ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--r-chip);
-  color: var(--rl-text-dim); font-size: 13px; font-weight: 500; background: transparent; max-width: 200px; min-width: 0; }
+.ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--r-ctl);
+  color: var(--rl-text-dim); font-size: 12px; font-weight: 500; background: transparent; max-width: 200px; min-width: 0; }
 .ghost-chip:hover:not([data-static]) { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Nothing to pick: rendered as a <span> (see ChipMenu) — a label, never a dimmed control. */
 .ghost-chip[data-static] { cursor: default; }
-.ghost-chip[data-warning] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); } /* §3 status-pill formula */
+.ghost-chip[data-warning] { color: var(--orange); background: var(--orange-tint); } /* BUI orange tone pair (StatusPill) */
 .ghost-chip .chip-caret { color: var(--rl-text-faint); flex: none; }
 /* The brand mark is filled where the rest of the set is stroked, so it reads a touch heavier at the
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
 .ghost-chip .chip-brand { flex: none; }
 .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); font-size: 13px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
+.composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
-.bypass-confirm { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); cursor: pointer; }
-.bypass-confirm:hover { background: color-mix(in srgb, var(--rl-warning) 20%, transparent); }
+.bypass-confirm { color: var(--orange); background: var(--orange-tint); cursor: pointer; }
+.bypass-confirm:hover { background: color-mix(in srgb, var(--orange) 24%, transparent); }
 .composer-actions { display: flex; align-items: center; gap: 4px; flex: none; }
-.composer-attach { color: var(--rl-text-dim); }
-.composer-attach:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
+.composer-attach { color: var(--ink-3); }
+.composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
 /* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).
    §6 forbids animating during an active drag, so this is a static swap — no transition here, and the
    card declares none. The hint is a label, not a scrim: pointer-events off, so the drop still lands. */
-.composer[data-dropping] { box-shadow: var(--rl-edge), 0 0 0 2px var(--rl-accent), var(--rl-shadow); }
+.composer[data-dropping] { box-shadow: 0 0 0 2px var(--rl-accent), var(--shadow-card); }
 .composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
   border-radius: var(--r-float); background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
   font-size: 12px; font-weight: 550; color: var(--rl-text-bright); }
 /* Send↔stop morph (§6; Ara refresh §2 sizes it up to 32px): accent circle; both icons in the DOM,
-   cross-fading 160ms with opacity + scale .25→1 + 4px blur. data-state picks which one is up. */
+   cross-fading 160ms with opacity + scale .25→1 + 4px blur. data-state picks which one is up.
+   Plan 9 W3: the circle wears BUI Button's accent treatment — inset top highlight, accent-ink on
+   hover — and PromptBar's disabled send (line-strong fill, ink-2 glyph) replaces the bare fade. */
 .composer-send { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
-  background: var(--rl-accent); color: var(--rl-accent-contrast); flex: none; }
+  background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); flex: none; }
+.composer-send:hover:not(:disabled) { background: var(--accent-ink); }
+.composer-send:disabled { background: var(--line-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
 .composer-send svg { grid-area: 1 / 1;
   transition: opacity 160ms var(--ease-out-strong), transform 160ms var(--ease-out-strong), filter 160ms var(--ease-out-strong); }
 .composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon { opacity: 0; transform: scale(.25); filter: blur(4px); }
@@ -694,7 +715,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    frame fill sliding out from beneath the card (z-index 1 on .composer keeps the card on top). */
 .composer-thinking { margin: -10px 10px 0; padding: 14px 14px 5px; background: var(--rl-frame);
   border-radius: 0 0 var(--r-panel) var(--r-panel); font-size: 11px; color: var(--rl-text-dim); }
-.composer-thinking span { display: inline-block; animation: rl-pulse 1.2s ease-in-out infinite; }
+/* Plan 9 W3: the label shimmers (BUI LoadingState), not pulses — same gradient as .shimmer-text. */
+.composer-thinking span { display: inline-block; }
 /* ── Install card (§5 floating card) — what stands in for the prompter when the CLI can't run ── */
 /* It rides the prompter's own rails (.composer-dock), so hero vs docked positioning is already right. */
 .install-card { width: 100%; border-radius: var(--r-float); background: var(--rl-raised);
@@ -913,8 +935,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .cp-stale, .cp-blocked { margin: 0; font-size: 12px; color: var(--rl-warning); }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 /* §3: destructive confirms are the ONE place a red-filled button is allowed. */
-.btn.destructive { background: var(--rl-danger); color: #ffffff; }
-.btn.destructive:hover:not(:disabled) { background: var(--rl-danger); }
+.btn.destructive { background: var(--rl-danger); color: #ffffff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
+.btn.destructive:hover:not(:disabled) { background: var(--rl-danger); filter: brightness(0.95); } /* BUI's filled-hover for tones with no -ink step */
 .btn:disabled { opacity: .45; }
 
 /* ── Space settings: the space's checkouts (W1/W2 made visible in W3) ───── */
