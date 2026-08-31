@@ -1,5 +1,4 @@
-import { MCP_SECRET_STORAGE_NOTE, type McpServer, type McpTransport } from "@realm/contracts";
-import type { McpServerConfig } from "@realm/adapters";
+import { MCP_SECRET_STORAGE_NOTE, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import type { McpServerInput, McpServerRow, McpServersStore } from "../store/mcp";
@@ -34,30 +33,51 @@ export type McpServerFields = {
 /**
  * Realm's MCP server definitions, and which spaces use them.
  *
- * The one rule that shapes this class: **secret values go out exactly one way** — through
- * `configFor`, into a session's `StartOptions`, to the adapter that was configured to receive them.
- * `list` returns key names. Nothing here logs, broadcasts, or returns a value.
+ * Secrets discipline is now `hub.ts`'s alone (W3): the passthrough that used to hand `configFor`'s
+ * output straight to an adapter is gone, and nothing in this file ever reads `McpServerRow.secrets` or
+ * `oauthJson` again. `list` returns key names. Nothing here logs, broadcasts, or returns a secret value.
  */
 export class McpService {
-  constructor(private d: { servers: McpServersStore; settings: SettingsStore }) {}
+  /** `statusOf` is the hub's live connection state, injected rather than imported: `McpService` has no
+   *  business knowing `McpHub` exists, and a caller that doesn't wire one (older tests, a stripped
+   *  harness) gets the W1-era "always idle" behavior for free. Wired for real in `app.ts` from the hub's
+   *  own `onStatus` cache. */
+  constructor(private d: { servers: McpServersStore; settings: SettingsStore; statusOf?: (id: string) => McpServerStatus }) {}
 
   /** Every server, carrying this space's enable flag and tool allowlist, plus the storage note the UI
    *  must show. */
   list(spaceId: string): { servers: McpServer[]; secretNote: string } {
     const enabled = new Set(readIds(this.d.settings, enabledKey(spaceId)));
     return {
-      servers: this.d.servers.list().map((r) => toContract(r, enabled.has(r.id), this.allowedTools(spaceId, r.id))),
+      servers: this.d.servers.list().map((r) => toContract(r, enabled.has(r.id), this.allowedTools(spaceId, r.id), this.statusOf(r.id))),
       secretNote: MCP_SECRET_STORAGE_NOTE,
     };
   }
 
   /** This space's per-tool allowlist for one server. `null` = every cached tool allowed — both for a
    *  server nobody has narrowed and for one whose space was never given (add/update with `spaceId:
-   *  null`, where there is no per-space state to read). Storage only in W1; `mcp.setAllowedTools`
-   *  (W3) is what ever writes `allowedToolsKey`. */
+   *  null`, where there is no per-space state to read), AND for a corrupted stored value (see
+   *  `setAllowedTools`'s doc comment: Realm writes this key itself, so a non-array here is a bug, not an
+   *  attacker, and failing open is the graceful-degradation call the W1 review made explicit). */
   allowedTools(spaceId: string, id: string): string[] | null {
     const v = this.d.settings.get(allowedToolsKey(spaceId, id));
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : null;
+  }
+
+  /**
+   * Narrow (or reset) this space's tool allowlist for one server. `tools: null` restores "every cached
+   * tool allowed" — the same default a server nobody has touched already has, per `allowedTools`'s
+   * fail-open reading of a missing/corrupt key.
+   */
+  setAllowedTools(spaceId: string, id: string, tools: string[] | null): void {
+    this.d.settings.set(allowedToolsKey(spaceId, id), tools);
+  }
+
+  /** ids of the servers this space has opted into — the gateway's `tools/list` universe. Same enabled
+   *  set `list()` reads, exposed directly so the gateway isn't forced through a full `McpServer[]`
+   *  projection just to learn which ids to ask the hub about. */
+  enabledServerIds(spaceId: string): string[] {
+    return readIds(this.d.settings, enabledKey(spaceId));
   }
 
   /**
@@ -71,7 +91,7 @@ export class McpService {
     requireEndpoint(input);
     const row = this.d.servers.create(input);
     if (spaceId) this.setEnabled(spaceId, row.id, true);
-    return toContract(row, spaceId !== null, spaceId ? this.allowedTools(spaceId, row.id) : null);
+    return toContract(row, spaceId !== null, spaceId ? this.allowedTools(spaceId, row.id) : null, this.statusOf(row.id));
   }
 
   /**
@@ -90,7 +110,7 @@ export class McpService {
     const input = { name: fields.name ?? existing.name, ...normalize(fields, transport, base) };
     requireEndpoint(input);
     const row = this.d.servers.update(id, input);
-    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null);
+    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null, this.statusOf(row.id));
   }
 
   /** Forget the server and every space's opt-in to it, so re-adding the same name starts clean. */
@@ -114,34 +134,16 @@ export class McpService {
     return readIds(this.d.settings, enabledKey(spaceId)).includes(id);
   }
 
-  /**
-   * This space's enabled servers, secrets included, for one session's `StartOptions`.
-   *
-   * The **only** path a secret value takes out of the database. Deliberately not called anywhere that
-   * broadcasts, persists, or logs: `SessionService` passes the result straight to `adapter.start`.
-   *
-   * Transport filtering is NOT done here. Each adapter drops what its agent cannot reach and says which
-   * and why through `onLog` — one place that knows the wire, rather than two that can disagree.
-   *
-   * Never throws. An unreadable definition costs a session one tool server; it does not cost the user
-   * their session.
-   */
-  configFor(spaceId: string): McpServerConfig[] {
-    try {
-      const enabled = new Set(readIds(this.d.settings, enabledKey(spaceId)));
-      return this.d.servers.list().filter((r) => enabled.has(r.id)).flatMap(toAdapterConfig);
-    } catch (e) {
-      console.error(`[mcp] could not resolve servers for space ${spaceId}: ${e instanceof Error ? e.message : String(e)}`);
-      return [];
-    }
+  private statusOf(id: string): McpServerStatus {
+    return (this.d.statusOf ?? (() => "idle" as const))(id);
   }
 }
 
 /**
  * A server with no command (stdio) or no URL (http/sse) cannot connect to anything, so it is refused at
- * the point of definition rather than stored and skipped at session start. "Saved, listed, and silently
- * dead" is the exact failure this workstream exists to prevent — and `configFor` drops such a row, so
- * without this the user would see it in the list and never in the agent.
+ * the point of definition rather than stored and skipped at connect time. "Saved, listed, and silently
+ * dead" is the exact failure this workstream exists to prevent — `hub.ts`'s `buildTransport` has nothing
+ * that would catch it, so without this the user would see the row in the list and never a working tool.
  */
 function requireEndpoint(input: McpServerInput): void {
   if (input.transport === "stdio" ? !input.command : !input.url) {
@@ -166,12 +168,12 @@ function normalize(f: McpServerFields, transport: McpTransport, base: Omit<McpSe
  * Row → wire. **The projection that keeps secrets off every client surface**: `secrets` becomes
  * `envKeys` or `headerKeys`, and `oauthJson` becomes `oauthStatus` — the values of neither are carried.
  *
- * `status` is always `"idle"` here: the hub that would report `connected`/`error`/`circuit_open`
- * doesn't exist until W2. `oauthStatus` is the coarse W1 read of `oauthJson` — `""` means OAuth has
+ * `status` is the hub's live connection state, handed in rather than read here (see the constructor's
+ * `statusOf` doc comment). `oauthStatus` is the coarse W1 read of `oauthJson` — `""` means OAuth has
  * never completed, anything else means it has; the `reconnect_needed` state needs the hub's refresh
  * logic (W5) to ever be produced.
  */
-function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | null): McpServer {
+function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | null, status: McpServerStatus): McpServer {
   const keys = Object.keys(r.secrets).sort();
   return {
     id: r.id, name: r.name, transport: r.transport,
@@ -183,22 +185,9 @@ function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | 
     // actually sends upstream once it exists.
     authKind: r.oauthJson ? "oauth" : keys.length > 0 ? "secrets" : "none",
     oauthStatus: r.oauthJson ? "connected" : "unconfigured",
-    status: "idle",
+    status,
     tools: r.tools,
     allowedTools,
     enabled, createdAt: r.createdAt,
   };
-}
-
-/**
- * Row → adapter. Returns `[]` for a definition that cannot connect — a stdio row with no command, a
- * remote row with no URL. Passing one on would spawn nothing and look configured.
- */
-function toAdapterConfig(r: McpServerRow): McpServerConfig[] {
-  if (r.transport === "stdio") {
-    if (!r.command) return [];
-    return [{ name: r.name, transport: "stdio", command: r.command, args: r.args, env: r.secrets }];
-  }
-  if (!r.url) return [];
-  return [{ name: r.name, transport: r.transport, url: r.url, headers: r.secrets }];
 }

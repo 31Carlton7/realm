@@ -625,3 +625,63 @@ describe("a worktree's branch catches up with its session's first message", () =
     c.close();
   });
 });
+
+/**
+ * Plan 9 W3: the direct MCP passthrough is gone. `ensureLive` now hands every adapter exactly one
+ * `realm` gateway entry, regardless of agent kind or what the space has enabled — which servers that
+ * entry actually exposes is `mcp/gateway.test.ts`'s job, over real HTTP against a stub upstream. This
+ * describes only the session-wiring seam: what the adapter is handed, and that the token dies with the
+ * session.
+ */
+describe("MCP gateway wiring (Plan 9 W3)", () => {
+  class McpSpyFake extends FakeAdapter {
+    starts: Any[] = [];
+    start(opts: Any) { this.starts.push(opts); return super.start(opts); }
+  }
+
+  it("hands the adapter exactly one `realm` mcp server — http transport, a Bearer Authorization header", async () => {
+    // The named mutant: restore the old `mcpServers: this.d.mcp.configFor(...)` (or `[]`) and this fails.
+    const fake = new McpSpyFake({ script: [] });
+    const { c, sp } = await boot(fake);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => fake.starts.length === 1);
+    const servers = fake.starts[0]!.mcpServers as Any[];
+    expect(servers).toHaveLength(1);
+    expect(servers[0]).toMatchObject({ name: "realm", transport: "http" });
+    expect(servers[0].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    expect(servers[0].headers.Authorization).toMatch(/^Bearer .+/);
+    c.close();
+  });
+
+  it("mints a fresh token per session — two sessions never share one", async () => {
+    const fake = new McpSpyFake({ script: [] });
+    const { c, sp } = await boot(fake);
+    const a = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const b = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    await c.call("sessions.send", { id: a.id, text: "go" });
+    await c.call("sessions.send", { id: b.id, text: "go" });
+    await waitFor(() => fake.starts.length === 2);
+    const [tokenA, tokenB] = fake.starts.map((s) => s.mcpServers[0].headers.Authorization as string);
+    expect(tokenA).not.toBe(tokenB);
+    c.close();
+  });
+
+  it("revokes the session's token on session delete — the old token is refused by the gateway afterward", async () => {
+    // "release is called on session close", proven behaviorally: a live gateway request carrying the
+    // token this session was handed must 401 once the session is gone, not just stop being referenced.
+    const fake = new McpSpyFake({ script: [] });
+    const { c, sp } = await boot(fake);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => fake.starts.length === 1);
+    const { url, headers } = fake.starts[0]!.mcpServers[0] as { url: string; headers: Record<string, string> };
+    const before = await fetch(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
+    expect(before.status).not.toBe(401);
+    await c.call("sessions.delete", { id: session.id });
+    const after = await fetch(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
+    expect(after.status).toBe(401);
+    c.close();
+  });
+
+});

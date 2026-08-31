@@ -11,6 +11,9 @@ import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { SkillsService } from "../skills/service";
 import type { McpService } from "../mcp/service";
+import type { McpHub } from "../mcp/hub";
+import type { McpGateway } from "../mcp/gateway";
+import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
@@ -26,7 +29,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; memory: MemoryService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -102,20 +105,53 @@ export function registerMethods(d: Deps): void {
   reg("mcp.update", (p) => {
     if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     const server = d.mcp.update(p.id, p, p.spaceId);
+    // A renamed command, a rotated key, a URL that no longer exists — nothing may keep serving through
+    // the hub's now-stale client, and every session in a space that had this server enabled must re-list
+    // rather than keep whatever `tools/list` last returned before the edit.
+    d.hub.invalidate(p.id);
+    for (const s of d.spaces.listAll()) if (d.mcp.isEnabled(s.id, p.id)) d.gateway.notifyPolicyChanged(s.id);
     rpc.broadcast("mcp.changed", {});
     return server;
   });
   reg("mcp.remove", (p) => {
-    d.mcp.remove(p.id, d.spaces.listAll().map((s) => s.id));
+    // Computed BEFORE `d.mcp.remove` clears every space's enabled set — there is nothing left to read
+    // afterward, and a space that had this server enabled is exactly the set that needs to re-list.
+    const spaceIds = d.spaces.listAll().map((s) => s.id);
+    const enabledIn = spaceIds.filter((sid) => d.mcp.isEnabled(sid, p.id));
+    d.mcp.remove(p.id, spaceIds);
+    d.hub.invalidate(p.id);
+    for (const sid of enabledIn) d.gateway.notifyPolicyChanged(sid);
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
   reg("mcp.setEnabled", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.mcp.setEnabled(p.spaceId, p.id, p.enabled);
+    d.gateway.notifyPolicyChanged(p.spaceId);
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
+  /** Triggers the hub's lazy connect. A connect failure is a RESULT (`error` naming what went wrong),
+   *  never a thrown RPC error — `mcp.tools.list` must stay a renderable result even for a dead server;
+   *  see `McpHub.tools()`'s own doc comment for why the hub itself throws and this layer is what catches
+   *  it. On success the fresh tools (the hub just re-cached them on the row) are returned directly. */
+  reg("mcp.tools.list", async (p) => {
+    try { return { tools: await d.hub.tools(p.id), error: null }; }
+    catch (e) { return { tools: [], error: e instanceof Error ? e.message : String(e) }; }
+  });
+  reg("mcp.setAllowedTools", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.mcp.setAllowedTools(p.spaceId, p.id, p.tools);
+    d.gateway.notifyPolicyChanged(p.spaceId);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
+  reg("mcp.calls.list", (p) => ({ calls: d.calls.list(p) }));
+  // W5 replaces both of these; until then the contract stays honest about OAuth being absent rather than
+  // silently no-oping or pretending a connection was made.
+  reg("mcp.oauth.start", () => { throw new RpcError("MCP_OAUTH_UNAVAILABLE", "OAuth lands in a later workstream"); });
+  reg("mcp.oauth.disconnect", () => { throw new RpcError("MCP_OAUTH_UNAVAILABLE", "OAuth lands in a later workstream"); });
+  reg("mcp.retry", async (p) => { await d.hub.retry(p.id); rpc.broadcast("mcp.changed", {}); return { ok: true as const }; });
 
   // Space existence is checked for the same reason the skills and mcp handlers do it: the memory doc,
   // its settings flag and the AGENTS.md target are all keyed by space id, so a typo would silently

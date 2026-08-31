@@ -76,52 +76,12 @@ async function startSession(c: Any, adapter: RecordingAdapter, spaceId: string):
 const addStdio = (c: Any, spaceId: string | null, name: string) =>
   c.call("mcp.add", { spaceId, name, transport: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { AIRTABLE_API_KEY: KEY } });
 
-describe("mcp reaches a session", () => {
-  it("hands the space's enabled servers to the adapter at start", async () => {
-    // The named mutant: restore `mcpServers: []` in SessionService.ensureLive and this fails.
-    const { c, claude, work } = await boot();
-    await addStdio(c, work.id, "airtable");
-    const opts = await startSession(c, claude, work.id);
-    expect(opts.mcpServers).toEqual([
-      { name: "airtable", transport: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { AIRTABLE_API_KEY: KEY } },
-    ]);
-    c.close();
-  });
-
-  it("hands over an empty list when the space has enabled nothing", async () => {
-    const { c, claude, work } = await boot();
-    await addStdio(c, null, "airtable"); // defined, opted into nowhere
-    const opts = await startSession(c, claude, work.id);
-    expect(opts.mcpServers).toEqual([]);
-    c.close();
-  });
-
-  it("does not leak one space's servers into another's session", async () => {
-    const { c, claude, work, school } = await boot();
-    await addStdio(c, work.id, "work_only");
-    expect((await startSession(c, claude, school.id)).mcpServers).toEqual([]);
-    expect((await startSession(c, claude, work.id)).mcpServers.map((s) => s.name)).toEqual(["work_only"]);
-    c.close();
-  });
-
-  it("stops handing over a server that was disabled between sessions", async () => {
-    const { c, claude, work } = await boot();
-    const server = (await addStdio(c, work.id, "airtable")).result;
-    expect((await startSession(c, claude, work.id)).mcpServers).toHaveLength(1);
-    await c.call("mcp.setEnabled", { spaceId: work.id, id: server.id, enabled: false });
-    expect((await startSession(c, claude, work.id)).mcpServers).toEqual([]);
-    c.close();
-  });
-
-  it("carries an http server's url and headers through unchanged", async () => {
-    const { c, claude, work } = await boot();
-    await c.call("mcp.add", { spaceId: work.id, name: "vercel", transport: "http", url: "https://mcp.vercel.com", headers: { Authorization: `Bearer ${KEY}` } });
-    expect((await startSession(c, claude, work.id)).mcpServers).toEqual([
-      { name: "vercel", transport: "http", url: "https://mcp.vercel.com", headers: { Authorization: `Bearer ${KEY}` } },
-    ]);
-    c.close();
-  });
-});
+// W3: the passthrough this describe block used to exercise (`configFor` → an adapter receiving the
+// space's raw server configs) is gone. Every session now receives exactly one `realm` gateway entry
+// regardless of what is enabled — that shape is covered by `sessions/service.test.ts` (the fake-adapter
+// wiring test), and which upstream tools a space's policy actually exposes THROUGH that gateway entry is
+// `mcp/gateway.test.ts`'s job, over real HTTP against a stub upstream. Nothing here can still assert on
+// `mcpServers` contents without re-introducing the direct passthrough this workstream removed.
 
 describe("mcp over rpc", () => {
   it("never puts a secret value on the wire, in a result or in an event", async () => {
@@ -184,11 +144,16 @@ describe("mcp over rpc", () => {
   });
 
   it("removes a server from every space's enabled set, not just the one that asked", async () => {
-    const { c, claude, work, school } = await boot();
+    // The named mutant: `mcp.remove` only clearing the REQUESTING space's enabled set (or none at all).
+    // `McpService`'s own unit test (`service.test.ts`) already proves the store-level behavior directly
+    // via `isEnabled`; this is the RPC-level check that `mcp.remove` still passes every space through.
+    const { c, work, school } = await boot();
     const server = (await addStdio(c, work.id, "airtable")).result;
     await c.call("mcp.setEnabled", { spaceId: school.id, id: server.id, enabled: true });
+    expect((await c.call("mcp.list", { spaceId: school.id })).result.servers[0]).toMatchObject({ enabled: true });
     await c.call("mcp.remove", { id: server.id });
-    expect((await startSession(c, claude, school.id)).mcpServers).toEqual([]);
+    expect((await c.call("mcp.list", { spaceId: school.id })).result.servers).toEqual([]);
+    expect((await c.call("mcp.list", { spaceId: work.id })).result.servers).toEqual([]);
     c.close();
   });
 });

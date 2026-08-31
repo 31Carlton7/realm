@@ -252,6 +252,23 @@ describe("authHeaders seam (http/sse)", () => {
     expect((err as Error).message).not.toContain(SENTINEL);
     expect((err as Error).message).toContain("[redacted]");
   });
+
+  it("still redacts a row secret when authHeaders itself REJECTS, not just when it resolves", async () => {
+    // W2 review drive-by fix: `entry.redact` used to be set only from `{ ...row.secrets, ...(await
+    // authHeaders(row)) }` — AFTER the `await`. A rejecting `authHeaders` (a token-refresh network
+    // error, say) never reached that line, so if its rejection message happened to echo a row secret
+    // (a provider error quoting back the header it rejected), sanitize() had nothing to redact with.
+    const SECRET = "row-secret-do-not-leak-me";
+    const row = newHttpRow({ "X-Api-Key": SECRET });
+    const hub = new McpHub({
+      servers, onStatus: () => {},
+      authHeaders: async () => { throw new Error(`refresh failed, last known key was "${SECRET}"`); },
+    });
+    let err: unknown;
+    try { await hub.tools(row.id); } catch (e) { err = e; }
+    expect((err as Error).message).not.toContain(SECRET);
+    expect((err as Error).message).toContain("[redacted]");
+  });
 });
 
 describe("invalidate", () => {

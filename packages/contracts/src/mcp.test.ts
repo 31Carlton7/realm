@@ -173,9 +173,17 @@ describe("gateway methods (Plan 9 W1 — contracts only, no handlers yet)", () =
 
   it("mcp.calls.list makes every filter optional, and caps limit at 200", () => {
     expect(Methods["mcp.calls.list"].params.safeParse({}).success).toBe(true);
-    expect(Methods["mcp.calls.list"].params.safeParse({ sessionId: SPACE, serverId: SERVER, before: 100, limit: 50 }).success).toBe(true);
+    expect(Methods["mcp.calls.list"].params.safeParse({ sessionId: SPACE, serverId: SERVER, before: { ts: 100, id: SERVER }, limit: 50 }).success).toBe(true);
     expect(Methods["mcp.calls.list"].params.safeParse({ limit: 201 }).success).toBe(false);
     expect(Methods["mcp.calls.list"].params.safeParse({ limit: 0 }).success).toBe(false);
+  });
+
+  it("mcp.calls.list's `before` is a composite {ts, id} cursor, not a plain ts — a plain number is rejected", () => {
+    // W1 review amendment (binding on W3): a plain `before: ts` cursor drops same-millisecond siblings
+    // at a page boundary. `McpCallLogStore.list`'s doc comment has the full reasoning.
+    expect(Methods["mcp.calls.list"].params.safeParse({ before: 100 }).success).toBe(false);
+    expect(Methods["mcp.calls.list"].params.safeParse({ before: { ts: 100 } }).success).toBe(false);
+    expect(Methods["mcp.calls.list"].params.safeParse({ before: { ts: 100, id: "not-a-ulid" } }).success).toBe(false);
   });
 
   it("mcp.oauth.start/disconnect and mcp.retry are all keyed by server id alone", () => {

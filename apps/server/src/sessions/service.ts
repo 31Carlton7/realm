@@ -14,7 +14,7 @@ import type { WorktreeService } from "../workspace/worktrees";
 import type { CheckpointService } from "../checkpoints/service";
 import { ProbeCache } from "./probe-cache";
 import type { SkillsService } from "../skills/service";
-import type { McpService } from "../mcp/service";
+import type { McpGateway } from "../mcp/gateway";
 import type { MemoryService } from "../memory/service";
 import type { MemorySources } from "@realm/contracts";
 
@@ -39,7 +39,7 @@ type Live = { handle: AgentHandle; pump: Promise<void> };
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; mcp: McpService; memory: MemoryService; checkpoints?: CheckpointService }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
@@ -170,6 +170,10 @@ export class SessionService {
   async delete(id: string): Promise<void> {
     const s = this.get(id);
     await this.stop(id);
+    // `stop()` already released it via the pump's `finally` if the session was live — this is a
+    // deliberately redundant, idempotent call for the case it was not (never started, or already
+    // stopped): a deleted session's token must never remain valid.
+    this.d.gateway.release(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (term) this.closeTerminalItem(term.refId);
@@ -185,7 +189,7 @@ export class SessionService {
   /** Shutdown: dispose live handles; rows/items stay so sessions resume next boot. */
   async closeAll(): Promise<void> {
     this.closing = true;
-    for (const id of [...this.live.keys()]) await this.stop(id);
+    for (const id of [...this.live.keys()]) { await this.stop(id); this.d.gateway.release(id); }
   }
   /**
    * Boot: no adapter survives a restart. Live statuses become idle; `ended` (an adapter that exited — after `error` on a
@@ -298,13 +302,11 @@ export class SessionService {
     // rather than becoming an empty root, because on Claude the option's presence is also what isolates
     // the session from the user's own settings.
     const skills = this.d.skills.injectionFor(s.spaceId, s.agentKind) ?? undefined;
-    // This space's enabled MCP servers, resolved at start and handed over per-session (W2). Nothing is
-    // written to `~/.claude.json`, `~/.codex/config.toml` or `~/.cursor/mcp.json` to get them there.
-    //
-    // This is the ONLY place API keys leave the database, and they go straight into `adapter.start` —
-    // never onto an event, a broadcast or a log line. `onLog` below prints the SESSION id and the
-    // provider's own output; it never sees this array.
-    const mcpServers = this.d.mcp.configFor(s.spaceId);
+    // The ONLY MCP config any agent ever receives (W3): one `realm` gateway entry, minted fresh per
+    // session start by `gateway.register`. Third-party server endpoints, API keys and OAuth tokens never
+    // leave realm-server — an agent reaches them only by proxy, through the Bearer token below, which
+    // `onLog` (like every other log line here) never sees.
+    const mcpServers = [this.d.gateway.register(id, s.spaceId)];
     // The session's durable context (W3): THIS space's Realm memory document, plus — when the skills
     // injection above is active on a Claude session — the CLAUDE.md content that `settingSources: []`
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
@@ -318,7 +320,7 @@ export class SessionService {
     const pump = (async () => {
       try { for await (const ev of handle.events) this.onEvent(id, ev); }
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
-      finally { if (this.live.get(id)?.handle === handle) this.live.delete(id); }
+      finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.d.gateway.release(id); } }
     })();
     this.live.set(id, { handle, pump });
     return handle;

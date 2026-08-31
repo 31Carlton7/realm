@@ -11,8 +11,11 @@ import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
 import { SkillsService } from "./skills/service";
-import { McpServersStore } from "./store/mcp";
+import { McpServersStore, McpCallLogStore } from "./store/mcp";
 import { McpService } from "./mcp/service";
+import { McpHub } from "./mcp/hub";
+import { McpGateway } from "./mcp/gateway";
+import type { McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
@@ -91,16 +94,62 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const skills = new SkillsService({ home: opts.home, settings });
   const installed = skills.installBundled();
   if (installed.length) console.error(`[skills] installed bundled skill(s): ${installed.join(", ")}`);
-  const mcp = new McpService({ servers: new McpServersStore(db), settings });
+  const mcpServersStore = new McpServersStore(db);
+  const mcpCalls = new McpCallLogStore(db);
+  // The hub's live connection state per server row, read by `McpService.list` (via `statusOf`) so
+  // `mcp.list` can report `connected`/`error`/`circuit_open` without asking the hub directly — the same
+  // "inject rather than import" split `McpService`'s constructor doc comment explains.
+  const mcpStatus = new Map<string, McpServerStatus>();
+  const mcp = new McpService({ servers: mcpServersStore, settings, statusOf: (id) => mcpStatus.get(id) ?? "idle" });
+  // `gateway` is assigned after construction below (it needs `hub`, which needs THIS callback) — the
+  // same late-bound-closure pattern `sessionService` above uses for the same reason: two things that
+  // genuinely need each other, with one direction as the constructor dependency and the other as this.
+  let gateway: McpGateway | null = null;
+  const mcpHub = new McpHub({
+    servers: mcpServersStore,
+    // W5 wires `McpOauth.headers(row)` in here without this file (or `hub.ts`) changing; until then no
+    // server has OAuth state, so there is nothing to add beyond `row.secrets`.
+    authHeaders: async () => ({}),
+    onStatus: (id, status) => {
+      mcpStatus.set(id, status);
+      // Same oauthStatus derivation as `McpService`'s `toContract` (W1): `""` unconfigured, anything else
+      // connected. W5's refresh logic is what ever produces `reconnect_needed`.
+      const row = mcpServersStore.get(id);
+      const oauthStatus = row?.oauthJson ? "connected" : "unconfigured";
+      rpc.broadcast("mcp.serverStatus", { id, status, oauthStatus });
+      // A hub status change is the gateway's only signal that a cached tool list may have changed
+      // (`connected` after a reconnect, or `onToolsChanged`'s `list_changed`-triggered relist) — so every
+      // status event, not just the interesting ones, tells every registered session to re-list. Status
+      // events can repeat (see `hub.ts`), and `notifyToolsChanged` tolerates that.
+      gateway?.notifyToolsChanged();
+    },
+  });
+  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore });
+  gateway = mcpGateway;
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, mcp, memory, checkpoints });
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints });
   sessionService = sessions;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, memory, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, calls: mcpCalls, memory, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();
+  // The gateway must be accepting connections before any session can start (its listener mints the URL
+  // every `sessions.create` → send hands an adapter), and well before the RPC socket opens to clients.
+  await mcpGateway.listen();
   const port = await rpc.listen(opts.port);
-  return { port, db, terminals, sessions, close: async () => { terminals.closeAll(); await sessions.closeAll(); await rpc.close(); db.close(); } };
+  return {
+    port, db, terminals, sessions,
+    close: async () => {
+      terminals.closeAll();
+      await sessions.closeAll();
+      // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
+      // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.
+      await mcpGateway.close();
+      await mcpHub.close();
+      await rpc.close();
+      db.close();
+    },
+  };
 }

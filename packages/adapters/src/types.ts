@@ -1,10 +1,13 @@
 import type { AgentKind, SessionEvent } from "@realm/contracts";
 
 /**
- * One MCP server on its way to an agent, secrets and all.
+ * One MCP server on its way to an agent.
  *
- * This is the ONLY shape a secret value travels in. It is built per session by `McpService.configFor`
- * and handed straight to an adapter; nothing persists it, logs it, or puts it on an event.
+ * Since Plan 9 W3 an agent is only ever handed ONE of these per session: the Realm gateway's own `http`
+ * entry, minted by `McpGateway.register` and handed straight to an adapter. Third-party server configs
+ * (and their secret values) never leave realm-server — the gateway proxies to them instead. This type
+ * still carries `stdio`/`sse` variants for the adapter-level plumbing that decodes it (see
+ * `AGENT_MCP_TRANSPORTS`), but nothing in `apps/server` constructs one of those anymore.
  *
  * Every adapter must filter by `transport` against `AGENT_MCP_TRANSPORTS` before translating — Codex
  * has no SSE, and an SSE server passed to it as though it were HTTP would connect to nothing while

@@ -38,25 +38,25 @@ describe("per-space scoping", () => {
   it("enables it nowhere when no space is named", () => {
     mcp.add(stdio("airtable"), null);
     expect(mcp.list(WORK).servers[0]!.enabled).toBe(false);
-    expect(mcp.configFor(WORK)).toEqual([]);
+    expect(mcp.enabledServerIds(WORK)).toEqual([]);
   });
 
-  it("keeps one space's servers out of another's session config", () => {
+  it("keeps one space's servers out of another's enabled set — the gateway's own scoping seam", () => {
     // The named mutant: key the enable set on anything but the space id and this leaks.
     const a = mcp.add(stdio("work_only"), WORK);
-    mcp.add(stdio("school_only"), SCHOOL);
-    expect(mcp.configFor(WORK).map((s) => s.name)).toEqual(["work_only"]);
-    expect(mcp.configFor(SCHOOL).map((s) => s.name)).toEqual(["school_only"]);
+    const b = mcp.add(stdio("school_only"), SCHOOL);
+    expect(mcp.enabledServerIds(WORK)).toEqual([a.id]);
+    expect(mcp.enabledServerIds(SCHOOL)).toEqual([b.id]);
     mcp.setEnabled(SCHOOL, a.id, true);
-    expect(mcp.configFor(SCHOOL).map((s) => s.name).sort()).toEqual(["school_only", "work_only"]);
+    expect(mcp.enabledServerIds(SCHOOL).sort()).toEqual([a.id, b.id].sort());
   });
 
-  it("stops passing a server the moment it is disabled", () => {
-    // The named mutant: a disabled server still passed.
+  it("stops enabling a server the moment it is disabled", () => {
+    // The named mutant: a disabled server still enabled.
     const s = mcp.add(stdio("airtable"), WORK);
-    expect(mcp.configFor(WORK)).toHaveLength(1);
+    expect(mcp.enabledServerIds(WORK)).toEqual([s.id]);
     mcp.setEnabled(WORK, s.id, false);
-    expect(mcp.configFor(WORK)).toEqual([]);
+    expect(mcp.enabledServerIds(WORK)).toEqual([]);
     expect(mcp.list(WORK).servers[0]!.enabled).toBe(false);
   });
 
@@ -98,22 +98,20 @@ describe("secrets", () => {
     expect(JSON.stringify(mcp.update(s.id, { name: "renamed" }, WORK))).not.toContain(KEY);
   });
 
-  it("does deliver the value to configFor — the one exit that exists", () => {
-    mcp.add(stdio("airtable"), WORK);
-    const [cfg] = mcp.configFor(WORK);
-    expect(cfg).toMatchObject({ transport: "stdio", env: { AIRTABLE_API_KEY: KEY } });
-  });
-
+  // W3: the passthrough is gone, and with it the one exit `McpService` used to have for a secret value
+  // (`configFor`). `hub.ts` is now the only code that ever reads `McpServerRow.secrets` — so these
+  // assertions read the STORE directly (the same thing `hub.ts` does), not `McpService`, which after W3
+  // has no path to a secret value at all.
   it("keeps a stored key when an edit omits env, because a client was never given it to send back", () => {
     const s = mcp.add(stdio("airtable"), WORK);
     mcp.update(s.id, { name: "airtable2", args: ["/abs/other.mjs"] }, WORK);
-    expect(mcp.configFor(WORK)[0]).toMatchObject({ name: "airtable2", args: ["/abs/other.mjs"], env: { AIRTABLE_API_KEY: KEY } });
+    expect(servers.get(s.id)).toMatchObject({ name: "airtable2", args: ["/abs/other.mjs"], secrets: { AIRTABLE_API_KEY: KEY } });
   });
 
   it("replaces the whole map when env IS passed, which is how a key is removed", () => {
     const s = mcp.add(stdio("airtable"), WORK);
     mcp.update(s.id, { env: {} }, WORK);
-    expect(mcp.configFor(WORK)[0]).toMatchObject({ env: {} });
+    expect(servers.get(s.id)!.secrets).toEqual({});
     expect(mcp.list(WORK).servers[0]!.envKeys).toEqual([]);
   });
 });
@@ -126,7 +124,7 @@ describe("definitions", () => {
     // The old env keys would be meaningless as headers, and keeping them would silently ship an API key
     // to a host in a header nobody chose.
     expect(after.headerKeys).toEqual([]);
-    expect(JSON.stringify(mcp.configFor(WORK))).not.toContain(KEY);
+    expect(JSON.stringify(servers.get(s.id))).not.toContain(KEY);
   });
 
   it("refuses a definition that cannot connect to anything", () => {
@@ -139,7 +137,7 @@ describe("definitions", () => {
   it("refuses to strand an existing server by editing its endpoint away", () => {
     const s = mcp.add(stdio("airtable"), WORK);
     expect(() => mcp.update(s.id, { command: "" }, WORK)).toThrow(/needs a command/);
-    expect(mcp.configFor(WORK)[0]).toMatchObject({ command: "/usr/bin/node" });
+    expect(servers.get(s.id)).toMatchObject({ command: "/usr/bin/node" });
   });
 
   it("refuses a duplicate name, because a name is the key every agent addresses it by", () => {
@@ -180,11 +178,6 @@ describe("gateway fields (Plan 9 W1 — schema and derivation only)", () => {
     expect(mcp.list(WORK).servers[0]).toMatchObject({ oauthStatus: "connected" });
   });
 
-  it("status is always idle — the hub that would report otherwise does not exist yet", () => {
-    mcp.add(stdio("airtable"), WORK);
-    expect(mcp.list(WORK).servers[0]!.status).toBe("idle");
-  });
-
   it("carries the row's cached tools through to the wire", () => {
     const s = mcp.add(stdio("airtable"), WORK);
     servers.setTools(s.id, [{ name: "search", description: "Search records" }]);
@@ -194,15 +187,60 @@ describe("gateway fields (Plan 9 W1 — schema and derivation only)", () => {
   it("allowedTools reads back what allowedTools() stores, and is null for a server nobody has narrowed", () => {
     const s = mcp.add(stdio("airtable"), WORK);
     expect(mcp.list(WORK).servers[0]!.allowedTools).toBeNull();
-    // W1 only reads the settings key; nothing in this workstream ever writes it (that's `mcp.setAllowedTools`, W3).
     expect(mcp.allowedTools(WORK, s.id)).toBeNull();
   });
 
   it("allowedTools is per-space: narrowing in one space does not leak into another's listing", () => {
     const s = mcp.add(stdio("airtable"), WORK);
-    // Simulating what W3's setAllowedTools will write, to prove `list()` reads it back scoped by space.
     settings.set(`mcp.allowedTools:${WORK}:${s.id}`, ["search"]);
     expect(mcp.allowedTools(WORK, s.id)).toEqual(["search"]);
     expect(mcp.allowedTools(SCHOOL, s.id)).toBeNull();
+  });
+});
+
+describe("status injection (Plan 9 W3)", () => {
+  it("defaults every server to idle when no statusOf is wired — the pre-hub behavior", () => {
+    mcp.add(stdio("airtable"), WORK);
+    expect(mcp.list(WORK).servers[0]!.status).toBe("idle");
+  });
+
+  it("reports whatever the injected statusOf() says, per server id", () => {
+    const a = mcp.add(stdio("airtable"), WORK);
+    const b = mcp.add(stdio("vercel"), WORK);
+    const withHub = new McpService({ servers, settings, statusOf: (id) => (id === a.id ? "connected" : "circuit_open") });
+    const statuses = new Map(withHub.list(WORK).servers.map((s) => [s.id, s.status]));
+    expect(statuses.get(a.id)).toBe("connected");
+    expect(statuses.get(b.id)).toBe("circuit_open");
+  });
+
+  it("also flows through add() and update(), not just list()", () => {
+    const withHub = new McpService({ servers, settings, statusOf: () => "circuit_open" });
+    const added = withHub.add(stdio("airtable"), WORK);
+    expect(added.status).toBe("circuit_open");
+    expect(withHub.update(added.id, { name: "renamed" }, WORK).status).toBe("circuit_open");
+  });
+});
+
+describe("setAllowedTools / enabledServerIds (Plan 9 W3 — the gateway's own reads/writes)", () => {
+  it("setAllowedTools writes what allowedTools reads back, scoped to the space it was set for", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    mcp.setAllowedTools(WORK, s.id, ["search", "create"]);
+    expect(mcp.allowedTools(WORK, s.id)).toEqual(["search", "create"]);
+    expect(mcp.allowedTools(SCHOOL, s.id)).toBeNull(); // untouched
+  });
+
+  it("setAllowedTools(null) restores 'every tool allowed', same as a server nobody has narrowed", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    mcp.setAllowedTools(WORK, s.id, ["search"]);
+    expect(mcp.allowedTools(WORK, s.id)).toEqual(["search"]);
+    mcp.setAllowedTools(WORK, s.id, null);
+    expect(mcp.allowedTools(WORK, s.id)).toBeNull();
+  });
+
+  it("enabledServerIds returns exactly this space's enabled ids, empty for a space that enabled nothing", () => {
+    const a = mcp.add(stdio("airtable"), WORK);
+    mcp.add(stdio("school_only"), SCHOOL);
+    expect(mcp.enabledServerIds(WORK)).toEqual([a.id]);
+    expect(mcp.enabledServerIds("01ARZ3NDEKTSV4RRFFQ69G5FAX")).toEqual([]);
   });
 });

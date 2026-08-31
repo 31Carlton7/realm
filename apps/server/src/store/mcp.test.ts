@@ -91,14 +91,36 @@ describe("McpCallLogStore", () => {
     expect(r).toMatchObject({ sessionId, serverId, serverName: "airtable", tool: "search", ok: true, durationMs: 12 });
   });
 
-  it("orders newest first, breaking a same-millisecond tie by insertion order", () => {
+  it("orders newest first, breaking a same-millisecond tie by id — NOT insertion order, since ids are non-monotonic ULIDs", () => {
     const a = calls.append(row({ tool: "a" }));
     const b = calls.append(row({ tool: "b" }));
     const c = calls.append(row({ tool: "c" }));
     // Force the tie: three inserts usually land in one millisecond, but "usually" would make this
     // test tell the truth only most of the time.
     db.exec("UPDATE mcp_call_log SET ts = 5");
-    expect(calls.list().map((x) => x.id)).toEqual([c.id, b.id, a.id]);
+    // `newId()` is the plain (non-monotonic) `ulid()` — two ids minted in the same millisecond have no
+    // guaranteed relative order, so the store's own `ts DESC, id DESC` is the source of truth here, not
+    // creation order.
+    expect(calls.list().map((x) => x.id)).toEqual([a.id, b.id, c.id].sort().reverse());
+  });
+
+  it("does not lose same-millisecond siblings at a page boundary — the bug a plain `ts <` cursor has", () => {
+    // W1 review amendment: a plain `before: ts` cursor filters `ts < boundary`, which drops every OTHER
+    // row sharing the boundary millisecond outright. The composite `{ ts, id }` cursor must still surface
+    // them. Four rows on one tied `ts` is enough to prove a 2-per-page walk crosses the boundary cleanly.
+    const a = calls.append(row({ tool: "a" }));
+    const b = calls.append(row({ tool: "b" }));
+    const c = calls.append(row({ tool: "c" }));
+    const d = calls.append(row({ tool: "d" }));
+    db.exec("UPDATE mcp_call_log SET ts = 5");
+    const page1 = calls.list({ limit: 2 });
+    expect(page1).toHaveLength(2);
+    const cursor = page1[1]!;
+    const page2 = calls.list({ before: { ts: cursor.ts, id: cursor.id }, limit: 2 });
+    // A plain `ts < 5` cursor would return `[]` here — every row shares ts=5 — silently truncating the log.
+    expect(page2).toHaveLength(2);
+    const seen = [...page1, ...page2].map((x) => x.id).sort();
+    expect(seen).toEqual([a.id, b.id, c.id, d.id].sort());
   });
 
   it("filters by sessionId", () => {
@@ -120,12 +142,12 @@ describe("McpCallLogStore", () => {
     expect(calls.list({ serverId }).map((c) => c.id)).toEqual([mine.id]);
   });
 
-  it("pages backward with `before` as a ts cursor", () => {
+  it("pages backward with a composite {ts, id} cursor", () => {
     const a = calls.append(row({ tool: "a" })); db.prepare("UPDATE mcp_call_log SET ts = 100 WHERE id = ?").run(a.id);
     const b = calls.append(row({ tool: "b" })); db.prepare("UPDATE mcp_call_log SET ts = 200 WHERE id = ?").run(b.id);
     const c = calls.append(row({ tool: "c" })); db.prepare("UPDATE mcp_call_log SET ts = 300 WHERE id = ?").run(c.id);
-    expect(calls.list({ before: 300 }).map((x) => x.id)).toEqual([b.id, a.id]);
-    expect(calls.list({ before: 200 }).map((x) => x.id)).toEqual([a.id]);
+    expect(calls.list({ before: { ts: 300, id: c.id } }).map((x) => x.id)).toEqual([b.id, a.id]);
+    expect(calls.list({ before: { ts: 200, id: b.id } }).map((x) => x.id)).toEqual([a.id]);
   });
 
   it("defaults the limit to 50 and caps it at 200", () => {

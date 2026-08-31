@@ -176,17 +176,26 @@ export class McpCallLogStore {
     return toCall(this.db.prepare("SELECT * FROM mcp_call_log WHERE id = ?").get(id) as LogRow);
   }
 
-  /** Newest first. `before` pages backward through the log by ts; `limit` is clamped to
-   *  [1, CALL_LOG_MAX_LIMIT] so a client cannot ask for the whole table in one call. */
-  list(filter: { sessionId?: string; serverId?: string; before?: number; limit?: number } = {}): McpCallLogRow[] {
+  /**
+   * Newest first. `before` pages backward through the log by a composite `{ ts, id }` cursor rather than
+   * a plain `ts <` filter — a plain ts cursor drops every OTHER row sharing the boundary millisecond (W1
+   * review; the same-ms tie-break test below proves the case is real: three rows can share one `ts`, and
+   * a naive `ts < boundary` would skip straight past all of them instead of resuming mid-tie). The filter
+   * `(ts < ? OR (ts = ? AND id < ?))`, ordered `ts DESC, id DESC`, resumes exactly after the last row the
+   * caller saw — id is a ULID, so `id DESC` agrees with insertion order among same-ts siblings, matching
+   * `list()`'s own tie-break.
+   *
+   * `limit` is clamped to [1, CALL_LOG_MAX_LIMIT] so a client cannot ask for the whole table in one call.
+   */
+  list(filter: { sessionId?: string; serverId?: string; before?: { ts: number; id: string }; limit?: number } = {}): McpCallLogRow[] {
     const limit = Math.max(1, Math.min(filter.limit ?? CALL_LOG_DEFAULT_LIMIT, CALL_LOG_MAX_LIMIT));
     const clauses: string[] = [];
     const params: (string | number)[] = [];
     if (filter.sessionId !== undefined) { clauses.push("session_id = ?"); params.push(filter.sessionId); }
     if (filter.serverId !== undefined) { clauses.push("server_id = ?"); params.push(filter.serverId); }
-    if (filter.before !== undefined) { clauses.push("ts < ?"); params.push(filter.before); }
+    if (filter.before !== undefined) { clauses.push("(ts < ? OR (ts = ? AND id < ?))"); params.push(filter.before.ts, filter.before.ts, filter.before.id); }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.db.prepare(`SELECT * FROM mcp_call_log ${where} ORDER BY ts DESC, rowid DESC LIMIT ?`).all(...params, limit);
+    const rows = this.db.prepare(`SELECT * FROM mcp_call_log ${where} ORDER BY ts DESC, id DESC LIMIT ?`).all(...params, limit);
     return (rows as LogRow[]).map(toCall);
   }
 }

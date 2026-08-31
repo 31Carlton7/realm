@@ -218,6 +218,13 @@ export class McpHub {
       entry.redact = Object.values(row.secrets);
       return (await this.d.makeTransport?.(row, {})) ?? new StdioClientTransport({ command: row.command, args: row.args, env: row.secrets });
     }
+    // Captured from `row.secrets` alone BEFORE `authHeaders` runs, same reasoning as the stdio branch
+    // above: `authHeaders` (the OAuth seam) can itself reject — a network error hitting the token
+    // refresh endpoint, say — and if that rejection's message happens to echo a row secret (a header
+    // value quoted back in a provider error), `sanitize()` below needs something to redact against.
+    // Without this line, a mid-`await` throw here left `entry.redact` at its previous (possibly empty)
+    // value and the row's secrets sailed through unredacted.
+    entry.redact = Object.values(row.secrets);
     // OAuth (W5) is merged in last so a completed connection overrides a leftover header of the same
     // name from before the server was switched to OAuth (mirrors `authKind`'s "oauth beats secrets").
     const headers = { ...row.secrets, ...(await this.d.authHeaders(row)) };

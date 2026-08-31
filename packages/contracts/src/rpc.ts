@@ -376,10 +376,13 @@ export const Methods = {
   /** Narrow this space's tools for one server to exactly `tools`; `null` restores "every cached tool
    *  allowed", the same default a server nobody has touched already has. */
   "mcp.setAllowedTools": { params: z.object({ spaceId: IdSchema, id: IdSchema, tools: z.array(z.string()).nullable() }), result: z.object({ ok: z.literal(true) }) },
-  /** Realm's own call log (Activity), newest first — see `McpCallSchema`. `before` pages backward by
-   *  ts; `limit` defaults to 50 and is capped at 200, the same ceiling `McpCallLogStore.list` enforces. */
+  /** Realm's own call log (Activity), newest first — see `McpCallSchema`. `before` pages backward by a
+   *  composite `{ ts, id }` cursor — a plain `ts` cursor drops same-millisecond siblings at a page
+   *  boundary (W1 review amendment; `McpCallLogStore.list`'s doc comment has the full reasoning). W7's
+   *  "Load more" passes the last row's `{ ts, id }` back in. `limit` defaults to 50 and is capped at 200,
+   *  the same ceiling `McpCallLogStore.list` enforces. */
   "mcp.calls.list": {
-    params: z.object({ sessionId: IdSchema.optional(), serverId: IdSchema.optional(), before: z.number().int().optional(), limit: z.number().int().min(1).max(200).optional() }),
+    params: z.object({ sessionId: IdSchema.optional(), serverId: IdSchema.optional(), before: z.object({ ts: z.number().int(), id: IdSchema }).optional(), limit: z.number().int().min(1).max(200).optional() }),
     result: z.object({ calls: z.array(McpCallSchema) }),
   },
   /** Begin the OAuth dance for a remote server: the server prepares PKCE state and returns the
