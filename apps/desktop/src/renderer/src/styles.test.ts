@@ -235,6 +235,63 @@ describe("Plan 9 W1 — the BUI bridge", () => {
   });
 });
 
+describe("Plan 9 W2 — BUI transcript primitives", () => {
+  it("the permission card wears ApprovalCard's shell: a resting surface card on shadow-card with a hairline-topped footer", () => {
+    // Re-pin from §5's floating raised+overlay-shadow treatment: BUI cards rest in the flow.
+    const card = bodiesFor(".permission-card").join(" ");
+    expect(card).toContain("background: var(--surface)");
+    expect(card).toContain("box-shadow: var(--shadow-card)");
+    expect(card).toContain("border-radius: var(--r-panel)");
+    expect(bodiesFor(".permission-footer").join(" ")).toContain("border-top: 1px solid var(--line)");
+    // The kbd number chips take BUI's inset fill + hairline ring.
+    const num = bodiesFor(".permission-num").join(" ");
+    expect(num).toContain("background: var(--inset)");
+    expect(num).toContain("box-shadow: var(--shadow-hairline)");
+  });
+
+  it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, muted settled checks", () => {
+    const shimmer = bodiesFor('.tool-group[data-working] .tool-group-summary').join(" ");
+    expect(shimmer).toContain("animation: shimmer-text 1.4s linear infinite");
+    expect(shimmer).toContain("background-clip: text");
+    // BUI's trace rail is a solid hairline; the old dashed connector is gone.
+    expect(bodiesFor(".tool-group-steps").join(" ")).toContain("border-left: 1px solid var(--line)");
+    // The settled check is muted ink, not green — colour stays for errors.
+    expect(bodiesFor('.tool-card[data-state="ok"] .tool-status').join(" ")).toContain("color: var(--ink-3)");
+    // The row's target is ToolChips' field-fill chip.
+    const chip = bodiesFor(".tool-summary").join(" ");
+    expect(chip).toContain("background: var(--field)");
+    expect(chip).toContain("box-shadow: var(--shadow-hairline)");
+    // Measured edit counts are the semantic green/red.
+    expect(bodiesFor(".tool-stat-add").join(" ")).toContain("var(--green)");
+    expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");
+  });
+
+  it("fenced code is CodeBlock's editor panel: surface + hairline ring, a language header, 12.5/1.65 mono body", () => {
+    const panel = bodiesFor(".md-code").join(" ");
+    expect(panel).toContain("background: var(--surface)");
+    expect(panel).toContain("box-shadow: var(--shadow-hairline)");
+    expect(bodiesFor(".md-code-head").join(" ")).toContain("border-bottom: 1px solid var(--line)");
+    const body = bodiesFor(".md-code pre").join(" ");
+    expect(body).toContain("font-size: 12.5px");
+    expect(body).toContain("line-height: 1.65");
+  });
+
+  it("the streaming caret is StreamText's solid 2px ink bar — no pulse, no blink while streaming", () => {
+    const caret = bodiesFor(".md-caret").join(" ");
+    expect(caret).toContain("width: 2px");
+    expect(caret).toContain("background: var(--ink)");
+    expect(caret).not.toContain("animation");
+  });
+
+  it("diff lines carry the CodeBlock diff treatment: token tints, a 3px bar (solid green add, red hatch delete), coloured gutters", () => {
+    expect(bodiesFor('.diff-line[data-kind="add"]').join(" ")).toContain("background: var(--green-tint)");
+    expect(bodiesFor('.diff-line[data-kind="add"]::before').join(" ")).toContain("background: var(--green)");
+    expect(bodiesFor('.diff-line[data-kind="del"]').join(" ")).toContain("background: var(--red-tint)");
+    expect(bodiesFor('.diff-line[data-kind="del"]::before').join(" ")).toContain("repeating-linear-gradient(45deg, var(--red)");
+    expect(bodiesFor('.diff-line[data-kind="add"]::before, .diff-line[data-kind="del"]::before'.split(", ")[0]!).join(" ")).toContain("width: 3px");
+  });
+});
+
 describe("§6 do-NOT-animate list", () => {
   it("never uses `transition: all` anywhere", () => {
     expect(css).not.toMatch(/transition:\s*all\b/);

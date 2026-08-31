@@ -430,31 +430,59 @@ button.panel-title:hover { background: var(--rl-hover); }
 .md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip); background: var(--rl-raised); }
 .md pre { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--rl-frame); overflow-x: auto; }
 .md pre code { padding: 0; background: none; }
+/* Plan 9 W2 — BUI CodeBlock: fenced code is an editor panel now — a surface card behind a hairline
+   ring, a header naming the fence's language beside a copy control, and a 12.5/1.65 mono body.
+   Markdown.tsx builds the wrapper post-sanitize; the copy button reuses .tool-copy so the §6 icon
+   swap (and its pinned 160ms cross-fade) is one rule for both surfaces. */
+.md-code { margin: 6px 0 8px; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--shadow-hairline); overflow: hidden; }
+.md-code-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); }
+.md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
+.md-code pre { margin: 0; padding: 10px 12px; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
 .md a { color: var(--rl-accent); text-decoration: underline; text-underline-offset: 2px; } /* Ara refresh §4: ink underline, no hue */
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
 .md table { border-collapse: collapse; margin: 6px 0 8px; } .md th, .md td { border: 1px solid var(--rl-line); padding: 4px 8px; }
 .md-scroll { overflow-x: auto; } /* renderMarkdown wraps every table (A-M1) */
 .md img { max-width: 100%; }
-.md-caret { color: var(--rl-accent); animation: rl-pulse 1s ease-in-out infinite; }
+/* Plan 9 W2 — BUI StreamText's caret: a 2px ink bar, SOLID while streaming (BUI's .is-streaming
+   kills the blink; the caret only exists while the delta stream is live, so it never blinks at
+   all). The old pulsing accent ▍ glyph is gone. The text itself is never re-revealed: deltas pace
+   the stream, so a re-render shows exactly what has arrived — no reveal timer to replay. */
+.md-caret { display: inline-block; width: 2px; height: 1.05em; margin-left: 1.5px; border-radius: 1px; background: var(--ink); vertical-align: text-bottom; }
 .msg-thinking { font-size: 12px; }
 .thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); }
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
 .thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); white-space: pre-wrap; }
 .msg-error { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r-ctl); color: var(--rl-danger); background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); }
 .msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; }
-.msg-working { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rl-text-dim); }
+/* Plan 9 W2 — BUI LoadingState's shimmer label replaces the spinner+text pair; under
+   prefers-reduced-motion the global animation kill leaves a static, readable gradient. */
+.msg-working { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--rl-text-dim); }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
-/* §5: collapsed reads as a plain row on the transcript — no fill, no border, nothing but the row.
-   The card only becomes a card when it opens: panel fill plus the --rl-edge hairline. */
+/* ═══ Plan 9 W2 — transcript primitives ══════════════════════════════════════
+   The component blocks tagged "Plan 9 W2" below carry visual language vendored from beautiful-ui
+   (github.com/slev12397/beautiful-ui, MIT © its authors) — ThinkingState, ApprovalCard, StreamText,
+   CodeBlock, DiffTable, ToolChips, LoadingState/Shimmer, StatusPill — rewritten onto Realm's class
+   names and DRIVEN BY REAL SESSION STATE: every demo timer (STAGES/useSequence/VARIANTS) is
+   stripped; spinners, shimmers and checks key off results, statuses and data attributes only. */
+
+/* Plan 9 W2 — BUI ThinkingState (coding) is the tool row's language now. Collapsed still reads as
+   a plain row on the transcript; the card only becomes a card when it opens. The row leads with the
+   status glyph (spinner → muted ink-3 check, driven by the block's real settled state), then the
+   name at 12.5/550 ink, the target as a mono field-fill chip (ToolChips' chip), measured +/− counts
+   on edits, and a trailing chevron. */
 .tool-card { border-radius: var(--r-ctl); font-size: 12px; }
 .tool-card[data-open] { background: var(--rl-panel); box-shadow: var(--rl-edge); }
-.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); text-align: left; color: var(--rl-text-bright); }
+.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px; border-radius: var(--r-ctl); text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
-.tool-chevron { color: var(--rl-text-faint); transition: transform 200ms var(--ease-in-out-strong); flex: none; }
+.tool-chevron { color: var(--rl-text-faint); transition: transform 200ms var(--ease-in-out-strong); flex: none; margin-left: auto; }
 .tool-card[data-open] .tool-chevron, .tool-group[data-open] .tool-chevron { transform: rotate(90deg); }
 .tool-name { font-size: 12.5px; font-weight: 550; flex: none; }
+/* Measured counts (editStat): green adds, red deletes, mono tabular — BUI's `+74 −41`. */
+.tool-stat { flex: none; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.tool-stat-add { color: var(--green); }
+.tool-stat-del { color: var(--red); }
 
 /* §6 tool-row expand: height animates via grid-template-rows 0fr→1fr over 200ms, content fades at
    120ms. .tool-body-clip is the overflow container the 0fr row needs to clip against. */
@@ -463,19 +491,31 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-body-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] .tool-body { opacity: 1; }
 
-/* Grouped runs (§2.8/§5): one ledger line, steps hanging off a dashed connector when opened. The
-   collapsed row reads `Worked for <duration> ›` at 14px text-dim (Ara refresh §4) — the trailing
-   chevron is the same .tool-chevron the cards use, rotating on expand. */
+/* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
+   the sparkle glyph plus `Worked for <duration> ›` at 13/500 — shimmering (BUI's working treatment)
+   while the run is live, settled ink-2 once every step has its result — and the opened trace hangs
+   off ThinkingState's solid 1px rail (the dashed connector is gone: BUI truth). */
 .tool-group { border-radius: var(--r-ctl); font-size: 12px; }
-.tool-group-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); text-align: left; font-size: 14px; color: var(--rl-text-dim); }
+.tool-group-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); text-align: left; font-size: 13px; font-weight: 500; color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tool-group-glyph { color: var(--ink-3); flex: none; }
+.tool-group[data-working] .tool-group-glyph { color: var(--ink-2); }
 .tool-group-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.tool-group-steps { margin-left: 15px; padding-left: 10px; border-left: 1px dashed var(--rl-line-strong); display: flex; flex-direction: column; gap: 1px; }
-.tool-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+/* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
+   Driven by data-working — the group's own unsettled steps — never by a demo clock. */
+.shimmer-text, .tool-group[data-working] .tool-group-summary {
+  background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer-text 1.4s linear infinite; }
+.tool-group-steps { margin-left: 15px; padding-left: 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+/* The target chip: ToolChips' field-fill chip — mono 11.5, hairline ring, truncating. */
+.tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2);
+  font: 11.5px var(--font-mono); font-variant-numeric: tabular-nums; background: var(--field); box-shadow: var(--shadow-hairline);
+  border-radius: var(--r-chip); padding: 3px 6px; }
 .tool-status { display: grid; place-items: center; width: 16px; color: var(--rl-text-faint); flex: none; }
-.tool-card[data-state="ok"] .tool-status { color: var(--rl-success); }
+.tool-card[data-state="ok"] .tool-status { color: var(--ink-3); } /* BUI: the settled check is muted, not green */
 .tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
-.tool-card[data-state="running"] .tool-status { color: var(--rl-success); } /* §3: nothing running-related uses accent */
+.tool-card[data-state="running"] .tool-status { color: var(--ink-2); } /* §3: nothing running-related uses accent */
 .tool-body { border-top: 1px solid var(--rl-hairline); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity 120ms ease; }
 .tool-section { display: flex; flex-direction: column; }
@@ -492,11 +532,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
 .tool-body pre[data-error] { color: var(--rl-danger); }
 
-/* §5: the permission card floats (it interrupts) — neutral raised + edge + shadow. The amber wash
-   is gone; colour survives as a 6px dot and the "Waiting" status pill, and the options are the
-   numbered-list pattern from HJz3KMT. */
-.permission-card { border-radius: var(--r-panel); padding: 12px 14px; background: var(--rl-raised); box-shadow: var(--rl-edge), var(--rl-shadow); display: flex; flex-direction: column; gap: 8px; }
-.permission-head { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--rl-text-bright); }
+/* Plan 9 W2: the permission card wears BUI ApprovalCard's shell — a surface card on shadow-card
+   (BUI cards rest; the old floating overlay shadow is gone), radius-card, 12px card pad, and a
+   hairline-topped footer. The behaviour underneath is Realm's, verbatim: numbered options with kbd
+   chips, ↑↓/bare-digit keys, the Enter-on-Deny guard, Esc→deny. The amber wash stays gone; colour
+   survives as the 6px dot and the "Waiting" pill. */
+.permission-card { border-radius: var(--r-panel); padding: 12px; background: var(--surface); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 8px; }
+.permission-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 550; color: var(--ink); }
 .permission-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-warning); flex: none; animation: rl-pulse 0.9s ease-in-out infinite; }
 .permission-head .status-pill { margin-left: auto; font-weight: 400; }
 .permission-tool { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -507,19 +549,23 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Numbered options: kbd chip, label, shortcut hint; the selected row is an --rl-active pill (§2.7 —
    selected is a fill, never an outline). Focus and selection are kept in step by the component. */
 .permission-options { display: flex; flex-direction: column; gap: 1px; }
+/* Option rows on ApprovalCard's opaque-fill hover ladder: --hover under the pointer, --hover-2 for
+   the selected pill (both are BUI surface-ground fills — the card is opaque --surface now). */
 .permission-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: var(--r-ctl);
-  text-align: left; font-size: 12.5px; color: var(--rl-text-dim); }
-.permission-option:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.permission-option[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: 550; }
+  text-align: left; font-size: 13px; color: var(--ink-2); }
+.permission-option:hover { background: var(--hover); color: var(--ink); }
+.permission-option[data-selected] { background: var(--hover-2); color: var(--ink); font-weight: 550; }
 .permission-option[data-decision="deny"][data-selected] { color: var(--rl-danger); }
 .permission-option-label { flex: 1; min-width: 0; }
+/* kbd number chips: BUI's inset fill + hairline ring. */
 .permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-chip);
-  background: var(--rl-hover); color: var(--rl-text-faint); font-size: 10.5px; flex: none; }
-.permission-option[data-selected] .permission-num { color: var(--rl-text-bright); }
+  background: var(--inset); box-shadow: var(--shadow-hairline); color: var(--ink-3); font-size: 10.5px; flex: none; }
+.permission-option[data-selected] .permission-num { color: var(--ink); }
 .permission-option-kbd { color: var(--rl-text-faint); font-size: 10px; flex: none; }
 
-/* Footer (§5): navigation hints left, accent Submit pill right. */
-.permission-footer { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+/* Footer (ApprovalCard's primitive-card-footer): hairline-topped, bleeding to the card edge —
+   navigation hints left, accent Submit pill right. */
+.permission-footer { display: flex; align-items: center; gap: 10px; margin: 4px -12px -12px; padding: 8px 12px; border-top: 1px solid var(--line); }
 .permission-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
 .permission-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 10px; }
 .permission-submit { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
@@ -679,11 +725,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 .cli-row[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
 .cli-row input { accent-color: var(--rl-accent); margin: 0; }
 .cli-name { flex: 1; min-width: 0; font-size: 13px; }
-/* §3 status pills: 14% colour-mix fill, full-strength colour text. */
-.status-pill { flex: none; padding: 2px 7px; border-radius: var(--r-chip); font-size: 11px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status-pill[data-tone="success"] { color: var(--rl-success); background: color-mix(in srgb, var(--rl-success) 14%, transparent); }
+/* Plan 9 W2 — BUI StatusPill: fully-round tint fill, full-strength colour text, and a leading dot
+   on the coloured tones (atoms/StatusPill.tsx). Ready stays a bare label; muted stays neutral. */
+.status-pill { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-pill[data-tone="success"]::before, .status-pill[data-tone="warning"]::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
+.status-pill[data-tone="success"] { color: var(--green); background: var(--green-tint); }
 .status-pill[data-tone="ready"] { color: var(--rl-text-dim); background: none; padding-inline: 0; }
-.status-pill[data-tone="warning"] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); }
+.status-pill[data-tone="warning"] { color: var(--orange); background: var(--orange-tint); }
 .status-pill[data-tone="muted"] { color: var(--rl-text-faint); background: var(--rl-hover); }
 
 /* Custom selects (V-F1, sheets/forms only now): drop the raw Chromium arrow and draw our own chevron.
@@ -790,7 +839,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .diff-dir { color: var(--rl-text-faint); }
 .diff-base { color: var(--rl-text-bright); }
-.diff-counts { flex: none; display: flex; gap: 6px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.diff-counts { flex: none; display: flex; gap: 6px; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
 .diff-counts .diff-add { color: var(--rl-success); }
 .diff-counts .diff-del { color: var(--rl-danger); }
 .diff-actions { flex: none; display: flex; gap: 4px; opacity: 0; }
@@ -800,18 +849,24 @@ button.panel-title:hover { background: var(--rl-hover); }
 .btn-quiet:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .diff-body { padding: 0 0 6px 26px; }
 .diff-side { padding: 4px 8px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
-/* The patch itself sits in a well at frame luminance — one step below the panel, like tool output. */
-.diff-hunks { background: var(--rl-frame); border-radius: var(--r-chip); overflow: auto; }
-.diff-hunk-head { padding: 3px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--rl-text-faint); background: var(--rl-hover); }
-.diff-line { display: flex; align-items: baseline; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre; }
+/* Plan 9 W2 — the patch wears BUI CodeBlock's diff view: a surface panel behind a hairline ring,
+   12.5/1.65 mono, changed rows tinted with the token tints and marked by a 3px accent bar —
+   solid green for adds, BUI's red 45° hatch for deletes — with the gutter numbers taking the
+   row's colour. The text itself stays ink (BUI colours the row, not the words). */
+.diff-hunks { background: var(--surface); box-shadow: var(--shadow-hairline); border-radius: var(--r-panel); overflow: auto; }
+.diff-hunk-head { padding: 3px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--rl-text-faint); background: var(--inset); }
+.diff-line { position: relative; display: flex; align-items: baseline; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.65; white-space: pre; }
 .diff-gutter { flex: none; width: 42px; padding-right: 8px; text-align: right; color: var(--rl-text-faint); font-size: 11px; user-select: none; }
 .diff-mark { flex: none; width: 14px; text-align: center; color: var(--rl-text-faint); user-select: none; }
-.diff-text { flex: 1; min-width: 0; padding-right: 8px; color: var(--rl-text-dim); }
+.diff-text { flex: 1; min-width: 0; padding-right: 8px; color: var(--ink-2); }
 /* §2.4: diff tints are one of the three places colour is allowed at all. */
-.diff-line[data-kind="add"] { background: color-mix(in srgb, var(--rl-success) 10%, transparent); }
-.diff-line[data-kind="add"] .diff-mark, .diff-line[data-kind="add"] .diff-text { color: var(--rl-success); }
-.diff-line[data-kind="del"] { background: color-mix(in srgb, var(--rl-danger) 10%, transparent); }
-.diff-line[data-kind="del"] .diff-mark, .diff-line[data-kind="del"] .diff-text { color: var(--rl-danger); }
+.diff-line[data-kind="add"]::before, .diff-line[data-kind="del"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; }
+.diff-line[data-kind="add"] { background: var(--green-tint); }
+.diff-line[data-kind="add"]::before { background: var(--green); }
+.diff-line[data-kind="add"] .diff-gutter, .diff-line[data-kind="add"] .diff-mark { color: var(--green); }
+.diff-line[data-kind="del"] { background: var(--red-tint); }
+.diff-line[data-kind="del"]::before { background: repeating-linear-gradient(45deg, var(--red) 0, var(--red) 1.5px, transparent 1.5px, transparent 3px); }
+.diff-line[data-kind="del"] .diff-gutter, .diff-line[data-kind="del"] .diff-mark { color: var(--red); }
 .diff-line[data-kind="meta"] .diff-text { color: var(--rl-text-faint); font-style: italic; }
 /* Commit dock: raised, hairline above, primary action bottom-right (§5 sheets/footer pattern). */
 .diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--rl-raised); border-top: 1px solid var(--rl-hairline); }
