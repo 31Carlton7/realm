@@ -160,7 +160,11 @@ class McpHub {
   naming `mcp.retry`; any success resets the count.
 - [ ] Tests (`hub.test.ts`, TDD): lazy (no connect before first use) · two callers share one client ·
   tool cache persisted · circuit opens after 3 and `retry` closes it · `invalidate` disconnects ·
-  connect failure surfaces as error result, not throw.
+  connect failure surfaces as error result, not throw. *(Amended after W2 review: this bullet holds at
+  the RPC layer only — `McpHub.tools()` THROWS on failure; W3's `mcp.tools.list` handler and the
+  gateway's `tools/list` union catch it and shape results. Breaker "failures" are THROWN failures only —
+  an `isError: true` tool result is a successful round-trip and never touches the breaker. `close()` is
+  terminal: a closed hub is never reused; any restart constructs a fresh McpHub.)*
   Gates. Commit `feat(server): MCP hub — shared lazy upstream clients with circuit breaker`.
 
 ### W3 — Gateway listener + session wiring (passthrough removed)
