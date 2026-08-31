@@ -91,7 +91,7 @@ export function Onboarding() {
                 return (
                   <label key={k} className="cli-row" data-selected={agent === k || undefined}>
                     <input type="radio" name="default-agent" value={k} checked={agent === k} onChange={() => pick(k)} />
-                    <Icon name={AGENT_META[k].icon} size={16} />
+                    <Icon name={AGENT_META[k].icon} size={16} colored />
                     <span className="cli-name">{AGENT_META[k].label}</span>
                     <span className="status-pill" data-tone={st.tone}>{st.label}</span>
                   </label>

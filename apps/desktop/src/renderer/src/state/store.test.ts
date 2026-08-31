@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
-import { fakeApi, item, session, space, type FakeApi } from "./store.test-fakes";
+import { fakeApi, item, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
 const split = (id: string, dir: "row" | "col", children: Layout[]): Layout =>
@@ -1528,5 +1528,82 @@ describe("diff panes", () => {
     await store.getState().selectSpace("s2");
     expect(store.getState().diffs).toEqual({});
     expect(store.getState().patches).toEqual({});
+  });
+});
+
+describe("@-mentions in the draft (Plan 8 W4)", () => {
+  const withSkills = (agentKind: "claude" | "acp:cursor" = "claude") => fakeApi({
+    items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
+    sessions: [session("se1", "s1", { agentKind })],
+    skills: { s1: [skillRow("mac"), skillRow("web", { enabled: false }), skillRow("broken", { valid: false, reason: "no `name`" })] },
+  });
+  const ready = async (agentKind: "claude" | "acp:cursor" = "claude") => {
+    const a = withSkills(agentKind);
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openSession("se1"); // the real path that loads the library
+    return { a, store };
+  };
+
+  it("opening a skills-capable session fetches the space's library; setDraft recognises an exact enabled @id and NOTHING else", async () => {
+    const { a, store } = await ready();
+    expect(a.calls).toContain("listSkills:s1");
+    store.getState().setDraft("se1", "use @mac now");
+    expect(store.getState().draftMentions.se1).toEqual(["mac"]);
+    // Disabled and invalid skills are not mentionable; neither is an email or a prefix.
+    store.getState().setDraft("se1", "@web and @broken and carlton@mac and @mac-extras");
+    expect(store.getState().draftMentions.se1).toEqual([]);
+  });
+
+  it("sendMessage declares the recognised mentions on the wire, from the FINAL text", async () => {
+    const { a, store } = await ready();
+    store.getState().setDraft("se1", "use @mac now");
+    await store.getState().sendMessage("se1", "use @mac now");
+    expect(a.sent[0]).toEqual({ id: "se1", text: "use @mac now", attachments: [], mentions: ["mac"] });
+  });
+
+  it("a mention-free message declares nothing — the wire shape older tests assert on is untouched", async () => {
+    const { a, store } = await ready();
+    await store.getState().sendMessage("se1", "plain");
+    expect(a.sent[0]).toEqual({ id: "se1", text: "plain", attachments: [] });
+  });
+
+  it("a recognised mention SURVIVES the skill disappearing from the library — degradation is the server's job, not amnesia here", async () => {
+    const { a, store } = await ready();
+    store.getState().setDraft("se1", "@mac go");
+    a.data.skills.s1 = [];
+    await store.getState().refreshSkills("s1");
+    // Still recognised (its token is still in the text), still declared at send: the server strips
+    // the @ and does not resolve, instead of the wire carrying a literal @mac.
+    store.getState().setDraft("se1", "@mac go please");
+    expect(store.getState().draftMentions.se1).toEqual(["mac"]);
+    await store.getState().sendMessage("se1", "@mac go please");
+    expect(a.sent[0]!.mentions).toEqual(["mac"]);
+  });
+
+  it("editing the token away drops the recognition", async () => {
+    const { store } = await ready();
+    store.getState().setDraft("se1", "@mac go");
+    store.getState().setDraft("se1", "go");
+    expect(store.getState().draftMentions.se1).toEqual([]);
+  });
+
+  it("recognises nothing for an agent Realm cannot inject skills into — a Cursor draft's @ is just text", async () => {
+    const { a, store } = await ready("acp:cursor");
+    expect(a.calls).not.toContain("listSkills:s1"); // no picker, no fetch
+    // Even with the library somehow loaded, the kind gate holds.
+    await store.getState().refreshSkills("s1");
+    store.getState().setDraft("se1", "use @mac now");
+    expect(store.getState().draftMentions.se1).toEqual([]);
+    await store.getState().sendMessage("se1", "use @mac now");
+    expect(a.sent[0]).toEqual({ id: "se1", text: "use @mac now", attachments: [] });
+  });
+
+  it("deleting the session's item drops its draft mentions with the draft", async () => {
+    const { store } = await ready();
+    store.getState().setDraft("se1", "@mac go");
+    expect(store.getState().draftMentions.se1).toEqual(["mac"]);
+    await store.getState().deleteItem("i2");
+    expect(store.getState().draftMentions.se1).toBeUndefined();
   });
 });

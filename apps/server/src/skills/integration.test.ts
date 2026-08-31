@@ -1,9 +1,9 @@
 import { describe, expect, it, afterEach, vi } from "vitest";
 import WebSocket from "ws";
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
+import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions, type UserMessage } from "@realm/adapters";
 import { newId, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
@@ -17,6 +17,8 @@ type Any = any;
 /** Stands in for a real adapter under a real agent kind, and records the StartOptions it was handed. */
 class RecordingAdapter implements AgentAdapter {
   readonly starts: StartOptions[] = [];
+  /** Every message as the ADAPTER received it — the wire the mention tests assert on (W4). */
+  readonly sent: UserMessage[] = [];
   constructor(readonly kind: "claude" | "acp:cursor") {}
   async probe() { return { kind: this.kind, available: true, version: "0", loggedIn: true, reason: null }; }
   start(opts: StartOptions): AgentHandle {
@@ -26,7 +28,7 @@ class RecordingAdapter implements AgentAdapter {
     events.push(sessionEvent("status", { status: "idle" }));
     return {
       events,
-      send: async () => { events.push(sessionEvent("assistant_text", { messageId: "m1", text: "ok" })); events.push(sessionEvent("status", { status: "idle" })); },
+      send: async (m) => { this.sent.push(m); events.push(sessionEvent("assistant_text", { messageId: "m1", text: "ok" })); events.push(sessionEvent("status", { status: "idle" })); },
       respondPermission: () => {},
       interrupt: async () => {},
       setOptions: async () => {},
@@ -158,6 +160,107 @@ describe("skills over rpc", () => {
     const { c, sp, home } = await boot({ bundled });
     expect(readdirSync(join(home, "skills"))).toEqual(["mac"]);
     expect((await c.call("skills.list", { spaceId: sp.id })).result.skills.map((s: Any) => s.id)).toEqual(["mac"]);
+    c.close();
+  });
+});
+
+describe("@-mention resolution at send (W4)", () => {
+  /** A skill whose frontmatter name DIFFERS from its directory id — the divergence the wire must respect. */
+  const named = (dir: string, id: string, name: string) => {
+    mkdirSync(join(dir, id), { recursive: true });
+    writeFileSync(join(dir, id, "SKILL.md"), `---\nname: ${name}\ndescription: does ${id}.\n---\n\n# ${id}\n`);
+  };
+  const send = (c: Any, id: string, text: string, mentions: string[]) => c.call("sessions.send", { id, text, mentions });
+
+  it("resolves a declared mention: the wire loses the @, the skill carries id + FRONTMATTER name + SKILL.md path, and the transcript keeps what the user wrote", async () => {
+    const { c, sp, home, claude } = await boot();
+    named(join(home, "skills"), "mac", "mac-skill");
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    await send(c, session.id, "use @mac to list reminders", ["mac"]);
+    await waitFor(() => claude.sent.length === 1);
+    // The named mutant: a literal `@name` reaching an adapter wire. And its quieter siblings — a skill
+    // resolved under its directory id (which Claude's plugin would not recognise), or a wire path that
+    // is not the CANONICAL library SKILL.md (Codex matches the item against skills it discovered by
+    // resolved path, and silently ignores one it cannot place — proven in live-mention-check.ts).
+    expect(claude.sent[0]).toEqual({
+      text: "use mac to list reminders",
+      attachments: [],
+      skill: { id: "mac", name: "mac-skill", path: realpathSync(join(home, "skills", "mac", "SKILL.md")) },
+    });
+    const evs = (await c.call("sessions.events", { id: session.id })).result;
+    expect(evs.find((e: Any) => e.event.type === "user_message").event.payload.text).toBe("use @mac to list reminders");
+    c.close();
+  });
+
+  it("with several mentions the FIRST resolves and every declared token still loses its @", async () => {
+    const { c, sp, home, claude } = await boot();
+    skill(join(home, "skills"), "aa");
+    skill(join(home, "skills"), "bb");
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    await send(c, session.id, "@bb first, then @aa please", ["bb", "aa"]);
+    await waitFor(() => claude.sent.length === 1);
+    expect(claude.sent[0]!.text).toBe("bb first, then aa please");
+    expect(claude.sent[0]!.skill?.id).toBe("bb"); // first in TEXT order, not alphabetical
+    c.close();
+  });
+
+  it("a skill disabled between typing and sending degrades to plain text without the @ — never a resolution, never a literal @name", async () => {
+    const { c, sp, home, claude } = await boot();
+    skill(join(home, "skills"), "mac");
+    skill(join(home, "skills"), "other"); // keeps the library non-empty, so the session still starts injected
+    await c.call("skills.setEnabled", { spaceId: sp.id, id: "mac", enabled: false });
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    await send(c, session.id, "@mac go", ["mac"]);
+    await waitFor(() => claude.sent.length === 1);
+    expect(claude.sent[0]).toEqual({ text: "mac go", attachments: [] });
+    c.close();
+  });
+
+  it("a skill deleted between typing and sending degrades the same way", async () => {
+    const { c, sp, home, claude } = await boot();
+    skill(join(home, "skills"), "mac");
+    skill(join(home, "skills"), "other");
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    await send(c, session.id, "go", []); // starts the adapter with the library
+    await waitFor(() => claude.sent.length === 1);
+    rmSync(join(home, "skills", "mac"), { recursive: true, force: true });
+    await send(c, session.id, "@mac go", ["mac"]);
+    await waitFor(() => claude.sent.length === 2);
+    expect(claude.sent[1]).toEqual({ text: "mac go", attachments: [] });
+    c.close();
+  });
+
+  it("a declared id that does not appear as a token in the text rewrites nothing and resolves nothing", async () => {
+    const { c, sp, home, claude } = await boot();
+    skill(join(home, "skills"), "mac");
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    // `carlton@mac` is an email-shaped token: its @ is not token-initial, so the claim does not hold.
+    await send(c, session.id, "mail carlton@mac about it", ["mac"]);
+    await waitFor(() => claude.sent.length === 1);
+    expect(claude.sent[0]).toEqual({ text: "mail carlton@mac about it", attachments: [] });
+    c.close();
+  });
+
+  it("never resolves for an agent with no skills route: a Cursor session strips the @ and sends no skill", async () => {
+    const { c, sp, home, cursor } = await boot();
+    skill(join(home, "skills"), "mac");
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "acp:cursor" })).result;
+    await send(c, session.id, "@mac go", ["mac"]);
+    await waitFor(() => cursor.sent.length === 1);
+    expect(cursor.sent[0]).toEqual({ text: "mac go", attachments: [] });
+    c.close();
+  });
+
+  it("never resolves into a session that was started WITHOUT the library — the plugin is not loaded there", async () => {
+    const { c, sp, home, claude } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    await send(c, session.id, "go", []); // adapter starts with an empty library: no injection
+    await waitFor(() => claude.sent.length === 1);
+    expect(claude.starts[0]!.skills).toBeUndefined();
+    skill(join(home, "skills"), "mac"); // enabled-by-default, but this live handle never saw it
+    await send(c, session.id, "@mac go", ["mac"]);
+    await waitFor(() => claude.sent.length === 2);
+    expect(claude.sent[1]).toEqual({ text: "mac go", attachments: [] });
     c.close();
   });
 });
