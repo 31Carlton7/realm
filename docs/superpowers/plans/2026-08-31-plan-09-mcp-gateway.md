@@ -119,6 +119,16 @@ export const McpCallSchema = z.object({
 - [ ] Migration test in `db/database.test.ts` style: open a v8-era DB fixture, migrate, assert columns
   and empty log. Gates. Commit `feat(server): v9 schema + contracts for the MCP gateway`.
 
+> **Amendments after W1 review (binding on later workstreams):**
+> 1. **Composite call-log cursor.** A plain `before: ts` cursor drops same-millisecond siblings at page
+>    boundaries (the store's own tie-break test proves the case is real). In W3, change
+>    `mcp.calls.list` params to `before: z.object({ ts: z.number().int(), id: IdSchema }).optional()`
+>    and `McpCallLogStore.list` to filter `(ts < ? OR (ts = ? AND id < ?))` ordered `ts DESC, id DESC`;
+>    W7's "Load more" passes the last row's `{ ts, id }`.
+> 2. **Corrupted allowlists stay fail-open** (`allowedTools` non-array → null = all). Realm writes these
+>    values itself, so corruption is a bug not an attack; failing closed would silently kill tools with
+>    no UI explaining why. W3's enforcement comment must state this decision.
+
 ### W2 — Hub
 
 - [ ] Add `@modelcontextprotocol/sdk` to `apps/server/package.json` (and a `//` comment naming why it is
