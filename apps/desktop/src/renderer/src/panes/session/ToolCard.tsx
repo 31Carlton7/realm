@@ -1,9 +1,8 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import type { SessionStatus } from "@realm/contracts";
-import type { Block } from "./transcript-model";
-import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
-import { formatToolRun, summarizeToolRun, type ToolBlock } from "./tool-group";
+import { clip, editStat, prettyJson, toolSummary } from "./tool-summary";
+import { formatDuration, formatToolRun, summarizeToolRun, type ToolBlock } from "./tool-group";
 
 type ToolState = "running" | "ok" | "error" | "none";
 
@@ -50,7 +49,10 @@ function Well({ label, text, error = false }: { label: string; text: string; err
   );
 }
 
-/** A tool call the agent made: compact row, click to expand input + result. */
+/** A tool call the agent made: BUI ThinkingState's coding-row shape (Plan 9 W2) — a leading status
+ *  glyph whose spinner→muted-check progression is the block's REAL settled state (result present),
+ *  never a clock; the tool name; the target as a mono chip (ToolChips' chip language); measured
+ *  +/− counts where the edit's payload carries both sides. Click still expands input + result. */
 export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean }) {
   const [open, setOpen] = useState(false);
   const everOpened = useRef(false);
@@ -58,18 +60,23 @@ export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolB
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
   const state: ToolState = block.result ? (block.result.isError ? "error" : "ok") : live ? "running" : "none";
   const summary = clip(toolSummary(block.name, block.input));
+  const stat = editStat(block.name, block.input);
   return (
     <div className="tool-card" data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
       <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={() => setOpen((o) => !o)}>
-        <Icon name="chevronRight" size={12} className="tool-chevron" />
-        <Icon name={toolIcon(block.name)} size={16} />
-        <span className="tool-name">{block.name}</span>
-        <span className="tool-summary" title={summary}>{summary}</span>
         <span className="tool-status" aria-label={state === "running" ? "running" : state === "ok" ? "done" : state === "error" ? "failed" : "no result"}>
           {state === "running" && <Icon name="spinner" size={14} className="spin" />}
-          {state === "ok" && <Icon name="checkCircle" size={14} />}
+          {state === "ok" && <Icon name="check" size={14} />}
           {state === "error" && <Icon name="errorCircle" size={14} />}
         </span>
+        <span className="tool-name">{block.name}</span>
+        {summary && <span className="tool-summary" title={summary}>{summary}</span>}
+        {stat && (
+          <span className="tool-stat">
+            <span className="tool-stat-add">+{stat.add}</span> <span className="tool-stat-del">−{stat.del}</span>
+          </span>
+        )}
+        <Icon name="chevronRight" size={12} className="tool-chevron" />
       </button>
       {/* §6 expands the row by transitioning grid-template-rows 0fr→1fr, which only animates if the
           content is in the DOM on both sides of the flip. So the body is built on first open and
@@ -89,21 +96,44 @@ export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolB
   );
 }
 
+/** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still
+ *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's
+ *  first→last span — the same duration the counts line has always computed. */
+function useWorkedFor(working: boolean, firstTs: number, settledMs: number): string {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!working) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [working]);
+  return formatDuration(working ? Math.max(0, now - firstTs) : settledMs);
+}
+
 /** §2.8/§5: a run of consecutive tool calls, folded behind one ledger line with a dashed connector.
  *  It opens itself while the agent is still working through the run — collapsing live activity out
- *  of sight is the one thing this treatment must not do — and a manual toggle then wins for good. */
+ *  of sight is the one thing this treatment must not do — and a manual toggle then wins for good.
+ *  The collapsed row reads `Worked for <duration> ›` (Ara refresh §4); the counts line the ledger
+ *  still computes ("3 tools · 1 file · 2 commands") survives as the row's tooltip. */
 export function ToolGroup({ steps, sessionStatus }: {
   steps: { key: string; block: ToolBlock; enter: boolean }[]; sessionStatus: SessionStatus;
 }) {
   const [manual, setManual] = useState<boolean | null>(null);
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
-  const open = manual ?? (live && steps.some((s) => !s.block.result));
-  const line = formatToolRun(summarizeToolRun(steps.map((s) => s.block)));
+  const working = live && steps.some((s) => !s.block.result);
+  const open = manual ?? working;
+  const summary = summarizeToolRun(steps.map((s) => s.block));
+  const workedFor = useWorkedFor(working, steps[0]!.block.ts, summary.durationMs);
   return (
-    <div className="tool-group" data-open={open || undefined}>
-      <button className="tool-group-row" aria-expanded={open} aria-label={`${steps.length} tool calls`} onClick={() => setManual(!open)}>
+    <div className="tool-group" data-open={open || undefined} data-working={working || undefined}>
+      {/* Plan 9 W2: the row wears ThinkingState's header — sparkle glyph, and while the run is live
+          the label shimmers (BUI's working treatment); the label itself stays the kept Ara decision,
+          `Worked for <duration>`, ticking live and freezing on settle. */}
+      <button className="tool-group-row" aria-expanded={open} aria-label={`${steps.length} tool calls`}
+        title={formatToolRun(summary)} onClick={() => setManual(!open)}>
+        <Icon name="sparkles" size={14} className="tool-group-glyph" />
+        <span className="tool-group-summary">Worked for {workedFor}</span>
         <Icon name="chevronRight" size={12} className="tool-chevron" />
-        <span className="tool-group-summary">{line}</span>
       </button>
       {open && (
         <div className="tool-group-steps">

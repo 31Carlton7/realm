@@ -1,10 +1,13 @@
-/* Realm — ink grayscale (design-language 2026-08-27 §3/§5). Luminance is the border: separation
-   comes from stacked grey steps (frame → panel → raised) and translucent fills; hairlines survive
-   only where scrolling regions meet. Shadow means floating — detached surfaces (menus, palette,
-   sheets, composer, banners) wear `var(--rl-edge), var(--rl-shadow)`; nothing resting casts one.
-   Accent is ink (near-white dark / near-black light); the space colour survives only as --rl-space
-   on the space dot and strip glyph. Tokens are written by applyTheme(); these are pre-boot
-   fallbacks (dark). */
+/* Realm — Beautiful UI skin over the Ara structure (Plan 9 W1). The BUI token ramps live in
+   theme/tokens.css (`--page/--canvas/--surface`, the ink ramp, `--line`, `--accent`, semantic
+   colors, the shadow stacks), themed dark-first and flipped by `data-mode` on :root. This file
+   keeps Ara's STRUCTURE — layout, hero prompter, translucent sidebar, pane system — and re-skins
+   every component through the BRIDGE below: each legacy `--rl-*` token is redefined in terms of a
+   BUI token, so the whole app changes skin in one place and nothing is ever half-themed.
+   Shadow still means floating — detached surfaces (menus, palette, sheets, composer, banners)
+   wear `var(--rl-edge), var(--rl-shadow)`; nothing resting casts one. The space colour survives
+   only as --rl-space (space dot + strip glyph), the one token still written at runtime by
+   applyTheme() alongside `data-mode`. */
 /* Bundled mono face (V-X4, spec §A3): JetBrains Mono, © JetBrains — licensed under the SIL Open Font
    License 1.1, which permits bundling and redistribution with software (attribution kept here; the
    font files are unmodified originals from github.com/JetBrains/JetBrainsMono). */
@@ -18,28 +21,90 @@
   src: url("./assets/fonts/JetBrainsMono-Medium.woff2") format("woff2");
   font-weight: 500; font-style: normal; font-display: swap;
 }
+/* Bundled UI face (Plan 9 W1): Inter, © The Inter Project Authors — SIL Open Font License 1.1
+   (OFL-Inter.txt beside the files; unmodified variable originals from rsms.me/inter — bundling and
+   redistribution with software are permitted, attribution kept here). One variable file per style
+   covers the whole 100–900 weight axis, including the 550s this stylesheet leans on. */
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/InterVariable-Italic.woff2") format("woff2");
+  font-weight: 100 900; font-style: italic; font-display: swap;
+}
 
+/* ═══ THE BRIDGE (Plan 9 W1) ══════════════════════════════════════════════════
+   Every legacy `--rl-*` token, redefined in terms of the BUI ramps from
+   theme/tokens.css. The BUI variables flip themselves on `data-mode`, so one
+   mapping serves both themes unless noted (per-mode overrides sit in the
+   `:root[data-mode="light"]` block that follows). applyTheme() writes ONLY
+   `--rl-space` and `data-mode` now — everything else is static CSS truth. */
 :root {
-  --rl-accent: #f2f2f2; --rl-accent-contrast: #111111; --rl-space: #7c6cff;
-  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
-  --rl-frame: #121212; --rl-panel: #1a1a1a; --rl-raised: #222222;
-  --rl-line: #252525; --rl-line-strong: #333333;
-  --rl-hover: rgba(255,255,255,.06); --rl-active: rgba(255,255,255,.09);
-  --rl-text-bright: #f2f2f2; --rl-text-dim: #a0a0a0; --rl-text-faint: #6f6f6f;
-  --rl-danger: #e5484d; --rl-success: #46a758; --rl-warning: #d9822b;
-  --rl-terminal-bg: #0e0e0e;
-  --rl-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.45);
-  --rl-edge: inset 0 0 0 1px rgba(255,255,255,.07);
-  --r-panel: 12px; --r-ctl: 8px; --r-chip: 6px; --r-float: 16px;
-  --sidebar-w: 240px;
-  /* §6 easings. --ease stays as an alias of ease-out-strong so existing references keep working. */
+  /* accent: BUI's blue condiment replaces the ink accent — primary buttons, send,
+     focus rings, active ticks, links, carets all take --accent; white text rides on it. */
+  --rl-accent: var(--accent);                    /* BUI --accent */
+  --rl-accent-contrast: oklch(1 0 0);            /* white on the accent fill, both modes */
+  --rl-space: #7c6cff;                           /* runtime: applyTheme() overwrites per space */
+  /* type (Ara §1 revised): Inter is the UI face (BUI layout.tsx stacks); JetBrains Mono
+     survives in terminals, diffs, code and kbd. */
+  --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* surface ladder: frame → panel → raised keeps its meaning, stepped on BUI's ramp */
+  --rl-frame: var(--page);                       /* BUI --page: window ground + sunken wells */
+  --rl-panel: var(--canvas);                     /* BUI --canvas: the working ground */
+  --rl-raised: var(--surface);                   /* BUI --surface: cards, menus, sheets, composer */
+  /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
+  --rl-line: var(--line);                        /* BUI --line */
+  --rl-line-strong: var(--line-strong);          /* BUI --line-strong */
+  --rl-hairline: var(--line);                    /* BUI --line (the old 75% alpha derivation is gone) */
+  /* translucent interaction fills: kept alpha (BUI's opaque --hover only reads on its own
+     ground; these land on every surface incl. the translucent sidebar). Light overrides below. */
+  --rl-hover: oklch(1 0 0 / 0.06);
+  --rl-active: oklch(1 0 0 / 0.09);
+  /* ink ramp */
+  --rl-text-bright: var(--ink);                  /* BUI --ink */
+  --rl-text-dim: var(--ink-2);                   /* BUI --ink-2 */
+  --rl-text-faint: var(--ink-3);                 /* BUI --ink-3 */
+  /* semantic: colour stays a condiment — state only, never chrome */
+  --rl-danger: var(--red);                       /* BUI --red */
+  --rl-success: var(--green);                    /* BUI --green */
+  --rl-warning: var(--orange);                   /* BUI --orange */
+  /* terminals stay dark in both modes, one step below BUI's dark --page (cool-tinted,
+     oklch(.17 .004 264) ≈ #0e0f11). Hex literal: xterm parses it once at hub creation. */
+  --rl-terminal-bg: #0e0f11;
+  /* floating surfaces compose `var(--rl-edge), var(--rl-shadow)` — together they equal BUI's
+     --shadow-overlay: the hairline ring half and the layered-shadow half, split so the few
+     places using --rl-edge alone still get the BUI hairline ring. Light override below. */
+  --rl-edge: var(--shadow-hairline);             /* BUI --shadow-hairline (0 0 0 1px line) */
+  --rl-shadow: 0 8px 28px oklch(0 0 0 / 0.34);   /* BUI dark --shadow-overlay, shadow half */
+  /* radii: the BUI scale — chip 6, control 8, card 10, window 14 */
+  --r-chip: 6px;                                 /* BUI --radius-chip */
+  --r-ctl: 8px;                                  /* BUI --radius-control */
+  --r-row: 10px;                                 /* BUI --radius-card (rows keep card rounding) */
+  --r-panel: 10px;                               /* BUI --radius-card: menus, pickers, permission card */
+  --r-float: 14px;                               /* BUI --radius-window: composer, sheets, palette */
+  --sidebar-w: 280px; --prompter-w: 720px;
+  /* §6 easings — identical curves to BUI's @theme; --ease stays as the legacy alias. */
   --ease-out-strong: cubic-bezier(.23,1,.32,1);
   --ease-in-out-strong: cubic-bezier(.77,0,.175,1);
   --ease: var(--ease-out-strong);
 }
+/* The per-mode residue: the three tokens whose dark/light values do not flow from a BUI var. */
+:root[data-mode="light"] {
+  --rl-hover: oklch(0 0 0 / 0.05);
+  --rl-active: oklch(0 0 0 / 0.07);
+  --rl-shadow: var(--shadow-lg);                 /* shadow-plugin's smooth lg stack (BUI light --shadow-overlay, shadow half) */
+}
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font: 13px/1.45 -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-html, body { background: var(--rl-panel); } /* panes are the ground now; only the sidebar steps down to frame */
+html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font: 14px/1.5 var(--font-ui); -webkit-font-smoothing: antialiased; }
+/* §5 vibrancy: html/body/#root/.app stay transparent so the macOS material shows through the
+   sidebar column; .main (and every pane) paints opaque --rl-panel, so text there renders on a solid
+   ground. On non-mac the BrowserWindow keeps its opaque backgroundColor and this composes to the
+   old dark frame. */
+html, body { background: transparent; }
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
 button:disabled { cursor: default; opacity: .45; }
 input, select, textarea { font: inherit; color: inherit; }
@@ -50,19 +115,24 @@ kbd { font: 11px var(--font-mono); }
 .panel ::selection { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); }
 
 /* ── Sidebar (one step darker than the content ground, behind a 1px divider) ── */
-.app { display: flex; height: 100%; background: var(--rl-panel); }
+.app { display: flex; height: 100%; background: transparent; }
+/* §5 + Plan 9 W1: the sidebar paints the BUI window ground (--page) at ~0.82 so the macOS
+   vibrancy material shows through; --page flips with data-mode, so one rule serves both themes. */
 .sidebar { width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
-  background: var(--rl-frame); border-right: 1px solid var(--rl-line); -webkit-app-region: drag; }
+  background: color-mix(in srgb, var(--page) 82%, transparent); border-right: 1px solid var(--rl-hairline); -webkit-app-region: drag; }
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
-.sb-top { padding: 40px 12px 8px; }
+.sb-top { padding: 40px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
+/* Plan 9 W3 — BUI SidebarNav's chat-search field: field fill behind a hairline ring, 13/500,
+   ink-3 → ink-2 as the pointer arrives (the fill itself does not change; the field IS the state). */
 .search { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border-radius: var(--r-ctl);
-  background: var(--rl-raised); border: none; color: var(--rl-text-faint); text-align: left; }
-.search:hover { color: var(--rl-text-dim); background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-raised); }
+  background: var(--field); box-shadow: var(--shadow-hairline); border: none; color: var(--rl-text-faint); text-align: left;
+  font-size: 13px; font-weight: 500; }
+.search:hover { color: var(--rl-text-dim); }
 .search span { flex: 1; } .search kbd { opacity: .7; }
 
 .swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
 .swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; }
-.space-page { flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 12px 8px; overflow: hidden; }
+.space-page { flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 16px 8px; overflow: hidden; }
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px; }
 
 .space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0 8px; }
@@ -71,15 +141,15 @@ kbd { font: 11px var(--font-mono); }
 .space-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rl-space); flex: none; }
 .space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .space-header-actions { display: flex; align-items: center; gap: 2px; flex: none; }
-.pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--rl-raised); color: var(--rl-text-dim); }
-.icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
+.icon-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-ctl); color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way. */
 .icon-btn, .item-close { position: relative; }
 .icon-btn::after, .item-close::after { content: ""; position: absolute; inset: -6px; }
 
-.group-label { font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--rl-text-dim); padding: 10px 5px 4px; }
+/* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
+.group-label { font-size: 12.5px; font-weight: 500; color: var(--rl-text-faint); padding: 12px 8px 4px; }
 
 .pinned-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding-bottom: 4px; }
 .tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1; border-radius: var(--r-ctl);
@@ -89,14 +159,15 @@ kbd { font: 11px var(--font-mono); }
 .tile-rename { aspect-ratio: auto; grid-column: 1 / -1; padding: 0; }
 
 .item-list { display: flex; flex-direction: column; gap: 1px; }
-.item { position: relative; display: flex; align-items: center; border-radius: var(--r-chip); min-height: 28px; font-size: 12.5px; }
+.item { position: relative; display: flex; align-items: center; border-radius: var(--r-ctl); min-height: 32px; font-size: 14px; }
 .item:hover { background: var(--rl-hover); }
-/* Active (= focused pane's item) reads as "chosen", not merely "hovered": the --rl-active pill,
-   one step stronger than --rl-hover, plus a 2px ink tick (§5). */
+/* Active (Plan 9 W3 — BUI SidebarNav): a fill one step past hover and ink text, nothing else —
+   the 2px accent tick and the 550 weight bump are gone (BUI actives never outline or embolden).
+   The fills stay translucent (--rl-hover/--rl-active), the W1 vibrancy carve-out: BUI's opaque
+   --hover-2 only reads on its own opaque ground, and this column is macOS material. */
 .item[data-active] { background: var(--rl-active); }
-.item[data-active]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--rl-accent); }
-.item[data-active] .item-row { font-weight: 550; color: var(--rl-text-bright); }
-.item-row { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px 5px 10px; color: var(--rl-text-dim); border-radius: var(--r-chip); }
+.item[data-active] .item-row { color: var(--rl-text-bright); }
+.item-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px; font-weight: 500; color: var(--rl-text-dim); border-radius: var(--r-ctl); }
 .item:hover .item-row { color: var(--rl-text-bright); }
 .item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-status { margin-left: auto; width: 6px; height: 6px; }
@@ -104,18 +175,19 @@ kbd { font: 11px var(--font-mono); }
 .item-glyph span { background: var(--rl-line-strong); border-radius: 1px; }
 /* Glyph cells are neutral; the focused pane's row lifts them to ink (accent = ink now, V-C1 kept). */
 .item-glyph span[data-on] { background: var(--rl-text-dim); }
-.item[data-active] .item-glyph span[data-on] { background: var(--rl-accent); }
+.item[data-active] .item-glyph span[data-on] { background: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
 .item-close { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
 .item:hover .item-close { opacity: 1; } .item-close:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .item-close:focus-visible { opacity: 1; } /* the hover-only x must also appear for keyboard focus (A-M8) */
 .item[data-dragging] { opacity: .45; }
-.rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-bright); outline: none; }
+.rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
-.new-item { margin-top: auto; padding-top: 4px; }
-.sb-divider { height: 16px; } /* §5: dividers become spacing — no drawn line */
-.new-row { color: var(--rl-text-dim); width: 100%; } .new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Ara refresh §5: the row sits at the sidebar's top now, first row under the search field. */
+.new-item { flex: none; }
+.new-row { color: var(--rl-text-dim); width: 100%; border-radius: var(--r-ctl); min-height: 32px; }
+.new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 
-.space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px 10px; }
+.space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 10px; }
 /* safe center: centered while it fits, but overflow aligns to start instead of clipping the left end
    unreachably (A-H2). The scrollbar is hidden — scrollIntoView keeps the active space visible. */
 .strip-spaces { flex: 1; display: flex; align-items: center; justify-content: safe center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
@@ -138,35 +210,35 @@ kbd { font: 11px var(--font-mono); }
 /* max-height + scroll: positioning clamps `top` to the viewport, so a menu taller than the screen
    would otherwise run off the bottom edge with no way to reach its last items. */
 .menu { z-index: 100; min-width: 160px; max-height: min(60vh, calc(100vh - 24px)); overflow-y: auto; padding: 4px; display: flex; flex-direction: column;
-  background: var(--rl-raised); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--rl-edge), var(--rl-shadow); }
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
 .menu [role="menuitem"], .menu [role="menuitemcheckbox"] { flex: none; text-align: left; padding: 6px 10px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px; }
-.menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--rl-hover); }
+.menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--hover); }
 /* Roving focus moves programmatically, which browsers don't always mark :focus-visible — use :focus. */
-.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--rl-hover); outline: none; }
+.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--hover); outline: none; }
 .menu .menu-check { margin-left: auto; color: var(--rl-accent); flex: none; }
 .menu [role="menuitem"].danger { color: var(--rl-danger); }
 .menu-label { flex: 1; }
-.menu-sep { height: 1px; background: var(--rl-line); margin: 4px 2px; }
+.menu-sep { height: 1px; background: var(--rl-hairline); margin: 4px 2px; }
 .menu-kbd { margin-left: auto; padding-left: 18px; color: var(--rl-text-dim); }
 
 /* ── Model picker (prompter): search + provider rail + (agent, model) rows ── */
 .model-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--rl-raised); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--rl-edge), var(--rl-shadow); }
-.mp-search { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--rl-line); color: var(--rl-text-faint); }
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
+.mp-search { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
 .mp-body { display: flex; min-height: 0; }
 /* The rail is a column of providers, hairline-separated from the list — the one place in the picker
    where two scrolling regions meet (§2). */
-.mp-rail { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-right: 1px solid var(--rl-line); }
+.mp-rail { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-right: 1px solid var(--rl-hairline); }
 .mp-rail-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-chip); color: var(--rl-text-faint);
   transition: background-color 100ms ease, color 100ms ease; }
-.mp-rail-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.mp-rail-btn[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
+.mp-rail-btn:hover { background: var(--hover); color: var(--rl-text-bright); }
+.mp-rail-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .mp-list { flex: 1; min-width: 0; max-height: min(46vh, 320px); overflow-y: auto; padding: 6px; }
 .mp-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
   transition: background-color 100ms ease, color 100ms ease; }
-.mp-row[data-active] { background: var(--rl-hover); }
+.mp-row[data-active] { background: var(--hover); }
 /* Unavailable, not hidden: dimmed and non-interactive, but still readable and still explaining itself
    through its title and the footer line. */
 .mp-row[data-blocked] { opacity: .45; cursor: default; }
@@ -178,32 +250,45 @@ kbd { font: 11px var(--font-mono); }
 .mp-check { flex: none; color: var(--rl-accent); }
 .mp-blocked { flex: none; color: var(--rl-text-faint); }
 .mp-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
-.mp-foot { padding: 8px 11px; border-top: 1px solid var(--rl-line); font-size: 11px; color: var(--rl-text-faint); }
+/* Overflow home (Ara refresh §3): when the prompter's control row cannot fit its chips, effort +
+   permission live here — labelled option groups under the model list, whole (never search-filtered). */
+.mp-overflow { border-top: 1px solid var(--rl-hairline); padding: 8px 11px; display: flex; flex-direction: column; gap: 6px; }
+.mp-overflow-group { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mp-overflow-label { flex: none; font-size: 11px; color: var(--rl-text-faint); min-width: 68px; }
+.mp-overflow-opts { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.mp-overflow-opt { padding: 3px 8px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim);
+  transition: background-color 100ms ease, color 100ms ease; }
+.mp-overflow-opt:hover { background: var(--hover); color: var(--rl-text-bright); }
+.mp-overflow-opt[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
+.mp-foot { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); font-size: 11px; color: var(--rl-text-faint); }
 
 /* ── Main: full-bleed pane host (no topbar; pane headers carry the window drag) ── */
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--rl-panel); }
 .panehost { flex: 1; min-height: 0; display: flex; -webkit-app-region: no-drag; }
 .panehost > * { flex: 1; min-width: 0; min-height: 0; }
 .panel { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0;
   background: var(--rl-panel); overflow: hidden; }
 /* 16px left rail, aligned with the transcript and composer (V-S2). */
-.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 16px; border-bottom: 1px solid var(--rl-line); font-size: 12px; -webkit-app-region: drag; }
+.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--rl-hairline); font-size: 14px; -webkit-app-region: drag; }
 .panel-bar button, .panel-bar input { -webkit-app-region: no-drag; }
 /* Focused-pane mark (§5): a 2px ink underline on the title itself — not a full-width bar — plus the
    header icon lifted to ink. The pane-header keeps its 1px --rl-line bottom border: content scrolls
    beneath it, so it is a scroll seam (§5 wants it sticky-only; the header here is always sticky). */
-.panel[data-focused] .panel-title { box-shadow: inset 0 -2px 0 var(--rl-accent); }
+/* Focused pane: the title brightens instead of underlining — the ink bar read as decoration
+   (and as a permanent oddity with a single pane), but focus must stay legible in a split. */
+.panel .panel-title { color: var(--rl-text-dim); }
+.panel[data-focused] .panel-title { color: var(--rl-text-bright); }
 .panel[data-focused] .panel-icon { color: var(--rl-accent); }
 /* A focused EMPTY leaf has no header to underline — the pane itself takes an accent top rule. */
 .panel[data-focused][data-empty] { box-shadow: inset 0 2px 0 var(--rl-accent); }
 .panel-icon { color: var(--rl-text-dim); display: grid; place-items: center; }
-.panel-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.panel-title { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* Click-to-rename affordance (spec §A2): the title is a quiet button. */
 button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); }
 button.panel-title:hover { background: var(--rl-hover); }
 .panel-rename { display: flex; min-width: 120px; max-width: 280px; }
 .panel-rename .rename { height: 24px; }
-.panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .panel-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .panel-body { flex: 1; min-height: 0; position: relative; display: flex; }
 .pane-slot { flex: 1; min-width: 0; min-height: 0; display: flex; }
@@ -243,21 +328,21 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Socket down: slim fixed banner, above panes but below sheets/palette. */
 .conn-banner { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 12px;
   padding: 5px 12px; border-radius: 0 0 var(--r-ctl) var(--r-ctl);
-  background: color-mix(in srgb, var(--rl-warning) 8%, var(--rl-raised)); color: var(--rl-warning); font-size: 12px; box-shadow: var(--rl-edge), var(--rl-shadow); -webkit-app-region: no-drag; }
+  background: color-mix(in srgb, var(--rl-warning) 8%, var(--surface)); color: var(--rl-warning); font-size: 12px; box-shadow: var(--shadow-raised); -webkit-app-region: no-drag; }
 .conn-banner button { color: inherit; font-weight: 600; padding: 2px 6px; border-radius: var(--r-chip); }
 .conn-banner button:hover { background: var(--rl-hover); }
 
 /* ── Sheets / palette (raised) ─────────────────────────────────────────── */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0,0,0,.45); }
-.sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; border-radius: var(--r-float); background: var(--rl-raised); color: var(--rl-text-bright);
-  box-shadow: var(--rl-edge), var(--rl-shadow); outline: none; }
+.sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; border-radius: var(--r-float); background: var(--surface); color: var(--rl-text-bright);
+  box-shadow: var(--shadow-overlay); outline: none; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 6px; }
 .sheet-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .sheet-body { padding: 8px 16px 16px; }
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; color: var(--rl-text-dim); }
-.field input, .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-bright); outline: none; }
+.field input, .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 /* One focus-ring formula for every text-entry surface (§3): neutral ink at 35%, 2px. */
 .field input:focus, .field select:focus, .rename:focus, .hex:focus {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
@@ -265,15 +350,17 @@ button.panel-title:hover { background: var(--rl-hover); }
 .profile-add-row { display: flex; gap: 6px; } .profile-add-row input { flex: 1; min-width: 0; }
 .profile-add-link { align-self: flex-start; font-size: 12px; color: var(--rl-text-dim); padding: 1px 0; }
 .profile-add-link:hover { color: var(--rl-text-bright); }
-/* §3 button tiers. Secondary = raised fill; the translucent hover layer keeps it visible when it
-   sits ON a raised sheet (raised-on-raised alone would vanish). */
+/* Plan 9 W3 — BUI Button's tiers. Secondary = surface on shadow-btn (the ring is what makes it
+   read on a surface sheet; the old translucent-layer hack is gone), hover steps to the inset fill.
+   Primary = the accent treatment: inset top highlight, accent-ink hover ladder. Press stays §6's
+   app-wide .97 (BUI's own is .96 — one press scale everywhere beats a per-atom fork). */
 .btn { height: 30px; padding: 0 12px; border-radius: var(--r-ctl); border: none;
-  background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-raised); }
-.btn:hover:not(:disabled) { background: linear-gradient(var(--rl-active), var(--rl-active)) var(--rl-raised); }
-.btn.primary { background: var(--rl-accent); color: var(--rl-accent-contrast); }
-.btn.primary:hover:not(:disabled) { background: var(--rl-accent); }
-.btn.danger { background: none; color: var(--rl-danger); }
-.btn.danger:hover:not(:disabled) { background: var(--rl-hover); }
+  background: var(--surface); box-shadow: var(--shadow-btn); }
+.btn:hover:not(:disabled) { background: var(--inset); }
+.btn.primary { background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
+.btn.primary:hover:not(:disabled) { background: var(--accent-ink); }
+.btn.danger { background: none; color: var(--rl-danger); box-shadow: none; }
+.btn.danger:hover:not(:disabled) { background: var(--hover); }
 .icon-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .icon-choice { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-dim); }
 .icon-choice:hover { color: var(--rl-text-bright); } .icon-choice[data-selected] { border-color: var(--rl-accent); color: var(--rl-accent); }
@@ -281,22 +368,22 @@ button.panel-title:hover { background: var(--rl-hover); }
 .swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; }
 .swatch[data-selected] { border-color: var(--rl-text-bright); }
 .hex { width: 90px; height: 26px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--rl-panel); font: 12px var(--font-mono); }
-.danger-zone { justify-content: flex-start; align-items: center; border-top: 1px solid var(--rl-line); padding-top: 12px; }
+.danger-zone { justify-content: flex-start; align-items: center; border-top: 1px solid var(--rl-hairline); padding-top: 12px; }
 .danger-zone .muted { flex: 1; }
 
 .palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: rgba(0,0,0,.35); }
-.palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-float); overflow: hidden; background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--rl-edge), var(--rl-shadow); }
-.palette-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rl-line); color: var(--rl-text-dim); }
+.palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-float); overflow: hidden; background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-overlay); }
+.palette-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-dim); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
-.palette-input kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: 4px; } /* kbd chips keep line-strong (§3) */
+.palette-input kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
 .palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
 .palette-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-ctl); cursor: pointer; }
-.palette-opt.selected, .palette-opt:hover { background: var(--rl-hover); }
+.palette-opt.selected, .palette-opt:hover { background: var(--hover); }
 .palette-opt.disabled { opacity: .45; cursor: default; }
 .palette-sec { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
 .palette-sec:not(:first-child) { margin-top: 4px; }
 .palette-hint .item-glyph { display: inline-grid; vertical-align: middle; }
-.palette-hint kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: 4px; }
+.palette-hint kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { font-size: 11px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
@@ -327,46 +414,90 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Shared rails (§4): content rides the prompter's 680px column; the scrollbar stays at the pane edge
    because .transcript itself is the scroller. Cluster-then-breathe rhythm (V-S1): 8px inside a turn,
    16px before each new user turn. */
-.transcript-col { width: 100%; max-width: 680px; margin-inline: auto; display: flex; flex-direction: column; gap: 8px; }
+.transcript-col { width: 100%; max-width: var(--prompter-w); margin-inline: auto; display: flex; flex-direction: column; gap: 8px; }
 
 .msg-user-row { display: flex; justify-content: flex-end; margin-top: 16px; }
 .msg-user-row:first-child { margin-top: 0; }
-.msg-user { max-width: 78%; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: var(--rl-raised); white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg-assistant { max-width: 72ch; }
+/* Ara refresh §4: the user's message is a raised card on the column's RIGHT edge — radius 14,
+   14px 16px padding, 85% max — and, copying Ara exactly, ragged-left (text-align: right). */
+.msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: right;
+  font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Ara refresh §4: assistant prose is plain — 15px/1.6, no card. */
+.msg-assistant { max-width: 72ch; font-size: 15px; line-height: 1.6; }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
+.msg-assistant.md { line-height: 1.6; }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; } .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
+/* Tailwind v4 preflight strips list markers app-wide; markdown lists must keep theirs. */
+.md ul { list-style: disc; } .md ol { list-style: decimal; }
 /* Heading scale per audit T2: h1 17/650 tightened, h2 15/650, h3 13/600 differentiated by colour. */
 .md h1, .md h2, .md h3, .md h4 { margin: 12px 0 6px; font-weight: 600; line-height: 1.3; }
 .md h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; } .md h2 { font-size: 15px; font-weight: 650; } .md h3 { font-size: 13px; color: var(--rl-text-bright); }
-.md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: 4px; background: var(--rl-raised); }
+.md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip); background: var(--rl-raised); }
 .md pre { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--rl-frame); overflow-x: auto; }
 .md pre code { padding: 0; background: none; }
-.md a { color: var(--rl-accent); }
+/* Plan 9 W2 — BUI CodeBlock: fenced code is an editor panel now — a surface card behind a hairline
+   ring, a header naming the fence's language beside a copy control, and a 12.5/1.65 mono body.
+   Markdown.tsx builds the wrapper post-sanitize; the copy button reuses .tool-copy so the §6 icon
+   swap (and its pinned 160ms cross-fade) is one rule for both surfaces. */
+.md-code { margin: 6px 0 8px; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--shadow-hairline); overflow: hidden; }
+.md-code-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); }
+.md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
+.md-code pre { margin: 0; padding: 10px 12px; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
+.md a { color: var(--rl-accent); text-decoration: underline; text-underline-offset: 2px; } /* Ara refresh §4: ink underline, no hue */
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
 .md table { border-collapse: collapse; margin: 6px 0 8px; } .md th, .md td { border: 1px solid var(--rl-line); padding: 4px 8px; }
 .md-scroll { overflow-x: auto; } /* renderMarkdown wraps every table (A-M1) */
 .md img { max-width: 100%; }
-.md-caret { color: var(--rl-accent); animation: rl-pulse 1s ease-in-out infinite; }
+/* Plan 9 W2 — BUI StreamText's caret: a 2px ink bar, SOLID while streaming (BUI's .is-streaming
+   kills the blink; the caret only exists while the delta stream is live, so it never blinks at
+   all). The old pulsing accent ▍ glyph is gone. The text itself is never re-revealed: deltas pace
+   the stream, so a re-render shows exactly what has arrived — no reveal timer to replay. */
+.md-caret { display: inline-block; width: 2px; height: 1.05em; margin-left: 1.5px; border-radius: 1px; background: var(--ink); vertical-align: text-bottom; }
 .msg-thinking { font-size: 12px; }
 .thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); }
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
 .thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); white-space: pre-wrap; }
 .msg-error { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r-ctl); color: var(--rl-danger); background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); }
 .msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; }
-.msg-working { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rl-text-dim); }
+/* Plan 9 W2 — BUI LoadingState's shimmer label replaces the spinner+text pair; under
+   prefers-reduced-motion the global animation kill leaves a static, readable gradient. */
+.msg-working { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--rl-text-dim); }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
-/* §5: collapsed reads as a plain row on the transcript — no fill, no border, nothing but the row.
-   The card only becomes a card when it opens: panel fill plus the --rl-edge hairline. */
+/* ═══ Vendored design language — beautiful-ui (MIT) ══════════════════════════
+   Realm's skin adapts visual language from beautiful-ui (github.com/slev12397/beautiful-ui,
+   MIT © its authors). This is the one consolidated notice; theme/tokens.css carries the matching
+   note for the token foundation it vendors (app/globals.css, generic blocks + shadow-plugin).
+   Adapted sources, by workstream:
+   - W1 foundation: app/globals.css token ramps, radii, shadow stacks, base hygiene (tokens.css).
+   - W2 transcript primitives (blocks tagged "Plan 9 W2" below): ThinkingState, ApprovalCard,
+     StreamText, CodeBlock, DiffTable, ToolChips, LoadingState/Shimmer, StatusPill.
+   - W3 composer + chrome (blocks tagged "Plan 9 W3"): PromptBar/ChatComposer (composer field,
+     chips, send, menus' surface), SidebarNav (rows, actives, search, section labels), GlideMenu
+     (menu surface language), atoms Button/Chip/StatusPill.
+   Everything is rewritten onto Realm's class names and DRIVEN BY REAL SESSION STATE: every demo
+   timer (STAGES/useSequence/VARIANTS/AUTO_STEPS) is stripped; spinners, shimmers and checks key
+   off results, statuses and data attributes only. Central icons (commercial) are NOT vendored —
+   Hugeicons remain — and glimm/cuelume/dialkit are omitted per the recipe's own outs. */
+
+/* Plan 9 W2 — BUI ThinkingState (coding) is the tool row's language now. Collapsed still reads as
+   a plain row on the transcript; the card only becomes a card when it opens. The row leads with the
+   status glyph (spinner → muted ink-3 check, driven by the block's real settled state), then the
+   name at 12.5/550 ink, the target as a mono field-fill chip (ToolChips' chip), measured +/− counts
+   on edits, and a trailing chevron. */
 .tool-card { border-radius: var(--r-ctl); font-size: 12px; }
 .tool-card[data-open] { background: var(--rl-panel); box-shadow: var(--rl-edge); }
-.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); text-align: left; color: var(--rl-text-bright); }
+.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px; border-radius: var(--r-ctl); text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
-.tool-chevron { color: var(--rl-text-faint); transition: transform 200ms var(--ease-in-out-strong); flex: none; }
+.tool-chevron { color: var(--rl-text-faint); transition: transform 200ms var(--ease-in-out-strong); flex: none; margin-left: auto; }
 .tool-card[data-open] .tool-chevron, .tool-group[data-open] .tool-chevron { transform: rotate(90deg); }
 .tool-name { font-size: 12.5px; font-weight: 550; flex: none; }
+/* Measured counts (editStat): green adds, red deletes, mono tabular — BUI's `+74 −41`. */
+.tool-stat { flex: none; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.tool-stat-add { color: var(--green); }
+.tool-stat-del { color: var(--red); }
 
 /* §6 tool-row expand: height animates via grid-template-rows 0fr→1fr over 200ms, content fades at
    120ms. .tool-body-clip is the overflow container the 0fr row needs to clip against. */
@@ -375,18 +506,32 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-body-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] .tool-body { opacity: 1; }
 
-/* Grouped runs (§2.8/§5): one ledger line, steps hanging off a dashed connector when opened. */
+/* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
+   the sparkle glyph plus `Worked for <duration> ›` at 13/500 — shimmering (BUI's working treatment)
+   while the run is live, settled ink-2 once every step has its result — and the opened trace hangs
+   off ThinkingState's solid 1px rail (the dashed connector is gone: BUI truth). */
 .tool-group { border-radius: var(--r-ctl); font-size: 12px; }
-.tool-group-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); text-align: left; color: var(--rl-text-dim); }
+.tool-group-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); text-align: left; font-size: 13px; font-weight: 500; color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.tool-group-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.tool-group-steps { margin-left: 15px; padding-left: 10px; border-left: 1px dashed var(--rl-line-strong); display: flex; flex-direction: column; gap: 1px; }
-.tool-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+.tool-group-glyph { color: var(--ink-3); flex: none; }
+.tool-group[data-working] .tool-group-glyph { color: var(--ink-2); }
+.tool-group-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
+   Driven by data-working — the group's own unsettled steps — never by a demo clock. */
+.shimmer-text, .tool-group[data-working] .tool-group-summary, .composer-thinking span {
+  background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer-text 1.4s linear infinite; }
+.tool-group-steps { margin-left: 15px; padding-left: 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+/* The target chip: ToolChips' field-fill chip — mono 11.5, hairline ring, truncating. */
+.tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2);
+  font: 11.5px var(--font-mono); font-variant-numeric: tabular-nums; background: var(--field); box-shadow: var(--shadow-hairline);
+  border-radius: var(--r-chip); padding: 3px 6px; }
 .tool-status { display: grid; place-items: center; width: 16px; color: var(--rl-text-faint); flex: none; }
-.tool-card[data-state="ok"] .tool-status { color: var(--rl-success); }
+.tool-card[data-state="ok"] .tool-status { color: var(--ink-3); } /* BUI: the settled check is muted, not green */
 .tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
-.tool-card[data-state="running"] .tool-status { color: var(--rl-success); } /* §3: nothing running-related uses accent */
-.tool-body { border-top: 1px solid var(--rl-line); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;
+.tool-card[data-state="running"] .tool-status { color: var(--ink-2); } /* §3: nothing running-related uses accent */
+.tool-body { border-top: 1px solid var(--rl-hairline); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity 120ms ease; }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ (§6 icon swap): both glyphs stacked in one grid cell, cross-fading with scale + blur. */
@@ -402,11 +547,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
 .tool-body pre[data-error] { color: var(--rl-danger); }
 
-/* §5: the permission card floats (it interrupts) — neutral raised + edge + shadow. The amber wash
-   is gone; colour survives as a 6px dot and the "Waiting" status pill, and the options are the
-   numbered-list pattern from HJz3KMT. */
-.permission-card { border-radius: var(--r-panel); padding: 12px 14px; background: var(--rl-raised); box-shadow: var(--rl-edge), var(--rl-shadow); display: flex; flex-direction: column; gap: 8px; }
-.permission-head { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--rl-text-bright); }
+/* Plan 9 W2: the permission card wears BUI ApprovalCard's shell — a surface card on shadow-card
+   (BUI cards rest; the old floating overlay shadow is gone), radius-card, 12px card pad, and a
+   hairline-topped footer. The behaviour underneath is Realm's, verbatim: numbered options with kbd
+   chips, ↑↓/bare-digit keys, the Enter-on-Deny guard, Esc→deny. The amber wash stays gone; colour
+   survives as the 6px dot and the "Waiting" pill. */
+.permission-card { border-radius: var(--r-panel); padding: 12px; background: var(--surface); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 8px; }
+.permission-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 550; color: var(--ink); }
 .permission-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-warning); flex: none; animation: rl-pulse 0.9s ease-in-out infinite; }
 .permission-head .status-pill { margin-left: auto; font-weight: 400; }
 .permission-tool { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -417,28 +564,32 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Numbered options: kbd chip, label, shortcut hint; the selected row is an --rl-active pill (§2.7 —
    selected is a fill, never an outline). Focus and selection are kept in step by the component. */
 .permission-options { display: flex; flex-direction: column; gap: 1px; }
+/* Option rows on ApprovalCard's opaque-fill hover ladder: --hover under the pointer, --hover-2 for
+   the selected pill (both are BUI surface-ground fills — the card is opaque --surface now). */
 .permission-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: var(--r-ctl);
-  text-align: left; font-size: 12.5px; color: var(--rl-text-dim); }
-.permission-option:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.permission-option[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: 550; }
+  text-align: left; font-size: 13px; color: var(--ink-2); }
+.permission-option:hover { background: var(--hover); color: var(--ink); }
+.permission-option[data-selected] { background: var(--hover-2); color: var(--ink); font-weight: 550; }
 .permission-option[data-decision="deny"][data-selected] { color: var(--rl-danger); }
 .permission-option-label { flex: 1; min-width: 0; }
-.permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 4px;
-  background: var(--rl-hover); color: var(--rl-text-faint); font-size: 10.5px; flex: none; }
-.permission-option[data-selected] .permission-num { color: var(--rl-text-bright); }
+/* kbd number chips: BUI's inset fill + hairline ring. */
+.permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-chip);
+  background: var(--inset); box-shadow: var(--shadow-hairline); color: var(--ink-3); font-size: 10.5px; flex: none; }
+.permission-option[data-selected] .permission-num { color: var(--ink); }
 .permission-option-kbd { color: var(--rl-text-faint); font-size: 10px; flex: none; }
 
-/* Footer (§5): navigation hints left, accent Submit pill right. */
-.permission-footer { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+/* Footer (ApprovalCard's primitive-card-footer): hairline-topped, bleeding to the card edge —
+   navigation hints left, accent Submit pill right. */
+.permission-footer { display: flex; align-items: center; gap: 10px; margin: 4px -12px -12px; padding: 8px 12px; border-top: 1px solid var(--line); }
 .permission-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
-.permission-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: 4px; font-size: 10px; }
+.permission-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 10px; }
 .permission-submit { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
 .permission-submit kbd { opacity: .7; }
 
 /* ── The prompter (§4): one floating card, two states, one element moving ─ */
 /* The dock carries geometry + position for BOTH states; greeting/suggestions/thinking hang off it
    absolutely so the hero→docked move is a single transform transition (§6: 320ms, interruptible). */
-.composer-dock { position: relative; flex: none; width: min(680px, 100% - 48px);
+.composer-dock { position: relative; flex: none; width: min(var(--prompter-w), 100% - 48px);
   margin: 8px auto max(12px, env(safe-area-inset-bottom));
   transition: transform 320ms var(--ease-in-out-strong); }
 /* Hero (§4): card centered at ~38% pane height. It stays bottom-anchored in flow and is lifted by
@@ -449,49 +600,45 @@ button.panel-title:hover { background: var(--rl-hover); }
 @media (prefers-reduced-motion: reduce) {
   .composer-dock { transition: none; } /* the global kill also covers this; explicit for clarity */
 }
-.hero-greeting { position: absolute; bottom: calc(100% + 16px); left: 0; right: 0; text-align: center;
-  font-size: 18px; font-weight: 650; letter-spacing: -.01em; color: var(--rl-text-bright); text-wrap: balance; }
-.hero-greeting em { font-style: normal; color: var(--rl-text-bright); }
-.hero-greeting { color: var(--rl-text-dim); }
+.hero-greeting { position: absolute; bottom: calc(100% + 20px); left: 0; right: 0; text-align: center;
+  font-size: 30px; font-weight: 600; letter-spacing: -0.02em; color: var(--rl-text-bright); text-wrap: balance; }
+.hero-greeting em { font-style: normal; }
 
-/* Suggested prompts (§4): 2-up grid ≤640px below the card; raised fill, no border. */
+/* Suggested prompts (Ara refresh §3): a single-column LIST at full prompter width under the card —
+   transparent rows, hover fill, one 14px title line behind a faint leading glyph. */
 .suggestions { position: absolute; top: calc(100% + 12px); left: 0; right: 0;
-  width: min(640px, 100%); margin-inline: auto;
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  display: flex; flex-direction: column; gap: 8px; }
 /* Below ~420px of pane the hero clamp has already pinned the card near the top and the grid would
    run past the pane's bottom edge, clipped mid-chip by .panel's overflow. Chips are the optional
    part of the hero — drop them cleanly and let the greeting and card keep the room. */
 @container (max-height: 420px) { .suggestions { display: none; } }
-.suggestion-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; border-radius: var(--r-ctl);
-  background: var(--rl-raised); min-width: 0; }
-.suggestion-chip:hover { background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-raised); }
-.suggestion-title { font-size: 12.5px; font-weight: 550; color: var(--rl-text-bright); }
-.suggestion-desc { font-size: 11.5px; color: var(--rl-text-dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-chip { display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px; border-radius: var(--r-ctl);
+  background: transparent; min-width: 0; }
+.suggestion-chip:hover { background: var(--rl-hover); }
+.suggestion-glyph { color: var(--rl-text-faint); flex: none; }
+.suggestion-title { font-size: 14px; color: var(--rl-text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-chip:hover .suggestion-title { color: var(--rl-text-bright); }
 /* Stagger-in (§6): 220ms ease-out, 8px rise, 40ms steps — first render of a session's hero only
    (the data-animate guard is set from a module-level seen-set, so tab-backs never replay). */
 .suggestions[data-animate] .suggestion-chip { animation: rl-chip-in 220ms var(--ease-out-strong) backwards; animation-delay: calc(var(--i) * 40ms); }
 @keyframes rl-chip-in { from { opacity: 0; transform: translateY(8px); } }
 
-/* The card (§4): raised, --r-float, borderless — edge hairline + shadow; ring at 30% on focus. */
-.composer { width: 100%; border-radius: var(--r-float); background: var(--rl-raised);
-  box-shadow: var(--rl-edge), var(--rl-shadow); display: flex; flex-direction: column; position: relative; z-index: 1; }
+/* The card (Plan 9 W3 — BUI PromptBar): a surface field on shadow-card (the hairline ring is part
+   of the stack), --r-float, borderless. Focus is BUI's border-brighten — the ring steps to
+   line-strong — replacing the old 30% accent glow (PromptBar's focus-within:border-line-strong). */
+.composer { width: 100%; border-radius: var(--r-float); background: var(--surface);
+  box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
-  box-shadow: var(--rl-edge), 0 0 0 2px color-mix(in srgb, var(--rl-accent) 30%, transparent), var(--rl-shadow); }
-/* Row 1 — context chips: raised-on-raised, 11px, quiet. */
-.composer-context { display: flex; align-items: center; gap: 6px; padding: 10px 12px 0; color: var(--rl-text-dim); overflow: hidden; }
-.composer-context:empty { display: none; }
-.composer-context .git-branch { font-family: var(--font-mono); font-size: 11px; }
-.composer-context .git-diff { gap: 6px; font-variant-numeric: tabular-nums; }
-.composer-context .diff-add { color: var(--rl-success); }
-.composer-context .diff-del { color: var(--rl-danger); }
-/* Row 1b — pending attachments: the same raised-on-raised chip treatment as the context row (§4),
-   wrapping, because a chip row that clips is a chip row that hides a file the user thinks is going. */
-.composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 8px 12px 0; list-style: none; }
+  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
+/* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
+   attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a
+   chip row that hides a file the user thinks is going. */
+.composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 12px 16px 0; list-style: none; }
 .attach-chip { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px 0 8px; height: 24px; border-radius: var(--r-chip);
-  font-size: 11px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
+  font-size: 11.5px; color: var(--ink-2); background: var(--field); box-shadow: var(--shadow-hairline); max-width: 220px; min-width: 0; white-space: nowrap; }
 .attach-chip .attach-glyph { flex: none; color: var(--rl-text-faint); }
 /* A file the agent will simply discard must not look like one it will read (§2.4: colour = state). */
-.attach-chip[data-disposition="ignored"] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); }
+.attach-chip[data-disposition="ignored"] { color: var(--orange); background: var(--orange-tint); box-shadow: none; }
 .attach-chip[data-disposition="ignored"] .attach-glyph { color: var(--rl-warning); }
 .attach-remove { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; flex: none; color: inherit; opacity: .6; }
 .attach-remove:hover { opacity: 1; background: var(--rl-hover); }
@@ -502,51 +649,74 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 10.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
-/* Row 2 — input: 13px/1.55, grows to ~10 lines (matches MAX_ROWS_PX in Composer.tsx). */
-.composer-input { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright); font: inherit; font-size: 13px; line-height: 1.55; padding: 12px 14px; min-height: 44px; max-height: 226px; caret-color: var(--rl-accent); }
+/* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding
+   (§2), grows to ~10 lines (matches MAX_ROWS_PX in Composer.tsx). */
+.composer-input { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright); font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 6px; min-height: 44px; max-height: 254px; caret-color: var(--rl-accent); }
 .composer-input::placeholder { color: var(--rl-text-faint); }
-/* Row 3 — control row: hairline-free, 12px padding; ghost chips left, circular send right. */
-.composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 12px; }
-.composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; }
+/* Hero (§2): the empty card reads as an invitation — ~56px of input before any growth. */
+.session-pane[data-composer="hero"] .composer-input { min-height: 56px; }
+/* Row 3 — control row (Ara refresh §3): 40px, hairline-free, 12px inline padding; "+" attach, then
+   the context chips and the effort/permission chips on the LEFT; plain-text model chip and the
+   circular send on the RIGHT. */
+.composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 12px 8px; }
+/* The left group never wraps (§3): it clips, and Composer.tsx measures scrollWidth > clientWidth to
+   collapse effort+permission into the model menu instead. Children must not shrink, or ellipsizing
+   chips would eat the overflow the measurement is looking for. */
+.composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.composer-opts > * { flex: none; }
+.composer-cwd { max-width: 180px; }
+/* The branch group moved down with the rest of the context chips (§3): still one button, still the
+   way into the diff pane. */
+.composer-git { display: inline-flex; align-items: center; gap: 2px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
+.composer-git:hover .ghost-chip { background: var(--rl-hover); color: var(--rl-text-bright); }
+.composer-git .git-branch { max-width: 160px; }
+.composer-git .git-diff { gap: 6px; font-variant-numeric: tabular-nums; }
+.composer-git .diff-add { color: var(--rl-success); }
+.composer-git .diff-del { color: var(--rl-danger); }
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
    them now (W3) — a picker until the session's first event, a plain label after. */
-.ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-radius: var(--r-chip);
-  color: var(--rl-text-dim); font-size: 11.5px; background: transparent; max-width: 200px; min-width: 0; }
+.ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--r-ctl);
+  color: var(--rl-text-dim); font-size: 12px; font-weight: 500; background: transparent; max-width: 200px; min-width: 0; }
 .ghost-chip:hover:not([data-static]) { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Nothing to pick: rendered as a <span> (see ChipMenu) — a label, never a dimmed control. */
 .ghost-chip[data-static] { cursor: default; }
-.ghost-chip[data-warning] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); } /* §3 status-pill formula */
+.ghost-chip[data-warning] { color: var(--orange); background: var(--orange-tint); } /* BUI orange tone pair (StatusPill) */
 .ghost-chip .chip-caret { color: var(--rl-text-faint); flex: none; }
 /* The brand mark is filled where the rest of the set is stroked, so it reads a touch heavier at the
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
 .ghost-chip .chip-brand { flex: none; }
 .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); font-size: 11px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
+.composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
-.bypass-confirm { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); cursor: pointer; }
-.bypass-confirm:hover { background: color-mix(in srgb, var(--rl-warning) 20%, transparent); }
+.bypass-confirm { color: var(--orange); background: var(--orange-tint); cursor: pointer; }
+.bypass-confirm:hover { background: color-mix(in srgb, var(--orange) 24%, transparent); }
 .composer-actions { display: flex; align-items: center; gap: 4px; flex: none; }
-.composer-attach { color: var(--rl-text-dim); }
-.composer-attach:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
+.composer-attach { color: var(--ink-3); }
+.composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
 /* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).
    §6 forbids animating during an active drag, so this is a static swap — no transition here, and the
    card declares none. The hint is a label, not a scrim: pointer-events off, so the drop still lands. */
-.composer[data-dropping] { box-shadow: var(--rl-edge), 0 0 0 2px var(--rl-accent), var(--rl-shadow); }
+.composer[data-dropping] { box-shadow: 0 0 0 2px var(--rl-accent), var(--shadow-card); }
 .composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
   border-radius: var(--r-float); background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
   font-size: 12px; font-weight: 550; color: var(--rl-text-bright); }
-/* Send↔stop morph (§4/§6): 28px accent circle; both icons in the DOM, cross-fading 160ms with
-   opacity + scale .25→1 + 4px blur. data-state picks which one is up. */
-.composer-send { position: relative; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
-  background: var(--rl-accent); color: var(--rl-accent-contrast); flex: none; }
+/* Send↔stop morph (§6; Ara refresh §2 sizes it up to 32px): accent circle; both icons in the DOM,
+   cross-fading 160ms with opacity + scale .25→1 + 4px blur. data-state picks which one is up.
+   Plan 9 W3: the circle wears BUI Button's accent treatment — inset top highlight, accent-ink on
+   hover — and PromptBar's disabled send (line-strong fill, ink-2 glyph) replaces the bare fade. */
+.composer-send { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); flex: none; }
+.composer-send:hover:not(:disabled) { background: var(--accent-ink); }
+.composer-send:disabled { background: var(--line-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
 .composer-send svg { grid-area: 1 / 1;
   transition: opacity 160ms var(--ease-out-strong), transform 160ms var(--ease-out-strong), filter 160ms var(--ease-out-strong); }
 .composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon { opacity: 0; transform: scale(.25); filter: blur(4px); }
 /* Under-strip (§4): "Thinking…" shimmer tucked under the card's bottom edge while streaming —
    frame fill sliding out from beneath the card (z-index 1 on .composer keeps the card on top). */
 .composer-thinking { margin: -10px 10px 0; padding: 14px 14px 5px; background: var(--rl-frame);
-  border-radius: 0 0 10px 10px; font-size: 11px; color: var(--rl-text-dim); }
-.composer-thinking span { display: inline-block; animation: rl-pulse 1.2s ease-in-out infinite; }
+  border-radius: 0 0 var(--r-panel) var(--r-panel); font-size: 11px; color: var(--rl-text-dim); }
+/* Plan 9 W3: the label shimmers (BUI LoadingState), not pulses — same gradient as .shimmer-text. */
+.composer-thinking span { display: inline-block; }
 /* ── Install card (§5 floating card) — what stands in for the prompter when the CLI can't run ── */
 /* It rides the prompter's own rails (.composer-dock), so hero vs docked positioning is already right. */
 .install-card { width: 100%; border-radius: var(--r-float); background: var(--rl-raised);
@@ -577,11 +747,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 .cli-row[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
 .cli-row input { accent-color: var(--rl-accent); margin: 0; }
 .cli-name { flex: 1; min-width: 0; font-size: 13px; }
-/* §3 status pills: 14% colour-mix fill, full-strength colour text. */
-.status-pill { flex: none; padding: 2px 7px; border-radius: var(--r-chip); font-size: 11px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status-pill[data-tone="success"] { color: var(--rl-success); background: color-mix(in srgb, var(--rl-success) 14%, transparent); }
+/* Plan 9 W2 — BUI StatusPill: fully-round tint fill, full-strength colour text, and a leading dot
+   on the coloured tones (atoms/StatusPill.tsx). Ready stays a bare label; muted stays neutral. */
+.status-pill { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-pill[data-tone="success"]::before, .status-pill[data-tone="warning"]::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
+.status-pill[data-tone="success"] { color: var(--green); background: var(--green-tint); }
 .status-pill[data-tone="ready"] { color: var(--rl-text-dim); background: none; padding-inline: 0; }
-.status-pill[data-tone="warning"] { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); }
+.status-pill[data-tone="warning"] { color: var(--orange); background: var(--orange-tint); }
 .status-pill[data-tone="muted"] { color: var(--rl-text-faint); background: var(--rl-hover); }
 
 /* Custom selects (V-F1, sheets/forms only now): drop the raw Chromium arrow and draw our own chevron.
@@ -668,7 +841,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    and the only hairlines are the two seams where content scrolls beneath them (§2.1). Colour is
    state only — the add/del tints and the status letters — never chrome. */
 .diff-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--rl-panel); }
-.diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rl-line); }
+.diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rl-hairline); }
 .diff-head-count { font-size: 11.5px; color: var(--rl-text-dim); }
 .diff-head-spacer { flex: 1; }
 .diff-list { flex: 1; overflow: auto; min-height: 0; }
@@ -676,7 +849,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .diff-note { padding: 8px 12px; font-size: 11.5px; color: var(--rl-text-faint); }
 .diff-loading { padding: 8px 12px; font-size: 11.5px; color: var(--rl-text-faint); }
 /* Table-style rows (§5): one hairline between, no vertical rules, no card chrome. */
-.diff-file + .diff-file { border-top: 1px solid var(--rl-line); }
+.diff-file + .diff-file { border-top: 1px solid var(--rl-hairline); }
 .diff-row { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 4px; min-height: 30px; }
 .diff-row:hover { background: var(--rl-hover); }
 .diff-expand { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 6px; text-align: left; border-radius: var(--r-chip); }
@@ -688,7 +861,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .diff-dir { color: var(--rl-text-faint); }
 .diff-base { color: var(--rl-text-bright); }
-.diff-counts { flex: none; display: flex; gap: 6px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.diff-counts { flex: none; display: flex; gap: 6px; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
 .diff-counts .diff-add { color: var(--rl-success); }
 .diff-counts .diff-del { color: var(--rl-danger); }
 .diff-actions { flex: none; display: flex; gap: 4px; opacity: 0; }
@@ -698,21 +871,27 @@ button.panel-title:hover { background: var(--rl-hover); }
 .btn-quiet:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .diff-body { padding: 0 0 6px 26px; }
 .diff-side { padding: 4px 8px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
-/* The patch itself sits in a well at frame luminance — one step below the panel, like tool output. */
-.diff-hunks { background: var(--rl-frame); border-radius: var(--r-chip); overflow: auto; }
-.diff-hunk-head { padding: 3px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--rl-text-faint); background: var(--rl-hover); }
-.diff-line { display: flex; align-items: baseline; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre; }
+/* Plan 9 W2 — the patch wears BUI CodeBlock's diff view: a surface panel behind a hairline ring,
+   12.5/1.65 mono, changed rows tinted with the token tints and marked by a 3px accent bar —
+   solid green for adds, BUI's red 45° hatch for deletes — with the gutter numbers taking the
+   row's colour. The text itself stays ink (BUI colours the row, not the words). */
+.diff-hunks { background: var(--surface); box-shadow: var(--shadow-hairline); border-radius: var(--r-panel); overflow: auto; }
+.diff-hunk-head { padding: 3px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--rl-text-faint); background: var(--inset); }
+.diff-line { position: relative; display: flex; align-items: baseline; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.65; white-space: pre; }
 .diff-gutter { flex: none; width: 42px; padding-right: 8px; text-align: right; color: var(--rl-text-faint); font-size: 11px; user-select: none; }
 .diff-mark { flex: none; width: 14px; text-align: center; color: var(--rl-text-faint); user-select: none; }
-.diff-text { flex: 1; min-width: 0; padding-right: 8px; color: var(--rl-text-dim); }
+.diff-text { flex: 1; min-width: 0; padding-right: 8px; color: var(--ink-2); }
 /* §2.4: diff tints are one of the three places colour is allowed at all. */
-.diff-line[data-kind="add"] { background: color-mix(in srgb, var(--rl-success) 10%, transparent); }
-.diff-line[data-kind="add"] .diff-mark, .diff-line[data-kind="add"] .diff-text { color: var(--rl-success); }
-.diff-line[data-kind="del"] { background: color-mix(in srgb, var(--rl-danger) 10%, transparent); }
-.diff-line[data-kind="del"] .diff-mark, .diff-line[data-kind="del"] .diff-text { color: var(--rl-danger); }
+.diff-line[data-kind="add"]::before, .diff-line[data-kind="del"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; }
+.diff-line[data-kind="add"] { background: var(--green-tint); }
+.diff-line[data-kind="add"]::before { background: var(--green); }
+.diff-line[data-kind="add"] .diff-gutter, .diff-line[data-kind="add"] .diff-mark { color: var(--green); }
+.diff-line[data-kind="del"] { background: var(--red-tint); }
+.diff-line[data-kind="del"]::before { background: repeating-linear-gradient(45deg, var(--red) 0, var(--red) 1.5px, transparent 1.5px, transparent 3px); }
+.diff-line[data-kind="del"] .diff-gutter, .diff-line[data-kind="del"] .diff-mark { color: var(--red); }
 .diff-line[data-kind="meta"] .diff-text { color: var(--rl-text-faint); font-style: italic; }
 /* Commit dock: raised, hairline above, primary action bottom-right (§5 sheets/footer pattern). */
-.diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--rl-raised); border-top: 1px solid var(--rl-line); }
+.diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--rl-raised); border-top: 1px solid var(--rl-hairline); }
 .commit-message { border: none; outline: none; resize: none; background: var(--rl-hover); border-radius: var(--r-ctl); color: var(--rl-text-bright);
   font: inherit; font-size: 12.5px; line-height: 1.5; padding: 8px 10px; caret-color: var(--rl-accent); }
 .commit-message::placeholder { color: var(--rl-text-faint); }
@@ -725,9 +904,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .ship-report a { color: var(--rl-text-bright); text-decoration: underline; text-underline-offset: 2px; }
 /* Red is reserved for "something is wrong" (§2.4); the fill stays at 8% so it tints rather than shouts. */
 .ship-bad { color: var(--rl-danger); }
-/* The composer's git chips are one button now (W3): the group is the entry point to this pane. */
-.composer-git { display: inline-flex; align-items: center; gap: 6px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
-.composer-git:hover .composer-chip { background: var(--rl-active); color: var(--rl-text-bright); }
+/* (The composer's git group — the entry point to this pane, W3 — is styled with the control row.) */
 
 /* ── Worktree removal confirm (W3) ─────────────────────────────────────── */
 .wt-target { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -742,7 +919,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    destructive act, and two different-looking confirms would teach the user to stop reading. */
 .cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
 .cp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-ctl); }
-.cp-row + .cp-row { border-top: 1px solid var(--rl-line); }
+.cp-row + .cp-row { border-top: 1px solid var(--rl-hairline); }
 .cp-row:hover { background: var(--rl-hover); }
 /* The undo point is the one row whose meaning differs from its neighbours, so it is the one row that
    is allowed a colour. */
@@ -758,15 +935,18 @@ button.panel-title:hover { background: var(--rl-hover); }
 .cp-stale, .cp-blocked { margin: 0; font-size: 12px; color: var(--rl-warning); }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 /* §3: destructive confirms are the ONE place a red-filled button is allowed. */
-.btn.destructive { background: var(--rl-danger); color: #ffffff; }
-.btn.destructive:hover:not(:disabled) { background: var(--rl-danger); }
+.btn.destructive { background: var(--rl-danger); color: #ffffff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
+.btn.destructive:hover:not(:disabled) { background: var(--rl-danger); filter: brightness(0.95); } /* BUI's filled-hover for tones with no -ink step */
 .btn:disabled { opacity: .45; }
+/* A disabled primary must not wear the accent — 45% opacity on a filled blue button still reads as
+   THE action (caught in the W4 visual pass: "Commit, push & PR" looked live over "Nothing staged"). */
+.btn.primary:disabled { background: var(--rl-raised); color: var(--rl-text-faint); box-shadow: none; }
 
 /* ── Space settings: the space's checkouts (W1/W2 made visible in W3) ───── */
 .env-empty { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
 .env-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .env-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 0; }
-.env-row + .env-row { border-top: 1px solid var(--rl-line); }
+.env-row + .env-row { border-top: 1px solid var(--rl-hairline); }
 .env-main { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--rl-text-dim); }
 .env-name { font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .env-kind { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }

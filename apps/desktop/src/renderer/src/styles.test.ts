@@ -135,6 +135,249 @@ describe("§6 motion table", () => {
   });
 });
 
+describe("Ara refresh §3/§4 geometry", () => {
+  it("the user message is Ara's signature: raised card, window radius (BUI 14), 14px 16px padding, 85% wide, ragged-left", () => {
+    // Plan 9 W1 re-pin: the literal 14px became var(--r-float), which the bridge pins to BUI's
+    // --radius-window (14px) — same geometry, now on the token scale.
+    const body = bodiesFor(".msg-user").join(" ");
+    for (const decl of ["text-align: right", "max-width: 85%", "border-radius: var(--r-float)", "padding: 14px 16px", "background: var(--rl-raised)"])
+      expect(body, decl).toContain(decl);
+  });
+
+  it("transcript prose reads at 15px/1.6 — user card and assistant prose alike", () => {
+    for (const sel of [".msg-user", ".msg-assistant"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("font-size: 15px");
+      expect(body, sel).toContain("line-height: 1.6");
+    }
+  });
+
+  it("suggestions are a single-column list, not a grid", () => {
+    const body = bodiesFor(".suggestions").join(" ");
+    expect(body).toContain("flex-direction: column");
+    expect(body).not.toContain("grid");
+    expect(bodiesFor(".suggestion-chip").join(" ")).toContain("background: transparent"); // transparent at rest, --rl-hover on hover
+    expect(bodiesFor(".suggestion-chip:hover").join(" ")).toContain("var(--rl-hover)");
+  });
+
+  it("the send button is a 32px circle; the hero textarea starts at ~56px", () => {
+    const send = bodiesFor(".composer-send").join(" ");
+    expect(send).toContain("width: 32px");
+    expect(send).toContain("height: 32px");
+    expect(bodiesFor('.session-pane[data-composer="hero"] .composer-input').join(" ")).toContain("min-height: 56px");
+  });
+
+  it("the control row's left group clips instead of wrapping — the measured collapse depends on it", () => {
+    const body = bodiesFor(".composer-opts").join(" ");
+    expect(body).toContain("flex-wrap: nowrap");
+    expect(body).toContain("overflow: hidden");
+    expect(bodiesFor(".composer-opts > *").join(" ")).toContain("flex: none");
+  });
+});
+
+describe("Plan 9 W1 — the BUI bridge", () => {
+  const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+
+  it("the foundation imports Tailwind v4 and shadow-plugin, and keys dark on Realm's data-mode", () => {
+    expect(tokens).toContain('@import "tailwindcss"');
+    expect(tokens).toContain('@import "shadow-plugin/unprefixed"');
+    // BUI ships `@custom-variant dark (.dark)`; Realm's theme mechanism stamps data-mode instead.
+    expect(tokens).toMatch(/@custom-variant dark[^;]*data-mode="dark"/);
+    // Dark is the primary palette: the base :root block carries the dark surface ramp…
+    expect(tokens).toMatch(/:root \{[^}]*--surface: oklch\(0\.26 0\.006 271\.191\)/);
+    // …and BUI's light-first values live under the light mode attribute.
+    expect(tokens).toMatch(/:root\[data-mode="light"\] \{[^}]*--surface: oklch\(1 0 0\)/);
+  });
+
+  it("every legacy --rl-* colour token resolves to a BUI token — the app can never be half-themed", () => {
+    const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
+    for (const [token, source] of [
+      ["--rl-accent", "var(--accent)"],
+      ["--rl-frame", "var(--page)"],
+      ["--rl-panel", "var(--canvas)"],
+      ["--rl-raised", "var(--surface)"],
+      ["--rl-line", "var(--line)"],
+      ["--rl-line-strong", "var(--line-strong)"],
+      ["--rl-hairline", "var(--line)"],
+      ["--rl-text-bright", "var(--ink)"],
+      ["--rl-text-dim", "var(--ink-2)"],
+      ["--rl-text-faint", "var(--ink-3)"],
+      ["--rl-danger", "var(--red)"],
+      ["--rl-success", "var(--green)"],
+      ["--rl-warning", "var(--orange)"],
+      ["--rl-edge", "var(--shadow-hairline)"],
+    ] as const) expect(root, token).toContain(`${token}: ${source}`);
+  });
+
+  it("the radius scale is BUI's: chip 6, control 8, card 10 (rows + panels), window 14", () => {
+    const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
+    for (const decl of ["--r-chip: 6px", "--r-ctl: 8px", "--r-row: 10px", "--r-panel: 10px", "--r-float: 14px"])
+      expect(root, decl).toContain(decl);
+    // No component may dodge the scale with a hardcoded control-ish radius (ticks/dots/pills excepted).
+    expect(css).not.toMatch(/border-radius:\s*(?:4|6|8|10|12|14|16)px/);
+  });
+
+  it("the sidebar keeps its vibrancy: BUI --page at 82%, one mode-agnostic rule", () => {
+    expect(bodiesFor(".sidebar").join(" ")).toContain("color-mix(in srgb, var(--page) 82%, transparent)");
+    // The old per-mode rgba override is gone — --page flips with data-mode on its own.
+    expect(css).not.toContain("rgba(244,244,244,.82)");
+  });
+
+  it("Inter and JetBrains Mono are self-hosted with Inter leading the UI stack", () => {
+    expect(css).toContain('src: url("./assets/fonts/InterVariable.woff2") format("woff2")');
+    expect(css).toMatch(/--font-ui:\s*"Inter"/);
+    expect(css).toMatch(/--font-mono:\s*"JetBrains Mono"/);
+  });
+
+  it("markdown lists survive Tailwind preflight's list-style reset", () => {
+    expect(bodiesFor(".md ul").join(" ")).toContain("list-style: disc");
+    expect(bodiesFor(".md ol").join(" ")).toContain("list-style: decimal");
+  });
+});
+
+describe("Plan 9 W2 — BUI transcript primitives", () => {
+  it("the permission card wears ApprovalCard's shell: a resting surface card on shadow-card with a hairline-topped footer", () => {
+    // Re-pin from §5's floating raised+overlay-shadow treatment: BUI cards rest in the flow.
+    const card = bodiesFor(".permission-card").join(" ");
+    expect(card).toContain("background: var(--surface)");
+    expect(card).toContain("box-shadow: var(--shadow-card)");
+    expect(card).toContain("border-radius: var(--r-panel)");
+    expect(bodiesFor(".permission-footer").join(" ")).toContain("border-top: 1px solid var(--line)");
+    // The kbd number chips take BUI's inset fill + hairline ring.
+    const num = bodiesFor(".permission-num").join(" ");
+    expect(num).toContain("background: var(--inset)");
+    expect(num).toContain("box-shadow: var(--shadow-hairline)");
+  });
+
+  it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, muted settled checks", () => {
+    const shimmer = bodiesFor('.tool-group[data-working] .tool-group-summary').join(" ");
+    expect(shimmer).toContain("animation: shimmer-text 1.4s linear infinite");
+    expect(shimmer).toContain("background-clip: text");
+    // BUI's trace rail is a solid hairline; the old dashed connector is gone.
+    expect(bodiesFor(".tool-group-steps").join(" ")).toContain("border-left: 1px solid var(--line)");
+    // The settled check is muted ink, not green — colour stays for errors.
+    expect(bodiesFor('.tool-card[data-state="ok"] .tool-status').join(" ")).toContain("color: var(--ink-3)");
+    // The row's target is ToolChips' field-fill chip.
+    const chip = bodiesFor(".tool-summary").join(" ");
+    expect(chip).toContain("background: var(--field)");
+    expect(chip).toContain("box-shadow: var(--shadow-hairline)");
+    // Measured edit counts are the semantic green/red.
+    expect(bodiesFor(".tool-stat-add").join(" ")).toContain("var(--green)");
+    expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");
+  });
+
+  it("fenced code is CodeBlock's editor panel: surface + hairline ring, a language header, 12.5/1.65 mono body", () => {
+    const panel = bodiesFor(".md-code").join(" ");
+    expect(panel).toContain("background: var(--surface)");
+    expect(panel).toContain("box-shadow: var(--shadow-hairline)");
+    expect(bodiesFor(".md-code-head").join(" ")).toContain("border-bottom: 1px solid var(--line)");
+    const body = bodiesFor(".md-code pre").join(" ");
+    expect(body).toContain("font-size: 12.5px");
+    expect(body).toContain("line-height: 1.65");
+  });
+
+  it("the streaming caret is StreamText's solid 2px ink bar — no pulse, no blink while streaming", () => {
+    const caret = bodiesFor(".md-caret").join(" ");
+    expect(caret).toContain("width: 2px");
+    expect(caret).toContain("background: var(--ink)");
+    expect(caret).not.toContain("animation");
+  });
+
+  it("diff lines carry the CodeBlock diff treatment: token tints, a 3px bar (solid green add, red hatch delete), coloured gutters", () => {
+    expect(bodiesFor('.diff-line[data-kind="add"]').join(" ")).toContain("background: var(--green-tint)");
+    expect(bodiesFor('.diff-line[data-kind="add"]::before').join(" ")).toContain("background: var(--green)");
+    expect(bodiesFor('.diff-line[data-kind="del"]').join(" ")).toContain("background: var(--red-tint)");
+    expect(bodiesFor('.diff-line[data-kind="del"]::before').join(" ")).toContain("repeating-linear-gradient(45deg, var(--red)");
+    expect(bodiesFor('.diff-line[data-kind="add"]::before, .diff-line[data-kind="del"]::before'.split(", ")[0]!).join(" ")).toContain("width: 3px");
+  });
+});
+
+describe("Plan 9 W3 — composer + chrome in BUI language", () => {
+  it("the composer wears PromptBar's field card: surface on shadow-card, focus = the line-strong border-brighten (the 30% accent glow is gone)", () => {
+    const card = bodiesFor(".composer").join(" ");
+    expect(card).toContain("background: var(--surface)");
+    expect(card).toContain("box-shadow: var(--shadow-card)");
+    const focus = bodiesFor(".composer:focus-within").join(" ");
+    expect(focus).toContain("0 0 0 1px var(--line-strong)");
+    expect(focus).not.toContain("--rl-accent");
+  });
+
+  it("attachment chips are the field-fill chip: field ground behind a hairline ring, 11.5 ink-2", () => {
+    const chip = bodiesFor(".attach-chip").join(" ");
+    expect(chip).toContain("background: var(--field)");
+    expect(chip).toContain("box-shadow: var(--shadow-hairline)");
+    expect(chip).toContain("font-size: 11.5px");
+  });
+
+  it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's line-strong disabled fill", () => {
+    expect(bodiesFor(".composer-send").join(" ")).toContain("inset 0 1px 0 rgba(255,255,255,0.14)");
+    expect(bodiesFor(".composer-send:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
+    const off = bodiesFor(".composer-send:disabled").join(" ");
+    expect(off).toContain("background: var(--line-strong)");
+    expect(off).toContain("color: var(--ink-2)");
+  });
+
+  it("the Thinking strip shimmers on the shared shimmer-text gradient — no opacity pulse", () => {
+    expect(bodiesFor(".composer-thinking span").join(" ")).not.toContain("rl-pulse");
+    // one shimmer rule serves all three surfaces; membership is the pin
+    const shimmer = RULES.find((r) => r.selectors.includes(".shimmer-text"));
+    expect(shimmer?.selectors).toContain(".composer-thinking span");
+  });
+
+  it("warning pills speak the orange tone pair (StatusPill), not the old color-mix formula", () => {
+    const pill = bodiesFor(".bypass-confirm").join(" ");
+    expect(pill).toContain("color: var(--orange)");
+    expect(pill).toContain("background: var(--orange-tint)");
+    expect(bodiesFor('.ghost-chip[data-warning]').join(" ")).toContain("var(--orange-tint)");
+  });
+
+  it("menus and the model picker are surface cards on shadow-raised with the opaque hover ladder (GlideMenu's surface, minus its JS glide layer)", () => {
+    for (const sel of [".menu", ".model-picker"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("background: var(--surface)");
+      expect(body, sel).toContain("box-shadow: var(--shadow-raised)");
+      expect(body, sel).not.toContain("--rl-shadow");
+    }
+    expect(bodiesFor('.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus'.split(", ")[0]!).join(" ")).toContain("var(--hover)");
+  });
+
+  it("sheets and the palette are surface cards at window radius on shadow-overlay — and the palette stays instant (pinned above)", () => {
+    for (const sel of [".sheet", ".palette"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("background: var(--surface)");
+      expect(body, sel).toContain("box-shadow: var(--shadow-overlay)");
+    }
+  });
+
+  it("sidebar actives are a fill alone — SidebarNav has no accent tick and no weight bump", () => {
+    expect(RULES.some((r) => r.selectors.includes(".item[data-active]::before"))).toBe(false);
+    const active = bodiesFor(".item[data-active] .item-row").join(" ");
+    expect(active).toContain("color: var(--rl-text-bright)");
+    expect(active).not.toContain("font-weight");
+    // the fills stay TRANSLUCENT (--rl-active), the W1 vibrancy carve-out for the material column
+    expect(bodiesFor(".item[data-active]").join(" ")).toContain("background: var(--rl-active)");
+  });
+
+  it("the sidebar search is SidebarNav's field: field fill behind a hairline ring at 13/500; rows and labels take BUI's 8px/12.5px", () => {
+    const search = bodiesFor(".search").join(" ");
+    expect(search).toContain("background: var(--field)");
+    expect(search).toContain("box-shadow: var(--shadow-hairline)");
+    expect(search).toContain("font-size: 13px");
+    expect(bodiesFor(".item").join(" ")).toContain("border-radius: var(--r-ctl)");
+    expect(bodiesFor(".group-label").join(" ")).toContain("font-size: 12.5px");
+  });
+
+  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn stepping to inset; primary = accent with the filled highlight and accent-ink hover", () => {
+    const btn = bodiesFor(".btn").join(" ");
+    expect(btn).toContain("background: var(--surface)");
+    expect(btn).toContain("box-shadow: var(--shadow-btn)");
+    expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).toContain("background: var(--inset)");
+    const primary = bodiesFor(".btn.primary").join(" ");
+    expect(primary).toContain("inset 0 1px 0 rgba(255,255,255,0.14)");
+    expect(bodiesFor(".btn.primary:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
+  });
+});
+
 describe("§6 do-NOT-animate list", () => {
   it("never uses `transition: all` anywhere", () => {
     expect(css).not.toMatch(/transition:\s*all\b/);

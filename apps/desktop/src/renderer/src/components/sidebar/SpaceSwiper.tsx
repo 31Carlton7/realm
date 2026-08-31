@@ -5,7 +5,6 @@ import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/
 import { SpaceHeader } from "./SpaceHeader";
 import { PinnedGrid } from "./PinnedGrid";
 import { ItemList } from "./ItemList";
-import { NewSessionRow } from "./NewSessionRow";
 
 const IDLE_MS = 320;
 const DEBUG = () => { try { return localStorage.getItem("realm.debugSwipe") === "1"; } catch { return false; } };
@@ -149,11 +148,10 @@ const ActiveSpaceBody = memo(function ActiveSpaceBody() {
           </>
         )}
         <div className="group-label">Space</div>
-        {items.length === 0 && <div className="space-empty">Nothing here yet — start one with New session below</div>}
+        {items.length === 0 && <div className="space-empty">Nothing here yet — start one with New session above</div>}
         {pinned.length > 0 && <PinnedGrid items={pinned} />}
         <ItemList items={rest} variant="space" />
       </div>
-      <NewSessionRow />
     </>
   );
 });

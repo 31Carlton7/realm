@@ -57,6 +57,15 @@ export function summarizeToolRun(blocks: readonly ToolBlock[]): ToolRunSummary {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/** The `Worked for <this>` half of the collapsed ledger row (Ara refresh §4): "<1s", "42s",
+ *  "6m 12s". A settled sub-second run says "<1s" rather than the lie "0s". */
+export function formatDuration(ms: number): string {
+  const secs = Math.round(ms / 1000);
+  if (secs < 1) return "<1s";
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
+
 /** "18 tools · 5 files · 2 commands · 6m 12s" — zero-valued parts drop out entirely. */
 export function formatToolRun(s: ToolRunSummary): string {
   const parts = [plural(s.tools, "tool")];

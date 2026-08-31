@@ -81,7 +81,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
         })}
         {permissions.map((p, i) => <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0}
           enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />)}
-        {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><Icon name="spinner" size={13} className="spin" /> Working…</div>}
+        {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock. */}
+        {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">Working…</span></div>}
         </div>
       </div>
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={13} /> New messages</button>}

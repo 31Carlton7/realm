@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { ToolCard, ToolGroup, RESULT_CLAMP } from "./ToolCard";
-import { GROUP_MIN, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock } from "./tool-group";
+import { editStat } from "./tool-summary";
+import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock } from "./tool-group";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
@@ -110,6 +111,46 @@ describe("tool-run summary line", () => {
     expect(formatToolRun({ tools: 3, files: 0, commands: 0, durationMs: 0 })).toBe("3 tools");
     expect(formatToolRun({ tools: 1, files: 1, commands: 1, durationMs: 4_000 })).toBe("1 tool · 1 file · 1 command · 4s");
   });
+
+  it("formats the collapsed row's `Worked for` duration — a sub-second run says <1s, never 0s", () => {
+    expect(formatDuration(0)).toBe("<1s");
+    expect(formatDuration(400)).toBe("<1s");
+    expect(formatDuration(4_000)).toBe("4s");
+    expect(formatDuration(59_400)).toBe("59s");
+    expect(formatDuration(372_000)).toBe("6m 12s");
+  });
+});
+
+describe("editStat (Plan 9 W2: ThinkingState's measured +/− counts)", () => {
+  it("counts an Edit's lines from both sides of its own payload", () => {
+    expect(editStat("Edit", { file_path: "/a", old_string: "one", new_string: "one\ntwo" })).toEqual({ add: 2, del: 1 });
+    expect(editStat("Edit", { file_path: "/a", old_string: "", new_string: "x" })).toEqual({ add: 1, del: 0 });
+  });
+
+  it("sums a MultiEdit's edits and counts a Write's content as pure adds", () => {
+    expect(editStat("MultiEdit", { edits: [
+      { old_string: "a", new_string: "a\nb" },
+      { old_string: "c\nd", new_string: "e" },
+    ] })).toEqual({ add: 3, del: 3 });
+    expect(editStat("Write", { file_path: "/a", content: "l1\nl2\nl3" })).toEqual({ add: 3, del: 0 });
+  });
+
+  it("refuses to invent counts where the payload does not carry both sides", () => {
+    expect(editStat("Edit", { file_path: "/a" })).toBeNull();       // permission previews carry no strings
+    expect(editStat("Read", { file_path: "/a" })).toBeNull();
+    expect(editStat("Bash", { command: "ls" })).toBeNull();
+    expect(editStat("MultiEdit", { edits: "nope" })).toBeNull();
+    expect(editStat("apply_patch", { changes: [{ path: "/a" }] })).toBeNull();
+  });
+
+  it("renders the counts on the row — green adds, red deletes", () => {
+    render(<ToolCard sessionStatus="idle" block={
+      { kind: "tool", toolUseId: "t1", name: "Edit", input: { file_path: "/a.ts", old_string: "x", new_string: "x\ny\nz" }, result: { content: "ok", isError: false }, ts: 0 }
+    } />);
+    const stat = document.querySelector(".tool-stat")!;
+    expect(stat.querySelector(".tool-stat-add")).toHaveTextContent("+3");
+    expect(stat.querySelector(".tool-stat-del")).toHaveTextContent("−1");
+  });
 });
 
 const steps = (blocks: ToolBlock[]) => blocks.map((b) => ({ key: b.toolUseId, block: b, enter: false }));
@@ -123,10 +164,35 @@ describe("ToolGroup", () => {
     tool("t3", "Read", { file_path: "/charlie.ts" }),
   ];
 
-  it("a finished run collapses to its summary line and shows no cards", () => {
+  it("a finished run collapses to its `Worked for` row (Ara refresh §4) and shows no cards; the counts line survives as the tooltip", () => {
     render(<ToolGroup steps={steps(run)} sessionStatus="idle" />);
-    expect(screen.getByRole("button", { name: "3 tool calls" })).toHaveTextContent("3 tools · 1 file · 2 commands");
+    const row = screen.getByRole("button", { name: "3 tool calls" });
+    expect(row).toHaveTextContent("Worked for <1s"); // all three stamps are 0 — settled, sub-second
+    expect(row).toHaveAttribute("title", "3 tools · 1 file · 2 commands");
     expect(cards()).toHaveLength(0);
+  });
+
+  it("the collapsed row live-ticks off the run's first stamp while working, then freezes on first→last when settled", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000);
+      const working = [
+        tool("t1", "Bash", { command: "ls" }, 90_000),
+        tool("t2", "Read", { file_path: "/a" }, 95_000),
+        tool("t3", "Read", { file_path: "/b" }, 98_000, false), // still running
+      ];
+      const { rerender } = render(<ToolGroup steps={steps(working)} sessionStatus="running" />);
+      const row = () => screen.getByRole("button", { name: "3 tool calls" });
+      expect(row()).toHaveTextContent("Worked for 10s"); // now − first stamp, not last − first
+      act(() => { vi.advanceTimersByTime(5_000); });
+      expect(row()).toHaveTextContent("Worked for 15s"); // ticking
+      // The run settles: the label freezes on the group's own stamps and stops ticking.
+      const settled = [working[0]!, working[1]!, tool("t3", "Read", { file_path: "/b" }, 98_000)];
+      rerender(<ToolGroup steps={steps(settled)} sessionStatus="idle" />);
+      expect(row()).toHaveTextContent("Worked for 8s"); // 98s − 90s
+      act(() => { vi.advanceTimersByTime(5_000); });
+      expect(row()).toHaveTextContent("Worked for 8s"); // frozen
+    } finally { vi.useRealTimers(); }
   });
 
   it("expanding reveals every step of the run", () => {
@@ -159,6 +225,21 @@ describe("ToolGroup", () => {
   it("does not auto-open a finished run just because the session is live again", () => {
     render(<ToolGroup steps={steps(run)} sessionStatus="running" />);
     expect(cards()).toHaveLength(0);
+  });
+
+  /** Plan 9 W2 mutant: ThinkingState marking a step done while its tool call is still unsettled.
+   *  The spinner→check progression must be each block's REAL result, never a clock. */
+  it("a step settles only when its own result lands: unfinished steps say running, finished say done", () => {
+    const live = [run[0]!, run[1]!, tool("t3", "Read", { file_path: "/c" }, 0, false)];
+    const { rerender } = render(<ToolGroup steps={steps(live)} sessionStatus="running" />);
+    const labels = () => cards().map((c) => c.querySelector(".tool-status")!.getAttribute("aria-label"));
+    expect(labels()).toEqual(["done", "done", "running"]);
+    // The header shimmers exactly while a step is unsettled — data-working is derived, not timed.
+    expect(document.querySelector(".tool-group")).toHaveAttribute("data-working");
+    rerender(<ToolGroup steps={steps([run[0]!, run[1]!, tool("t3", "Read", { file_path: "/c" })])} sessionStatus="running" />);
+    expect(document.querySelector(".tool-group")).not.toHaveAttribute("data-working");
+    fireEvent.click(screen.getByRole("button", { name: "3 tool calls" })); // settled runs fold; reopen to see the steps
+    expect(labels()).toEqual(["done", "done", "done"]);
   });
 });
 

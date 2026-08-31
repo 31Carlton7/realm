@@ -1,50 +1,57 @@
-import { AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, isImageMime, type AgentKind, type Environment, type GitInfo, type Project, type Session, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, isImageMime, type AgentKind, type Environment, type GitInfo, type Project, type Session, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import type { AgentProbe, PickedAttachment, SessionOptions } from "../../state/store";
-import { ModelPicker } from "./ModelPicker";
+import { ModelPicker, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
 
-// ~10 lines of 13px/1.55 plus the 12px vertical padding (§4: autogrows to 10 lines).
-const MAX_ROWS_PX = 226;
+// ~10 lines of 15px/1.55 plus the vertical padding (Ara refresh §1 raises the input to 15px; §4:
+// autogrows to 10 lines). Matches .composer-input's max-height in styles.css.
+const MAX_ROWS_PX = 254;
 
 /** Session ids whose suggestion chips already played their stagger-in. Module-level on purpose:
  *  §4 says "never re-animate on revisit", and pane-slot keying remounts this component on every
  *  tab-back — a mount-scoped flag would replay. Lives for the app run; a fresh launch replays once. */
 const staggerPlayed = new Set<string>();
 
-/** Context row (§4 row 1): cwd chip always; git chips only when the cwd is a known repo. The diff and
- *  dirty chips hide themselves at zero — an all-clean repo shows just the branch. */
-function ContextRow({ session, project, gitInfo, environment, onOpenDiff }: { session: Session; project: Project | null; gitInfo: GitInfo | null; environment: Environment | null; onOpenDiff: () => void }) {
+/** Context chips (Ara refresh §3): folder, environment and branch, moved DOWN off their own row and
+ *  into the control row's left group. The diff and dirty counts hide themselves at zero — an
+ *  all-clean repo shows just the branch — and the branch group is still the way into the diff pane. */
+function ContextChips({ session, project, gitInfo, environment, onOpenDiff }: { session: Session; project: Project | null; gitInfo: GitInfo | null; environment: Environment | null; onOpenDiff: () => void }) {
   const cwdName = session.cwd.replace(/\/+$/, "").split("/").pop() || session.cwd;
-  // A session in a worktree Realm made (W2) swaps the folder glyph for a branch one and says so in
-  // the tooltip, alongside the port block its `pnpm dev` will land on. No new chip and no new colour:
-  // that this session is isolated is metadata, and metadata lives in chips (design language §2.5).
+  // A session in a worktree Realm made (W2) says so on its own chip — Ara's "Work locally" slot —
+  // with the port block its `pnpm dev` will land on in the tooltip. No new colour: that this session
+  // is isolated is metadata, and metadata lives in chips (design language §2.5).
   const worktree = environment?.kind === "worktree";
   const ports = environment?.portBlockStart ?? null;
   const where = [worktree ? `Worktree · ${session.cwd}` : session.cwd,
     // The block is a RANGE Realm reserved, not a promise about what is listening on it.
     ports === null ? null : `Ports ${ports}–${ports + 9} reserved`].filter(Boolean).join("\n");
   return (
-    <div className="composer-context">
-      <span className="composer-chip" title={where}><Icon name={worktree ? "branch" : "folder"} size={12} /><span className="chip-label">{worktree ? "Worktree · " : ""}{project ? `${project.name} · ` : ""}{cwdName}</span></span>
+    <>
+      <span className="ghost-chip composer-cwd" data-static title={session.cwd}>
+        <Icon name="folder" size={13} className="chip-brand" /><span className="chip-label">{project ? `${project.name} · ` : ""}{cwdName}</span>
+      </span>
+      <span className="ghost-chip composer-env" data-static title={where}>
+        <span className="chip-label">{worktree ? "Worktree" : "Work locally"}</span>
+      </span>
       {gitInfo && (
         // W3: the chips that already showed the branch and the diff counts become the way IN to the
         // diff pane. One button, not three — the whole group means "show me these changes".
         <button type="button" className="composer-git" onClick={onOpenDiff}
           title={gitInfo.dirty > 0 ? `Show ${gitInfo.dirty} changed ${gitInfo.dirty === 1 ? "file" : "files"} on ${gitInfo.branch}` : `Show changes on ${gitInfo.branch}`}>
-          <span className="composer-chip git-branch"><span className="chip-label">{gitInfo.branch}</span></span>
+          <span className="ghost-chip git-branch"><Icon name="branch" size={13} className="chip-brand" /><span className="chip-label">{gitInfo.branch}</span></span>
           {(gitInfo.additions > 0 || gitInfo.deletions > 0) && (
-            <span className="composer-chip git-diff">
+            <span className="ghost-chip git-diff">
               <span className="diff-add">+{gitInfo.additions}</span>
               <span className="diff-del">−{gitInfo.deletions}</span>
             </span>
           )}
-          {gitInfo.dirty > 0 && <span className="composer-chip git-dirty">{gitInfo.dirty} changed</span>}
+          {gitInfo.dirty > 0 && <span className="ghost-chip git-dirty">{gitInfo.dirty} changed</span>}
         </button>
       )}
-    </div>
+    </>
   );
 }
 
@@ -206,11 +213,13 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
   };
 
-  const effortItems: MenuItem[] = EFFORT_LEVELS.map((l) => ({ label: l, checked: session.effort === l, onSelect: () => onOptions({ effort: l }) }));
+  // Deliberately narrow (no `MenuItem[]`): these double as the model menu's overflow groups when the
+  // control row collapses (§3), and OverflowGroup has no separator arm.
+  const effortItems = EFFORT_LEVELS.map((l) => ({ label: l, checked: session.effort === l, onSelect: () => onOptions({ effort: l }) }));
   const modeItems: MenuItem[] = SESSION_MODES.map((m) => ({
     label: m.label, checked: (m.id === "plan") === inPlan, onSelect: () => onMode(m.id),
   }));
-  const permissionItems: MenuItem[] = PERMISSION_MODES.map((m) => ({
+  const permissionItems = PERMISSION_MODES.map((m) => ({
     label: m.label, checked: session.permissionMode === m.id,
     onSelect: () => {
       if (m.id === "bypassPermissions" && session.permissionMode !== "bypassPermissions") { setConfirmBypass(true); return; }
@@ -219,23 +228,56 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
     },
   }));
 
+  // Overflow collapse (§3): the control row never wraps. When the left group cannot fit at the
+  // card's width, the effort + permission chips fold into the model menu instead. Measured, not
+  // hoped: the row is nowrap/overflow-hidden with non-shrinking chips, so overflow is exactly
+  // `scrollWidth > clientWidth`. The width the un-collapsed row NEEDED is remembered so growing the
+  // pane back past it un-collapses without flip-flopping (chips removed = no overflow to observe).
+  const optsRef = useRef<HTMLDivElement>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const neededW = useRef(0);
+  useLayoutEffect(() => {
+    const el = optsRef.current; if (!el) return;
+    const measure = () => {
+      if (!collapsed && el.scrollWidth > el.clientWidth) { neededW.current = el.scrollWidth; setCollapsed(true); }
+      else if (collapsed && el.clientWidth >= neededW.current) setCollapsed(false);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return; // jsdom
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+  const overflow: OverflowGroup[] | undefined = collapsed
+    ? [
+        { label: "Effort", items: effortItems },
+        // In Plan the permission control is a read-only label (see below) and stays on the row —
+        // only the two MENUS collapse.
+        ...(canSetPermissionMode && !inPlan ? [{ label: "Permissions", items: permissionItems }] : []),
+      ]
+    : undefined;
+
   return (
     <div className="composer-dock">
-      {hero && <div className="hero-greeting">What should we work on in <em>{spaceName}</em>?</div>}
+      {hero && <div className="hero-greeting">What should we build in <em>{spaceName}</em>?</div>}
       {/* The whole card is the drop target — aiming at a 44px textarea with a file in hand is a chore.
           §6 forbids animating during a drag, so the state change is a static ring, not a transition. */}
       <div className="composer" data-dropping={dragDepth > 0 || undefined}
         onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
-        <ContextRow session={session} project={project} gitInfo={gitInfo} environment={environment} onOpenDiff={onOpenDiff} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
-        <textarea ref={ta} className="composer-input" aria-label="Message" placeholder="Message the agent…" rows={1}
+        <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={`Ask ${AGENT_META[kind].label} anything…`} rows={1}
           value={draft} onChange={(e) => onDraftChange(e.target.value)} onKeyDown={onKeyDown} onPaste={onPaste} />
         {dragDepth > 0 && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
         <div className="composer-bar">
-          <div className="composer-opts">
-            <ModelPicker kind={kind} model={session.model} canSwitchAgent={canSwitchAgent}
-              agentProbe={agentProbe} onPick={onPickModel} />
-            <ChipMenu ariaLabel="Effort" label={session.effort ?? "Effort"} items={effortItems} />
+          <div className="composer-opts" ref={optsRef} data-collapsed={collapsed || undefined}>
+            {/* The "+" IS the attach affordance now (§3: the paperclip is retired) — same picker,
+                same handlers, new glyph, new home at the row's left edge. */}
+            <button type="button" className="icon-btn composer-attach" aria-label="Attach files"
+              title="Attach files (or drop them here)" onClick={onAttachPick}>
+              <Icon name="add" size={16} />
+            </button>
+            <ContextChips session={session} project={project} gitInfo={gitInfo} environment={environment} onOpenDiff={onOpenDiff} />
+            {!collapsed && <ChipMenu ariaLabel="Effort" label={session.effort ?? "Effort"} items={effortItems} />}
             {/* In Plan the permission mode is not in effect — Claude's `plan` replaces it outright and
                 Codex forces read-only — so the control becomes a LABEL naming what Build will restore.
                 Offering a picker whose selection changes nothing is the lie this split exists to end;
@@ -245,7 +287,7 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
                 ? <ChipMenu ariaLabel="Permission mode" items={[]}
                     title={`Plan is read-only — returning to Build restores ${permissionLabel(planReturn ?? "default")}`}
                     label={permissionLabel(planReturn ?? "default")} />
-                : <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
+                : !collapsed && <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
                     label={permissionLabel(session.permissionMode)} items={permissionItems} />
             )}
             {canPlan && (
@@ -260,10 +302,8 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
             )}
           </div>
           <div className="composer-actions">
-            <button type="button" className="icon-btn composer-attach" aria-label="Attach files"
-              title="Attach files (or drop them here)" onClick={onAttachPick}>
-              <Icon name="attach" size={15} />
-            </button>
+            <ModelPicker kind={kind} model={session.model} canSwitchAgent={canSwitchAgent}
+              agentProbe={agentProbe} onPick={onPickModel} overflow={overflow} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* `sessions.send` requires non-empty text (rpc.ts), so attachments alone cannot be sent.
@@ -273,7 +313,7 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
               title={running ? "Stop (interrupt)" : (!draft.trim() && attachments.length > 0 ? "Add a message to send with these files" : "Send (⌘↵)")}
               disabled={!running && !draft.trim()}
               onClick={() => (running ? onStop() : send())}>
-              <Icon name="arrowUp" size={15} className="send-icon" />
+              <Icon name="arrowUp" size={16} className="send-icon" />
               <Icon name="stop" size={13} className="stop-icon" />
             </button>
           </div>
@@ -285,8 +325,8 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
           {SUGGESTIONS[kind].map((s, i) => (
             <button key={s.title} type="button" className="suggestion-chip" style={{ "--i": i } as React.CSSProperties}
               onClick={() => onSuggestion(s.prompt)}>
+              <Icon name="idea" size={16} className="suggestion-glyph" />
               <span className="suggestion-title">{s.title}</span>
-              <span className="suggestion-desc">{s.description}</span>
             </button>
           ))}
         </div>
