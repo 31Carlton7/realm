@@ -5,6 +5,7 @@ import { FALLBACK_AGENT, useApp } from "../../state/store";
 /**
  * The sidebar's "+" (W3). It replaces the old NewItemMenu: creating a session asks nothing, so there is
  * no menu to open and no sheet behind it — one click makes the session and lands in the hero prompter,
+ * It renders as the sidebar's FIRST row, under the search field (Ara refresh §5 — Ara's "New chat").
  * where the agent/model/permission chips carry every choice.
  *
  * Terminals kept their own routes (space menu → New terminal, ⌘T, palette), so nothing was orphaned by
@@ -16,9 +17,8 @@ export function NewSessionRow() {
   const run = useApp((s) => s.run);
   return (
     <div className="new-item">
-      <div className="sb-divider" />
       <button className="item-row new-row" aria-label="New session" title={`New ${AGENT_META[agent].label} session (⌘N)`}
-        onClick={() => run(() => newSessionInstant())}><Icon name="add" size={14} /><span>New session</span></button>
+        onClick={() => run(() => newSessionInstant())}><Icon name="edit" size={16} /><span>New session</span></button>
     </div>
   );
 }

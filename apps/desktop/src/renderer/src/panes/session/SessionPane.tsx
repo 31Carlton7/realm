@@ -35,6 +35,29 @@ export function SessionMeta({ item }: { item: Item }) {
   );
 }
 
+/** PanelBar action cluster for a session item (Ara refresh §6): branch/diff, then the terminal
+ *  toggle — uniform icon buttons, no text labels. Open-external is skipped: a session has nothing
+ *  to open externally, and dead chrome is worse than none (§7). */
+export function SessionPanelActions({ item }: { item: Item }) {
+  return (<><SessionDiffButton item={item} /><SessionTerminalToggle item={item} /></>);
+}
+
+/** Opens (or focuses) the diff pane for the session's environment — the same openDiff the prompter's
+ *  branch chip drives; this is chrome-level access to it (Ara refresh §6). */
+function SessionDiffButton({ item }: { item: Item }) {
+  const id = item.refId;
+  const environmentId = useApp((s) => s.sessions[id]?.environmentId ?? null);
+  const openDiff = useApp((s) => s.openDiff);
+  const run = useApp((s) => s.run);
+  if (!environmentId) return null;
+  return (
+    <button className="icon-btn" aria-label={`Show changes for ${item.title}`} title="Changes"
+      onClick={() => run(() => openDiff(environmentId))}>
+      <Icon name="branch" size={14} />
+    </button>
+  );
+}
+
 /** PanelBar action for a session item: show/hide its terminal side panel (W4). The terminal belongs to
  *  this session, so its switch lives on this session's header — not in the sidebar. */
 export function SessionTerminalToggle({ item }: { item: Item }) {
@@ -45,7 +68,7 @@ export function SessionTerminalToggle({ item }: { item: Item }) {
   return (
     <button className="icon-btn" aria-pressed={open} aria-label={`${open ? "Hide" : "Show"} terminal for ${item.title}`}
       title="Terminal (⌘J)" onClick={() => run(() => toggle(id))}>
-      <Icon name="terminal" size={13} />
+      <Icon name="terminal" size={14} />
     </button>
   );
 }

@@ -221,7 +221,7 @@ export function Composer({ session, status, project, gitInfo, environment, onOpe
 
   return (
     <div className="composer-dock">
-      {hero && <div className="hero-greeting">What should we work on in <em>{spaceName}</em>?</div>}
+      {hero && <div className="hero-greeting">What should we build in <em>{spaceName}</em>?</div>}
       {/* The whole card is the drop target — aiming at a 44px textarea with a file in hand is a chore.
           §6 forbids animating during a drag, so the state change is a static ring, not a transition. */}
       <div className="composer" data-dropping={dragDepth > 0 || undefined}

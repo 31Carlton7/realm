@@ -21,6 +21,9 @@
 
 :root {
   --rl-accent: #f2f2f2; --rl-accent-contrast: #111111; --rl-space: #7c6cff;
+  /* Ara refresh §1: the app is set in the Apple system stack; JetBrains Mono survives only in
+     terminals, diffs, code and kbd. */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
   --rl-frame: #121212; --rl-panel: #1a1a1a; --rl-raised: #222222;
   --rl-line: #252525; --rl-line-strong: #333333;
@@ -30,16 +33,23 @@
   --rl-terminal-bg: #0e0e0e;
   --rl-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.45);
   --rl-edge: inset 0 0 0 1px rgba(255,255,255,.07);
-  --r-panel: 12px; --r-ctl: 8px; --r-chip: 6px; --r-float: 16px;
-  --sidebar-w: 240px;
+  --r-panel: 12px; --r-ctl: 8px; --r-chip: 8px; --r-row: 10px; --r-float: 16px;
+  --sidebar-w: 280px; --prompter-w: 720px;
+  /* Ara refresh §2: where a real border remains it drops ~25% of its strength — Ara reads as almost
+     borderless; the --rl-edge shadows stay as they are. Derived, so the ink palette is untouched. */
+  --rl-hairline: color-mix(in srgb, var(--rl-line) 75%, transparent);
   /* §6 easings. --ease stays as an alias of ease-out-strong so existing references keep working. */
   --ease-out-strong: cubic-bezier(.23,1,.32,1);
   --ease-in-out-strong: cubic-bezier(.77,0,.175,1);
   --ease: var(--ease-out-strong);
 }
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font: 13px/1.45 -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-html, body { background: var(--rl-panel); } /* panes are the ground now; only the sidebar steps down to frame */
+html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font: 14px/1.5 var(--font-ui); -webkit-font-smoothing: antialiased; }
+/* §5 vibrancy: html/body/#root/.app stay transparent so the macOS material shows through the
+   sidebar column; .main (and every pane) paints opaque --rl-panel, so text there renders on a solid
+   ground. On non-mac the BrowserWindow keeps its opaque backgroundColor and this composes to the
+   old dark frame. */
+html, body { background: transparent; }
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
 button:disabled { cursor: default; opacity: .45; }
 input, select, textarea { font: inherit; color: inherit; }
@@ -50,11 +60,12 @@ kbd { font: 11px var(--font-mono); }
 .panel ::selection { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); }
 
 /* ── Sidebar (one step darker than the content ground, behind a 1px divider) ── */
-.app { display: flex; height: 100%; background: var(--rl-panel); }
+.app { display: flex; height: 100%; background: transparent; }
 .sidebar { width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
-  background: var(--rl-frame); border-right: 1px solid var(--rl-line); -webkit-app-region: drag; }
+  background: rgba(18,18,18,.82); border-right: 1px solid var(--rl-hairline); -webkit-app-region: drag; }
+:root[data-mode="light"] .sidebar { background: rgba(244,244,244,.82); }
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
-.sb-top { padding: 40px 12px 8px; }
+.sb-top { padding: 40px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
 .search { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border-radius: var(--r-ctl);
   background: var(--rl-raised); border: none; color: var(--rl-text-faint); text-align: left; }
 .search:hover { color: var(--rl-text-dim); background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-raised); }
@@ -62,7 +73,7 @@ kbd { font: 11px var(--font-mono); }
 
 .swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
 .swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; }
-.space-page { flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 12px 8px; overflow: hidden; }
+.space-page { flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 16px 8px; overflow: hidden; }
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px; }
 
 .space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0 8px; }
@@ -72,14 +83,14 @@ kbd { font: 11px var(--font-mono); }
 .space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .space-header-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--rl-raised); color: var(--rl-text-dim); }
-.icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
+.icon-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-ctl); color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way. */
 .icon-btn, .item-close { position: relative; }
 .icon-btn::after, .item-close::after { content: ""; position: absolute; inset: -6px; }
 
-.group-label { font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--rl-text-dim); padding: 10px 5px 4px; }
+/* Ara refresh §1: sentence case, 13px/500, text-faint — the letterspaced smallcaps are gone. */
+.group-label { font-size: 13px; font-weight: 500; color: var(--rl-text-faint); padding: 12px 8px 4px; }
 
 .pinned-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding-bottom: 4px; }
 .tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1; border-radius: var(--r-ctl);
@@ -89,14 +100,14 @@ kbd { font: 11px var(--font-mono); }
 .tile-rename { aspect-ratio: auto; grid-column: 1 / -1; padding: 0; }
 
 .item-list { display: flex; flex-direction: column; gap: 1px; }
-.item { position: relative; display: flex; align-items: center; border-radius: var(--r-chip); min-height: 28px; font-size: 12.5px; }
+.item { position: relative; display: flex; align-items: center; border-radius: var(--r-row); min-height: 32px; font-size: 14px; }
 .item:hover { background: var(--rl-hover); }
 /* Active (= focused pane's item) reads as "chosen", not merely "hovered": the --rl-active pill,
    one step stronger than --rl-hover, plus a 2px ink tick (§5). */
 .item[data-active] { background: var(--rl-active); }
 .item[data-active]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--rl-accent); }
 .item[data-active] .item-row { font-weight: 550; color: var(--rl-text-bright); }
-.item-row { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px 5px 10px; color: var(--rl-text-dim); border-radius: var(--r-chip); }
+.item-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px; font-weight: 500; color: var(--rl-text-dim); border-radius: var(--r-row); }
 .item:hover .item-row { color: var(--rl-text-bright); }
 .item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-status { margin-left: auto; width: 6px; height: 6px; }
@@ -111,11 +122,12 @@ kbd { font: 11px var(--font-mono); }
 .item[data-dragging] { opacity: .45; }
 .rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-bright); outline: none; }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
-.new-item { margin-top: auto; padding-top: 4px; }
-.sb-divider { height: 16px; } /* §5: dividers become spacing — no drawn line */
-.new-row { color: var(--rl-text-dim); width: 100%; } .new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Ara refresh §5: the row sits at the sidebar's top now, first row under the search field. */
+.new-item { flex: none; }
+.new-row { color: var(--rl-text-dim); width: 100%; border-radius: var(--r-row); min-height: 32px; }
+.new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 
-.space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px 10px; }
+.space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 10px; }
 /* safe center: centered while it fits, but overflow aligns to start instead of clipping the left end
    unreachably (A-H2). The scrollbar is hidden — scrollIntoView keeps the active space visible. */
 .strip-spaces { flex: 1; display: flex; align-items: center; justify-content: safe center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
@@ -146,19 +158,19 @@ kbd { font: 11px var(--font-mono); }
 .menu .menu-check { margin-left: auto; color: var(--rl-accent); flex: none; }
 .menu [role="menuitem"].danger { color: var(--rl-danger); }
 .menu-label { flex: 1; }
-.menu-sep { height: 1px; background: var(--rl-line); margin: 4px 2px; }
+.menu-sep { height: 1px; background: var(--rl-hairline); margin: 4px 2px; }
 .menu-kbd { margin-left: auto; padding-left: 18px; color: var(--rl-text-dim); }
 
 /* ── Model picker (prompter): search + provider rail + (agent, model) rows ── */
 .model-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
   background: var(--rl-raised); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--rl-edge), var(--rl-shadow); }
-.mp-search { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--rl-line); color: var(--rl-text-faint); }
+.mp-search { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
 .mp-body { display: flex; min-height: 0; }
 /* The rail is a column of providers, hairline-separated from the list — the one place in the picker
    where two scrolling regions meet (§2). */
-.mp-rail { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-right: 1px solid var(--rl-line); }
+.mp-rail { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-right: 1px solid var(--rl-hairline); }
 .mp-rail-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-chip); color: var(--rl-text-faint);
   transition: background-color 100ms ease, color 100ms ease; }
 .mp-rail-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -178,16 +190,16 @@ kbd { font: 11px var(--font-mono); }
 .mp-check { flex: none; color: var(--rl-accent); }
 .mp-blocked { flex: none; color: var(--rl-text-faint); }
 .mp-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
-.mp-foot { padding: 8px 11px; border-top: 1px solid var(--rl-line); font-size: 11px; color: var(--rl-text-faint); }
+.mp-foot { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); font-size: 11px; color: var(--rl-text-faint); }
 
 /* ── Main: full-bleed pane host (no topbar; pane headers carry the window drag) ── */
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--rl-panel); }
 .panehost { flex: 1; min-height: 0; display: flex; -webkit-app-region: no-drag; }
 .panehost > * { flex: 1; min-width: 0; min-height: 0; }
 .panel { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0;
   background: var(--rl-panel); overflow: hidden; }
 /* 16px left rail, aligned with the transcript and composer (V-S2). */
-.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 16px; border-bottom: 1px solid var(--rl-line); font-size: 12px; -webkit-app-region: drag; }
+.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--rl-hairline); font-size: 14px; -webkit-app-region: drag; }
 .panel-bar button, .panel-bar input { -webkit-app-region: no-drag; }
 /* Focused-pane mark (§5): a 2px ink underline on the title itself — not a full-width bar — plus the
    header icon lifted to ink. The pane-header keeps its 1px --rl-line bottom border: content scrolls
@@ -197,13 +209,13 @@ kbd { font: 11px var(--font-mono); }
 /* A focused EMPTY leaf has no header to underline — the pane itself takes an accent top rule. */
 .panel[data-focused][data-empty] { box-shadow: inset 0 2px 0 var(--rl-accent); }
 .panel-icon { color: var(--rl-text-dim); display: grid; place-items: center; }
-.panel-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.panel-title { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* Click-to-rename affordance (spec §A2): the title is a quiet button. */
 button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); }
 button.panel-title:hover { background: var(--rl-hover); }
 .panel-rename { display: flex; min-width: 120px; max-width: 280px; }
 .panel-rename .rename { height: 24px; }
-.panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .panel-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .panel-body { flex: 1; min-height: 0; position: relative; display: flex; }
 .pane-slot { flex: 1; min-width: 0; min-height: 0; display: flex; }
@@ -281,12 +293,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; }
 .swatch[data-selected] { border-color: var(--rl-text-bright); }
 .hex { width: 90px; height: 26px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--rl-panel); font: 12px var(--font-mono); }
-.danger-zone { justify-content: flex-start; align-items: center; border-top: 1px solid var(--rl-line); padding-top: 12px; }
+.danger-zone { justify-content: flex-start; align-items: center; border-top: 1px solid var(--rl-hairline); padding-top: 12px; }
 .danger-zone .muted { flex: 1; }
 
 .palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: rgba(0,0,0,.35); }
 .palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-float); overflow: hidden; background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--rl-edge), var(--rl-shadow); }
-.palette-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rl-line); color: var(--rl-text-dim); }
+.palette-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-dim); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: 4px; } /* kbd chips keep line-strong (§3) */
 .palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
@@ -327,7 +339,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Shared rails (§4): content rides the prompter's 680px column; the scrollbar stays at the pane edge
    because .transcript itself is the scroller. Cluster-then-breathe rhythm (V-S1): 8px inside a turn,
    16px before each new user turn. */
-.transcript-col { width: 100%; max-width: 680px; margin-inline: auto; display: flex; flex-direction: column; gap: 8px; }
+.transcript-col { width: 100%; max-width: var(--prompter-w); margin-inline: auto; display: flex; flex-direction: column; gap: 8px; }
 
 .msg-user-row { display: flex; justify-content: flex-end; margin-top: 16px; }
 .msg-user-row:first-child { margin-top: 0; }
@@ -386,7 +398,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-card[data-state="ok"] .tool-status { color: var(--rl-success); }
 .tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
 .tool-card[data-state="running"] .tool-status { color: var(--rl-success); } /* §3: nothing running-related uses accent */
-.tool-body { border-top: 1px solid var(--rl-line); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;
+.tool-body { border-top: 1px solid var(--rl-hairline); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity 120ms ease; }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ (§6 icon swap): both glyphs stacked in one grid cell, cross-fading with scale + blur. */
@@ -438,7 +450,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ── The prompter (§4): one floating card, two states, one element moving ─ */
 /* The dock carries geometry + position for BOTH states; greeting/suggestions/thinking hang off it
    absolutely so the hero→docked move is a single transform transition (§6: 320ms, interruptible). */
-.composer-dock { position: relative; flex: none; width: min(680px, 100% - 48px);
+.composer-dock { position: relative; flex: none; width: min(var(--prompter-w), 100% - 48px);
   margin: 8px auto max(12px, env(safe-area-inset-bottom));
   transition: transform 320ms var(--ease-in-out-strong); }
 /* Hero (§4): card centered at ~38% pane height. It stays bottom-anchored in flow and is lifted by
@@ -449,10 +461,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 @media (prefers-reduced-motion: reduce) {
   .composer-dock { transition: none; } /* the global kill also covers this; explicit for clarity */
 }
-.hero-greeting { position: absolute; bottom: calc(100% + 16px); left: 0; right: 0; text-align: center;
-  font-size: 18px; font-weight: 650; letter-spacing: -.01em; color: var(--rl-text-bright); text-wrap: balance; }
-.hero-greeting em { font-style: normal; color: var(--rl-text-bright); }
-.hero-greeting { color: var(--rl-text-dim); }
+.hero-greeting { position: absolute; bottom: calc(100% + 20px); left: 0; right: 0; text-align: center;
+  font-size: 30px; font-weight: 600; letter-spacing: -0.02em; color: var(--rl-text-bright); text-wrap: balance; }
+.hero-greeting em { font-style: normal; }
 
 /* Suggested prompts (§4): 2-up grid ≤640px below the card; raised fill, no border. */
 .suggestions { position: absolute; top: calc(100% + 12px); left: 0; right: 0;
@@ -510,8 +521,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; }
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
    them now (W3) — a picker until the session's first event, a plain label after. */
-.ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-radius: var(--r-chip);
-  color: var(--rl-text-dim); font-size: 11.5px; background: transparent; max-width: 200px; min-width: 0; }
+.ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--r-chip);
+  color: var(--rl-text-dim); font-size: 13px; font-weight: 500; background: transparent; max-width: 200px; min-width: 0; }
 .ghost-chip:hover:not([data-static]) { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Nothing to pick: rendered as a <span> (see ChipMenu) — a label, never a dimmed control. */
 .ghost-chip[data-static] { cursor: default; }
@@ -521,7 +532,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
 .ghost-chip .chip-brand { flex: none; }
 .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); font-size: 11px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
+.composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); font-size: 13px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
 .bypass-confirm { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 14%, transparent); cursor: pointer; }
 .bypass-confirm:hover { background: color-mix(in srgb, var(--rl-warning) 20%, transparent); }
@@ -668,7 +679,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    and the only hairlines are the two seams where content scrolls beneath them (§2.1). Colour is
    state only — the add/del tints and the status letters — never chrome. */
 .diff-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--rl-panel); }
-.diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rl-line); }
+.diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rl-hairline); }
 .diff-head-count { font-size: 11.5px; color: var(--rl-text-dim); }
 .diff-head-spacer { flex: 1; }
 .diff-list { flex: 1; overflow: auto; min-height: 0; }
@@ -676,7 +687,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .diff-note { padding: 8px 12px; font-size: 11.5px; color: var(--rl-text-faint); }
 .diff-loading { padding: 8px 12px; font-size: 11.5px; color: var(--rl-text-faint); }
 /* Table-style rows (§5): one hairline between, no vertical rules, no card chrome. */
-.diff-file + .diff-file { border-top: 1px solid var(--rl-line); }
+.diff-file + .diff-file { border-top: 1px solid var(--rl-hairline); }
 .diff-row { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 4px; min-height: 30px; }
 .diff-row:hover { background: var(--rl-hover); }
 .diff-expand { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 6px; text-align: left; border-radius: var(--r-chip); }
@@ -712,7 +723,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .diff-line[data-kind="del"] .diff-mark, .diff-line[data-kind="del"] .diff-text { color: var(--rl-danger); }
 .diff-line[data-kind="meta"] .diff-text { color: var(--rl-text-faint); font-style: italic; }
 /* Commit dock: raised, hairline above, primary action bottom-right (§5 sheets/footer pattern). */
-.diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--rl-raised); border-top: 1px solid var(--rl-line); }
+.diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--rl-raised); border-top: 1px solid var(--rl-hairline); }
 .commit-message { border: none; outline: none; resize: none; background: var(--rl-hover); border-radius: var(--r-ctl); color: var(--rl-text-bright);
   font: inherit; font-size: 12.5px; line-height: 1.5; padding: 8px 10px; caret-color: var(--rl-accent); }
 .commit-message::placeholder { color: var(--rl-text-faint); }
@@ -742,7 +753,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    destructive act, and two different-looking confirms would teach the user to stop reading. */
 .cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
 .cp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-ctl); }
-.cp-row + .cp-row { border-top: 1px solid var(--rl-line); }
+.cp-row + .cp-row { border-top: 1px solid var(--rl-hairline); }
 .cp-row:hover { background: var(--rl-hover); }
 /* The undo point is the one row whose meaning differs from its neighbours, so it is the one row that
    is allowed a colour. */
@@ -766,7 +777,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .env-empty { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
 .env-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .env-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 0; }
-.env-row + .env-row { border-top: 1px solid var(--rl-line); }
+.env-row + .env-row { border-top: 1px solid var(--rl-hairline); }
 .env-main { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--rl-text-dim); }
 .env-name { font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .env-kind { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }

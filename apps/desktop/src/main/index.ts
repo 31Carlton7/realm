@@ -34,7 +34,14 @@ async function createWindow(info: { port: number; home: string }) {
   const win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
     titleBarStyle: "hiddenInset", trafficLightPosition: { x: 12, y: 14 },
-    backgroundColor: "#131417",
+    // Ara refresh §5: macOS gets sidebar vibrancy behind a fully transparent window paint; the
+    // renderer keeps every surface EXCEPT the sidebar opaque, so only the sidebar column shows the
+    // material (rgba(18,18,18,.82) over it — "ever so slightly transparent"). Elsewhere vibrancy
+    // does not exist, so the window keeps its opaque dark ground and the translucent sidebar
+    // composites against it — visually the old --rl-frame, never a half-broken effect.
+    ...(process.platform === "darwin"
+      ? { vibrancy: "sidebar" as const, backgroundColor: "#00000000" }
+      : { backgroundColor: "#131417" }),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
       additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`] },

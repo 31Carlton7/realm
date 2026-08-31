@@ -1,7 +1,7 @@
 import type { Item } from "@realm/contracts";
 import type { ComponentType, JSX } from "react";
 import { PlaceholderPane } from "./PlaceholderPane";
-import { SessionMeta, SessionTerminalToggle } from "./session/SessionPane";
+import { SessionMeta, SessionPanelActions } from "./session/SessionPane";
 
 /** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
 export type PaneProps = { item: Item; visible: boolean; focused?: boolean };
@@ -19,5 +19,5 @@ export const paneMeta: Partial<Record<Item["kind"], (p: { item: Item }) => JSX.E
 
 /** Optional per-kind icon buttons in the PanelBar's action cluster, left of the ⋯ menu. */
 export const paneActions: Partial<Record<Item["kind"], (p: { item: Item }) => JSX.Element | null>> = {
-  session: SessionTerminalToggle, // the session's own terminal drawer (W4)
+  session: SessionPanelActions, // branch/diff + the session's own terminal drawer (Ara refresh §6)
 };

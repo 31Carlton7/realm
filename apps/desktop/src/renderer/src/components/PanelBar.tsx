@@ -40,9 +40,9 @@ export function PanelBar({ item, onSplit, onClose }: {
         {Actions ? <Actions item={item} /> : null}
         <button ref={menuBtn} className="icon-btn" aria-label={`Pane menu for ${item.title}`} aria-haspopup="menu"
           aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen((v) => !v); }}>
-          <Icon name="more" size={13} />
+          <Icon name="more" size={14} />
         </button>
-        <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={13} /></button>
+        <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={14} /></button>
       </span>
       {menuOpen && (
         <Menu anchorRef={menuBtn} align="right" label={`Actions for ${item.title}`} onClose={closeMenu} items={[

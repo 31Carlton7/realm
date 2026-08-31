@@ -80,7 +80,7 @@ describe("SessionPane", () => {
     const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
     expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "hero");
     const title = document.querySelector(".hero-greeting");
-    expect(title).toHaveTextContent("What should we work on in Versed?");
+    expect(title).toHaveTextContent("What should we build in Versed?");
     expect(title?.querySelector("em")).toHaveTextContent("Versed");
     const chip = screen.getByRole("button", { name: /Say hello/ }); // default mount() session is agentKind "fake"
     expect(chip.querySelector(".suggestion-title")).toHaveTextContent("Say hello");
