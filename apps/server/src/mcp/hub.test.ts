@@ -86,12 +86,16 @@ describe("sharing an in-flight connect", () => {
 });
 
 describe("tool cache", () => {
-  it("persists a successful tools/list to the row via setTools", async () => {
+  it("persists a successful tools/list to the row via setTools — name+description only in the CACHE, but the live return carries inputSchema too", async () => {
+    const schema = { type: "object" as const, properties: { q: { type: "string" as const } }, required: ["q"] };
     const row = newRow();
-    const stub = makeStubServer({ tools: [{ name: "search", description: "Search records", inputSchema: { type: "object" } }] });
+    const stub = makeStubServer({ tools: [{ name: "search", description: "Search records", inputSchema: schema }] });
     const { hub } = hubFor(stub);
     const tools = await hub.tools(row.id);
-    expect(tools).toEqual([{ name: "search", description: "Search records" }]);
+    // The live return: real inputSchema, straight from the upstream server.
+    expect(tools).toEqual([{ name: "search", description: "Search records", inputSchema: schema }]);
+    // The persisted cache: name + description ONLY — see `McpToolRow`'s doc comment on why a schema
+    // does not belong in something that can go stale between hub connections.
     expect(servers.get(row.id)!.tools).toEqual([{ name: "search", description: "Search records" }]);
   });
 
@@ -99,7 +103,7 @@ describe("tool cache", () => {
     const row = newRow();
     const stub = makeStubServer({ tools: [{ name: "bare", inputSchema: { type: "object" } }] });
     const { hub } = hubFor(stub);
-    expect(await hub.tools(row.id)).toEqual([{ name: "bare", description: "" }]);
+    expect(await hub.tools(row.id)).toEqual([{ name: "bare", description: "", inputSchema: { type: "object" } }]);
   });
 });
 

@@ -705,4 +705,24 @@ describe("MCP gateway wiring (Plan 9 W3)", () => {
     c.close();
   });
 
+  it("releases the just-minted token when adapter.start throws — no leaked token until the next re-register", async () => {
+    // Quality review: `gateway.register` mints a token BEFORE `adapter.start` runs. Without the
+    // try/catch this proves, a throwing start() left that token valid with no live session behind it
+    // until the next `ensureLive` call happened to re-register (which could be a long time, or never,
+    // for a session nobody retries).
+    class ThrowingFake extends FakeAdapter {
+      starts: Any[] = [];
+      start(opts: Any): never { this.starts.push(opts); throw new Error("boom: adapter refused to start"); }
+    }
+    const throwing = new ThrowingFake({ script: [] });
+    const { c, sp } = await boot(throwing);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const res = await c.call("sessions.send", { id: session.id, text: "go" });
+    expect(res.error).toBeTruthy(); // the throw really did propagate, not get swallowed somewhere
+    await waitFor(() => throwing.starts.length === 1);
+    const { url, headers } = throwing.starts[0]!.mcpServers[0] as { url: string; headers: Record<string, string> };
+    const afterThrow = await fetch(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
+    expect(afterThrow.status).toBe(401);
+    c.close();
+  });
 });

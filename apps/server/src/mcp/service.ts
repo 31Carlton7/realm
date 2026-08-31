@@ -1,4 +1,4 @@
-import { MCP_SECRET_STORAGE_NOTE, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { MCP_SECRET_STORAGE_NOTE, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import type { McpServerInput, McpServerRow, McpServersStore } from "../store/mcp";
@@ -184,10 +184,23 @@ function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | 
     // connection (e.g. after switching a server from an API key to OAuth), and OAuth is what the hub
     // actually sends upstream once it exists.
     authKind: r.oauthJson ? "oauth" : keys.length > 0 ? "secrets" : "none",
-    oauthStatus: r.oauthJson ? "connected" : "unconfigured",
+    oauthStatus: oauthStatusOf(r),
     status,
     tools: r.tools,
     allowedTools,
     enabled, createdAt: r.createdAt,
   };
+}
+
+/**
+ * The coarse W1 read of `oauthJson`: `""` (OAuth has never run) → `"unconfigured"`, anything else →
+ * `"connected"`. `reconnect_needed` needs the hub's refresh logic (W5) to ever be produced.
+ *
+ * Exported (rather than kept private to `toContract`) so `app.ts`'s hub `onStatus` callback — which
+ * broadcasts `mcp.serverStatus` independently of `list()`/`toContract`, since a status flip can happen
+ * between `mcp.list` calls — derives `oauthStatus` the SAME way instead of keeping its own copy. W5 adds
+ * `reconnect_needed` here and must only have one call site to teach it that.
+ */
+export function oauthStatusOf(row: McpServerRow): McpOauthStatus {
+  return row.oauthJson ? "connected" : "unconfigured";
 }

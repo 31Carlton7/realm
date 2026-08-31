@@ -312,11 +312,21 @@ export class SessionService {
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
     // isolation on, so the re-injection can never disagree with it.
     const systemContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
-    const handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers, resume: s.providerSessionId,
-      skills,
-      systemContext,
-      env: env ? portEnv(env) : {},
-      onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`) });
+    let handle: AgentHandle;
+    try {
+      handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers, resume: s.providerSessionId,
+        skills,
+        systemContext,
+        env: env ? portEnv(env) : {},
+        onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`) });
+    } catch (e) {
+      // `gateway.register` above already minted a token for this session before `adapter.start` had any
+      // chance to fail — a throw here must not leave that token valid with no live session behind it
+      // (it would otherwise sit there until the NEXT `ensureLive` call re-registers and revokes it,
+      // which may be a while for a session nobody retries right away).
+      this.d.gateway.release(id);
+      throw e;
+    }
     const pump = (async () => {
       try { for await (const ev of handle.events) this.onEvent(id, ev); }
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }

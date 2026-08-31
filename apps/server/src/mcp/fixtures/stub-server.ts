@@ -46,8 +46,11 @@ export type StubServer = {
   close(): Promise<void>;
 };
 
+// `echo`'s schema is deliberately NOT a bare `{type:"object"}` — a required `message` property is what
+// every hub/gateway test that cares about schema fidelity (as opposed to just tool names) asserts
+// survives the round trip verbatim, distinguishing it from a placeholder a naive re-export could produce.
 const DEFAULT_TOOLS: Tool[] = [
-  { name: "echo", description: "Returns its arguments as text content.", inputSchema: { type: "object" } },
+  { name: "echo", description: "Returns its arguments as text content.", inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] } },
   { name: "boom", description: "Always returns an error result.", inputSchema: { type: "object" } },
 ];
 

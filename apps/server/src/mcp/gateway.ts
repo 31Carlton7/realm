@@ -6,8 +6,8 @@ import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, typ
 import type { McpServerConfig } from "@realm/adapters";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
-import type { McpCallLogStore, McpServerRow, McpServersStore, McpToolRow } from "../store/mcp";
-import type { McpHub } from "./hub";
+import type { McpCallLogStore, McpServerRow, McpServersStore } from "../store/mcp";
+import type { McpHub, McpLiveTool } from "./hub";
 import type { McpService } from "./service";
 
 const SUMMARY_MAX = 200;
@@ -165,7 +165,15 @@ export class McpGateway {
       // The SDK transport handles MCP-protocol-level errors itself; this is the backstop for anything
       // that escapes it (a handler throwing outside a CallToolResult, a mid-response socket error) so one
       // bad request can't take the whole listener down.
-      if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "internal" })); }
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "internal" }));
+      } else {
+        // Headers (or an SSE stream) already went out — there is no clean response left to send, and
+        // leaving the socket open would strand the agent's request until ITS OWN timeout instead of
+        // failing fast. Destroy rather than `.end()`: an in-flight SSE stream has no well-formed way to
+        // signal "actually, this failed" after framing has already started.
+        res.destroy();
+      }
     }
   }
 
@@ -229,20 +237,25 @@ export class McpGateway {
    * The union of this space's enabled servers' tools, re-exported as `<serverName>__<toolName>` and
    * filtered by `allowedTools`. `hub.tools()` THROWS on failure (see its own doc comment) — caught here
    * per server, so one dead upstream contributes no tools of its own rather than erroring the whole list.
-   * `inputSchema: { type: "object" }` (no `properties`) is deliberately permissive: the hub forwards
-   * calls verbatim without validating against the cached tool list (see `McpToolRow`'s doc comment), so
-   * this schema promises nothing it might have to take back the moment an upstream tool's real schema
-   * changes.
+   *
+   * `inputSchema` is forwarded VERBATIM from the upstream server's own `tools/list` (`McpHub.tools()`'s
+   * live return, not its persisted cache — see `McpLiveTool`'s doc comment). Agents construct a tool
+   * call's arguments FROM this schema, so a placeholder `{type:"object"}` here would silently degrade
+   * every schema-heavy server: required fields, enums, nested shapes all become invisible to the agent.
+   * The hub itself still never validates a call's arguments against it (see `McpHub.call()`'s own doc
+   * comment) — this is purely what the agent sees, not something Realm checks. The `?? { type: "object"
+   * }` fallback only ever fires for a malformed upstream tool that omitted its own schema; the MCP spec
+   * requires one.
    */
   private async listTools(spaceId: string): Promise<{ tools: Tool[] }> {
     const perServer = await Promise.all(this.d.mcp.enabledServerIds(spaceId).map(async (id): Promise<Tool[]> => {
       const row = this.d.servers.get(id);
       if (!row) return [];
-      let tools: McpToolRow[];
+      let tools: McpLiveTool[];
       try { tools = await this.d.hub.tools(id); } catch { return []; }
       const allowed = this.d.mcp.allowedTools(spaceId, id);
       const visible = allowed ? tools.filter((t) => allowed.includes(t.name)) : tools;
-      return visible.map((t): Tool => ({ name: `${row.name}__${t.name}`, description: t.description, inputSchema: { type: "object" } }));
+      return visible.map((t): Tool => ({ name: `${row.name}__${t.name}`, description: t.description, inputSchema: t.inputSchema ?? { type: "object" } }));
     }));
     return { tools: perServer.flat() };
   }

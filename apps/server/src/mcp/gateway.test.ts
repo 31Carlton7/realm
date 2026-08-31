@@ -153,6 +153,21 @@ describe("tools/list — namespacing and policy", () => {
     await client.close();
   });
 
+  it("forwards the upstream tool's real inputSchema verbatim — not a placeholder {type:\"object\"}", async () => {
+    // Quality review: agents construct tool call arguments FROM the schema they're given, so a
+    // permissive placeholder here would silently degrade every schema-heavy server. `echo`'s stub schema
+    // (`stub-server.ts`) requires a `message` property specifically so this test can prove the REAL
+    // schema, not a generic stand-in, is what actually reaches the SDK client.
+    const app = await setupApp();
+    const { row: alpha } = app.addServer("alpha");
+    app.mcp.setEnabled(app.spaceId, alpha.id, true);
+    const { client } = await connectClient(app);
+    const { tools } = await client.listTools();
+    const echo = tools.find((t) => t.name === "alpha__echo");
+    expect(echo?.inputSchema).toEqual({ type: "object", properties: { message: { type: "string" } }, required: ["message"] });
+    await client.close();
+  });
+
   it("does not list a server the space never enabled", async () => {
     const app = await setupApp();
     app.addServer("alpha"); // defined, never enabled

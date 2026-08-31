@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { ToolListChangedNotificationSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { ToolListChangedNotificationSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { McpServerStatus } from "@realm/contracts";
 import { RpcError } from "../store/rows";
@@ -11,6 +11,19 @@ import type { McpServerRow, McpServersStore, McpToolRow } from "../store/mcp";
 /** The hub's live connection state for one server row — the same enum `mcp.serverStatus` puts on the
  *  wire (`McpServerStatusSchema`), so the gateway/UI never need a second vocabulary for it. */
 type UpstreamStatus = McpServerStatus;
+
+/**
+ * What `tools()` returns to a live caller — name, description, AND the upstream's real `inputSchema`.
+ * Distinct from `McpToolRow` (the persisted cache): the cache deliberately drops the schema because a
+ * STORED one can go stale the moment an upstream server changes it between hub connections, and nothing
+ * that reads the cache (settings rendering a server's tool list) constructs a tool call from it. This
+ * type is fresh off the very `listTools()` call that produced it, so there is no staleness risk to guard
+ * against — and the gateway's `tools/list` (W3+) forwards it straight through to the agent's own MCP
+ * client, which NEEDS the real schema to construct valid tool call arguments. A placeholder schema here
+ * would silently degrade every schema-heavy server (required fields, enums, nested shapes — all invisible
+ * to the agent).
+ */
+export type McpLiveTool = { name: string; description: string; inputSchema: Tool["inputSchema"] };
 
 /** Consecutive THROWN failures — a rejected connect, `tools/list`, or `tools/call` — that trip the
  *  breaker. Deliberately not `isError: true` results: that is a normal, successfully round-tripped MCP
@@ -62,21 +75,26 @@ export class McpHub {
   }) {}
 
   /**
-   * Lazily connects, lists tools, and caches them on the row (name + description only — see
-   * `McpToolRow`'s doc comment for why no input schema rides along).
+   * Lazily connects and lists tools. The persisted CACHE (`servers.setTools`) keeps name + description
+   * only — see `McpToolRow`'s doc comment for why a schema does not belong in something that can go
+   * stale between connections. The value THIS method returns is not the cache: it is fresh off the very
+   * `listTools()` call that produced it, so it carries the real `inputSchema` too (see `McpLiveTool`) —
+   * the gateway forwards it verbatim to the agent's own MCP client.
    *
    * Throws on failure rather than returning `[]`: this layer reports what happened and lets the caller
    * decide. W3's gateway treats a thrown/failed `tools()` as "this server contributes no tools right
    * now" without erroring the whole `tools/list` response.
    */
-  async tools(id: string): Promise<McpToolRow[]> {
+  async tools(id: string): Promise<McpLiveTool[]> {
     const { client, entry } = await this.ensureClient(id);
     try {
       const { tools } = await client.listTools();
-      const rows = tools.map((t): McpToolRow => ({ name: t.name, description: t.description ?? "" }));
-      this.d.servers.setTools(id, rows);
+      // Cache write: name + description ONLY. Deliberately a separate projection from the return value
+      // below, not a `.map(t => ({ name, description }))` derived from it, so it stays obviously correct
+      // even if `McpLiveTool` grows another field later.
+      this.d.servers.setTools(id, tools.map((t): McpToolRow => ({ name: t.name, description: t.description ?? "" })));
       this.recordSuccess(id, entry);
-      return rows;
+      return tools.map((t): McpLiveTool => ({ name: t.name, description: t.description ?? "", inputSchema: t.inputSchema }));
     } catch (err) {
       this.recordFailure(id, entry);
       throw sanitize(id, err, entry.redact);

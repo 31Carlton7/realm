@@ -2,9 +2,14 @@ import type { Db } from "../db/database";
 import { newId, type McpTransport } from "@realm/contracts";
 import { NotFoundError, RpcError, now } from "./rows";
 
-/** One cached entry from an upstream server's `tools/list` — enough for settings to render a tool
- *  without a live connection. No input schema: the gateway (W3+) forwards calls verbatim and does not
- *  validate args against it, so keeping it out of the cache is one less thing that can go stale. */
+/** One cached entry from an upstream server's `tools/list` — enough for settings to render a tool list
+ *  without a live connection. No input schema, deliberately: a STORED schema can go stale the moment an
+ *  upstream server changes it between hub connections, and nothing that reads this cache (a settings
+ *  screen listing tool names) ever constructs a tool call from it. This is a cache-staleness concern
+ *  ONLY — `McpHub.tools()` returns the real, live `inputSchema` (see its own `McpLiveTool` type) to the
+ *  gateway, which forwards it verbatim to an agent's MCP client so it can build valid call arguments.
+ *  The hub still never validates a `call()`'s args against any schema, cached or live — see `call()`'s
+ *  own doc comment. */
 export type McpToolRow = { name: string; description: string };
 
 /**

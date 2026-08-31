@@ -12,7 +12,7 @@ import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
 import { SkillsService } from "./skills/service";
 import { McpServersStore, McpCallLogStore } from "./store/mcp";
-import { McpService } from "./mcp/service";
+import { McpService, oauthStatusOf } from "./mcp/service";
 import { McpHub } from "./mcp/hub";
 import { McpGateway } from "./mcp/gateway";
 import type { McpServerStatus } from "@realm/contracts";
@@ -112,15 +112,25 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     authHeaders: async () => ({}),
     onStatus: (id, status) => {
       mcpStatus.set(id, status);
-      // Same oauthStatus derivation as `McpService`'s `toContract` (W1): `""` unconfigured, anything else
-      // connected. W5's refresh logic is what ever produces `reconnect_needed`.
+      // `oauthStatusOf` is the ONE place `oauthJson` → `oauthStatus` derivation lives (see its own doc
+      // comment) — this callback and `McpService.list`'s `toContract` both call it rather than keeping a
+      // second copy, so W5's `reconnect_needed` only has one call site to teach it to.
       const row = mcpServersStore.get(id);
-      const oauthStatus = row?.oauthJson ? "connected" : "unconfigured";
+      const oauthStatus = row ? oauthStatusOf(row) : "unconfigured";
       rpc.broadcast("mcp.serverStatus", { id, status, oauthStatus });
       // A hub status change is the gateway's only signal that a cached tool list may have changed
       // (`connected` after a reconnect, or `onToolsChanged`'s `list_changed`-triggered relist) — so every
       // status event, not just the interesting ones, tells every registered session to re-list. Status
       // events can repeat (see `hub.ts`), and `notifyToolsChanged` tolerates that.
+      //
+      // That repetition is also what keeps a broken upstream from looping forever: a re-list triggered by
+      // THIS notification can itself fail, which calls `onStatus` again, which calls `notifyToolsChanged`
+      // again, which could trigger another re-list... `hub.ts`'s `CIRCUIT_THRESHOLD` is why that chain
+      // terminates rather than spinning agent + gateway + hub in a feedback loop: two failed relists emit
+      // `"error"` here, the third emits `"circuit_open"`, and every attempt AFTER that fails fast inside
+      // `ensureClient` — before `recordFailure` ever runs — so it emits no status event at all. A future
+      // change to that fast-fail path must preserve "no event on an already-open circuit," or this loop
+      // stops self-extinguishing.
       gateway?.notifyToolsChanged();
     },
   });
