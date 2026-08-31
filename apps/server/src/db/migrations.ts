@@ -172,4 +172,13 @@ export const migrations: string[] = [
   CREATE INDEX mcp_call_log_session ON mcp_call_log(session_id, ts DESC);
   CREATE INDEX mcp_call_log_ts ON mcp_call_log(ts DESC);
   `,
+  // v10 — browser panes (Plan 11 W1). The persisted half of a browser item: last committed url + page
+  // title, so the pane survives a restart pointing where it pointed. The live WebContentsView belongs
+  // to Electron main and has no row here. `url = ''` means never navigated.
+  `
+  CREATE TABLE browsers (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX browsers_space ON browsers(space_id);
+  `,
 ];

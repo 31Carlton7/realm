@@ -7,6 +7,8 @@ import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
 import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
+import { BrowsersStore } from "./store/browsers";
+import { BrowserService } from "./browsers/service";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
@@ -90,6 +92,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints });
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
+  const browsers = new BrowserService({ db, rpc, spaces, items, browsers: new BrowsersStore(db) });
   const settings = new SettingsStore(db);
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
   const skills = new SkillsService({ home: opts.home, settings });
@@ -169,7 +172,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   sessionService = sessions;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

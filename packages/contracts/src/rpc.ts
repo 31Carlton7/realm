@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema } from "./entities";
 
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
@@ -301,6 +301,16 @@ export const Methods = {
   "terminals.prefill": { params: z.object({ terminalId: IdSchema, command: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.resize": { params: z.object({ terminalId: IdSchema, cols: z.number().int(), rows: z.number().int() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.close":  { params: z.object({ terminalId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /** The browser trio is row + item only (Plan 11 W1): the native `WebContentsView` lives in Electron
+   *  main and is driven over IPC, never through the server. These methods carry only what must survive
+   *  a restart. `url` defaults to "" — a fresh pane opens on its empty state, not a page. */
+  "browsers.create": { params: z.object({ spaceId: IdSchema, url: z.string().default("") }), result: z.object({ browserId: IdSchema, itemId: IdSchema, url: z.string() }) },
+  "browsers.get":    { params: z.object({ browserId: IdSchema }), result: BrowserSchema },
+  /** Last committed navigation state, written back by the renderer (debounced). A `title` also renames
+   *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip. */
+  "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
+  "browsers.close":  { params: z.object({ browserId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
