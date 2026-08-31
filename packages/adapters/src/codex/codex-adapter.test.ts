@@ -668,3 +668,102 @@ describe("CodexAdapter", () => {
     expect(types(evs)).not.toContain("assistant_text");
   });
 });
+
+/**
+ * `skills/extraRoots/set` is per-CONNECTION, not per-thread, and CodexAdapter shares one connection across
+ * every session — so these tests are as much about the union and the refcount as about the call itself.
+ * The live counterpart (against the real 0.146.0 binary) is `apps/server/scripts/live-skills-check.ts`.
+ */
+describe("CodexAdapter skills", () => {
+  const roots = async (adapter: CodexAdapter) =>
+    (await (await adapter.connection!).request<{ extraRoots: string[] | null; calls: number }>("$test/extraRoots"));
+
+  it("sets the session's skills root on the connection once the thread exists", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } }));
+    const { evs } = drain(handle);
+    await waitFor(() => expect(types(evs)).toContain("init"));
+    await waitFor(async () => expect((await roots(adapter)).extraRoots).toEqual(["/tmp/realm-plugin/skills"]));
+  });
+
+  it("never calls it at all for a session with no skills", async () => {
+    const { adapter, evs } = await booted();
+    expect(types(evs)).toContain("init");
+    expect((await roots(adapter)).calls).toBe(0);
+    expect(adapter.extraRootCount).toBe(0);
+  });
+
+  it("unions the roots of every live session and drops each one as its session ends", async () => {
+    const adapter = newAdapter();
+    const a = adapter.start(startOpts({ skills: { pluginPath: "/tmp/a", root: "/tmp/a/skills" } }));
+    const evsA = drain(a).evs;
+    await waitFor(() => expect(types(evsA)).toContain("init"));
+    const b = adapter.start(startOpts({ skills: { pluginPath: "/tmp/b", root: "/tmp/b/skills" } }));
+    const evsB = drain(b).evs;
+    await waitFor(() => expect(types(evsB)).toContain("init"));
+    await waitFor(async () => expect((await roots(adapter)).extraRoots).toEqual(["/tmp/a/skills", "/tmp/b/skills"]));
+    // One session ending must not take the other's skills away with it.
+    await b.dispose();
+    await waitFor(async () => expect((await roots(adapter)).extraRoots).toEqual(["/tmp/a/skills"]));
+    expect(adapter.extraRootCount).toBe(1);
+  });
+
+  it("counts two sessions sharing one root and only drops it when the last of them goes", async () => {
+    const adapter = newAdapter();
+    const skills = { pluginPath: "/tmp/same", root: "/tmp/same/skills" };
+    const a = adapter.start(startOpts({ skills }));
+    const evsA = drain(a).evs;
+    await waitFor(() => expect(types(evsA)).toContain("init"));
+    const b = adapter.start(startOpts({ skills }));
+    const evsB = drain(b).evs;
+    await waitFor(() => expect(types(evsB)).toContain("init"));
+    expect(adapter.extraRootCount).toBe(1);
+    await b.dispose();
+    await waitFor(async () => expect((await roots(adapter)).extraRoots).toEqual(["/tmp/same/skills"]));
+  });
+
+  it("starts the session anyway on a codex build that has no skills/extraRoots/set", async () => {
+    // The whole point of the feature detection: this machine runs a preview build ahead of the public
+    // release, so -32601 is the expected answer from an older binary and must cost the user nothing but skills.
+    const adapter = newAdapter();
+    const logs: string[] = [];
+    const handle = adapter.start(startOpts({
+      env: { FAKE_CODEX_NO_EXTRA_ROOTS: "1" },
+      skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" },
+      onLog: (l) => logs.push(l),
+    }));
+    const { evs } = drain(handle);
+    await waitFor(() => expect(types(evs)).toContain("init"));
+    expect(statuses(evs)).toContain("idle");
+    expect(types(evs)).not.toContain("error");
+    await waitFor(() => expect(logs.join("\n")).toContain("no skills/extraRoots/set"));
+    expect(adapter.skillsSupported).toBe(false);
+    // Sticky: a second session must not pay for the same round trip to learn the same thing.
+    const before = logs.length;
+    const b = adapter.start(startOpts({ env: { FAKE_CODEX_NO_EXTRA_ROOTS: "1" }, skills: { pluginPath: "/tmp/b", root: "/tmp/b/skills" }, onLog: (l) => logs.push(l) }));
+    const evsB = drain(b).evs;
+    await waitFor(() => expect(types(evsB)).toContain("init"));
+    expect(logs.slice(before).join("\n")).not.toContain("no skills/extraRoots/set");
+    // And the turn still runs.
+    await b.send({ text: "hello", attachments: [] });
+    await waitFor(() => expect(texts(evsB).join("")).toContain("hello"));
+  });
+
+  it("starts the session anyway when the method exists but fails", async () => {
+    const adapter = newAdapter();
+    const logs: string[] = [];
+    const handle = adapter.start(startOpts({
+      env: { FAKE_CODEX_EXTRA_ROOTS_FAIL: "1" },
+      skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" },
+      onLog: (l) => logs.push(l),
+    }));
+    const { evs } = drain(handle);
+    await waitFor(() => expect(types(evs)).toContain("init"));
+    expect(types(evs)).not.toContain("error");
+    await waitFor(() => expect(logs.join("\n")).toContain("skills/extraRoots/set failed"));
+    // A transient failure is not a missing method: the next session must try again.
+    expect(adapter.skillsSupported).toBe(true);
+    await handle.send({ text: "hello", attachments: [] });
+    await waitFor(() => expect(texts(evs).join("")).toContain("hello"));
+  });
+});

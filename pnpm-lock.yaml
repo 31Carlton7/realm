@@ -106,6 +106,9 @@ importers:
       tsup:
         specifier: ^8.3.0
         version: 8.5.1(postcss@8.5.26)(tsx@4.23.12)(typescript@5.9.3)
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.12
 
   packages/adapters:
     dependencies:

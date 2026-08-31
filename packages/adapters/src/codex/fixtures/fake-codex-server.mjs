@@ -29,7 +29,9 @@
  * `text_elements` is validated on text input exactly as the real server does — omitting it is a deserialize
  * error there, and silently accepting it here would let that regression through.
  *
- * Test-only hooks: the `$test/exit` request kills the process (so tests can tell an unexpected death from
+ * Test-only hooks: the `$test/extraRoots` request reports the last `skills/extraRoots/set` payload and how
+ * many times it was called, FAKE_CODEX_NO_EXTRA_ROOTS=1 answers that method -32601 (a build from before it
+ * existed) and FAKE_CODEX_EXTRA_ROOTS_FAIL=1 fails it -32603; the `$test/exit` request kills the process (so tests can tell an unexpected death from
  * an intentional dispose), `model: "explode"` fails `thread/start` with the revoked-login error shape,
  * `model: "reflect"` echoes the whole `thread/start`/`thread/resume` params object back as the model string
  * (the only field of the start response the adapter surfaces), a resumed thread id containing "busy" rejoins a
@@ -46,6 +48,9 @@ const threads = new Map(); // threadId -> { cwd }
 const activeTurns = new Map(); // threadId -> turnId, the precondition turn/steer checks
 const pendingRequests = new Map(); // server request id -> (clientReply) => void
 let stdinBuf = "";
+// Last `skills/extraRoots/set` payload plus a call count, readable via the `$test/extraRoots` request.
+let lastExtraRoots = null;
+let extraRootsCalls = 0;
 
 const send = (frame) => process.stdout.write(JSON.stringify(frame) + "\n");
 const ok = (id, result) => send({ id, result });
@@ -304,6 +309,20 @@ function handleRequest(id, method, params) {
       agentMessage(params.threadId, active, `steered:${inputText(params.input)}`);
       return;
     }
+    case "skills/extraRoots/set": {
+      // FAKE_CODEX_NO_EXTRA_ROOTS=1 is a codex build from before the method existed: -32601, which the
+      // adapter must feature-detect rather than surface as a dead session.
+      if (process.env.FAKE_CODEX_NO_EXTRA_ROOTS) { fail(id, -32601, "Method not found: skills/extraRoots/set"); return; }
+      // ...and this is the method existing but failing, which must degrade the same way.
+      if (process.env.FAKE_CODEX_EXTRA_ROOTS_FAIL) { fail(id, -32603, "could not read one of those roots"); return; }
+      extraRootsCalls++;
+      lastExtraRoots = Array.isArray(params.extraRoots) ? params.extraRoots : null;
+      ok(id, {});
+      return;
+    }
+    case "$test/extraRoots":
+      ok(id, { extraRoots: lastExtraRoots, calls: extraRootsCalls });
+      return;
     case "turn/interrupt":
       ok(id, {});
       void streamInterrupt(params.threadId, params.turnId);

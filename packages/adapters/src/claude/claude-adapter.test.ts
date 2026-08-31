@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeAdapter } from "./claude-adapter";
 import type { SessionEvent } from "@realm/contracts";
+import type { StartOptions } from "../types";
 import { readFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
 
@@ -188,5 +189,48 @@ describe("ClaudeAdapter", () => {
     await new Promise<void>((res) => { const t = setInterval(() => { if (types(seen).includes("usage")) { clearInterval(t); res(); } }, 5); });
     expect(statuses(seen).filter((s) => s === "idle")).toHaveLength(1);
     await h.dispose(); await c;
+  });
+});
+
+/**
+ * The two halves of Claude's skills channel, proven live in `apps/server/scripts/live-skills-check.ts`:
+ * `plugins` is what adds Realm's library, and `settingSources: []` is what stops the user's own 29 skills
+ * (and their `~/.claude/CLAUDE.md`) loading alongside it. Either one alone is a different product.
+ */
+describe("ClaudeAdapter skills", () => {
+  /** Captures the options object the SDK was called with, without running a turn. */
+  function capture(opts: Partial<StartOptions>) {
+    let seen: Record<string, unknown> | null = null;
+    const adapter = new ClaudeAdapter({
+      query: ((args: { options: Record<string, unknown> }) => {
+        seen = args.options;
+        const gen = (async function* () { /* no messages: nothing here needs a turn */ })();
+        return Object.assign(gen, { interrupt: async () => {}, setPermissionMode: async () => {}, setModel: async () => {} });
+      }) as never,
+    });
+    const handle = adapter.start({ cwd: "/tmp", mcpServers: [], ...opts });
+    return { handle, options: () => seen as unknown as Record<string, unknown> | null };
+  }
+
+  it("passes the staged plugin and isolates the session from the user's own settings", async () => {
+    const { handle, options } = capture({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await handle.send({ text: "hi", attachments: [] });
+    const o = options()!;
+    expect(o.plugins).toEqual([{ type: "local", path: "/tmp/realm-plugin", skipMcpDiscovery: true }]);
+    // Dropping this is the silent mutation: the session still works, and quietly loads every skill the
+    // user has installed on top of the library Realm's UI is listing.
+    expect(o.settingSources).toEqual([]);
+    await handle.dispose();
+  });
+
+  it("touches neither option when Realm is not managing this session's skills", async () => {
+    const { handle, options } = capture({});
+    await handle.send({ text: "hi", attachments: [] });
+    const o = options()!;
+    expect(o.plugins).toBeUndefined();
+    // Undefined, NOT []: the SDK reads an omitted settingSources as "all sources, like the CLI", which is
+    // what every Realm session did before skills existed and what a space with none must keep doing.
+    expect("settingSources" in o).toBe(false);
+    await handle.dispose();
   });
 });
