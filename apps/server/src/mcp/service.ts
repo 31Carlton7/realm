@@ -1,6 +1,7 @@
 import { MCP_SECRET_STORAGE_NOTE, type McpServer, type McpTransport } from "@realm/contracts";
 import type { McpServerConfig } from "@realm/adapters";
 import { RpcError } from "../store/rows";
+import { liveCheck, type McpTestResult } from "./live-check";
 import type { SettingsStore } from "../store/settings";
 import type { McpServerInput, McpServerRow, McpServersStore } from "../store/mcp";
 
@@ -95,6 +96,18 @@ export class McpService {
 
   isEnabled(spaceId: string, id: string): boolean {
     return readIds(this.d.settings, enabledKey(spaceId)).includes(id);
+  }
+
+  /**
+   * `mcp.test` — connect to the server right now and report reached/failed. The row's secrets go INTO
+   * the connection (env / headers), exactly as a session start would send them; the result carries a
+   * sentence, never a value. See live-check.ts for why this is honest where definition-time validation
+   * is not.
+   */
+  test(id: string): Promise<McpTestResult> {
+    const row = this.d.servers.get(id);
+    if (!row) throw new RpcError("NOT_FOUND", `mcp server ${id} not found`);
+    return liveCheck(row);
   }
 
   /**

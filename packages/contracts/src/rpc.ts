@@ -369,6 +369,14 @@ export const Methods = {
   "mcp.remove": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
   "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Actually try the server, now: spawn the stdio command (with its stored env) and wait for an MCP
+   * initialize response, or hit the http/sse URL (with its stored headers) and report the status. Run
+   * from the same server process that spawns sessions, so PATH and environment are the session's —
+   * this is a LIVE check, not the banned definition-time validation. `detail` is one sentence and
+   * never carries a secret value.
+   */
+  "mcp.test": { params: z.object({ id: IdSchema }), result: z.object({ reached: z.boolean(), detail: z.string() }) },
 
   /**
    * This space's Realm memory document plus the state of its opt-in `AGENTS.md`. The document lives at
