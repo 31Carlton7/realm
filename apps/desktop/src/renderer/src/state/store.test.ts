@@ -734,6 +734,155 @@ describe("app store", () => {
     });
   });
 
+  describe("pending attachments", () => {
+    const MB = 1024 * 1024;
+    const picked = (path: string, over: Partial<{ mime: string; name: string; size: number }> = {}) =>
+      ({ path, mime: over.mime ?? "image/png", name: over.name ?? path.split("/").pop()!, size: over.size ?? 10 });
+    /** A drop hands over real Files whose path Electron can resolve; a paste hands over one that has none. */
+    const dropped = (path: string, size = 10, type = "image/png") =>
+      Object.assign(new File([new Uint8Array(size)], path.split("/").pop()!, { type }), { path }) as unknown as File;
+    // jsdom's File has no arrayBuffer(); the store reads one to hand the bytes to the main process.
+    const pasted = (name: string, size = 10, type = "image/png") =>
+      Object.assign(new File([new Uint8Array(size)], name, { type }),
+        { arrayBuffer: async () => new ArrayBuffer(size) }) as unknown as File;
+
+    const withSess = () => fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
+      sessions: [session("se1", "s1")],
+    });
+
+    it("the picker's files land on the session that asked, keyed like drafts", async () => {
+      const a = withSess();
+      a.data.pickFiles = [picked("/x/a.png"), picked("/x/b.pdf", { mime: "application/pdf" })];
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFromPicker("se1");
+      expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/a.png", "/x/b.pdf"]);
+      expect(store.getState().pendingAttachments.se2).toBeUndefined();
+    });
+
+    it("a dropped file is attached by its real path; a pasted one is written out first", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/Users/me/shot.png"), pasted("image.png", 4)]);
+      const paths = store.getState().pendingAttachments.se1!.map((x) => x.path);
+      expect(paths[0]).toBe("/Users/me/shot.png");
+      expect(paths[1]).toBe("/realm-home/tmp/attachments/aa-image.png");
+      // Only the pathless one costs a write — a drop must never copy the user's file.
+      expect(a.calls.filter((c) => c.startsWith("saveTempAttachment"))).toEqual(["saveTempAttachment:image.png"]);
+    });
+
+    it("refuses a file over MAX_ATTACHMENT_BYTES in the UI, naming the file and the limit", async () => {
+      const a = withSess();
+      a.data.pickFiles = [picked("/x/huge.png", { size: 21 * MB }), picked("/x/ok.png", { size: 3 })];
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFromPicker("se1");
+      expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/ok.png"]);
+      expect(store.getState().error).toContain("huge.png");
+      expect(store.getState().error).toContain("20 MB");
+      // …and it never reaches the adapter, which is where it would have thrown mid-turn.
+      await store.getState().sendMessage("se1", "look");
+      expect(a.sent[0]!.attachments.map((x) => x.path)).toEqual(["/x/ok.png"]);
+    });
+
+    it("accepts a file exactly at the cap — the ceiling is inclusive", async () => {
+      const a = withSess();
+      a.data.pickFiles = [picked("/x/edge.png", { size: 20 * MB })];
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFromPicker("se1");
+      expect(store.getState().pendingAttachments.se1).toHaveLength(1);
+      expect(store.getState().error).toBeNull();
+    });
+
+    it("the same file attached twice is one attachment", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/x/a.png")]);
+      await store.getState().attachFiles("se1", [dropped("/x/a.png"), dropped("/x/b.png")]);
+      expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/a.png", "/x/b.png"]);
+    });
+
+    it("a removed attachment is not sent", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/x/keep.png"), dropped("/x/drop.png")]);
+      store.getState().removeAttachment("se1", "/x/drop.png");
+      expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/keep.png"]);
+      await store.getState().sendMessage("se1", "hi");
+      expect(a.sent[0]!.attachments).toEqual([{ path: "/x/keep.png", mime: "image/png" }]);
+    });
+
+    it("removeAttachment touches only the session it names", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/x/a.png")]);
+      await store.getState().attachFiles("se2", [dropped("/x/a.png")]);
+      store.getState().removeAttachment("se1", "/x/a.png");
+      expect(store.getState().pendingAttachments.se1).toEqual([]);
+      expect(store.getState().pendingAttachments.se2).toHaveLength(1);
+    });
+
+    it("sends path+mime only, and clears the row once the send lands", async () => {
+      const a = withSess();
+      a.data.pickFiles = [picked("/x/a.png"), picked("/x/b.pdf", { mime: "application/pdf" })];
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFromPicker("se1");
+      await store.getState().sendMessage("se1", "review these");
+      expect(a.sent[0]).toEqual({ id: "se1", text: "review these", attachments: [
+        { path: "/x/a.png", mime: "image/png" }, { path: "/x/b.pdf", mime: "application/pdf" },
+      ] });
+      expect(store.getState().pendingAttachments.se1).toEqual([]);
+      // The NEXT message must not re-send them.
+      await store.getState().sendMessage("se1", "and now");
+      expect(a.sent[1]!.attachments).toEqual([]);
+    });
+
+    it("keeps the row when the send fails — the user still needs to know what they attached", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/x/a.png")]);
+      a.sendMessage = async () => { throw new Error("offline"); };
+      await expect(store.getState().sendMessage("se1", "hi")).rejects.toThrow("offline");
+      expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/a.png"]);
+    });
+
+    it("a file attached while the send was in flight survives it", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/x/first.png")]);
+      let release!: () => void;
+      a.sendMessage = async (id, text, attachments) => {
+        a.sent.push({ id, text, attachments });
+        await new Promise<void>((r) => { release = r; });
+      };
+      const p = store.getState().sendMessage("se1", "hi");
+      await tick();
+      await store.getState().attachFiles("se1", [dropped("/x/late.png")]);
+      release(); await p;
+      expect(a.sent[0]!.attachments.map((x) => x.path)).toEqual(["/x/first.png"]);
+      expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/late.png"]);
+    });
+
+    it("survives a layout close/reopen, exactly like the draft it is part of", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/x/a.png")]);
+      store.setState({ layout: leaf("L1", "i2"), focusedLeafId: "L1" });
+      await store.getState().closeFromLayout("i2");
+      await store.getState().openItem("i2");
+      expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/a.png"]);
+    });
+
+    it("deleteItem on a session drops its attachments; another session's stay", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/x/doomed.png")]);
+      await store.getState().attachFiles("se9", [dropped("/x/kept.png")]);
+      await store.getState().deleteItem("i2");
+      expect(store.getState().pendingAttachments.se1).toBeUndefined();
+      expect(store.getState().pendingAttachments.se9).toHaveLength(1);
+    });
+  });
+
   describe("git context (workspace.gitInfo)", () => {
     const gi = { branch: "main", additions: 2, deletions: 1, dirty: 3, ahead: 0, behind: 0 };
     const seedGit = () => fakeApi({

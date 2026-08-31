@@ -1,0 +1,86 @@
+import { basename, join } from "node:path";
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mimeForPath } from "@realm/contracts";
+
+/** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
+ *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
+export type PickedFile = { path: string; mime: string; name: string; size: number };
+
+/**
+ * Where a pasted image is written.
+ *
+ * A pasted image has no file on disk, and every adapter's contract is a PATH — so one has to be made.
+ * It goes under Realm's own home rather than the OS temp dir for two reasons: macOS purges
+ * `/var/folders` on its own schedule, which would break the path recorded in the session's
+ * `user_message` event while the session is still open; and a file the user can go and look at is
+ * better than one they cannot.
+ */
+export const tempAttachmentDir = (home: string): string => join(home, "tmp", "attachments");
+
+/** How long a pasted file survives. Longer than any single turn (the adapter reads it asynchronously,
+ *  after `sessions.send` has already resolved), short enough that the directory cannot creep. */
+export const TEMP_ATTACHMENT_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A filesystem-safe name for a pasted file.
+ *
+ * The name arrives from the renderer (`File.name` on a clipboard item), so it is untrusted: strip it to
+ * a basename, then to a conservative character set, so nothing can escape the directory or collide with
+ * a name the sweep is meant to recognise. The extension is preserved when there is one — it is what
+ * `mimeForPath` reads, and what makes the file openable.
+ */
+export function safeAttachmentName(name: string): string {
+  const base = basename(name.replace(/\\/g, "/")).replace(/[^\w.\- ]+/g, "_").replace(/^\.+/, "").trim();
+  return base.length === 0 ? "pasted" : base.slice(0, 120);
+}
+
+/**
+ * Delete pasted files older than `ttlMs`.
+ *
+ * Called at launch AND on every save: a launch-only sweep leaks for as long as the app stays up, which
+ * for a workstation app is the normal case. Each sweep is one directory read over a handful of entries.
+ * Errors are swallowed per entry — a file another window is mid-read is not worth failing a paste over.
+ */
+export async function sweepTempAttachments(dir: string, ttlMs = TEMP_ATTACHMENT_TTL_MS, now = Date.now()): Promise<string[]> {
+  let names: string[];
+  try { names = await readdir(dir); } catch { return []; } // never created = nothing to sweep
+  const removed: string[] = [];
+  for (const name of names) {
+    const p = join(dir, name);
+    try {
+      const s = await stat(p);
+      if (now - s.mtimeMs < ttlMs) continue;
+      await rm(p, { recursive: true, force: true });
+      removed.push(name);
+    } catch { /* vanished, or not ours to remove */ }
+  }
+  return removed;
+}
+
+/** Write a pasted file into the temp directory and describe it the way the picker does. The random
+ *  prefix is what keeps two pastes of "image.png" from overwriting each other. */
+export async function saveTempAttachment(home: string, name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> {
+  const dir = tempAttachmentDir(home);
+  await mkdir(dir, { recursive: true });
+  void sweepTempAttachments(dir).catch(() => {});
+  const safe = safeAttachmentName(name);
+  const path = join(dir, `${randomBytes(6).toString("hex")}-${safe}`);
+  await writeFile(path, bytes);
+  // The browser already knows a clipboard item's type; fall back to the extension only when it does not.
+  return { path, mime: mime || mimeForPath(safe), name: safe, size: bytes.byteLength };
+}
+
+/** Describe files chosen in the native picker. A path that cannot be stat'd is dropped rather than
+ *  reported with a made-up size — the prompter's size check would then be checking a fiction. */
+export async function describeFiles(paths: readonly string[]): Promise<PickedFile[]> {
+  const out: PickedFile[] = [];
+  for (const path of paths) {
+    try {
+      const s = await stat(path);
+      if (!s.isFile()) continue;
+      out.push({ path, mime: mimeForPath(path), name: basename(path), size: s.size });
+    } catch { /* gone between the dialog and here */ }
+  }
+  return out;
+}

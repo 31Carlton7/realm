@@ -14,6 +14,15 @@ import type { AgentKind } from "./entities";
  */
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
+/** Human size for the chip tooltip and the "too large" refusal. Binary units, matching the cap. */
+export function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  let n = bytes / 1024, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
+  return `${n < 10 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
+}
+
 /** What travels on `sessions.send` and lands in the `user_message` event. */
 export type Attachment = { path: string; mime: string };
 
