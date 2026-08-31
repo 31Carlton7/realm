@@ -11,6 +11,7 @@ import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { SkillsService } from "../skills/service";
 import type { McpService } from "../mcp/service";
+import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
 import type { GitInfoService } from "../workspace/git-info";
@@ -25,7 +26,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; memory: MemoryService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -115,6 +116,29 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
+
+  // Space existence is checked for the same reason the skills and mcp handlers do it: the memory doc,
+  // its settings flag and the AGENTS.md target are all keyed by space id, so a typo would silently
+  // read and write another space's memory rather than saying so.
+  reg("memory.get", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.memory.state(p.spaceId);
+  });
+  reg("memory.set", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const r = d.memory.set(p.spaceId, p.doc);
+    rpc.broadcast("memory.changed", { spaceId: p.spaceId });
+    return r;
+  });
+  reg("memory.setAgentsFile", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const r = d.memory.setAgentsFile(p.spaceId, p.enabled);
+    rpc.broadcast("memory.changed", { spaceId: p.spaceId });
+    return r;
+  });
+  // Per-session on purpose: the SessionService joins the session row (agent kind, space, cwd) to the
+  // ground truth that belongs to that session and no other.
+  reg("memory.sources", (p) => d.sessions.memorySources(p.sessionId));
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });

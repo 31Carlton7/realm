@@ -5,6 +5,7 @@ import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
 import { SkillSchema, SkillIdSchema } from "./skills";
 import { McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpTransportSchema } from "./mcp";
+import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -369,6 +370,30 @@ export const Methods = {
   /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
   "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
 
+  /**
+   * This space's Realm memory document plus the state of its opt-in `AGENTS.md`. The document lives at
+   * `<realmHome>/memory/<spaceId>.md` — Realm's home, never any agent's config — and is injected per
+   * session (Claude `systemPrompt.append`, Codex `developerInstructions`; Cursor has no channel).
+   */
+  "memory.get": { params: z.object({ spaceId: IdSchema }), result: MemoryStateSchema },
+  /** Replace the document. Sessions already running keep the context they started with; the next start
+   *  carries the new text. Also rewrites the space's managed `AGENTS.md` when that toggle is on. */
+  "memory.set": { params: z.object({ spaceId: IdSchema, doc: z.string().max(MEMORY_DOC_MAX) }), result: MemoryStateSchema },
+  /**
+   * The plan's one permitted write: turn the managed `AGENTS.md` in this space's own folder on or off.
+   * Refused (AGENTS_FILE_NOT_REALM_FOLDER) when the space's primary checkout is a directory Realm did
+   * not create, and (AGENTS_FILE_FOREIGN) when an `AGENTS.md` Realm did not write already sits there.
+   * Turning it off removes the file only when it still carries Realm's marker.
+   */
+  "memory.setAgentsFile": { params: z.object({ spaceId: IdSchema, enabled: z.boolean() }), result: MemoryStateSchema },
+  /**
+   * Ground truth (or the honest absence of it) about the durable context one session's agent loads:
+   * Codex sessions report the exact files (`instructionSources`, captured from THIS session's own
+   * `thread/start`), Claude's hierarchy is modeled by reading the same paths the CLI reads, and Cursor
+   * is a stated "nothing reaches this agent" row.
+   */
+  "memory.sources": { params: z.object({ sessionId: IdSchema }), result: MemorySourcesSchema },
+
   "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string() }) },
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
@@ -444,6 +469,9 @@ export const Events = {
    *  server list is global: add/edit/remove change what EVERY space lists, and a per-space event would
    *  leave the other spaces' open settings panes stale. Clients holding a list re-fetch. */
   "mcp.changed":      z.object({}),
+  /** A space's Realm memory document or its managed `AGENTS.md` changed. Clients holding the memory
+   *  pane re-fetch; sessions already running keep the context they started with. */
+  "memory.changed":   z.object({ spaceId: IdSchema }),
   /** Realm itself changed a working tree (stage, unstage, commit, push). Carries the cwd the write
    *  went through; clients refresh every diff they hold, because two panes on the same repository may
    *  have asked from two different subdirectories and only the server knows they are the same tree. */

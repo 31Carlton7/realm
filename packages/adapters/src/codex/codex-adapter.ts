@@ -340,17 +340,36 @@ export class CodexAdapter implements AgentAdapter {
         // nothing would otherwise leave `boot` — and every send()/setOptions()/dispose() behind it — pending
         // for the life of the process.
         const bootMs = this.bootTimeoutMs ?? BOOT_TIMEOUT_MS;
+        // `developerInstructions` is W3's memory channel: the same text the Claude adapter appends to its
+        // system prompt, as a thread/start parameter. thread/start ONLY — a resumed thread keeps the
+        // instructions it was started with, and what a fresh value on thread/resume would mean is not
+        // something the protocol says (the field is listed unverified there; proven for thread/start in
+        // scripts/live-memory-check.ts).
         const res = obj(opts.resume
           ? await c.request("thread/resume", { threadId: opts.resume, ...common }, bootMs)
-          : await c.request("thread/start", { ...common, sessionStartSource: "startup" }, bootMs));
+          : await c.request("thread/start", {
+            ...common,
+            ...(opts.systemContext ? { developerInstructions: opts.systemContext } : {}),
+            sessionStartSource: "startup",
+          }, bootMs));
         if (disposed) return;
         const id = str(obj(res.thread).id) || str(opts.resume);
         if (!id) throw new Error("codex did not return a thread id");
         threadId = id;
+        // Codex names the exact instruction files it loaded (AGENTS.md hierarchy) in the start response —
+        // ground truth the memory pane shows instead of a guess. Absent (older build / resume without the
+        // field) stays absent rather than becoming [], so "reported nothing" and "reported zero files"
+        // remain distinguishable downstream.
+        const instructionSources = Array.isArray(res.instructionSources)
+          ? res.instructionSources.filter((s): s is string => typeof s === "string")
+          : undefined;
         // Both before attach(): attach flushes the thread's buffer synchronously, and notifications that beat
         // the thread/start response would otherwise be mapped into the stream ahead of init. Nothing is lost by
         // waiting — the connection buffers by threadId until someone attaches.
-        events.push(sessionEvent("init", { providerSessionId: id, model: str(res.model) || str(opts.model), tools: [], cwd: str(res.cwd) || opts.cwd }));
+        events.push(sessionEvent("init", {
+          providerSessionId: id, model: str(res.model) || str(opts.model), tools: [], cwd: str(res.cwd) || opts.cwd,
+          ...(instructionSources ? { instructionSources } : {}),
+        }));
         events.push(sessionEvent("status", { status: "idle" }));
         c.attach(id, listener);
         // After the thread exists, per the protocol's own ordering, and awaited inside boot so that the

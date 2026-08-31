@@ -13,6 +13,7 @@ import { SessionService } from "./sessions/service";
 import { SkillsService } from "./skills/service";
 import { McpServersStore } from "./store/mcp";
 import { McpService } from "./mcp/service";
+import { MemoryService } from "./memory/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
@@ -57,7 +58,9 @@ export function defaultAdapters(): AdapterRegistry {
   return reg;
 }
 
-export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry }): Promise<App> {
+/** `claudeDir` overrides where MemoryService reads user-level Claude files (`~/.claude` otherwise) —
+ *  for tests and live checks, which must never depend on (or expose) the real user's memory files. */
+export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
   // First boot: without a profile the New Space sheet is a dead end (spaces require one), so seed a
@@ -89,11 +92,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const installed = skills.installBundled();
   if (installed.length) console.error(`[skills] installed bundled skill(s): ${installed.join(", ")}`);
   const mcp = new McpService({ servers: new McpServersStore(db), settings });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, mcp, checkpoints });
+  const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir });
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, mcp, memory, checkpoints });
   sessionService = sessions;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, memory, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

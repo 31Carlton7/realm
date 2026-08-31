@@ -238,6 +238,10 @@ function startThread(id, params, threadId) {
     thread: { id: threadId, status: { type: "idle" }, cwd: params.cwd, turns: [] },
     model: params.model === "reflect" ? JSON.stringify(params) : (params.model ?? "gpt-5.2"),
     cwd: params.cwd,
+    // The real server reports the instruction files it loaded, per-thread, derived from cwd — a fabricated
+    // one per thread lets tests prove the adapter surfaces THIS thread's list and not another's.
+    // FAKE_CODEX_NO_INSTRUCTION_SOURCES=1 is a build from before the field existed.
+    ...(process.env.FAKE_CODEX_NO_INSTRUCTION_SOURCES ? {} : { instructionSources: [`${params.cwd}/AGENTS.md`] }),
   });
 }
 

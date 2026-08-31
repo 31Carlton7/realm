@@ -12,7 +12,12 @@ const P = {
   status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]) }),
   error: z.object({ message: z.string() }),
   usage: z.object({ costUsd: z.number(), inputTokens: z.number(), outputTokens: z.number(), numTurns: z.number() }),
-  init: z.object({ providerSessionId: z.string(), model: z.string(), tools: z.array(z.string()), cwd: z.string() }),
+  init: z.object({
+    providerSessionId: z.string(), model: z.string(), tools: z.array(z.string()), cwd: z.string(),
+    /** The instruction files the agent says it loaded — Codex `thread/start` `instructionSources`, W3's
+     *  ground truth for the memory pane. Absent for agents that report nothing (all the others today). */
+    instructionSources: z.array(z.string()).optional(),
+  }),
 } as const;
 
 export type SessionEventType = keyof typeof P;

@@ -103,6 +103,17 @@ export class SkillsService {
   }
 
   /**
+   * Whether `injectionFor` would hand this session a library — without staging anything. This is what
+   * read paths (memory.sources) ask, because staging rebuilds a directory tree and a LIST call that
+   * rewrites disk state is a list call that races the session starts it is describing.
+   */
+  wouldInject(spaceId: string, kind: AgentKind): boolean {
+    if (AGENT_SKILL_SUPPORT[kind] !== "injected") return false;
+    try { return this.list(spaceId).skills.some((s) => s.valid && s.enabled); }
+    catch { return false; }
+  }
+
+  /**
    * Stage this space's enabled skills and return the two paths the adapters want, or null when there is
    * nothing to hand over.
    *
