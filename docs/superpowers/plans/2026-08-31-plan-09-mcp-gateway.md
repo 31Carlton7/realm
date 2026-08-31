@@ -266,6 +266,11 @@ class McpGateway {
 
 ### W7 — Activity view
 
+> **Amendment from W3 review:** blocked-call rows have attribution quirks the renderer must handle —
+> a blocked-but-known server logs the parsed `tool` name normally, but an unmatched tool name logs
+> `serverName: ""` with `tool` holding the full namespaced string. Render `serverName ? `${serverName}__${tool}` : tool`.
+> "Load more" passes the last row's `{ ts, id }` as the composite `before` cursor (W1 amendment).
+
 - [ ] `components/ActivitySheet.tsx`: reverse-chron call list (time, session title, `server__tool`,
   duration, ok/error), filter chips by session and by server, live-prepend from `mcp.call` events,
   "Load more" via `before` cursor. Opened from space settings ("Activity") and the command palette
