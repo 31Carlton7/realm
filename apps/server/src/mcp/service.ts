@@ -15,6 +15,10 @@ import type { McpServerInput, McpServerRow, McpServersStore } from "../store/mcp
  */
 const enabledKey = (spaceId: string): string => `mcp.enabled:${spaceId}`;
 
+/** Per-space, per-server tool allowlist (W1 storage only — `mcp.setAllowedTools`/RPC wiring is W3).
+ *  Absent = every cached tool allowed, which is also a server nobody has ever narrowed. */
+const allowedToolsKey = (spaceId: string, serverId: string): string => `mcp.allowedTools:${spaceId}:${serverId}`;
+
 const readIds = (settings: SettingsStore, key: string): string[] => {
   const v = settings.get(key);
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
@@ -37,10 +41,23 @@ export type McpServerFields = {
 export class McpService {
   constructor(private d: { servers: McpServersStore; settings: SettingsStore }) {}
 
-  /** Every server, carrying this space's enable flag, plus the storage note the UI must show. */
+  /** Every server, carrying this space's enable flag and tool allowlist, plus the storage note the UI
+   *  must show. */
   list(spaceId: string): { servers: McpServer[]; secretNote: string } {
     const enabled = new Set(readIds(this.d.settings, enabledKey(spaceId)));
-    return { servers: this.d.servers.list().map((r) => toContract(r, enabled.has(r.id))), secretNote: MCP_SECRET_STORAGE_NOTE };
+    return {
+      servers: this.d.servers.list().map((r) => toContract(r, enabled.has(r.id), this.allowedTools(spaceId, r.id))),
+      secretNote: MCP_SECRET_STORAGE_NOTE,
+    };
+  }
+
+  /** This space's per-tool allowlist for one server. `null` = every cached tool allowed — both for a
+   *  server nobody has narrowed and for one whose space was never given (add/update with `spaceId:
+   *  null`, where there is no per-space state to read). Storage only in W1; `mcp.setAllowedTools`
+   *  (W3) is what ever writes `allowedToolsKey`. */
+  allowedTools(spaceId: string, id: string): string[] | null {
+    const v = this.d.settings.get(allowedToolsKey(spaceId, id));
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : null;
   }
 
   /**
@@ -54,7 +71,7 @@ export class McpService {
     requireEndpoint(input);
     const row = this.d.servers.create(input);
     if (spaceId) this.setEnabled(spaceId, row.id, true);
-    return toContract(row, spaceId !== null);
+    return toContract(row, spaceId !== null, spaceId ? this.allowedTools(spaceId, row.id) : null);
   }
 
   /**
@@ -73,7 +90,7 @@ export class McpService {
     const input = { name: fields.name ?? existing.name, ...normalize(fields, transport, base) };
     requireEndpoint(input);
     const row = this.d.servers.update(id, input);
-    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id));
+    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null);
   }
 
   /** Forget the server and every space's opt-in to it, so re-adding the same name starts clean. */
@@ -147,15 +164,28 @@ function normalize(f: McpServerFields, transport: McpTransport, base: Omit<McpSe
 
 /**
  * Row → wire. **The projection that keeps secrets off every client surface**: `secrets` becomes
- * `envKeys` or `headerKeys`, and the values are simply not carried.
+ * `envKeys` or `headerKeys`, and `oauthJson` becomes `oauthStatus` — the values of neither are carried.
+ *
+ * `status` is always `"idle"` here: the hub that would report `connected`/`error`/`circuit_open`
+ * doesn't exist until W2. `oauthStatus` is the coarse W1 read of `oauthJson` — `""` means OAuth has
+ * never completed, anything else means it has; the `reconnect_needed` state needs the hub's refresh
+ * logic (W5) to ever be produced.
  */
-function toContract(r: McpServerRow, enabled: boolean): McpServer {
+function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | null): McpServer {
   const keys = Object.keys(r.secrets).sort();
   return {
     id: r.id, name: r.name, transport: r.transport,
     command: r.command, args: r.args, url: r.url,
     envKeys: r.transport === "stdio" ? keys : [],
     headerKeys: r.transport === "stdio" ? [] : keys,
+    // Oauth beats secrets beats none: a row can carry both a leftover header key and a completed OAuth
+    // connection (e.g. after switching a server from an API key to OAuth), and OAuth is what the hub
+    // actually sends upstream once it exists.
+    authKind: r.oauthJson ? "oauth" : keys.length > 0 ? "secrets" : "none",
+    oauthStatus: r.oauthJson ? "connected" : "unconfigured",
+    status: "idle",
+    tools: r.tools,
+    allowedTools,
     enabled, createdAt: r.createdAt,
   };
 }

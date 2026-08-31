@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_MCP_TRANSPORTS, MCP_SECRET_STORAGE_NOTE, McpServerNameSchema, McpServerSchema,
-  McpTransportSchema, agentSupportsTransport, mcpSupportNote,
+  AGENT_MCP_TRANSPORTS, MCP_SECRET_STORAGE_NOTE, McpCallSchema, McpOauthStatusSchema, McpServerNameSchema,
+  McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, agentSupportsTransport, mcpSupportNote,
 } from "./mcp";
 import { AGENT_META } from "./presets";
 import { Methods, Events } from "./rpc";
@@ -68,7 +68,10 @@ describe("McpServerSchema", () => {
   const listed = {
     id: SERVER, name: "airtable", transport: "stdio" as const,
     command: "/usr/bin/node", args: ["/abs/server.mjs"], url: "",
-    envKeys: ["AIRTABLE_API_KEY"], headerKeys: [], enabled: true, createdAt: 1,
+    envKeys: ["AIRTABLE_API_KEY"], headerKeys: [],
+    authKind: "secrets" as const, oauthStatus: "unconfigured" as const, status: "idle" as const,
+    tools: [{ name: "search", description: "Search records" }], allowedTools: null,
+    enabled: true, createdAt: 1,
   };
 
   it("round-trips a listed server", () => {
@@ -82,6 +85,38 @@ describe("McpServerSchema", () => {
     expect(JSON.stringify(parsed)).not.toContain("pat-real-secret");
     expect(JSON.stringify(parsed)).not.toContain("Bearer x");
     expect(Object.keys(McpServerSchema.shape).filter((k) => k === "env" || k === "headers" || k === "secrets")).toEqual([]);
+  });
+
+  it("allows a narrowed allowlist, and null for 'every tool'", () => {
+    expect(McpServerSchema.parse({ ...listed, allowedTools: ["search"] }).allowedTools).toEqual(["search"]);
+    expect(McpServerSchema.parse({ ...listed, allowedTools: null }).allowedTools).toBeNull();
+  });
+});
+
+describe("McpToolSchema", () => {
+  it("is name and description only — no input schema to go stale against the live server", () => {
+    const t = McpToolSchema.parse({ name: "search", description: "Search records" });
+    expect(t).toEqual({ name: "search", description: "Search records" });
+    expect(Object.keys(McpToolSchema.shape)).toEqual(["name", "description"]);
+  });
+});
+
+describe("McpOauthStatusSchema / McpServerStatusSchema", () => {
+  it("names exactly the states the gateway design defines", () => {
+    expect(McpOauthStatusSchema.options).toEqual(["unconfigured", "connected", "reconnect_needed"]);
+    expect(McpServerStatusSchema.options).toEqual(["idle", "connected", "error", "circuit_open"]);
+  });
+});
+
+describe("McpCallSchema", () => {
+  const call = {
+    id: SERVER, sessionId: SPACE, serverId: SERVER, serverName: "airtable", tool: "search",
+    argsJson: "{}", resultSummary: "3 records", ok: true, durationMs: 42, ts: 1000,
+  };
+
+  it("round-trips a call log entry, and allows a null serverId for a deleted server", () => {
+    expect(McpCallSchema.parse(call)).toEqual(call);
+    expect(McpCallSchema.parse({ ...call, serverId: null }).serverId).toBeNull();
   });
 });
 
@@ -120,5 +155,41 @@ describe("mcp methods", () => {
 
   it("broadcast a payload-free mcp.changed, since add/edit/remove change what EVERY space lists", () => {
     expect(Events["mcp.changed"].safeParse({}).success).toBe(true);
+  });
+});
+
+describe("gateway methods (Plan 9 W1 — contracts only, no handlers yet)", () => {
+  it("mcp.tools.list reports a connect failure as a result field, never as a schema that forces a throw", () => {
+    expect(Methods["mcp.tools.list"].params.safeParse({ id: SERVER }).success).toBe(true);
+    expect(Methods["mcp.tools.list"].result.safeParse({ tools: [], error: "upstream refused the connection" }).success).toBe(true);
+    expect(Methods["mcp.tools.list"].result.safeParse({ tools: [{ name: "search", description: "d" }], error: null }).success).toBe(true);
+  });
+
+  it("mcp.setAllowedTools accepts a list or null (= every tool)", () => {
+    expect(Methods["mcp.setAllowedTools"].params.safeParse({ spaceId: SPACE, id: SERVER, tools: ["search"] }).success).toBe(true);
+    expect(Methods["mcp.setAllowedTools"].params.safeParse({ spaceId: SPACE, id: SERVER, tools: null }).success).toBe(true);
+    expect(Methods["mcp.setAllowedTools"].params.safeParse({ spaceId: SPACE, id: SERVER }).success).toBe(false);
+  });
+
+  it("mcp.calls.list makes every filter optional, and caps limit at 200", () => {
+    expect(Methods["mcp.calls.list"].params.safeParse({}).success).toBe(true);
+    expect(Methods["mcp.calls.list"].params.safeParse({ sessionId: SPACE, serverId: SERVER, before: 100, limit: 50 }).success).toBe(true);
+    expect(Methods["mcp.calls.list"].params.safeParse({ limit: 201 }).success).toBe(false);
+    expect(Methods["mcp.calls.list"].params.safeParse({ limit: 0 }).success).toBe(false);
+  });
+
+  it("mcp.oauth.start/disconnect and mcp.retry are all keyed by server id alone", () => {
+    for (const m of ["mcp.oauth.start", "mcp.oauth.disconnect", "mcp.retry"] as const) {
+      expect(Methods[m].params.safeParse({ id: SERVER }).success).toBe(true);
+      expect(Methods[m].params.safeParse({}).success).toBe(false);
+    }
+    expect(Methods["mcp.oauth.start"].result.safeParse({ authUrl: "https://example.com/authorize" }).success).toBe(true);
+  });
+
+  it("mcp.call and mcp.serverStatus are registered events with the expected shapes", () => {
+    const call = { id: SERVER, sessionId: SPACE, serverId: SERVER, serverName: "airtable", tool: "search", argsJson: "{}", resultSummary: "ok", ok: true, durationMs: 1, ts: 1 };
+    expect(Events["mcp.call"].safeParse(call).success).toBe(true);
+    expect(Events["mcp.serverStatus"].safeParse({ id: SERVER, status: "idle", oauthStatus: "unconfigured" }).success).toBe(true);
+    expect(Events["mcp.serverStatus"].safeParse({ id: SERVER, status: "bogus", oauthStatus: "unconfigured" }).success).toBe(false);
   });
 });

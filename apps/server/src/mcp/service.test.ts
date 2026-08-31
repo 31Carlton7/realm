@@ -13,9 +13,13 @@ const SCHOOL = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
 const KEY = "pat-do-not-leak-me";
 
 let mcp: McpService;
+let servers: McpServersStore;
+let settings: SettingsStore;
 beforeEach(() => {
   const db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-mcp-")), "realm.db"));
-  mcp = new McpService({ servers: new McpServersStore(db), settings: new SettingsStore(db) });
+  servers = new McpServersStore(db);
+  settings = new SettingsStore(db);
+  mcp = new McpService({ servers, settings });
 });
 
 const stdio = (name: string) => ({ name, transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { AIRTABLE_API_KEY: KEY } });
@@ -75,6 +79,17 @@ describe("secrets", () => {
     const listed = mcp.list(WORK);
     expect(JSON.stringify(listed)).not.toContain(KEY);
     expect(listed.servers.map((s) => [s.envKeys, s.headerKeys])).toEqual([[["AIRTABLE_API_KEY"], []], [[], ["Authorization"]]]);
+  });
+
+  it("never returns an oauth token from list() either", () => {
+    // Same guarantee as secrets, for the other channel a credential can travel in: `oauthJson` on the
+    // row never becomes a field on the wire, only the derived `oauthStatus`.
+    const TOKEN = "oauth-token-do-not-leak-me";
+    const s = mcp.add(http("linear"), WORK);
+    servers.setOauth(s.id, JSON.stringify({ accessToken: TOKEN }));
+    const listed = mcp.list(WORK);
+    expect(JSON.stringify(listed)).not.toContain(TOKEN);
+    expect(listed.servers[0]).toMatchObject({ authKind: "oauth", oauthStatus: "connected" });
   });
 
   it("never returns one from add() or update() either", () => {
@@ -138,5 +153,56 @@ describe("definitions", () => {
 
   it("reports an unknown id rather than creating one", () => {
     expect(() => mcp.update("01ARZ3NDEKTSV4RRFFQ69G5FAZ", { name: "x" })).toThrow(/not found/);
+  });
+});
+
+describe("gateway fields (Plan 9 W1 — schema and derivation only)", () => {
+  it("derives authKind: none, then secrets once a key is set, oauth once a connection exists", () => {
+    const bare = mcp.add({ name: "bare", transport: "http", url: "https://mcp.example.com" }, WORK);
+    expect(bare.authKind).toBe("none");
+    const withKey = mcp.add(http("airtable-with-key"), WORK);
+    expect(withKey.authKind).toBe("secrets");
+    servers.setOauth(bare.id, JSON.stringify({ accessToken: "t" }));
+    expect(mcp.list(WORK).servers.find((s) => s.id === bare.id)!.authKind).toBe("oauth");
+  });
+
+  it("oauth beats secrets: a row with both a header key and a completed OAuth connection reports oauth", () => {
+    const s = mcp.add(http("mixed"), WORK); // has a header key via the `http()` helper
+    expect(s.authKind).toBe("secrets");
+    servers.setOauth(s.id, JSON.stringify({ accessToken: "t" }));
+    expect(mcp.list(WORK).servers[0]!.authKind).toBe("oauth");
+  });
+
+  it("oauthStatus is unconfigured until oauthJson is set, then connected — the richer states are W5", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    expect(mcp.list(WORK).servers[0]).toMatchObject({ oauthStatus: "unconfigured" });
+    servers.setOauth(s.id, JSON.stringify({ accessToken: "t" }));
+    expect(mcp.list(WORK).servers[0]).toMatchObject({ oauthStatus: "connected" });
+  });
+
+  it("status is always idle — the hub that would report otherwise does not exist yet", () => {
+    mcp.add(stdio("airtable"), WORK);
+    expect(mcp.list(WORK).servers[0]!.status).toBe("idle");
+  });
+
+  it("carries the row's cached tools through to the wire", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    servers.setTools(s.id, [{ name: "search", description: "Search records" }]);
+    expect(mcp.list(WORK).servers[0]!.tools).toEqual([{ name: "search", description: "Search records" }]);
+  });
+
+  it("allowedTools reads back what allowedTools() stores, and is null for a server nobody has narrowed", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    expect(mcp.list(WORK).servers[0]!.allowedTools).toBeNull();
+    // W1 only reads the settings key; nothing in this workstream ever writes it (that's `mcp.setAllowedTools`, W3).
+    expect(mcp.allowedTools(WORK, s.id)).toBeNull();
+  });
+
+  it("allowedTools is per-space: narrowing in one space does not leak into another's listing", () => {
+    const s = mcp.add(stdio("airtable"), WORK);
+    // Simulating what W3's setAllowedTools will write, to prove `list()` reads it back scoped by space.
+    settings.set(`mcp.allowedTools:${WORK}:${s.id}`, ["search"]);
+    expect(mcp.allowedTools(WORK, s.id)).toEqual(["search"]);
+    expect(mcp.allowedTools(SCHOOL, s.id)).toBeNull();
   });
 });

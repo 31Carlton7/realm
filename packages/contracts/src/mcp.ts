@@ -33,13 +33,55 @@ export type McpTransport = z.infer<typeof McpTransportSchema>;
 export const MCP_SECRET_STORAGE_NOTE =
   "Keys and headers are stored in plain text in Realm's database (~/Realm/realm.db) — not encrypted, not in the Keychain. Anyone who can read that file, or any process running as you, can read them. Realm's CLIs keep their own MCP credentials the same way.";
 
+/** One tool from an upstream server's cached `tools/list` — name and description only. No input
+ *  schema: the gateway forwards calls verbatim rather than validating against a cached copy that can
+ *  go stale the moment the upstream server changes it. */
+export const McpToolSchema = z.object({ name: z.string(), description: z.string() });
+export type McpTool = z.infer<typeof McpToolSchema>;
+
+/** Where a remote server's OAuth connection stands. `reconnect_needed` is the one state a UI must badge:
+ *  it means calls will fail until the user re-authorizes (see the gateway design's refresh-failure path). */
+export const McpOauthStatusSchema = z.enum(["unconfigured", "connected", "reconnect_needed"]);
+export type McpOauthStatus = z.infer<typeof McpOauthStatusSchema>;
+
+/** The hub's live connection state for a server row. `circuit_open` is distinct from `error`: it means
+ *  three consecutive failures tripped the breaker, and calls fail fast until `mcp.retry` or a row edit. */
+export const McpServerStatusSchema = z.enum(["idle", "connected", "error", "circuit_open"]);
+export type McpServerStatus = z.infer<typeof McpServerStatusSchema>;
+
+/**
+ * One proxied tool call, as `mcp.calls.list` and the `mcp.call` event report it — Realm's own view of
+ * the call (Activity), independent of whatever the agent's own transcript recorded for the same call.
+ *
+ * `resultSummary` is a truncated excerpt, never the full payload — the gateway decides what is safe to
+ * keep, not this schema. `argsJson` is the call's arguments as sent upstream, which is why this schema
+ * lives beside `McpServer` rather than `session-events.ts`: an MCP tool argument can itself be a secret
+ * (an API key passed as a tool parameter, not a header), so a surface rendering this owes the same
+ * MCP_SECRET_STORAGE_NOTE honesty as the server editor.
+ */
+export const McpCallSchema = z.object({
+  id: IdSchema,
+  sessionId: IdSchema,
+  /** Null once the server row that produced this call has been deleted — the log outlives the config. */
+  serverId: IdSchema.nullable(),
+  serverName: z.string(),
+  tool: z.string(),
+  argsJson: z.string(),
+  resultSummary: z.string(),
+  ok: z.boolean(),
+  durationMs: z.number().int(),
+  ts: z.number().int(),
+});
+export type McpCall = z.infer<typeof McpCallSchema>;
+
 /**
  * One configured MCP server, as `mcp.list` reports it.
  *
  * **No secret values appear here, ever.** `envKeys` and `headerKeys` name what is set; the values stay
  * in the database and travel only to the agent that was configured to receive them. A settings UI can
  * therefore show "AIRTABLE_API_KEY is set" and offer to replace it, and nothing that is logged,
- * broadcast, or screenshotted can leak the key — including this object.
+ * broadcast, or screenshotted can leak the key — including this object. The same holds for OAuth:
+ * `oauthStatus` says whether a connection exists, never the token.
  */
 export const McpServerSchema = z.object({
   id: IdSchema,
@@ -55,6 +97,19 @@ export const McpServerSchema = z.object({
   envKeys: z.array(z.string()),
   /** Names of the http/sse headers. Values are deliberately absent — see the type doc. */
   headerKeys: z.array(z.string()),
+  /** How this server authenticates, derived — never a stored field. Oauth beats secrets beats none: a
+   *  server can carry both a leftover header key and a completed OAuth connection, and OAuth is the one
+   *  actually used upstream once it exists. */
+  authKind: z.enum(["none", "secrets", "oauth"]),
+  /** Derived from whether OAuth has ever completed for this row. See `McpOauthStatusSchema`. */
+  oauthStatus: McpOauthStatusSchema,
+  /** The hub's live connection state. Always `"idle"` before the hub exists (W1–W2). */
+  status: McpServerStatusSchema,
+  /** The last successful `tools/list`, cached — `[]` before the hub has ever connected. */
+  tools: z.array(McpToolSchema),
+  /** This space's per-tool allowlist for this server. `null` = every cached tool is allowed, which is
+   *  also the state of a server nobody has ever narrowed. Per the space `mcp.list` was asked for. */
+  allowedTools: z.array(z.string()).nullable(),
   /** Whether the space this was listed for passes it to its agents. Per-space, persisted, default OFF. */
   enabled: z.boolean(),
   createdAt: z.number().int(),
