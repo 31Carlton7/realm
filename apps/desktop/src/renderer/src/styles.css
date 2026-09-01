@@ -239,13 +239,15 @@ kbd { font: 11px var(--font-mono); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
 .mp-body { display: flex; min-height: 0; }
-/* The rail is a column of providers, hairline-separated from the list — the one place in the picker
-   where two scrolling regions meet (§2). */
-.mp-rail { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-right: 1px solid var(--rl-hairline); }
-.mp-rail-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-chip); color: var(--rl-text-faint);
-  transition: background-color 100ms ease, color 100ms ease; }
+/* The rail is a ROW of tabs across the top, above the search it scopes. Selection reads as an
+   underline rather than a filled chip: these are tabs over one list, not toggles in a toolbar, and
+   the hairline they sit on is the same one the search field hangs from. */
+.mp-rail { flex: none; display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--rl-hairline); }
+.mp-rail-btn { display: grid; place-items: center; width: 32px; height: 30px; border-radius: var(--r-chip) var(--r-chip) 0 0;
+  color: var(--rl-text-faint); border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease; }
 .mp-rail-btn:hover { background: var(--hover); color: var(--rl-text-bright); }
-.mp-rail-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
+.mp-rail-btn[aria-pressed="true"] { color: var(--rl-text-bright); border-bottom-color: var(--rl-text-bright); }
 .mp-list { flex: 1; min-width: 0; max-height: min(46vh, 320px); overflow-y: auto; padding: 6px; }
 .mp-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
   transition: background-color 100ms ease, color 100ms ease; }
@@ -260,6 +262,20 @@ kbd { font: 11px var(--font-mono); }
 .mp-note { color: var(--rl-warning); }
 .mp-check { flex: none; color: var(--rl-accent); }
 .mp-blocked { flex: none; color: var(--rl-text-faint); }
+/* The ⌘-digit badge: quiet until the row is under the cursor, because it labels a shortcut for the
+   row you are already looking at rather than competing with the model's name. */
+.mp-kbd { flex: none; padding: 1px 5px; border-radius: var(--r-chip); background: var(--hover-2); color: var(--rl-text-faint);
+  font-size: 10.5px; font-family: inherit; letter-spacing: .02em; }
+/* The star holds its column on every row — hollow when unstarred, so the list keeps one alignment
+   instead of shifting text as rows are favourited. It only brightens on hover or when it is on. */
+.mp-star { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-chip);
+  color: var(--rl-text-faint); opacity: .5; transition: opacity 100ms ease, color 100ms ease, background-color 100ms ease; }
+.mp-row:hover .mp-star, .mp-row[data-active] .mp-star { opacity: 1; }
+.mp-star:hover { background: var(--hover-2); color: var(--rl-text-bright); }
+.mp-star[aria-pressed="true"] { opacity: 1; color: var(--rl-accent); }
+/* Hugeicons ships stroke-only glyphs, so "starred" is the same star with its path filled — a CSS
+   rule beats the pack's own fill="none" presentation attribute, and no second icon set is needed. */
+.mp-star[aria-pressed="true"] svg * { fill: currentColor; }
 .mp-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
 
 /* ── Space icon picker (SpacePage's General tab): trigger + tabbed popover ── */

@@ -2,7 +2,7 @@ import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
+  DEFAULT_PERMISSION_MODE_KEY, MODEL_FAVORITES_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
   type DestinationPageKind, type NotificationCategory,
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
@@ -431,6 +431,11 @@ export type AppState = {
    *  (`DEFAULT_PERMISSION_MODE_KEY`). Null until the page first loads them — the page fetches on
    *  mount, and a null renders as loading rather than as every-toggle-on lies. */
   settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string } | null;
+  /** Canonical model keys the user has starred (`MODEL_FAVORITES_KEY`), for the model picker's
+   *  favourites tab, its favourites-first ordering and its 1…9 shortcuts. Empty rather than null
+   *  before it loads: unlike the settings page, an unstarred picker is a perfectly honest picker,
+   *  so there is nothing to hold back while the read is in flight. */
+  modelFavorites: string[];
   /** The Permissions tab's TCC rows, exactly as main's prompt-free probe reported them; null until
    *  the tab first probes. Never synthesised client-side — a row with no probe basis says so. */
   tccRows: TccRow[] | null;
@@ -800,6 +805,12 @@ export type AppState = {
    *  an unknown category, a mode PERMISSION_MODES doesn't name — is dropped/defaulted here, once,
    *  so the page never renders a state the server would not honor. */
   refreshSettingsPrefs(): Promise<void>;
+  /** Read `MODEL_FAVORITES_KEY` into `modelFavorites`. Junk in the row — a non-array, a non-string
+   *  element — is dropped here rather than surviving into the picker's ordering. */
+  refreshModelFavorites(): Promise<void>;
+  /** Star or un-star ONE model by canonical key, persisting the whole list. Recomputed from the held
+   *  list so a double-click can't write a duplicate, and so only THIS key ever moves. */
+  toggleModelFavorite(key: string): Promise<void>;
   /** Flip ONE category's off switch and persist the whole disabled set under
    *  `NOTIFICATIONS_DISABLED_KEY`. Disabling stops NEW rows only — the service's contract. */
   setNotificationCategoryEnabled(category: NotificationCategory, enabled: boolean): Promise<void>;
@@ -1194,7 +1205,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, modelFavorites: [], tccRows: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -2100,6 +2111,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
         set({ settingsPrefs: { disabledCategories, defaultPermissionMode } });
+      },
+      async refreshModelFavorites() {
+        const raw = await api.getSetting(MODEL_FAVORITES_KEY);
+        set({ modelFavorites: (Array.isArray(raw) ? raw : []).filter((k): k is string => typeof k === "string") });
+      },
+      async toggleModelFavorite(key) {
+        const held = get().modelFavorites;
+        // Appended rather than inserted: the favourites list is the SHORTCUT order (1…9), so a newly
+        // starred model must not renumber the ones the user has already learned.
+        const modelFavorites = held.includes(key) ? held.filter((k) => k !== key) : [...held, key];
+        await api.setSetting(MODEL_FAVORITES_KEY, modelFavorites);
+        set({ modelFavorites });
       },
       async setNotificationCategoryEnabled(category, enabled) {
         const prefs = get().settingsPrefs; if (!prefs) return; // toggles only exist once prefs loaded

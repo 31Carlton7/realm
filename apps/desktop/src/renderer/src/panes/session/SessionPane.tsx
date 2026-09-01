@@ -195,6 +195,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const panelOpen = useApp((s) => s.terminalPanel[id]?.open ?? false);
   const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
+  const modelFavorites = useApp((s) => s.modelFavorites);
+  const refreshModelFavorites = useApp((s) => s.refreshModelFavorites);
+  const toggleModelFavorite = useApp((s) => s.toggleModelFavorite);
   const prefillTerminal = useApp((s) => s.prefillTerminal);
   const openDiff = useApp((s) => s.openDiff);
   const submitKey = useApp((s) => s.submitKey);
@@ -205,6 +208,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // Cheap by construction: the store dedups concurrent calls and the server holds a TTL cache, so a
   // four-pane split (or a tab-back) costs one round trip, not a process spawn per agent.
   useEffect(() => { run(() => probeAgents()); }, [id, probeAgents, run]);
+  // One settings read, alongside the probe. Favourites only ever change through this app's own
+  // toggle (which writes through and updates the store), so there is nothing to poll for.
+  useEffect(() => { run(() => refreshModelFavorites()); }, [refreshModelFavorites, run]);
 
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
   const space = spaces.find((s) => s.id === session.spaceId);
@@ -253,6 +259,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             acpModes={transcript.init ? transcript.init.availableModes ?? [] : null}
             canSwitchAgent={canSwitchAgent}
             agentProbe={agentProbe}
+            modelFavorites={modelFavorites}
+            onToggleModelFavorite={(key) => run(() => toggleModelFavorite(key))}
             mentionSkills={mentionSkills} staleMentions={staleMentions}
             machineName={machineName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}

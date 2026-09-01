@@ -15,6 +15,16 @@
  */
 
 /**
+ * The `settings` row holding the user's starred models, as an array of canonical keys.
+ *
+ * Keys rather than model ids, and one flat list rather than a per-harness map, because a star is on a
+ * MODEL: favouriting Fable 5.1 while a session runs it through Cursor should still light the row up
+ * when a later session reaches it through the `claude` CLI. Lives in the generic `settings` table,
+ * so this needed no migration and no RPC of its own.
+ */
+export const MODEL_FAVORITES_KEY = "models.favorites";
+
+/**
  * Fold a model's displayed name to a comparison key.
  *
  * Three normalisations, each earning its place against a real disagreement seen in the wild:

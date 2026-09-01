@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, sessionEvent, type Environment } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, canonicalModelKey, sessionEvent, type Environment } from "@realm/contracts";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
@@ -1200,6 +1200,118 @@ describe("prompter model picker", () => {
       expect(rowNames()).toEqual(["Model 39"]);
       fireEvent.keyDown(search, { key: "Enter" });
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("m-39[x=1]"));
+    });
+  });
+
+  describe("favourites", () => {
+    const OPUS = canonicalModelKey("Claude Opus 5");
+    const HAIKU = canonicalModelKey("Claude Haiku 4.5");
+    const searchBox = () => screen.getByRole("combobox", { name: "Search models" });
+    const starOn = (label: string | RegExp) =>
+      within(screen.getByRole("option", { name: label })).getByRole("button", { name: /Favourite|Unfavourite/ });
+    /** Preloads starred keys the way a previous session would have left them in `settings`. */
+    const withFavorites = async (keys: string[]) => {
+      const r = await mountFresh();
+      await act(async () => { r.store.setState({ modelFavorites: keys }); });
+      return r;
+    };
+
+    it("puts the rail above the search field, led by the favourites tab", () => {
+      // The screenshot's layout, and the reading order it implies: scope first, then narrow.
+      return mountFresh().then(() => {
+        openPicker();
+        const picker = screen.getByRole("dialog", { name: "Model picker" });
+        const kids = [...picker.children].map((n) => n.className);
+        expect(kids[0]).toBe("mp-rail");
+        expect(kids[1]).toBe("mp-search");
+        const tabs = within(screen.getByRole("group", { name: "Filter models" })).getAllByRole("button");
+        expect(tabs[0]).toHaveAccessibleName("Favourites");
+      });
+    });
+
+    it("says how to fill the favourites tab rather than showing an empty list", async () => {
+      await mountFresh();
+      openPicker();
+      fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
+      expect(screen.queryAllByRole("option")).toHaveLength(0);
+      expect(screen.getByText(/star a model to pin it here/i)).toBeInTheDocument();
+    });
+
+    it("starring a row persists a canonical KEY, not a model id", async () => {
+      // A key is what survives the model being reached through a different harness later.
+      const { api, store } = await mountFresh();
+      openPicker();
+      fireEvent.click(starOn(/Claude Opus 5/));
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
+      expect(api.calls.some((c) => c.startsWith("setSetting:models.favorites"))).toBe(true);
+      expect(OPUS).not.toBe("claude-opus-5"); // the id would have been the lazy thing to store
+    });
+
+    it("starring a row does not also pick it", async () => {
+      // The star lives inside the row; without stopPropagation it would switch the session's model
+      // as a side effect of bookmarking it.
+      const { store } = await mountFresh({ model: "claude-fable-5-1" });
+      openPicker();
+      fireEvent.click(starOn(/Claude Opus 5/));
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
+      expect(store.getState().sessions.se1?.model).toBe("claude-fable-5-1");
+      expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument(); // and stays open
+    });
+
+    it("un-starring removes only that key", async () => {
+      const { store } = await withFavorites([OPUS, HAIKU]);
+      openPicker();
+      fireEvent.click(starOn(/Claude Opus 5/));
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([HAIKU]));
+    });
+
+    it("floats favourites to the top and numbers them down the page", async () => {
+      await withFavorites([HAIKU, OPUS]); // starred in this order; the badges must not follow it
+      openPicker();
+      expect(rowNames().slice(0, 2)).toEqual(["Claude Opus 5", "Claude Haiku 4.5"]); // list order, not starring order
+      const badges = screen.getAllByRole("option").map((n) => n.querySelector(".mp-kbd")?.textContent ?? null);
+      expect(badges.slice(0, 2)).toEqual(["⌘1", "⌘2"]);
+      expect(badges.slice(2).every((b) => b === null)).toBe(true); // only favourites are numbered
+    });
+
+    it("⌘<n> picks the nth favourite", async () => {
+      const { store } = await withFavorites([HAIKU, OPUS]);
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "2", metaKey: true });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-haiku-4-5")); // ⌘2 = second ROW
+    });
+
+    it("a bare digit still types into the search box", async () => {
+      // The reason the badge is ⌘-prefixed at all: "5" is something people search for.
+      const { store } = await withFavorites([OPUS]);
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "1" });
+      expect(store.getState().sessions.se1?.model).toBeNull();
+    });
+
+    it("⌘<n> past the last favourite does nothing", async () => {
+      const { store } = await withFavorites([OPUS]);
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "4", metaKey: true });
+      expect(store.getState().sessions.se1?.model).toBeNull();
+      expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
+    });
+
+    it("⌥↩ stars the highlighted row, which is the only keyboard path to the star", async () => {
+      const { store } = await mountFresh();
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([canonicalModelKey("Claude Opus 5")]));
+      expect(store.getState().sessions.se1?.model).toBeNull(); // ⌥↩ stars; it does not pick
+    });
+
+    it("the favourites tab lists the starred models and nothing else", async () => {
+      await withFavorites([OPUS]);
+      openPicker();
+      fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
+      expect(rowNames()).toEqual(["Claude Opus 5"]);
     });
   });
 });

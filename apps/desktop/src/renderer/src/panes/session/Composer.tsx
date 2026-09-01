@@ -222,7 +222,7 @@ function planMeaning(kind: AgentKind, acpPlan: AcpSessionMode | null): string {
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter" }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, onToggleModelFavorite, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -249,6 +249,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   canSwitchAgent: boolean;
   /** Latest `agents.probe`, for the picker's per-agent availability note. Empty before the first probe. */
   agentProbe: AgentProbe[];
+  /** Canonical model keys the user has starred, and the toggle behind the picker's stars. */
+  modelFavorites: string[];
+  onToggleModelFavorite: (key: string) => void;
   hero: boolean; spaceName: string; onSuggestion: (prompt: string) => void;
   /** What `@` may complete to HERE (W4): the space's enabled, valid skills — and only for an agent
    *  Realm can inject skills into. Empty (the default) means typing `@` opens nothing, which is how a
@@ -605,7 +608,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           </div>
           <div className="composer-actions">
             <ModelPicker kind={kind} model={session.model} effort={session.effort} canSwitchAgent={canSwitchAgent}
-              agentProbe={agentProbe} onPick={onPickModel} effortItems={effortItems} overflow={overflow} />
+              agentProbe={agentProbe} favorites={modelFavorites} onToggleFavorite={onToggleModelFavorite}
+              onPick={onPickModel} effortItems={effortItems} overflow={overflow} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's
