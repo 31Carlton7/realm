@@ -101,6 +101,7 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
   const preview = useApp((s) => s.checkpointPreview);
   const result = useApp((s) => s.restoreResult);
   const ask = useApp((s) => s.askRestoreCheckpoint);
+  const fork = useApp((s) => s.forkFromCheckpoint);
   const capture = useApp((s) => s.captureCheckpoint);
   const closeSheet = useApp((s) => s.closeSheet);
   const run = useApp((s) => s.run);
@@ -126,10 +127,22 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
                   <span className="cp-kind">{KIND_LABEL[c.kind]}</span>
                   <span className="cp-label">{c.label}</span>
                   <span className="cp-when">{relativeTime(c.createdAt, now)}</span>
+                  {/* Fork (Plan 16 W3): only for checkpoints a session's turn took — a fork carries an
+                      ancestor transcript, and a manual/environment checkpoint has none to carry. */}
+                  {c.sessionId && (
+                    <button type="button" className="btn-quiet" onClick={() => run(() => fork(c.id))}>Fork</button>
+                  )}
                   <button type="button" className="btn-quiet" onClick={() => run(() => ask(c.id))}>Restore</button>
                 </li>
               ))}
             </ul>
+            {(list ?? []).some((c) => c.sessionId !== null) && (
+              <p className="cp-note">
+                Fork opens a NEW worktree restored to that checkpoint, with a new session beside the old
+                one. It is a workspace fork: the agent&rsquo;s conversation cannot be rewound, so the
+                ancestor transcript is carried into the new session as text (capped, and it says so).
+              </p>
+            )}
             <div className="sheet-actions">
               <button type="button" className="btn-quiet" onClick={() => run(() => capture(environmentId, sessionId))}>Checkpoint now</button>
               <span className="diff-head-spacer" />

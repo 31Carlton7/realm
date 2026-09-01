@@ -40,16 +40,27 @@ export class ItemsStore {
     const id = newId(); const t = now();
     this.db.prepare("INSERT INTO items (id, space_id, kind, title, sort_order, pinned, ref_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)")
       .run(id, input.spaceId, input.kind, input.title, max + 1, input.refId, t, t);
+    // The search index's item-title source (Plan 16 W1), written at the same choke point every item
+    // creation passes through. Session-owned terminal items land here too and are filtered out at
+    // QUERY time (the same NOT_SESSION_OWNED rule the listings use), because ownership is decided
+    // after this insert.
+    this.db.prepare("INSERT INTO search_index (text, kind, ref, seq) VALUES (?, 'item', ?, NULL)").run(input.title, id);
     return this.get(id)!;
   }
   update(input: { id: string; title?: string; pinned?: boolean; sortOrder?: number }): Item {
     const cur = this.get(input.id); if (!cur) throw new NotFoundError("item", input.id);
     this.db.prepare("UPDATE items SET title = ?, pinned = ?, sort_order = ?, updated_at = ? WHERE id = ?")
       .run(input.title ?? cur.title, (input.pinned ?? cur.pinned) ? 1 : 0, input.sortOrder ?? cur.sortOrder, now(), input.id);
+    // A rename must move the index row, or search keeps finding the old name and never the new one.
+    if (input.title !== undefined && input.title !== cur.title) {
+      this.db.prepare("DELETE FROM search_index WHERE kind = 'item' AND ref = ?").run(input.id);
+      this.db.prepare("INSERT INTO search_index (text, kind, ref, seq) VALUES (?, 'item', ?, NULL)").run(input.title, input.id);
+    }
     return this.get(input.id)!;
   }
   delete(id: string): void {
     if (!this.get(id)) throw new NotFoundError("item", id);
+    this.db.prepare("DELETE FROM search_index WHERE kind = 'item' AND ref = ?").run(id);
     this.db.prepare("DELETE FROM items WHERE id = ?").run(id);
   }
 }

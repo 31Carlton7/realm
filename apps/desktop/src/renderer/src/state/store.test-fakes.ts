@@ -2,6 +2,7 @@
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
 import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
+import type { SearchResults } from "@realm/contracts";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
   ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
@@ -128,6 +129,9 @@ export type FakeData = {
   notifications?: Notification[];
   /** Persisted review verdicts by environment id (Plan 13 W3) — what `review.get` answers. */
   reviews?: Record<string, ReviewResult | null>;
+  /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
+   *  Delay it with `delays["search"]` to hold results in flight. */
+  searchResults?: SearchResults;
 };
 
 export type FakeApi = Api & {
@@ -200,6 +204,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     profileDocDisabled: overrides.profileDocDisabled ?? {},
     notifications: overrides.notifications ?? [],
     reviews: overrides.reviews ?? {},
+    searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -230,6 +235,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     listAllItems: async () => {
       calls.push("listAllItems");
       return Object.values(data.items).flat().slice().sort((a, b) => b.updatedAt - a.updatedAt);
+    },
+    search: async (profileId, query) => {
+      calls.push(`search:${profileId}:${query}`);
+      await wait("search");
+      return data.searchResults;
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
     listEnvironments: async (sid) => { calls.push(`listEnvironments:${sid}`); await wait(`listEnvironments:${sid}`); return data.environments[sid] ?? []; },
@@ -318,6 +328,23 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     sendMessage: async (id, text, attachments, mentions) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
       sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}) });
+    },
+    forkSession: async (checkpointId) => {
+      calls.push(`forkSession:${checkpointId}`);
+      await wait("forkSession");
+      const cp = Object.values(data.checkpoints).flat().find((c) => c.id === checkpointId);
+      if (!cp?.sessionId) throw new Error("FORK_NO_SESSION");
+      const ancestor = data.sessions.find((x) => x.id === cp.sessionId);
+      const spaceId = ancestor?.spaceId ?? "s1";
+      const env: Environment = { id: `env${++n}`, spaceId, path: `/tmp/worktrees/${spaceId}/fork`, branch: "realm/fork",
+        kind: "worktree", portBlockStart: null, createdAt: 0, updatedAt: 0 };
+      (data.environments[spaceId] ??= []).push(env);
+      const sess = session(`se${++n}`, spaceId, { environmentId: env.id, cwd: env.path,
+        title: `Fork: ${ancestor?.title ?? "session"}`, dispatchedBy: { kind: "fork", sessionId: cp.sessionId } });
+      data.sessions.push(sess);
+      const it = item(`i${n}`, spaceId, { kind: "session", refId: sess.id, title: sess.title });
+      (data.items[spaceId] ??= []).push(it);
+      return { session: sess, itemId: it.id, environment: env };
     },
     listSkills: async (spaceId) => { calls.push(`listSkills:${spaceId}`); return { root: data.skillsRoot, skills: [...(data.skills[spaceId] ?? [])] }; },
     setSkillEnabled: async (spaceId, id, enabled) => {

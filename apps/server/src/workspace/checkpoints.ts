@@ -309,8 +309,38 @@ export class CheckpointGit {
       headMoved = true;
     }
 
-    const applied = await this.git(root, ["read-tree", "--reset", "-u", input.state.worktreeTree]);
-    if (applied.code !== 0) throw new RpcError("RESTORE_FAILED", gitReason(applied));
+    const filesRemoved = await this.applyTrees(root, input.state, "RESTORE_FAILED");
+    return { headMoved, headReason: headMoved ? null : reason, filesRemoved };
+  }
+
+  /**
+   * Write this checkpoint's captured trees into a DIFFERENT, freshly created worktree — Plan 16 W3's
+   * fork. The tree steps are `restore`'s exactly (`applyTrees`); the HEAD rule is deliberately NOT:
+   * the target's branch is one the caller minted for the fork moments ago, so HEAD is moved to the
+   * checkpoint's own commit whenever that commit still exists — there is no user branch to protect,
+   * and a fork left ahead of its own files would show phantom "uncommitted deletions".
+   *
+   * NEVER point this at the checkpoint's own environment. Restoring in place is `restore`'s job, and
+   * only it carries the acknowledgement flow that makes in-place rewriting survivable. ForkService is
+   * the one caller, and it only ever passes the worktree it just created.
+   */
+  async extract(input: { cwd: string; state: CapturedState }): Promise<{ headMoved: boolean; filesRemoved: number }> {
+    const root = await this.root(input.cwd);
+    let headMoved = false;
+    if (input.state.headSha && (await this.git(root, ["cat-file", "-e", `${input.state.headSha}^{commit}`])).code === 0) {
+      const reset = await this.git(root, ["reset", "--soft", input.state.headSha]);
+      if (reset.code !== 0) throw new RpcError("FORK_FAILED", gitReason(reset));
+      headMoved = true;
+    }
+    const filesRemoved = await this.applyTrees(root, input.state, "FORK_FAILED");
+    return { headMoved, filesRemoved };
+  }
+
+  /** Steps 2–4 of the restore recipe (see `restore`'s doc comment): working tree from
+   *  `worktreeTree`, untracked survivors deleted, index from `indexTree`. */
+  private async applyTrees(root: string, state: CapturedState, errorCode: string): Promise<number> {
+    const applied = await this.git(root, ["read-tree", "--reset", "-u", state.worktreeTree]);
+    if (applied.code !== 0) throw new RpcError(errorCode, gitReason(applied));
 
     let filesRemoved = 0;
     for (const path of await this.untracked(root)) {
@@ -318,9 +348,9 @@ export class CheckpointGit {
       catch { /* a directory, a race, a permission — the tree is already correct for everything else */ }
     }
 
-    const index = await this.git(root, ["read-tree", input.state.indexTree]);
-    if (index.code !== 0) throw new RpcError("RESTORE_FAILED", gitReason(index));
-    return { headMoved, headReason: headMoved ? null : reason, filesRemoved };
+    const index = await this.git(root, ["read-tree", state.indexTree]);
+    if (index.code !== 0) throw new RpcError(errorCode, gitReason(index));
+    return filesRemoved;
   }
 
   /** Drop the hidden refs for these checkpoints. The objects become unreachable and are collected by

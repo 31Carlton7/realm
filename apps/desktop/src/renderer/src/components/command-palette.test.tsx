@@ -316,3 +316,95 @@ describe("Dispatch task (Plan 13 W2)", () => {
     expect(screen.queryByRole("option", { name: /Dispatch task/ })).toBeNull();
   });
 });
+
+describe("deep search (Plan 16 W2)", () => {
+  const snip = (pre: string, hit: string, post = "") =>
+    [{ text: pre, match: false }, { text: hit, match: true }, { text: post, match: false }];
+  const empty = { sessions: [], items: [], skills: [], memory: [] };
+
+  it("instant rows render synchronously while the deep query is still in flight — the no-await mutant", async () => {
+    const { api } = await mount({ items: { s1: [item("i1", "s1", { title: "Terminal" })] } });
+    api.delays["search"] = 60_000; // deep search effectively never answers inside this test
+    fireEvent.change(input(), { target: { value: "term" } });
+    // Deliberately NO waitFor: the instant path must not have awaited anything search-shaped.
+    expect(options().some((x) => x?.startsWith("Terminal"))).toBe(true);
+    expect(options().some((x) => x?.startsWith("New terminal"))).toBe(true);
+  });
+
+  it("appends grouped deep rows below the instant rows, and asks with the ACTIVE space's profile id", async () => {
+    const { api } = await mount({ searchResults: {
+      sessions: [{ sessionId: "sedeep", spaceId: "s1", title: "Login fix", seq: 5, snippet: snip("fix the ", "login", " flow") }],
+      items: [{ itemId: "ideep", spaceId: "s1", itemKind: "browser" as const, title: "Auth docs", snippet: snip("", "login", " docs") }],
+      skills: [{ id: "auth", name: "Auth helper", description: "does login things", snippet: snip("does ", "login", " things") }],
+      memory: [{ scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory", snippet: snip("the ", "login", " rules") }],
+    } });
+    fireEvent.change(input(), { target: { value: "login" } });
+    await waitFor(() => expect(screen.getByRole("option", { name: /Login fix/ })).toBeInTheDocument());
+    expect(api.calls).toContain("search:p1:login"); // the profile travels; the server enforces the fence
+    // The four groups render their headers even mid-query (instant rows go flat; deep rows stay grouped).
+    const secs = Array.from(document.querySelectorAll(".palette-sec")).map((el) => el.textContent);
+    expect(secs).toEqual(["Sessions", "Skills", "Memory", "Items"]);
+    // Every deep row sits below every instant row.
+    const labels = options();
+    const firstDeep = labels.findIndex((x) => x?.includes("Login fix"));
+    for (const l of labels.slice(firstDeep)) expect(["Login fix", "Auth helper", "Versed memory", "Auth docs"].some((d) => l?.includes(d))).toBe(true);
+    // Snippets render with their matches emphasised.
+    expect(document.querySelectorAll(".palette-snippet mark").length).toBeGreaterThan(0);
+  });
+
+  it("a session hit opens that session's pane, selecting its space first", async () => {
+    const { store } = await mount({
+      items: { s1: [item("i1", "s1", { title: "Terminal" })], s2: [item("is2", "s2", { kind: "session", refId: "se2", title: "Elsewhere" })] },
+      sessions: [session("se2", "s2")],
+      searchResults: { ...empty, sessions: [{ sessionId: "se2", spaceId: "s2", title: "Elsewhere", seq: 3, snippet: snip("about ", "gadgets") }] },
+    });
+    fireEvent.change(input(), { target: { value: "gadgets" } });
+    fireEvent.click(await screen.findByRole("option", { name: /Elsewhere/ }));
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBe("is2"); });
+    expect(store.getState().paletteOpen).toBe(false);
+  });
+
+  it("a skill hit routes to the Library page; a memory hit to the space page's Memory tab", async () => {
+    const { store, api } = await mount({ searchResults: { ...empty,
+      skills: [{ id: "auth", name: "Auth helper", description: "does login", snippet: snip("does ", "login") }],
+      memory: [{ scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory", snippet: snip("the ", "login") }],
+    } });
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: null }, focusedLeafId: "L1" }));
+    fireEvent.change(input(), { target: { value: "login" } });
+    fireEvent.click(await screen.findByRole("option", { name: /Auth helper/ }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("createItem:s1|library-page"))).toBe(true));
+    act(() => store.setState({ paletteOpen: true }));
+    fireEvent.change(input(), { target: { value: "login" } });
+    fireEvent.click(await screen.findByRole("option", { name: /Versed memory/ }));
+    await waitFor(() => expect(store.getState().spacePageTab["s1"]).toBe("memory"));
+  });
+
+  it("deep item hits already shown as instant rows are not repeated", async () => {
+    await mount({
+      items: { s1: [item("i1", "s1", { title: "Login docs" })] },
+      searchResults: { ...empty, items: [{ itemId: "i1", spaceId: "s1", itemKind: "terminal" as const, title: "Login docs", snippet: snip("", "Login", " docs") }] },
+    });
+    fireEvent.change(input(), { target: { value: "login" } });
+    // Give the deep answer time to land, then count: one row, not two.
+    await waitFor(() => expect(screen.getAllByRole("option").filter((o) => o.textContent?.includes("Login docs"))).toHaveLength(1));
+    expect(Array.from(document.querySelectorAll(".palette-sec")).map((el) => el.textContent)).toEqual([]);
+  });
+
+  it("quiet states are honest: 'Searching…' while in flight, 'No matches' only once settled empty", async () => {
+    const { api } = await mount({ searchResults: empty });
+    api.delays["search"] = 250;
+    fireEvent.change(input(), { target: { value: "zzzz" } });
+    await waitFor(() => expect(screen.getByText("Searching…")).toBeInTheDocument());
+    expect(screen.queryByText("No matches")).toBeNull(); // not settled yet — do not claim emptiness
+    await waitFor(() => expect(screen.getByText("No matches")).toBeInTheDocument());
+    expect(screen.queryByText("Searching…")).toBeNull();
+  });
+
+  it("below two characters no deep query is sent at all", async () => {
+    const { api } = await mount();
+    fireEvent.change(input(), { target: { value: "t" } });
+    await new Promise((r) => setTimeout(r, 250)); // well past the debounce
+    expect(api.calls.some((c) => c.startsWith("search:"))).toBe(false);
+  });
+});

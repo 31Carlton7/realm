@@ -206,6 +206,7 @@ const ORIGIN_META: Record<DispatchKind, { icon: string; label: string }> = {
   agent_run: { icon: "bot", label: "Delegated via agent_run" },
   browser_agent_run: { icon: "browser", label: "Browser agent" },
   review: { icon: "diff", label: "Reviewer" },
+  fork: { icon: "branch", label: "Forked from a checkpoint" },
 };
 
 /**

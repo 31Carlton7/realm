@@ -267,4 +267,34 @@ export const migrations: string[] = [
   ALTER TABLE sessions ADD COLUMN dispatched_by_kind TEXT;
   ALTER TABLE sessions ADD COLUMN dispatched_by_session_id TEXT;
   `,
+  // v15 — the global search index (Plan 16 W1). FTS5, verified compiled into node:sqlite (unicode61
+  // and trigram tokenizers both present; this uses unicode61 with full diacritic folding). A plain
+  // contentful FTS5 table rather than external-content or contentless: the sources are heterogeneous
+  // (events keyed by integer seq, items by ULID), contentless tables cannot honestly DELETE without
+  // SQLite ≥3.43's contentless_delete, and the duplicated text is transcript-sized — cheap next to
+  // the payload_json that already stores it. `kind`/`ref`/`seq` are UNINDEXED metadata: kind is
+  // 'session' (ref = session id, seq = the event) or 'item' (ref = item id).
+  //
+  // What is NOT here, deliberately: no space_id and no profile_id. Scoping is a QUERY-TIME join
+  // through the live sessions/items→spaces tables (SearchService), because a space can be moved to
+  // another profile (spaces.update) and a profile id baked into the index would keep answering for
+  // the profile it used to be in. Skills and memory docs are not indexed at all — they are
+  // user-editable files (the library folder, `~/Realm/memory/*.md` whose paths the UI shows), so
+  // they are read live at query time; an index over files Realm does not own every write to would
+  // go stale the first time the user edits one in a text editor.
+  //
+  // Backfill: item titles inline (one small scan). Session events are backfilled CHUNKED ON BOOT
+  // (SearchService.runBackfill), resumable across restarts — a large history must not hold the
+  // migration transaction open for its whole scan. The settings row written here is the cursor:
+  // `target` is MAX(seq) at migration time, frozen so the boot-time backfill and write-time indexing
+  // (which starts with this same release, in SessionEventsStore.append) can never double-index a row.
+  `
+  CREATE VIRTUAL TABLE search_index USING fts5(
+    text, kind UNINDEXED, ref UNINDEXED, seq UNINDEXED,
+    tokenize = 'unicode61 remove_diacritics 2'
+  );
+  INSERT INTO search_index (text, kind, ref, seq) SELECT title, 'item', id, NULL FROM items;
+  INSERT INTO settings (key, value_json)
+    VALUES ('search.backfill', json_object('done', 0, 'target', COALESCE((SELECT MAX(seq) FROM session_events), 0)));
+  `,
 ];

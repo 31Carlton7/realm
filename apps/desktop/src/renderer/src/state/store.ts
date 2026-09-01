@@ -4,7 +4,7 @@ import {
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
   type DestinationPageKind, type NotificationCategory,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -70,6 +70,9 @@ export type Api = {
   listItems(spaceId: string): Promise<Item[]>;
   /** Every item across every space, newest-updated first (command palette search). */
   listAllItems(): Promise<Item[]>;
+  /** `search.query` — deep search over ONE profile's transcripts, item titles, skills and memory
+   *  (Plan 16 W2). Profile scoping is the server's; the client only names which profile it is in. */
+  search(profileId: string, query: string): Promise<SearchResults>;
   listProjects(spaceId: string): Promise<Project[]>;
   /** Every checkout the space knows about: its primary, plus any worktree Realm made (W2). */
   listEnvironments(spaceId: string): Promise<Environment[]>;
@@ -108,6 +111,9 @@ export type Api = {
   listAllSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
+  /** `sessions.fork` (Plan 16 W3): a new worktree restored to the checkpoint + a new session carrying
+   *  the ancestor transcript as text. The ancestor is untouched. */
+  forkSession(checkpointId: string): Promise<{ session: Session; itemId: string; environment: Environment }>;
   /** `skills.list` for a space: the library folder and every skill in it, valid or not — the mention
    *  picker (W4) reads the skills, the settings panel (W5) also shows the root and the invalid rows. */
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
@@ -550,6 +556,11 @@ export type AppState = {
   refreshSpaces(): Promise<void>;
   refreshItems(): Promise<void>;
   refreshAllItems(): Promise<void>;
+  /** Deep search scoped to the ACTIVE space's profile (Plan 16 W2). Returns results for the palette
+   *  to append below its instant rows — deliberately not stored in state: the palette owns the
+   *  debounce and the stale-response guard, and nothing else reads these. Null with no active space
+   *  (no profile to scope by — an unscoped search would be the leak W1 exists to prevent). */
+  searchDeep(query: string): Promise<SearchResults | null>;
   refreshProjects(): Promise<void>;
   refreshEnvironments(): Promise<void>;
   linkProject(rootPath: string): Promise<void>;
@@ -800,6 +811,9 @@ export type AppState = {
   confirmRestoreCheckpoint(id: string): Promise<void>;
   /** `checkpoints.capture` — a point the user asked for, next to the ones every turn takes. */
   captureCheckpoint(environmentId: string, sessionId: string | null): Promise<void>;
+  /** "Fork from here" (Plan 16 W3): server makes worktree + session; this adopts the new pane and
+   *  closes the sheet. The ancestor session and its checkout are untouched — workspace fork only. */
+  forkFromCheckpoint(checkpointId: string): Promise<void>;
   /** Re-fetch this space's MCP servers. Called on `McpSection` mount (sheet open) and on `mcp.changed`
    *  while that space's settings sheet is the one showing. Applies the result only if the sheet is
    *  still open for this exact space — a slow response after the user closed or switched must not
@@ -1230,6 +1244,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshAllItems() {
         set({ allItems: await api.listAllItems() });
+      },
+      async searchDeep(query) {
+        const sid = get().activeSpaceId; if (!sid) return null;
+        const profileId = get().spaces.find((sp) => sp.id === sid)?.profileId;
+        if (!profileId) return null;
+        return api.search(profileId, query);
       },
       async refreshProjects() {
         const sid = get().activeSpaceId; if (!sid) return;
@@ -2128,6 +2148,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async captureCheckpoint(environmentId, sessionId) {
         await api.captureCheckpoint(environmentId, sessionId);
         await get().refreshCheckpoints(environmentId, sessionId);
+      },
+      async forkFromCheckpoint(checkpointId) {
+        const { session, itemId, environment } = await api.forkSession(checkpointId);
+        if (isSpace(session.spaceId)) {
+          mergeSession(session);
+          set({ environments: { ...get().environments, [environment.id]: environment } });
+        }
+        // Close the sheet BEFORE adopting: adoptItem rewrites the layout, and the W2.4 snap must be
+        // unwound off the pre-sheet layout, not the post-adopt one.
+        set({ sheet: null, ...restoreSnap() });
+        await adoptItem(session.spaceId, itemId, null);
+        await get().openSession(session.id);
       },
       async askRestoreCheckpoint(id) {
         const preview = await api.previewCheckpoint(id);

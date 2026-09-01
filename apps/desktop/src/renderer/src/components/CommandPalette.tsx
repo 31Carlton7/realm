@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type Item, type PresetName } from "@realm/contracts";
+import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type Item, type PresetName, type SearchResults, type SearchSnippet } from "@realm/contracts";
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../state/no-overlay";
@@ -7,7 +7,20 @@ import { useApp, useBrowserRects, type AppState } from "../state/store";
 import type { ThemePref } from "../theme/useTheme";
 import { ItemGlyph } from "./sidebar/ItemList";
 
-type Entry = { id: string; label: string; hint?: ReactNode; icon: ReactNode; run: () => void; section: string; disabled?: boolean };
+type Entry = { id: string; label: string; hint?: ReactNode; icon: ReactNode; run: () => void; section: string; disabled?: boolean;
+  /** A deep-search row (Plan 16 W2): rendered below the instant rows, under its group header even
+   *  while a query is typed (instant rows go flat with a query; these stay grouped). */
+  deep?: boolean };
+
+/** How long a keystroke rests before `search.query` goes out. The instant rows never wait on this —
+ *  deep results only ever APPEND below them when the answer lands. */
+export const SEARCH_DEBOUNCE_MS = 120;
+/** One character matches everything and helps no one; deep search starts at two. */
+export const SEARCH_MIN_QUERY = 2;
+
+function Snippet({ parts }: { parts: SearchSnippet }) {
+  return <span className="palette-snippet">{parts.map((p, i) => p.match ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>)}</span>;
+}
 
 /** ⌘K toggles the palette. Bound separately from useGlobalHotkeys: it must fire while the palette
  *  itself is open (and its input focused), which the global guard forbids. */
@@ -106,6 +119,7 @@ function PaletteBody() {
   const openActivity = useApp((s) => s.openActivity);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
   const refreshAllItems = useApp((s) => s.refreshAllItems);
+  const searchDeep = useApp((s) => s.searchDeep);
   const run = useApp((s) => s.run);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
@@ -120,6 +134,29 @@ function PaletteBody() {
 
   // Cross-space listings come from items.listAll; refresh on every open so ages/titles are current.
   useEffect(() => { run(() => refreshAllItems()); }, [refreshAllItems, run]);
+
+  // Deep search (Plan 16 W2): debounced and stale-guarded. THE instant-palette doctrine, restated
+  // where it could be broken: nothing above this effect awaits it — the instant rows are computed
+  // synchronously from state, and these results only ever append BELOW them when the answer lands.
+  const [deep, setDeep] = useState<{ forQuery: string; results: SearchResults } | null>(null);
+  const [searching, setSearching] = useState(false);
+  const searchSeq = useRef(0);
+  const deepQuery = query.trim();
+  useEffect(() => {
+    const seq = ++searchSeq.current;
+    if (deepQuery.length < SEARCH_MIN_QUERY) { setDeep(null); setSearching(false); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      searchDeep(deepQuery)
+        .then((results) => {
+          if (searchSeq.current !== seq) return; // a newer keystroke owns the pane now
+          setDeep(results ? { forQuery: deepQuery, results } : null);
+          setSearching(false);
+        })
+        .catch(() => { if (searchSeq.current === seq) { setDeep(null); setSearching(false); } });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [deepQuery, searchDeep]);
 
   const entries = useMemo<Entry[]>(() => {
     const l = layout ?? emptyLayout();
@@ -220,15 +257,72 @@ function PaletteBody() {
       .sort((a, b) => b.score - a.score || a.i - b.i)
       .map((x) => x.e);
   }, [entries, q]);
-  const sel = Math.min(index, Math.max(0, filtered.length - 1));
+
+  // Deep rows (Plan 16 W2), grouped Sessions / Skills / Memory / Items and appended after the
+  // instant rows. Item hits already matched instantly (subsequence matching subsumes word matching)
+  // are dropped rather than shown twice.
+  const deepEntries = useMemo<Entry[]>(() => {
+    if (!q || !deep || deep.forQuery !== q) return [];
+    const shown = new Set(filtered.map((e) => e.id));
+    const r = deep.results;
+    const out: Entry[] = [];
+    for (const h of r.sessions) {
+      out.push({
+        id: `deep-session:${h.sessionId}:${h.seq}`, deep: true, section: "Sessions",
+        label: h.title, icon: <Icon name="session" size={15} />, hint: <Snippet parts={h.snippet} />,
+        // Jump = open the session (scroll-to-event is not cheap today: transcript block keys are
+        // index-based, not seq-based — the hit's `seq` is on the wire for the day it becomes so).
+        run: () => run(async () => {
+          const it = allItems.find((x) => x.kind === "session" && x.refId === h.sessionId)
+            ?? items.find((x) => x.kind === "session" && x.refId === h.sessionId);
+          if (h.spaceId !== activeSpaceId) await selectSpace(h.spaceId);
+          if (it) await openItem(it.id);
+        }),
+      });
+    }
+    for (const h of r.skills) {
+      out.push({
+        id: `deep-skill:${h.id}`, deep: true, section: "Skills", label: h.name,
+        icon: <Icon name="library-page" size={15} />, hint: <Snippet parts={h.snippet} />,
+        run: () => run(() => openDestinationPage("library-page")),
+      });
+    }
+    for (const h of r.memory) {
+      out.push({
+        id: `deep-memory:${h.scope}:${h.spaceId ?? h.profileId}`, deep: true, section: "Memory", label: h.title,
+        icon: <Icon name="context" size={15} />, hint: <Snippet parts={h.snippet} />,
+        run: () => run(async () => {
+          if (h.scope === "profile") { await openProfilePage("memory"); return; }
+          if (!h.spaceId) return;
+          if (h.spaceId !== activeSpaceId) await selectSpace(h.spaceId);
+          await openSpacePage(h.spaceId, "memory");
+        }),
+      });
+    }
+    for (const h of r.items) {
+      if (shown.has(`item:${h.itemId}`)) continue; // already an instant row above
+      out.push({
+        id: `deep-item:${h.itemId}`, deep: true, section: "Items", label: h.title,
+        icon: <Icon name={h.itemKind} size={15} />, hint: <Snippet parts={h.snippet} />,
+        run: () => run(async () => {
+          if (h.spaceId !== activeSpaceId) await selectSpace(h.spaceId);
+          await openItem(h.itemId);
+        }),
+      });
+    }
+    return out;
+  }, [q, deep, filtered, allItems, items, activeSpaceId, selectSpace, openItem, openDestinationPage, openProfilePage, openSpacePage, run]);
+
+  const combined = q ? [...filtered, ...deepEntries] : filtered;
+  const sel = Math.min(index, Math.max(0, combined.length - 1));
 
   useEffect(() => { listRef.current?.querySelector<HTMLElement>(`[data-index="${sel}"]`)?.scrollIntoView?.({ block: "nearest" }); }, [sel]);
 
   const pick = (e: Entry | undefined) => { if (!e || e.disabled) return; e.run(); close(); };
   const onKeyDown = (e: ReactKeyboardEvent) => {
-    if (e.key === "ArrowDown") { e.preventDefault(); setIndex(Math.min(filtered.length - 1, sel + 1)); }
+    if (e.key === "ArrowDown") { e.preventDefault(); setIndex(Math.min(combined.length - 1, sel + 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setIndex(Math.max(0, sel - 1)); }
-    else if (e.key === "Enter") { e.preventDefault(); pick(filtered[sel]); }
+    else if (e.key === "Enter") { e.preventDefault(); pick(combined[sel]); }
     else if (e.key === "Escape") { e.preventDefault(); close(); }
   };
 
@@ -238,15 +332,19 @@ function PaletteBody() {
         <div className="palette-input">
           <Icon name="search" size={16} />
           <input autoFocus role="combobox" aria-label="Command palette" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list"
-            aria-activedescendant={filtered[sel] ? `palette-opt-${sel}` : undefined}
+            aria-activedescendant={combined[sel] ? `palette-opt-${sel}` : undefined}
             placeholder="Search…" value={query} onChange={(e) => { setQuery(e.target.value); setIndex(0); }} onKeyDown={onKeyDown} />
           <kbd>esc</kbd>
         </div>
         <div id="palette-list" ref={listRef} role="listbox" className="palette-list">
-          {filtered.length === 0 && <div className="palette-empty muted">No matches</div>}
-          {filtered.map((e, i) => (
+          {/* Honest quiet states: while a deep query is in flight an empty list says so; only a
+              settled empty answer says "No matches". Instant rows render regardless, immediately. */}
+          {combined.length === 0 && (searching
+            ? <div className="palette-empty muted">Searching…</div>
+            : <div className="palette-empty muted">No matches</div>)}
+          {combined.map((e, i) => (
             <Fragment key={e.id}>
-              {!q && (i === 0 || filtered[i - 1]!.section !== e.section) && (
+              {(!q || e.deep) && (i === 0 || combined[i - 1]!.section !== e.section) && (
                 <div className="palette-sec" role="presentation">{e.section}</div>
               )}
               <div id={`palette-opt-${i}`} role="option" aria-selected={i === sel} aria-disabled={e.disabled || undefined} data-index={i}
@@ -257,6 +355,7 @@ function PaletteBody() {
               </div>
             </Fragment>
           ))}
+          {searching && combined.length > 0 && <div className="palette-empty muted">Searching…</div>}
         </div>
       </div>
     </div>
