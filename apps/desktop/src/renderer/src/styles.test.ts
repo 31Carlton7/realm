@@ -167,6 +167,33 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor('.session-pane[data-composer="hero"] .composer-input').join(" ")).toContain("min-height: 56px");
   });
 
+  /* The rich-text mirror is only correct while it is metrically IDENTICAL to the textarea it sits
+     under: same font, same size, same line-height, same padding box, same wrapping. Nothing in jsdom
+     can notice a drift here — there is no layout — so the stylesheet is the only place to catch a
+     stray padding tweak that would slide every painted glyph off the caret above it. */
+  it("the highlight mirror matches the textarea's text metrics exactly", () => {
+    const mirror = bodiesFor(".composer-highlight").join(" ");
+    const input = bodiesFor(".composer-input").join(" ");
+    for (const decl of ["font: inherit", "font-size: 15px", "line-height: 1.55", "padding: 14px 16px 6px"]) {
+      expect(mirror, decl).toContain(decl);
+      expect(input, decl).toContain(decl);
+    }
+    // The UA's own textarea wrapping, restated — the mirror is a <div> and gets neither by default.
+    expect(mirror).toContain("white-space: pre-wrap");
+    expect(mirror).toContain("overflow-wrap: break-word");
+    // Out of the flow, and never in the way of the pointer: the textarea owns both.
+    expect(mirror).toContain("position: absolute");
+    expect(mirror).toContain("pointer-events: none");
+    // The glyphs belong to the mirror. `color` alone is not enough to hide the textarea's own.
+    expect(input).toContain("-webkit-text-fill-color: transparent");
+    // Selected text too, or the UA's selection foreground paints the hidden glyphs back over the mirror.
+    expect(bodiesFor(".composer-input::selection").join(" ")).toContain("-webkit-text-fill-color: transparent");
+    // ...but the placeholder shows in exactly the state the mirror is empty, so it opts back in.
+    expect(bodiesFor(".composer-input::placeholder").join(" ")).toContain("-webkit-text-fill-color: var(--rl-text-faint)");
+    // A classic scrollbar would take width from the textarea's text box and not from the mirror's.
+    expect(input).toContain("scrollbar-width: none");
+  });
+
   it("the control row's left group clips instead of wrapping — the measured collapse depends on it", () => {
     const body = bodiesFor(".composer-opts").join(" ");
     expect(body).toContain("flex-wrap: nowrap");

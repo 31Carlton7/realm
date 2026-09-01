@@ -6,6 +6,7 @@ import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "..
 import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
 import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
+import { continueList, highlightSegments, indentList, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 
 // ~10 lines of 15px/1.55 plus the vertical padding (Ara refresh §1 raises the input to 15px; §4:
@@ -334,10 +335,27 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const [stagger] = useState(() => hero && !staggerPlayed.has(session.id));
   useEffect(() => { if (hero) staggerPlayed.add(session.id); }, [hero, session.id]);
 
+  // ── Rich text (highlight mirror) ───────────────────────────────────────
+  // The textarea keeps every character; what it does NOT keep is its own colour. Its text is painted
+  // transparent and this div — same font, same padding box, same wrapping, one layer below — draws
+  // the identical string in coloured runs. The caret, the selection, undo, IME and every existing
+  // key handler stay the textarea's, which is the whole reason for the mirror over a contenteditable.
+  const hl = useRef<HTMLDivElement>(null);
+  /** The mirror has no scrollbar of its own; it is scrolled to wherever the textarea is. */
+  const syncScroll = () => {
+    const el = ta.current, m = hl.current;
+    if (el && m) { m.scrollTop = el.scrollTop; m.scrollLeft = el.scrollLeft; }
+  };
+  const liveMentionIds = useMemo(() => mentionSkills.map((s) => s.id), [mentionSkills]);
+  // Coloured as a mention only if `scanMentions` resolves it — the same call the server re-runs on the
+  // sent text. Stale ids get the warning tone the note below the card already explains.
+  const segments = useMemo(() => highlightSegments(draft, liveMentionIds, staleMentions), [draft, liveMentionIds, staleMentions]);
+
   useLayoutEffect(() => {
     const el = ta.current; if (!el) return;
     el.style.height = "0px";
     el.style.height = `${Math.min(MAX_ROWS_PX, el.scrollHeight)}px`;
+    syncScroll(); // growing past max-height starts scrolling; the mirror must follow in the same frame
   }, [draft]);
 
   // ── @-mention picker (W4) ──────────────────────────────────────────────
@@ -349,8 +367,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const [mentionActive, setMentionActive] = useState(0);
   /** Token start Esc was pressed on: that token stays closed until it is left or retyped. */
   const [mentionDismissed, setMentionDismissed] = useState<number | null>(null);
-  /** Where the caret belongs after a pick rewrites the draft; applied once the new text renders. */
-  const pendingCaret = useRef<number | null>(null);
+  /** Where the selection belongs after a pick or a list edit rewrites the draft; applied once the new
+   *  text renders. A range, not a point: toggling a bullet over three selected lines must leave those
+   *  three lines selected, or the next ⌘⇧8 would undo only the line the caret collapsed onto. */
+  const pendingSel = useRef<{ start: number; end: number } | null>(null);
   const mentionToken = useMemo(
     () => (mentionSkills.length > 0 ? mentionQueryAt(draft, Math.min(caret, draft.length)) : null),
     [mentionSkills.length, draft, caret],
@@ -363,11 +383,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // Leaving the token (or deleting it) clears the dismissal, so a fresh `@` in the same spot reopens.
   useEffect(() => { if (mentionToken === null && mentionDismissed !== null) setMentionDismissed(null); }, [mentionToken, mentionDismissed]);
   useLayoutEffect(() => {
-    if (pendingCaret.current === null) return;
-    const pos = pendingCaret.current; pendingCaret.current = null;
+    if (pendingSel.current === null) return;
+    const sel = pendingSel.current; pendingSel.current = null;
     const el = ta.current;
-    if (el) { el.focus(); el.setSelectionRange(pos, pos); }
-    setCaret(pos);
+    if (el) { el.focus(); el.setSelectionRange(sel.start, sel.end); }
+    setCaret(sel.start);
   }, [draft]);
   /** Insert `@id ` over the WHOLE token (start..end, not start..caret — `@ma|c` must not leave a
    *  stray `c`). The trailing space is the canonical delimiter the send-time scan expects. */
@@ -375,7 +395,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     if (!mentionToken) return;
     const insert = `@${s.id} `;
     onDraftChange(draft.slice(0, mentionToken.start) + insert + draft.slice(mentionToken.end));
-    pendingCaret.current = mentionToken.start + insert.length;
+    const pos = mentionToken.start + insert.length;
+    pendingSel.current = { start: pos, end: pos };
     setMentionActive(0);
   };
   const mentionCur = Math.min(mentionActive, mentionMatches.length - 1);
@@ -387,7 +408,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     const pos = Math.min(caret, draft.length);
     const insert = (pos > 0 && !/\s/.test(draft[pos - 1]!) ? " " : "") + "@";
     onDraftChange(draft.slice(0, pos) + insert + draft.slice(pos));
-    pendingCaret.current = pos + insert.length; // the [draft] layout effect focuses the textarea here
+    // the [draft] layout effect focuses the textarea here
+    pendingSel.current = { start: pos + insert.length, end: pos + insert.length };
     setMentionActive(0);
   };
 
@@ -410,16 +432,48 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // nothing — so they don't unlock the button, and its tooltip says why.
   const deliverable = attachments.some((a) => attachmentDisposition(kind, a.mime) !== "ignored");
   const send = () => { const t = draft.trim(); if (!t && !deliverable) return; onSend(t); onDraftChange(""); };
+
+  /** Apply a list rewrite: the draft is the source of truth, so this is one `onDraftChange` plus the
+   *  selection to restore once React has painted the new text (same channel a mention pick uses). */
+  const applyEdit = (edit: DraftEdit) => {
+    onDraftChange(edit.text);
+    pendingSel.current = { start: edit.start, end: edit.end };
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
     // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
     // window level in hotkeys.ts — consuming it here would turn dispatch into a plain send.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); send(); return; }
+    // ⌘⇧8 bulleted / ⌘⇧7 numbered — the shortcuts these have everywhere else. Keyed off `code`, not
+    // `key`: with Shift down the digit row reports "*" and "&", and those differ by layout.
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.code === "Digit8" || e.code === "Digit7")) {
+      e.preventDefault();
+      const el = e.currentTarget;
+      applyEdit(toggleList(draft, el.selectionStart, el.selectionEnd, e.code === "Digit7"));
+      return;
+    }
     if (mentionOpen) {
       if (e.key === "ArrowDown") { e.preventDefault(); setMentionActive(Math.min(mentionMatches.length - 1, mentionCur + 1)); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setMentionActive(Math.max(0, mentionCur - 1)); return; }
       if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(mentionMatches[mentionCur]!); return; }
       // Escape reaches us through the popover hook's own window listener → onClose → dismissal.
+    }
+    // Tab shifts a list item a level — but ONLY inside one. `indentList` returns null on a plain
+    // draft, which leaves Tab as Tab: stealing it unconditionally would trap keyboard users in the
+    // textarea. The picker above already claimed Tab when it is open.
+    if (e.key === "Tab" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const el = e.currentTarget;
+      const edit = indentList(draft, el.selectionStart, el.selectionEnd, e.shiftKey ? -1 : 1);
+      if (edit) { e.preventDefault(); applyEdit(edit); return; }
+    }
+    // A newline landing in a list carries the list on. This is exactly the Enter that would INSERT
+    // one — Shift+Enter in either mode, plus plain Enter under "cmdEnter" — so list continuation can
+    // never eat a send. A non-empty selection falls through: Enter there means "replace this".
+    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && (e.shiftKey || submitKey === "cmdEnter")) {
+      const el = e.currentTarget;
+      const edit = el.selectionStart === el.selectionEnd ? continueList(draft, el.selectionStart) : null;
+      if (edit) { e.preventDefault(); applyEdit(edit); return; }
     }
     // Plain Enter (Settings ▸ App, default "enter"): the picker above already claimed Enter when
     // open, so this never fights mention-picking. Shift+Enter stays a newline in both modes.
@@ -486,12 +540,22 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             <span className="attach-note-files">{staleMentions.map((m) => `@${m}`).join(", ")}</span>
           </p>
         )}
-        <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={`Ask ${AGENT_META[kind].label} anything…`} rows={1}
-          value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); }}
-          onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-          onKeyDown={onKeyDown} onPaste={onPaste}
-          aria-controls={mentionOpen ? "mention-list" : undefined}
-          aria-activedescendant={mentionOpen ? `mention-${mentionMatches[mentionCur]!.id}` : undefined} />
+        {/* The mirror and the textarea are one control in two layers, so they share a positioned box.
+            aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. */}
+        <div className="composer-editor">
+          <div ref={hl} className="composer-highlight" aria-hidden="true">
+            {segments.map((s, i) => (s.kind ? <span key={i} className={`ch-${s.kind}`}>{s.text}</span> : s.text))}
+            {/* A draft ending in a newline: the block would drop that last empty line, and the mirror
+                would sit one line short of the textarea from there down. */}
+            {draft.endsWith("\n") && "\n"}
+          </div>
+          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={`Ask ${AGENT_META[kind].label} anything…`} rows={1}
+            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+            onKeyDown={onKeyDown} onPaste={onPaste} onScroll={syncScroll}
+            aria-controls={mentionOpen ? "mention-list" : undefined}
+            aria-activedescendant={mentionOpen ? `mention-${mentionMatches[mentionCur]!.id}` : undefined} />
+        </div>
         {mentionOpen && (
           <MentionPicker skills={mentionMatches} activeIndex={mentionCur} anchorRef={ta}
             onPick={pickMention} onHover={setMentionActive}

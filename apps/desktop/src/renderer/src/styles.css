@@ -791,8 +791,40 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding
    (§2), grows to ~10 lines (matches MAX_ROWS_PX in Composer.tsx). */
-.composer-input { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright); font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 6px; min-height: 44px; max-height: 254px; caret-color: var(--rl-accent); }
-.composer-input::placeholder { color: var(--rl-text-faint); }
+/* Row 2 — the prompter's rich-text editor. Two layers, one control: `.composer-highlight` paints the
+   coloured runs and `.composer-input` (transparent text) keeps the caret, the selection, undo, IME and
+   every key handler. A contenteditable would own the text instead, and the draft — which the store,
+   the mention scan and all three agent wires read as a plain string — would stop being the truth.
+   The mirror is absolutely positioned so it never enters the autogrow measurement the textarea drives. */
+.composer-editor { position: relative; display: flex; flex-direction: column; min-width: 0; }
+/* EVERY metric here must equal .composer-input's below — font, size, line-height, padding, wrapping —
+   or the painted glyphs slide off the caret sitting above them. `pre-wrap` + `break-word` is exactly
+   the UA's own textarea wrapping. Runs may change colour, background and underline, and nothing else. */
+.composer-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+  font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 6px;
+  white-space: pre-wrap; overflow-wrap: break-word; color: var(--rl-text-bright); }
+.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 6px; min-height: 44px; max-height: 254px; caret-color: var(--rl-accent); position: relative; z-index: 1; }
+/* The glyphs are the mirror's job. `-webkit-text-fill-color` is what actually hides them in Chromium;
+   `color` alone still paints the text on some platforms. The placeholder has to opt back IN, since it
+   has no mirror behind it — the mirror is empty in exactly the state the placeholder shows. */
+.composer-input, .composer-input::selection { -webkit-text-fill-color: transparent; }
+.composer-input::placeholder { color: var(--rl-text-faint); -webkit-text-fill-color: var(--rl-text-faint); }
+/* No scrollbar past the 10-line cap: a classic (non-overlay) scrollbar takes width from the textarea's
+   text box and NOT from the mirror's, which would misalign every wrapped line under it. Scrolling
+   itself is untouched — wheel, drag-select and the caret's own scroll-into-view all still work. */
+.composer-input { scrollbar-width: none; }
+.composer-input::-webkit-scrollbar { display: none; }
+/* The palette (§4). Links wear the transcript's own link treatment, so a URL looks the same being
+   typed as it will once sent. A resolving @mention is filled, not just tinted — it is the one run
+   here that is a THING (a skill that will be handed over) rather than formatting. */
+.ch-link { color: var(--rl-accent); text-decoration: underline; text-underline-offset: 2px; }
+.ch-mention { color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); border-radius: 3px; }
+/* Declared but no longer resolvable: the `@` goes as plain text. Same warning tone as the note the
+   card already shows under it, so the two read as one statement about the same token. */
+.ch-mention-stale { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 12%, transparent); border-radius: 3px; text-decoration: underline dotted; text-underline-offset: 2px; }
+.ch-marker { color: var(--rl-accent); }
+.ch-punct { color: var(--rl-text-faint); }
+.ch-code { color: var(--rl-text-bright); background: var(--inset); border-radius: 3px; }
 /* Hero (§2): the empty card reads as an invitation — ~56px of input before any growth. */
 .session-pane[data-composer="hero"] .composer-input { min-height: 56px; }
 /* Row 3 — control row (Ara refresh §3): 40px, hairline-free, 12px inline padding; "+" attach, then
