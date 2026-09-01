@@ -122,7 +122,7 @@ describe("DiffPane", () => {
     fireEvent.click(button);
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("ship:"))).toBe(true));
     expect(api.calls.find((c) => c.startsWith("ship:")))
-      .toBe(`ship:${CWD}|commit=true|msg=Fix the login flow|push=true|upstream=false|pr=true`);
+      .toBe(`ship:${CWD}|commit=true|msg=Fix the login flow|push=true|upstream=false|pr=true|env=env1`);
   });
 
   it("cannot ship with nothing staged", async () => {
@@ -148,6 +148,9 @@ describe("DiffPane", () => {
     // The retry must not commit again — the commit already landed.
     expect(api.calls.filter((c) => c.startsWith("ship:"))[1]).toContain("commit=false");
     expect(api.calls.filter((c) => c.startsWith("ship:"))[1]).toContain("upstream=true");
+    // The retry names the same environment: the durable log must file the pushed commit under the
+    // pane's checkout, not an unattributed cwd (Plan 14 W1).
+    expect(api.calls.filter((c) => c.startsWith("ship:"))[1]).toContain("env=env1");
   });
 
   it("gives a rejected push no fix button, only the explanation", async () => {

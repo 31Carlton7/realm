@@ -116,6 +116,12 @@ export function App() {
       const st = store.getState();
       st.run(() => st.refreshAllDiffs());
     });
+    // A ship-log row was written (Plan 14 W1). Held-only, like skills/memory: the History tab is the
+    // one holder, and a space whose log nobody is looking at has nothing to go stale.
+    const offSh = rpc().on("ships.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (st.ships[spaceId]) st.run(() => st.refreshShips(spaceId));
+    });
     // A checkpoint was taken, restored or pruned. Only re-listed when the sheet is actually showing
     // that environment: this fires on every turn, and a store holding a list nobody is looking at is
     // work for nothing.
@@ -189,7 +195,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offSh(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

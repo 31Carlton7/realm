@@ -1157,6 +1157,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 .page-row-dim { flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: auto; font-size: 11.5px; color: var(--rl-text-faint); }
 .page-row-dim + .page-row-dim { margin-left: 10px; }
 .page-row .cp-kind { flex: none; }
+/* A ship row (Plan 14 W1) is a RECORD, not a door: no hover invitation, no pointer — only its PR
+   link is interactive. The kind badge keeps cp-kind's metrics so the two treatments align. */
+.ship-row { cursor: default; }
+.ship-row:hover { background: none; }
+.ship-kind { display: inline-flex; align-items: center; gap: 4px; }
+.ship-sha { font-size: 11px; }
+.ship-row a { display: inline-flex; align-items: center; gap: 3px; color: var(--rl-accent); text-decoration: none; }
+.ship-row a:hover { text-decoration: underline; }
 /* The sidebar header's whole title row is the page's front door. */
 .space-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; margin: -2px -4px;
   border: none; border-radius: var(--r-chip); background: none; color: inherit; font: inherit; cursor: pointer; }

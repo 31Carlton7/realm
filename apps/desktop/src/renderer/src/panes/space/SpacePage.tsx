@@ -1,4 +1,4 @@
-import { AGENT_META, SPACE_COLORS, SPACE_ICONS, type Checkpoint, type Session } from "@realm/contracts";
+import { AGENT_META, SPACE_COLORS, SPACE_ICONS, type Checkpoint, type Environment, type Session, type Ship } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { useApp, type SpacePageTab } from "../../state/store";
@@ -200,18 +200,33 @@ function SessionsTab({ spaceId }: { spaceId: string }) {
 
 const CP_KIND_LABEL: Record<Checkpoint["kind"], string> = { turn: "Turn", "pre-restore": "Undo point", manual: "Manual" };
 
+/** The push leg's outcome as row copy. Verbatim from the log — a row must never say more than the
+ *  push actually did (a rejected push saying "pushed" is the named W1 mutant, on the write side). */
+const PUSH_STATE_LABEL: Record<Ship["pushState"], string> = {
+  pushed: "pushed", "up-to-date": "up to date", "no-remote": "no remote", "no-upstream": "no upstream",
+  rejected: "push rejected", detached: "detached", skipped: "not pushed", failed: "push failed",
+};
+
+/** One row per union member, typed so the sort below cannot silently drop a source. */
+type HistoryRow =
+  | { kind: "checkpoint"; at: number; key: string; c: Checkpoint; env: Environment }
+  | { kind: "ship"; at: number; key: string; ship: Ship };
+
 /**
- * The History tab: the union of `checkpoints.list` across this space's environments, newest first.
+ * The History tab: checkpoints ∪ ships (Plan 14 W1), interleaved newest first.
  *
- * Checkpoints ONLY, and the empty copy says so: ships (the diff pane's commit/push/PR results) are
- * per-run client state (`shipResults`, keyed by cwd, gone on reload) — there is no durable ship log
- * server-side, and this tab does not invent one. Restoring goes through the existing checkpoints
- * sheet, which owns the preview/acknowledge flow.
+ * Checkpoints come from `checkpoints.list` across this space's environments; ships from the durable
+ * `ships.list` log — one row per commit/push that actually happened, surviving reload, so the old
+ * "commits are not recorded durably" apology is gone because it stopped being true. The two get
+ * distinct row treatments: a checkpoint row opens the checkpoints sheet (restore lives there); a
+ * ship row is a record — its one action is the PR link, when the ship produced one.
  */
 function HistoryTab({ spaceId }: { spaceId: string }) {
   const environments = useApp((s) => s.environments);
   const checkpoints = useApp((s) => s.checkpoints);
+  const ships = useApp((s) => s.ships[spaceId]);
   const refreshCheckpoints = useApp((s) => s.refreshCheckpoints);
+  const refreshShips = useApp((s) => s.refreshShips);
   const openCheckpoints = useApp((s) => s.openCheckpoints);
   const run = useApp((s) => s.run);
   const envs = Object.values(environments).filter((e) => e.spaceId === spaceId);
@@ -219,30 +234,48 @@ function HistoryTab({ spaceId }: { spaceId: string }) {
   useEffect(() => {
     for (const id of envIdsKey.split(",")) if (id) run(() => refreshCheckpoints(id, null));
   }, [envIdsKey, refreshCheckpoints, run]);
+  useEffect(() => { run(() => refreshShips(spaceId)); }, [spaceId, refreshShips, run]);
 
-  const all = envs
-    .flatMap((e) => (checkpoints[e.id] ?? []).map((c) => ({ c, env: e })))
-    .sort((a, b) => b.c.createdAt - a.c.createdAt);
+  const all: HistoryRow[] = [
+    ...envs.flatMap((e) => (checkpoints[e.id] ?? []).map((c): HistoryRow => ({ kind: "checkpoint", at: c.createdAt, key: `cp-${c.id}`, c, env: e }))),
+    ...(ships ?? []).map((s): HistoryRow => ({ kind: "ship", at: s.createdAt, key: `ship-${s.id}`, ship: s })),
+  ].sort((a, b) => b.at - a.at);
 
-  if (envs.length === 0 || all.length === 0) {
+  if (all.length === 0) {
     return (
       <p className="env-empty">
-        No checkpoints yet — Realm takes one before every turn, so this fills up as the space works.
-        Commits shipped from the diff pane are not recorded durably, so they do not appear here.
+        Nothing here yet — Realm takes a checkpoint before every turn and records every commit shipped
+        from the diff pane, so this fills up as the space works.
       </p>
     );
   }
   return (
     <ul className="page-list">
-      {all.map(({ c, env }) => (
-        <li key={c.id}>
-          <button type="button" className="page-row" aria-label={`${c.label} — open checkpoints for ${env.branch ?? env.path}`}
-            onClick={() => run(() => openCheckpoints(env.id, null))}>
-            <span className="cp-kind">{CP_KIND_LABEL[c.kind]}</span>
-            <span className="page-row-title">{c.label}</span>
-            <span className="page-row-dim">{env.branch ?? env.path.replace(/\/+$/, "").split("/").pop()}</span>
-            <span className="page-row-dim">{relativeTime(c.createdAt, Date.now())}</span>
+      {all.map((row) => row.kind === "checkpoint" ? (
+        <li key={row.key}>
+          <button type="button" className="page-row" aria-label={`${row.c.label} — open checkpoints for ${row.env.branch ?? row.env.path}`}
+            onClick={() => run(() => openCheckpoints(row.env.id, null))}>
+            <span className="cp-kind">{CP_KIND_LABEL[row.c.kind]}</span>
+            <span className="page-row-title">{row.c.label}</span>
+            <span className="page-row-dim">{row.env.branch ?? row.env.path.replace(/\/+$/, "").split("/").pop()}</span>
+            <span className="page-row-dim">{relativeTime(row.at, Date.now())}</span>
           </button>
+        </li>
+      ) : (
+        <li key={row.key}>
+          <div className="page-row ship-row" aria-label={`Shipped ${row.ship.subject}`}>
+            <span className="cp-kind ship-kind"><Icon name="commit" size={12} /> Ship</span>
+            <span className="page-row-title">{row.ship.subject}</span>
+            <span className="page-row-dim"><code className="ship-sha">{row.ship.sha.slice(0, 7)}</code></span>
+            {row.ship.branch && <span className="page-row-dim"><Icon name="branch" size={11} /> {row.ship.branch}</span>}
+            <span className="page-row-dim">{PUSH_STATE_LABEL[row.ship.pushState]}</span>
+            {row.ship.prUrl && (
+              <span className="page-row-dim">
+                <a href={row.ship.prUrl} target="_blank" rel="noreferrer"><Icon name="pullRequest" size={11} /> PR</a>
+              </span>
+            )}
+            <span className="page-row-dim">{relativeTime(row.at, Date.now())}</span>
+          </div>
         </li>
       ))}
     </ul>

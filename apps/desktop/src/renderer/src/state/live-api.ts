@@ -63,6 +63,7 @@ export const liveApi = (): Api => ({
   stagePaths: async (cwd, paths) => { await rpc().call("workspace.stage", { cwd, paths }); },
   unstagePaths: async (cwd, paths) => { await rpc().call("workspace.unstage", { cwd, paths }); },
   ship: (input) => rpc().call("workspace.ship", input),
+  listShips: (spaceId, cursor = null, limit) => rpc().call("ships.list", { spaceId, cursor, ...(limit !== undefined ? { limit } : {}) }),
   createItem: (spaceId, kind, title, refId) => rpc().call("items.create", { spaceId, kind, title, refId }),
   worktreeStatus: (id) => rpc().call("environments.worktreeStatus", { id }),
   removeWorktree: async (id, acknowledge) => { await rpc().call("environments.removeWorktree", { id, acknowledge }); },

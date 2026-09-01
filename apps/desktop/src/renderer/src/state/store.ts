@@ -4,7 +4,7 @@ import {
   AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
   type DestinationPageKind, type NotificationCategory,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -210,6 +210,8 @@ export type Api = {
   /** `mcp.calls.list` — Realm's own call log (Activity), newest first. `before` pages backward by the
    *  composite `{ ts, id }` cursor (W1 amendment); omitted, it starts from the top. */
   mcpCallsList(params: McpCallsFilter & { before?: { ts: number; id: string }; limit?: number }): Promise<{ calls: McpCall[] }>;
+  /** `ships.list` (Plan 14 W1): one page of a space's durable ship log, newest first. */
+  listShips(spaceId: string, cursor?: string | null, limit?: number): Promise<{ ships: Ship[]; nextCursor: string | null }>;
   /** `notifications.list` (Plan 12 W5): one page of the global feed, plus the server's unread count —
    *  the ONE source every unread badge renders. */
   listNotifications(cursor: string | null, limit?: number): Promise<{ notifications: Notification[]; nextCursor: string | null; unread: number }>;
@@ -234,6 +236,9 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   "connections-page": "Connections",
   "notifications-page": "Notifications",
   "settings-page": "Settings",
+  // Static like the rest: the page header renders the live profile name; the item row's title has
+  // nothing to go stale against (Plan 14 W2).
+  "profile-page": "Profile",
 };
 
 /** Feed page size (W5). Modest: the page is a glance at what waited, not an archive browser —
@@ -241,7 +246,10 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
 export const NOTIFICATIONS_PAGE = 50;
 
 /** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
-export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean };
+export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean;
+  /** The pane's environment — the durable log's attribution (Plan 14 W1). The diff pane always has
+   *  one (its item's refId IS the environment id), so every pane-driven ship names it. */
+  environmentId: string };
 
 /**
  * One file's patch, keyed by which side of the index it is. Two sides of one path are two entries:
@@ -433,6 +441,9 @@ export type AppState = {
   worktreeAckStale: string | null;
   /** `checkpoints.list` by environment id (W4). Absent = never asked. */
   checkpoints: Record<string, Checkpoint[]>;
+  /** `ships.list` first page by space id (Plan 14 W1) — the History tab's other half. Absent = never
+   *  asked; the `ships.changed` handler only refreshes spaces already held here. */
+  ships: Record<string, Ship[]>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -702,6 +713,9 @@ export type AppState = {
   openCheckpoints(environmentId: string, sessionId?: string | null): Promise<void>;
   /** Re-list without opening anything — what the `checkpoints.changed` broadcast triggers. */
   refreshCheckpoints(environmentId: string, sessionId: string | null): Promise<void>;
+  /** Re-fetch one space's ship log (first page — the History tab's glance, not an archive browser);
+   *  what the History tab mounts and the `ships.changed` broadcast triggers for held spaces. */
+  refreshShips(spaceId: string): Promise<void>;
   /** Move the sheet from its list state into its confirm state, with a freshly read preview. */
   askRestoreCheckpoint(id: string): Promise<void>;
   /** Back to the list, forgetting the preview. */
@@ -1058,7 +1072,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
       machineName: "", connectors: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -1903,6 +1917,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshCheckpoints(environmentId, sessionId) {
         const list = await api.listCheckpoints(environmentId, sessionId);
         set({ checkpoints: { ...get().checkpoints, [environmentId]: list } });
+      },
+      async refreshShips(spaceId) {
+        const { ships } = await api.listShips(spaceId);
+        set({ ships: { ...get().ships, [spaceId]: ships } });
       },
       async captureCheckpoint(environmentId, sessionId) {
         await api.captureCheckpoint(environmentId, sessionId);

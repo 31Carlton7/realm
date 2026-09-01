@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
 import { SpacePage } from "./SpacePage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, checkpoint, item, session, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, checkpoint, item, session, shipRow, type FakeData } from "../../state/store.test-fakes";
 import type { Environment } from "@realm/contracts";
 
 /** The page pane as PaneHost mounts it: an item whose refId is the SPACE id (Plan 12 W3). */
@@ -60,7 +60,7 @@ describe("SpacePage · General", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Sessions" }));
     expect(screen.getByText(/No sessions in this space yet/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "History" }));
-    expect(screen.getByText(/No checkpoints yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing here yet/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "General" }));
     expect(screen.getByRole("textbox", { name: "Space name" })).toBeInTheDocument();
   });
@@ -208,10 +208,60 @@ describe("the History tab", () => {
     await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "checkpoints", environmentId: "envA", sessionId: null }));
   });
 
-  it("the empty state says checkpoints will come — and is honest that ships are not recorded", async () => {
+  it("the empty state names both sources — and the old not-recorded-durably apology is gone (W1)", async () => {
     await mount({ environments: { s1: [envs[0]!] }, checkpoints: { envA: [] } });
     fireEvent.click(screen.getByRole("radio", { name: "History" }));
-    expect(await screen.findByText(/not recorded durably/)).toBeInTheDocument();
+    expect(await screen.findByText(/records every commit shipped/)).toBeInTheDocument();
+    expect(screen.queryByText(/not recorded durably/)).toBeNull();
+  });
+
+  /* ——— Plan 14 W1: ships interleave with checkpoints. ——— */
+
+  it("interleaves ships with checkpoints by time — dropping either source is the named mutant", async () => {
+    await mount({
+      environments: { s1: [envs[0]!] },
+      checkpoints: { envA: [
+        checkpoint("cpA", "envA", { label: "older turn", createdAt: 1000 }),
+        checkpoint("cpB", "envA", { label: "newest turn", createdAt: 3000 }),
+      ] },
+      ships: { s1: [shipRow("sh1", "s1", { subject: "the middle ship", createdAt: 2000 })] },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "History" }));
+    await screen.findByText("the middle ship");
+    const titles = [...document.querySelectorAll(".page-row-title")].map((el) => el.textContent);
+    expect(titles).toEqual(["newest turn", "the middle ship", "older turn"]);
+  });
+
+  it("a ship row shows sha, branch, its ACTUAL push state and links the PR when there is one", async () => {
+    await mount({
+      environments: { s1: [envs[0]!] }, checkpoints: { envA: [] },
+      ships: { s1: [
+        shipRow("sh1", "s1", { subject: "landed", sha: "abcdef1234", branch: "main", pushState: "pushed", prUrl: "https://github.com/acme/w/pull/9", createdAt: 2000 }),
+        shipRow("sh2", "s1", { subject: "stuck", sha: "1234abcdef", branch: "realm/fix", pushState: "rejected", prUrl: null, createdAt: 1000 }),
+      ] },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "History" }));
+    const landed = (await screen.findByText("landed")).closest(".ship-row") as HTMLElement;
+    expect(within(landed).getByText("abcdef1")).toBeInTheDocument();
+    expect(within(landed).getByText(/main/)).toBeInTheDocument();
+    expect(within(landed).getByText("pushed")).toBeInTheDocument();
+    expect(within(landed).getByRole("link", { name: /PR/ })).toHaveAttribute("href", "https://github.com/acme/w/pull/9");
+    // A rejected push says so — a ship row may never claim more than the push actually did.
+    const stuck = screen.getByText("stuck").closest(".ship-row") as HTMLElement;
+    expect(within(stuck).getByText("push rejected")).toBeInTheDocument();
+    expect(within(stuck).queryByText(/^pushed$/)).toBeNull();
+    expect(within(stuck).queryByRole("link")).toBeNull();
+  });
+
+  it("lists only THIS space's ships and asks only for them", async () => {
+    const { api } = await mount({
+      environments: { s1: [envs[0]!] }, checkpoints: { envA: [] },
+      ships: { s1: [shipRow("sh1", "s1", { subject: "ours" })], s2: [shipRow("sh2", "s2", { subject: "theirs" })] },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "History" }));
+    await screen.findByText("ours");
+    expect(screen.queryByText("theirs")).toBeNull();
+    expect(api.calls.filter((c) => c.startsWith("listShips"))).toEqual(["listShips:s1"]);
   });
 });
 

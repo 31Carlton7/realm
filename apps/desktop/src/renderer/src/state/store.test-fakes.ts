@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, Session, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -40,6 +40,11 @@ export const mcpCall = (id: string, sessionId: string, extra: Partial<McpCall> =
   ({ id, sessionId, serverId: "mcp1", serverName: "srv1", tool: "echo", argsJson: "{}", resultSummary: "ok",
     ok: true, durationMs: 120, ts: 0, ...extra });
 
+/** A durable ship-log row (Plan 14 W1). */
+export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}): Ship =>
+  ({ id, environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId, branch: "main", sha: `sha-${id}`,
+    subject: `shipped ${id}`, prUrl: null, pushState: "pushed", createdAt: 0, ...extra });
+
 /** A feed row (W5). Defaults to an unread, already-acted session_done; ids must sort as ULIDs do. */
 export const notification = (id: string, extra: Partial<Notification> = {}): Notification =>
   ({ id, category: "session_done", spaceId: "s1", sessionId: null, refId: null, title: "a session",
@@ -67,6 +72,9 @@ export type FakeData = {
   worktreeStatus?: Record<string, WorktreeStatus>;
   /** `checkpoints.list` by environment id (W4). */
   checkpoints?: Record<string, Checkpoint[]>;
+  /** `ships.list` by space id (Plan 14 W1). Unordered on the way in — the fake sorts newest-first
+   *  like the real store. */
+  ships?: Record<string, Ship[]>;
   /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
    *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
   checkpointPreview?: Record<string, RestorePreview>;
@@ -159,6 +167,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     worktreeStatus: overrides.worktreeStatus ?? {},
     checkpoints: overrides.checkpoints ?? {},
+    ships: overrides.ships ?? {},
     checkpointPreview: overrides.checkpointPreview ?? {},
     skills: overrides.skills ?? {},
     skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
@@ -430,7 +439,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     stagePaths: async (cwd, paths) => { calls.push(`stage:${cwd}|${paths.join(",")}`); },
     unstagePaths: async (cwd, paths) => { calls.push(`unstage:${cwd}|${paths.join(",")}`); },
     ship: async (input) => {
-      calls.push(`ship:${input.cwd}|commit=${input.commit}|msg=${input.message}|push=${input.push}|upstream=${input.setUpstream}|pr=${input.openPr}`);
+      calls.push(`ship:${input.cwd}|commit=${input.commit}|msg=${input.message}|push=${input.push}|upstream=${input.setUpstream}|pr=${input.openPr}|env=${input.environmentId}`);
       await wait("ship");
       return data.shipResult;
     },
@@ -456,6 +465,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         const i = list.findIndex((e) => e.id === id);
         if (i >= 0) list.splice(i, 1);
       }
+    },
+    listShips: async (spaceId, cursor = null, limit) => {
+      calls.push(`listShips:${spaceId}`);
+      const cap = Math.max(1, Math.min(limit ?? 100, 200));
+      let rows = [...(data.ships[spaceId] ?? [])].sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      if (cursor) {
+        const i = cursor.indexOf(":"); const at = Number(cursor.slice(0, i)); const id = cursor.slice(i + 1);
+        rows = rows.filter((x) => x.createdAt < at || (x.createdAt === at && x.id < id));
+      }
+      const page = rows.slice(0, cap);
+      return { ships: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
     },
     listCheckpoints: async (environmentId, sessionId) => {
       calls.push(`listCheckpoints:${environmentId}|${sessionId ?? "*"}`);
