@@ -5,7 +5,7 @@ import {
 import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { agentAvailability } from "../../state/agent-availability";
-import { useApp } from "../../state/store";
+import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import type { ThemePref } from "../../theme/useTheme";
 
@@ -144,6 +144,10 @@ const THEME_CHOICES: { pref: ThemePref; label: string }[] = [
   { pref: "system", label: "System" }, { pref: "light", label: "Light" }, { pref: "dark", label: "Dark" },
 ];
 
+const SUBMIT_KEY_CHOICES: { pref: SubmitKey; label: string }[] = [
+  { pref: "enter", label: "Enter" }, { pref: "cmdEnter", label: "⌘/Ctrl+Enter" },
+];
+
 /** Human words for W5's notification categories — one label + one sentence each, default-on. */
 const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string }> = {
   permission: { label: "Permission requests", desc: "An agent is waiting on your yes or no." },
@@ -157,6 +161,8 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string 
 function AppTab() {
   const themePref = useApp((s) => s.themePref);
   const setThemePref = useApp((s) => s.setThemePref);
+  const submitKey = useApp((s) => s.submitKey);
+  const setSubmitKey = useApp((s) => s.setSubmitKey);
   const prefs = useApp((s) => s.settingsPrefs);
   const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
   const setNotificationCategoryEnabled = useApp((s) => s.setNotificationCategoryEnabled);
@@ -192,6 +198,21 @@ function AppTab() {
         {/* One line, not a switch (Plan 14 W5): the OS setting is the control, and styles.css's global
             prefers-reduced-motion kill is what makes this sentence true. */}
         <p className="settings-hint">Realm follows the system's Reduce Motion setting everywhere — with it on, animations and transitions are disabled app-wide.</p>
+      </div>
+
+      <div className="field"><span>Send message with</span>
+        <fieldset className="settings-tabs" aria-label="Send message with">
+          {SUBMIT_KEY_CHOICES.map((k) => (
+            <label key={k.pref} className="settings-tab" data-selected={submitKey === k.pref || undefined}>
+              <input type="radio" name="settings-submit-key" value={k.pref} checked={submitKey === k.pref}
+                onChange={() => run(() => setSubmitKey(k.pref))} />
+              {k.label}
+            </label>
+          ))}
+        </fieldset>
+        <p className="settings-hint">
+          {submitKey === "enter" ? "Enter sends; Shift+Enter inserts a newline." : "⌘/Ctrl+Enter sends; Enter inserts a newline."}
+        </p>
       </div>
 
       <div className="field"><span>Notifications</span>

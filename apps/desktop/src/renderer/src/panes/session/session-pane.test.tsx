@@ -49,9 +49,7 @@ describe("SessionPane", () => {
     expect(decided).toEqual(["r1:allow"]);
     const box = screen.getByRole("textbox", { name: /message/i });
     fireEvent.change(box, { target: { value: "next" } });
-    fireEvent.keyDown(box, { key: "Enter" }); // plain Enter: newline, not send
-    expect(sent).toEqual([]);
-    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    fireEvent.keyDown(box, { key: "Enter" }); // plain Enter sends by default (Settings ▸ App: "Enter")
     await waitFor(() => expect(sent).toEqual(["next"]));
     expect((box as HTMLTextAreaElement).value).toBe("");
     // A non-empty transcript is the DOCKED prompter: no greeting, no suggestion grid.
@@ -71,6 +69,28 @@ describe("SessionPane", () => {
     expect(notConsumed).toBe(true);
     expect(sent).toEqual([]);
     expect((box as HTMLTextAreaElement).value).toBe("to dispatch"); // the draft is still the user's
+  });
+
+  it("Shift+Enter is left alone (a newline) even under the default Enter-sends setting", async () => {
+    const { api } = await mount();
+    const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "next" } });
+    const notConsumed = fireEvent.keyDown(box, { key: "Enter", shiftKey: true });
+    expect(notConsumed).toBe(true); // not preventDefault'ed — the textarea's own newline goes through
+    expect(sent).toEqual([]);
+  });
+
+  it("Settings ▸ App can switch back to ⌘/Ctrl+Enter-to-send, where plain Enter is a newline again", async () => {
+    const { api, store } = await mount();
+    const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
+    store.setState({ submitKey: "cmdEnter" });
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "next" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(sent).toEqual([]);
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(sent).toEqual(["next"]));
   });
 
   it("Allow always / Deny map to decisions; tool card expands", async () => {

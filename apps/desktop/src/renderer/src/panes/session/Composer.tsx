@@ -2,7 +2,7 @@ import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, 
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
-import type { AgentProbe, PickedAttachment, SessionOptions } from "../../state/store";
+import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
 import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
@@ -204,7 +204,9 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, connectors, 
  *  around the card so the hero→docked move is one element transitioning transform, §6: 320ms).
  *  Docked pins it to the pane bottom on the transcript's 680px rails.
  *
- *  ⌘/Ctrl+Enter sends; Enter inserts a newline. The draft text is owned by the store (keyed by
+ *  Enter sends by default (Shift+Enter inserts a newline); Settings ▸ App can switch that to
+ *  ⌘/Ctrl+Enter-to-send, Enter-inserts-a-newline instead — ⌘/Ctrl+Enter always sends either way.
+ *  The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
 /**
@@ -221,7 +223,7 @@ function planMeaning(kind: AgentKind, acpPlan: AcpSessionMode | null): string {
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -275,6 +277,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   onAddFolder?: () => void;
   /** The "+" menu's Manage connections — the space settings' Connections tab. */
   onManageConnections?: () => void;
+  /** Which key sends the draft (Settings ▸ App). Default "enter": plain Enter sends. "cmdEnter":
+   *  only ⌘/Ctrl+Enter sends, plain Enter inserts a newline. */
+  submitKey?: SubmitKey;
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
@@ -412,11 +417,15 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
     // window level in hotkeys.ts — consuming it here would turn dispatch into a plain send.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); send(); return; }
-    if (!mentionOpen) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); setMentionActive(Math.min(mentionMatches.length - 1, mentionCur + 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setMentionActive(Math.max(0, mentionCur - 1)); }
-    else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(mentionMatches[mentionCur]!); }
-    // Escape reaches us through the popover hook's own window listener → onClose → dismissal.
+    if (mentionOpen) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setMentionActive(Math.min(mentionMatches.length - 1, mentionCur + 1)); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setMentionActive(Math.max(0, mentionCur - 1)); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(mentionMatches[mentionCur]!); return; }
+      // Escape reaches us through the popover hook's own window listener → onClose → dismissal.
+    }
+    // Plain Enter (Settings ▸ App, default "enter"): the picker above already claimed Enter when
+    // open, so this never fights mention-picking. Shift+Enter stays a newline in both modes.
+    if (submitKey === "enter" && e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
   // Effort's one home is the model picker (prompter rework): the standalone chip is retired, the

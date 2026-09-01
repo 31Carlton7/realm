@@ -180,6 +180,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const probeAgents = useApp((s) => s.probeAgents);
   const prefillTerminal = useApp((s) => s.prefillTerminal);
   const openDiff = useApp((s) => s.openDiff);
+  const submitKey = useApp((s) => s.submitKey);
   // Stable across renders: InstallCard registers it as a window "focus" listener.
   const reprobe = useCallback(() => { run(() => probeAgents(true)); }, [probeAgents, run]);
 
@@ -242,6 +243,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
             onAddFolder={() => run(() => pickAndLinkProject())}
             onManageConnections={() => run(() => openSpacePage(session.spaceId, "connections"))}
+            submitKey={submitKey}
             hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />}
     </div>
   );

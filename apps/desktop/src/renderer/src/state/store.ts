@@ -286,12 +286,17 @@ export type ShipInput = { cwd: string; commit: boolean; message: string; push: b
  */
 export const patchKey = (cwd: string, path: string, staged: boolean) => `${cwd}\u0000${path}\u0000${staged ? "s" : "u"}`;
 
+/** Which key sends the composer draft. "enter" (default): plain Enter sends, Shift+Enter inserts a
+ *  newline. "cmdEnter": plain Enter inserts a newline, only ⌘/Ctrl+Enter sends. */
+export type SubmitKey = "enter" | "cmdEnter";
+
 export const PERSIST_DEBOUNCE_MS = 300;
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
 export const SETTING_THEME = "ui.theme";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
+const SETTING_SUBMIT_KEY = "ui.submitKey";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 export const EVENTS_PAGE = 1000;
@@ -356,6 +361,7 @@ export type AppState = {
   themePref: ThemePref;
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
+  submitKey: SubmitKey;
   items: Item[]; layout: Layout | null;
   /** Items across every space (palette search); refreshed when the palette opens. */
   allItems: Item[];
@@ -553,6 +559,7 @@ export type AppState = {
   reorderSpaces(ids: string[]): Promise<void>;
   setThemePref(pref: ThemePref): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
+  setSubmitKey(v: SubmitKey): Promise<void>;
   refreshSpaces(): Promise<void>;
   refreshItems(): Promise<void>;
   refreshAllItems(): Promise<void>;
@@ -996,6 +1003,7 @@ function findSplitSizes(l: Layout, splitId: string): number[] | null {
 }
 const sameSizes = (a: number[], b: number[]) => a.length === b.length && a.every((v, i) => Math.abs(v - (b[i] ?? NaN)) < 0.01);
 const isThemePref = (x: unknown): x is ThemePref => x === "system" || x === "light" || x === "dark";
+const isSubmitKey = (x: unknown): x is SubmitKey => x === "enter" || x === "cmdEnter";
 
 /** Forget both sides of every named path in one checkout — what staging or unstaging invalidates. */
 function dropPatches(patches: Record<string, FileDiff>, cwd: string, paths: string[]): Record<string, FileDiff> {
@@ -1155,7 +1163,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, submitKey: "enter", items: [], layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
@@ -1175,15 +1183,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, swipeInvert, lastAgent, panels, machineName] = await Promise.all([
-          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LAST_AGENT),
+        const [profiles, spaces, saved, theme, swipeInvert, submitKey, lastAgent, panels, machineName] = await Promise.all([
+          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_TERMINAL_PANEL),
           // A label, not a dependency: a failure here must not take boot down with it — the strip
           // simply shows no machine name.
           api.machineName().catch(() => ""),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
-        set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true, lastAgentKind: agent.success ? agent.data : null,
+        set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true,
+          submitKey: isSubmitKey(submitKey) ? submitKey : "enter", lastAgentKind: agent.success ? agent.data : null,
           terminalPanel: parseTerminalPanels(panels), machineName });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
@@ -1306,6 +1315,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setSwipeInvert(v) {
         set({ swipeInvert: v });
         await api.setSetting(SETTING_SWIPE_INVERT, v);
+      },
+      async setSubmitKey(v) {
+        set({ submitKey: v });
+        await api.setSetting(SETTING_SUBMIT_KEY, v);
       },
       async linkProject(rootPath) {
         const sid = get().activeSpaceId; if (!sid) return;
