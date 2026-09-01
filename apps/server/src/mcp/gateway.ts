@@ -132,6 +132,12 @@ export class McpGateway {
     this.notifyToolsChanged();
   }
 
+  /** Registered provider names, in registration order — what `mcp.providers.list` enumerates (W4).
+   *  Names only: the enabled flag is per-space policy and belongs to McpService, not this registry. */
+  providerNames(): string[] {
+    return [...this.providers.keys()];
+  }
+
   /** Binds 127.0.0.1:0 (OS-assigned — see the plan's port-0 amendment) and returns the bound port. */
   async listen(): Promise<number> {
     this.httpServer = createServer((req, res) => void this.handleHttp(req, res));

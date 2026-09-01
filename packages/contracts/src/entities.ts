@@ -29,8 +29,25 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  ENVIRONMENT id: a diff is a view of a checkout, and several sessions may share one.
  *  `space-page` (Plan 12 W3) follows that precedent: its `refId` is the SPACE id itself — the pane is
  *  the space's own page (General/Memory/Skills/Connections/Sessions/History), one per space. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "space-page"]);
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "space-page", "library-page", "connections-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
+
+/**
+ * Sentinel refIds for the sidebar's destination pages (Plan 12 W4: `library-page`, `connections-page`).
+ *
+ * These pages are identified by their KIND — there is no space, session or environment row behind them —
+ * but every item must carry a refId and the RPC validates it as an id, so each page kind gets one
+ * well-known ULID. They are valid per `IdSchema` yet unmintable by `newId()`: their timestamp component
+ * is all zeros (1970), which a ULID generated today can never carry.
+ *
+ * One page item per SPACE, not per app: an item lives in a space's layout, and that `spaceId` is the
+ * vantage the page's scope groups ("This space" / "From <profile>" / "Everywhere") are computed from.
+ */
+export const PAGE_REF_IDS = {
+  "library-page": "00000000000000000000000001",
+  "connections-page": "00000000000000000000000002",
+} as const;
+export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 
 export const ItemSchema = z.object({
   id: IdSchema, spaceId: IdSchema, kind: ItemKindSchema, title: z.string(),

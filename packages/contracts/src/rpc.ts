@@ -424,6 +424,11 @@ export const Methods = {
    * (the gateway re-checks at call time too, like any policy edit).
    */
   "mcp.setProviderEnabled": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /** The gateway's registered Realm-native providers with this space's switch state (W4: the
+   *  Connections surface renders them as rows). Names come from the gateway registry, never config —
+   *  a provider is code compiled into Realm, so this list is the same in every space; only `enabled`
+   *  is per-space. */
+  "mcp.providers.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ providers: z.array(z.object({ name: z.string(), enabled: z.boolean() })) }) },
   /**
    * Actually try the server, now: spawn the stdio command (with its stored env) and wait for an MCP
    * initialize response, or hit the http/sse URL (with its stored headers) and report the status. Run

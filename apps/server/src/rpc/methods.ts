@@ -200,6 +200,12 @@ export function registerMethods(d: Deps): void {
   });
   /** Realm-native gateway providers (`realm-browser`): default ON, per-space off switch. Same
    *  policy-change plumbing as `mcp.setEnabled` — connected sessions re-list. */
+  /** The gateway's registered providers with this space's switch state (W4) — names from the code
+   *  registry, `enabled` from McpService's per-space disable set (default ON). */
+  reg("mcp.providers.list", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return { providers: d.gateway.providerNames().map((name) => ({ name, enabled: d.mcp.providerEnabled(p.spaceId, name) })) };
+  });
   reg("mcp.setProviderEnabled", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.mcp.setProviderEnabled(p.spaceId, p.name, p.enabled);
