@@ -219,18 +219,26 @@ describe("recursion guard — depth-1, enforced server-side", () => {
     const { spaceId, parentId } = await boot();
     await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
     const child = childOf(spaceId, parentId);
-    const listAs = async (sessionId: string): Promise<string[]> => {
+    const connectAs = async (sessionId: string): Promise<Client> => {
       const cfg = app.gateway.register(sessionId, spaceId) as Extract<McpServerConfig, { url: string }>;
       const client = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
       await client.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
-      const names = (await client.listTools()).tools.map((t) => t.name);
-      await client.close();
-      return names;
+      return client;
     };
-    const childTools = await listAs(child.id);
+    const asChild = await connectAs(child.id);
+    const childTools = (await asChild.listTools()).tools.map((t) => t.name);
     expect(childTools.some((n) => n.startsWith("realm-agent__"))).toBe(false);   // the recursion mutant
     expect(childTools.some((n) => n.startsWith("realm-browser__"))).toBe(true);  // the normal surface stays
-    const parentTools = await listAs(parentId);
+    // The GATEWAY layer must refuse the call itself — its exclude-mode block, distinguishable from
+    // the provider's own belt ("may not delegate further"): if this wording is missing, the app.ts
+    // closure stopped excluding and only the inner layers caught it.
+    const blocked = (await asChild.callTool({ name: `realm-agent__${AGENT_RUN_TOOL_NAME}`, arguments: { goal: "grandchild" } })) as CallToolResult;
+    expect(blocked.isError).toBe(true);
+    expect(text(blocked)).toContain("not available to this delegated session");
+    await asChild.close();
+    const asParent = await connectAs(parentId);
+    const parentTools = (await asParent.listTools()).tools.map((t) => t.name);
+    await asParent.close();
     expect(parentTools).toContain(`realm-agent__${AGENT_RUN_TOOL_NAME}`);
     expect(parentTools).toContain(`realm-agent__${RUN_TOOL_NAME}`);
   });
@@ -324,7 +332,8 @@ describe("environments — named, fresh worktree, or the space primary", () => {
     const foreign = new EnvironmentsStore(app.db).ensurePrimary(spaceB.id);
     const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go", constraints: { environmentId: foreign.id } });
     expect(result.isError).toBe(true);
-    expect(text(result)).toContain("another space");
+    // The SERVICE's own guard, not the store's backstop wording — both write paths must refuse.
+    expect(text(result)).toContain("runs only in its caller's own space");
     expect(app.sessions.list(spaceId)).toHaveLength(1);
     expect(app.sessions.list(spaceB.id)).toHaveLength(0);
   });
