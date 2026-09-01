@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type { TccRow } from "../main/tcc";
-export type { TccRow } from "../main/tcc";
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
 const port = arg("realm-port");
 export type PickedFile = { path: string; mime: string; name: string; size: number };
