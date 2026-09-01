@@ -508,13 +508,15 @@ describe("browser driving dot (Plan 11 W4)", () => {
 });
 
 describe("sidebar destinations (Plan 12 W4)", () => {
-  it("Library and Connections sit between the New-session block and the space section; Notifications is NOT rendered (W5's — no dead chrome)", async () => {
+  it("Library, Connections and Notifications sit between the New-session block and the space section (W5 filled the seam)", async () => {
     await mount();
     const nav = screen.getByRole("navigation", { name: "Destinations" });
     expect(within(nav).getByRole("button", { name: "Library" })).toBeInTheDocument();
     expect(within(nav).getByRole("button", { name: "Connections" })).toBeInTheDocument();
-    expect(within(nav).queryByText(/Notifications/)).toBeNull();
-    expect(within(nav).getAllByRole("button")).toHaveLength(2);
+    expect(within(nav).getByRole("button", { name: /Notifications/ })).toBeInTheDocument();
+    expect(within(nav).getAllByRole("button")).toHaveLength(3);
+    // No unread pill at zero — a permanent 0 would be the dead chrome this nav bans.
+    expect(within(nav).queryByLabelText(/unread/)).toBeNull();
     // Placement: the nav follows the sb-top block (search + New session) and precedes the swiper.
     expect(nav.previousElementSibling).toHaveClass("sb-top");
   });

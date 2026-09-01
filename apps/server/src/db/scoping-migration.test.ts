@@ -41,8 +41,10 @@ function writeV10Fixture(home: string): string {
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   // Guard: if v11 is no longer the scoping migration this fixture is aimed at, fail loudly here
-  // rather than silently pre-applying the very migration under test.
-  expect(migrations.length).toBe(V11);
+  // rather than silently pre-applying the very migration under test. (Later migrations may exist —
+  // W5 added v12 — so the guard pins WHAT v11 is, not that it is last.)
+  expect(migrations.length).toBeGreaterThanOrEqual(V11);
+  expect(migrations[V11 - 1]).toContain("ALTER TABLE mcp_servers ADD COLUMN scope");
   for (let v = 0; v < V11 - 1; v++) {
     db.exec(migrations[v]!);
     db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v + 1, Date.now());
@@ -82,8 +84,8 @@ describe("v11 scoping migration", () => {
     const home = mkdtempSync(join(tmpdir(), "realm-scoping-mig-"));
     const path = writeV10Fixture(home);
 
-    const db = openDatabase(path); // applies v11
-    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(V11);
+    const db = openDatabase(path); // applies v11 (and whatever came after — W5's v12 rides along)
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     // Every migrated row is a pre-scoping space row — no backfill guessed a defining space or profile.
     expect(db.prepare("SELECT scope, scope_space_id, scope_profile_id FROM mcp_servers").all())
       .toEqual([{ scope: "space", scope_space_id: null, scope_profile_id: null }, { scope: "space", scope_space_id: null, scope_profile_id: null }]);
