@@ -132,6 +132,15 @@ describe("NotificationsService — mcp_health (the flap-storm mutant)", () => {
     expect(feed().some((n) => n.refId === "srv-1" && n.actedAt === null)).toBe(true);
   });
 
+  it("a READ but still-open row keeps absorbing repeats — reading does not restart the storm", () => {
+    svc.mcpServerStatus("srv-1", "airtable", "error");
+    store.markRead([feed()[0]!.id]);
+    for (let i = 0; i < 10; i++) svc.mcpServerStatus("srv-1", "airtable", "error");
+    const rows = feed();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.readAt).not.toBeNull(); // absorbed in place, never re-created as fresh unread
+  });
+
   it("two different servers never collapse into each other", () => {
     svc.mcpServerStatus("srv-1", "airtable", "error");
     svc.mcpServerStatus("srv-2", "linear", "error");
