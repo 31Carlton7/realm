@@ -45,6 +45,14 @@ export type BrowserAgentToolsDeps = {
   bridge: Pick<BrowserHostBridge, "call">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
+  /**
+   * Plan 11 W5: per-session mutation constraints — a delegated browser-agent child's
+   * `allowedOrigins`/`maxActs` (see `BrowserAgentService.checkMutation`). Consulted before every
+   * mutating tool runs (batch steps included), BEFORE the permission gate so the user is never
+   * prompted for an action the constraint would refuse anyway. Returns a refusal sentence or null;
+   * non-child sessions always pass. Optional — a harness without browser agents behaves as before.
+   */
+  constraints?: { checkMutation(sessionId: string, tool: string, url?: string): string | null };
 };
 
 export function createBrowserAgentProvider(d: BrowserAgentToolsDeps): RealmToolProvider {
@@ -188,6 +196,7 @@ const HANDLERS: Record<string, Handler> = {
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_open", url); if (limited) return err(limited);
     const title = `Open a browser pane at ${url}`;
     const gate = await d.broker.gate(ctx.sessionId, "browser_open", title, { url });
     if (!gate.allowed) return err(gate.reason);
@@ -203,6 +212,7 @@ const HANDLERS: Record<string, Handler> = {
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_navigate", url); if (limited) return err(limited);
     const title = `Navigate the browser pane to ${url}`;
     const gate = await d.broker.gate(ctx.sessionId, "browser_navigate", title, { browserId: row.value.id, url });
     if (!gate.allowed) return err(gate.reason);
@@ -238,6 +248,7 @@ const HANDLERS: Record<string, Handler> = {
   browser_act: async (d, ctx, rawArgs) => {
     const args = parse(ActArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_act"); if (limited) return err(limited);
     const title = await describeAct(d, row.value.id, args.value.action);
     const gate = await d.broker.gate(ctx.sessionId, "browser_act", title, { browserId: row.value.id, action: args.value.action });
     if (!gate.allowed) return err(gate.reason);
@@ -291,6 +302,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_open", url); if (limited) return err(limited);
     const opened = d.browserService.open({ spaceId: ctx.spaceId, url });
     d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: opened.browserId, itemId: opened.itemId });
     d.rpc.broadcast("browser.action", { spaceId: ctx.spaceId, browserId: opened.browserId, text: `Open a browser pane at ${url}`, ok: true, ts: Date.now() });
@@ -302,6 +314,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_navigate", url); if (limited) return err(limited);
     return runTracked(d, ctx.spaceId, row.value.id, `Navigate the browser pane to ${url}`, async () => {
       const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
       if (!result.url) return err(`navigation to ${url} was refused (pane not open, or origin allowlist).`);
@@ -311,6 +324,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
   if (tool === "browser_act") {
     const args = parse(ActArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_act"); if (limited) return err(limited);
     const title = await describeAct(d, row.value.id, args.value.action);
     return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
   }

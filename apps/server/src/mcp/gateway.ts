@@ -100,7 +100,23 @@ export class McpGateway {
      * messages that are safe to show — `McpOauth` sanitizes its own errors for exactly this reason.
      */
     onOauthCallback?: (url: string) => Promise<{ serverId: string }>;
+    /**
+     * Plan 11 W5: which in-process provider names this session may see, or `null` for the default
+     * (everything the space allows). Non-null is a RESTRICTED session — a browser-agent child born
+     * with a narrowed toolset: only the named providers contribute tools, and user-configured MCP
+     * server rows contribute NOTHING (neither to `tools/list` nor to routing). Consulted fresh on
+     * every list and every call rather than captured at `register()` time, so the answer survives a
+     * session restart re-registering and can never go stale against the registry that owns it
+     * (`BrowserAgentService`, which persists child records across server restarts).
+     */
+    sessionToolset?: (sessionId: string) => string[] | null;
   }) {}
+
+  /** The restriction for one session, `null` meaning unrestricted. One read path shared by
+   *  `listTools` and `handleCall` so the two can never disagree about what a session is allowed. */
+  private toolsetOf(sessionId: string): string[] | null {
+    return this.d.sessionToolset?.(sessionId) ?? null;
+  }
 
   /** The bound loopback port, or `null` before `listen()`. Read by the OAuth redirect URI, which cannot
    *  exist until there is a listener to redirect to. */
@@ -331,15 +347,20 @@ export class McpGateway {
    * requires one.
    */
   private async listTools(sessionId: string, spaceId: string): Promise<{ tools: Tool[] }> {
+    // A restricted session (W5: a browser-agent child) sees ONLY its named providers. The server-row
+    // half is skipped entirely — not filtered, skipped — so a user-configured MCP server can never
+    // leak a tool into a delegated session, whatever the space enabled.
+    const toolset = this.toolsetOf(sessionId);
     // In-process providers first — same failure posture as a dead upstream: a throwing provider
     // contributes no tools rather than erroring the whole list. A provider that is disabled for this
     // space reports that itself by returning [].
-    const perProvider = await Promise.all([...this.providers.values()].map(async (p): Promise<Tool[]> => {
+    const perProvider = await Promise.all([...this.providers.values()].filter((p) => toolset === null || toolset.includes(p.name)).map(async (p): Promise<Tool[]> => {
       try {
         const tools = await p.tools({ sessionId, spaceId });
         return tools.map((t): Tool => ({ ...t, name: `${p.name}__${t.name}` }));
       } catch { return []; }
     }));
+    if (toolset !== null) return { tools: perProvider.flat() };
     const perServer = await Promise.all(this.d.mcp.enabledServerIds(spaceId).map(async (id): Promise<Tool[]> => {
       const row = this.d.servers.get(id);
       if (!row) return [];
@@ -368,10 +389,11 @@ export class McpGateway {
    */
   private async handleCall(sessionId: string, spaceId: string, fullName: string, args: unknown): Promise<CallToolResult> {
     const argsJson = JSON.stringify(args ?? {});
+    const toolset = this.toolsetOf(sessionId);
     // In-process providers route first, under the same longest-prefix rule (an exact name tie goes to
     // the provider — Realm's own tools are not shadowable by a config row; see `RealmToolProvider`).
     // Provider calls land in the same Activity log, with `serverId: null` — there is no row behind them.
-    const provider = this.resolveProvider(spaceId, fullName);
+    const provider = this.resolveProvider(spaceId, fullName, toolset);
     if (provider) {
       const start = Date.now();
       try {
@@ -383,6 +405,15 @@ export class McpGateway {
         this.record(sessionId, null, provider.p.name, provider.tool, argsJson, false, Date.now() - start, truncate(message));
         return errorResult(message);
       }
+    }
+    // A restricted session (W5) has nowhere else to route: anything its allowed providers did not
+    // claim is refused HERE, before the server-row resolution below could ever see it. This is the
+    // call-time half of the guarantee `listTools` makes — a delegated session cannot reach a
+    // user-configured MCP server even by guessing a tool name that was never listed to it.
+    if (toolset !== null) {
+      return this.blocked(sessionId, null, "", fullName, argsJson,
+        `mcp: this delegated session's toolset is restricted to Realm's own tools (${toolset.join(", ")}) — "${fullName}" is not available here.`,
+        "blocked: restricted toolset (delegated session)");
     }
     // Routing (which server actually receives an ALLOWED call) only ever considers ENABLED servers — see
     // `resolveCall`'s own comment on why that is what keeps the longest-prefix match unambiguous. A
@@ -445,15 +476,20 @@ export class McpGateway {
   /** Longest provider-name prefix of `fullName` — unless an ENABLED server row's still-longer name
    *  out-prefixes every provider, in which case the row keeps the call (`resolveCall` will find it) and
    *  this returns null. An exact-length tie goes to the provider: Realm's own tools win over a config
-   *  row that happens to share their name. */
-  private resolveProvider(spaceId: string, fullName: string): { p: RealmToolProvider; tool: string } | null {
+   *  row that happens to share their name. Under a session toolset restriction (W5) only the ALLOWED
+   *  providers compete, and the server-row shadow check is skipped — rows are invisible to a restricted
+   *  session, so a row name must never be able to steal (and thereby block) its provider calls. */
+  private resolveProvider(spaceId: string, fullName: string, toolset: string[] | null): { p: RealmToolProvider; tool: string } | null {
     let best: RealmToolProvider | null = null;
     for (const p of this.providers.values()) {
+      if (toolset !== null && !toolset.includes(p.name)) continue;
       if (fullName.startsWith(`${p.name}__`) && (!best || p.name.length > best.name.length)) best = p;
     }
     if (!best) return null;
-    const row = this.resolveCall(spaceId, fullName);
-    if (row && row.serverName.length > best.name.length) return null;
+    if (toolset === null) {
+      const row = this.resolveCall(spaceId, fullName);
+      if (row && row.serverName.length > best.name.length) return null;
+    }
     return { p: best, tool: fullName.slice(best.name.length + 2) };
   }
 

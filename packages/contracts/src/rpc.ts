@@ -560,6 +560,11 @@ export const Events = {
    *  client that called `browserHost.register`, never broadcast — see that method's doc comment. The
    *  host answers with a `browserHost.result` call carrying the same `callId`. */
   "browserHost.op":   z.object({ callId: z.string(), op: z.string(), params: z.record(z.unknown()) }),
+  /** A parent session's `browser_agent_run` created a delegated browser-agent session (Plan 11 W5).
+   *  The row + item already exist (`items.changed` was broadcast too); this tells the renderer to
+   *  bring the child session INTO the layout — the whole point of a delegated agent being a real
+   *  session is that the user watches its full trace. */
+  "session.agentOpened": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema }),
   /** An agent opened a browser pane via `browser_open` (Plan 11 W3). The row + item already exist
    *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
    *  an agent-driven browser the user cannot see defeats the point of the architecture. */

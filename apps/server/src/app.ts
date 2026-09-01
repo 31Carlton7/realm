@@ -12,6 +12,7 @@ import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
+import { BrowserAgentService, createRealmAgentProvider } from "./browsers/browser-agent";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
@@ -169,7 +170,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       gateway?.notifyToolsChanged();
     },
   });
-  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url) });
+  // Late-bound like `sessionService`/`gateway` above: the gateway consults the browser-agent
+  // registry for per-session toolset restrictions (W5), and that registry needs SessionService,
+  // which needs the gateway. Nothing reads the seam before a session makes a request.
+  let browserAgents: BrowserAgentService | null = null;
+  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url),
+    sessionToolset: (sessionId) => browserAgents?.sessionToolset(sessionId) ?? null });
   gateway = mcpGateway;
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
@@ -181,9 +187,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker });
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker,
+    browserAgents: {
+      parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
+      release: (id) => browserAgents?.release(id),
+      extraSystemContext: (id) => browserAgents?.extraSystemContext(id),
+    } });
   sessionService = sessions;
-  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc }));
+  // W5: the browser-agent registry + its `realm-agent` provider (one tool, `browser_agent_run`).
+  // A delegated child is a REAL session whose specialization all rides existing seams — see the
+  // class doc comment in browsers/browser-agent.ts, including the bypass-is-never-inherited rule.
+  browserAgents = new BrowserAgentService({ settings, sessions, rpc, skillsRoot: skills.root });
+  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
+  mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp));
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
     profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,

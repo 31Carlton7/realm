@@ -86,3 +86,18 @@ export type BrowserSnapshotResult = { url: string; title: string; text: string; 
 export type BrowserReadResult = { text: string };
 export type BrowserScreenshotResult = { data: string; mimeType: string };
 export type BrowserNavigateResult = { url: string | null };
+
+/**
+ * `browser_agent_run`'s constraints (Plan 11 W5). Both optional:
+ *
+ * - `allowedOrigins` narrows which origins the CHILD session's own `browser_open`/`browser_navigate`
+ *   may target — enforced server-side in the `realm-browser` provider for the child's calls only
+ *   (the SPACE allowlist, enforced in Electron main per view, still governs in-page navigation).
+ * - `maxActs` caps the child's mutating browser tool calls AND scales its settle deadline; a run
+ *   that exhausts either is reported to the parent as exactly that, with whatever partial text exists.
+ */
+export const BrowserAgentConstraintsSchema = z.object({
+  allowedOrigins: z.array(z.string().min(1)).max(50).optional(),
+  maxActs: z.number().int().min(1).max(100).optional(),
+});
+export type BrowserAgentConstraints = z.infer<typeof BrowserAgentConstraintsSchema>;
