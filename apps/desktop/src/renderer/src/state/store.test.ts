@@ -154,8 +154,8 @@ describe("app store", () => {
   it("palette and sheet flags toggle", async () => {
     const store = createAppStore(api);
     store.getState().setPaletteOpen(true); expect(store.getState().paletteOpen).toBe(true);
-    store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
-    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1" });
+    store.getState().openSheet({ kind: "new-space" });
+    expect(store.getState().sheet).toEqual({ kind: "new-space" });
     store.getState().closeSheet(); expect(store.getState().sheet).toBeNull();
   });
 
@@ -1858,5 +1858,66 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     expect(store.getState().connectors.s1).toMatchObject([{ id: "m1", status: "connected" }]);
     store.getState().applyMcpServerStatus({ id: "m1", status: "circuit_open", oauthStatus: "reconnect_needed" });
     expect(store.getState().connectors.s1).toMatchObject([{ id: "m1", status: "circuit_open", oauthStatus: "reconnect_needed" }]);
+  });
+});
+
+/** Plan 12 W3: the space page — a `space-page` item whose refId is the SPACE id (diff-pane precedent). */
+describe("openSpacePage", () => {
+  it("creates ONE page per space, opens it into the layout, and dedups every later open", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openSpacePage("s1");
+    const page = store.getState().items.find((i) => i.kind === "space-page")!;
+    expect(page).toMatchObject({ refId: "s1", spaceId: "s1", title: "Overview" });
+    expect(allItems(store.getState().layout!)).toContain(page.id);
+    // Second open — with a tab this time: no second item, but the tab still lands.
+    await store.getState().openSpacePage("s1", "connections");
+    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("space-page"))).toHaveLength(1);
+    expect(store.getState().items.filter((i) => i.kind === "space-page")).toHaveLength(1);
+    expect(store.getState().spacePageTab.s1).toBe("connections");
+  });
+
+  it("never adopts a page into the WRONG space's layout — a stale spaceId is a no-op", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot(); // active: s1
+    await store.getState().openSpacePage("s2", "skills");
+    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
+    expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
+    // The tab preference still lands, so opening s2's page later starts where the caller asked.
+    expect(store.getState().spacePageTab.s2).toBe("skills");
+  });
+
+  it("the tab selection is per space — one space's rail never leaks onto another's page", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    store.getState().setSpacePageTab("s1", "history");
+    store.getState().setSpacePageTab("s2", "memory");
+    expect(store.getState().spacePageTab).toEqual({ s1: "history", s2: "memory" });
+  });
+});
+
+/** The `mcpServers` guard moved off the retired sheet (Plan 12 W3): `mcpPanelSpaceId` — set by the
+ *  Connections panel's mount/unmount — decides whether a `mcp.list` response may land. */
+describe("refreshMcpServers guard (space page era)", () => {
+  it("applies the list only while THAT space's panel is mounted; late or foreign responses are dropped", async () => {
+    const api = fakeApi({ mcpServers: [mcpServer("m1")] });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    // No panel mounted: the response must be dropped, not shown to whoever mounts next.
+    await store.getState().refreshMcpServers("s1");
+    expect(store.getState().mcpServers).toEqual([]);
+    // s1's panel mounted: applies.
+    store.getState().clearMcpServers("s1");
+    await store.getState().refreshMcpServers("s1");
+    expect(store.getState().mcpServers).toHaveLength(1);
+    // Panel re-mounted for s2 (space switched under a slow s1 response): s1's response is stale.
+    store.getState().clearMcpServers("s2");
+    await store.getState().refreshMcpServers("s1");
+    expect(store.getState().mcpServers).toEqual([]);
+    // Unmount clears the record entirely.
+    store.getState().clearMcpServers(null);
+    expect(store.getState().mcpPanelSpaceId).toBeNull();
   });
 });

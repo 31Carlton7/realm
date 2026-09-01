@@ -1653,7 +1653,8 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
     const menu = await openConnectors();
     await waitFor(() => expect(within(menu).queryByText("No connectors enabled in this space")).not.toBeNull());
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Manage connections…" }));
-    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1", tab: "mcp" });
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    expect(store.getState().spacePageTab.s1).toBe("connections");
   });
 
   it("the back row returns to the root menu in place", async () => {

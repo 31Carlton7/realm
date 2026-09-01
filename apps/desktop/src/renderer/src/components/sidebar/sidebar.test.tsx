@@ -212,12 +212,28 @@ describe("Arc sidebar", () => {
     expect(pages[0]!.hasAttribute("inert")).toBe(true);
   });
 
-  it("the profile pill opens the space settings sheet and + opens the new-space sheet", async () => {
+  it("the profile pill opens the space PAGE and + opens the new-space sheet", async () => {
     const { store } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
-    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1" });
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    expect(store.getState().sheet).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "New space" }));
     expect(store.getState().sheet).toEqual({ kind: "new-space" });
+  });
+
+  it("the header title row itself opens the space PAGE (the transcription's front door)", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Versed" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    const page = store.getState().items.find((i) => i.kind === "space-page")!;
+    expect(JSON.stringify(store.getState().layout)).toContain(page.id);
+  });
+
+  it("the space menu's Open space opens the page — the sheet's ⋯ entry point did not go dead", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open space" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
   });
 
   it("OPEN label is absent when nothing is open; unopened items render under SPACE", async () => {

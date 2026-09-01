@@ -1,18 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MCP_SECRET_STORAGE_NOTE } from "@realm/contracts";
-import { SpaceSettingsSheet } from "./SpaceSettingsSheet";
+import { SpacePage } from "../../panes/space/SpacePage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, mcpServer, mcpTool, session } from "../../state/store.test-fakes";
+import { fakeApi, item, mcpServer, mcpTool, session } from "../../state/store.test-fakes";
 
 async function mount(overrides: Parameters<typeof fakeApi>[0] = {}) {
   const api = fakeApi(overrides);
   const store = createAppStore(api);
   await store.getState().boot();
-  store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
-  render(<StoreContext.Provider value={store}><SpaceSettingsSheet spaceId="s1" /></StoreContext.Provider>);
-  // Since the W5 merge the sheet is a settings HOME and opens on General; McpSection is the Connections
-  // tab, so it does not mount (and does not fetch) until that tab is selected.
+  // Since Plan 12 W3 the settings home is the space PAGE; McpSection is its Connections tab, and it
+  // does not mount (or fetch) until that tab is selected.
+  render(<StoreContext.Provider value={store}><SpacePage item={item("pg1", "s1", { kind: "space-page", title: "Overview", refId: "s1" })} visible /></StoreContext.Provider>);
   fireEvent.click(screen.getByRole("radio", { name: "Connections" }));
   // McpSection fetches on mount — wait for that before asserting on its contents.
   await waitFor(() => expect(api.calls).toContain("listMcpServers:s1"));

@@ -72,13 +72,19 @@ describe("SpaceStrip badges (U-H3)", () => {
 });
 
 describe("SpaceStrip settings gear (U-M9)", () => {
-  it("opens the space-settings sheet for the active space", async () => {
+  const pageFor = (store: { getState(): { items: { kind: string; refId: string; id: string }[] } }, spaceId: string) =>
+    store.getState().items.find((i) => i.kind === "space-page" && i.refId === spaceId);
+
+  it("opens the space PAGE for the active space (Plan 12 W3: no sheet)", async () => {
     const { store } = await mount();
     expect(store.getState().activeSpaceId).toBe("s1");
     const gear = screen.getByRole("button", { name: "Settings" });
     expect(gear).toBeEnabled();
     fireEvent.click(gear);
-    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1" });
+    await waitFor(() => expect(pageFor(store, "s1")).toBeDefined());
+    // The page is IN the layout, not merely created; and it is a pane, never a sheet.
+    expect(JSON.stringify(store.getState().layout)).toContain(pageFor(store, "s1")!.id);
+    expect(store.getState().sheet).toBeNull();
   });
 
   it("follows the active space, and is disabled with no space at all", async () => {
@@ -86,13 +92,15 @@ describe("SpaceStrip settings gear (U-M9)", () => {
     fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s2" });
+    // The mutant this kills: the gear opening the page of some OTHER space than the active one.
+    await waitFor(() => expect(pageFor(store, "s2")).toBeDefined());
+    expect(pageFor(store, "s1")).toBeUndefined();
 
     const empty = await mount(fakeApi({ spaces: [], items: {} }));
     expect(empty.store.getState().activeSpaceId).toBeNull();
     const gears = screen.getAllByRole("button", { name: "Settings" });
     expect(gears.at(-1)).toBeDisabled();
     fireEvent.click(gears.at(-1)!);
-    expect(empty.store.getState().sheet).toBeNull();
+    expect(empty.store.getState().items).toEqual([]);
   });
 });
