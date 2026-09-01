@@ -291,8 +291,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
   // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or
   // under Realm's home. `roots` is left at its default here and overridden only by tests.
-  const imports = new ImportService({ home: opts.home, rpc, spaces, profiles, projects, environments,
-    sessions: sessionsStore, events: sessionEvents, items, memory });
+  const imports = new ImportService({ home: opts.home, db, rpc, spaces, profiles, projects, environments,
+    sessions: sessionsStore, events: sessionEvents, items, settings, memory });
   const ships = new ShipsStore(db);
   const gitWrite = new GitWriteService({ shipLog: (entry) => {
     ships.record(entry);

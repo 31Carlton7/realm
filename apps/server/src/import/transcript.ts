@@ -37,10 +37,19 @@ export type ParsedTranscript = {
  * search matches on, and it is small.
  */
 export const TOOL_PAYLOAD_MAX = 8_000;
-/** Ceiling on events from one transcript. Reached only by machine-generated loops; a real
- *  conversation is orders of magnitude below it. The tail is dropped rather than the head, so an
- *  imported session always starts where the real one did. */
-export const EVENTS_MAX = 4_000;
+/**
+ * Ceiling on events from one transcript — a guard against a runaway machine loop, NOT a routine clip.
+ *
+ * The number was measured, after a first pass set it at 4,000 and quietly truncated a real 15,479-event
+ * Codex thread to a quarter of itself. Across the 392 transcripts on this machine, exactly two exceed
+ * 4,000 and none exceed 20,000; the whole corpus is 360k events, so nothing is bought by cutting the
+ * long tail and a genuine day-long session is lost by it.
+ *
+ * The cap also has to sit above any real conversation for a second reason: `messages` is what
+ * `markDuplicates` compares replays on, and a truncated parse under-reports it — so a low cap makes
+ * the fullest copy of a thread look like the smallest one.
+ */
+export const EVENTS_MAX = 20_000;
 
 /** Clip a tool payload, stating the cut in the text itself rather than trailing off mid-value. */
 export function clipTool(text: string): string {
@@ -68,12 +77,52 @@ export function toMs(v: unknown, fallback: number): number {
   return fallback;
 }
 
-/** The title a transcript takes when the source named none: its first user turn, which is what
- *  `titleFromMessage` already does for every session Realm creates itself. Imported and native
- *  sessions therefore read the same way in the sidebar. */
+/**
+ * Whether a user turn is a HARNESS PREAMBLE rather than something a person typed.
+ *
+ * Not every `user_message` is the user speaking. Conductor opens its sessions with a
+ * `<system_instruction>` envelope, Claude injects a `# Files mentioned by the user:` block and a
+ * `<local-command-caveat>` wrapper — all delivered on the user channel, all first in the file. On
+ * this machine that put 30 imported sessions in the sidebar called `<system_instruction>`.
+ *
+ * The test is structural rather than a blocklist of products: a first line that is nothing but an
+ * XML-style tag is an envelope, because a person typing a sentence does not start one that way. The
+ * one literal header is named as well, since it carries no tag to be recognised by.
+ *
+ * This only ever affects the TITLE. The turn stays in the transcript — it really was part of what
+ * the agent was given, and dropping it would misrepresent the conversation.
+ */
+export function isHarnessPreamble(text: string): boolean {
+  const head = text.trim().split("\n").find((l) => l.trim())?.trim() ?? "";
+  if (head.startsWith("# Files mentioned by the user:")) return true;
+  const tag = /^<\/?([a-z][a-z0-9_-]*)>/i.exec(head);
+  if (!tag) return false;
+  // A line that is NOTHING but a tag is an envelope whatever the tag is called. When the tag opens a
+  // line that continues (`<local-command-caveat>Caveat: The message below…`), the tag NAME decides:
+  // a hyphen or underscore in it means a harness invented it, because HTML's own element names have
+  // neither. That keeps "explain what <div> does" out of this while catching every wrapper these
+  // CLIs actually emit.
+  return head === tag[0] || /[-_]/.test(tag[1]!);
+}
+
+/**
+ * The title a transcript takes when the source named none: its first turn that reads like a person
+ * wrote it, which is what `titleFromMessage` already does for every session Realm creates itself.
+ *
+ * Falls through the harness preambles to the first real user turn, then to the assistant's first
+ * words — a session that opened with an injected block and an agent reply is better named by the
+ * reply than by the block.
+ *
+ * When EVERY spoken turn is an envelope the answer is the empty string, and the caller names the
+ * session generically. That case is real and it is not a failure: a `/login` transcript is nothing
+ * but `<local-command-caveat>` and `<command-name>` wrappers, and there is no human sentence in it
+ * to find. "Imported session" describes that honestly; a row of XML in the sidebar does not.
+ */
 export function fallbackTitle(events: SessionEvent[]): string {
-  const first = events.find((e) => e.type === "user_message");
-  return first && first.type === "user_message" ? first.payload.text : "";
+  const spoken = events.filter((e) => e.type === "user_message" || e.type === "assistant_text");
+  const real = spoken.find((e) => e.type === "user_message" && !isHarnessPreamble(e.payload.text))
+    ?? spoken.find((e) => e.type === "assistant_text" && !isHarnessPreamble(e.payload.text));
+  return real && "text" in real.payload ? real.payload.text : "";
 }
 
 /** Read JSONL defensively: blank lines skipped, unparseable lines skipped, and the count of the

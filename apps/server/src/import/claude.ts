@@ -84,7 +84,7 @@ export function parseClaudeTranscript(text: string, now: number): ParsedTranscri
   if (!sessionId || events.length === 0) return null;
   if (truncated) {
     events.push(sessionEvent("error", {
-      message: `Realm imported the first ${EVENTS_MAX.toLocaleString("en-US")} events of this transcript; the rest is still in ${"the source file"}.`,
+      message: `Realm imported the first ${EVENTS_MAX.toLocaleString("en-US")} events of this transcript; the rest is still in the source file.`,
     }, updatedAt || now));
   }
   return {

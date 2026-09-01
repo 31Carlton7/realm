@@ -96,9 +96,21 @@ transcripts, the Claude memory tool's per-project fact folders, and user-level s
 - **Skills are copied, never symlinked or overwritten**, and land unscoped — visible in every space,
   the honest translation of "installed for my user".
 
-`pnpm --filter @realm/server exec tsx scripts/live-import-check.ts` prints what an import would do
-against this machine's real CLI directories, reading a `VACUUM INTO` copy of the database so it can
-reason over your actual spaces without being able to write to them.
+One transcript is not one file. Codex rewrites a whole thread into a new rollout file every time it
+is resumed — on one machine here, 241 files were 71 conversations, with 158 of them replays of a
+single Stora thread. The scan keeps the fullest copy of each and counts the rest, so the panel offers
+conversations rather than files.
+
+Two scripts, from `apps/server`:
+
+- `tsx scripts/live-import-check.ts` — prints what an import would do against this machine's real CLI
+  directories, reading a `VACUUM INTO` copy of the database so it can reason over your actual spaces
+  without being able to write to them.
+- `tsx scripts/undo-import.ts --all-imported --sweep-environments` — takes an import back out. Only
+  rows whose dispatch origin is `import` are touched, and the agents' own directories are never read
+  or written. Worth knowing about before a big import: an imported session cannot be re-targeted
+  afterwards, and the environment rows an import leaves behind will out-match everything on the next
+  run if they are not swept with it.
 
 ## Skills
 

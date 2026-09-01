@@ -51,6 +51,9 @@ function writeCursorStore(dir: string, name: string, messages: unknown[], cwd: s
 
 type Harness = {
   home: string; roots: ImportRoots; imports: ImportService;
+  /** A second service over the same home and database — what a server restart looks like, for the
+   *  facts that must survive one (the imported-source set). */
+  freshService(): ImportService;
   sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore;
   spaces: SpacesStore; profiles: ProfilesStore; memory: MemoryService;
   workProfileId: string; realmSpaceId: string; realmProjectRoot: string;
@@ -84,8 +87,9 @@ function harness(): Harness {
   const events = new SessionEventsStore(db);
   const items = new ItemsStore(db);
   const rpc = { broadcast: () => {} } as unknown as RpcServer;
-  const imports = new ImportService({ home, rpc, spaces, profiles, projects, environments, sessions, events, items, memory, roots });
-  return { home, roots, imports, sessions, events, items, spaces, profiles, memory,
+  const deps = { home, db, rpc, spaces, profiles, projects, environments, sessions, events, items, settings, memory, roots };
+  const imports = new ImportService(deps);
+  return { home, roots, imports, freshService: () => new ImportService(deps), sessions, events, items, spaces, profiles, memory,
     workProfileId: work.id, realmSpaceId: realm.id, realmProjectRoot };
 }
 
@@ -149,6 +153,51 @@ describe("ImportService.scan", () => {
     expect(scan.sessions.find((s) => s.source === "codex")!.fromRealm).toBe(true);
     // Both are still LISTED: the client defaults them off and can say what it hid.
     expect(scan.sessions).toHaveLength(2);
+  });
+
+  it("offers only the FULLEST copy of a thread the CLI rewrote on every resume", () => {
+    // Codex writes a new rollout file each time a thread is resumed, replaying the whole
+    // conversation so far under the same session_id. On the developer's machine 158 files were one
+    // Stora thread. Importing them all would make 158 near-identical sessions; importing whichever
+    // one was scanned first loses turns — a 13-turn copy there had been written BEFORE a 9-turn one,
+    // so "newest" is the wrong winner and "most turns" is the right one.
+    const replay = (file: string, turns: number, day: string) =>
+      write(join(h.roots.codex, "sessions", file), jsonl([
+        { timestamp: `${day}T00:00:00.000Z`, type: "session_meta", payload: { session_id: "thread-1", cwd: "/Users/me/stora" } },
+        ...Array.from({ length: turns }, (_, i) => ({ timestamp: `${day}T00:00:0${i}.000Z`, type: "event_msg", payload: { type: "user_message", message: `turn ${i}` } })),
+      ]));
+    replay("a.jsonl", 13, "2027-01-01"); // written first, but the most complete
+    replay("b.jsonl", 9, "2027-01-02");  // written later, and shorter
+    replay("c.jsonl", 4, "2027-01-03");
+
+    const scan = h.imports.scan();
+    const kept = scan.sessions.filter((s) => !s.duplicate);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]!.messages).toBe(13);
+    expect(scan.sessions.filter((s) => s.duplicate)).toHaveLength(2);
+    // And the source report counts CONVERSATIONS, naming the gap rather than leaving it to be found.
+    const codex = scan.sources.find((s) => s.source === "codex")!;
+    expect(codex.sessions).toBe(1);
+    expect(codex.note).toContain("3 files hold 1 conversations");
+  });
+
+  it("picks the same winner on every scan, so a preview cannot re-target itself before apply", () => {
+    for (const [file, day] of [["a.jsonl", "2027-01-01"], ["b.jsonl", "2027-01-02"]] as const) {
+      write(join(h.roots.codex, "sessions", file), jsonl([
+        { timestamp: `${day}T00:00:00.000Z`, type: "session_meta", payload: { session_id: "thread-1", cwd: "/Users/me/x" } },
+        { timestamp: `${day}T00:00:01.000Z`, type: "event_msg", payload: { type: "user_message", message: "same length" } },
+      ]));
+    }
+    const first = h.imports.scan().sessions.filter((s) => !s.duplicate).map((s) => s.key);
+    const second = h.imports.scan().sessions.filter((s) => !s.duplicate).map((s) => s.key);
+    expect(first).toEqual(second);
+    expect(first).toHaveLength(1);
+  });
+
+  it("does not confuse two genuinely different conversations", () => {
+    write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 2));
+    write(join(h.roots.claude, "projects", "-a", "c2.jsonl"), claudeTranscript("c2", h.realmProjectRoot, 1));
+    expect(h.imports.scan().sessions.filter((s) => s.duplicate)).toHaveLength(0);
   });
 
   it("counts transcripts it could not read rather than pretending they were not there", () => {
@@ -224,6 +273,60 @@ describe("ImportService.apply — sessions", () => {
     const second = applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
     expect(second.sessions[0]).toMatchObject({ state: "skipped", detail: "already imported" });
     expect(h.sessions.listAll()).toHaveLength(1);
+  });
+
+  it("never re-imports an ARCHIVE, which carries no provider id to dedup on", () => {
+    // The bug this exists for: a transcript whose cwd is gone imports with providerSessionId null
+    // (it must not advertise a resume it cannot perform), so the provider-id dedup has nothing to
+    // match on and it re-imported on every single run — 31 duplicate sessions on the second pass
+    // against real data.
+    write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", "/Users/me/deleted-long-ago", 1));
+    const key = h.imports.scan().sessions[0]!.key;
+    applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
+    expect(h.sessions.listAll()[0]!.providerSessionId).toBeNull();
+
+    expect(h.imports.scan().sessions[0]!.imported).toBe(true);
+    const again = applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
+    expect(again.sessions[0]).toMatchObject({ state: "skipped", detail: "already imported" });
+    expect(h.sessions.listAll()).toHaveLength(1);
+  });
+
+  it("remembers imported sources across a fresh service, not just within one process", () => {
+    write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", "/Users/me/gone", 1));
+    const key = h.imports.scan().sessions[0]!.key;
+    applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
+    // A new service over the same home — what a server restart looks like.
+    expect(h.freshService().scan().sessions[0]!.imported).toBe(true);
+  });
+
+  it("titles a session from the first turn a PERSON wrote, not the harness preamble before it", () => {
+    // Conductor opens with a `<system_instruction>` envelope on the user channel; 30 imported
+    // sessions were called `<system_instruction>` in the sidebar before this.
+    write(join(h.roots.codex, "sessions", "r.jsonl"), jsonl([
+      { timestamp: "2027-01-01T00:00:00.000Z", type: "session_meta", payload: { session_id: "x1", cwd: "/Users/me/x" } },
+      { timestamp: "2027-01-01T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "<system_instruction>\nYou are working inside Conductor." } },
+      { timestamp: "2027-01-01T00:00:02.000Z", type: "event_msg", payload: { type: "user_message", message: "Fix the failing build" } },
+    ]));
+    const candidate = h.imports.scan().sessions[0]!;
+    expect(candidate.title).toBe("Fix the failing build");
+    // The preamble is still IN the transcript — it really was part of what the agent was given.
+    applySessions([{ key: candidate.key, spaceId: h.realmSpaceId, profileId: null }]);
+    const session = h.sessions.listAll()[0]!;
+    expect(h.events.listAfter(session.id, 0, 100).filter((e) => e.event.type === "user_message")).toHaveLength(2);
+  });
+
+  it("names a session generically when every turn is an envelope, rather than titling it with XML", () => {
+    // A `/login` transcript is nothing but `<local-command-caveat>` and `<command-name>` wrappers.
+    // There is no human sentence in it, and a row of XML in the sidebar is not a better answer than
+    // saying so.
+    write(join(h.roots.codex, "sessions", "r.jsonl"), jsonl([
+      { timestamp: "2027-01-01T00:00:00.000Z", type: "session_meta", payload: { session_id: "x1", cwd: "/Users/me/x" } },
+      { timestamp: "2027-01-01T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "<local-command-caveat>Caveat: the messages below…</local-command-caveat>" } },
+      { timestamp: "2027-01-01T00:00:02.000Z", type: "event_msg", payload: { type: "user_message", message: "<command-name>/login</command-name>" } },
+    ]));
+    const candidate = h.imports.scan().sessions[0]!;
+    applySessions([{ key: candidate.key, spaceId: h.realmSpaceId, profileId: null }]);
+    expect(h.sessions.listAll()[0]!.title).toBe("Imported session");
   });
 
   it("creates one catch-all space per profile and reuses it", () => {

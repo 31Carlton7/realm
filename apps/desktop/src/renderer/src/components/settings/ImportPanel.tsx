@@ -60,9 +60,11 @@ export function ImportPanel() {
   /** The rows the default filter hides: Realm's own transcripts (already rows in this database),
    *  scratch directories, and anything a previous import already brought in — sessions AND skills, so
    *  the count below accounts for everything the filter took out. Counted, never silent. */
-  const hidden = (scan?.sessions ?? []).filter((s) => s.scratch || s.fromRealm || s.imported).length
+  const hiddenSession = (s: { scratch: boolean; fromRealm: boolean; imported: boolean; duplicate: boolean }) =>
+    s.scratch || s.fromRealm || s.imported || s.duplicate;
+  const hidden = (scan?.sessions ?? []).filter(hiddenSession).length
     + (scan?.skills ?? []).filter((s) => s.imported).length;
-  const sessions = (scan?.sessions ?? []).filter((s) => showHidden || !(s.scratch || s.fromRealm || s.imported));
+  const sessions = (scan?.sessions ?? []).filter((s) => showHidden || !hiddenSession(s));
   // Memory folders are never filtered: there are a handful of them, an already-imported one is worth
   // seeing (re-importing refreshes its copies), and hiding it would leave the section looking empty.
   const memories = scan?.memories ?? [];
@@ -135,8 +137,8 @@ export function ImportPanel() {
         <>
           {hidden > 0 && (
             <p className="settings-hint">
-              {hidden} row{hidden === 1 ? " is" : "s are"} hidden: Realm's own sessions, scratch directories, and
-              anything already imported.{" "}
+              {hidden} row{hidden === 1 ? " is" : "s are"} hidden: Realm's own sessions, scratch directories, older
+              copies of a resumed conversation, and anything already imported.{" "}
               <button type="button" className="btn-quiet" onClick={() => setShowHidden((v) => !v)}>
                 {showHidden ? "Hide them again" : "Show them anyway"}
               </button>
@@ -244,6 +246,7 @@ function SessionSection({ sessions, targetOf, setTargets, targetLabel, selected,
                   {s.imported && " · already imported"}
                   {s.fromRealm && " · Realm's own"}
                   {s.scratch && " · scratch"}
+                  {s.duplicate && " · older copy of this conversation"}
                 </span>
                 <span className="muted import-row-why" title={s.match.evidence ?? ""}>{s.match.reason}</span>
               </li>

@@ -55,8 +55,8 @@ const environments = new EnvironmentsStore(db);
 const memory = new MemoryService({ home, settings, environments, scopes: { profileIdOf: (id) => spaces.get(id)?.profileId ?? null } });
 const rpc = { broadcast: () => {} } as unknown as RpcServer;
 const imports = new ImportService({
-  home, rpc, spaces, profiles, projects: new ProjectsStore(db), environments,
-  sessions: new SessionsStore(db), events: new SessionEventsStore(db), items: new ItemsStore(db), memory,
+  home, db, rpc, spaces, profiles, projects: new ProjectsStore(db), environments,
+  sessions: new SessionsStore(db), events: new SessionEventsStore(db), items: new ItemsStore(db), settings, memory,
 });
 
 const t0 = Date.now();
@@ -73,11 +73,11 @@ for (const s of scan.sources) {
   console.log(`${s.source.padEnd(7)} ${s.available ? "" : "(not installed) "}${s.sessions} sessions, ${s.unreadable} unreadable  ${s.root}`);
 }
 
-const keep = scan.sessions.filter((s) => all || (!s.scratch && !s.fromRealm && !s.imported));
+const keep = scan.sessions.filter((s) => all || (!s.scratch && !s.fromRealm && !s.imported && !s.duplicate));
 console.log(`\nsessions: ${scan.sessions.length} found, ${keep.length} would import`);
-const hidden = { scratch: 0, fromRealm: 0, imported: 0 };
-for (const s of scan.sessions) { if (s.scratch) hidden.scratch++; else if (s.fromRealm) hidden.fromRealm++; else if (s.imported) hidden.imported++; }
-console.log(`  hidden: ${hidden.scratch} scratch, ${hidden.fromRealm} Realm's own, ${hidden.imported} already imported`);
+const hidden = { scratch: 0, fromRealm: 0, imported: 0, duplicate: 0 };
+for (const s of scan.sessions) { if (s.scratch) hidden.scratch++; else if (s.fromRealm) hidden.fromRealm++; else if (s.duplicate) hidden.duplicate++; else if (s.imported) hidden.imported++; }
+console.log(`  hidden: ${hidden.scratch} scratch, ${hidden.fromRealm} Realm's own, ${hidden.duplicate} older copies of a resumed thread, ${hidden.imported} already imported`);
 
 const byTarget = new Map<string, { n: number; msgs: number; reasons: Set<string> }>();
 for (const s of keep) {
@@ -90,6 +90,19 @@ console.log("\n  by destination:");
 for (const [k, v] of [...byTarget].sort((a, b) => b[1].n - a[1].n)) {
   console.log(`    ${String(v.n).padStart(4)} sessions ${String(v.msgs).padStart(6)} msgs  ${k.padEnd(24)} via ${[...v.reasons].join(", ")}`);
 }
+// The catch-all's contents, by the directory the sessions ran in. What the Import panel's grouping
+// makes editable: a cluster big enough to see here is a cluster worth giving its own space, and
+// re-targeting it in the preview is the only chance to do so (`sessions.moveToSpace` refuses once a
+// session has events, which an imported one has from the moment it exists).
+const clusters = new Map<string, number>();
+for (const s of keep) if (!s.match.spaceId) clusters.set(s.cwd || "(no recorded directory)", (clusters.get(s.cwd || "(no recorded directory)") ?? 0) + 1);
+if (clusters.size > 0) {
+  console.log("\n  unmatched, by directory:");
+  for (const [dir, n] of [...clusters].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    console.log(`    ${String(n).padStart(4)} ${dir}`);
+  }
+}
+
 console.log("\n  newest 15:");
 for (const s of keep.slice(0, 15)) {
   console.log(`    ${new Date(s.updatedAt).toISOString().slice(0, 10)} ${s.agentKind.padEnd(11)} ${String(s.messages).padStart(4)}m ${s.cwdExists ? "↻" : " "} ${s.title.slice(0, 42).padEnd(42)} → ${target(s.match)}`);

@@ -5,12 +5,14 @@ import {
   type ImportMatch, type ImportMemoryCandidate, type ImportOutcome, type ImportResult, type ImportScan,
   type ImportSessionCandidate, type ImportSkillCandidate, type ImportSourceReport, type Space,
 } from "@realm/contracts";
+import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { EnvironmentsStore } from "../store/environments";
 import type { ItemsStore } from "../store/items";
 import type { ProfilesStore } from "../store/profiles";
 import type { ProjectsStore } from "../store/projects";
 import type { SessionEventsStore, SessionsStore } from "../store/sessions";
+import type { SettingsStore } from "../store/settings";
 import type { SpacesStore } from "../store/spaces";
 import type { MemoryService } from "../memory/service";
 import { skillsRoot } from "../skills/service";
@@ -21,6 +23,22 @@ import {
 } from "./discover";
 import { matchSpace, type MatchWorld } from "./match";
 import { defaultRoots, isScratchPath, type ImportRoots } from "./sources";
+
+/**
+ * Every source key already imported.
+ *
+ * `providerSessionId` is the natural dedup key and is used first, but it is NOT sufficient: a
+ * transcript whose recorded directory is gone imports as an archive with NO provider link (so it
+ * cannot advertise a resume it could not perform), which leaves nothing on the row tying it back to
+ * its file. Without this set those sessions re-imported on every single run — 31 duplicates on the
+ * second run against real data, before anyone had done anything wrong.
+ *
+ * A settings row rather than a column: it needs no migration, it is exactly the same shape as
+ * `skills.bundledInstalled` ("things installed once, by id"), and it survives the row being deleted —
+ * which is right for install-once, and is why re-importing something deliberately removed takes
+ * clearing this key rather than happening by accident on the next scan.
+ */
+const IMPORTED_KEYS = "import.sources";
 
 /** What `apply` was asked to bring in. Every entry is a `key` from a scan plus, for the two kinds
  *  that live in a space, the space the user settled on — so a preview the user re-targeted is
@@ -33,6 +51,8 @@ export type ImportSelection = {
 
 export type ImportDeps = {
   home: string;
+  /** For the per-session transaction below — the stores share this connection. */
+  db: Db;
   rpc: RpcServer;
   spaces: SpacesStore;
   profiles: ProfilesStore;
@@ -41,6 +61,7 @@ export type ImportDeps = {
   sessions: SessionsStore;
   events: SessionEventsStore;
   items: ItemsStore;
+  settings: SettingsStore;
   memory: MemoryService;
   /** Overridable as a unit so tests read a fixture tree — never the developer's own `~/.claude`. */
   roots?: ImportRoots;
@@ -77,6 +98,7 @@ export class ImportService {
     // every one of ~1100 candidates, and a query each would be 1100 round trips to answer something
     // a single set answers exactly.
     const known = this.d.sessions.providerSessionIds();
+    const done = this.importedKeys();
 
     const found: FoundSession[] = [
       ...findClaudeSessions(this.roots), ...findCodexSessions(this.roots), ...findCursorSessions(this.roots),
@@ -100,10 +122,12 @@ export class ImportService {
         title: t.title || "Untitled session",
         messages: t.messages, startedAt: t.startedAt, updatedAt: t.updatedAt,
         fromRealm: t.fromRealm, scratch: isScratchPath(t.cwd),
-        imported: known.has(t.providerSessionId),
+        imported: known.has(t.providerSessionId) || done.has(f.key),
+        duplicate: false, // decided below, once every candidate sharing an id can be compared
         match: matchSpace(t.cwd, world),
       });
     }
+    markDuplicates(sessions);
     sessions.sort((a, b) => b.updatedAt - a.updatedAt);
 
     const memories: ImportMemoryCandidate[] = findClaudeMemories(this.roots).map((m) => {
@@ -137,11 +161,20 @@ export class ImportService {
     }
     const skills = [...byId.values()].sort((a, b) => a.key.localeCompare(b.key));
 
-    const report = (source: "claude" | "codex" | "cursor", root: string, note: string | null): ImportSourceReport => ({
-      source, root, available: existsSync(root),
-      sessions: sessions.filter((s) => s.source === source).length,
-      unreadable: unreadable[source], note,
-    });
+    const report = (source: "claude" | "codex" | "cursor", root: string, note: string | null): ImportSourceReport => {
+      const mine = sessions.filter((s) => s.source === source);
+      const dupes = mine.filter((s) => s.duplicate).length;
+      return {
+        source, root, available: existsSync(root),
+        // The count that matters is CONVERSATIONS, not files — a source whose 241 files are 71
+        // threads should say 71, with the difference named rather than left to be discovered.
+        sessions: mine.length - dupes,
+        unreadable: unreadable[source],
+        note: dupes === 0 ? note
+          : [note, `${mine.length} files hold ${mine.length - dupes} conversations: this CLI rewrites a whole thread each time it is resumed, so only the fullest copy of each is offered.`]
+            .filter((x): x is string => Boolean(x)).join(" "),
+      };
+    };
     return {
       sessions, memories, skills,
       sources: [
@@ -203,9 +236,13 @@ export class ImportService {
     // twice) must not both import, and re-reading the column per session would be the slow way to
     // learn the same thing.
     const known = this.d.sessions.providerSessionIds();
+    const done = this.importedKeys();
     const touchedSpaces = new Set<string>(), touchedMemory = new Set<string>();
 
-    const sessions = selection.sessions.map((sel) => this.importSession(sel, { target, index, known, touchedSpaces, now }));
+    const sessions = selection.sessions.map((sel) => this.importSession(sel, { target, index, known, done, touchedSpaces, now }));
+    // One write, after the batch: the set is a single settings blob, and rewriting it per session
+    // would be hundreds of JSON round trips to record the same list.
+    if (sessions.some((o) => o.state === "imported")) this.d.settings.set(IMPORTED_KEYS, [...done].sort());
     const memories = selection.memories.map((sel) => this.importMemory(sel, target, touchedMemory));
     const skills = selection.skills.map((id) => this.importSkill(id));
 
@@ -233,13 +270,14 @@ export class ImportService {
    */
   private importSession(
     sel: { key: string; spaceId: string | null; profileId: string | null },
-    ctx: { target: (s: string | null, p: string | null) => Space; index: Map<string, FoundSession>; known: Set<string>; touchedSpaces: Set<string>; now: number },
+    ctx: { target: (s: string | null, p: string | null) => Space; index: Map<string, FoundSession>; known: Set<string>; done: Set<string>; touchedSpaces: Set<string>; now: number },
   ): ImportOutcome {
     const out = (state: ImportOutcome["state"], detail: string, refId: string | null = null): ImportOutcome => ({ key: sel.key, state, refId, detail });
     // The key must have come from a scan. A client-invented path finds nothing here and is refused,
     // which is what keeps `apply` from being a "read any file on this machine into my database" call.
     const found = ctx.index.get(sel.key);
     if (!found) return out("skipped", "no longer on disk");
+    if (ctx.done.has(sel.key)) return out("skipped", "already imported");
     const t = loadTranscript(found, ctx.now);
     if (!t) return out("skipped", "could not be read");
     if (ctx.known.has(t.providerSessionId)) return out("skipped", "already imported");
@@ -256,25 +294,39 @@ export class ImportService {
     const env = cwdExists ? this.d.environments.ensureAt(space.id, t.cwd, "checkout") : this.d.environments.ensurePrimary(space.id);
     const title = clipTitle(t.title || "Imported session");
 
-    const session = this.d.sessions.create({
-      spaceId: space.id, projectId: null, agentKind: found.agentKind,
-      model: t.model, effort: null, permissionMode: "default", environmentId: env.id, title,
-      // Recorded as the row's origin so the Tasks lens and any later audit can tell an imported
-      // conversation from one that happened in Realm. No parent session: nothing dispatched it.
-      dispatchedBy: { kind: "import", sessionId: null },
-    });
-    let lastSeq = 0;
-    for (const ev of t.events) lastSeq = this.d.events.append(session.id, ev).seq;
-    this.d.sessions.update({
-      id: session.id, lastEventSeq: lastSeq,
-      providerSessionId: cwdExists ? t.providerSessionId : null,
-      // `ended` rather than `idle`: the conversation is over as far as Realm is concerned. A resume
-      // is still one message away — `ensureLive` does not consult status — but the sidebar must not
-      // present a year-old transcript as a session sitting there waiting.
-      status: "ended",
-    });
-    this.d.items.create({ spaceId: space.id, kind: "session", title, refId: session.id });
+    // One session, one transaction. A transcript is thousands of INSERTs, and a failure partway
+    // through an untransacted run would leave a session row advertising a conversation it only has
+    // half of — worse than not importing it, because nothing afterwards can tell the difference. It
+    // also keeps the write off the FTS index and the events table as one commit rather than
+    // thousands, which matters because this can run against a database a live Realm is using.
+    let session: { id: string };
+    this.d.db.exec("BEGIN");
+    try {
+      session = this.d.sessions.create({
+        spaceId: space.id, projectId: null, agentKind: found.agentKind,
+        model: t.model, effort: null, permissionMode: "default", environmentId: env.id, title,
+        // Recorded as the row's origin so the Tasks lens and any later audit can tell an imported
+        // conversation from one that happened in Realm. No parent session: nothing dispatched it.
+        dispatchedBy: { kind: "import", sessionId: null },
+      });
+      let lastSeq = 0;
+      for (const ev of t.events) lastSeq = this.d.events.append(session.id, ev).seq;
+      this.d.sessions.update({
+        id: session.id, lastEventSeq: lastSeq,
+        providerSessionId: cwdExists ? t.providerSessionId : null,
+        // `ended` rather than `idle`: the conversation is over as far as Realm is concerned. A resume
+        // is still one message away — `ensureLive` does not consult status — but the sidebar must not
+        // present a year-old transcript as a session sitting there waiting.
+        status: "ended",
+      });
+      this.d.items.create({ spaceId: space.id, kind: "session", title, refId: session.id });
+      this.d.db.exec("COMMIT");
+    } catch (e) {
+      this.d.db.exec("ROLLBACK");
+      return out("failed", e instanceof Error ? e.message : String(e));
+    }
     ctx.known.add(t.providerSessionId);
+    ctx.done.add(sel.key);
     ctx.touchedSpaces.add(space.id);
     return out("imported", cwdExists ? `${t.messages} messages, resumable` : `${t.messages} messages, archive (cwd is gone)`, session.id);
   }
@@ -384,10 +436,47 @@ export class ImportService {
     return out("imported", `copied from ${source.origin}`, id);
   }
 
+  /** The source keys a previous import already brought in — see `IMPORTED_KEYS`. Entries validated
+   *  individually so one corrupt element costs that entry, not the whole set its memory. */
+  private importedKeys(): Set<string> {
+    const v = this.d.settings.get(IMPORTED_KEYS);
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  }
+
   /** Every transcript on disk, from all three sources — the one listing both `scan` and `apply`
    *  build their view from, so a key offered by one is resolvable by the other. */
   private allFound(): FoundSession[] {
     return [...findClaudeSessions(this.roots), ...findCodexSessions(this.roots), ...findCursorSessions(this.roots)];
+  }
+}
+
+/**
+ * Mark every candidate that another candidate is a fuller copy of — see `duplicate` in the contract
+ * for why this exists at all.
+ *
+ * The winner is the one with the MOST spoken turns, because these are replays of one growing thread
+ * and the longest replay is the most complete record of it. Not the newest: a resumed thread can
+ * branch, and this corpus has a 13-turn copy written before a 9-turn one. Ties break on `updatedAt`
+ * and then on `key`, so a re-scan of an unchanged disk always chooses the same winner — otherwise the
+ * preview would silently re-target itself between a scan and an apply.
+ *
+ * Only candidates sharing a `providerSessionId` are compared. Two genuinely different conversations
+ * cannot collide here: the id is the CLI's own, and this is the same key the database dedups on.
+ */
+function markDuplicates(sessions: ImportSessionCandidate[]): void {
+  const byId = new Map<string, ImportSessionCandidate[]>();
+  for (const s of sessions) {
+    if (!s.providerSessionId) continue;
+    const group = byId.get(s.providerSessionId);
+    if (group) group.push(s); else byId.set(s.providerSessionId, [s]);
+  }
+  for (const group of byId.values()) {
+    if (group.length === 1) continue;
+    const winner = group.reduce((best, s) =>
+      s.messages !== best.messages ? (s.messages > best.messages ? s : best)
+        : s.updatedAt !== best.updatedAt ? (s.updatedAt > best.updatedAt ? s : best)
+          : (s.key < best.key ? s : best));
+    for (const s of group) if (s !== winner) s.duplicate = true;
   }
 }
 

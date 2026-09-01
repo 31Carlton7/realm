@@ -79,7 +79,7 @@ describe("import contracts", () => {
       sessions: [{
         key: "/a/b.jsonl", source: "claude", agentKind: "claude", providerSessionId: "s1", path: "/a/b.jsonl",
         cwd: "/Users/me/proj", cwdExists: true, title: "T", messages: 4, startedAt: 1, updatedAt: 2,
-        fromRealm: false, scratch: false, imported: false,
+        fromRealm: false, scratch: false, imported: false, duplicate: false,
         match: { spaceId: null, fallbackProfileId: null, reason: "none", evidence: null },
       }],
       memories: [], skills: [],

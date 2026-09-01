@@ -8,7 +8,7 @@ import { fakeApi, profile, space, type FakeData } from "../../state/store.test-f
 const session = (over: Partial<ImportScan["sessions"][number]> = {}): ImportScan["sessions"][number] => ({
   key: "/c/a.jsonl", source: "claude", agentKind: "claude", providerSessionId: "p1", path: "/c/a.jsonl",
   cwd: "/Users/me/proj", cwdExists: true, title: "A session", messages: 4, startedAt: 1, updatedAt: 1_780_000_000_000,
-  fromRealm: false, scratch: false, imported: false,
+  fromRealm: false, scratch: false, imported: false, duplicate: false,
   match: { spaceId: "s1", fallbackProfileId: null, reason: "project", evidence: "project \"proj\"" },
   ...over,
 });

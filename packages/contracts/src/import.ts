@@ -98,6 +98,17 @@ export const ImportSessionCandidateSchema = z.object({
   /** A session row already carries this `providerSessionId`. Never re-imported; listed as evidence
    *  that the previous run did its job. */
   imported: z.boolean(),
+  /**
+   * Another candidate is a fuller copy of this same conversation.
+   *
+   * Codex writes a NEW rollout file every time a thread is resumed or forked, and each one replays
+   * the whole conversation so far under the same `session_id`. On this machine 158 files are one
+   * Stora thread and 14 are one quant-lab thread — 241 rollout files, 71 actual conversations.
+   * Importing them all would produce 158 near-identical sessions; importing an arbitrary one loses
+   * turns. So the richest replay of each id wins and the rest are marked here: hidden by default,
+   * counted, and never imported (they would be refused by the provider-id dedup anyway).
+   */
+  duplicate: z.boolean(),
   match: ImportMatchSchema,
 });
 export type ImportSessionCandidate = z.infer<typeof ImportSessionCandidateSchema>;
