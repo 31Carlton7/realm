@@ -43,7 +43,10 @@ import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 import { machineName } from "./machine-name";
 
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; close(): Promise<void> };
+/** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
+ *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
+ *  gateway proves them). Production callers use it via sessions, never directly. */
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /**
@@ -268,7 +271,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   await mcpGateway.listen();
   const port = await rpc.listen(opts.port);
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns,
+    port, db, terminals, sessions, browserAgents, agentRuns, gateway: mcpGateway,
     close: async () => {
       terminals.closeAll();
       await sessions.closeAll();

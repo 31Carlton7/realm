@@ -351,6 +351,10 @@ function v8McpFixture(path: string): { serverId: string } {
   const db = new DatabaseSync(path);
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V8_MCP_SERVERS);
+  // The fixture is deliberately minimal — only the tables LATER migrations touch. v13 ALTERs
+  // sessions, so a stub of it must exist for the v9..v13 replay to run; its real v3 shape is
+  // exercised by the v4/v5 fixtures above.
+  db.exec("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY)");
   for (const v of [1, 2, 3, 4, 5, 6, 7, 8]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run("srv1", "airtable", "stdio", "/usr/bin/node", '["/abs/s.mjs"]', "", '{"AIRTABLE_API_KEY":"pat-x"}', 1, 1);
@@ -414,6 +418,22 @@ describe("migration v9 — MCP gateway", () => {
     const db = openDatabase(p);
     expect((db.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     expect((db.prepare("SELECT COUNT(*) AS n FROM mcp_servers").get() as { n: number }).n).toBe(1);
+    db.close();
+  });
+});
+
+describe("migration v13 — dispatch origin (Plan 13 W1)", () => {
+  // The v4 fixture holds a REAL populated session ('se1'), migrated all the way forward — exactly
+  // the row an upgrade must leave alone.
+  it("adds dispatched_by_kind/dispatched_by_session_id, NULL for every existing session — nothing backfilled", () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    const db = openDatabase(p);
+    const cols = (db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining(["dispatched_by_kind", "dispatched_by_session_id"]));
+    const row = db.prepare("SELECT dispatched_by_kind, dispatched_by_session_id FROM sessions WHERE id = 'se1'").get() as { dispatched_by_kind: string | null; dispatched_by_session_id: string | null };
+    expect(row.dispatched_by_kind).toBeNull();
+    expect(row.dispatched_by_session_id).toBeNull();
     db.close();
   });
 });

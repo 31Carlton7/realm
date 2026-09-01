@@ -4,6 +4,9 @@ import { mkdtempSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
+import type { McpServerConfig } from "@realm/adapters";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
@@ -210,6 +213,26 @@ describe("recursion guard — depth-1, enforced server-side", () => {
     expect(text(direct)).toContain("depth-1");
     // No grandchild session appeared.
     expect(app.sessions.list(spaceId)).toHaveLength(2);
+  });
+
+  it("through the REAL gateway, the child's tools/list has the full surface minus realm-agent — app.ts's closure, not a stub", async () => {
+    const { spaceId, parentId } = await boot();
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const child = childOf(spaceId, parentId);
+    const listAs = async (sessionId: string): Promise<string[]> => {
+      const cfg = app.gateway.register(sessionId, spaceId) as Extract<McpServerConfig, { url: string }>;
+      const client = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+      await client.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+      const names = (await client.listTools()).tools.map((t) => t.name);
+      await client.close();
+      return names;
+    };
+    const childTools = await listAs(child.id);
+    expect(childTools.some((n) => n.startsWith("realm-agent__"))).toBe(false);   // the recursion mutant
+    expect(childTools.some((n) => n.startsWith("realm-browser__"))).toBe(true);  // the normal surface stays
+    const parentTools = await listAs(parentId);
+    expect(parentTools).toContain(`realm-agent__${AGENT_RUN_TOOL_NAME}`);
+    expect(parentTools).toContain(`realm-agent__${RUN_TOOL_NAME}`);
   });
 
   it("a BROWSER-agent child cannot call agent_run either", async () => {
