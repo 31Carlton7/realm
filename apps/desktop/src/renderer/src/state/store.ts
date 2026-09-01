@@ -2,7 +2,7 @@ import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
   basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mimeForPath,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -12,6 +12,19 @@ export type CreateSpaceInput = { name: string; icon: string; profileId: string; 
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
+/** `mcp.add` params, minus the wire's own defaulting — undefined fields simply aren't sent. */
+export type AddMcpServerInput = {
+  spaceId: string | null; name: string; transport: McpTransport;
+  command?: string; args?: string[]; env?: Record<string, string>;
+  url?: string; headers?: Record<string, string>;
+};
+/** `mcp.update` params. `spaceId` is only so the result can report `enabled` for the space the editor
+ *  is open in — passing it never changes which spaces have this server enabled. */
+export type UpdateMcpServerInput = {
+  id: string; spaceId?: string | null; name?: string; transport?: McpTransport;
+  command?: string; args?: string[]; env?: Record<string, string>;
+  url?: string; headers?: Record<string, string>;
+};
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
 /** A pending attachment as the prompter holds it. `path`/`mime` are the wire fields; `name` labels the
  *  chip and `size` is what the MAX_ATTACHMENT_BYTES check reads — neither is transmitted. */
@@ -115,6 +128,22 @@ export type Api = {
   previewCheckpoint(id: string): Promise<RestorePreview>;
   /** `checkpoints.restore`. The acknowledgement must equal what the server re-reads, or it refuses. */
   restoreCheckpoint(id: string, acknowledge: { filesChanged: number; commitsRolledBack: number }): Promise<RestoreResult>;
+  /** `mcp.list` — every server Realm knows about, carrying this space's own enable flag + allowlist. */
+  listMcpServers(spaceId: string): Promise<{ servers: McpServer[]; secretNote: string }>;
+  addMcpServer(input: AddMcpServerInput): Promise<McpServer>;
+  updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
+  removeMcpServer(id: string): Promise<void>;
+  setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
+   *  the list is still a renderable result. */
+  mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
+  /** `null` = every cached tool allowed. */
+  setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
+  /** `mcp.oauth.start` — the renderer opens the returned URL itself (`window.open`). */
+  startMcpOauth(id: string): Promise<{ authUrl: string }>;
+  disconnectMcpOauth(id: string): Promise<void>;
+  /** `mcp.retry` — closes a tripped circuit breaker and drops the stale client. */
+  retryMcpServer(id: string): Promise<void>;
 };
 
 /** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
@@ -260,6 +289,13 @@ export type AppState = {
   terminalPanel: Record<string, TerminalPanel>;
   /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
+  /** MCP servers for the space currently open in settings (W6) — `mcp.list`'s per-space projection.
+   *  Empty until `refreshMcpServers` runs; McpSection fetches on mount, i.e. on sheet open. */
+  mcpServers: McpServer[];
+  /** The last `mcp.tools.list` error per server id, `null` once a refresh succeeds. A RESULT, not an
+   *  exception (see the Api doc comment) — kept apart from `error` so it renders inline on the row that
+   *  caused it instead of stealing the app's one error banner. */
+  mcpToolsError: Record<string, string | null>;
   activeSpace(): Space | undefined;
   activeIndex(): number;
   boot(): Promise<void>;
@@ -403,6 +439,29 @@ export type AppState = {
   confirmRestoreCheckpoint(id: string): Promise<void>;
   /** `checkpoints.capture` — a point the user asked for, next to the ones every turn takes. */
   captureCheckpoint(environmentId: string, sessionId: string | null): Promise<void>;
+  /** Re-fetch this space's MCP servers. Called on `McpSection` mount (sheet open) and on `mcp.changed`
+   *  while that space's settings sheet is the one showing. Applies the result only if the sheet is
+   *  still open for this exact space — a slow response after the user closed or switched must not
+   *  clobber whatever the sheet is showing now. */
+  refreshMcpServers(spaceId: string): Promise<void>;
+  addMcpServer(input: AddMcpServerInput): Promise<McpServer>;
+  updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
+  removeMcpServer(id: string): Promise<void>;
+  setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** Narrow (or, with `null`, reset) this space's allowlist for one server. */
+  setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
+  /** Refresh one server's cached tools. Never throws for a connect failure — that lands in
+   *  `mcpToolsError`, a result the row renders inline, per `mcp.tools.list`'s contract. */
+  refreshMcpTools(id: string): Promise<void>;
+  /** Close a tripped circuit breaker; the next call (including the next tools refresh) tries again. */
+  retryMcpServer(id: string): Promise<void>;
+  /** Begin the OAuth dance; the caller (the row/form) opens the returned URL itself. */
+  startMcpOauth(id: string): Promise<{ authUrl: string }>;
+  disconnectMcpOauth(id: string): Promise<void>;
+  /** Patch one server's live status from an `mcp.serverStatus` broadcast. Idempotent: applying the same
+   *  payload twice (the event can repeat, and can arrive without a matching `mcp.changed`) leaves the
+   *  same state, and a server not currently in `mcpServers` is a no-op rather than an error. */
+  applyMcpServerStatus(payload: { id: string; status: McpServerStatus; oauthStatus: McpOauthStatus }): void;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
   clearError(): void;
@@ -645,6 +704,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
+      mcpServers: [], mcpToolsError: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
@@ -1245,6 +1305,60 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sheet = get().sheet;
         await get().refreshCheckpoints(result.environmentId, sheet?.kind === "checkpoints" ? sheet.sessionId : null);
         if (result.path in get().diffs) await get().refreshDiff(result.path);
+      },
+      async refreshMcpServers(spaceId) {
+        const { servers } = await api.listMcpServers(spaceId);
+        const sheet = get().sheet;
+        if (sheet?.kind !== "space-settings" || sheet.spaceId !== spaceId) return;
+        set({ mcpServers: servers });
+      },
+      async addMcpServer(input) {
+        const s = await api.addMcpServer(input);
+        // Optimistic: `mcp.changed` will also refetch, but that broadcast round-trip must not be the
+        // only reason the row the user just created appears.
+        set({ mcpServers: [...get().mcpServers, s] });
+        return s;
+      },
+      async updateMcpServer(input) {
+        const s = await api.updateMcpServer(input);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === s.id ? s : x)) });
+        return s;
+      },
+      async removeMcpServer(id) {
+        await api.removeMcpServer(id);
+        set({ mcpServers: get().mcpServers.filter((x) => x.id !== id) });
+      },
+      async setMcpEnabled(spaceId, id, enabled) {
+        await api.setMcpEnabled(spaceId, id, enabled);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, enabled } : x)) });
+      },
+      async setMcpAllowedTools(spaceId, id, tools) {
+        await api.setMcpAllowedTools(spaceId, id, tools);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, allowedTools: tools } : x)) });
+      },
+      async refreshMcpTools(id) {
+        const { tools, error } = await api.mcpToolsList(id);
+        set({
+          // A failed refresh keeps whatever was cached before — the row still has something to show.
+          mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, tools: error ? x.tools : tools } : x)),
+          mcpToolsError: { ...get().mcpToolsError, [id]: error },
+        });
+      },
+      async retryMcpServer(id) {
+        await api.retryMcpServer(id);
+        // The real status arrives on the next `mcp.serverStatus` broadcast; optimistically clear the
+        // breaker here so the Retry button doesn't sit on a stale "circuit_open" until then.
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, status: "idle" } : x)) });
+      },
+      async startMcpOauth(id) {
+        return api.startMcpOauth(id);
+      },
+      async disconnectMcpOauth(id) {
+        await api.disconnectMcpOauth(id);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, oauthStatus: "unconfigured" } : x)) });
+      },
+      applyMcpServerStatus({ id, status, oauthStatus }) {
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, status, oauthStatus } : x)) });
       },
       run(action) {
         action().catch((e: unknown) => {

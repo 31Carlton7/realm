@@ -1,0 +1,120 @@
+import { describe, expect, it } from "vitest";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { MCP_SECRET_STORAGE_NOTE } from "@realm/contracts";
+import { SpaceSettingsSheet } from "./SpaceSettingsSheet";
+import { StoreContext, createAppStore } from "../../state/store";
+import { fakeApi, mcpServer, mcpTool, session } from "../../state/store.test-fakes";
+
+async function mount(overrides: Parameters<typeof fakeApi>[0] = {}) {
+  const api = fakeApi(overrides);
+  const store = createAppStore(api);
+  await store.getState().boot();
+  store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
+  render(<StoreContext.Provider value={store}><SpaceSettingsSheet spaceId="s1" /></StoreContext.Provider>);
+  // McpSection fetches on mount (sheet open) — wait for that before asserting on its contents.
+  await waitFor(() => expect(api.calls).toContain("listMcpServers:s1"));
+  return { store, api };
+}
+
+describe("McpSection", () => {
+  it("says a fresh space has no MCP servers rather than rendering an empty list", async () => {
+    await mount();
+    expect(screen.getByText(/No MCP servers yet — add one to give this space's agents tools\./)).toBeInTheDocument();
+  });
+
+  it("adding a server makes it appear, enabled for this space", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Add server…" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Server name" }), { target: { value: "Everything" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Command" }), { target: { value: "npx" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add server" }));
+    await waitFor(() => expect(screen.getByText("Everything")).toBeInTheDocument());
+    const row = screen.getByText("Everything").closest(".mcp-row") as HTMLElement;
+    expect(within(row).getByRole("checkbox", { name: "Enabled" })).toBeChecked();
+    expect(store.getState().mcpServers.some((s) => s.name === "Everything" && s.enabled)).toBe(true);
+  });
+
+  it("toggling a tool checkbox sends the explicit allowlist; re-checking everything restores null", async () => {
+    const srv = mcpServer("m1", { name: "srv1", enabled: true, tools: [mcpTool("a"), mcpTool("b")] });
+    const { api } = await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv1")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("checkbox", { name: "a" }));
+    await waitFor(() => expect(api.calls).toContain("setMcpAllowedTools:s1:m1=b"));
+    fireEvent.click(within(row).getByRole("checkbox", { name: "a" }));
+    await waitFor(() => expect(api.calls.at(-1)).toBe("setMcpAllowedTools:s1:m1=null"));
+  });
+
+  it("an oauth-authKind server with no connection yet shows Connect, never the key form", async () => {
+    const srv = mcpServer("m2", { name: "srv2", transport: "http", url: "https://mcp.example/", authKind: "oauth", oauthStatus: "unconfigured", enabled: true });
+    await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv2")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    expect(within(row).getByRole("button", { name: "Connect" })).toBeInTheDocument();
+    expect(within(row).queryByRole("textbox", { name: "Headers key" })).toBeNull();
+  });
+
+  it("reconnect_needed shows Reconnect and a warning, never the key form", async () => {
+    const srv = mcpServer("m3", { name: "srv3", transport: "http", url: "https://mcp.example/", authKind: "oauth", oauthStatus: "reconnect_needed", enabled: true });
+    await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv3")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    expect(within(row).getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
+    expect(within(row).getByText(/needs to be reauthorized/)).toBeInTheDocument();
+    expect(within(row).queryByRole("textbox", { name: "Headers key" })).toBeNull();
+  });
+
+  it("mcp.serverStatus patches the status dot idempotently", async () => {
+    const srv = mcpServer("m4", { name: "srv4", status: "idle" });
+    const { store } = await mount({ mcpServers: [srv] });
+    await screen.findByText("srv4");
+    const payload = { id: "m4", status: "connected" as const, oauthStatus: "unconfigured" as const };
+    store.getState().applyMcpServerStatus(payload);
+    const once = store.getState().mcpServers.find((s) => s.id === "m4");
+    store.getState().applyMcpServerStatus(payload);
+    const twice = store.getState().mcpServers.find((s) => s.id === "m4");
+    expect(once).toEqual(twice);
+    await waitFor(() => expect(screen.getByTitle("Connected")).toBeInTheDocument());
+  });
+
+  it("shows the secret storage note on the key form", async () => {
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Add server…" }));
+    expect(screen.getByText(MCP_SECRET_STORAGE_NOTE)).toBeInTheDocument();
+  });
+
+  it("editing the URL of an oauth-connected server warns before saving", async () => {
+    const srv = mcpServer("m5", { name: "srv5", transport: "http", url: "https://old.example/", authKind: "oauth", oauthStatus: "connected", enabled: true });
+    await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv5")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    const urlInput = within(row).getByRole("textbox", { name: "Server URL" });
+    fireEvent.change(urlInput, { target: { value: "https://new.example/" } });
+    expect(within(row).getByText(/disconnects this server's OAuth connection/)).toBeInTheDocument();
+  });
+
+  it("a refresh-tools failure renders inline as a result, never as the app's error banner", async () => {
+    const srv = mcpServer("m6", { name: "srv6", enabled: true, tools: [] });
+    const { store } = await mount({ mcpServers: [srv], mcpToolsError: { m6: "connection refused: ECONNREFUSED" } });
+    const row = (await screen.findByText("srv6")).closest(".mcp-row") as HTMLElement;
+    expect(within(row).getByText(/Not connected yet — Refresh tools to connect\./)).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "Refresh tools" }));
+    await waitFor(() => expect(within(row).getByText("connection refused: ECONNREFUSED")).toBeInTheDocument());
+    expect(store.getState().error).toBeNull();
+  });
+
+  it("circuit_open shows Retry with the reconnect-and-refresh copy", async () => {
+    const srv = mcpServer("m7", { name: "srv7", status: "circuit_open", enabled: true });
+    const { api } = await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv7")).closest(".mcp-row") as HTMLElement;
+    expect(within(row).getByText(/Retry reconnects and refreshes the connection\./)).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(api.calls).toContain("retryMcpServer:m7"));
+  });
+
+  it("names the space's agents and flags the ACP no-http-MCP caveat", async () => {
+    await mount({ sessions: [session("se1", "s1", { agentKind: "acp:cursor" })] });
+    await screen.findByText(/No MCP servers yet/);
+    expect(screen.getByText(/Cursor reaches this space's enabled servers through Realm's gateway/)).toBeInTheDocument();
+    expect(screen.getByText(/A build without http MCP support gets no tools\./)).toBeInTheDocument();
+  });
+});

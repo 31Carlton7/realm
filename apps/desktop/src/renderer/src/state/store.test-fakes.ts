@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import type { Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, Profile, Project, RestorePreview, Session, ShipResult, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
-import type { AgentProbe, Api, PickedAttachment } from "./store";
+import { MCP_SECRET_STORAGE_NOTE, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type McpServer, type McpTool, type Profile, type Project, type RestorePreview, type Session, type ShipResult, type Space, type StoredSessionEvent, type WorktreeStatus } from "@realm/contracts";
+import type { AddMcpServerInput, AgentProbe, Api, PickedAttachment, UpdateMcpServerInput } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
   ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
@@ -18,6 +18,14 @@ export const checkpoint = (id: string, environmentId: string, extra: Partial<Che
 export const preview = (id: string, environmentId: string, extra: Partial<RestorePreview> = {}): RestorePreview =>
   ({ checkpointId: id, environmentId, path: "/tmp", label: "a turn", createdAt: 0, filesChanged: 0, commitsRolledBack: 0,
     headMovable: true, headReason: null, intact: true, rewindsConversation: false, ...extra });
+
+/** A single-space simplification (the real row's `enabled`/`allowedTools` are per-space; these fakes
+ *  only ever exercise one space at a time, so a flat field is enough). */
+export const mcpServer = (id: string, extra: Partial<McpServer> = {}): McpServer =>
+  ({ id, name: `srv-${id}`, transport: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"], url: "",
+    envKeys: [], headerKeys: [], authKind: "none", oauthStatus: "unconfigured", status: "idle", tools: [], allowedTools: null,
+    enabled: false, createdAt: 0, ...extra });
+export const mcpTool = (name: string, description = ""): McpTool => ({ name, description });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
@@ -49,6 +57,15 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
+  /** MCP servers `mcp.list` answers with (W6). One flat list — see `mcpServer`'s doc comment. */
+  mcpServers?: McpServer[];
+  /** What the next `mcp.tools.list` answers for a given server id, if scripted; otherwise the fake
+   *  echoes back the server's own cached `tools`. Consumed once like `pickFiles`... except it is NOT
+   *  consumed — tests mutate it between calls to simulate a live upstream tool list. */
+  mcpToolsResult?: Record<string, McpTool[]>;
+  /** What `mcp.tools.list` answers as `error` for a server id, if set — a connect failure is a result,
+   *  never a throw (see the Api doc comment). */
+  mcpToolsError?: Record<string, string | null>;
 };
 
 export type FakeApi = Api & {
@@ -93,6 +110,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     checkpointPreview: overrides.checkpointPreview ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    mcpServers: overrides.mcpServers ?? [],
+    mcpToolsResult: overrides.mcpToolsResult ?? {},
+    mcpToolsError: overrides.mcpToolsError ?? {},
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -292,6 +312,79 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { environmentId: p.environmentId, path: p.path, undoCheckpointId: undo.id,
         headMoved: p.headMovable, filesChanged: p.filesChanged, commitsRolledBack: p.headMovable ? p.commitsRolledBack : 0,
         filesRemoved: 0, conversationRewound: false };
+    },
+    listMcpServers: async (spaceId) => {
+      calls.push(`listMcpServers:${spaceId}`);
+      await wait(`listMcpServers:${spaceId}`);
+      return { servers: data.mcpServers.map((s) => ({ ...s })), secretNote: MCP_SECRET_STORAGE_NOTE };
+    },
+    addMcpServer: async (input: AddMcpServerInput) => {
+      calls.push(`addMcpServer:${input.name}`);
+      const keys = Object.keys(input.transport === "stdio" ? input.env ?? {} : input.headers ?? {});
+      const s = mcpServer(`mcp${++n}`, {
+        name: input.name, transport: input.transport,
+        command: input.command ?? "", args: input.args ?? [], url: input.url ?? "",
+        envKeys: input.transport === "stdio" ? keys : [], headerKeys: input.transport === "stdio" ? [] : keys,
+        authKind: keys.length > 0 ? "secrets" : "none",
+        enabled: input.spaceId !== null,
+      });
+      data.mcpServers.push(s);
+      return s;
+    },
+    updateMcpServer: async (input: UpdateMcpServerInput) => {
+      calls.push(`updateMcpServer:${input.id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === input.id);
+      if (i < 0) throw new Error(`no mcp server ${input.id}`);
+      const cur = data.mcpServers[i]!;
+      const transport = input.transport ?? cur.transport;
+      const sameTransport = transport === cur.transport;
+      const envKeys = input.env ? Object.keys(input.env) : sameTransport ? cur.envKeys : [];
+      const headerKeys = input.headers ? Object.keys(input.headers) : sameTransport ? cur.headerKeys : [];
+      const secretKeys = transport === "stdio" ? envKeys : headerKeys;
+      const s: McpServer = {
+        ...cur, name: input.name ?? cur.name, transport,
+        command: input.command ?? (sameTransport ? cur.command : ""),
+        args: input.args ?? (sameTransport ? cur.args : []),
+        url: input.url ?? (sameTransport ? cur.url : ""),
+        envKeys: transport === "stdio" ? envKeys : [], headerKeys: transport === "stdio" ? [] : headerKeys,
+        // Mirrors toContract: oauth beats secrets beats none, and a URL/transport change on an
+        // oauth-connected row clears the connection (binding note 3) — the fake drops it the same way.
+        authKind: cur.authKind === "oauth" && sameTransport && (input.url ?? cur.url) === cur.url ? "oauth" : secretKeys.length > 0 ? "secrets" : "none",
+        oauthStatus: cur.authKind === "oauth" && sameTransport && (input.url ?? cur.url) === cur.url ? cur.oauthStatus : "unconfigured",
+      };
+      data.mcpServers[i] = s;
+      return s;
+    },
+    removeMcpServer: async (id) => { calls.push(`removeMcpServer:${id}`); data.mcpServers = data.mcpServers.filter((s) => s.id !== id); },
+    setMcpEnabled: async (spaceId, id, enabled) => {
+      calls.push(`setMcpEnabled:${spaceId}:${id}=${enabled}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, enabled };
+    },
+    mcpToolsList: async (id) => {
+      calls.push(`mcpToolsList:${id}`);
+      const err = data.mcpToolsError[id] ?? null;
+      if (err) return { tools: [], error: err };
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      const tools = data.mcpToolsResult[id] ?? data.mcpServers[i]!.tools;
+      data.mcpServers[i] = { ...data.mcpServers[i]!, tools };
+      return { tools, error: null };
+    },
+    setMcpAllowedTools: async (spaceId, id, tools) => {
+      calls.push(`setMcpAllowedTools:${spaceId}:${id}=${tools === null ? "null" : tools.join(",")}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, allowedTools: tools };
+    },
+    startMcpOauth: async (id) => { calls.push(`startMcpOauth:${id}`); return { authUrl: `https://oauth.example/authorize?server=${id}` }; },
+    disconnectMcpOauth: async (id) => {
+      calls.push(`disconnectMcpOauth:${id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, oauthStatus: "unconfigured" };
+    },
+    retryMcpServer: async (id) => {
+      calls.push(`retryMcpServer:${id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, status: "idle" };
     },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));

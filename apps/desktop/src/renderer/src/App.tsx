@@ -128,6 +128,13 @@ export function App() {
     });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
+    // No payload — `mcp.changed` just means "something about some server changed". Only worth a refetch
+    // while the settings sheet is actually open on a space's server list.
+    const offM = rpc().on("mcp.changed", () => {
+      const sheet = store.getState().sheet;
+      if (sheet?.kind === "space-settings") store.getState().run(() => store.getState().refreshMcpServers(sheet.spaceId));
+    });
+    const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
     const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
     // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
     const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
@@ -140,7 +147,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offE(); offT(); offC();
+      offS(); offI(); offV(); offW(); offP(); offE(); offT(); offM(); offMS(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

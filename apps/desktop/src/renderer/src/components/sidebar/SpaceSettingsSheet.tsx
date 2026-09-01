@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { useApp } from "../../state/store";
 import { Sheet } from "../Sheet";
+import { McpSection } from "./McpSection";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -113,6 +114,7 @@ export function SpaceSettingsSheet({ spaceId }: { spaceId: string }) {
           </select>
         </label>
         <EnvironmentList spaceId={space.id} />
+        <McpSection spaceId={space.id} />
         <div className="form-actions danger-zone">
           {confirmDelete ? (
             <>

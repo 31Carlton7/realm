@@ -110,8 +110,9 @@ export class McpService {
     const base = transport === existing.transport ? existing : blank();
     const input = { name: fields.name ?? existing.name, ...normalize(fields, transport, base) };
     requireEndpoint(input);
-    const row = this.d.servers.update(id, input);
-    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null, this.statusOf(row.id));
+    this.d.servers.update(id, input);
+    // Same projection `get` already computes — no reason to duplicate it here (reviewer nit).
+    return this.get(id, spaceId)!;
   }
 
   /** Forget the server and every space's opt-in to it, so re-adding the same name starts clean. */

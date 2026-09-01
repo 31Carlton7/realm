@@ -405,6 +405,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .status-dot[data-status="error"] { background: var(--rl-danger); }
 .status-dot[data-status="idle"] { background: var(--rl-line-strong); } /* idle is a state, not a verdict (V-C5) */
 .status-dot[data-status="ended"] { background: var(--rl-text-faint); opacity: .6; }
+/* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
+   for "running"/"waiting on the user", so they get the same success/danger treatment. */
+.status-dot[data-status="connected"] { background: var(--rl-success); }
+.status-dot[data-status="circuit_open"] { background: var(--rl-danger); animation: rl-pulse 0.9s ease-in-out infinite; }
 @keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 @keyframes rl-spin { to { transform: rotate(360deg); } }
 .spin { animation: rl-spin 0.9s linear infinite; }
@@ -869,6 +873,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Quiet inline action: a text button, not a control with a box (§3 ghost tier). */
 .btn-quiet { height: 22px; padding: 0 7px; border-radius: var(--r-chip); font-size: 11.5px; color: var(--rl-text-dim); background: transparent; }
 .btn-quiet:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.btn-quiet.danger { color: var(--rl-danger); }
 .diff-body { padding: 0 0 6px 26px; }
 .diff-side { padding: 4px 8px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
 /* Plan 9 W2 — the patch wears BUI CodeBlock's diff view: a surface panel behind a hairline ring,
@@ -953,3 +958,24 @@ button.panel-title:hover { background: var(--rl-hover); }
 .env-meta { grid-column: 1; display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--rl-text-faint); }
 .env-path { font-family: var(--font-mono); font-size: 10.5px; word-break: break-all; }
 .env-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }
+
+/* ── Space settings: MCP servers, auth and per-tool policy (W6) ───── */
+.mcp-row { grid-template-columns: 1fr auto; } /* same skeleton as .env-row; the status dot rides .env-main */
+.mcp-enable { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--rl-text-dim); }
+.mcp-form { padding: 10px 0 2px; border-top: 1px solid var(--rl-hairline); margin-top: 4px; gap: 10px; }
+.mcp-auth-choice { display: flex; gap: 12px; font-size: 12px; color: var(--rl-text-dim); }
+.mcp-auth-choice label { display: flex; align-items: center; gap: 5px; }
+.mcp-secrets { gap: 6px; }
+.mcp-secret-row { display: flex; gap: 6px; }
+.mcp-secret-row input { flex: 1; min-width: 0; }
+.mcp-secret-hint, .mcp-secret-note { margin: 0; font-size: 10.5px; color: var(--rl-text-faint); line-height: 1.5; }
+.mcp-warning { margin: 0; font-size: 11px; color: var(--rl-warning); }
+.mcp-error { margin: 0; font-size: 11px; color: var(--rl-danger); }
+.mcp-circuit { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 11px; color: var(--rl-danger); }
+.mcp-circuit span { flex: 1; }
+.mcp-tools { padding: 6px 0 2px 15px; display: flex; flex-direction: column; gap: 4px; } /* 15px ≈ status-dot + gap, so tools sit under the server name */
+.mcp-tools-head { display: flex; align-items: center; justify-content: space-between; }
+.mcp-tool-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.mcp-tool-list label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--rl-text-dim); }
+.mcp-tool-name { font-family: var(--font-mono); font-size: 10.5px; }
+.mcp-agent-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 10.5px; }
