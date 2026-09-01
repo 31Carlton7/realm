@@ -88,7 +88,7 @@ Follows `docs/superpowers/specs/2026-08-27-design-language.md`; the space-settin
 |---|---|
 | Unknown/expired session token | 401; agent surfaces its own connection error. |
 | Tool blocked by space policy | Structured tool error naming the space and the toggle that blocks it. |
-| Upstream call fails | Error result to the agent, log row with `ok=false`, toast in UI; other servers unaffected. |
+| Upstream call fails | Error result to the agent, log row with `ok=false` prepended live into the Activity view (amended at closeout: Activity is the failure surface — no toast mechanism exists in the renderer); other servers unaffected. |
 | 3 consecutive upstream failures | Circuit opens; calls fail fast with a "server unavailable, retry from settings" error until `mcp.retry` or a row edit. |
 | OAuth token expired | One silent refresh; on failure, row → `reconnect_needed`, calls fail with a reconnect message, UI badges it. |
 | Server row deleted mid-session | Its tools vanish from `tools/list` (list_changed notification); in-flight calls complete or error. |

@@ -44,8 +44,8 @@ export type StartOptions = {
   effort?: string | null;
   permissionMode?: string;
   systemContext?: string;
-  /** This space's enabled servers — since Plan 9 W3, always exactly the gateway's own `http` entry (or
-   *  empty for an agent with none enabled, or for `fake`). */
+  /** Since Plan 9 W3, `apps/server` always sends exactly ONE entry: the gateway's own `http` endpoint —
+   *  enablement or not, `fake` included (its adapter simply never reads it). Only tests pass `[]`. */
   mcpServers: McpServerConfig[];
   /** Omitted for agents Realm cannot inject skills into (see AGENT_SKILL_SUPPORT), and for a space
    *  whose enabled skill set is empty. */

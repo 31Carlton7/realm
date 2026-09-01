@@ -16,8 +16,8 @@ export type McpToolRow = { name: string; description: string };
  * A stored MCP server definition — **including its secret values**.
  *
  * This type never leaves the server. `McpService` projects it down to the `McpServer` contract (key
- * names only) for anything a client can see, and hands the whole row to an adapter only as part of a
- * session's `StartOptions`.
+ * names only) for anything a client can see; since the gateway (Plan 9 W3) the row's secrets travel
+ * only into the hub's transport construction — no row, whole or partial, ever reaches an adapter.
  */
 export type McpServerRow = {
   id: string;

@@ -160,7 +160,9 @@ export function registerMethods(d: Deps): void {
    *  see `McpHub.tools()`'s own doc comment for why the hub itself throws and this layer is what catches
    *  it. On success the fresh tools (the hub just re-cached them on the row) are returned directly. */
   reg("mcp.tools.list", async (p) => {
-    try { return { tools: await d.hub.tools(p.id), error: null }; }
+    // Projected to the contract's name+description: the hub's live list carries inputSchema for the
+    // GATEWAY's re-export, but the wire contract (and the settings UI) never declared or needed it.
+    try { return { tools: (await d.hub.tools(p.id)).map((t) => ({ name: t.name, description: t.description })), error: null }; }
     catch (e) { return { tools: [], error: e instanceof Error ? e.message : String(e) }; }
   });
   reg("mcp.setAllowedTools", (p) => {

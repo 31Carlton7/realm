@@ -300,7 +300,8 @@ class McpGateway {
   Activity shows calls). Cross-link this plan from the spec header.
 - [x] Live smoke on the real app (`pnpm dev`): stdio server (e.g. `npx -y @modelcontextprotocol/server-everything`)
   + one OAuth remote; a Claude session lists namespaced tools, a call lands in Activity; kill the
-  stdio server mid-session and confirm the structured error + toast, not a dead session.
+  stdio server mid-session and confirm the structured error (surfaced as a live `ok=false` Activity
+  row — the spec's "toast" was amended away at closeout; no toast mechanism exists), not a dead session.
 - [x] Final gates; `git log --oneline` review; PR per repo convention.
 
 ## Execution notes
