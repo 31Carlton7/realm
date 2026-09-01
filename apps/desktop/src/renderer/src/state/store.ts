@@ -444,6 +444,11 @@ export type AppState = {
    *  still open for this exact space — a slow response after the user closed or switched must not
    *  clobber whatever the sheet is showing now. */
   refreshMcpServers(spaceId: string): Promise<void>;
+  /** Drop whatever `mcpServers`/`mcpToolsError` currently hold. Called once, synchronously, when
+   *  `McpSection` mounts (or re-mounts for a different space) — BEFORE `refreshMcpServers` kicks off its
+   *  fetch — so reopening settings for a different space never flashes the previous space's rows (or a
+   *  tools error belonging to a server not even shown here) while the new list is in flight. */
+  clearMcpServers(): void;
   addMcpServer(input: AddMcpServerInput): Promise<McpServer>;
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
@@ -1312,6 +1317,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (sheet?.kind !== "space-settings" || sheet.spaceId !== spaceId) return;
         set({ mcpServers: servers });
       },
+      clearMcpServers() { set({ mcpServers: [], mcpToolsError: {} }); },
       async addMcpServer(input) {
         const s = await api.addMcpServer(input);
         // Optimistic: `mcp.changed` will also refetch, but that broadcast round-trip must not be the

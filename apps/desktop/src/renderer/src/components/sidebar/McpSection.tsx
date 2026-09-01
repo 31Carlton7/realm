@@ -28,12 +28,16 @@ export function McpSection({ spaceId }: { spaceId: string }) {
   const servers = useApp((s) => s.mcpServers);
   const sessions = useApp((s) => s.sessions);
   const refreshMcpServers = useApp((s) => s.refreshMcpServers);
+  const clearMcpServers = useApp((s) => s.clearMcpServers);
   const run = useApp((s) => s.run);
   const [adding, setAdding] = useState(false);
 
-  // Fetch on sheet open: McpSection only ever mounts while the space-settings sheet is showing.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- run/refreshMcpServers are stable store actions
-  useEffect(() => { run(() => refreshMcpServers(spaceId)); }, [spaceId]);
+  // Fetch on sheet open: McpSection only ever mounts (or re-mounts for a different spaceId) while the
+  // space-settings sheet is showing. Clearing first is deliberate — without it, reopening settings for
+  // a different space would flash the PREVIOUS space's server rows (and a stale tools error that
+  // belongs to a server not even shown here) until the fetch lands.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run/refreshMcpServers/clearMcpServers are stable store actions
+  useEffect(() => { clearMcpServers(); run(() => refreshMcpServers(spaceId)); }, [spaceId]);
 
   // Same idiom as EnvironmentList's checkout list: this state only ever holds the active space's data,
   // so a settings sheet opened for a non-active space would show nothing here either — an existing,
@@ -85,6 +89,11 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <span className="status-dot" data-status={server.status} title={STATUS_LABEL[server.status]} aria-label={`Status: ${STATUS_LABEL[server.status]}`} />
         <span className="env-name">{server.name}</span>
         <span className="env-kind">{server.transport}</span>
+        {/* The hub status dot only says whether calls currently succeed — it says nothing about auth,
+            so a server needing reauth otherwise looks completely normal until Edit is opened. */}
+        {server.authKind === "oauth" && server.oauthStatus === "reconnect_needed" && (
+          <span className="mcp-reauth-badge">Needs reauth</span>
+        )}
       </div>
       <div className="env-meta">
         <code className="env-path">{endpoint || "(no endpoint set)"}</code>
@@ -182,8 +191,9 @@ function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: 
 
   const isOauthRow = server?.authKind === "oauth";
   // Binding note 3: a URL or transport edit on an OAuth-connected server silently disconnects it
-  // server-side — this has to be said BEFORE the user saves, not discovered after.
-  const dirtyUrlOrTransport = !!server && isOauthRow && (transport !== server.transport || url !== server.url);
+  // server-side — this has to be said BEFORE the user saves, not discovered after. Trimmed so the
+  // comparison matches what actually gets sent on submit (untrimmed whitespace must not read as clean).
+  const dirtyUrlOrTransport = !!server && isOauthRow && (transport !== server.transport || url.trim() !== server.url);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -195,8 +205,11 @@ function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: 
         const patch: Parameters<typeof updateMcpServer>[0] = { id: server.id, spaceId, name: trimmed, transport };
         if (transport === "stdio") { patch.command = command.trim(); patch.args = argsText.split(/\s+/).filter(Boolean); }
         else { patch.url = url.trim(); }
-        // Omitted entirely when untouched: mcp.update keeps whatever secrets are already stored.
-        if (secretRows.length > 0) { if (transport === "stdio") patch.env = secrets; else patch.headers = secrets; }
+        // Omitted entirely unless at least one row actually named a key: mcp.update REPLACES the whole
+        // map, and `secrets` built from rows that are all blank is `{}` — sending that would wipe every
+        // stored key. Gating on the built object (not `secretRows.length`) is what keeps a stray
+        // "+ Add key" click with nothing typed from being a silent delete-everything.
+        if (Object.keys(secrets).length > 0) { if (transport === "stdio") patch.env = secrets; else patch.headers = secrets; }
         await updateMcpServer(patch);
       } else {
         const patch: Parameters<typeof addMcpServer>[0] = { spaceId, name: trimmed, transport };
@@ -220,6 +233,18 @@ function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: 
           <option value="sse">sse</option>
         </select>
       </label>
+      {/* Hoisted ABOVE the transport branch (spec review defect 1): an oauth row's warning and its
+          Connect/Disconnect/Reconnect controls describe the STORED row, not whatever transport happens
+          to be selected in this pending edit — so they must survive the user flipping the Transport
+          select to stdio, not disappear along with the (rightly hidden) headers form. */}
+      {server && isOauthRow && (
+        <>
+          {dirtyUrlOrTransport && (
+            <p className="mcp-warning">Changing the URL or transport disconnects this server's OAuth connection — you will need to reconnect.</p>
+          )}
+          <McpOauthControls server={server} />
+        </>
+      )}
       {transport === "stdio"
         ? <>
             <label className="field"><span>Command</span>
@@ -228,15 +253,16 @@ function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: 
             <label className="field"><span>Arguments</span>
               <input aria-label="Arguments" value={argsText} onChange={(e) => setArgsText(e.target.value)} placeholder="space-separated" />
             </label>
-            <SecretsFields label="Environment variables" existingKeys={server?.envKeys ?? []} rows={secretRows} setRows={setSecretRows} />
+            {/* Never the forbidden cell: an oauth row switched (even mid-edit, unsaved) to stdio must
+                not suddenly offer an env-var key form for a server that authenticates via OAuth. */}
+            {!isOauthRow && (
+              <SecretsFields label="Environment variables" existingKeys={server?.envKeys ?? []} rows={secretRows} setRows={setSecretRows} />
+            )}
           </>
         : <>
             <label className="field"><span>URL</span>
               <input aria-label="Server URL" value={url} onChange={(e) => setUrl(e.target.value)} />
             </label>
-            {dirtyUrlOrTransport && (
-              <p className="mcp-warning">Changing the URL or transport disconnects this server's OAuth connection — you will need to reconnect.</p>
-            )}
             {!server && (
               <div className="field"><span>Authentication</span>
                 <div className="mcp-auth-choice" role="radiogroup" aria-label="Authentication">
@@ -249,9 +275,11 @@ function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: 
               <SecretsFields label="Headers" existingKeys={server?.headerKeys ?? []} rows={secretRows} setRows={setSecretRows} />
             )}
             {!server && authChoice === "oauth" && (
-              <p className="muted">Save this server, then use Connect in its row to authorize.</p>
+              <p className="muted">Save this server, then open Edit to Connect and authorize.</p>
             )}
-            {server && <McpOauthControls server={server} />}
+            {/* The offer to switch TO oauth — only for an existing, not-yet-oauth remote server. An
+                oauth row's own controls are the hoisted block above, shown regardless of transport. */}
+            {server && !isOauthRow && <McpOauthControls server={server} />}
           </>}
       <div className="form-actions">
         <button type="button" className="btn-quiet" onClick={onDone}>Cancel</button>
@@ -280,7 +308,9 @@ function SecretsFields({ label, existingKeys, rows, setRows }: { label: string; 
       <span>{label}</span>
       {existingKeys.length > 0 && (
         <p className="mcp-secret-hint">
-          Currently set: {existingKeys.join(", ")}. Adding a key here replaces the whole set for this server — anything not listed below is removed.
+          Currently set: {existingKeys.join(", ")}. Typing at least one key below replaces the whole set
+          for this server — anything not listed is removed. Leaving every row blank (or adding none)
+          keeps the current keys exactly as they are.
         </p>
       )}
       {rows.map((row, i) => (

@@ -117,4 +117,57 @@ describe("McpSection", () => {
     expect(screen.getByText(/Cursor reaches this space's enabled servers through Realm's gateway/)).toBeInTheDocument();
     expect(screen.getByText(/A build without http MCP support gets no tools\./)).toBeInTheDocument();
   });
+
+  // Spec-review defects (fix commit): the oauth warning/controls used to live inside the non-stdio
+  // branch, so switching an oauth row's Transport select to stdio silently hid them AND rendered the
+  // forbidden env-var key form for an authKind==="oauth" row.
+  it("switching an oauth row's transport in the edit form still warns and never shows the key form", async () => {
+    const srv = mcpServer("m8", { name: "srv8", transport: "http", url: "https://mcp.example/", authKind: "oauth", oauthStatus: "connected", enabled: true });
+    await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv8")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(row).getByRole("combobox", { name: "Transport" }), { target: { value: "stdio" } });
+    expect(within(row).getByText(/disconnects this server's OAuth connection/)).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+    expect(within(row).queryByRole("textbox", { name: "Environment variables key" })).toBeNull();
+  });
+
+  // The preserve-vs-replace gate used to be `secretRows.length > 0`, so an empty "+ Add key" row (key
+  // and value both blank) built `secrets: {}`, which `mcp.update` treats as REPLACE-WITH-NOTHING —
+  // silently deleting every stored key on Save.
+  it("clicking + Add key without typing anything, then Save, preserves existing keys", async () => {
+    const srv = mcpServer("m9", { name: "srv9", enabled: true, envKeys: ["API_KEY"] });
+    const { api, store } = await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv9")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(row).getByRole("button", { name: "+ Add key" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.calls).toContain("updateMcpServer:m9"));
+    expect(store.getState().mcpServers.find((s) => s.id === "m9")?.envKeys).toEqual(["API_KEY"]);
+  });
+
+  it("shows the secret storage note on the edit form too, not just add", async () => {
+    const srv = mcpServer("m10", { name: "srv10", enabled: true });
+    await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv10")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    expect(within(row).getByText(MCP_SECRET_STORAGE_NOTE)).toBeInTheDocument();
+  });
+
+  it("Disconnect calls mcp.oauth.disconnect", async () => {
+    const srv = mcpServer("m11", { name: "srv11", transport: "http", url: "https://mcp.example/", authKind: "oauth", oauthStatus: "connected", enabled: true });
+    const { api } = await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv11")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(api.calls).toContain("disconnectMcpOauth:m11"));
+  });
+
+  it("a reconnect_needed server shows a reauth badge in the LIST, before Edit is ever opened", async () => {
+    const srv = mcpServer("m12", { name: "srv12", transport: "http", url: "https://mcp.example/", authKind: "oauth", oauthStatus: "reconnect_needed", enabled: true });
+    await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv12")).closest(".mcp-row") as HTMLElement;
+    expect(within(row).getByText("Needs reauth")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Reconnect" })).toBeNull();
+  });
 });
