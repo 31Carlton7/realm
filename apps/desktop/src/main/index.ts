@@ -13,7 +13,7 @@ import { BrowserAgentHost } from "./browser-agent-host";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import {
-  MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macSettingsUrl,
+  MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
 import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
@@ -183,16 +183,20 @@ function runMac(bin: string, argv: readonly string[], timeoutMs: number): Promis
  *  every visit to the tab. A missing binary, a crash, or unparseable output all land on `null` rows
  *  — which render as "unknown", not as a page full of green checks. */
 async function macAccessStatus(): Promise<MacAccessStatus> {
-  const host: MacAccessHost = { name: app.getName(), bundlePath: appBundlePath(app.getPath("exe")), packaged: app.isPackaged };
+  const bundlePath = appBundlePath(app.getPath("exe"));
+  const host: MacAccessHost = {
+    name: macHostName({ appName: app.getName(), bundlePath, packaged: app.isPackaged }),
+    bundlePath, packaged: app.isPackaged,
+  };
   const bin = resolveMacBin({ pathEnv: process.env.PATH, exists: (p) => existsSync(p) });
-  if (!bin) return { cli: { present: false, searched: [...MAC_FALLBACK_DIRS] }, rows: macAccessRows(null), host };
+  if (!bin) return { cli: { present: false, searched: [...MAC_FALLBACK_DIRS] }, rows: macAccessRows(null, { hostName: host.name }), host };
   const [doctor, version] = await Promise.all([
     runMac(bin, ["doctor", "--json"], 15_000),
     runMac(bin, ["--version"], 5_000),
   ]);
   return {
     cli: { present: true, path: bin, version: parseMacVersion(version.stdout) },
-    rows: macAccessRows(parseMacDoctor(doctor.stdout)),
+    rows: macAccessRows(parseMacDoctor(doctor.stdout), { hostName: host.name }),
     host,
   };
 }

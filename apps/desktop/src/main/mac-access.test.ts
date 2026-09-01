@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MAC_CAPABILITIES, MAC_SETTINGS_URLS, appBundlePath, grantPlan, grantedCount, isMacCapabilityId,
-  macAccessRows, macGrantArgv, macSettingsUrl, parseMacDoctor, parseMacVersion, resolveMacBin,
+  macAccessRows, macGrantArgv, macHostName, macSettingsUrl, parseMacDoctor, parseMacVersion, resolveMacBin,
   settingsOnlyRows, type MacDoctorEntry,
 } from "./mac-access";
 
@@ -204,5 +204,46 @@ describe("parseMacVersion / appBundlePath", () => {
     expect(appBundlePath("/Applications/Realm.app/Contents/MacOS/Realm")).toBe("/Applications/Realm.app");
     // A dev run of the raw Electron binary has no .app component — reveal it rather than nothing.
     expect(appBundlePath("/repo/node_modules/electron/dist/electron")).toBe("/repo/node_modules/electron/dist/electron");
+  });
+});
+
+describe("macHostName — the app macOS will actually name", () => {
+  it("packaged: the app's own name, which is what the bundle is called too", () => {
+    expect(macHostName({ appName: "Realm", bundlePath: "/Applications/Realm.app", packaged: true })).toBe("Realm");
+  });
+
+  it("dev: the BUNDLE's name — macOS says “Electron”, not the package name the app answers with (the named mutant: sending the user hunting for a “@realm/desktop” row that will never exist)", () => {
+    expect(macHostName({
+      appName: "@realm/desktop",
+      bundlePath: "/repo/node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app",
+      packaged: false,
+    })).toBe("Electron");
+  });
+
+  it("dev with no .app to read: falls back to the app name rather than to an empty label", () => {
+    expect(macHostName({ appName: "@realm/desktop", bundlePath: "/repo/node_modules/electron/dist/electron", packaged: false })).toBe("@realm/desktop");
+  });
+});
+
+describe("the Full Disk Access row's wording", () => {
+  it("names the app that is actually in the list, instead of quoting doctor's “your terminal app”", () => {
+    const detail = row(macAccessRows(allGranted({ fullDiskAccess: "denied" }), { hostName: "Realm" }), "fullDiskAccess").detail;
+    expect(detail).toContain("switch Realm on");
+    // The mutant this exists to kill: sending the user hunting for a Terminal entry.
+    expect(detail).not.toMatch(/terminal/i);
+    expect(detail).toContain("Full Disk Access");
+  });
+
+  it("uses the dev host's name too — the row has to match whatever System Settings will show", () => {
+    expect(row(macAccessRows(allGranted(), { hostName: "Electron" }), "fullDiskAccess").detail).toContain("switch Electron on");
+  });
+
+  it("defaults to Realm when no host name is supplied, never to an empty name", () => {
+    expect(row(macAccessRows(allGranted()), "fullDiskAccess").detail).toContain("switch Realm on");
+  });
+
+  it("overrides ONLY that row — every other row still quotes mac doctor verbatim", () => {
+    const rows = macAccessRows([entry("automation:Mail", "notRequested", "Run any `mac mail` command.")], { hostName: "Realm" });
+    expect(row(rows, "automation:Mail").detail).toBe("Run any `mac mail` command.");
   });
 });

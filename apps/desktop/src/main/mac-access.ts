@@ -186,12 +186,24 @@ function fallbackDetail(state: MacAccessState, hasEntry: boolean): string {
 }
 
 /**
+ * The one row where Realm knows better than `mac doctor` does. Doctor's fix says to grant Full Disk
+ * Access to "your terminal app" — true of the shell it was written for, and wrong here, where the
+ * app in the list is Realm. Naming the wrong app on the ONE row the user has to find by hand would
+ * send them looking for a Terminal entry that has nothing to do with it, so this row says which app
+ * to switch on. Everywhere else doctor's own wording still wins.
+ */
+function fullDiskDetail(hostName: string | undefined): string {
+  const who = hostName ?? "Realm";
+  return `macOS has no dialog for this one: switch ${who} on in System Settings → Privacy & Security → Full Disk Access, dragging the app in if it isn't listed. Needed to read iMessage history.`;
+}
+
+/**
  * The Permissions tab's `mac` rows: every capability this build knows, in table order, then anything
  * doctor reported that it doesn't (rendered read-only rather than dropped). `entries: null` means
  * doctor could not be run or could not be parsed — every row then reads `unknown`, which is what
  * "we don't know" looks like, instead of a list of green checks nobody earned.
  */
-export function macAccessRows(entries: MacDoctorEntry[] | null): MacAccessRow[] {
+export function macAccessRows(entries: MacDoctorEntry[] | null, opts: { hostName?: string } = {}): MacAccessRow[] {
   const byId = new Map((entries ?? []).map((e) => [e.capability, e]));
   const rows: MacAccessRow[] = [];
   for (const id of Object.keys(MAC_CAPABILITIES) as MacCapabilityId[]) {
@@ -199,7 +211,9 @@ export function macAccessRows(entries: MacDoctorEntry[] | null): MacAccessRow[] 
     const entry = byId.get(id);
     byId.delete(id);
     const state = entries === null ? "unknown" : normalizeState(entry?.status);
-    const detail = entry?.fix ?? fallbackDetail(state, entries !== null && entry !== undefined);
+    const detail = id === "fullDiskAccess"
+      ? fullDiskDetail(opts.hostName)
+      : entry?.fix ?? fallbackDetail(state, entries !== null && entry !== undefined);
     rows.push({
       id, label: spec.label, group: spec.group, state, detail,
       grantCommand: spec.argv ? `mac ${spec.argv.join(" ")}` : null,
@@ -264,4 +278,17 @@ export type MacAccessStatus = { cli: MacCliStatus; rows: MacAccessRow[]; host: M
 export function appBundlePath(execPath: string): string {
   const i = execPath.indexOf(".app/");
   return i === -1 ? execPath : execPath.slice(0, i + ".app".length);
+}
+
+/**
+ * The name macOS will actually print in its consent dialog and in System Settings' lists — which is
+ * the bundle's, not the app's idea of itself. Packaged, those agree ("Realm"). Under `pnpm dev` they
+ * do NOT: Electron's own bundle is the host, so macOS says "Electron" while `app.getName()` says
+ * "@realm/desktop" (the package name). Naming the wrong app in the dev caveat would send the user
+ * hunting for a row that will never appear, so the bundle wins wherever it can be read.
+ */
+export function macHostName(d: { appName: string; bundlePath: string; packaged: boolean }): string {
+  if (d.packaged) return d.appName;
+  const base = d.bundlePath.split("/").pop() ?? "";
+  return base.endsWith(".app") ? base.slice(0, -".app".length) : d.appName;
 }
