@@ -259,4 +259,12 @@ describe("Open library / Open connections (Plan 12 W4)", () => {
     fireEvent.click(screen.getByRole("option", { name: /Open connections/ }));
     await waitFor(() => expect(store.getState().items.some((i) => i.kind === "connections-page")).toBe(true));
   });
+
+  it("Open settings opens the settings-page item (W6) — the SETTINGS page, not the space page", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open settings" } });
+    fireEvent.click(screen.getByRole("option", { name: /Open settings/ }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "settings-page")).toBe(true));
+    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
+  });
 });
