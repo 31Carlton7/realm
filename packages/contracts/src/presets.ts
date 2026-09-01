@@ -2,10 +2,28 @@ export const SPACE_COLORS = ["#7c6cff", "#3ddc97", "#ffb454", "#ff6b8b", "#4cc9f
 export const SPACE_ICONS = ["briefcase", "cap", "home", "folder", "terminal", "browser", "session", "artifact", "context", "layout"] as const;
 export const pickSpaceColor = (i: number): string => SPACE_COLORS[i % SPACE_COLORS.length]!;
 
+/** One pickable model: the id the wire transmits and the name the row shows. */
+export type AgentModel = { id: string; label: string };
+
+/**
+ * STATIC fallback model lists — what the picker shows for a kind when no probe has answered yet
+ * (`agents.probe` results carry `models`, the live catalog, which wins whenever present).
+ *
+ * The asymmetry is deliberate, not an accident of neglect:
+ *
+ *  - **claude** is a curated list that stays hardcoded because no enumeration channel exists — the
+ *    Claude Code CLI has no `--list-models`, and the Agent SDK takes a model id on faith. Curation is
+ *    the honest option left; keep it in step with the CLI's own picker.
+ *  - **codex** and **acp:cursor** are empty ON PURPOSE: their real catalogs are enumerated live by the
+ *    probe (Codex over app-server `model/list`, Cursor from ACP `session/new`'s `availableModels`), so
+ *    a hardcoded list here would only ever be a stale copy that shadows the truth. Empty means the
+ *    picker falls back to the single DEFAULT_MODEL_LABEL row until a probe has answered.
+ *  - **acp:gemini** is empty because the kind is no longer offered (see SELECTABLE_AGENT_KINDS).
+ */
 export const AGENT_MODELS = {
   claude: [{ id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
   codex: [], "acp:gemini": [], "acp:cursor": [], fake: [{ id: "fake", label: "Fake" }],
-} as const;
+} as const satisfies Record<import("./entities").AgentKind, readonly AgentModel[]>;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 /**
  * Agent kinds a user can pick — the palette's one-shot entries and the prompter's agent chip.

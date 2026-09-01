@@ -1,10 +1,11 @@
 import { basename, dirname, join, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
-import { probeAcp } from "./probe";
+import { fetchAcpModels, probeAcp } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type Bag = Record<string, unknown>;
@@ -25,6 +26,13 @@ export type AcpAgentSpec = {
   env?: Record<string, string>;
   /** Overridable for tests. Bounds every boot call: initialize, session/new and session/load. */
   bootTimeoutMs?: number;
+  /**
+   * True for agents whose `session/new` answer carries a usable `models.availableModels` catalog
+   * (Cursor does). The probe then enumerates it — by opening a throwaway session, ACP's only channel —
+   * and the picker offers the real list. Absent/false skips the attempt entirely: an agent that
+   * reports nothing would cost a probe-time session spawn to learn nothing.
+   */
+  modelCatalog?: boolean;
 };
 
 /** Copies ClaudeAdapter: app quit awaits every dispose(), so no dispose may depend on a healthy child. */
@@ -212,7 +220,12 @@ export class AcpAdapter implements AgentAdapter {
   }
 
   async probe(): Promise<ProbeResult> {
-    return { kind: this.kind, ...(await probeAcp(this.spec.bin)) };
+    const base = await probeAcp(this.spec.bin);
+    // tmpdir because the throwaway catalog session needs SOME real cwd and must not imply a project.
+    const models = base.available && this.spec.modelCatalog === true
+      ? await fetchAcpModels({ bin: this.spec.bin, args: this.spec.args, cwd: tmpdir(), env: this.spec.env })
+      : null;
+    return { kind: this.kind, ...base, models };
   }
 
   start(opts: StartOptions): AgentHandle {
@@ -396,9 +409,23 @@ export class AcpAdapter implements AgentAdapter {
         }
         if (disposed) return;
         sessionId = id;
+        // The session's pinned model is transmitted HERE, not merely displayed: ACP's `session/new`
+        // takes `{cwd, mcpServers}` and nothing else, so a model picked in an earlier run (or before
+        // the first message) only reaches the agent through a follow-up `session/set_model`. Failure
+        // is a log line, not a dead session — the agent then runs its own default, and the init event
+        // below reports the model the agent says it is on rather than the one we failed to set.
+        let pinned = false;
+        if (opts.model) {
+          try {
+            await ask("session/set_model", { sessionId: id, modelId: opts.model }, SESSION_TIMEOUT_MS);
+            pinned = true;
+          } catch (e) {
+            log(`session/set_model ${opts.model} failed (${message(e)}); staying on the agent's default`);
+          }
+        }
         events.push(sessionEvent("init", {
           providerSessionId: id,
-          model: str(obj(session.models).currentModelId) || str(opts.model),
+          model: pinned ? str(opts.model) : str(obj(session.models).currentModelId) || str(opts.model),
           tools: [],
           cwd: opts.cwd,
         }));

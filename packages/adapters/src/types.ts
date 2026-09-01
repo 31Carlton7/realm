@@ -1,4 +1,4 @@
-import type { AgentKind, SessionEvent } from "@realm/contracts";
+import type { AgentKind, AgentModel, SessionEvent } from "@realm/contracts";
 
 /**
  * One MCP server on its way to an agent.
@@ -85,7 +85,14 @@ export interface AgentHandle {
   dispose(): Promise<void>;
 }
 
-export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null };
+/**
+ * `models` is the provider's live catalog, when the adapter has a channel to ask on: Codex answers
+ * app-server `model/list`, Cursor reports `availableModels` on ACP `session/new`. `null`/absent means
+ * "cannot enumerate" — Claude has no such channel (the curated static list in contracts stands in),
+ * and an unavailable CLI obviously can't be asked. Never an invented list: ids here are ids the
+ * provider itself handed over, verbatim.
+ */
+export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null };
 
 export interface AgentAdapter {
   readonly kind: AgentKind;

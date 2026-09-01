@@ -1,6 +1,6 @@
 import { AGENT_META, DEFAULT_MODEL_LABEL, type AgentKind } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import type { AgentProbe } from "../../state/store";
@@ -87,6 +87,13 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, effortItems, overflow 
   // and a highlight pointing past the end would make Enter do nothing with no visible reason why.
   const cur = Math.min(active, shown.length - 1);
   const activeRow = shown[cur];
+
+  // With live catalogs the list runs to 40+ rows inside `.mp-list`'s max-height, so arrowing past the
+  // fold must bring the highlight along. `nearest` keeps this a no-op for rows already visible, which
+  // also makes the mouseEnter -> setActive path scroll-free.
+  useEffect(() => {
+    if (activeRow) document.getElementById(`mp-${activeRow.key}`)?.scrollIntoView({ block: "nearest" });
+  }, [activeRow]);
 
   const pick = (row: ModelRow | undefined) => {
     if (!row || row.blockedReason) return; // blocked rows are readable, never actionable
