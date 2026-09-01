@@ -10,7 +10,7 @@ const KEY = "pat-do-not-leak-me";
 // upstream server with the row's own command/URL and secrets — but the row type requires them.
 const row = (extra: Partial<McpServerRow>): McpServerRow => ({
   id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "probe", transport: "stdio",
-  command: "", args: [], url: "", secrets: {}, oauthJson: "", tools: [], createdAt: 0, updatedAt: 0, ...extra,
+  command: "", args: [], url: "", secrets: {}, oauthJson: "", tools: [], scope: { kind: "space", spaceId: null }, createdAt: 0, updatedAt: 0, ...extra,
 });
 
 /** A real MCP-shaped stdio server: reads newline-delimited JSON, answers initialize. Inline node

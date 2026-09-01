@@ -5,6 +5,7 @@ export * from "./layout";
 export * from "./rpc";
 export * from "./presets";
 export * from "./attachments";
+export * from "./scoping";
 export * from "./skills";
 export * from "./mentions";
 export * from "./mcp";

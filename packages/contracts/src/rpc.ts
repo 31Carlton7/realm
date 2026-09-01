@@ -339,6 +339,17 @@ export const Methods = {
   /** Turn one skill on or off for one space. Unknown ids are accepted: a skill can be removed from
    *  disk and put back, and the preference should survive that. */
   "skills.setEnabled": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Move a skill's defining scope from space level to `spaceId`'s profile (W2). Effective-set neutral
+   * for every space of that profile at the moment it runs: the per-space disabled-set applies to
+   * inherited skills exactly as it applied before, so a skill disabled in a space stays disabled there.
+   * What changes is reach — spaces of OTHER profiles stop seeing it, and profile spaces created later
+   * inherit it ON by default.
+   */
+  "skills.promote": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** The inverse: pin a profile-scoped skill to `spaceId` alone (must be a space of its profile).
+   *  This space's enable state is preserved; sibling spaces stop seeing it. */
+  "skills.demote": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * Every MCP server Realm knows about, each carrying this space's own enabled flag.
@@ -361,6 +372,9 @@ export const Methods = {
   "mcp.add": {
     params: z.object({
       spaceId: IdSchema.nullable().default(null),
+      /** W2: pass a profile id to define the server at PROFILE scope instead — inherited (default ON,
+       *  per-space disableable) by every space of that profile. Mutually exclusive with `spaceId`. */
+      profileId: IdSchema.nullable().default(null),
       name: McpServerNameSchema,
       transport: McpTransportSchema,
       command: z.string().default(""), args: z.array(z.string()).default([]), env: McpSecretsSchema.default({}),
@@ -391,6 +405,17 @@ export const Methods = {
   "mcp.remove": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
   "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Move a server's defining scope from space level to `spaceId`'s profile (W2). Effective-set neutral
+   * at the moment it runs: every space of the profile where the server was not enabled gets a per-space
+   * disable override, so promotion never arms a space that had not opted in. What changes is reach —
+   * profile spaces created later inherit it ON, spaces of other profiles stop seeing it, and toggling
+   * an inherited server flips the override instead of the space-scope enabled-set.
+   */
+  "mcp.promote": { params: z.object({ spaceId: IdSchema, id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** The inverse: pin a profile-scoped server to `spaceId` alone (must be a space of its profile).
+   *  This space's effective on/off state is preserved; sibling spaces stop seeing it. */
+  "mcp.demote": { params: z.object({ spaceId: IdSchema, id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Turn a Realm-native tool provider (`realm-browser` today) on or off for one space. Providers are
    * Realm's own in-process toolsets on the gateway, not server rows — and unlike servers they default
@@ -452,6 +477,15 @@ export const Methods = {
    * Turning it off removes the file only when it still carries Realm's marker.
    */
   "memory.setAgentsFile": { params: z.object({ spaceId: IdSchema, enabled: z.boolean() }), result: MemoryStateSchema },
+  /** The PROFILE memory document (W2) — the standing context every space of the profile inherits ahead
+   *  of its own doc. Lives at `<realmHome>/memory/profile-<profileId>.md`. */
+  "memory.getProfile": { params: z.object({ profileId: IdSchema }), result: z.object({ profileId: IdSchema, path: z.string(), doc: z.string() }) },
+  /** Replace the profile document. Same cap as a space doc; the COMBINED injection is additionally
+   *  capped at `MEMORY_COMBINED_MAX` where the CLIs meet it (`systemContextFor`). */
+  "memory.setProfile": { params: z.object({ profileId: IdSchema, doc: z.string().max(MEMORY_DOC_MAX) }), result: z.object({ profileId: IdSchema, path: z.string(), doc: z.string() }) },
+  /** Per-space toggle for the inherited profile doc (W2): the profile doc is an inherited item like any
+   *  other — ON by default, disableable per space, never editable from the space. */
+  "memory.setProfileDocEnabled": { params: z.object({ spaceId: IdSchema, enabled: z.boolean() }), result: MemoryStateSchema },
   /**
    * Ground truth (or the honest absence of it) about the durable context one session's agent loads:
    * Codex sessions report the exact files (`instructionSources`, captured from THIS session's own

@@ -43,7 +43,8 @@ describe("SkillIdSchema", () => {
 
 describe("SkillSchema", () => {
   it("round-trips a listed skill and requires a reason slot even when valid", () => {
-    const s = { id: "mac", name: "mac", description: "d", path: "/x/mac/SKILL.md", enabled: true, valid: true, reason: null };
+    const s = { id: "mac", name: "mac", description: "d", path: "/x/mac/SKILL.md", enabled: true, valid: true, reason: null,
+      scope: { kind: "space" as const, spaceId: null } };
     expect(SkillSchema.parse(s)).toEqual(s);
     expect(SkillSchema.safeParse({ ...s, reason: undefined }).success).toBe(false);
   });

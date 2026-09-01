@@ -91,6 +91,21 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("skills.changed", { spaceId: p.spaceId });
     return { ok: true as const };
   });
+  // Promote/demote change which spaces SEE the skill (a pre-scoping skill leaves other profiles'
+  // lists; a demoted one leaves the siblings'), so every space's panel is told, not just the actor's.
+  const skillsScopeChanged = () => { for (const sp of d.spaces.listAll()) rpc.broadcast("skills.changed", { spaceId: sp.id }); };
+  reg("skills.promote", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.skills.promote(p.spaceId, p.id);
+    skillsScopeChanged();
+    return { ok: true as const };
+  });
+  reg("skills.demote", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.skills.demote(p.spaceId, p.id);
+    skillsScopeChanged();
+    return { ok: true as const };
+  });
 
   // Every one of these checks the space exists first, for the same reason the skills pair does: the
   // enable set is keyed by space id, so a typo would silently read and write preferences for a space
@@ -100,12 +115,17 @@ export function registerMethods(d: Deps): void {
     return d.mcp.list(p.spaceId);
   });
   reg("mcp.add", (p) => {
+    // Scope is decided once, at creation (the plan's rule 3) — so it has to be ONE scope.
+    if (p.spaceId !== null && p.profileId !== null) throw new RpcError("SCOPE_MISMATCH", "pass spaceId or profileId, not both");
     if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
-    const server = d.mcp.add(p, p.spaceId);
-    // A new server is enabled ONLY in the space it was added from (`McpService.add`'s own doc comment) —
-    // but a live session already running in exactly that space needs to see it show up without a
-    // restart. This is the add-server flow W6's settings UI drives end to end.
+    if (p.profileId !== null && !d.profiles.get(p.profileId)) throw new NotFoundError("profile", p.profileId);
+    const server = d.mcp.add(p, p.spaceId, p.profileId);
+    // A new space-scoped server is enabled ONLY in the space it was added from (`McpService.add`'s own
+    // doc comment) — but a live session already running in exactly that space needs to see it show up
+    // without a restart. A profile-scoped one arms every space of the profile (default ON), so every
+    // one of them is told. This is the add-server flow W6's settings UI drives end to end.
     if (p.spaceId) d.gateway.notifyPolicyChanged(p.spaceId);
+    if (p.profileId) for (const sp of d.spaces.list(p.profileId)) d.gateway.notifyPolicyChanged(sp.id);
     rpc.broadcast("mcp.changed", {});
     return server;
   });
@@ -157,6 +177,25 @@ export function registerMethods(d: Deps): void {
     d.mcp.setEnabled(p.spaceId, p.id, p.enabled);
     d.gateway.notifyPolicyChanged(p.spaceId);
     rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
+  // Promote is effective-set neutral and demote strips siblings (`McpService.promote`/`demote` doc
+  // comments), but visibility moves for every space of the profile either way — and a pre-scoping row
+  // leaves other profiles' lists on promote — so every space re-lists and every session is nudged.
+  const mcpScopeChanged = () => {
+    for (const sp of d.spaces.listAll()) d.gateway.notifyPolicyChanged(sp.id);
+    rpc.broadcast("mcp.changed", {});
+  };
+  reg("mcp.promote", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.mcp.promote(p.spaceId, p.id);
+    mcpScopeChanged();
+    return { ok: true as const };
+  });
+  reg("mcp.demote", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.mcp.demote(p.spaceId, p.id);
+    mcpScopeChanged();
     return { ok: true as const };
   });
   /** Realm-native gateway providers (`realm-browser`): default ON, per-space off switch. Same
@@ -222,6 +261,24 @@ export function registerMethods(d: Deps): void {
   reg("memory.setAgentsFile", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     const r = d.memory.setAgentsFile(p.spaceId, p.enabled);
+    rpc.broadcast("memory.changed", { spaceId: p.spaceId });
+    return r;
+  });
+  // The PROFILE doc (W2): read anywhere, edited only at its defining scope. A profile-doc edit reaches
+  // every space of the profile, so each of their panels is told.
+  reg("memory.getProfile", (p) => {
+    if (!d.profiles.get(p.profileId)) throw new NotFoundError("profile", p.profileId);
+    return d.memory.profileState(p.profileId);
+  });
+  reg("memory.setProfile", (p) => {
+    if (!d.profiles.get(p.profileId)) throw new NotFoundError("profile", p.profileId);
+    const r = d.memory.setProfile(p.profileId, p.doc);
+    for (const sp of d.spaces.list(p.profileId)) rpc.broadcast("memory.changed", { spaceId: sp.id });
+    return r;
+  });
+  reg("memory.setProfileDocEnabled", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const r = d.memory.setProfileDocEnabled(p.spaceId, p.enabled);
     rpc.broadcast("memory.changed", { spaceId: p.spaceId });
     return r;
   });

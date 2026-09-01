@@ -361,7 +361,7 @@ export class McpGateway {
       } catch { return []; }
     }));
     if (toolset !== null) return { tools: perProvider.flat() };
-    const perServer = await Promise.all(this.d.mcp.enabledServerIds(spaceId).map(async (id): Promise<Tool[]> => {
+    const perServer = await Promise.all(this.d.mcp.effectiveServerIds(spaceId).map(async (id): Promise<Tool[]> => {
       const row = this.d.servers.get(id);
       if (!row) return [];
       let tools: McpLiveTool[];
@@ -497,7 +497,7 @@ export class McpGateway {
    *  rather than a split on the first `__`. Enabled servers ONLY — see `handleCall`'s comment on why a
    *  disabled server's name must never win this match. */
   private resolveCall(spaceId: string, fullName: string): { serverId: string; serverName: string; tool: string } | null {
-    const match = longestPrefixMatch(fullName, this.d.mcp.enabledServerIds(spaceId).map((id) => this.d.servers.get(id)).filter((r): r is McpServerRow => r !== null));
+    const match = longestPrefixMatch(fullName, this.d.mcp.effectiveServerIds(spaceId).map((id) => this.d.servers.get(id)).filter((r): r is McpServerRow => r !== null));
     return match ? { serverId: match.row.id, serverName: match.row.name, tool: match.tool } : null;
   }
 

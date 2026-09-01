@@ -62,7 +62,7 @@ describe("McpServerSchema", () => {
     envKeys: ["AIRTABLE_API_KEY"], headerKeys: [],
     authKind: "secrets" as const, oauthStatus: "unconfigured" as const, status: "idle" as const,
     tools: [{ name: "search", description: "Search records" }], allowedTools: null,
-    enabled: true, createdAt: 1,
+    enabled: true, scope: { kind: "space" as const, spaceId: null }, createdAt: 1,
   };
 
   it("round-trips a listed server", () => {

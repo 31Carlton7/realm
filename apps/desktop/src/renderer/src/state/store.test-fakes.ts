@@ -14,7 +14,8 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
-  ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null, ...extra });
+  ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
+    scope: { kind: "space", spaceId: null }, ...extra });
 
 export const agentsFileState = (extra: Partial<AgentsFileState> = {}): AgentsFileState =>
   ({ enabled: false, path: "/realm-home/spaces/s1/AGENTS.md", exists: false, managedByRealm: false, writable: true, reason: null, ...extra });
@@ -31,7 +32,7 @@ export const preview = (id: string, environmentId: string, extra: Partial<Restor
 export const mcpServer = (id: string, extra: Partial<McpServer> = {}): McpServer =>
   ({ id, name: `srv-${id}`, transport: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"], url: "",
     envKeys: [], headerKeys: [], authKind: "none", oauthStatus: "unconfigured", status: "idle", tools: [], allowedTools: null,
-    enabled: false, createdAt: 0, ...extra });
+    enabled: false, scope: { kind: "space", spaceId: null }, createdAt: 0, ...extra });
 export const mcpTool = (name: string, description = ""): McpTool => ({ name, description });
 /** A logged call (W7). `serverName: ""` + `tool` holding the full namespaced string is the
  *  blocked-attribution shape (plan amendment); tests that need it pass that combination explicitly. */
@@ -157,7 +158,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const mcpWrites: FakeApi["mcpWrites"] = [];
   const memState = (spaceId: string): MemoryState =>
-    ({ path: `/realm-home/memory/${spaceId}.md`, doc: data.memoryDocs[spaceId] ?? "", agentsFile: data.agentsFiles[spaceId] ?? agentsFileState() });
+    ({ path: `/realm-home/memory/${spaceId}.md`, doc: data.memoryDocs[spaceId] ?? "", agentsFile: data.agentsFiles[spaceId] ?? agentsFileState(), profile: null });
   const api: FakeApi = {
     calls, disposed, sent, mcpWrites, delays: {}, onCreateTerminal: null, data,
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },

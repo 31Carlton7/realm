@@ -148,12 +148,20 @@ describe("mcp over rpc", () => {
     c.close();
   });
 
-  it("removes a server from every space's enabled set, not just the one that asked", async () => {
-    // The named mutant: `mcp.remove` only clearing the REQUESTING space's enabled set (or none at all).
-    // `McpService`'s own unit test (`service.test.ts`) already proves the store-level behavior directly
-    // via `isEnabled`; this is the RPC-level check that `mcp.remove` still passes every space through.
+  it("scopes a space-added server to its space; promote shares it disarmed; remove clears every space (W2)", async () => {
+    // The named mutants, over the real RPC wire: a space-scoped server leaking into a sibling's list;
+    // promotion arming a space that had not opted in; `mcp.remove` leaving another space's state behind.
+    // `McpService`'s own unit tests prove the store-level behavior; this is the wiring check.
     const { c, work, school } = await boot();
     const server = (await addStdio(c, work.id, "airtable")).result;
+    expect(server.scope).toEqual({ kind: "space", spaceId: work.id });
+    // Defined in Work: School does not even list it — that is what "defined in this space" means now.
+    expect((await c.call("mcp.list", { spaceId: school.id })).result.servers).toEqual([]);
+    await c.call("mcp.promote", { spaceId: work.id, id: server.id });
+    // Inherited everywhere in the profile — ON where it was on (Work), OFF where nobody opted in (School).
+    expect((await c.call("mcp.list", { spaceId: work.id })).result.servers[0]).toMatchObject({ enabled: true, scope: { kind: "profile" } });
+    expect((await c.call("mcp.list", { spaceId: school.id })).result.servers[0]).toMatchObject({ enabled: false, scope: { kind: "profile" } });
+    // The panels' existing toggle flips the override for an inherited row.
     await c.call("mcp.setEnabled", { spaceId: school.id, id: server.id, enabled: true });
     expect((await c.call("mcp.list", { spaceId: school.id })).result.servers[0]).toMatchObject({ enabled: true });
     await c.call("mcp.remove", { id: server.id });

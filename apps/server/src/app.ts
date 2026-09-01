@@ -105,8 +105,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const browsersStore = new BrowsersStore(db);
   const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
   const settings = new SettingsStore(db);
+  // W2: the one slice of the spaces/profiles world the scoped services (skills, MCP, memory) may see.
+  // A seam rather than the store so each service declares exactly the questions it asks.
+  const scopeSeam = {
+    profileIdOf: (spaceId: string): string | null => spaces.get(spaceId)?.profileId ?? null,
+    spaceIdsOf: (profileId: string): string[] => spaces.list(profileId).map((sp) => sp.id),
+    allSpaceIds: (): string[] => spaces.listAll().map((sp) => sp.id),
+  };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
-  const skills = new SkillsService({ home: opts.home, settings });
+  const skills = new SkillsService({ home: opts.home, settings, scopes: scopeSeam });
   const installed = skills.installBundled();
   if (installed.length) console.error(`[skills] installed bundled skill(s): ${installed.join(", ")}`);
   const mcpServersStore = new McpServersStore(db);
@@ -115,7 +122,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // `mcp.list` can report `connected`/`error`/`circuit_open` without asking the hub directly — the same
   // "inject rather than import" split `McpService`'s constructor doc comment explains.
   const mcpStatus = new Map<string, McpServerStatus>();
-  const mcp = new McpService({ servers: mcpServersStore, settings, statusOf: (id) => mcpStatus.get(id) ?? "idle" });
+  const mcp = new McpService({ servers: mcpServersStore, settings, statusOf: (id) => mcpStatus.get(id) ?? "idle", scopes: scopeSeam });
   // `gateway` is assigned after construction below (it needs `hub`, which needs THIS callback) — the
   // same late-bound-closure pattern `sessionService` above uses for the same reason: two things that
   // genuinely need each other, with one direction as the constructor dependency and the other as this.
@@ -183,7 +190,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url),
     sessionToolset: (sessionId) => browserAgents?.sessionToolset(sessionId) ?? null });
   gateway = mcpGateway;
-  const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir });
+  const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.

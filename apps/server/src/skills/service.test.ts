@@ -40,7 +40,8 @@ describe("SkillsService.list", () => {
   it("reads name and description off each SKILL.md, enabled by default", () => {
     skill(service.root, "mac");
     expect(service.list(SPACE).skills).toEqual([
-      { id: "mac", name: "mac", description: "does mac.", path: join(service.root, "mac", "SKILL.md"), enabled: true, valid: true, reason: null },
+      { id: "mac", name: "mac", description: "does mac.", path: join(service.root, "mac", "SKILL.md"), enabled: true, valid: true, reason: null,
+        scope: { kind: "space", spaceId: null } },
     ]);
   });
 

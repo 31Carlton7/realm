@@ -42,25 +42,25 @@ describe("per-space scoping", () => {
   it("enables it nowhere when no space is named", () => {
     mcp.add(stdio("airtable"), null);
     expect(mcp.list(WORK).servers[0]!.enabled).toBe(false);
-    expect(mcp.enabledServerIds(WORK)).toEqual([]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([]);
   });
 
   it("keeps one space's servers out of another's enabled set — the gateway's own scoping seam", () => {
     // The named mutant: key the enable set on anything but the space id and this leaks.
     const a = mcp.add(stdio("work_only"), WORK);
     const b = mcp.add(stdio("school_only"), SCHOOL);
-    expect(mcp.enabledServerIds(WORK)).toEqual([a.id]);
-    expect(mcp.enabledServerIds(SCHOOL)).toEqual([b.id]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([a.id]);
+    expect(mcp.effectiveServerIds(SCHOOL)).toEqual([b.id]);
     mcp.setEnabled(SCHOOL, a.id, true);
-    expect(mcp.enabledServerIds(SCHOOL).sort()).toEqual([a.id, b.id].sort());
+    expect(mcp.effectiveServerIds(SCHOOL).sort()).toEqual([a.id, b.id].sort());
   });
 
   it("stops enabling a server the moment it is disabled", () => {
     // The named mutant: a disabled server still enabled.
     const s = mcp.add(stdio("airtable"), WORK);
-    expect(mcp.enabledServerIds(WORK)).toEqual([s.id]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([s.id]);
     mcp.setEnabled(WORK, s.id, false);
-    expect(mcp.enabledServerIds(WORK)).toEqual([]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([]);
     expect(mcp.list(WORK).servers[0]!.enabled).toBe(false);
   });
 
@@ -227,7 +227,7 @@ describe("status injection (Plan 9 W3)", () => {
   });
 });
 
-describe("setAllowedTools / enabledServerIds (Plan 9 W3 — the gateway's own reads/writes)", () => {
+describe("setAllowedTools / effectiveServerIds (Plan 9 W3 — the gateway's own reads/writes)", () => {
   it("setAllowedTools writes what allowedTools reads back, scoped to the space it was set for", () => {
     const s = mcp.add(stdio("airtable"), WORK);
     mcp.setAllowedTools(WORK, s.id, ["search", "create"]);
@@ -243,10 +243,10 @@ describe("setAllowedTools / enabledServerIds (Plan 9 W3 — the gateway's own re
     expect(mcp.allowedTools(WORK, s.id)).toBeNull();
   });
 
-  it("enabledServerIds returns exactly this space's enabled ids, empty for a space that enabled nothing", () => {
+  it("effectiveServerIds returns exactly this space's enabled ids, empty for a space that enabled nothing", () => {
     const a = mcp.add(stdio("airtable"), WORK);
     mcp.add(stdio("school_only"), SCHOOL);
-    expect(mcp.enabledServerIds(WORK)).toEqual([a.id]);
-    expect(mcp.enabledServerIds("01ARZ3NDEKTSV4RRFFQ69G5FAX")).toEqual([]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([a.id]);
+    expect(mcp.effectiveServerIds("01ARZ3NDEKTSV4RRFFQ69G5FAX")).toEqual([]);
   });
 });

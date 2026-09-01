@@ -181,4 +181,25 @@ export const migrations: string[] = [
     url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
   CREATE INDEX browsers_space ON browsers(space_id);
   `,
+  // v11 — defining scope for MCP servers (Plan 12 W2). Every row is defined at 'space' or 'profile'
+  // level. Existing rows all become scope 'space' with scope_space_id NULL — the "pre-scoping row"
+  // (`LEGACY_SPACE_SCOPE`): listed in every space, governed by the per-space enabled-set in `settings`
+  // exactly as before, so NO space's effective set moves on upgrade. No backfill guesses a row into a
+  // space: a row enabled in two spaces has no single defining space, and inventing one would change
+  // somebody's set. Profile-scoped rows are inherited (default ON) by every space of scope_profile_id,
+  // minus per-space disable overrides (`mcp.profileDisabled:<spaceId>` in settings).
+  //
+  // Plain TEXT, no foreign keys — the same posture as every per-space settings key (`mcp.enabled:` et
+  // al. reference space ids with nothing enforcing them): scope liveness is the SERVICE's question, and
+  // `McpService.appliesTo` answers it in the one place the effective set is computed. A defining space
+  // that no longer exists degrades the row to a pre-scoping one (visible everywhere, opt-in per space —
+  // safe under MCP's default-off polarity, and the row stays reachable in panels instead of being
+  // orphaned); a defining profile that no longer exists parks the row (applies nowhere) — profile
+  // deletion cascades the profile's spaces away, so there is nowhere it could honestly apply, and W4's
+  // cross-scope Connections page is the recovery surface.
+  `
+  ALTER TABLE mcp_servers ADD COLUMN scope TEXT NOT NULL DEFAULT 'space';
+  ALTER TABLE mcp_servers ADD COLUMN scope_space_id TEXT;
+  ALTER TABLE mcp_servers ADD COLUMN scope_profile_id TEXT;
+  `,
 ];

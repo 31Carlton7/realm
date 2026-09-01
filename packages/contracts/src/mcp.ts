@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AGENT_META } from "./presets";
 import { IdSchema } from "./ids";
+import { ItemScopeSchema } from "./scoping";
 import type { AgentKind } from "./entities";
 
 /**
@@ -114,8 +115,14 @@ export const McpServerSchema = z.object({
   /** This space's per-tool allowlist for this server. `null` = every cached tool is allowed, which is
    *  also the state of a server nobody has ever narrowed. Per the space `mcp.list` was asked for. */
   allowedTools: z.array(z.string()).nullable(),
-  /** Whether the space this was listed for passes it to its agents. Per-space, persisted, default OFF. */
+  /** Whether the space this was listed for is in this server's effective set — for a space-scoped
+   *  server, membership in that space's enabled-set (default OFF); for a profile-scoped one, the
+   *  absence of a per-space disable override (default ON). One computation serves this flag, the
+   *  gateway's tool listing, and call routing alike: `McpService.effectiveServerIds`. */
   enabled: z.boolean(),
+  /** Where this server is defined (W2). Space-scoped with `spaceId: null` = a pre-scoping row, listed
+   *  in every space under the per-space enabled-set exactly as before the model existed. */
+  scope: ItemScopeSchema,
   createdAt: z.number().int(),
 });
 export type McpServer = z.infer<typeof McpServerSchema>;
