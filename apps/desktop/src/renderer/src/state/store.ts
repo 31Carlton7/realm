@@ -83,6 +83,8 @@ export type Api = {
   deleteItem(id: string): Promise<void>;
   getSetting(key: string): Promise<unknown>;
   setSetting(key: string, value: unknown): Promise<void>;
+  /** `system.info.machineName` — the under-strip's display-only machine label (Plan 12 W1). */
+  machineName(): Promise<string>;
   /** Native folder picker; resolves null when cancelled. */
   pickFolder(): Promise<string | null>;
   /** Native multi-select file picker; resolves [] when cancelled. */
@@ -124,6 +126,8 @@ export type Api = {
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
   /** `sessions.setAgent` — rejected by the server once the session has any event. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
+  /** `sessions.setEnvironment` — same guard: rejected once the session has any event. */
+  setSessionEnvironment(id: string, environmentId: string): Promise<Session>;
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
   /** `sessions.openTerminal` — get-or-create the session's terminal side panel. The FIRST call is what
@@ -239,7 +243,9 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
 /** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
  *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
 export type Sheet =
-  | { kind: "space-settings"; spaceId: string }
+  /** `tab` preselects a section — the plus-menu's "Manage connections…" lands on Connections; omitted
+   *  means General, exactly what every existing opener gets. */
+  | { kind: "space-settings"; spaceId: string; tab?: "general" | "skills" | "mcp" | "memory" }
   | { kind: "new-space" }
   /** Removing a worktree: the one destructive confirm in Plan 7, which must name what would be lost
    *  and pass an acknowledgement it re-read at the moment of confirming (W3). */
@@ -367,6 +373,15 @@ export type AppState = {
   terminalPanel: Record<string, TerminalPanel>;
   /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
+  /** `system.info.machineName` (Plan 12 W1) — the under-strip's machine label. Display only: Realm runs
+   *  agents on this Mac and no other, so there is no selector to back. "" until boot's fetch answers
+   *  (the strip renders nothing rather than a wrong name). */
+  machineName: string;
+  /** The prompter's Connectors submenu source (Plan 12 W1), by space id: the same `mcp.list` projection
+   *  the settings sheet reads, cached HERE so the menu shows LAST KNOWN state — `mcp.list` reads rows
+   *  and the hub's held status, it dials nothing, so refreshing on menu open never probes a server.
+   *  `mcp.serverStatus` broadcasts patch it live; absent = never fetched, rendered as such. */
+  connectors: Record<string, McpServer[]>;
   /** MCP servers for the space currently open in settings (W6) — `mcp.list`'s per-space projection.
    *  Empty until `refreshMcpServers` runs; McpSection fetches on mount, i.e. on sheet open. */
   mcpServers: McpServer[];
@@ -478,6 +493,16 @@ export type AppState = {
   /** Switch an unstarted session's agent (prompter model picker). The server refuses once events exist —
    *  cross-agent rows go unavailable there, so this is only ever called while it is legal. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
+  /** Move an unstarted session to another of its space's environments (the under-strip's workspace
+   *  selector, Plan 12 W1). Same server guard as the agent switch — after the first event the chip is a
+   *  label, so this is only ever called while it is legal. */
+  setSessionEnvironment(id: string, environmentId: string): Promise<void>;
+  /** The selector's "New worktree…": make the worktree (titled from the draft's first words, or the
+   *  server's "session" default) AND move the session into it — one action, so creating without
+   *  selecting cannot happen. */
+  moveSessionToNewWorktree(sessionId: string): Promise<void>;
+  /** Fetch a space's servers into `connectors` (plus-menu open, `mcp.changed`). */
+  refreshConnectors(spaceId: string): Promise<void>;
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
@@ -601,6 +626,14 @@ export type AppState = {
   run(action: () => Promise<unknown>): void;
   clearError(): void;
 };
+
+/** The title "New worktree…" sends (Plan 12 W1): the draft's first few words — enough to recognise the
+ *  branch by — or null, which the server names "session". Slugging is the server's job (slugifyBranch);
+ *  this only decides what the worktree is ABOUT. */
+export function worktreeTitleFrom(draft: string): string | null {
+  const words = draft.trim().split(/\s+/).filter(Boolean).slice(0, 4).join(" ");
+  return words ? words.slice(0, 40) : null;
+}
 
 /** Prune-only: drop ids that no longer exist. Never adds — unopened items live in the SPACE group. */
 export function reconcileLayout(layout: Layout | null, items: Item[]): Layout {
@@ -880,6 +913,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
+      machineName: "", connectors: {},
       mcpServers: [], mcpToolsError: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
 
@@ -887,13 +921,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, swipeInvert, lastAgent, panels] = await Promise.all([
+        const [profiles, spaces, saved, theme, swipeInvert, lastAgent, panels, machineName] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_TERMINAL_PANEL),
+          // A label, not a dependency: a failure here must not take boot down with it — the strip
+          // simply shows no machine name.
+          api.machineName().catch(() => ""),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true, lastAgentKind: agent.success ? agent.data : null,
-          terminalPanel: parseTerminalPanels(panels) });
+          terminalPanel: parseTerminalPanels(panels), machineName });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
@@ -1334,6 +1371,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // The server renames an untouched default title to match the new agent; the sidebar row shows it.
         await get().refreshItems();
       },
+      async setSessionEnvironment(id, environmentId) {
+        // The id travels verbatim and the merged session is the server's answer — the chip renders
+        // what was persisted, never what was hoped.
+        mergeSession(await api.setSessionEnvironment(id, environmentId));
+        refreshGitFor(id); // a different checkout: the branch/diff chips must describe THAT tree now
+      },
+      async moveSessionToNewWorktree(sessionId) {
+        const s = get().sessions[sessionId]; if (!s) return;
+        // Create FIRST; if it throws (not a repo, no commits) the session stays where it was and `run`
+        // surfaces the reason — same shape as newSessionInWorktree.
+        const env = await api.createWorktree(s.spaceId, worktreeTitleFrom(get().drafts[sessionId] ?? ""));
+        if (get().activeSpaceId === s.spaceId) set({ environments: { ...get().environments, [env.id]: env } });
+        // …then select it. Creating without selecting is the named mutant this line kills.
+        await get().setSessionEnvironment(sessionId, env.id);
+      },
+      async refreshConnectors(spaceId) {
+        const { servers } = await api.listMcpServers(spaceId);
+        set({ connectors: { ...get().connectors, [spaceId]: servers } });
+      },
       async probeAgents(force = false) {
         // Mount-storm guard: a split of four session panes asks four times in the same tick. The server
         // holds the TTL cache (probe-cache.ts); this only collapses the round trips.
@@ -1637,7 +1693,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, oauthStatus: "unconfigured" } : x)) });
       },
       applyMcpServerStatus({ id, status, oauthStatus }) {
-        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, status, oauthStatus } : x)) });
+        // Both holders of `mcp.list` rows: the settings sheet's list and the plus-menu's per-space
+        // cache. One patch for both, or an open Connectors submenu would show yesterday's dot.
+        const patch = (x: McpServer) => (x.id === id ? { ...x, status, oauthStatus } : x);
+        set({ mcpServers: get().mcpServers.map(patch),
+          connectors: Object.fromEntries(Object.entries(get().connectors).map(([sid, list]) => [sid, list.map(patch)])) });
       },
       async openActivity() {
         // Always opens showing everything (binding rule 5) — a filter left over from a previous visit

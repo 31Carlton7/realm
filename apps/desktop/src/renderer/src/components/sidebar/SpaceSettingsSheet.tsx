@@ -84,8 +84,10 @@ const TABS = [
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
-/** Edit a space: general (name, icon, color, profile, checkouts, delete), skills, MCP, memory. */
-export function SpaceSettingsSheet({ spaceId }: { spaceId: string }) {
+/** Edit a space: general (name, icon, color, profile, checkouts, delete), skills, MCP, memory.
+ *  `initialTab` lets an opener land on a section (the plus-menu's "Manage connections…" →
+ *  Connections); it seeds the state once — tab switching stays local after that. */
+export function SpaceSettingsSheet({ spaceId, initialTab }: { spaceId: string; initialTab?: TabId }) {
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const profiles = useApp((s) => s.profiles);
   const updateSpace = useApp((s) => s.updateSpace);
@@ -95,7 +97,7 @@ export function SpaceSettingsSheet({ spaceId }: { spaceId: string }) {
   const [name, setName] = useState(space?.name ?? "");
   const [hex, setHex] = useState(space?.color ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [tab, setTab] = useState<TabId>("general");
+  const [tab, setTab] = useState<TabId>(initialTab ?? "general");
   useEffect(() => { if (space) setHex(space.color); }, [space?.color]);
   // The space vanished (deleted elsewhere): nothing to edit.
   useEffect(() => { if (!space) closeSheet(); }, [space, closeSheet]);

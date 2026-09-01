@@ -227,6 +227,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     deleteItem: async (id) => { calls.push(`deleteItem:${id}`); for (const k of Object.keys(data.items)) data.items[k] = data.items[k]!.filter((i) => i.id !== id); },
     getSetting: async (key) => { calls.push(`getSetting:${key}`); return data.settings[key] ?? null; },
     setSetting: async (key, value) => { calls.push(`setSetting:${key}=${String(value)}`); data.settings[key] = value; },
+    machineName: async () => { calls.push("machineName"); return "Carlton's M4 MacBook Pro"; },
     pickFolder: async () => "/tmp/picked-repo",
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
@@ -305,6 +306,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       // Mirrors the server: a started session refuses, and a switch clears the old kind's model.
       if (data.sessions[i]!.lastEventSeq > 0) throw new Error("this session has already run; its agent can no longer be changed");
       const s = { ...data.sessions[i]!, agentKind, model: null }; data.sessions[i] = s; return s;
+    },
+    setSessionEnvironment: async (id, environmentId) => {
+      calls.push(`setSessionEnvironment:${id}=${environmentId}`);
+      const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
+      // Mirrors the server: the same one-persisted-event lock as setAgent, and cwd follows the row.
+      if (data.sessions[i]!.lastEventSeq > 0) throw new Error("this session has already run; it can no longer move to another checkout");
+      const env = Object.values(data.environments).flat().find((e) => e.id === environmentId);
+      if (!env) throw new Error(`no environment ${environmentId}`);
+      if (env.spaceId !== data.sessions[i]!.spaceId) throw new Error("that environment belongs to another space");
+      const s = { ...data.sessions[i]!, environmentId, cwd: env.path }; data.sessions[i] = s; return s;
     },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     // Mirrors the server: get-or-create, so a second call for the same session returns the same trio —

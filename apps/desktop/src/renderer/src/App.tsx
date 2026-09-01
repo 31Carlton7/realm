@@ -55,7 +55,7 @@ function SheetHost() {
   const sheet = useApp((s) => s.sheet);
   if (!sheet) return null;
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
-  if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
+  if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} initialTab={sheet.tab} />;
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;
@@ -165,8 +165,12 @@ export function App() {
     // while the settings sheet is actually open on a space's server list. (One subscription, not one
     // per held space: since the merge there is a single MCP settings surface, and it is in this sheet.)
     const offM = rpc().on("mcp.changed", () => {
-      const sheet = store.getState().sheet;
-      if (sheet?.kind === "space-settings") store.getState().run(() => store.getState().refreshMcpServers(sheet.spaceId));
+      const st = store.getState();
+      const sheet = st.sheet;
+      if (sheet?.kind === "space-settings") st.run(() => st.refreshMcpServers(sheet.spaceId));
+      // The plus-menu's per-space cache (Plan 12 W1): only spaces already fetched — a space whose menu
+      // was never opened has nothing to go stale.
+      for (const spaceId of Object.keys(st.connectors)) st.run(() => st.refreshConnectors(spaceId));
     });
     const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
     // Broadcast for EVERY space/session (binding rule 5) — applyMcpCall itself is the gate on whether

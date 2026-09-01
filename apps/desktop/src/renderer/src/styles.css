@@ -769,6 +769,21 @@ button.panel-title:hover { background: var(--rl-hover); }
   border-radius: 0 0 var(--r-panel) var(--r-panel); font-size: 11px; color: var(--rl-text-dim); }
 /* Plan 9 W3: the label shimmers (BUI LoadingState), not pulses — same gradient as .shimmer-text. */
 .composer-thinking span { display: inline-block; }
+/* ── Under-strip (Plan 12 W1): machine label + workspace selector, one size quieter than the
+   control row (11px on faint vs 12px on dim). In normal flow inside .composer-dock, so the
+   hero→docked transform carries it and the absolutely-hung suggestions land below it. ── */
+.composer-understrip { display: flex; align-items: center; gap: 2px; margin-top: 6px; padding: 0 10px; min-width: 0; }
+.composer-understrip .ghost-chip { height: 24px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
+.composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
+/* The "+" menu (Plan 12 W1): the in-place Connectors submenu's header rows and health dots. */
+.plus-submenu-label { display: inline-flex; align-items: center; gap: 6px; }
+.plus-submenu-label .plus-submenu-caret { color: var(--rl-text-faint); }
+.connector-row { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.connector-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--rl-text-faint); }
+.connector-dot[data-tone="ok"] { background: var(--rl-success); }
+.connector-dot[data-tone="warning"] { background: var(--rl-warning); }
+.connector-note { color: var(--rl-text-faint); font-size: 11px; }
+
 /* ── Install card (§5 floating card) — what stands in for the prompter when the CLI can't run ── */
 /* It rides the prompter's own rails (.composer-dock), so hero vs docked positioning is already right. */
 .install-card { width: 100%; border-radius: var(--r-float); background: var(--rl-raised);

@@ -560,7 +560,7 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
     const opts = document.querySelector(".composer-opts")!;
     const children = Array.from(opts.children);
-    expect(children[0]).toBe(screen.getByRole("button", { name: "Attach files" }));
+    expect(children[0]).toBe(screen.getByRole("button", { name: "Add" })); // the "+" — now a menu (Plan 12 W1)
     expect(children[1]).toBe(screen.getByRole("button", { name: "Permission mode" }));
     expect(children[2]).toBe(screen.getByRole("button", { name: "Mode" }));
     expect(children[3]).toBe(document.querySelector(".composer-git"));
@@ -1245,7 +1245,12 @@ describe("prompter attachments", () => {
     return { api, store, ...r };
   }
 
-  const attach = () => fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
+  /** The "+" menu's Add files… (Plan 12 W1): the plus opens a menu now, and the menu item reaches the
+   *  SAME store action the bare attach button used to call — every assertion below is unchanged. */
+  const attach = () => {
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Add files…/ })); // kbd hint ⌘U rides the accessible name
+  };
   const chips = () => Array.from(document.querySelectorAll(".attach-chip")).map((c) => c.textContent ?? "");
   const notes = () => Array.from(document.querySelectorAll(".composer-attach-note")).map((n) => n.textContent ?? "");
   const composer = () => document.querySelector(".composer") as HTMLElement;
