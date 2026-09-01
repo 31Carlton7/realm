@@ -254,6 +254,102 @@ describe("app store", () => {
     });
   });
 
+  describe("dispatch (Plan 13 W2)", () => {
+    const wtEnv = { id: "envX", spaceId: "s1", path: "/wt", branch: "realm/wt", kind: "worktree" as const, portBlockStart: null, createdAt: 0, updatedAt: 0 };
+    const seeded = () => fakeApi({
+      items: { s1: [item("it1", "s1", { kind: "session", refId: "se1" })] },
+      environments: { s1: [wtEnv] },
+      sessions: [session("se1", "s1", { agentKind: "fake", model: "m1", effort: "high", permissionMode: "acceptEdits", environmentId: "envX", cwd: "/wt" })],
+    });
+
+    it("creates the session with the composer's setup verbatim (worktree env included), sends the draft, clears it, and never moves focus", async () => {
+      const a = seeded();
+      const store = createAppStore(a);
+      await store.getState().boot();
+      await store.getState().openItem("it1");
+      const focusedBefore = store.getState().focusedLeafId;
+      store.getState().setDraft("se1", "go fix the parser");
+      store.setState({ pendingAttachments: { se1: [{ path: "/x/a.png", mime: "image/png", name: "a.png", size: 1 }] } });
+      await store.getState().dispatchDraft("se1");
+      const created = a.data.sessions.find((s) => s.dispatchedBy?.kind === "user-dispatch")!;
+      expect(created).toBeDefined();
+      expect(created.dispatchedBy).toEqual({ kind: "user-dispatch", sessionId: null });
+      // Inheritance, verbatim: agent, model, effort, permission mode, and the under-strip's
+      // environment — which is how "dispatch into the worktree the selector says" works.
+      expect(created.agentKind).toBe("fake");
+      expect(created.model).toBe("m1");
+      expect(created.permissionMode).toBe("acceptEdits");
+      expect(created.environmentId).toBe("envX");
+      expect(created.cwd).toBe("/wt");
+      // The draft went to the NEW session, attachments included.
+      expect(a.sent).toEqual([{ id: created.id, text: "go fix the parser", attachments: [{ path: "/x/a.png", mime: "image/png" }] }]);
+      // …and cleared exactly as a normal send (the double-send mutant).
+      const st = store.getState();
+      expect(st.drafts["se1"]).toBe("");
+      expect(st.pendingAttachments["se1"]).toEqual([]);
+      // The pane arrived BESIDE; focus never moved (the focus-steal mutant).
+      expect(st.focusedLeafId).toBe(focusedBefore);
+      const open = allItems(st.layout!);
+      expect(open).toContain("it1");
+      const newItem = st.items.find((i) => i.kind === "session" && i.refId === created.id)!;
+      expect(open).toContain(newItem.id);
+      // Dispatching again with the now-empty draft is a no-op: nothing new, nothing re-sent.
+      await store.getState().dispatchDraft("se1");
+      expect(a.sent).toHaveLength(1);
+      expect(a.data.sessions.filter((s) => s.dispatchedBy !== null)).toHaveLength(1);
+    });
+
+    it("a rejected send leaves the draft in the composer — the user still has their words", async () => {
+      const a = seeded();
+      const store = createAppStore(a);
+      await store.getState().boot();
+      store.getState().setDraft("se1", "precious words");
+      a.sendMessage = async () => { throw new Error("boom"); };
+      await expect(store.getState().dispatchDraft("se1")).rejects.toThrow("boom");
+      expect(store.getState().drafts["se1"]).toBe("precious words");
+    });
+
+    it("openItemBesideQuiet leaves an already-open item — and the focus — entirely alone", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      const focused = store.getState().focusedLeafId;
+      await store.getState().openItemBesideQuiet("i1");
+      expect(store.getState().layout!.type).toBe("leaf"); // no gratuitous split
+      expect(store.getState().focusedLeafId).toBe(focused);
+    });
+  });
+
+  describe("review slice (Plan 13 W3)", () => {
+    const verdict = { environmentId: "env1", sessionId: "01ARZ3NDEKTSV4RRFFQ69G5RV1", sessionTitle: "Review: fix-login",
+      outcome: "done" as const, text: "Verdict: refuted — src/a.ts:3", createdAt: 1 };
+
+    it("requestReview arms the in-flight flag; the verdict's broadcast lands it and disarms; dismiss clears", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().requestReview("env1");
+      expect(api.calls).toContain("requestReview:env1");
+      expect(store.getState().reviewing["env1"]).toBe(true);
+      store.getState().applyReviewChanged({ environmentId: "env1", review: verdict });
+      expect(store.getState().reviews["env1"]).toEqual(verdict);
+      expect(store.getState().reviewing["env1"]).toBeUndefined();
+      await store.getState().dismissReview("env1");
+      expect(api.calls).toContain("dismissReview:env1");
+      expect(store.getState().reviews["env1"]).toBeNull();
+    });
+
+    it("refreshReview reads the persisted verdict (the reload-keeps-it half); a refused request drops the flag", async () => {
+      api.data.reviews["env1"] = verdict;
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().refreshReview("env1");
+      expect(store.getState().reviews["env1"]).toEqual(verdict);
+      api.requestReview = async () => { throw new Error("a review of this checkout is already running"); };
+      await expect(store.getState().requestReview("env2")).rejects.toThrow(/already running/);
+      expect(store.getState().reviewing["env2"]).toBeUndefined();
+    });
+  });
+
   describe("closing the last pane", () => {
     it("opens a fresh session rather than leaving an empty layout", async () => {
       const store = createAppStore(api);

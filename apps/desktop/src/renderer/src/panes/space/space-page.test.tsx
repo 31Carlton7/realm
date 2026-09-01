@@ -46,7 +46,7 @@ describe("SpacePage · General", () => {
     expect(screen.getByText("This space no longer exists.")).toBeInTheDocument();
   });
 
-  it("the rail moves between all six tabs — General, Memory, Skills, Connections, Sessions, History", async () => {
+  it("the rail moves between all seven tabs — General, Memory, Skills, Connections, Sessions, Tasks, History", async () => {
     await mount();
     // General is the default, so every sheet-era flow above lands where it always did.
     expect(screen.getByRole("textbox", { name: "Space name" })).toBeInTheDocument();
@@ -59,6 +59,8 @@ describe("SpacePage · General", () => {
     expect(await screen.findByRole("textbox", { name: "Space memory document" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Sessions" }));
     expect(screen.getByText(/No sessions in this space yet/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Tasks" }));
+    expect(screen.getByText(/Nothing has been dispatched here yet/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "History" }));
     expect(screen.getByText(/Nothing here yet/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "General" }));
@@ -162,6 +164,63 @@ describe("the Sessions tab", () => {
     await waitFor(() => expect(JSON.stringify(store.getState().layout)).toContain('"it2"'));
     expect(store.getState().focusedLeafId).not.toBeNull();
     expect(JSON.stringify(store.getState().layout)).not.toContain('"it1"');
+  });
+});
+
+/** Plan 13 W2: a lens over dispatched-origin sessions — no new runtime, and hard space scoping. */
+describe("the Tasks tab", () => {
+  const wtEnv: Environment = { id: "envW", spaceId: "s1", path: "/wt", branch: "realm/wt", kind: "worktree", portBlockStart: null, createdAt: 0, updatedAt: 0 };
+  const data: FakeData = {
+    items: { s1: [
+      item("it1", "s1", { kind: "session", title: "Fix login", refId: "se1" }),
+      item("it2", "s1", { kind: "session", title: "Agent: parse", refId: "se2" }),
+      item("it3", "s1", { kind: "session", title: "Dispatched task", refId: "se3" }),
+    ] },
+    environments: { s1: [wtEnv] },
+    sessions: [
+      session("se1", "s1", { title: "Fix login", status: "running", createdAt: 3000 }), // NOT dispatched — a lens, not a session list
+      session("se2", "s1", { title: "Agent: parse", status: "running", createdAt: 2000, environmentId: "envW", cwd: "/wt",
+        dispatchedBy: { sessionId: "se1", kind: "agent_run" } }),
+      session("se3", "s1", { title: "Dispatched task", status: "idle", createdAt: 1000, updatedAt: 5000,
+        dispatchedBy: { sessionId: null, kind: "user-dispatch" } }),
+    ],
+  };
+
+  it("lists ONLY dispatched-origin sessions of THIS space — a foreign space's dispatched session never renders", async () => {
+    const { store } = await mount(data);
+    // The named mutant: the lens listing another space's sessions. Injected past the store's own
+    // active-space scoping, exactly like the Sessions tab's cross-space test.
+    act(() => store.setState({ sessions: { ...store.getState().sessions,
+      se9: session("se9", "s2", { title: "Foreign dispatch", createdAt: 9000, dispatchedBy: { sessionId: null, kind: "user-dispatch" } }) } }));
+    fireEvent.click(screen.getByRole("radio", { name: "Tasks" }));
+    expect(screen.getByText("Agent: parse")).toBeInTheDocument();
+    expect(screen.getByText("Dispatched task")).toBeInTheDocument();
+    expect(screen.queryByText("Fix login")).toBeNull();        // undelegated sessions stay on Sessions
+    expect(screen.queryByText("Foreign dispatch")).toBeNull(); // the cross-space mutant
+  });
+
+  it("rows carry origin, environment, started/settled and the status dot — settled only once settled", async () => {
+    await mount(data);
+    fireEvent.click(screen.getByRole("radio", { name: "Tasks" }));
+    const agentRow = screen.getByText("Agent: parse").closest("button")!;
+    expect(agentRow.getAttribute("aria-label")).toContain("Delegated via agent_run");
+    expect(agentRow.textContent).toContain("realm/wt"); // the worktree it runs in
+    expect(agentRow.textContent).toContain("started");
+    expect(agentRow.textContent).not.toContain("settled"); // still running — no settle time invented
+    expect(agentRow.querySelector(".status-dot")).toHaveAttribute("data-status", "running");
+    const userRow = screen.getByText("Dispatched task").closest("button")!;
+    expect(userRow.getAttribute("aria-label")).toContain("Dispatched");
+    expect(userRow.textContent).toContain("settled");
+    expect(userRow.querySelector(".status-dot")).toHaveAttribute("data-status", "idle");
+  });
+
+  it("the agent origin links its parent; the row itself jumps to the dispatched session", async () => {
+    const { store } = await mount(data);
+    fireEvent.click(screen.getByRole("radio", { name: "Tasks" }));
+    fireEvent.click(screen.getByText("from Fix login"));
+    await waitFor(() => expect(JSON.stringify(store.getState().layout)).toContain('"it1"')); // the PARENT's item
+    fireEvent.click(screen.getByText("Dispatched task"));
+    await waitFor(() => expect(JSON.stringify(store.getState().layout)).toContain('"it3"'));
   });
 });
 
