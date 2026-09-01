@@ -180,14 +180,15 @@ export type AcpSessionMode = { id: string; name: string; description?: string };
 /**
  * The advertised mode Realm treats as Plan-equivalent, or null when the agent offers none.
  *
- * Matched on the AGENT'S OWN id being literally `"plan"` — verified live against cursor-agent
- * 2026.07.25 (`agent`/`plan`/`ask`, with `plan` described as "Read-only mode for planning and
- * designing before implementation"). Deliberately no fuzzy name matching: a mode Realm merely hopes
- * means Plan is exactly the lie the per-session capability exists to end. What `session/set_mode`
- * transmits is the matched mode's own id, never Realm's.
+ * Matched on the AGENT'S OWN id being the well-known `"plan"` — either bare (verified live against
+ * cursor-agent 2026.07.25: `agent`/`plan`/`ask`, with `plan` described as "Read-only mode for planning
+ * and designing before implementation") or in ACP's spec-URI form, which GitHub Copilot uses.
+ * Deliberately no fuzzy NAME matching: a mode Realm merely hopes means Plan is exactly the lie the
+ * per-session capability exists to end. What the write transmits is the matched mode's own id,
+ * never Realm's.
  */
 export function acpPlanMode(modes: readonly AcpSessionMode[] | null | undefined): AcpSessionMode | null {
-  return modes?.find((m) => m.id === "plan") ?? null;
+  return modes?.find((m) => acpWellKnownMode(m.id, "plan")) ?? null;
 }
 
 /**
@@ -197,10 +198,128 @@ export function acpPlanMode(modes: readonly AcpSessionMode[] | null | undefined)
  */
 export function acpBuildMode(modes: readonly AcpSessionMode[] | null | undefined, bootModeId: string | null): AcpSessionMode | null {
   if (!modes) return null;
-  const agent = modes.find((m) => m.id === "agent");
+  const agent = modes.find((m) => acpWellKnownMode(m.id, "agent"));
   if (agent) return agent;
   const boot = modes.find((m) => m.id === bootModeId);
-  return boot && boot.id !== "plan" ? boot : null;
+  return boot && !acpWellKnownMode(boot.id, "plan") ? boot : null;
+}
+
+/**
+ * ACP's own well-known session-mode identifiers. Agents may report a mode by its spec URI instead of
+ * a bare id — GitHub Copilot does, e.g. `https://agentclientprotocol.com/protocol/session-modes#plan`.
+ *
+ * Matching these is NOT the fuzzy name matching `acpPlanMode` refuses. A spec URI is an identifier the
+ * protocol defines and the agent chose deliberately; a mode merely *named* "Planning" is a guess. The
+ * line is "did the agent name a well-known id", not "does the label look right".
+ */
+const ACP_MODE_URI_PREFIX = "https://agentclientprotocol.com/protocol/session-modes#";
+/** True when `id` is the bare well-known id or its spec URI form. */
+export function acpWellKnownMode(id: string, wellKnown: "plan" | "agent"): boolean {
+  return id === wellKnown || id === `${ACP_MODE_URI_PREFIX}${wellKnown}`;
+}
+
+/**
+ * One entry of ACP's `configOptions` — the replacement for `modes` and `models`.
+ *
+ * The spec is explicit: "If an Agent provides `configOptions`, Clients SHOULD use them instead of the
+ * `modes` field. Modes will be removed in a future version of the protocol."
+ * (agentclientprotocol.com/protocol/session-config-options). Writes go through
+ * `session/set_config_option {sessionId, configId, value}`, NOT `session/set_mode`/`session/set_model`.
+ */
+export type AcpConfigOption = {
+  id: string;
+  /** `"mode"` and `"model"` are the two Realm consumes; anything else is carried and ignored. */
+  category: string | null;
+  currentValue: string | null;
+  options: { value: string; name: string | null; description: string | null }[];
+};
+
+/**
+ * Everything Realm reads off an ACP `session/new` answer, from whichever shape the agent speaks.
+ *
+ * `modeConfigId`/`modelConfigId` are the seam: non-null means the value came from `configOptions` and
+ * the write is `session/set_config_option` with that id; null means the legacy `modes`/`models` shape
+ * and the write is `session/set_mode`/`session/set_model`. Reading from one channel and writing on the
+ * other is the failure this field exists to make impossible.
+ */
+export type AcpSessionConfig = {
+  modes: AcpSessionMode[];
+  currentModeId: string | null;
+  modeConfigId: string | null;
+  models: AgentModel[];
+  currentModelId: string | null;
+  modelConfigId: string | null;
+};
+
+const asObj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+const asStr = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+
+/** Parses `configOptions` off a `session/new`/`session/load` answer. Entries missing a string `id` are
+ *  dropped rather than repaired — a config option Realm cannot address is one it must not offer. */
+export function parseAcpConfigOptions(raw: unknown): AcpConfigOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AcpConfigOption[] = [];
+  for (const entry of raw) {
+    const o = asObj(entry);
+    const id = asStr(o.id);
+    if (!id) continue;
+    const opts = Array.isArray(o.options) ? o.options : [];
+    out.push({
+      id,
+      category: asStr(o.category),
+      currentValue: asStr(o.currentValue),
+      // An option may be a bare string or `{value, name?, description?}`. opencode emits `{"value":"build"}`
+      // with no name at all, so the label falls back to the value — an ugly true label over a pretty guess.
+      options: opts.map((raw) => {
+        if (typeof raw === "string") return { value: raw, name: null, description: null };
+        const oo = asObj(raw);
+        const value = asStr(oo.value);
+        return value ? { value, name: asStr(oo.name), description: asStr(oo.description) } : null;
+      }).filter((v): v is { value: string; name: string | null; description: string | null } => v !== null),
+    });
+  }
+  return out;
+}
+
+/**
+ * Normalizes a `session/new` answer into the one shape the adapter uses, preferring `configOptions`
+ * over `modes`/`models` per the spec.
+ *
+ * Measured 2026-09-01: opencode answers with `configOptions` ONLY (a `model` and a `mode` option, no
+ * top-level `modes` or `models`), so an adapter reading only the legacy fields gives it no Plan chip
+ * and no model picker — silently, which is the worst way to be wrong. Cursor answers with `modes` only.
+ * Copilot answers with both. All three work off this one function.
+ */
+export function acpSessionConfig(session: unknown): AcpSessionConfig {
+  const s = asObj(session);
+  const cfg = parseAcpConfigOptions(s.configOptions);
+  const modeOpt = cfg.find((o) => o.category === "mode");
+  const modelOpt = cfg.find((o) => o.category === "model");
+
+  const legacyModes = asObj(s.modes);
+  const legacyModeRows = (Array.isArray(legacyModes.availableModes) ? legacyModes.availableModes : [])
+    .map(asObj)
+    .filter((m): m is Record<string, unknown> & { id: string; name: string } => typeof m.id === "string" && typeof m.name === "string")
+    .map((m) => ({ id: m.id, name: m.name, ...(typeof m.description === "string" ? { description: m.description } : {}) }));
+
+  const legacyModels = asObj(s.models);
+  const legacyModelRows: AgentModel[] = [];
+  for (const raw of Array.isArray(legacyModels.availableModels) ? legacyModels.availableModels : []) {
+    const m = asObj(raw);
+    const id = asStr(m.modelId);
+    if (id) legacyModelRows.push({ id, label: asStr(m.name) ?? id });
+  }
+
+  return {
+    modes: modeOpt
+      ? modeOpt.options.map((o) => ({ id: o.value, name: o.name ?? o.value, ...(o.description ? { description: o.description } : {}) }))
+      : legacyModeRows,
+    currentModeId: modeOpt ? modeOpt.currentValue : asStr(legacyModes.currentModeId),
+    modeConfigId: modeOpt ? modeOpt.id : null,
+    models: modelOpt ? modelOpt.options.map((o) => ({ id: o.value, label: o.name ?? o.value })) : legacyModelRows,
+    currentModelId: modelOpt ? modelOpt.currentValue : asStr(legacyModels.currentModelId),
+    modelConfigId: modelOpt ? modelOpt.id : null,
+  };
 }
 
 /**

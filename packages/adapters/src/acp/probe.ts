@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { acpSessionConfig } from "@realm/contracts";
 import { StdioJsonRpc, withTimeout } from "../jsonrpc/stdio";
 
 const run = promisify(execFile);
@@ -26,7 +27,10 @@ export async function probeAcp(
 }
 
 /**
- * Extracts picker rows from the `models` object an ACP `session/new` answers with.
+ * Extracts picker rows from the DEPRECATED `models` object an ACP `session/new` answers with.
+ *
+ * Kept because Cursor still speaks this shape and its id vocabulary is the argument below. New code
+ * should go through `acpSessionConfig`, which prefers `configOptions` and falls back to here.
  *
  * This — not `cursor-agent --list-models` — is the catalog Realm can honestly offer, because it is the
  * id vocabulary `session/set_model` actually accepts (verified live against cursor-agent 2026.09:
@@ -86,8 +90,12 @@ export async function fetchAcpModels(
     }), ms, `${opts.bin} did not answer initialize within ${ms}ms`);
     const session = await withTimeout(rpc.request("session/new", { cwd: opts.cwd, mcpServers: [] }), ms,
       `${opts.bin} did not answer session/new within ${ms}ms`);
-    const models = parseAcpModels((session as { models?: unknown } | null)?.models);
-    return models.length > 0 ? models : null;
+    // Whichever shape the agent speaks: `configOptions` first (opencode reports its catalog ONLY
+    // there, so reading `models` alone finds nothing and the picker silently shows one dead row),
+    // falling back to the deprecated `models`. Same normalizer the adapter boots with, so the ids the
+    // picker offers are exactly the ids a session start will transmit.
+    const models = acpSessionConfig(session).models;
+    return models.length > 0 ? [...models] : null;
   } catch {
     return null;
   } finally {

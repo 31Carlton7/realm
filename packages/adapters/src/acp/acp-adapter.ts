@@ -1,7 +1,7 @@
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { acpBuildMode, acpPlanMode, PLAN_PERMISSION_MODE, sessionEvent, type AcpSessionMode, type AgentKind, type SessionEvent } from "@realm/contracts";
+import { acpBuildMode, acpPlanMode, acpSessionConfig, PLAN_PERMISSION_MODE, sessionEvent, type AcpSessionMode, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
@@ -240,6 +240,13 @@ export class AcpAdapter implements AgentAdapter {
     /** `modes.availableModes` from `session/new`/`session/load`, verbatim (Plan 14 W3). What Plan and
      *  Build translate through — `session/set_mode` only ever transmits one of THESE ids. */
     let availableModes: AcpSessionMode[] = [];
+    /** Non-null when the modes above came from ACP `configOptions` rather than the deprecated `modes`
+     *  field — then the write is `session/set_config_option` with THIS id, not `session/set_mode`.
+     *  Reading from one channel and writing on the other is a silent no-op on every agent that has
+     *  moved (opencode has), so the two are carried together and never inferred separately. */
+    let modeConfigId: string | null = null;
+    /** The same seam for the model axis. */
+    let modelConfigId: string | null = null;
     /** `modes.currentModeId` at boot — `acpBuildMode`'s fallback when the agent has no `agent` id. */
     let bootModeId: string | null = null;
     /** True only for the duration of `session/load`, whose replay Realm has already persisted. */
@@ -419,27 +426,35 @@ export class AcpAdapter implements AgentAdapter {
         // the first message) only reaches the agent through a follow-up `session/set_model`. Failure
         // is a log line, not a dead session — the agent then runs its own default, and the init event
         // below reports the model the agent says it is on rather than the one we failed to set.
+        // The agent's own modes and models, from whichever shape it speaks (Plan 18 §2). ACP has
+        // deprecated `modes`/`models` in favour of `configOptions`, and agents have already split:
+        // Cursor answers with `modes` only, opencode with `configOptions` only, Copilot with both.
+        // `acpSessionConfig` prefers the new shape and hands back the config ids to write through.
+        const cfg = acpSessionConfig(session);
+        availableModes = cfg.modes;
+        bootModeId = cfg.currentModeId;
+        modeConfigId = cfg.modeConfigId;
+        modelConfigId = cfg.modelConfigId;
+        // The session's pinned model is transmitted HERE, not merely displayed: ACP's `session/new`
+        // takes `{cwd, mcpServers}` and nothing else, so a model picked in an earlier run (or before
+        // the first message) only reaches the agent through a follow-up write. Failure is a log line,
+        // not a dead session — the agent then runs its own default, and the init event below reports
+        // the model the agent says it is on rather than the one we failed to set.
         let pinned = false;
         if (opts.model) {
+          const [method, params] = modelConfigId
+            ? ["session/set_config_option", { sessionId: id, configId: modelConfigId, value: opts.model }] as const
+            : ["session/set_model", { sessionId: id, modelId: opts.model }] as const;
           try {
-            await ask("session/set_model", { sessionId: id, modelId: opts.model }, SESSION_TIMEOUT_MS);
+            await ask(method, params, SESSION_TIMEOUT_MS);
             pinned = true;
           } catch (e) {
-            log(`session/set_model ${opts.model} failed (${message(e)}); staying on the agent's default`);
+            log(`${method} ${opts.model} failed (${message(e)}); staying on the agent's default`);
           }
         }
-        // The agent's own modes, captured verbatim (Plan 14 W3). Both installed agents answer
-        // `session/new` with `modes` (Cursor: agent/plan/ask, verified live 2026-09-01); a build that
-        // omits it simply has no Plan here, and the init event carries no claim it does.
-        const modesBag = obj(session.modes);
-        availableModes = (Array.isArray(modesBag.availableModes) ? modesBag.availableModes : [])
-          .map(obj)
-          .filter((m): m is Bag & { id: string; name: string } => typeof m.id === "string" && typeof m.name === "string")
-          .map((m) => ({ id: m.id, name: m.name, ...(typeof m.description === "string" ? { description: m.description } : {}) }));
-        bootModeId = str(modesBag.currentModeId) || null;
         events.push(sessionEvent("init", {
           providerSessionId: id,
-          model: pinned ? str(opts.model) : str(obj(session.models).currentModelId) || str(opts.model),
+          model: pinned ? str(opts.model) : cfg.currentModelId ?? str(opts.model),
           tools: [],
           cwd: opts.cwd,
           ...(availableModes.length ? { availableModes } : {}),
@@ -452,8 +467,11 @@ export class AcpAdapter implements AgentAdapter {
         // a log line, not a boot failure.
         const bootPlan = opts.permissionMode === PLAN_PERMISSION_MODE ? acpPlanMode(availableModes) : null;
         if (bootPlan && bootPlan.id !== bootModeId) {
-          try { await ask("session/set_mode", { sessionId: id, modeId: bootPlan.id }, INITIALIZE_TIMEOUT_MS); }
-          catch (e) { log(`session/set_mode at boot failed: ${message(e)}`); }
+          const [method, params] = modeConfigId
+            ? ["session/set_config_option", { sessionId: id, configId: modeConfigId, value: bootPlan.id }] as const
+            : ["session/set_mode", { sessionId: id, modeId: bootPlan.id }] as const;
+          try { await ask(method, params, INITIALIZE_TIMEOUT_MS); }
+          catch (e) { log(`${method} at boot failed: ${message(e)}`); }
         }
       } catch (e) {
         if (disposed) return;
@@ -527,10 +545,14 @@ export class AcpAdapter implements AgentAdapter {
           // collide on Cursor today, "acceptEdits" never would) is a foreign-id rejection at best and
           // an accidental match at worst. No equivalent advertised → nothing is sent at all.
           const target = o.permissionMode === PLAN_PERMISSION_MODE ? acpPlanMode(availableModes) : acpBuildMode(availableModes, bootModeId);
-          if (target) await attempt("session/set_mode", { sessionId, modeId: target.id });
-          else log(`no advertised mode maps onto ${o.permissionMode === PLAN_PERMISSION_MODE ? "Plan" : "Build"}; session/set_mode not sent`);
+          if (target && modeConfigId) await attempt("session/set_config_option", { sessionId, configId: modeConfigId, value: target.id });
+          else if (target) await attempt("session/set_mode", { sessionId, modeId: target.id });
+          else log(`no advertised mode maps onto ${o.permissionMode === PLAN_PERMISSION_MODE ? "Plan" : "Build"}; nothing sent`);
         }
-        if (o.model !== undefined) await attempt("session/set_model", { sessionId, modelId: o.model });
+        if (o.model !== undefined) {
+          if (modelConfigId) await attempt("session/set_config_option", { sessionId, configId: modelConfigId, value: o.model });
+          else await attempt("session/set_model", { sessionId, modelId: o.model });
+        }
       },
       dispose: async () => {
         // Waiting for boot keeps a dispose that raced it from tearing down a half-open connection — but the

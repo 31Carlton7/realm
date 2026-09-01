@@ -33,6 +33,10 @@
  * makes session/load call fs/read_text_file and session/request_permission back on us mid-replay.
  * FAKE_ACP_NOMODES=1 omits `modes` from session/new and session/load (a build that names none),
  * FAKE_ACP_NOPLANMODE=1 advertises modes without a plan-equivalent (agent/ask only).
+ * FAKE_ACP_CONFIGOPTIONS=1 answers with ACP `configOptions` and NO `modes`/`models` at all — the
+ * opencode 1.18.13 shape, verified live 2026-09-01. `session/set_config_option` is then the only
+ * write channel that works; `session/set_mode`/`session/set_model` still answer, so a test asserting
+ * "the new call was used" is asserting a choice rather than the absence of an alternative.
  * FAKE_ACP_MUTE_INITIALIZE=1, FAKE_ACP_MUTE_SESSION_NEW=1 and FAKE_ACP_MUTE_SESSION_LOAD=1 leave that request unanswered forever.
  * FAKE_ACP_SET_MODEL_OK=1 makes session/set_model succeed (it fails -32601 by default), and
  * FAKE_ACP_MODEL_GARBAGE=1 pollutes session/new's availableModels with malformed rows.
@@ -64,6 +68,20 @@ const ask = (method, params) => {
   return new Promise((resolve) => pendingRequests.set(id, resolve));
 };
 const promptText = (prompt) => (Array.isArray(prompt) ? prompt : []).map((b) => (b && typeof b.text === "string" ? b.text : "")).join(" ");
+
+/**
+ * ACP `configOptions` as real opencode 1.18.13 returns them — the shape that REPLACES `modes`/`models`
+ * (agentclientprotocol.com/protocol/session-config-options). Mode options carry no `name`, exactly as
+ * measured, so the label must fall back to the value.
+ */
+const sessionConfigOptions = () => ({
+  configOptions: [
+    { id: "model", name: "Model", category: "model", type: "select", currentValue: "fake-model-1",
+      options: [{ value: "fake-model-1", name: "Fake 1" }, { value: "fake-model-2", name: "Fake 2" }] },
+    { id: "mode", category: "mode", type: "select", currentValue: "agent",
+      options: [{ value: "agent" }, ...(process.env.FAKE_ACP_NOPLANMODE ? [] : [{ value: "plan" }]), { value: "ask" }] },
+  ],
+});
 
 /** `modes` as the real cursor-agent 2026.07.25 returns them from session/new (and session/load). */
 const sessionModes = () => {
@@ -208,6 +226,9 @@ function handleRequest(id, method, params) {
       if (process.env.FAKE_ACP_STARTFAIL) { fail(id, -32603, "Internal error", { message: "Failed to initialize session services", details: "[unauthenticated] Error" }); return; }
       journal.newParams = params;
       if (process.env.FAKE_ACP_NOSESSIONID) { ok(id, {}); return; }
+      // The opencode shape: configOptions and NOTHING else. An adapter reading only `modes`/`models`
+      // finds an empty mode list and an empty catalog here, silently — which is the bug this exists for.
+      if (process.env.FAKE_ACP_CONFIGOPTIONS) { ok(id, { sessionId: `sess_${nextSessionN++}`, ...sessionConfigOptions() }); return; }
       ok(id, { sessionId: `sess_${nextSessionN++}`, ...sessionModes(), models: { currentModelId: "fake-model-1", availableModels: process.env.FAKE_ACP_MODEL_GARBAGE
         // Rows a real preview build could plausibly emit around the good ones: no modelId, wrong types,
         // blank ids, plus one nameless-but-valid id. Only the well-formed survive parseAcpModels.
@@ -226,6 +247,12 @@ function handleRequest(id, method, params) {
     case "session/set_mode":
       journal.calls.push({ method, params });
       ok(id, {});
+      return;
+    // Accepted unconditionally — including when the fixture is NOT in configOptions mode. A test that
+    // the adapter used the right channel must show it CHOSE, not that the other call would have failed.
+    case "session/set_config_option":
+      journal.calls.push({ method, params });
+      ok(id, sessionConfigOptions());
       return;
     case "session/set_model":
       journal.calls.push({ method, params });
