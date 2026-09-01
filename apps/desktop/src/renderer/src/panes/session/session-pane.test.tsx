@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, sessionEvent, type Environment } from "@realm/contracts";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
-import { fakeApi, item, session } from "../../state/store.test-fakes";
+import { fakeApi, item, mcpServer, session, skillRow } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
@@ -1424,5 +1424,242 @@ describe("prompter attachments", () => {
     await mountFor("claude");
     expect(document.querySelector(".composer-attachments")).toBeNull();
     expect(notes()).toHaveLength(0);
+  });
+});
+
+/**
+ * The prompter's under-strip (Plan 12 W1): machine label + workspace selector hanging below the card.
+ *
+ * The named mutants these exist to kill: the selector sending the WRONG environment id; the selector
+ * staying interactive after the session's first event; "New worktree…" creating without selecting.
+ */
+describe("under-strip (Plan 12 W1)", () => {
+  const env = (id: string, extra: Partial<Environment> = {}): Environment =>
+    ({ id, spaceId: "s1", path: `/tmp/${id}`, branch: null, kind: "checkout", portBlockStart: null, createdAt: 0, updatedAt: 0, ...extra });
+  const twoEnvs = () => ({
+    envA: env("envA", { kind: "primary", path: "/tmp" }),
+    envB: env("envB", { kind: "worktree", branch: "realm/fix-tests", path: "/tmp/wt" }),
+  });
+  async function mountStrip(extra: { lastEventSeq?: number; lastSeq?: number } = {}) {
+    const { envA, envB } = twoEnvs();
+    const api = fakeApi({
+      sessions: [session("se1", "s1", { status: "idle", environmentId: "envA", cwd: "/tmp", lastEventSeq: extra.lastEventSeq ?? 0 })],
+      environments: { s1: [envA, envB] },
+    });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: extra.lastSeq ?? 0, t: reduceAll([]) } } });
+    const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    return { api, store, ...r };
+  }
+
+  it("shows the machine label as plain text — no button, no caret, no menu", async () => {
+    await mountStrip();
+    const strip = document.querySelector(".composer-understrip")!;
+    expect(strip).toHaveTextContent("Carlton's M4 MacBook Pro");
+    const label = within(strip as HTMLElement).getByText("Carlton's M4 MacBook Pro");
+    expect(label.closest("button")).toBeNull(); // display only: Realm runs agents on this Mac, full stop
+    expect(label.closest(".ghost-chip")).toHaveAttribute("data-static");
+  });
+
+  it("labels the workspace chip: space name for the primary, branch for a worktree", async () => {
+    const { store } = await mountStrip();
+    expect(screen.getByRole("button", { name: "Workspace" })).toHaveTextContent("Versed"); // primary = the space's name
+    act(() => store.setState({ sessions: { se1: { ...store.getState().sessions.se1!, environmentId: "envB", cwd: "/tmp/wt" } } }));
+    expect(screen.getByRole("button", { name: "Workspace" })).toHaveTextContent("realm/fix-tests");
+  });
+
+  it("selecting an environment sends EXACTLY that id and the chip re-labels from the server's answer", async () => {
+    const { api } = await mountStrip();
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    const menu = screen.getByRole("menu", { name: "Workspace" });
+    // Both environments listed, the current one checked.
+    expect(within(menu).getByRole("menuitemcheckbox", { name: "Versed" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(within(menu).getByRole("menuitemcheckbox", { name: "realm/fix-tests" }));
+    await waitFor(() => expect(api.calls).toContain("setSessionEnvironment:se1=envB"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Workspace" })).toHaveTextContent("realm/fix-tests"));
+  });
+
+  it("'New worktree…' creates AND selects — the session lands in the worktree it just made", async () => {
+    const { api, store } = await mountStrip();
+    store.getState().setDraft("se1", "polish the under strip");
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New worktree…" }));
+    await waitFor(() => expect(api.calls).toContain("createWorktree:s1"));
+    const made = api.data.environments.s1!.at(-1)!;
+    expect(made.branch).toBe("realm/polish-the-under-strip"); // titled from the draft's first words
+    await waitFor(() => expect(store.getState().sessions.se1?.environmentId).toBe(made.id));
+    expect(api.calls).toContain(`setSessionEnvironment:se1=${made.id}`);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Workspace" })).toHaveTextContent(made.branch!));
+  });
+
+  it("after the first event the selector is display-only — a label, not a button (named mutant)", async () => {
+    await mountStrip({ lastEventSeq: 3 });
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+    const strip = document.querySelector(".composer-understrip")!;
+    expect(strip).toHaveTextContent("Versed"); // still names where the session ran
+    expect(within(strip as HTMLElement).getByTitle(/can only change before its first message/)).toHaveAttribute("data-static");
+  });
+
+  it("events known only to the transcript lock it too — the row's seq is not the only witness", async () => {
+    await mountStrip({ lastSeq: 2 });
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+  });
+
+  it("the strip lives INSIDE the dock, so the hero→docked transform moves it with the card", async () => {
+    await mountStrip();
+    expect(document.querySelector(".composer-dock .composer-understrip")).not.toBeNull();
+  });
+});
+
+/**
+ * The "+" menu (Plan 12 W1): Add files…/Add folder…/Skills/Connectors. The attach suite above already
+ * proves Add files… reaches the same store action the bare button used to call; these cover the rest.
+ */
+describe("the '+' menu (Plan 12 W1)", () => {
+  async function mountPlus(over: Parameters<typeof fakeApi>[0] = {}, agentKind: "fake" | "claude" = "claude") {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind })],
+      skills: { s1: [skillRow("mac"), skillRow("web")] }, ...over });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    // The library only loads for an agent skills can be injected into — the fake never fetches it.
+    if (agentKind !== "fake") await waitFor(() => expect(api.calls).toContain("listSkills:s1"));
+    return { api, store, ...r };
+  }
+  const openPlus = () => fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+  it("Enter/Space open it too — it is a real button with menu semantics", async () => {
+    await mountPlus();
+    const btn = screen.getByRole("button", { name: "Add" });
+    expect(btn).toHaveAttribute("aria-haspopup", "menu");
+    expect(btn).toHaveAttribute("aria-expanded", "false");
+    openPlus();
+    expect(btn).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("menu", { name: "Add" })).toBeInTheDocument();
+  });
+
+  it("carries no Plugins item — the plan refuses inventing one for menu parity", async () => {
+    await mountPlus();
+    openPlus();
+    const menu = screen.getByRole("menu", { name: "Add" });
+    expect(within(menu).queryByText(/plugin/i)).toBeNull();
+    // And the full expected set, in order: files, folder, skills, connectors.
+    const labels = within(menu).getAllByRole("menuitem").map((b) => b.textContent);
+    expect(labels[0]).toContain("Add files…");
+    expect(labels[0]).toContain("⌘U"); // the shortcut label rides the item
+    expect(labels[1]).toContain("Add folder…");
+    expect(labels[2]).toContain("Skills");
+    expect(labels[3]).toContain("Connectors");
+  });
+
+  it("Add folder… runs the existing project-link flow", async () => {
+    const { api } = await mountPlus();
+    openPlus();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add folder…" }));
+    // pickFolder resolves "/tmp/picked-repo" in the fake; the project lands in THIS space.
+    await waitFor(() => expect(api.data.projects.s1?.map((p) => p.rootPath)).toEqual(["/tmp/picked-repo"]));
+  });
+
+  it("Skills primes the @-mention picker: inserts @ at the caret and the existing picker opens", async () => {
+    const { store } = await mountPlus();
+    openPlus();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills" }));
+    expect(store.getState().drafts.se1).toBe("@");
+    await waitFor(() => expect(screen.getByRole("listbox", { name: "Skills" })).toBeInTheDocument());
+    // The one picker: both library skills offered, exactly as typing @ would.
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([expect.stringContaining("mac"), expect.stringContaining("web")]);
+  });
+
+  it("Skills leads with a space when the caret sits on a word — @ glued to text is an email, not a mention", async () => {
+    const { store } = await mountPlus();
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "use" } });
+    openPlus();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills" }));
+    expect(store.getState().drafts.se1).toBe("use @");
+    await waitFor(() => expect(screen.getByRole("listbox", { name: "Skills" })).toBeInTheDocument());
+  });
+
+  it("hides Skills for an agent Realm cannot inject skills into — no affordance that silently does nothing", async () => {
+    await mountPlus({}, "fake");
+    openPlus();
+    const menu = screen.getByRole("menu", { name: "Add" });
+    expect(within(menu).queryByRole("menuitem", { name: "Skills" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: /Add files…/ })).toBeInTheDocument(); // the rest stays
+  });
+});
+
+/**
+ * The "+" menu's Connectors submenu (Plan 12 W1): the space's ENABLED MCP servers with a health dot
+ * from the hub's LAST KNOWN status — pushed via mcp.serverStatus, cached in the store. Named mutant:
+ * a dot showing a fixed status. Honesty rule: opening the menu reads rows, it never probes a server.
+ */
+describe("the '+' menu — Connectors (Plan 12 W1)", () => {
+  async function mountConn(servers: Parameters<typeof mcpServer>[1][] = []) {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude" })],
+      mcpServers: servers.map((extra, i) => mcpServer(`m${i + 1}`, extra)) });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    return { api, store, ...r };
+  }
+  const openConnectors = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Connectors" }));
+    await waitFor(() => expect(screen.getByRole("menu", { name: "Connectors" })).toBeInTheDocument());
+    return screen.getByRole("menu", { name: "Connectors" });
+  };
+
+  it("opening the + menu refreshes the cache with a ROW read — no probe, no test, ever", async () => {
+    const { api } = await mountConn([{ name: "linear", enabled: true }]);
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(api.calls).toContain("listMcpServers:s1"));
+    expect(api.calls.some((c) => c.startsWith("testMcpServer"))).toBe(false); // the named honesty rule
+  });
+
+  it("lists only ENABLED servers, dot + honest note per the hub's pushed status", async () => {
+    const { store } = await mountConn([
+      { name: "linear", enabled: true, status: "connected" },
+      { name: "posthog", enabled: true, status: "idle" },
+      { name: "broken", enabled: true, status: "circuit_open" },
+      { name: "disabled-one", enabled: false, status: "connected" },
+    ]);
+    const menu = await openConnectors();
+    await waitFor(() => expect(within(menu).queryByText("linear")).not.toBeNull());
+    expect(within(menu).queryByText("disabled-one")).toBeNull(); // not enabled here → not offered
+    const row = (name: string) => within(menu).getByText(name).closest(".connector-row") as HTMLElement;
+    expect(row("linear").querySelector(".connector-dot")).toHaveAttribute("data-tone", "ok");
+    // idle = the hub has never connected: say "not checked", never a green dot nobody earned.
+    expect(row("posthog").querySelector(".connector-dot")).toHaveAttribute("data-tone", "muted");
+    expect(row("posthog")).toHaveTextContent("not checked");
+    expect(row("broken").querySelector(".connector-dot")).toHaveAttribute("data-tone", "warning");
+    expect(row("broken")).toHaveTextContent("unavailable");
+  });
+
+  it("a live mcp.serverStatus push turns the dot while the menu is open — never a fixed status", async () => {
+    const { store } = await mountConn([{ name: "linear", enabled: true, status: "idle" }]);
+    const menu = await openConnectors();
+    await waitFor(() => expect(within(menu).queryByText("linear")).not.toBeNull());
+    const dot = () => (within(screen.getByRole("menu", { name: "Connectors" })).getByText("linear").closest(".connector-row") as HTMLElement).querySelector(".connector-dot");
+    expect(dot()).toHaveAttribute("data-tone", "muted");
+    act(() => store.getState().applyMcpServerStatus({ id: "m1", status: "connected", oauthStatus: "unconfigured" }));
+    expect(dot()).toHaveAttribute("data-tone", "ok");
+    act(() => store.getState().applyMcpServerStatus({ id: "m1", status: "error", oauthStatus: "unconfigured" }));
+    expect(dot()).toHaveAttribute("data-tone", "warning");
+  });
+
+  it("an empty space says so, and Manage connections… opens the space settings' Connections tab", async () => {
+    const { store } = await mountConn([]);
+    const menu = await openConnectors();
+    await waitFor(() => expect(within(menu).queryByText("No connectors enabled in this space")).not.toBeNull());
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Manage connections…" }));
+    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1", tab: "mcp" });
+  });
+
+  it("the back row returns to the root menu in place", async () => {
+    await mountConn([]);
+    const menu = await openConnectors();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Connectors" })); // the ‹ header row
+    await waitFor(() => expect(screen.getByRole("menu", { name: "Add" })).toBeInTheDocument());
   });
 });

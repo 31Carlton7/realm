@@ -213,6 +213,47 @@ describe("useGlobalHotkeys", () => {
     expect(store.getState().layout).toEqual(grid);
   });
 
+  describe("⌘U — attach files to the focused session (Plan 12 W1)", () => {
+    const focusedSession = async () => {
+      const it9 = item("i9", "s1", { kind: "session", refId: "se1" });
+      const r = await mount({ items: { s1: [it9] }, sessions: [session("se1", "s1")],
+        pickFiles: [{ path: "/x/a.png", mime: "image/png", name: "a.png", size: 10 }] });
+      act(() => r.store.setState({ layout: { type: "leaf", id: "L1", itemId: "i9" }, focusedLeafId: "L1" }));
+      return r;
+    };
+
+    it("opens the native picker exactly ONCE — the menu's ⌘U label is visual, this is the one binding", async () => {
+      const { api, store } = await focusedSession();
+      key({ key: "u", metaKey: true });
+      await waitFor(() => expect(store.getState().pendingAttachments["se1"]).toHaveLength(1));
+      expect(api.calls.filter((c) => c === "pickFiles")).toHaveLength(1); // double-firing is the named mutant
+    });
+
+    it("fires from the composer — an editable target, which the guard would otherwise swallow", async () => {
+      const { api } = await focusedSession();
+      const ta = document.createElement("textarea"); document.body.appendChild(ta); ta.focus();
+      key({ key: "u", metaKey: true }, ta);
+      await waitFor(() => expect(api.calls.filter((c) => c === "pickFiles")).toHaveLength(1));
+      ta.remove();
+    });
+
+    it("does nothing when the focused pane is not a session", async () => {
+      const { api, store } = await mount();
+      act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i1" }, focusedLeafId: "L1", items: [item("i1", "s1", { kind: "terminal" })] }));
+      key({ key: "u", metaKey: true });
+      await tick();
+      expect(api.calls).not.toContain("pickFiles");
+    });
+
+    it("is still governed by the overlay guard: a sheet owns the keyboard", async () => {
+      const { api, store } = await focusedSession();
+      act(() => store.getState().openSheet({ kind: "new-space" }));
+      key({ key: "u", metaKey: true });
+      await tick();
+      expect(api.calls).not.toContain("pickFiles");
+    });
+  });
+
   describe("⌘J — the focused session's terminal drawer (W4)", () => {
     const focusedSession = async () => {
       const it9 = item("i9", "s1", { kind: "session", refId: "se1" });

@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
+import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
-import { fakeApi, item, session, skillRow, space, type FakeApi } from "./store.test-fakes";
+import { fakeApi, item, mcpServer, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
 const split = (id: string, dir: "row" | "col", children: Layout[]): Layout =>
@@ -1782,5 +1782,81 @@ describe("browser watching state (Plan 11 W4)", () => {
     await store.getState().deleteItem("i1");
     expect(store.getState().browserActions.b1).toBeUndefined();
     expect(store.getState().browserDriving.b1).toBeUndefined();
+
+describe("under-strip: environment rebinding + the '+' menu's connectors cache (Plan 12 W1)", () => {
+  const env = (id: string, spaceId: string, extra: Partial<Environment> = {}): Environment =>
+    ({ id, spaceId, path: `/tmp/${id}`, branch: null, kind: "checkout", portBlockStart: null, createdAt: 0, updatedAt: 0, ...extra });
+  const seed = () => fakeApi({
+    items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+    sessions: [session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA" })],
+    environments: { s1: [env("envA", "s1", { kind: "primary" }), env("envB", "s1")] },
+  });
+
+  it("setSessionEnvironment sends EXACTLY the picked id and renders the server's answer (cwd follows)", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    await store.getState().setSessionEnvironment("se1", "envB");
+    expect(a.calls).toContain("setSessionEnvironment:se1=envB");
+    expect(store.getState().sessions.se1).toMatchObject({ environmentId: "envB", cwd: "/tmp/envB" });
+    // The chips must describe the NEW tree: a git refresh was kicked for the new cwd.
+    await tick();
+    expect(a.calls).toContain("gitInfo:/tmp/envB");
+  });
+
+  it("a session with events is refused by the (fake) server and the store keeps the truth", async () => {
+    const a = seed();
+    a.data.sessions[0] = session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA", lastEventSeq: 3 });
+    const store = createAppStore(a); await store.getState().boot();
+    await expect(store.getState().setSessionEnvironment("se1", "envB")).rejects.toThrow(/already run/);
+    expect(store.getState().sessions.se1?.environmentId).toBe("envA");
+  });
+
+  it("moveSessionToNewWorktree creates AND selects — the worktree is titled from the draft's first words", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    store.getState().setDraft("se1", "Fix the flaky checkpoint test before it bites again");
+    await store.getState().moveSessionToNewWorktree("se1");
+    expect(a.calls).toContain("createWorktree:s1");
+    const made = a.data.environments.s1!.at(-1)!;
+    expect(made.branch).toBe("realm/fix-the-flaky-checkpoint"); // first 4 words, slugged by the (fake) server
+    // Creating without selecting is the named mutant: the session must now BE in the new worktree.
+    expect(a.calls).toContain(`setSessionEnvironment:se1=${made.id}`);
+    expect(store.getState().sessions.se1?.environmentId).toBe(made.id);
+    expect(store.getState().environments[made.id]).toEqual(made); // the selector can render it at once
+  });
+
+  it("moveSessionToNewWorktree with an empty draft lets the server name it 'session'", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    await store.getState().moveSessionToNewWorktree("se1");
+    expect(a.data.environments.s1!.at(-1)!.branch).toBe("realm/session");
+  });
+
+  it("worktreeTitleFrom: first four words, clipped; whitespace-only is null", () => {
+    expect(worktreeTitleFrom("Fix the flaky checkpoint test tomorrow")).toBe("Fix the flaky checkpoint");
+    expect(worktreeTitleFrom("  one\n two  ")).toBe("one two");
+    expect(worktreeTitleFrom("   \n ")).toBeNull();
+    expect(worktreeTitleFrom("")).toBeNull();
+    expect(worktreeTitleFrom("x".repeat(90))!.length).toBeLessThanOrEqual(40);
+  });
+
+  it("boot fetches the machine name; a failure degrades to '' instead of failing boot", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    expect(store.getState().machineName).toBe("Carlton's M4 MacBook Pro");
+    const b = seed();
+    b.machineName = async () => { throw new Error("no scutil"); };
+    const store2 = createAppStore(b); await store2.getState().boot();
+    expect(store2.getState().booted).toBe(true);
+    expect(store2.getState().machineName).toBe("");
+  });
+
+  it("refreshConnectors caches per space, and mcp.serverStatus broadcasts patch the cache live", async () => {
+    const a = seed();
+    a.data.mcpServers = [mcpServer("m1", { name: "linear", enabled: true, status: "idle" })];
+    const store = createAppStore(a); await store.getState().boot();
+    await store.getState().refreshConnectors("s1");
+    expect(store.getState().connectors.s1).toMatchObject([{ id: "m1", status: "idle" }]);
+    // The live push is the ONLY thing that turns the dot — never a fixed status (named mutant).
+    store.getState().applyMcpServerStatus({ id: "m1", status: "connected", oauthStatus: "unconfigured" });
+    expect(store.getState().connectors.s1).toMatchObject([{ id: "m1", status: "connected" }]);
+    store.getState().applyMcpServerStatus({ id: "m1", status: "circuit_open", oauthStatus: "reconnect_needed" });
+    expect(store.getState().connectors.s1).toMatchObject([{ id: "m1", status: "circuit_open", oauthStatus: "reconnect_needed" }]);
   });
 });
