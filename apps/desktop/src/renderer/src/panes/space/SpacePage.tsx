@@ -1,4 +1,4 @@
-import { AGENT_META, SPACE_COLORS, SPACE_ICONS, type Checkpoint, type Environment, type Session, type Ship } from "@realm/contracts";
+import { AGENT_META, SPACE_COLORS, SPACE_ICONS, type Checkpoint, type DispatchKind, type Environment, type Session, type Ship } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { useApp, type SpacePageTab } from "../../state/store";
@@ -199,6 +199,84 @@ function SessionsTab({ spaceId }: { spaceId: string }) {
   );
 }
 
+/** Origin glyph + words per dispatch kind (Plan 13 W2). The agent kinds carry a parent-session link
+ *  in the row; `user-dispatch` has no parent by definition. */
+const ORIGIN_META: Record<DispatchKind, { icon: string; label: string }> = {
+  "user-dispatch": { icon: "send", label: "Dispatched (⌘⇧↵)" },
+  agent_run: { icon: "bot", label: "Delegated via agent_run" },
+  browser_agent_run: { icon: "browser", label: "Browser agent" },
+  review: { icon: "diff", label: "Reviewer" },
+};
+
+/**
+ * The Tasks tab (Plan 13 W2) — a LENS over the space's sessions, not a scheduler: rows are exactly
+ * this space's sessions with a non-null dispatch origin, from the store data the Sessions tab
+ * already holds; no new runtime state exists behind it. "Settled" is read off what exists — the
+ * session's status plus its `updatedAt` (bumped by the settle's status write); no column was added
+ * for it, so the time is "when the row last moved", which for a settled dispatched session is its
+ * settle for all practical purposes and is labeled with that honesty in mind.
+ *
+ * Scoped HARD to `spaceId` — the named mutant is this lens listing another space's sessions, and the
+ * filter reads the prop, never "the active space".
+ */
+function TasksTab({ spaceId }: { spaceId: string }) {
+  const sessions = useApp((s) => s.sessions);
+  const sessionStatus = useApp((s) => s.sessionStatus);
+  const environments = useApp((s) => s.environments);
+  const items = useApp((s) => s.items);
+  const openItem = useApp((s) => s.openItem);
+  const run = useApp((s) => s.run);
+  const rows = Object.values(sessions)
+    .filter((s) => s.spaceId === spaceId && s.dispatchedBy !== null)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const jumpTo = (sessionId: string) => {
+    const it = items.find((i) => i.kind === "session" && i.refId === sessionId);
+    if (it) run(() => openItem(it.id));
+  };
+  if (rows.length === 0) {
+    return <p className="env-empty">Nothing has been dispatched here yet. ⌘⇧↩ in a composer dispatches the draft into its own session; delegated and reviewer sessions land here too.</p>;
+  }
+  return (
+    <ul className="page-list">
+      {rows.map((s) => {
+        const origin = s.dispatchedBy!;
+        const meta = ORIGIN_META[origin.kind];
+        const status = sessionStatus[s.id];
+        const env = environments[s.environmentId];
+        const envLabel = env ? (env.branch ?? env.path.replace(/\/+$/, "").split("/").pop()) : null;
+        const settled = status !== undefined && status !== "running" && status !== "waiting_permission";
+        const parentId = origin.sessionId;
+        const parent = parentId ? sessions[parentId] : undefined;
+        return (
+          <li key={s.id}>
+            <button type="button" className="page-row"
+              aria-label={status ? `${s.title} — ${meta.label} — ${SESSION_STATUS_LABEL[status]}` : `${s.title} — ${meta.label}`}
+              onClick={() => jumpTo(s.id)}>
+              <Icon name={meta.icon} size={15} />
+              <span className="page-row-title">{s.title}</span>
+              {parentId && (
+                // The agent origins link their parent. A span styled as a link, not a nested button
+                // (the row is already one); the parent may be deleted — then the words stand alone.
+                parent
+                  ? <span className="page-row-dim page-row-link" role="link" tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); jumpTo(parentId); }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); jumpTo(parentId); } }}>
+                      from {parent.title}
+                    </span>
+                  : <span className="page-row-dim">parent session gone</span>
+              )}
+              {envLabel && <span className="page-row-dim"><Icon name={env!.kind === "worktree" ? "branch" : "folder"} size={11} /> {envLabel}</span>}
+              <span className="page-row-dim" title={new Date(s.createdAt).toLocaleString()}>started {relativeTime(s.createdAt, Date.now())}</span>
+              {settled && <span className="page-row-dim" title="From the session's last update — no separate settle clock exists">settled {relativeTime(s.updatedAt, Date.now())}</span>}
+              {status && <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 const CP_KIND_LABEL: Record<Checkpoint["kind"], string> = { turn: "Turn", "pre-restore": "Undo point", manual: "Manual" };
 
 /** The push leg's outcome as row copy. Verbatim from the log — a row must never say more than the
@@ -289,6 +367,7 @@ const PAGE_TABS: { id: SpacePageTab; label: string }[] = [
   { id: "skills", label: "Skills" },
   { id: "connections", label: "Connections" },
   { id: "sessions", label: "Sessions" },
+  { id: "tasks", label: "Tasks" },
   { id: "history", label: "History" },
 ];
 
@@ -358,6 +437,7 @@ export function SpacePage({ item }: PaneProps) {
             <div className="form settings-panel"><BrowserOrigins spaceId={spaceId} /></div>
           </>}
           {tab === "sessions" && <SessionsTab spaceId={spaceId} />}
+          {tab === "tasks" && <TasksTab spaceId={spaceId} />}
           {tab === "history" && <HistoryTab spaceId={spaceId} />}
         </div>
       </div>

@@ -90,6 +90,8 @@ function PaletteBody() {
   const newSession = useApp((s) => s.newSession);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
+  const dispatchDraft = useApp((s) => s.dispatchDraft);
+  const drafts = useApp((s) => s.drafts);
   const splitFocused = useApp((s) => s.splitFocused);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const requestRename = useApp((s) => s.requestRename);
@@ -162,6 +164,16 @@ function PaletteBody() {
       // newSession — the only difference is whether the agent is named or inherited from last use.
       act("new-session", "New session", "session", () => run(() => newSessionInstant()), <kbd>⌘N</kbd>),
       act("new-session-worktree", "New session in a worktree", "branch", () => run(() => newSessionInWorktree())),
+      // Dispatch (Plan 13 W2): the honest simple palette shape — it dispatches the FOCUSED session's
+      // current draft, and with no draft to dispatch it is disabled and says what would arm it,
+      // rather than pretending to a "focus the composer with a hint" flow the palette cannot honor
+      // (picking an entry closes the palette; a hint nobody sees is not a hint).
+      ...(focusedSession ? [{
+        id: "act:dispatch", section: "Actions", icon: <Icon name="send" size={15} />,
+        label: "Dispatch task", hint: (drafts[focusedSession] ?? "").trim() ? <kbd>⌘⇧↵</kbd> : "type a draft first",
+        disabled: !(drafts[focusedSession] ?? "").trim(),
+        run: () => run(() => dispatchDraft(focusedSession)),
+      } as Entry] : []),
       ...SELECTABLE_AGENT_KINDS.map((a) => act(`new-${a}`, `New ${AGENT_META[a].label} session`, AGENT_META[a].icon, () => run(() => newSession({ agentKind: a })))),
       act("new-space", "New space…", "add", () => openSheet({ kind: "new-space" })),
       // A space is a PAGE (Plan 12 W3): this routes to the space-page pane, not a sheet.
@@ -193,7 +205,7 @@ function PaletteBody() {
     }));
 
     return [...open, ...activeRest, ...others, ...actions, ...themes];
-  }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref,
+  }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, drafts, dispatchDraft,
       selectSpace, openItem, newTerminal, newBrowser, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
       interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, run]);
 

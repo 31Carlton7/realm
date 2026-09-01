@@ -409,7 +409,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const send = () => { const t = draft.trim(); if (!t && !deliverable) return; onSend(t); onDraftChange(""); };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); return; }
+    // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
+    // window level in hotkeys.ts — consuming it here would turn dispatch into a plain send.
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); send(); return; }
     if (!mentionOpen) return;
     if (e.key === "ArrowDown") { e.preventDefault(); setMentionActive(Math.min(mentionMatches.length - 1, mentionCur + 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setMentionActive(Math.max(0, mentionCur - 1)); }

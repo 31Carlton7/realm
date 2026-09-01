@@ -91,4 +91,7 @@ export const liveApi = (): Api => ({
   mcpCallsList: (params) => rpc().call("mcp.calls.list", params),
   listNotifications: (cursor, limit) => rpc().call("notifications.list", { cursor, ...(limit !== undefined ? { limit } : {}) }),
   markNotificationsRead: (input) => rpc().call("notifications.markRead", input),
+  requestReview: (environmentId) => rpc().call("review.request", { environmentId }),
+  getReview: (environmentId) => rpc().call("review.get", { environmentId }),
+  dismissReview: async (environmentId) => { await rpc().call("review.dismiss", { environmentId }); },
 });

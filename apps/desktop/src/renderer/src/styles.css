@@ -963,6 +963,16 @@ button.panel-title:hover { background: var(--rl-hover); }
 .diff-line[data-kind="del"]::before { background: repeating-linear-gradient(45deg, var(--red) 0, var(--red) 1.5px, transparent 1.5px, transparent 3px); }
 .diff-line[data-kind="del"] .diff-gutter, .diff-line[data-kind="del"] .diff-mark { color: var(--red); }
 .diff-line[data-kind="meta"] .diff-text { color: var(--rl-text-faint); font-style: italic; }
+/* Review section (Plan 13 W3): the reviewer's fenced verdict, visibly agent output, above the commit
+   dock it deliberately does not touch. Capped height with its own scroll — a long verdict must not
+   push the commit controls off the pane. */
+.diff-review { flex: none; display: flex; flex-direction: column; gap: 6px; margin: 0 12px 8px; padding: 8px 10px; max-height: 40%;
+  background: var(--rl-raised); border: 1px solid var(--rl-hairline); border-radius: var(--r-ctl); overflow: hidden; }
+.diff-review-head { flex: none; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--rl-text-dim); }
+.diff-review-title { font-weight: 600; color: var(--rl-text-bright); }
+.diff-review-dim { color: var(--rl-text-faint); }
+.diff-review-body { overflow-y: auto; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
+
 /* Commit dock: raised, hairline above, primary action bottom-right (§5 sheets/footer pattern). */
 .diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--rl-raised); border-top: 1px solid var(--rl-hairline); }
 .commit-message { border: none; outline: none; resize: none; background: var(--rl-hover); border-radius: var(--r-ctl); color: var(--rl-text-bright);
@@ -1164,6 +1174,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .page-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .page-row-dim { flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: auto; font-size: 11.5px; color: var(--rl-text-faint); }
 .page-row-dim + .page-row-dim { margin-left: 10px; }
+/* The Tasks lens's parent-session link (Plan 13 W2): a dim inline link inside the row button. */
+.page-row-link { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.page-row-link:hover { color: var(--rl-text-dim); }
 .page-row .cp-kind { flex: none; }
 /* A ship row (Plan 14 W1) is a RECORD, not a door: no hover invitation, no pointer — only its PR
    link is interactive. The kind badge keeps cp-kind's metrics so the two treatments align. */
