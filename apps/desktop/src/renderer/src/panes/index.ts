@@ -18,3 +18,5 @@ import { NotificationsPage } from "./notifications/NotificationsPage";
 registerPane("notifications-page", NotificationsPage);
 import { SettingsPage } from "./settings/SettingsPage";
 registerPane("settings-page", SettingsPage);
+import { ProfilePage } from "./profile/ProfilePage";
+registerPane("profile-page", ProfilePage);

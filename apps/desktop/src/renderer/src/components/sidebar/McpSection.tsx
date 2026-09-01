@@ -138,6 +138,7 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
   const testMcpServer = useApp((s) => s.testMcpServer);
   const promoteMcpServer = useApp((s) => s.promoteMcpServer);
   const demoteMcpServer = useApp((s) => s.demoteMcpServer);
+  const openProfilePage = useApp((s) => s.openProfilePage);
   const profiles = useApp((s) => s.profiles);
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const [editing, setEditing] = useState(false);
@@ -196,10 +197,15 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
           Enabled
         </label>
         <button type="button" className="btn-quiet" onClick={runTest}>Test</button>
-        {/* Never a bare "Edit" on an inherited row — in-place editing is the mutant §2 forbids. The
-            affordance jumps to the defining scope's editor: the same form, opened AS the profile's. */}
+        {/* Never a bare "Edit" on an inherited row — in-place editing is the mutant §2 forbids. Since
+            Plan 14 W2 the defining scope has a real page, so "Edit in profile" JUMPS there (primary);
+            the banner-wearing inline form survives as the fallback behind "Edit here…" — the same
+            form, opened AS the profile's, for when leaving the tab mid-thought isn't worth it. */}
+        {inherited && !editing && (
+          <button type="button" className="btn-quiet" onClick={() => run(() => openProfilePage("connections"))}>Edit in profile</button>
+        )}
         <button type="button" className="btn-quiet" onClick={() => setEditing((v) => !v)}>
-          {editing ? "Close" : inherited ? "Edit in profile" : "Edit"}
+          {editing ? "Close" : inherited ? "Edit here…" : "Edit"}
         </button>
         {!confirmMove && (
           <button type="button" className="btn-quiet" onClick={() => setConfirmMove(true)}>
@@ -285,7 +291,7 @@ const emptyRows: SecretRow[] = [];
 /** Add/edit form: the W2 fields (name, transport, endpoint, secrets) plus auth. `server` present = edit;
  *  absent = a fresh add. Self-contained on purpose — everything the form needs to reason about (dirty
  *  URL, oauth vs key, existing key names) lives in this one component. */
-function McpServerForm({ spaceId, server, onDone, scopeNote }: { spaceId: string; server?: McpServer; onDone: () => void;
+export function McpServerForm({ spaceId, server, onDone, scopeNote }: { spaceId: string; server?: McpServer; onDone: () => void;
   /** Set when this form is the DEFINING scope's editor opened from an inheriting space ("Edit in
    *  profile"): one sentence naming the scope and the reach of a save. Rendered first — the user must
    *  read it before any field. */

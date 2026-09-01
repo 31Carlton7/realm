@@ -260,6 +260,14 @@ describe("Open library / Open connections (Plan 12 W4)", () => {
     await waitFor(() => expect(store.getState().items.some((i) => i.kind === "connections-page")).toBe(true));
   });
 
+  it("Open profile opens the profile-page item (Plan 14 W2) — the PROFILE page, not the space page", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open profile" } });
+    fireEvent.click(screen.getByRole("option", { name: /Open profile/ }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "profile-page")).toBe(true));
+    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
+  });
+
   it("Open settings opens the settings-page item (W6) — the SETTINGS page, not the space page", async () => {
     const { store } = await mount();
     fireEvent.change(input(), { target: { value: "open settings" } });

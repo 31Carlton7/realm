@@ -65,10 +65,20 @@ describe("the Library page (Plan 12 W4)", () => {
     expect(api.data.profileMemoryDocs.p1).toBe("Work-wide standing instruction.");
   });
 
-  it("Edit in profile: the editor names its reach, and saving writes the PROFILE doc via memory.setProfile — the space doc untouched", async () => {
-    const { api } = await mount();
+  it("'Edit in profile…' is the PRIMARY affordance and jumps to the profile page's Memory tab (Plan 14 W2)", async () => {
+    const { store } = await mount();
     fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
     fireEvent.click(await screen.findByRole("button", { name: "Edit in profile…" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "profile-page")).toBe(true));
+    expect(store.getState().profilePageTab.p1).toBe("memory");
+    // A jump, not the inline editor.
+    expect(screen.queryByRole("textbox", { name: "Work memory document" })).toBeNull();
+  });
+
+  it("Edit here: the inline fallback editor names its reach, and saving writes the PROFILE doc via memory.setProfile — the space doc untouched", async () => {
+    const { api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit here…" }));
     expect(screen.getByText("Defined in Work. Changes here apply to every space of Work.")).toBeInTheDocument();
     const editor = await screen.findByRole("textbox", { name: "Work memory document" });
     await waitFor(() => expect(api.calls).toContain("getProfileMemory:p1"));

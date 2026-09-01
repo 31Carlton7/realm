@@ -80,13 +80,18 @@ export function ScopeGroups({ entries, listClassName = "settings-list" }: {
  * fires the actual RPC in `onConfirm`, with the VANTAGE space id — never a profile id, which is
  * resolved server-side from the space.
  */
-export function MoveScopeConfirm({ direction, name, profileName, onCancel, onConfirm }: {
+export function MoveScopeConfirm({ direction, name, profileName, spaceName, onCancel, onConfirm }: {
   direction: "promote" | "demote"; name: string; profileName: string;
+  /** Names the destination space where "this space" would be ambiguous — the profile page (Plan 14
+   *  W2), whose demote pins the item to the VANTAGE space the page was opened from. Space-page
+   *  surfaces omit it: there, "this space" is exact. */
+  spaceName?: string;
   onCancel: () => void; onConfirm: () => void;
 }) {
+  const here = spaceName ?? "this space";
   const copy = direction === "promote"
     ? `Move “${name}” to ${profileName}? Other spaces in ${profileName} will see it; spaces that had it stay as they are.`
-    : `Keep “${name}” in this space only? Other spaces in ${profileName} will stop seeing it; this space keeps it as it is.`;
+    : `Keep “${name}” in ${here} only? Other spaces in ${profileName} will stop seeing it; ${here} keeps it as it is.`;
   return (
     <div className="scope-confirm">
       <span className="scope-confirm-copy">{copy}</span>

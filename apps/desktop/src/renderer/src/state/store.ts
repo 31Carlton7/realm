@@ -302,6 +302,8 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
 /** The space page's tab rail (Plan 12 W3). "connections" is what the retired sheet called "mcp" —
  *  openers that used `tab: "mcp"` (the plus-menu's "Manage connections…") map to it. */
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sessions" | "history";
+/** The profile page's rail (Plan 14 W2). */
+export type ProfilePageTab = "skills" | "connections" | "memory";
 
 /** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
  *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
@@ -483,6 +485,10 @@ export type AppState = {
    *  space's tab — and with it another space's data fetch — onto a different space's page. Absent =
    *  "general". */
   spacePageTab: Record<string, SpacePageTab>;
+  /** The profile page's tab, per PROFILE id (Plan 14 W2) — in the store, not component state, because
+   *  openers land on a section ("Edit in profile" on an MCP row lands on Connections; the memory
+   *  row's on Memory) whether or not the page is already open. */
+  profilePageTab: Record<string, ProfilePageTab>;
   /** The last `mcp.tools.list` error per server id, `null` once a refresh succeeds. A RESULT, not an
    *  exception (see the Api doc comment) — kept apart from `error` so it renders inline on the row that
    *  caused it instead of stealing the app's one error banner. */
@@ -671,6 +677,12 @@ export type AppState = {
   openSpacePage(spaceId: string, tab?: SpacePageTab): Promise<void>;
   /** The page's tab, per space — see `spacePageTab`. */
   setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
+  /** Open (or focus) the ACTIVE space's profile page (Plan 14 W2) — a `profile-page` destination item
+   *  (sentinel refId; the page derives its profile live from the item's space). `tab` lands the page
+   *  on a section — the retargeted "Edit in profile" affordances pass one. */
+  openProfilePage(tab?: ProfilePageTab): Promise<void>;
+  /** The profile page's tab, per profile — see `profilePageTab`. */
+  setProfilePageTab(profileId: string, tab: ProfilePageTab): void;
   /** Open (or focus) a sidebar destination page (Plan 12 W4: Library, Connections) in the ACTIVE
    *  space's layout. One page item per space, deduped by KIND — the refId is the kind's well-known
    *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from. */
@@ -1068,7 +1080,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
-      spacePageTab: {}, mcpPanelSpaceId: null,
+      spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
@@ -1795,6 +1807,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await adoptItem(spaceId, created.id, null);
       },
       setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
+      async openProfilePage(tab) {
+        // The tab is keyed by PROFILE — resolved from the active space, the same vantage the page
+        // itself renders from, so the section the opener lands on is the section the page shows.
+        const spaceId = get().activeSpaceId;
+        const space = get().spaces.find((x) => x.id === spaceId);
+        if (!space) return;
+        if (tab) get().setProfilePageTab(space.profileId, tab);
+        await get().openDestinationPage("profile-page");
+      },
+      setProfilePageTab(profileId, tab) { set({ profilePageTab: { ...get().profilePageTab, [profileId]: tab } }); },
       async refreshSettingsPrefs() {
         const [rawDisabled, rawMode] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY),

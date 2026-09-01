@@ -229,11 +229,11 @@ describe("scoped server groups (W4)", () => {
     expect(within(screen.getByRole("region", { name: "Everywhere" })).getByText("legacy")).toBeInTheDocument();
   });
 
-  it("an inherited server is NEVER editable in place: no bare Edit — 'Edit in profile' opens the same form wearing the defining-scope banner (named mutant)", async () => {
+  it("an inherited server is NEVER editable in place: no bare Edit — the banner form survives behind 'Edit here…' (named mutant)", async () => {
     await mount({ mcpServers: scopedServers() });
     const row = (await screen.findByText("shared")).closest(".mcp-row") as HTMLElement;
     expect(within(row).queryByRole("button", { name: "Edit" })).toBeNull();
-    fireEvent.click(within(row).getByRole("button", { name: "Edit in profile" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Edit here…" }));
     expect(within(row).getByText("Defined in Work. Changes here apply to every space of Work.")).toBeInTheDocument();
     // Still the one shared form — same fields, same component.
     expect(within(row).getByRole("textbox", { name: "Server name" })).toBeInTheDocument();
@@ -241,6 +241,19 @@ describe("scoped server groups (W4)", () => {
     const mine = screen.getByText("mine").closest(".mcp-row") as HTMLElement;
     fireEvent.click(within(mine).getByRole("button", { name: "Edit" }));
     expect(within(mine).queryByText(/Changes here apply to every space/)).toBeNull();
+  });
+
+  it("'Edit in profile' is the PRIMARY affordance and jumps to the profile page's Connections tab (Plan 14 W2)", async () => {
+    const { store } = await mount({ mcpServers: scopedServers() });
+    const row = (await screen.findByText("shared")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit in profile" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "profile-page")).toBe(true));
+    expect(store.getState().profilePageTab.p1).toBe("connections");
+    // A jump, not the inline editor: no form opened in the row.
+    expect(within(row).queryByRole("textbox", { name: "Server name" })).toBeNull();
+    // A this-space row offers no jump — it is already at its defining scope.
+    const mine = screen.getByText("mine").closest(".mcp-row") as HTMLElement;
+    expect(within(mine).queryByRole("button", { name: "Edit in profile" })).toBeNull();
   });
 
   it("the inherited row's Enabled toggle rides the per-space wire with the vantage space id (named mutant: writing the defining scope)", async () => {

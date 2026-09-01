@@ -515,6 +515,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     addMcpServer: async (input: AddMcpServerInput) => {
       calls.push(`addMcpServer:${input.name}`);
+      mcpWrites.push(input);
       const keys = Object.keys(input.transport === "stdio" ? input.env ?? {} : input.headers ?? {});
       const s = mcpServer(`mcp${++n}`, {
         name: input.name, transport: input.transport,
@@ -528,6 +529,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     updateMcpServer: async (input: UpdateMcpServerInput) => {
       calls.push(`updateMcpServer:${input.id}`);
+      mcpWrites.push(input);
       const i = data.mcpServers.findIndex((x) => x.id === input.id);
       if (i < 0) throw new Error(`no mcp server ${input.id}`);
       const cur = data.mcpServers[i]!;
