@@ -41,6 +41,7 @@ import { CheckpointsStore } from "./store/checkpoints";
 import { CheckpointGit } from "./workspace/checkpoints";
 import { CheckpointService } from "./checkpoints/service";
 import { SearchService } from "./search/service";
+import { ForkService } from "./sessions/fork";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 import { machineName } from "./machine-name";
@@ -121,8 +122,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // services genuinely need each other: SessionService checkpoints every turn, and CheckpointService
   // must refuse to restore under a live agent. One direction is the dependency; the other is this.
   let sessionService: SessionService | null = null;
+  const checkpointGit = new CheckpointGit();
   const checkpoints = new CheckpointService({
-    checkpoints: new CheckpointsStore(db), environments, sessions: sessionsStore, git: new CheckpointGit(),
+    checkpoints: new CheckpointsStore(db), environments, sessions: sessionsStore, git: checkpointGit,
     isEnvironmentBusy: (id) => sessionService?.isEnvironmentBusy(id) ?? false,
     notifications,
   });
@@ -217,6 +219,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let browserAgents: BrowserAgentService | null = null;
   let agentRuns: AgentRunService | null = null;
   let reviews: ReviewService | null = null;
+  // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
+  // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
+  let forks: ForkService | null = null;
   const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url),
     // A browser-agent child is only-mode (realm-browser and nothing else); an agent_run child — and
     // a reviewer child (W3) — is exclude-mode (the space's FULL surface minus the delegation
@@ -238,14 +243,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications,
+  const sessionEvents = new SessionEventsStore(db);
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications,
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
     // (they share the one engine, which owns the registry); the per-child seams try each registry —
     // a session is a child of at most one.
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); },
-      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id),
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); forks?.release(id); },
+      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id),
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? null,
     } });
   sessionService = sessions;
@@ -272,6 +278,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Global search (Plan 16 W1). The service reads; the index writes live in the stores' own choke
   // points (SessionEventsStore.append, ItemsStore) so no producer can skip them.
   const search = new SearchService({ db, settings, profiles, spaces, skills, memory });
+  // Session forks (Plan 16 W3). `createSession` is SessionService's own create — the fork's session
+  // is a session like any other (item, broadcast, adapter check), just dispatched by "fork".
+  forks = new ForkService({ checkpoints: new CheckpointsStore(db), environments, envService, worktrees,
+    sessionsStore, events: sessionEvents, settings, git: checkpointGit, rpc,
+    createSession: (input) => sessions.create(input) });
   const ships = new ShipsStore(db);
   const gitWrite = new GitWriteService({ shipLog: (entry) => {
     ships.record(entry);
@@ -279,7 +290,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search, forks,
   });
   sessions.markStaleOnBoot();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { Environment } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../state/store";
-import { checkpoint, fakeApi, preview } from "../state/store.test-fakes";
+import { checkpoint, fakeApi, preview, session } from "../state/store.test-fakes";
 import { CheckpointsSheet, relativeTime, restoreSentence } from "./CheckpointsSheet";
 
 const PATH = "/tmp/worktrees/s1/fix-login";
@@ -146,5 +146,53 @@ describe("CheckpointsSheet", () => {
   it("explains the empty state rather than showing a blank list", async () => {
     await open({ checkpoints: [] });
     expect(screen.getByText(/Realm takes one before every message/)).toBeInTheDocument();
+  });
+});
+
+describe("Fork from here (Plan 16 W3)", () => {
+  const turnCp = () => checkpoint("cp1", "env1", { label: "Add the login form", sessionId: "se1", createdAt: Date.now() - 120_000 });
+
+  async function openWithSession() {
+    const api = fakeApi({
+      environments: { s1: [env] },
+      sessions: [session("se1", "s1", { title: "Login work", environmentId: "env1", cwd: PATH })],
+      checkpoints: { env1: [turnCp()] },
+      checkpointPreview: { cp1: preview("cp1", "env1", { path: PATH, label: "Add the login form" }) },
+    });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openCheckpoints("env1", null);
+    render(<StoreContext.Provider value={store}><CheckpointsSheet environmentId="env1" sessionId={null} /></StoreContext.Provider>);
+    return { api, store };
+  }
+
+  it("offers Fork only on checkpoints a session's turn took, with the honest workspace-fork copy", async () => {
+    await openWithSession();
+    expect(screen.getByRole("button", { name: "Fork" })).toBeInTheDocument();
+    expect(screen.getByText(/conversation cannot be rewound/)).toBeInTheDocument();
+    expect(screen.getByText(/carried into the new session as text/)).toBeInTheDocument();
+  });
+
+  it("hides Fork (and the copy) for environment-level checkpoints — there is no session to fork", async () => {
+    await open(); // default checkpoint(): sessionId null
+    expect(screen.queryByRole("button", { name: "Fork" })).toBeNull();
+    expect(screen.queryByText(/conversation cannot be rewound/)).toBeNull();
+  });
+
+  it("Fork calls sessions.fork, closes the sheet, and opens the NEW session's pane — the ancestor untouched", async () => {
+    const { api, store } = await openWithSession();
+    const rowsBefore = JSON.stringify(api.data.sessions.find((x) => x.id === "se1"));
+    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
+    await waitFor(() => expect(api.calls).toContain("forkSession:cp1"));
+    await waitFor(() => expect(store.getState().sheet).toBeNull());
+    const forked = api.data.sessions.find((x) => x.dispatchedBy?.kind === "fork")!;
+    expect(forked.dispatchedBy).toEqual({ kind: "fork", sessionId: "se1" });
+    // The new pane is adopted into the layout and its environment merged.
+    await waitFor(() => {
+      const item = store.getState().items.find((i) => i.kind === "session" && i.refId === forked.id);
+      expect(item).toBeDefined();
+    });
+    expect(store.getState().environments[forked.environmentId]).toMatchObject({ kind: "worktree" });
+    expect(JSON.stringify(api.data.sessions.find((x) => x.id === "se1"))).toBe(rowsBefore);
   });
 });

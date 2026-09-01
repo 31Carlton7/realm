@@ -111,6 +111,9 @@ export type Api = {
   listAllSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
+  /** `sessions.fork` (Plan 16 W3): a new worktree restored to the checkpoint + a new session carrying
+   *  the ancestor transcript as text. The ancestor is untouched. */
+  forkSession(checkpointId: string): Promise<{ session: Session; itemId: string; environment: Environment }>;
   /** `skills.list` for a space: the library folder and every skill in it, valid or not — the mention
    *  picker (W4) reads the skills, the settings panel (W5) also shows the root and the invalid rows. */
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
@@ -808,6 +811,9 @@ export type AppState = {
   confirmRestoreCheckpoint(id: string): Promise<void>;
   /** `checkpoints.capture` — a point the user asked for, next to the ones every turn takes. */
   captureCheckpoint(environmentId: string, sessionId: string | null): Promise<void>;
+  /** "Fork from here" (Plan 16 W3): server makes worktree + session; this adopts the new pane and
+   *  closes the sheet. The ancestor session and its checkout are untouched — workspace fork only. */
+  forkFromCheckpoint(checkpointId: string): Promise<void>;
   /** Re-fetch this space's MCP servers. Called on `McpSection` mount (sheet open) and on `mcp.changed`
    *  while that space's settings sheet is the one showing. Applies the result only if the sheet is
    *  still open for this exact space — a slow response after the user closed or switched must not
@@ -2142,6 +2148,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async captureCheckpoint(environmentId, sessionId) {
         await api.captureCheckpoint(environmentId, sessionId);
         await get().refreshCheckpoints(environmentId, sessionId);
+      },
+      async forkFromCheckpoint(checkpointId) {
+        const { session, itemId, environment } = await api.forkSession(checkpointId);
+        if (isSpace(session.spaceId)) {
+          mergeSession(session);
+          set({ environments: { ...get().environments, [environment.id]: environment } });
+        }
+        // Close the sheet BEFORE adopting: adoptItem rewrites the layout, and the W2.4 snap must be
+        // unwound off the pre-sheet layout, not the post-adopt one.
+        set({ sheet: null, ...restoreSnap() });
+        await adoptItem(session.spaceId, itemId, null);
+        await get().openSession(session.id);
       },
       async askRestoreCheckpoint(id) {
         const preview = await api.previewCheckpoint(id);

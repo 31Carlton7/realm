@@ -139,6 +139,26 @@ export class SessionEventsStore {
     return p.success ? p.data : null;
   }
 
+  /**
+   * The session's SPOKEN transcript — user/assistant text only — up to `upToTs`, ascending (Plan 16
+   * W3's fork context). The cut is by event timestamp against the checkpoint's `createdAt`: a turn
+   * checkpoint is captured BEFORE its user_message event is minted, so that turn's events carry later
+   * timestamps and fall on the far side — "up to the checkpoint" means up to but not including the
+   * turn it fronted. An honest approximation (clock, not causality), and stated as one.
+   */
+  transcript(sessionId: string, upToTs: number): { role: "user" | "assistant"; text: string }[] {
+    const rows = this.db.prepare(
+      "SELECT type, payload_json FROM session_events WHERE session_id = ? AND ts <= ? AND type IN ('user_message', 'assistant_text') ORDER BY seq")
+      .all(sessionId, upToTs) as Pick<EventRow, "type" | "payload_json">[];
+    const out: { role: "user" | "assistant"; text: string }[] = [];
+    for (const r of rows) {
+      let text: unknown; try { text = (JSON.parse(r.payload_json) as { text?: unknown }).text; } catch { continue; }
+      if (typeof text !== "string" || text.trim() === "") continue;
+      out.push({ role: r.type === "user_message" ? "user" : "assistant", text });
+    }
+    return out;
+  }
+
   /** Events with seq > afterSeq, ascending. Rows that fail schema validation (e.g. from an older build) are skipped. */
   listAfter(sessionId: string, afterSeq: number, limit: number): StoredSessionEvent[] {
     const rows = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?").all(sessionId, afterSeq, limit) as EventRow[];

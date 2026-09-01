@@ -23,6 +23,7 @@ import type { SessionService } from "../sessions/service";
 import type { NotificationsService } from "../notifications/service";
 import type { ReviewService } from "../delegation/review";
 import type { SearchService } from "../search/service";
+import type { ForkService } from "../sessions/fork";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
 import type { GitWriteService } from "../workspace/git-write";
@@ -36,7 +37,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService; search: SearchService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService; search: SearchService; forks: ForkService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -435,5 +436,9 @@ export function registerMethods(d: Deps): void {
   reg("sessions.setEnvironment", (p) => d.sessions.setEnvironment(p.id, p.environmentId));
   reg("sessions.events", (p) => d.sessions.events(p.id, p.afterSeq, p.limit));
   reg("sessions.openTerminal", (p) => d.sessions.openTerminal(p.id));
+  // "Fork from here" (Plan 16 W3): new worktree at the checkpoint's tree + new session carrying the
+  // ancestor transcript as text. The service broadcasts environments.changed; sessions.create's own
+  // items.changed already rode out of createSession.
+  reg("sessions.fork", (p) => d.forks.fork(p.checkpointId));
   reg("sessions.delete", async (p) => { await d.sessions.delete(p.id); return { ok: true as const }; });
 }

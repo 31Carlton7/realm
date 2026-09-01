@@ -36,6 +36,7 @@ export const liveApi = (): Api => ({
   listAllSessions: () => rpc().call("sessions.listAll", {}),
   getSession: (id) => rpc().call("sessions.get", { id }),
   createSession: (input) => rpc().call("sessions.create", input),
+  forkSession: (checkpointId) => rpc().call("sessions.fork", { checkpointId }),
   listSkills: (spaceId) => rpc().call("skills.list", { spaceId }),
   setSkillEnabled: async (spaceId, id, enabled) => { await rpc().call("skills.setEnabled", { spaceId, id, enabled }); },
   promoteSkill: async (spaceId, id) => { await rpc().call("skills.promote", { spaceId, id }); },

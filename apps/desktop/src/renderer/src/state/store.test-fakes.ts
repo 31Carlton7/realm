@@ -329,6 +329,23 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
       sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}) });
     },
+    forkSession: async (checkpointId) => {
+      calls.push(`forkSession:${checkpointId}`);
+      await wait("forkSession");
+      const cp = Object.values(data.checkpoints).flat().find((c) => c.id === checkpointId);
+      if (!cp?.sessionId) throw new Error("FORK_NO_SESSION");
+      const ancestor = data.sessions.find((x) => x.id === cp.sessionId);
+      const spaceId = ancestor?.spaceId ?? "s1";
+      const env: Environment = { id: `env${++n}`, spaceId, path: `/tmp/worktrees/${spaceId}/fork`, branch: "realm/fork",
+        kind: "worktree", portBlockStart: null, createdAt: 0, updatedAt: 0 };
+      (data.environments[spaceId] ??= []).push(env);
+      const sess = session(`se${++n}`, spaceId, { environmentId: env.id, cwd: env.path,
+        title: `Fork: ${ancestor?.title ?? "session"}`, dispatchedBy: { kind: "fork", sessionId: cp.sessionId } });
+      data.sessions.push(sess);
+      const it = item(`i${n}`, spaceId, { kind: "session", refId: sess.id, title: sess.title });
+      (data.items[spaceId] ??= []).push(it);
+      return { session: sess, itemId: it.id, environment: env };
+    },
     listSkills: async (spaceId) => { calls.push(`listSkills:${spaceId}`); return { root: data.skillsRoot, skills: [...(data.skills[spaceId] ?? [])] }; },
     setSkillEnabled: async (spaceId, id, enabled) => {
       calls.push(`setSkillEnabled:${spaceId}:${id}=${enabled}`);

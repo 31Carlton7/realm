@@ -659,6 +659,20 @@ export const Methods = {
   /** Get-or-create the session's terminal side panel (W4), at the session's cwd. Idempotent: the pty is
    *  spawned on the FIRST call and only then — a session whose panel is never opened never has one. */
   "sessions.openTerminal": { params: z.object({ id: IdSchema }), result: z.object({ terminalId: IdSchema, itemId: IdSchema }) },
+  /**
+   * "Fork from here" (Plan 16 W3): a NEW worktree restored to this checkpoint's captured tree, plus a
+   * NEW session pinned to it, `dispatchedBy: { kind: "fork", sessionId: <ancestor> }`. The ancestor
+   * session, its environment and its checkpoints are left byte-untouched — the restore machinery runs
+   * against the fresh worktree only, never in place. The provider conversation CANNOT be rewound
+   * (AGENT_CONVERSATION_REWIND is false for every adapter), so the fork is a WORKSPACE fork: the
+   * ancestor transcript up to the checkpoint rides into the new session as fenced text, truncated at
+   * a stated cap — and the UI says exactly that.
+   *
+   * Refused when the checkpoint was not taken by a session turn (FORK_NO_SESSION — there is no
+   * transcript or agent setup to fork), when that session has since been deleted (FORK_SESSION_GONE),
+   * and when the checkpoint's git objects are gone (CHECKPOINT_GONE).
+   */
+  "sessions.fork": { params: z.object({ checkpointId: IdSchema }), result: z.object({ session: SessionSchema, itemId: IdSchema, environment: EnvironmentSchema }) },
   "sessions.delete":  { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 } as const;
 
