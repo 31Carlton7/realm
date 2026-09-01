@@ -1,13 +1,29 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { StoreApi } from "zustand";
 import type { PaneProps } from "../registry";
-import { useAppStoreMaybe } from "../../state/store";
+import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
 import { cancelViewDestroy, getBrowserBridges, scheduleViewDestroy } from "./browser-client";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
 
 /** How long after the last main→renderer state change the url/title persist to the server. Debounced:
  *  a redirect chain writes once, and a restart restores the last committed page. */
 const PERSIST_MS = 500;
+
+const NO_ACTIONS: BrowserActionTick[] = [];
+
+/** W4's watching feed for one browser: the recent-actions ring (the ticker) and the in-flight flag
+ *  (the driving dot). Store-maybe like everything else in this pane — bare unit tests render with no
+ *  store and simply show no ticker. */
+function useAgentWatch(store: StoreApi<AppState> | null, browserId: string) {
+  const subscribe = useCallback((cb: () => void) => (store ? store.subscribe(cb) : () => {}), [store]);
+  const actions = useSyncExternalStore(subscribe, () => store?.getState().browserActions[browserId] ?? NO_ACTIONS);
+  const driving = useSyncExternalStore(subscribe, () => store?.getState().browserDriving[browserId] ?? false);
+  return { actions, driving };
+}
+
+const tickTime = (ts: number): string =>
+  new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
 /**
  * The browser pane (Plan 11 W1): DOM chrome ABOVE a native `WebContentsView` that Electron main owns.
@@ -35,6 +51,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
 
   const url = state?.url ?? initialUrl ?? "";
   const hasUrl = url !== "";
+  const { actions, driving } = useAgentWatch(store, browserId);
+  const lastAction = actions.length > 0 ? actions[actions.length - 1]! : null;
 
   useEffect(() => {
     const { host, server } = getBrowserBridges();
@@ -177,6 +195,22 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
             onBlur={() => setDraft(null)}
             onKeyDown={(e) => { if (e.key === "Escape") { setDraft(null); e.currentTarget.blur(); } }} />
         </form>
+        {/* W4's action ticker: the last settled agent action (its permission-card wording — page
+            text only ever inside the attributed framing), a quiet time, and the driving dot while
+            an act is in flight. Hover reveals the recent few via title. An inline strip, per the
+            no-dropdowns rule: nothing here ever opens over the view. */}
+        {(driving || lastAction) && (
+          <div className="browser-ticker"
+            title={[...actions].reverse().map((a) => `${tickTime(a.ts)}  ${a.text}${a.ok ? "" : " — failed"}`).join("\n")}>
+            {driving && <span className="status-dot" data-status="driving" title="Agent is driving" aria-label="Agent is driving" />}
+            {lastAction && (
+              <>
+                <span className="browser-ticker-text" data-failed={!lastAction.ok || undefined}>{lastAction.text}</span>
+                <span className="browser-ticker-time">{tickTime(lastAction.ts)}</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
       <div className="browser-view-host" ref={hostRef}>
         {!hasUrl && initialUrl !== null && (

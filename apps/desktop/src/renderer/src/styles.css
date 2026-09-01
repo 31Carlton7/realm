@@ -345,6 +345,13 @@ button.panel-title:hover { background: var(--rl-hover); }
   background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .browser-address input::placeholder { color: var(--rl-text-faint); }
 .browser-address input:focus { border-color: var(--rl-accent); }
+/* W4 action ticker: an inline strip in the chrome (never a dropdown — no-overlay rule). The text is
+   the permission card's wording; failures dim to danger. Capped so a long label never squeezes the
+   address bar out. */
+.browser-ticker { flex: none; display: flex; align-items: center; gap: 6px; margin-left: 8px; max-width: 40%; min-width: 0; }
+.browser-ticker-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--rl-text-dim); }
+.browser-ticker-text[data-failed] { color: var(--rl-danger); }
+.browser-ticker-time { flex: none; font-size: 10.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 /* The placeholder the native view is bounds-synced onto. Painted the view's own opaque white so the
    sliver the view trails behind during a resize never flashes the panel tone (research: do NOT
    debounce the sync; match the colours instead). Pages are their own light world — like the
@@ -441,6 +448,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .status-dot[data-status="error"] { background: var(--rl-danger); }
 .status-dot[data-status="idle"] { background: var(--rl-line-strong); } /* idle is a state, not a verdict (V-C5) */
 .status-dot[data-status="ended"] { background: var(--rl-text-faint); opacity: .6; }
+/* W4: an agent act is in flight on a browser. Accent, not success — this is "Realm is acting here,
+   watch", a pointer to activity, not a session verdict. */
+.status-dot[data-status="driving"] { background: var(--rl-accent); animation: rl-pulse 0.9s ease-in-out infinite; }
 /* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
    for "running"/"waiting on the user", so they get the same success/danger treatment. */
 .status-dot[data-status="connected"] { background: var(--rl-success); }

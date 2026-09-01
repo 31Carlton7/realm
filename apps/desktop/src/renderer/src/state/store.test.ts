@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
+import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, item, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
@@ -1715,5 +1715,41 @@ describe("@-mentions in the draft (Plan 8 W4)", () => {
     expect(store.getState().draftMentions.se1).toEqual(["mac"]);
     await store.getState().deleteItem("i2");
     expect(store.getState().draftMentions.se1).toBeUndefined();
+  });
+});
+
+describe("browser watching state (Plan 11 W4)", () => {
+  it("applyBrowserAction appends per browser and caps the ring at BROWSER_ACTIONS_MAX", () => {
+    const store = createAppStore(fakeApi());
+    for (let i = 0; i < BROWSER_ACTIONS_MAX + 3; i++) {
+      store.getState().applyBrowserAction({ browserId: "b1", text: `Action ${i}`, ok: true, ts: i });
+    }
+    store.getState().applyBrowserAction({ browserId: "b2", text: "Other pane", ok: false, ts: 99 });
+    const b1 = store.getState().browserActions.b1!;
+    expect(b1).toHaveLength(BROWSER_ACTIONS_MAX);
+    expect(b1.at(-1)!.text).toBe(`Action ${BROWSER_ACTIONS_MAX + 2}`); // newest kept
+    expect(b1[0]!.text).toBe("Action 3"); // oldest dropped
+    expect(store.getState().browserActions.b2).toEqual([{ text: "Other pane", ok: false, ts: 99 }]);
+  });
+
+  it("applyBrowserDriving sets on true and REMOVES on false — a settle can never leave the flag around", () => {
+    const store = createAppStore(fakeApi());
+    store.getState().applyBrowserDriving({ browserId: "b1", driving: true });
+    expect(store.getState().browserDriving).toEqual({ b1: true });
+    store.getState().applyBrowserDriving({ browserId: "b1", driving: false });
+    expect(store.getState().browserDriving).toEqual({});
+    // Clearing what was never set is a no-op, not an entry.
+    store.getState().applyBrowserDriving({ browserId: "bX", driving: false });
+    expect(store.getState().browserDriving).toEqual({});
+  });
+
+  it("deleting a browser item drops its ticker ring and driving flag", async () => {
+    const store = createAppStore(fakeApi({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", title: "Browser" })] } }));
+    await store.getState().boot();
+    store.getState().applyBrowserAction({ browserId: "b1", text: "Clicked", ok: true, ts: 1 });
+    store.getState().applyBrowserDriving({ browserId: "b1", driving: true });
+    await store.getState().deleteItem("i1");
+    expect(store.getState().browserActions.b1).toBeUndefined();
+    expect(store.getState().browserDriving.b1).toBeUndefined();
   });
 });

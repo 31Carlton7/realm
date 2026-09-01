@@ -260,3 +260,77 @@ describe("isRealmItemDrag", () => {
     expect(isRealmItemDrag({ dataTransfer: null })).toBe(false);
   });
 });
+
+describe("action ticker + driving dot (W4)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(
+      { x: 10, y: 40, width: 600, height: 400, top: 40, left: 10, right: 610, bottom: 440, toJSON: () => ({}) } as DOMRect);
+  });
+  afterEach(() => {
+    setBrowserBridgesForTests(null);
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  const mountWithStore = (f: ReturnType<typeof fakeBridges>) => {
+    setBrowserBridgesForTests(f.bridges);
+    const store = createAppStore(fakeApi());
+    const view = render(
+      <StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    return { store, ...view };
+  };
+
+  it("no agent activity, no ticker — the chrome starts as W1 left it", async () => {
+    const { container } = mountWithStore(fakeBridges({ url: "https://example.com" }));
+    await settle();
+    expect(container.querySelector(".browser-ticker")).toBeNull();
+  });
+
+  it("shows the LAST settled action with its attributed wording, a quiet time, and the recent few on hover", async () => {
+    const { store, container } = mountWithStore(fakeBridges({ url: "https://example.com" }));
+    await settle();
+    act(() => {
+      store.getState().applyBrowserAction({ browserId: "b1", text: 'Click the button the page labels "Submit" on example.com', ok: true, ts: 1725100000000 });
+      store.getState().applyBrowserAction({ browserId: "b1", text: 'Type "carlton" into the textbox the page labels "Name" on example.com', ok: true, ts: 1725100060000 });
+    });
+    const ticker = container.querySelector(".browser-ticker")!;
+    expect(ticker.querySelector(".browser-ticker-text")!.textContent).toBe('Type "carlton" into the textbox the page labels "Name" on example.com');
+    expect(ticker.querySelector(".browser-ticker-time")!.textContent).toMatch(/\d/);
+    expect(ticker.getAttribute("title")).toContain('the page labels "Submit"'); // older ones ride the hover reveal
+    // Attribution framing intact — the ticker never launders page text into Realm's own voice.
+    expect(ticker.querySelector(".browser-ticker-text")!.textContent).toContain("the page labels");
+  });
+
+  it("a failed action is marked; another browser's actions never bleed in", async () => {
+    const { store, container } = mountWithStore(fakeBridges({ url: "https://example.com" }));
+    await settle();
+    act(() => {
+      store.getState().applyBrowserAction({ browserId: "b1", text: "Click the button on example.com", ok: false, ts: 1 });
+      store.getState().applyBrowserAction({ browserId: "OTHER", text: "Elsewhere", ok: true, ts: 2 });
+    });
+    const text = container.querySelector(".browser-ticker-text")!;
+    expect(text).toHaveAttribute("data-failed");
+    expect(text.textContent).toBe("Click the button on example.com");
+  });
+
+  it("the driving dot appears while an act is in flight and leaves when it settles (mutant: dot stuck on)", async () => {
+    const { store, container } = mountWithStore(fakeBridges({ url: "https://example.com" }));
+    await settle();
+    expect(container.querySelector('.status-dot[data-status="driving"]')).toBeNull();
+    act(() => store.getState().applyBrowserDriving({ browserId: "b1", driving: true }));
+    expect(container.querySelector('.status-dot[data-status="driving"]')).toBeInTheDocument();
+    act(() => store.getState().applyBrowserDriving({ browserId: "b1", driving: false }));
+    expect(container.querySelector('.status-dot[data-status="driving"]')).toBeNull();
+  });
+
+  it("the ticker is inline chrome, never a popup surface", async () => {
+    const { store, container } = mountWithStore(fakeBridges({ url: "https://example.com" }));
+    await settle();
+    act(() => store.getState().applyBrowserAction({ browserId: "b1", text: "Scroll the page on example.com", ok: true, ts: 1 }));
+    expect(container.querySelector(".browser-chrome .browser-ticker")).toBeInTheDocument();
+    expect(container.querySelector(".browser-chrome [aria-haspopup]")).toBeNull();
+  });
+});

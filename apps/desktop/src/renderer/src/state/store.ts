@@ -39,6 +39,12 @@ export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
 /** Live css-pixel rect where one browser pane's NATIVE view paints (Plan 11 W2), keyed by the
  *  browser ITEM id. What the no-overlay primitives avoid. */
 export type BrowserRect = { itemId: string; x: number; y: number; width: number; height: number };
+/** One settled agent action on a browser (W4's ticker line): the permission system's attributed
+ *  description, whether it succeeded, and when it settled. */
+export type BrowserActionTick = { text: string; ok: boolean; ts: number };
+/** How many recent actions the per-browser ring buffer keeps — the ticker shows the latest; the
+ *  hover reveal shows the rest. Small on purpose: this is a glance, not a transcript. */
+export const BROWSER_ACTIONS_MAX = 8;
 export type AgentProbe = MethodResult<"agents.probe">[number];
 /** `mcp.test`'s answer: reached or not, and one sentence saying why. Built server-side from things that
  *  cannot be secrets (see live-check.ts), so a UI may render `detail` verbatim. */
@@ -278,6 +284,13 @@ export type AppState = {
   sheet: Sheet | null;
   /** Every visible browser view's rect, reference-stable between real changes (W2). */
   browserRects: BrowserRect[];
+  /** W4: recent settled agent actions per browserId (ring, newest last, `BROWSER_ACTIONS_MAX` deep) —
+   *  the pane chrome's ticker. Kept across space switches like sessionStatus: broadcasts fire for
+   *  every space and a ticker that forgets on switch would lie by omission. */
+  browserActions: Record<string, BrowserActionTick[]>;
+  /** W4: browserIds an agent act/batch step is CURRENTLY in flight on — the "agent is driving" dot
+   *  on the sidebar row and pane chrome. Every set is cleared by the matching settle broadcast. */
+  browserDriving: Record<string, boolean>;
   /** W2.4: the pre-snap layout while a sheet forced the browser leaf to a ≤50% split. Non-null
    *  exactly while a snap is active; the layout to restore when the sheet actually closes. */
   sheetSnap: { saved: Layout; spaceId: string | null } | null;
@@ -429,6 +442,9 @@ export type AppState = {
   /** Each browser pane reports the rect its native view paints; null when it stops (unmount, no
    *  page). The registration point for W2's no-overlay invariant. */
   setBrowserRect(itemId: string, rect: { x: number; y: number; width: number; height: number } | null): void;
+  /** W4 broadcasts: one settled action for the ticker's ring buffer / the driving flag flip. */
+  applyBrowserAction(p: { browserId: string; text: string; ok: boolean; ts: number }): void;
+  applyBrowserDriving(p: { browserId: string; driving: boolean }): void;
   refreshSessions(): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
@@ -856,7 +872,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
-      paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null,
+      paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
@@ -1043,6 +1059,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.deleteItem(itemId); // server closes the pty for terminal items
         set({ items: get().items.filter((i) => i.id !== itemId) });
         if (it?.kind === "terminal") api.disposeTerminal(it.refId);
+        if (it?.kind === "browser") {
+          // The ticker and driving dot die with the browser — a reused id must start blank.
+          const { [it.refId]: _ba, ...browserActions } = get().browserActions;
+          const { [it.refId]: _bd, ...browserDriving } = get().browserDriving;
+          set({ browserActions, browserDriving });
+        }
         if (it?.kind === "session") {
           dropTranscript(it.refId); loading.delete(it.refId);
           // The server killed the pty with the session; drop the renderer half (xterm + scrollback) too.
@@ -1125,6 +1147,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (prev && prev.x === rect.x && prev.y === rect.y && prev.width === rect.width && prev.height === rect.height) return;
         const next: BrowserRect = { itemId, x: rect.x, y: rect.y, width: rect.width, height: rect.height };
         set({ browserRects: idx === -1 ? [...cur, next] : cur.map((b, i) => (i === idx ? next : b)) });
+      },
+      applyBrowserAction({ browserId, text, ok, ts }) {
+        const cur = get().browserActions[browserId] ?? [];
+        const next = [...cur, { text, ok, ts }].slice(-BROWSER_ACTIONS_MAX);
+        set({ browserActions: { ...get().browserActions, [browserId]: next } });
+      },
+      applyBrowserDriving({ browserId, driving }) {
+        const cur = get().browserDriving;
+        if (driving) { set({ browserDriving: { ...cur, [browserId]: true } }); return; }
+        if (!(browserId in cur)) return; // clearing what was never set: no churn
+        const { [browserId]: _gone, ...rest } = cur;
+        set({ browserDriving: rest });
       },
       async refreshSessions() {
         const sid = get().activeSpaceId; if (!sid) return;
