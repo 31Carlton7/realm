@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld("realm", {
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),
+  /** A downscaled data: URL for an image attachment, or null for anything that is not a readable
+   *  image. The renderer cannot read the file itself, and CSP forbids `file://` — this is the only
+   *  way an attachment is ever seen rather than merely named. */
+  attachmentThumbnail: (path: string): Promise<string | null> => ipcRenderer.invoke("attachment-thumbnail", path),
   /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
   saveTempAttachment: (name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> => ipcRenderer.invoke("save-temp-attachment", name, mime, bytes),
   /** The real filesystem path behind a dropped File. Electron 32 removed `File.path`; `webUtils` is

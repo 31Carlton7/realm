@@ -1,9 +1,11 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { basenameOf, isImageMime, type SessionStatus } from "@realm/contracts";
+import type { SessionStatus } from "@realm/contracts";
+import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { PermissionCard } from "./PermissionCard";
+import { QuestionCard, questionCardFor } from "./QuestionCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
 import { groupTranscript } from "./tool-group";
 import { blockKey, type Transcript as TranscriptModel } from "./transcript-model";
@@ -18,7 +20,7 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
   return (
     <div className="msg-thinking" data-enter={enter || undefined}>
       <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={13} /><span>Thinking…</span></button>
-      {open && <div className="thinking-body">{text}</div>}
+      {open && <Markdown text={text} className="thinking-body" />}
     </div>
   );
 }
@@ -27,7 +29,7 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
 export function Transcript({ transcript, sessionStatus, onDecide, visible = true, focused = false }: {
-  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision) => void; visible?: boolean;
+  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
 }) {
@@ -81,11 +83,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
                   {b.text}
                   {b.attachments && (
                     <span className="msg-user-files" aria-label="Attached files">
-                      {b.attachments.map((a) => (
-                        <span key={a.path} className="msg-user-file" title={a.path}>
-                          <Icon name={isImageMime(a.mime) ? "image" : "artifact"} size={11} /> {basenameOf(a.path)}
-                        </span>
-                      ))}
+                      {b.attachments.map((a) => <AttachmentTile key={a.path} path={a.path} mime={a.mime} />)}
                     </span>
                   )}
                 </div>
@@ -96,8 +94,16 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
             case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
           }
         })}
-        {permissions.map((p, i) => <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0}
-          enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />)}
+        {permissions.map((p, i) => {
+          // A question-shaped tool call gets the question card; everything else is a permission and
+          // keeps the Allow / Allow always / Deny gate.
+          const questions = questionCardFor(p);
+          if (questions) return <QuestionCard key={p.requestId} questions={questions} autoFocus={focused && i === 0}
+            enter={isEntering(permKey(p.requestId))}
+            onAnswer={(answers) => onDecide(p.requestId, "allow", answers)} onSkip={() => onDecide(p.requestId, "deny")} />;
+          return <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0}
+            enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />;
+        })}
         {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock. */}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">Working…</span></div>}
         </div>

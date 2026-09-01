@@ -478,9 +478,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Attached-file chips inside the user bubble (Plan 14 W5) — an attachment-only message still shows
    WHAT it carried. Flex so the pre-wrap bubble's whitespace rules don't mangle the chip row. */
-.msg-user-files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-top: 2px; }
-.msg-user-file { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--r-ctl);
-  border: 1px solid var(--rl-line); font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }
+.msg-user-files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-top: 4px; }
 /* Ara refresh §4: assistant prose is plain — 15px/1.6, no card. */
 .msg-assistant { max-width: 72ch; font-size: 15px; line-height: 1.6; }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
@@ -516,7 +514,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .msg-thinking { font-size: 12px; }
 .thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); }
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
-.thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); white-space: pre-wrap; }
+.md.thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); }
 .msg-error { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r-ctl); color: var(--rl-danger); background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); }
 .msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; }
 /* Plan 9 W2 — BUI LoadingState's shimmer label replaces the spinner+text pair; under
@@ -645,6 +643,49 @@ button.panel-title:hover { background: var(--rl-hover); }
 .permission-submit { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
 .permission-submit kbd { opacity: .7; }
 
+/* AskUserQuestion (QuestionCard): the same card shell as a permission, but read as a QUESTION — the
+   question itself is the heading rather than "Allow <Tool>?", and the options are the agent's own
+   labels rather than Allow/Deny. Rows are taller than a permission's because each may carry a
+   description line, and they are separated by hairlines (the reference's list rhythm). */
+.question-card { border-radius: var(--r-panel); padding: 14px; background: var(--surface); box-shadow: var(--shadow-card);
+  display: flex; flex-direction: column; gap: 10px; }
+.question-head { display: flex; align-items: flex-start; gap: 10px; }
+.question-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 550; line-height: 1.4; color: var(--ink); }
+.question-pager { display: flex; align-items: center; gap: 2px; flex: none; font-size: 11px; color: var(--rl-text-faint); }
+.question-pager .icon-btn:disabled { opacity: .35; }
+.question-close { flex: none; }
+
+.question-options { display: flex; flex-direction: column; }
+.question-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 8px; border-radius: var(--r-ctl);
+  text-align: left; font-size: 13px; color: var(--ink-2); }
+.question-option + .question-option { box-shadow: inset 0 1px 0 var(--line); }
+.question-option:hover { background: var(--hover); color: var(--ink); }
+.question-option[data-selected] { background: var(--hover-2); color: var(--ink); }
+.question-option[data-picked] { color: var(--ink); }
+.question-option-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.question-option-label { font-weight: 500; }
+.question-option[data-selected] .question-option-label { font-weight: 550; }
+/* The description is the trade-off text — it has to be readable, not a tooltip, but must never
+   out-shout the label it belongs to. */
+.question-option-desc { font-size: 11.5px; line-height: 1.45; color: var(--rl-text-dim); white-space: normal; }
+.question-num { display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 4px; border-radius: var(--r-chip);
+  background: var(--inset); box-shadow: var(--shadow-hairline); color: var(--ink-3); font-size: 11px; flex: none; align-self: flex-start; }
+.question-option[data-selected] .question-num { color: var(--ink); }
+.question-other .question-option-label { color: var(--rl-text-dim); }
+.question-skip { flex: none; padding: 3px 10px; border-radius: var(--r-ctl); box-shadow: var(--shadow-hairline);
+  font-size: 11.5px; color: var(--ink-2); }
+.question-skip:hover { background: var(--hover-2); color: var(--ink); }
+.question-other-edit { gap: 8px; }
+.question-other-input { flex: 1; min-width: 0; padding: 5px 8px; border-radius: var(--r-ctl); background: var(--inset);
+  box-shadow: var(--shadow-hairline); font-size: 13px; color: var(--ink); }
+.question-other-submit { flex: none; font-size: 12px; padding: 4px 12px; }
+
+.question-footer { display: flex; align-items: center; gap: 10px; margin: 2px -14px -14px; padding: 8px 14px; border-top: 1px solid var(--line); }
+.question-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
+.question-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 10px; }
+.question-continue { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
+.question-continue kbd { opacity: .7; }
+
 /* ── The prompter (§4): one floating card, two states, one element moving ─ */
 /* The dock carries geometry + position for BOTH states; greeting/suggestions/thinking hang off it
    absolutely so the hero→docked move is a single transform transition (§6: 320ms, interruptible). */
@@ -693,9 +734,24 @@ button.panel-title:hover { background: var(--rl-hover); }
    attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a
    chip row that hides a file the user thinks is going. */
 .composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 12px 16px 0; list-style: none; }
-.attach-chip { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px 0 8px; height: 24px; border-radius: var(--r-chip);
-  font-size: 11.5px; color: var(--ink-2); background: var(--field); box-shadow: var(--shadow-hairline); max-width: 220px; min-width: 0; white-space: nowrap; }
+.composer-attach-item { display: contents; }
+/* Attachment chips (composer + sent bubble). An attachment is SHOWN, not just named: `attach-art` is
+   the 28px well holding either the real thumbnail (a data: URL minted in main — see the
+   `attachment-thumbnail` handler) or the file glyph when there is no image to show. The full path is
+   the chip's hover title, so a truncated basename is never ambiguous. */
+.attach-chip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 4px 3px 3px; border-radius: var(--r-ctl);
+  font-size: 11.5px; color: var(--ink-2); background: var(--field); box-shadow: var(--shadow-hairline);
+  max-width: 220px; min-width: 0; white-space: nowrap; vertical-align: middle; }
+.attach-art { position: relative; display: grid; place-items: center; width: 28px; height: 28px; flex: none;
+  border-radius: calc(var(--r-ctl) - 2px); background: var(--inset); color: var(--rl-text-faint); overflow: hidden; }
+.attach-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
 .attach-chip .attach-glyph { flex: none; color: var(--rl-text-faint); }
+/* The type badge rides the bottom of the well; over a photo it needs its own scrim to stay legible. */
+.attach-ext { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 2px; text-align: center;
+  font-size: 8px; line-height: 1.25; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
+  color: var(--ink-2); background: color-mix(in srgb, var(--surface) 78%, transparent); }
+.attach-chip[data-image] .attach-ext { color: #fff; background: rgb(0 0 0 / .55); }
+.attach-chip .chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* A file the agent will simply discard must not look like one it will read (§2.4: colour = state). */
 .attach-chip[data-disposition="ignored"] { color: var(--orange); background: var(--orange-tint); box-shadow: none; }
 .attach-chip[data-disposition="ignored"] .attach-glyph { color: var(--rl-warning); }
@@ -886,7 +942,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
    never `all`, never geometry. */
 .item-row, .item-close, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy,
-.strip-space, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"] {
+.strip-space, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"],
+.question-option, .question-skip {
   transition: background-color 100ms ease, color 100ms ease;
 }
 /* Press (§6): 120ms to scale .97 on every pressable — buttons, chips, send, permission options.

@@ -48,7 +48,7 @@ export const liveApi = (): Api => ({
   memorySources: (sessionId) => rpc().call("memory.sources", { sessionId }),
   sendMessage: async (id, text, attachments, mentions) => { await rpc().call("sessions.send", { id, text, attachments, mentions }); },
   interruptSession: async (id) => { await rpc().call("sessions.interrupt", { id }); },
-  respondPermission: async (id, requestId, decision) => { await rpc().call("sessions.respondPermission", { id, requestId, decision }); },
+  respondPermission: async (id, requestId, decision, answers) => { await rpc().call("sessions.respondPermission", { id, requestId, decision, ...(answers ? { answers } : {}) }); },
   setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),
   setSessionAgent: (id, agentKind) => rpc().call("sessions.setAgent", { id, agentKind }),
   setSessionEnvironment: (id, environmentId) => rpc().call("sessions.setEnvironment", { id, environmentId }),

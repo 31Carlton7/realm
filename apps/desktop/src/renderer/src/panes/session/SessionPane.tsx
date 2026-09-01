@@ -227,7 +227,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const body = (
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused}
-        onDecide={(requestId, d) => run(() => respondPermission(id, requestId, d))} />
+        onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))} />
       {blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))} />
