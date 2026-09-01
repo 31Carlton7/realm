@@ -24,8 +24,11 @@ export function dayLabel(ts: number, now = new Date()): string {
  * a `notifications-page` destination on W4's sentinel convention. Newest first, grouped by day;
  * unread rows carry the dot; a PENDING permission row is actionable inline through the SAME
  * PermissionCard the session pane renders (reused, never forked — see PendingPermissionInline).
+ *
+ * The pane's `item` goes unused on purpose: unlike Library/Connections this page has no per-space
+ * vantage — the feed is global, exactly like the sidebar row's count.
  */
-export function NotificationsPage({ item }: PaneProps) {
+export function NotificationsPage(_props: PaneProps) {
   const notifications = useApp((s) => s.notifications);
   const unread = useApp((s) => s.notificationsUnread);
   const refreshNotifications = useApp((s) => s.refreshNotifications);
@@ -33,9 +36,6 @@ export function NotificationsPage({ item }: PaneProps) {
   const markNotificationsRead = useApp((s) => s.markNotificationsRead);
   const cursor = useApp((s) => s.notificationsCursor);
   const run = useApp((s) => s.run);
-  // `item` is unused on purpose: unlike Library/Connections this page has no per-space vantage — the
-  // feed is global, exactly like the sidebar row's count.
-  void item;
 
   useEffect(() => { void run(() => refreshNotifications()); }, [run, refreshNotifications]);
 

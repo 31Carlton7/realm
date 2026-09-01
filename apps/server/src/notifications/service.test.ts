@@ -33,7 +33,7 @@ beforeEach(() => {
 describe("NotificationsService — permissions", () => {
   it("a permission_request opens a pending row carrying the session, space, and requestId", () => {
     svc.handleSessionEvent(session({ status: "running" }), sessionEvent("permission_request", { requestId: "req-1", toolName: "Bash", input: { command: "ls" }, title: "Run ls", suggestions: [] }));
-    const [n] = feed();
+    const n = feed()[0]!;
     expect(n).toMatchObject({ category: "permission", refId: "req-1", sessionId: session().id, spaceId: session().spaceId, title: "Fix the login flow", body: "Run ls", actedAt: null, readAt: null });
   });
 
@@ -41,7 +41,7 @@ describe("NotificationsService — permissions", () => {
     const s = session();
     svc.handleSessionEvent(s, sessionEvent("permission_request", { requestId: "req-1", toolName: "Bash", input: {}, title: "Run ls", suggestions: [] }));
     svc.handleSessionEvent(s, sessionEvent("permission_response", { requestId: "req-1", decision: "allow" }));
-    const [n] = feed();
+    const n = feed()[0]!;
     expect(n.actedAt).not.toBeNull();
     expect(n.body).toBe("Run ls — Allowed"); // the resolved row shows what happened
     // allow_always and deny word their outcomes too
@@ -72,7 +72,7 @@ describe("NotificationsService — session_done", () => {
     svc.handleSessionEvent(session({ status: "running" }), sessionEvent("status", { status: "waiting_permission" }));
     expect(feed()).toHaveLength(0);
     svc.handleSessionEvent(session({ status: "running" }), sessionEvent("status", { status: "idle" }));
-    const [n] = feed();
+    const n = feed()[0]!;
     expect(n).toMatchObject({ category: "session_done", refId: session().id, body: "Finished a turn" });
     expect(n.actedAt).not.toBeNull(); // nothing pending about a settle
     // The broadcast carried the surfaced row — the renderer's focused-pane auto-read needs it.
@@ -152,7 +152,7 @@ describe("NotificationsService — agent_probe", () => {
     svc.probeResults(probe(true));
     expect(feed()).toHaveLength(0);
     svc.probeResults(probe(false, "binary vanished"));
-    const [n] = feed();
+    const n = feed()[0]!;
     expect(n).toMatchObject({ category: "agent_probe", refId: "fake", title: "Fake agent is unavailable", body: "binary vanished", actedAt: null });
     svc.probeResults(probe(true));
     expect(feed()[0]!.actedAt).not.toBeNull();
@@ -207,11 +207,7 @@ describe("NotificationsService — list/markRead and the ONE unread count", () =
     svc.handleSessionEvent(session(), sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: {}, title: "x", suggestions: [] }));
     svc.handleSessionEvent(session(), sessionEvent("status", { status: "idle" }));
     svc.markRead({ ids: [feed()[0]!.id], all: false });
-    for (const b of broadcasts) {
-      expect(b.event).toBe("notifications.changed");
-      // Replaying history: each payload's unread must have matched the store at the time. The last one
-      // must match NOW — the strongest cheap assertion that no second counter exists.
-    }
+    for (const b of broadcasts) expect(b.event).toBe("notifications.changed");
     expect(broadcasts.at(-1)!.payload.unread).toBe(svc.list({ cursor: null, limit: 10 }).unread);
   });
 

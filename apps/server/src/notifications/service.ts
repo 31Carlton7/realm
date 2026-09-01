@@ -1,4 +1,4 @@
-import { AGENT_META, NOTIFICATIONS_DISABLED_KEY, NotificationCategorySchema, type McpServerStatus, type Notification, type NotificationCategory, type Session, type SessionEvent } from "@realm/contracts";
+import { AGENT_META, NOTIFICATIONS_DISABLED_KEY, type McpServerStatus, type Notification, type NotificationCategory, type Session, type SessionEvent } from "@realm/contracts";
 import type { ProbeResult } from "@realm/adapters";
 import type { RpcServer } from "../rpc/server";
 import type { SettingsStore } from "../store/settings";
@@ -58,11 +58,11 @@ export class NotificationsService {
   }
 
   /** Disabled categories write no rows. Everything already written stays (see the contracts key's doc
-   *  comment); the check guards the write path only. */
+   *  comment); the check guards the write path only. A non-array value means all-enabled — the
+   *  default-on polarity every other disabled-set in Realm uses. */
   private enabled(category: NotificationCategory): boolean {
     const raw = this.d.settings.get(NOTIFICATIONS_DISABLED_KEY);
-    if (!Array.isArray(raw)) return true;
-    return !raw.some((c) => NotificationCategorySchema.safeParse(c).success && c === category);
+    return !Array.isArray(raw) || !raw.includes(category);
   }
 
   /** The one write path — dedup rule, toggle check, broadcast. */
