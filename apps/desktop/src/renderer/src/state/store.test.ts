@@ -223,6 +223,37 @@ describe("app store", () => {
     expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(persists + 1); // the close itself persisted
   });
 
+  describe("agent-opened panes arrive beside, never replacing (live-found deadlock)", () => {
+    it("openItemBeside splits right of an occupied focused leaf and opens there", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1"); // session occupies the only leaf, focused
+      api.data.items["s1"]!.push(item("i9", "s1", { kind: "browser", title: "web" }));
+      await store.getState().refreshItems();
+      await store.getState().openItemBeside("i9");
+      const open = allItems(store.getState().layout!);
+      expect(open).toContain("i1"); // the session was NOT evicted — the whole point
+      expect(open).toContain("i9");
+    });
+
+    it("fills an empty focused leaf without splitting", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot(); // default layout: one empty leaf
+      await store.getState().openItemBeside("i1");
+      const l = store.getState().layout!;
+      expect(l.type).toBe("leaf"); // no gratuitous split
+      expect(allItems(l)).toEqual(["i1"]);
+    });
+
+    it("re-focuses an already-open item instead of splitting again", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().openItemBeside("i1");
+      expect(store.getState().layout!.type).toBe("leaf");
+    });
+  });
+
   describe("closing the last pane", () => {
     it("opens a fresh session rather than leaving an empty layout", async () => {
       const store = createAppStore(api);

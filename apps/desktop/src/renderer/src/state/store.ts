@@ -412,6 +412,8 @@ export type AppState = {
    *  replaced item returns to the SPACE group); focuses that leaf. With no explicit `leafId`, an
    *  already-open item is only focused (click = go there) — layout untouched, nothing persisted. */
   openItem(itemId: string, leafId?: string | null): Promise<void>;
+  /** Agent-opened panes: open beside the focused pane (split right), never replacing it. */
+  openItemBeside(itemId: string): Promise<void>;
   /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). Never deletes. */
   closeFromLayout(itemId: string): Promise<void>;
   /** Destructive: closes from the layout, deletes the item server-side (kills ptys), and drops local
@@ -1027,6 +1029,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sid = get().activeSpaceId;
         const it = await api.updateItem(input);
         if (sid && isSpace(sid)) set({ items: get().items.map((x) => (x.id === it.id ? it : x)) });
+      },
+      /** Agent-opened panes arrive BESIDE the user's focused pane, never replacing it. Replacing was a
+       *  live-found deadlock: the browser evicted the very session whose permission card the user had to
+       *  answer — and eviction destroys an agent's browser view mid-task (close is final for browsers).
+       *  If the focused leaf is empty, filling it is fine; otherwise split right and open there. */
+      async openItemBeside(itemId) {
+        const current = get().layout ?? emptyLayout();
+        const focused = get().focusedLeafId;
+        const occupant = focused ? itemIdOfLeaf(current, focused) : null;
+        if (focused && occupant !== null && occupant !== itemId && !findLeafOfItem(current, itemId)) {
+          const layout = splitLeaf(current, focused, "row", itemId);
+          const leaf = findLeafOfItem(layout, itemId);
+          set({ layout, focusedLeafId: leaf?.id ?? get().focusedLeafId });
+          await persist();
+          return;
+        }
+        await get().openItem(itemId);
       },
       async openItem(itemId, leafId = null) {
         const current = get().layout ?? emptyLayout();
