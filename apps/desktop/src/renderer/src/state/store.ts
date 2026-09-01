@@ -5,6 +5,7 @@ import {
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
+import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
 
@@ -277,6 +278,9 @@ export type AppState = {
   sheet: Sheet | null;
   /** Every visible browser view's rect, reference-stable between real changes (W2). */
   browserRects: BrowserRect[];
+  /** W2.4: the pre-snap layout while a sheet forced the browser leaf to a ≤50% split. Non-null
+   *  exactly while a snap is active; the layout to restore when the sheet actually closes. */
+  sheetSnap: { saved: Layout; spaceId: string | null } | null;
   /** Sessions of the active space, by id. */
   sessions: Record<string, Session>;
   /** Statuses across spaces: seeded by refreshAllSessions, kept current by session.status broadcasts
@@ -713,9 +717,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     let layoutHydrated = false;
     const persist = async () => {
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
-      const { activeSpaceId, layout } = get();
+      const { activeSpaceId, layout, sheetSnap } = get();
       if (!activeSpaceId || !layout) return;
-      const saved = await api.setLayout(activeSpaceId, layout);
+      // While W2.4's sheet-snap is active the on-screen layout is temporary by definition; what
+      // persists is the layout the user actually built (restored on close anyway — a crash or
+      // space switch mid-sheet must not cement the snap).
+      const persistable = sheetSnap && sheetSnap.spaceId === activeSpaceId ? sheetSnap.saved : layout;
+      const saved = await api.setLayout(activeSpaceId, persistable);
       // Keep the cached Space current so a later selectSpace seeds from the newest layout.
       set({ spaces: get().spaces.map((x) => (x.id === saved.id ? saved : x)) });
     };
@@ -806,6 +814,35 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (!s || AGENT_SKILL_SUPPORT[s.agentKind] !== "injected") return [];
       return (get().spaceSkills[s.spaceId] ?? []).filter((k) => k.enabled && k.valid).map((k) => k.id);
     };
+    /**
+     * W2.4 — the degenerate case, entry side. Every sheet-opening path calls this: when browser
+     * views leave the widest non-browser column too narrow for a sheet (SHEET_MIN_WIDTH), the
+     * LAYOUT moves instead of the sheet overlaying — every browser leaf snaps to a ≤50% split for
+     * the sheet's lifetime. Lives in the store, not any Sheet component, so it survives re-renders
+     * and cannot double-apply: while a snap is active a second openSheet keeps the ORIGINAL saved
+     * layout. The snapped layout never persists (see persist()).
+     */
+    const maybeSnapForSheet = (): Partial<AppState> => {
+      if (get().sheetSnap) return {};
+      const { browserRects, layout } = get();
+      if (browserRects.length === 0 || !layout) return {};
+      const win = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+      if (complementOf(win, browserRects).width >= SHEET_MIN_WIDTH) return {};
+      const browserIds = new Set(get().items.filter((i) => i.kind === "browser").map((i) => i.id));
+      const snapped = snapBrowserLeaves(layout, browserIds);
+      if (snapped === layout) return {};
+      return { sheetSnap: { saved: layout, spaceId: get().activeSpaceId }, layout: snapped };
+    };
+    /** W2.4, exit side: restore EXACTLY the pre-snap layout — keyed to the sheet actually closing
+     *  in the STORE (closeSheet / palette takeover / confirm flows), never to a Sheet component
+     *  unmounting (remounts race). Items deleted while the sheet was open are re-pruned; a snap
+     *  from a space that is no longer active is simply dropped (its true layout was what persisted). */
+    const restoreSnap = (): Partial<AppState> => {
+      const snap = get().sheetSnap;
+      if (!snap) return {};
+      if (snap.spaceId !== get().activeSpaceId) return { sheetSnap: null };
+      return { sheetSnap: null, layout: reconcileLayout(snap.saved, get().items) };
+    };
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
@@ -819,7 +856,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
-      paletteOpen: false, sheet: null, browserRects: [],
+      paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
@@ -855,6 +892,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // could show one belongs to the space being left. Keeping them would mean a diff pane opening
         // on stale hunks from before the switch.
         set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], environments: {}, sessions: {}, error: null,
+          sheetSnap: null, // a snap belongs to the layout being left; that layout persisted UNsnapped
           diffs: {}, diffLoading: {}, patches: {} });
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
         await Promise.all([get().refreshProjects(), get().refreshEnvironments(), get().refreshItems(), get().refreshSessions()]);
@@ -1071,9 +1109,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
-      setPaletteOpen(open) { set(open ? { paletteOpen: true, sheet: null } : { paletteOpen: false }); },
-      openSheet(sheet) { set({ sheet, paletteOpen: false }); },
-      closeSheet() { set({ sheet: null }); },
+      setPaletteOpen(open) { set(open ? { paletteOpen: true, sheet: null, ...restoreSnap() } : { paletteOpen: false }); },
+      openSheet(sheet) { set({ sheet, paletteOpen: false, ...maybeSnapForSheet() }); },
+      closeSheet() { set({ sheet: null, ...restoreSnap() }); },
       // Reference-stable: an unchanged rect never produces a new array, so the popover/palette/
       // sheet subscribers only re-place on real movement, not on every rAF echo.
       setBrowserRect(itemId, rect) {
@@ -1421,7 +1459,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);
         set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: status }, worktreeAckStale: null,
-          sheet: { kind: "remove-worktree", environmentId }, paletteOpen: false });
+          sheet: { kind: "remove-worktree", environmentId }, paletteOpen: false, ...maybeSnapForSheet() });
       },
       /**
        * The acknowledgement is read HERE, not taken from what the sheet is displaying.
@@ -1441,7 +1479,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         await api.removeWorktree(environmentId, { dirtyFiles: fresh.dirtyFiles, unpushedCommits: fresh.unpushedCommits });
         const { [environmentId]: _gone, ...worktreeStatuses } = get().worktreeStatuses;
-        set({ worktreeStatuses, worktreeAckStale: null, sheet: null });
+        set({ worktreeStatuses, worktreeAckStale: null, sheet: null, ...restoreSnap() });
         // The environment is gone; so is anything keyed to its checkout.
         const { [fresh.path]: _d, ...diffs } = get().diffs;
         set({ diffs });
@@ -1454,7 +1492,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({
           checkpoints: { ...get().checkpoints, [environmentId]: list },
           checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
-          sheet: { kind: "checkpoints", environmentId, sessionId }, paletteOpen: false,
+          sheet: { kind: "checkpoints", environmentId, sessionId }, paletteOpen: false, ...maybeSnapForSheet(),
         });
       },
       async refreshCheckpoints(environmentId, sessionId) {

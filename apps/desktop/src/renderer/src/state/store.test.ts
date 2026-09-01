@@ -985,6 +985,104 @@ describe("app store", () => {
     });
   });
 
+  describe("sheet-snap for the no-overlay degenerate case (Plan 11 W2.4)", () => {
+    // jsdom window: 1024×768. The browser leaf holds 80% of a row split and its view rect leaves a
+    // 220px complement — narrower than SHEET_MIN_WIDTH (420), so a sheet must MOVE the layout.
+    const browserItem = item("bi", "s1", { kind: "browser", refId: "b1", title: "Web" });
+    const termItem = item("ti", "s1", { kind: "terminal", title: "Term" });
+    const wideBrowserLayout = (): Layout =>
+      ({ type: "split", id: "root", dir: "row", sizes: [80, 20], children: [leaf("L1", "bi"), leaf("L2", "ti")] });
+    const seed = async () => {
+      const store = createAppStore(api); await store.getState().boot();
+      store.setState({ items: [browserItem, termItem], layout: wideBrowserLayout() });
+      store.getState().setBrowserRect("bi", { x: 220, y: 40, width: 804, height: 728 });
+      return store;
+    };
+
+    it("opening a sheet snaps the browser leaf to a ≤50% split and remembers the original", async () => {
+      const store = await seed();
+      store.getState().openSheet({ kind: "new-space" });
+      const l = store.getState().layout as Extract<Layout, { type: "split" }>;
+      expect(l.sizes).toEqual([50, 50]);
+      expect(store.getState().sheetSnap?.saved).toEqual(wideBrowserLayout());
+    });
+
+    it("MUTANT: closing the sheet restores EXACTLY the previous layout (same reference, same sizes)", async () => {
+      const store = await seed();
+      const original = store.getState().layout!;
+      store.getState().openSheet({ kind: "new-space" });
+      expect(store.getState().layout).not.toBe(original);
+      store.getState().closeSheet();
+      expect(store.getState().layout).toBe(original); // not "similar sizes" — the exact tree back
+      expect(store.getState().sheetSnap).toBeNull();
+    });
+
+    it("a wide-enough complement never snaps: the layout is untouched", async () => {
+      const store = await seed();
+      store.getState().setBrowserRect("bi", { x: 524, y: 40, width: 500, height: 728 }); // complement 524 ≥ 420
+      const original = store.getState().layout!;
+      store.getState().openSheet({ kind: "new-space" });
+      expect(store.getState().layout).toBe(original);
+      expect(store.getState().sheetSnap).toBeNull();
+    });
+
+    it("a second sheet while snapped keeps the ORIGINAL saved layout — no double-apply", async () => {
+      const store = await seed();
+      const original = store.getState().layout!;
+      store.getState().openSheet({ kind: "new-space" });
+      store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
+      expect(store.getState().sheetSnap?.saved).toBe(original);
+      store.getState().closeSheet();
+      expect(store.getState().layout).toBe(original);
+    });
+
+    it("the palette taking the overlay slot restores the layout like a close does", async () => {
+      const store = await seed();
+      const original = store.getState().layout!;
+      store.getState().openSheet({ kind: "new-space" });
+      store.getState().setPaletteOpen(true);
+      expect(store.getState().sheet).toBeNull();
+      expect(store.getState().layout).toBe(original);
+      expect(store.getState().sheetSnap).toBeNull();
+    });
+
+    it("a FULL-WIDTH browser leaf gets wrapped in a [50,50] row split with an empty sibling — and unwrapped on close", async () => {
+      const store = await seed();
+      const single = leaf("L1", "bi");
+      store.setState({ items: [browserItem], layout: single });
+      store.getState().setBrowserRect("bi", { x: 0, y: 40, width: 1024, height: 728 });
+      store.getState().openSheet({ kind: "new-space" });
+      const l = store.getState().layout as Extract<Layout, { type: "split" }>;
+      expect(l.type).toBe("split");
+      expect(l.dir).toBe("row");
+      expect(l.sizes).toEqual([50, 50]);
+      expect(l.children[0]).toBe(single);
+      expect(l.children[1]).toMatchObject({ type: "leaf", itemId: null });
+      store.getState().closeSheet();
+      expect(store.getState().layout).toBe(single);
+    });
+
+    it("items deleted while the sheet was open are pruned from the restored layout", async () => {
+      const store = await seed();
+      store.getState().openSheet({ kind: "new-space" });
+      store.setState({ items: [browserItem] }); // the terminal item died mid-sheet
+      store.getState().closeSheet();
+      expect(allItems(store.getState().layout!)).toEqual(["bi"]);
+    });
+
+    it("a persist flushed mid-sheet writes the SAVED layout, never the snapped one", async () => {
+      const localApi = fakeApi({ items: { s1: [browserItem, termItem] } });
+      const store = createAppStore(localApi); await store.getState().boot(); // boot hydrates the layout
+      store.setState({ layout: wideBrowserLayout() });
+      store.getState().setBrowserRect("bi", { x: 220, y: 40, width: 804, height: 728 });
+      store.getState().openSheet({ kind: "new-space" });
+      store.getState().resizeSplit("root", [50.5, 49.5]); // the PanelGroup onLayout echo of the snap
+      await store.getState().flushPersist();
+      const persisted = store.getState().spaces.find((sp) => sp.id === "s1")!.layout as Extract<Layout, { type: "split" }>;
+      expect(persisted.sizes).toEqual([80, 20]); // the user's layout, not the snap
+    });
+  });
+
   describe("connection state", () => {
     const stored = (sessionId: string, seq: number, event: StoredSessionEvent["event"]): StoredSessionEvent => ({ seq, sessionId, event });
     const seed = () => fakeApi({

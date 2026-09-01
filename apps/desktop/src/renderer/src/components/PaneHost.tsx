@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import type { Item, Layout } from "@realm/contracts";
+import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
+import type { Item, Layout, LayoutSplit } from "@realm/contracts";
 import type { DropEdge } from "../state/store";
 import { PanelBar } from "./PanelBar";
 import { PaneFor } from "../panes/registry";
@@ -117,15 +117,36 @@ export function PaneHost(p: PaneHostProps) {
         </div>
       );
     }
-    return (
-      <PanelGroup id={n.id} direction={n.dir === "row" ? "horizontal" : "vertical"} onLayout={(sizes) => p.onResize?.(n.id, sizes)}>
-        {n.children.map((c, i) => (
-          <Fragment key={c.id}>
-            {i > 0 && <PanelResizeHandle className="resize-handle" />}
-            <Panel id={c.id} order={i} defaultSize={n.sizes[i] ?? 100 / n.children.length} minSize={10}>{renderNode(c)}</Panel>
-          </Fragment>
-        ))}
-      </PanelGroup>
-    );
+    return <SplitGroup node={n} onResize={p.onResize}>{n.children.map((c) => <Fragment key={c.id}>{renderNode(c)}</Fragment>)}</SplitGroup>;
   }
+}
+
+/**
+ * One layout split as a PanelGroup. PanelGroup reads `defaultSize` at mount only, which was fine
+ * while every size change originated in a drag (the group is the source of truth mid-drag) — but
+ * W2.4's sheet-snap/restore changes an EXISTING split's sizes in the STORE, so those are pushed
+ * imperatively (setLayout — instant, resize is on the do-NOT-animate list). The onLayout echo
+ * round-trips through resizeSplit, whose sameSizes guard stops the loop.
+ */
+function SplitGroup({ node, onResize, children }: {
+  node: LayoutSplit; onResize?: (splitId: string, sizes: number[]) => void; children: JSX.Element[];
+}) {
+  const ref = useRef<ImperativePanelGroupHandle>(null);
+  const sizes = node.sizes;
+  useEffect(() => {
+    const g = ref.current; if (!g) return;
+    const current = g.getLayout();
+    if (current.length !== sizes.length) return; // children changed — the remount path owns this
+    if (sizes.some((want, i) => Math.abs(want - (current[i] ?? NaN)) >= 0.01)) g.setLayout(sizes);
+  }, [sizes]);
+  return (
+    <PanelGroup ref={ref} id={node.id} direction={node.dir === "row" ? "horizontal" : "vertical"} onLayout={(s) => onResize?.(node.id, s)}>
+      {node.children.map((c, i) => (
+        <Fragment key={c.id}>
+          {i > 0 && <PanelResizeHandle className="resize-handle" />}
+          <Panel id={c.id} order={i} defaultSize={node.sizes[i] ?? 100 / node.children.length} minSize={10}>{children[i]}</Panel>
+        </Fragment>
+      ))}
+    </PanelGroup>
+  );
 }
