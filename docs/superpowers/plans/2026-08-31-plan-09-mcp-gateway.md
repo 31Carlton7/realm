@@ -251,6 +251,13 @@ class McpGateway {
 > session's agent is ACP-kind, the settings copy must note that a build without http MCP support gets
 > no tools (the adapter's onLog line and `acpMcpServers([http], {}) === []` test pin the behavior).
 
+> **Amendment from W5 review — known friction, accepted for v1:** OAuth refresh happens only at
+> connect time (the hub's `authHeaders` seam). A token expiring under a long-lived client produces
+> three failing agent calls, then `circuit_open`, then the server is dark until the user clicks
+> Retry in settings — which reconnects and silently refreshes. Not transparent; reachable with 1h
+> TTLs in a long-running desktop app. A hub-level 401→invalidate-once retry is the post-plan fix.
+> W6's circuit-open UI copy should hint at this ("Retry reconnects and refreshes the connection").
+
 ### W6 — Settings UI: servers, auth, per-tool policy
 
 - [ ] `components/sidebar/McpSection.tsx`, rendered inside `SpaceSettingsSheet` below
