@@ -92,7 +92,7 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, effortItems, overflow 
   // fold must bring the highlight along. `nearest` keeps this a no-op for rows already visible, which
   // also makes the mouseEnter -> setActive path scroll-free.
   useEffect(() => {
-    if (activeRow) document.getElementById(`mp-${activeRow.key}`)?.scrollIntoView({ block: "nearest" });
+    if (activeRow) document.getElementById(`mp-${activeRow.key}`)?.scrollIntoView?.({ block: "nearest" });
   }, [activeRow]);
 
   const pick = (row: ModelRow | undefined) => {

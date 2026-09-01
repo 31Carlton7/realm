@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "node:url";
-import { probeCodex } from "./probe";
+import { parseCodexModelPage, probeCodex } from "./probe";
 
 const FAKE_CODEX = fileURLToPath(new URL("./fixtures/fake-codex.mjs", import.meta.url));
 
@@ -77,5 +77,37 @@ describe("probeCodex", () => {
       if (prev === undefined) delete process.env.FAKE_CODEX_LOGIN;
       else process.env.FAKE_CODEX_LOGIN = prev;
     }
+  });
+});
+
+describe("parseCodexModelPage", () => {
+  // Shape captured live from codex-cli 0.146.0's `model/list` answer.
+  const live = { data: [{ id: "gpt-5.6-sol", model: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false, isDefault: true }], nextCursor: null };
+
+  it("maps id and displayName from the live response shape", () => {
+    expect(parseCodexModelPage(live)).toEqual({ models: [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }], nextCursor: null });
+  });
+
+  it("skips malformed rows rather than inventing models from them", () => {
+    const page = { data: [null, 42, "gpt", { displayName: "No id" }, { id: "", displayName: "Blank id" }, { id: "  ", displayName: "Whitespace id" }, { id: "ok-model", displayName: "OK" }, { id: 7, displayName: "Numeric id" }] };
+    expect(parseCodexModelPage(page).models).toEqual([{ id: "ok-model", label: "OK" }]);
+  });
+
+  it("drops only an explicit hidden:true, and falls back to the id when displayName is unusable", () => {
+    const page = { data: [{ id: "shown" }, { id: "shown-2", displayName: "  " }, { id: "secret", displayName: "Secret", hidden: true }, { id: "odd", displayName: "Odd", hidden: "yes" }] };
+    expect(parseCodexModelPage(page).models).toEqual([{ id: "shown", label: "shown" }, { id: "shown-2", label: "shown-2" }, { id: "odd", label: "Odd" }]);
+  });
+
+  it("yields nothing (never a throw) for a page that is not a page at all", () => {
+    for (const junk of [null, undefined, "x", 3, [], { data: "nope" }]) {
+      expect(parseCodexModelPage(junk)).toEqual({ models: [], nextCursor: null });
+    }
+  });
+
+  it("surfaces a real nextCursor and normalizes absent or blank ones to null", () => {
+    expect(parseCodexModelPage({ data: [], nextCursor: "abc" }).nextCursor).toBe("abc");
+    expect(parseCodexModelPage({ data: [], nextCursor: "" }).nextCursor).toBeNull();
+    expect(parseCodexModelPage({ data: [] }).nextCursor).toBeNull();
+    expect(parseCodexModelPage({ data: [], nextCursor: 9 }).nextCursor).toBeNull();
   });
 });

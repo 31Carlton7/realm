@@ -51,6 +51,7 @@ let stdinBuf = "";
 // Last `skills/extraRoots/set` payload plus a call count, readable via the `$test/extraRoots` request.
 let lastExtraRoots = null;
 let extraRootsCalls = 0;
+let modelListCalls = 0;
 
 const send = (frame) => process.stdout.write(JSON.stringify(frame) + "\n");
 const ok = (id, result) => send({ id, result });
@@ -326,6 +327,33 @@ function handleRequest(id, method, params) {
     }
     case "$test/extraRoots":
       ok(id, { extraRoots: lastExtraRoots, calls: extraRootsCalls });
+      return;
+    case "model/list": {
+      // FAKE_CODEX_NO_MODEL_LIST=1 is a codex build from before the method existed: -32601, which the
+      // probe must feature-detect into `models: null`, never a failed probe.
+      if (process.env.FAKE_CODEX_NO_MODEL_LIST) { fail(id, -32601, "Method not found: model/list"); return; }
+      modelListCalls++;
+      // Rows a preview build could plausibly emit around the good ones; only the well-formed survive
+      // parseCodexModelPage. `hidden: true` is the flag's documented meaning and must not reach the picker.
+      if (process.env.FAKE_CODEX_MODEL_GARBAGE) {
+        ok(id, { data: [null, "gpt", { displayName: "No id" }, { id: "", displayName: "Blank id" }, { id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false }, { id: "gpt-secret", displayName: "Hidden", hidden: true }, { id: "gpt-nameless" }], nextCursor: null });
+        return;
+      }
+      // Two pages, so the cursor loop is exercised; shape copied from the live 0.146.0 response.
+      if (process.env.FAKE_CODEX_MODEL_PAGES) {
+        if (params.cursor === "page2") { ok(id, { data: [{ id: "gpt-5.4-mini", displayName: "GPT-5.4-Mini", hidden: false }], nextCursor: null }); return; }
+        ok(id, { data: [{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false }], nextCursor: "page2" });
+        return;
+      }
+      ok(id, { data: [
+        { id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false, isDefault: true },
+        { id: "gpt-5.6-terra", displayName: "GPT-5.6-Terra", hidden: false, isDefault: false },
+        { id: "gpt-secret", displayName: "Hidden preview", hidden: true, isDefault: false },
+      ], nextCursor: null });
+      return;
+    }
+    case "$test/modelList":
+      ok(id, { calls: modelListCalls });
       return;
     case "turn/interrupt":
       ok(id, {});

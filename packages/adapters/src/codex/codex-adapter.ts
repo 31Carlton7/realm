@@ -230,6 +230,8 @@ export class CodexAdapter implements AgentAdapter {
   get extraRootCount(): number { return this.extraRoots.size; }
   /** Visible for tests: false once a codex build has answered -32601 to `skills/extraRoots/set`. */
   get skillsSupported(): boolean { return this.extraRootsSupported; }
+  /** Visible for tests: false once a codex build has answered -32601 to `model/list`. */
+  get modelListEnumerable(): boolean { return this.modelListSupported; }
 
   /**
    * Re-sends the union to the shared connection. Never throws and never rejects: a skills root that does
