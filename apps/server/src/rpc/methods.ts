@@ -20,6 +20,7 @@ import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
+import type { NotificationsService } from "../notifications/service";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
 import type { GitWriteService } from "../workspace/git-write";
@@ -32,7 +33,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -377,6 +378,12 @@ export function registerMethods(d: Deps): void {
     return { ok: true as const };
   });
   reg("browserHost.result", (p) => { d.browserBridge.handleResult(p); return { ok: true as const }; });
+
+  // The feed (Plan 12 W5). Reads and read-marking only: rows are written by the producers' hooks
+  // (sessions, hub, refusal sites), never over RPC. Both answers carry the server-computed unread
+  // count, the sidebar pill's one source; the service broadcasts `notifications.changed` itself.
+  reg("notifications.list", (p) => d.notifications.list(p));
+  reg("notifications.markRead", (p) => d.notifications.markRead(p));
 
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));

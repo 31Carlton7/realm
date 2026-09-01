@@ -6,6 +6,7 @@ import { StoredSessionEventSchema } from "./session-events";
 import { SkillSchema, SkillIdSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
+import { NotificationSchema } from "./notifications";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -532,6 +533,23 @@ export const Methods = {
     result: ShipResultSchema,
   },
 
+  /**
+   * The durable notifications feed (Plan 12 W5), newest first. GLOBAL — one feed across every space,
+   * matching the sidebar row it feeds (the row sits above the space section). `cursor` is the previous
+   * page's `nextCursor`, opaque to clients; `unread` is the whole feed's unread count and the ONE
+   * source every badge renders — computed server-side, never by counting rows a client happens to hold.
+   */
+  "notifications.list": {
+    params: z.object({ cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
+    result: z.object({ notifications: z.array(NotificationSchema), nextCursor: z.string().nullable(), unread: z.number().int() }),
+  },
+  /** Mark rows read: named `ids`, or `all: true` for the whole feed (global, deliberately — see
+   *  `notifications.list`; there is no per-space feed for an "all" to leak across). Unknown ids are
+   *  ignored, not errors: a row can be deleted (or already read from another window) under the click. */
+  "notifications.markRead": {
+    params: z.object({ ids: z.array(IdSchema).default([]), all: z.boolean().default(false) }),
+    result: z.object({ ok: z.literal(true), unread: z.number().int() }),
+  },
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable() })) },
@@ -617,6 +635,12 @@ export const Events = {
    *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
    *  an agent-driven browser the user cannot see defeats the point of the architecture. */
   "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema }),
+  /** The notifications feed changed (Plan 12 W5). `unread` is the fresh global unread count — the
+   *  sidebar pill applies it directly, so the count has exactly one derivation site (the server's).
+   *  `notification` is the row an event just created or re-surfaced, so the renderer can react to it
+   *  (auto-reading a `session_done` for the pane the user is looking at) without a refetch race; null
+   *  when the change was a markRead or a resolution, where a held list refetches instead. */
+  "notifications.changed": z.object({ notification: NotificationSchema.nullable(), unread: z.number().int() }),
   /** A mutating browser tool call SETTLED on this browser (Plan 11 W4) — the pane chrome's action
    *  ticker appends it. `text` is the same attributed description the permission card showed (page
    *  text only ever inside the `the page labels "…"` framing — never laundered into Realm's voice);

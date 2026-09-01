@@ -29,7 +29,7 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  ENVIRONMENT id: a diff is a view of a checkout, and several sessions may share one.
  *  `space-page` (Plan 12 W3) follows that precedent: its `refId` is the SPACE id itself — the pane is
  *  the space's own page (General/Memory/Skills/Connections/Sessions/History), one per space. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "space-page", "library-page", "connections-page"]);
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "space-page", "library-page", "connections-page", "notifications-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -46,6 +46,7 @@ export type ItemKind = z.infer<typeof ItemKindSchema>;
 export const PAGE_REF_IDS = {
   "library-page": "00000000000000000000000001",
   "connections-page": "00000000000000000000000002",
+  "notifications-page": "00000000000000000000000003",
 } as const;
 export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 

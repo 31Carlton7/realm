@@ -202,4 +202,31 @@ export const migrations: string[] = [
   ALTER TABLE mcp_servers ADD COLUMN scope_space_id TEXT;
   ALTER TABLE mcp_servers ADD COLUMN scope_profile_id TEXT;
   `,
+  // v12 — the notifications feed (Plan 12 W5): a durable row per thing that waited on the user, so the
+  // feed survives restart. `read_at` is about the USER (they saw the row); `acted_at` is about the
+  // WORLD (the underlying condition resolved — permission answered, MCP server recovered). The two are
+  // independent on purpose: a permission can be answered before anyone reads the row, and read before
+  // anyone answers.
+  //
+  // Plain TEXT references, no foreign keys — deliberately. A notification is a LOG: "session X asked
+  // for permission" stays true (and stays worth showing) after session X is deleted, exactly the
+  // posture mcp_call_log takes with its ON DELETE SET NULL. `ref_id` is the category's own reference
+  // (a permission requestId — possibly a broker's `bperm_…`, so not necessarily a ULID — an MCP server
+  // id, an agent kind, an environment id) and, with `category`, the service's dedup key.
+  `
+  CREATE TABLE notifications (
+    id TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    space_id TEXT,
+    session_id TEXT,
+    ref_id TEXT,
+    title TEXT NOT NULL,
+    body TEXT,
+    created_at INTEGER NOT NULL,
+    read_at INTEGER,
+    acted_at INTEGER);
+  CREATE INDEX notifications_feed ON notifications(created_at DESC, id DESC);
+  CREATE INDEX notifications_unread ON notifications(read_at) WHERE read_at IS NULL;
+  CREATE INDEX notifications_dedup ON notifications(category, ref_id);
+  `,
 ];

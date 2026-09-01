@@ -53,6 +53,12 @@ export class SessionService {
      *  record/run; `extraSystemContext` is the browsing-policy preamble a delegated child starts
      *  with. Optional — a harness without browser agents behaves exactly as before. */
     browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined };
+    /** Plan 12 W5: the notifications feed's session hooks. `handleSessionEvent` gets the session row as
+     *  it stood BEFORE the event (so a status event carries its previous status implicitly); it is
+     *  called from `onEvent` — the pump and `emitExternal` alike — and from `markStaleOnBoot`'s
+     *  synthetic denies, so the feed reconciles on every path an answer can travel. `probeResults`
+     *  feeds CLI availability regressions. Optional — a harness without it behaves exactly as before. */
+    notifications?: { handleSessionEvent(session: Session, ev: SessionEvent): void; probeResults(results: ProbeResult[]): void };
   }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
@@ -65,8 +71,12 @@ export class SessionService {
   async probeAll(): Promise<ProbeResult[]> {
     const adapters = Object.values(this.d.adapters);
     const results = await Promise.allSettled(adapters.map((a) => a.probe()));
-    return results.map((r, i) => r.status === "fulfilled" ? r.value
+    const probes = results.map((r, i): ProbeResult => r.status === "fulfilled" ? r.value
       : { kind: adapters[i]!.kind, available: false, version: null, loggedIn: null, reason: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+    // Every probe that actually ran reports here — the feed's agent_probe rows come from the same
+    // results the install card renders, never from a second probe of their own.
+    this.d.notifications?.probeResults(probes);
+    return probes;
   }
 
   isLive(id: string): boolean { return this.live.has(id); }
@@ -300,7 +310,13 @@ export class SessionService {
    */
   markStaleOnBoot(): void {
     for (const s of this.d.sessions.listAll()) {
-      for (const requestId of this.d.events.findDanglingPermissions(s.id)) this.persist(s.id, sessionEvent("permission_response", { requestId, decision: "deny" }));
+      for (const requestId of this.d.events.findDanglingPermissions(s.id)) {
+        const deny = sessionEvent("permission_response", { requestId, decision: "deny" });
+        this.persist(s.id, deny);
+        // A synthetic deny is still an answer: the feed's permission row must stop reading "pending"
+        // the same way it would for a real one.
+        this.d.notifications?.handleSessionEvent(s, deny);
+      }
       const resumable = s.status === "running" || s.status === "waiting_permission" || (s.status === "ended" && s.providerSessionId !== null);
       if (resumable) this.d.sessions.update({ id: s.id, status: "idle" });
     }
@@ -446,7 +462,11 @@ export class SessionService {
 
   private onEvent(id: string, ev: SessionEvent): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
-    if (!this.d.sessions.get(id)) return; // deleted underneath a still-draining pump
+    const before = this.d.sessions.get(id);
+    if (!before) return; // deleted underneath a still-draining pump
+    // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
+    // transition, and only this side of the update still knows both ends of it.
+    this.d.notifications?.handleSessionEvent(before, ev);
     if (ev.type === "init") this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });

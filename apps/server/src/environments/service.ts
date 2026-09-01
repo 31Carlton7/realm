@@ -16,7 +16,12 @@ import type { CheckpointService } from "../checkpoints/service";
  * unwinds the directory if the insert fails. A half-made environment cannot exist.
  */
 export class EnvironmentService {
-  constructor(private d: { environments: EnvironmentsStore; spaces: SpacesStore; worktrees: WorktreeService; ports: PortAllocator; checkpoints?: CheckpointService }) {}
+  constructor(private d: { environments: EnvironmentsStore; spaces: SpacesStore; worktrees: WorktreeService; ports: PortAllocator; checkpoints?: CheckpointService;
+    /** Plan 12 W5: the feed's worktree_hazard hook, called when a removal is REFUSED on a stale
+     *  acknowledgement (the tree moved under an open confirmation). Optional — a harness without the
+     *  notifications feed behaves exactly as before. */
+    notifications?: { worktreeHazard(input: { spaceId: string | null; environmentId: string; title: string; body: string }): void };
+  }) {}
 
   list(spaceId: string): Environment[] { return this.d.environments.list(spaceId); }
   get(id: string): Environment {
@@ -86,7 +91,17 @@ export class EnvironmentService {
     // no row and no directory left to reach them from. This runs BEFORE `worktrees.remove`, while the
     // directory git needs to resolve the ref store still exists.
     await this.d.checkpoints?.forgetEnvironment(id);
-    await this.d.worktrees.remove({ path: env.path, branch: env.branch, fallbackRepo: this.fallbackRepo(env), acknowledge });
+    try {
+      await this.d.worktrees.remove({ path: env.path, branch: env.branch, fallbackRepo: this.fallbackRepo(env), acknowledge });
+    } catch (e) {
+      // Only a PRESENT-but-stale acknowledgement is a hazard event: the user said yes to numbers the
+      // tree has since moved past. A null acknowledge on a risky tree is the normal ask-first flow.
+      if (acknowledge && e instanceof RpcError && e.code === "WORKTREE_UNSAFE") {
+        this.d.notifications?.worktreeHazard({ spaceId: env.spaceId, environmentId: env.id,
+          title: "Worktree removal refused", body: e.message });
+      }
+      throw e;
+    }
     // Only after git succeeded: a row deleted first would strand the directory with nothing pointing
     // at it. `delete` re-checks primary/in-use, which is fine — it has been true throughout.
     this.d.environments.delete(id);
