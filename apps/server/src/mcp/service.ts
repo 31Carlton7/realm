@@ -124,6 +124,20 @@ export class McpService {
     }
   }
 
+  /**
+   * One server, through the same `toContract` projection `list` uses — `null` if it does not exist.
+   *
+   * The projection, not the row, deliberately: `McpServerRow` carries secret VALUES, and the plan's rule
+   * is that nothing outside `hub.ts`/`oauth.ts` ever touches them. `mcp.update` needs this twice — once
+   * before an edit to see where the server used to point, and once after, when clearing an OAuth
+   * connection means the result it already computed has gone stale.
+   */
+  get(id: string, spaceId: string | null): McpServer | null {
+    const row = this.d.servers.get(id);
+    if (!row) return null;
+    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null, this.statusOf(id));
+  }
+
   setEnabled(spaceId: string, id: string, enabled: boolean): void {
     const key = enabledKey(spaceId);
     const ids = new Set(readIds(this.d.settings, key));

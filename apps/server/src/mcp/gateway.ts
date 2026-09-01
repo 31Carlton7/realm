@@ -90,7 +90,12 @@ export class McpGateway {
       this.httpServer!.listen(0, "127.0.0.1", () => resolve());
     });
     const addr = this.httpServer.address();
-    this.port = typeof addr === "object" && addr ? addr.port : 0;
+    // A non-object address (a pipe) or a zero port means the listener is bound to nothing usable. Left
+    // as `0`, that number would go on to mint `http://127.0.0.1:0/oauth/callback` as a redirect URI and
+    // a session's gateway URL — both silently unreachable. `boundPort` stays null instead (so
+    // `oauth.start` refuses outright) and startup fails here, which is where the spec puts this failure.
+    this.port = typeof addr === "object" && addr && addr.port > 0 ? addr.port : null;
+    if (this.port === null) throw new Error("mcp gateway: the listener bound without a usable TCP port");
     return this.port;
   }
 

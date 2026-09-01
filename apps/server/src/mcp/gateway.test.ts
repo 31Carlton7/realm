@@ -45,7 +45,7 @@ type App = {
   sessionId: string;
   /** Wires a server row's connect straight to a stub's in-memory transport, bypassing stdio/http/sse
    *  entirely — same seam `hub.test.ts` uses. */
-  addServer(name: string): { row: McpServerRow; stub: StubServer };
+  addServer(name: string, opts?: { onCall?: (tool: string, args: unknown) => void; transport?: "stdio" | "http" }): { row: McpServerRow; stub: StubServer };
   /** A row whose transport factory always throws — stands in for a dead/unreachable upstream. */
   addBrokenServer(name: string): McpServerRow;
   /** A second (or third...) space with its own session, sharing this app's server rows — for tests that
@@ -60,7 +60,11 @@ afterEach(async () => {
 
 /** `onOauthCallback` is the only construction option a test overrides — everything else about the
  *  gateway is the same wiring `app.ts` builds. Left unset, the callback route keeps its 501. */
-async function setupApp(opts: { onOauthCallback?: (url: string) => Promise<{ serverId: string }> } = {}): Promise<App> {
+async function setupApp(opts: {
+  onOauthCallback?: (url: string) => Promise<{ serverId: string }>;
+  /** Stands in for `McpOauth.headers` — the seam a real OAuth bearer arrives through. */
+  authHeaders?: (row: McpServerRow) => Promise<Record<string, string>>;
+} = {}): Promise<App> {
   const home = mkdtempSync(join(tmpdir(), "realm-mcp-gw-"));
   const db = openDatabase(join(home, "realm.db"));
   const servers = new McpServersStore(db);
@@ -85,7 +89,7 @@ async function setupApp(opts: { onOauthCallback?: (url: string) => Promise<{ ser
   const hub = new McpHub({
     servers,
     onStatus: () => {},
-    authHeaders: async () => ({}),
+    authHeaders: opts.authHeaders ?? (async () => ({})),
     makeTransport: async (row): Promise<Transport> => {
       if (broken.has(row.id)) throw new Error(`upstream "${row.name}" is unreachable`);
       const stub = stubs.get(row.id);
@@ -99,9 +103,16 @@ async function setupApp(opts: { onOauthCallback?: (url: string) => Promise<{ ser
 
   const app: App = {
     db, servers, calls, mcp, hub, gateway, rpc, port, spaceId, sessionId,
-    addServer: (name) => {
-      const row = servers.create({ name, transport: "stdio", command: "unused-in-memory", args: [], url: "", secrets: {} });
-      const stub = makeStubServer();
+    addServer: (name, serverOpts) => {
+      // `http` rows exist here only so a test can exercise the `authHeaders` seam — the hub's stdio
+      // branch never calls it. The transport itself is still the in-memory stub either way.
+      const http = serverOpts?.transport === "http";
+      const row = servers.create({
+        name, transport: http ? "http" : "stdio",
+        command: http ? "" : "unused-in-memory", args: [],
+        url: http ? "https://upstream.invalid/mcp" : "", secrets: {},
+      });
+      const stub = makeStubServer(serverOpts);
       stubs.set(row.id, stub);
       return { row, stub };
     },
@@ -453,6 +464,35 @@ describe("concurrent first-touch calls to the session-creation path share one Se
     const [a, b] = await Promise.all([first, second]);
     expect(a.server).toBe(b.server);
     expect(a.transport).toBe(b.transport);
+  });
+});
+
+describe("credential redaction reaches every surface a failed call touches", () => {
+  it("never lets a bare OAuth token reach the call log, the mcp.call broadcast, or the agent's result", async () => {
+    // The confirmed leak, pinned at the three places it actually surfaced. The upstream error quotes the
+    // token WITHOUT its `Bearer ` prefix — the form an OAuth error body uses — which the hub's old
+    // `Object.values(headers)` redaction list could not match. Everything downstream (`resultSummary`,
+    // the broadcast row, the `isError` tool result the agent reads) is built from the hub's sanitized
+    // message, so all three leak or none do.
+    const SENTINEL = "at_bare_token_do_not_leak_me";
+    const app = await setupApp({ authHeaders: async () => ({ Authorization: `Bearer ${SENTINEL}` }) });
+    const { row } = app.addServer("alpha", {
+      transport: "http", // the only kind of row an OAuth bearer is ever built for
+      onCall: () => { throw new Error(`upstream 401: {"error":"invalid_token","token":"${SENTINEL}"}`); },
+    });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    const { client } = await connectClient(app);
+
+    const result = await client.callTool({ name: "alpha__echo", arguments: { message: "hi" } }) as CallToolResult;
+    expect(result.isError).toBe(true);
+    expect(asText(result)).not.toContain(SENTINEL);
+    expect(asText(result)).toContain("[redacted]");
+
+    const logged = app.calls.list({ serverId: row.id });
+    expect(logged).toHaveLength(1);
+    expect(logged[0]!.resultSummary).not.toContain(SENTINEL);
+    expect(JSON.stringify(app.rpc.broadcasts)).not.toContain(SENTINEL);
+    await client.close();
   });
 });
 

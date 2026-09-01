@@ -257,6 +257,27 @@ describe("authHeaders seam (http/sse)", () => {
     expect((err as Error).message).toContain("[redacted]");
   });
 
+  it("redacts the BARE token when an upstream error quotes it without its scheme prefix", async () => {
+    // THE LEAK THIS FIXES: `entry.redact` used to be `Object.values(headers)`, i.e. the literal
+    // `"Bearer at_xyz"`. A 401 body quoting the bare token — which is what an OAuth error response
+    // actually does (`{"error":"invalid_token","token":"at_xyz"}`) — matched nothing, and the token rode
+    // the sanitized message all the way into `mcp_call_log.result_summary`, the `mcp.call` broadcast,
+    // and the agent's own tool-result context. `credentialValues` now contributes both forms.
+    const SENTINEL = "at_bare_token_do_not_leak_me";
+    const row = newHttpRow();
+    const hub = new McpHub({
+      servers, onStatus: () => {},
+      authHeaders: async () => ({ Authorization: `Bearer ${SENTINEL}` }),
+      makeTransport: () => { throw new Error(`401 {"error":"invalid_token","token":"${SENTINEL}"}`); },
+    });
+    let err: unknown;
+    try { await hub.tools(row.id); } catch (e) { err = e; }
+    expect((err as Error).message).not.toContain(SENTINEL);
+    expect((err as Error).message).toContain("[redacted]");
+    // The diagnostic itself survives — redaction must not cost the reader what went wrong.
+    expect((err as Error).message).toContain("invalid_token");
+  });
+
   it("still redacts a row secret when authHeaders itself REJECTS, not just when it resolves", async () => {
     // W2 review drive-by fix: `entry.redact` used to be set only from `{ ...row.secrets, ...(await
     // authHeaders(row)) }` — AFTER the `await`. A rejecting `authHeaders` (a token-refresh network

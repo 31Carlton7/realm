@@ -6,6 +6,7 @@ import { ToolListChangedNotificationSchema, type CallToolResult, type Tool } fro
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { McpServerStatus } from "@realm/contracts";
 import { RpcError } from "../store/rows";
+import { credentialValues, redactValues } from "./redact";
 import type { McpServerRow, McpServersStore, McpToolRow } from "../store/mcp";
 
 /** The hub's live connection state for one server row — the same enum `mcp.serverStatus` puts on the
@@ -40,10 +41,13 @@ type Entry = {
   connecting: Promise<Client> | null;
   failures: number;
   /** Every credential VALUE (`row.secrets`, and for http/sse the merged `authHeaders` result too)
-   *  that went into the most recent transport attempt for this row — captured by `buildTransport` before
-   *  it does anything that can throw, and read by `sanitize()` instead of re-fetching the row at throw
-   *  time, which would silently skip redaction if the row was deleted in between. Overwritten (not
-   *  accumulated) on every attempt; a fresh `Entry` after `invalidate()`/`retry()` starts empty. */
+   *  that went into the most recent transport attempt for this row, expanded by `credentialValues` so a
+   *  scheme-prefixed header contributes BOTH `"Bearer <token>"` and the bare `<token>` — an upstream
+   *  error quotes one or the other, never reliably the form the header happened to be stored in.
+   *  Captured by `buildTransport` before it does anything that can throw, and read by `sanitize()`
+   *  instead of re-fetching the row at throw time, which would silently skip redaction if the row was
+   *  deleted in between. Overwritten (not accumulated) on every attempt; a fresh `Entry` after
+   *  `invalidate()`/`retry()` starts empty. */
   redact: string[];
 };
 
@@ -69,11 +73,14 @@ export class McpHub {
      * The OAuth seam (`McpOauth.headers`). Returns the credential headers to merge on top of
      * `row.secrets` for an http/sse row — `{}` for a row with no OAuth connection.
      *
-     * **Contract: the provider sanitizes its own errors.** `Entry.redact` lets `sanitize()` scrub
-     * `row.secrets` and the headers this hub built, but a token that appears ONLY inside an error thrown
-     * by `authHeaders` itself — an authorization server quoting a rejected refresh token back in a 400
-     * body — is a value the hub has never seen and cannot redact. Anything this function rejects with
-     * must therefore already be free of token, refresh-token, and client-secret values.
+     * **Contract: the provider sanitizes its own errors.** When this function RESOLVES, the hub adds the
+     * headers it returned to `Entry.redact` and `sanitize()` can scrub them. When it REJECTS, the hub
+     * has nothing but `row.secrets` to redact against — the access token, refresh token, and client
+     * secret behind an OAuth header were never handed to it, and a rejection message quoting one (an
+     * authorization server echoing a rejected refresh token back in a 400 body) would go straight out to
+     * a log row, a broadcast, and an agent's tool result. Anything this function rejects with must
+     * therefore already be free of credential values; `McpOauth` shares this hub's redaction rules
+     * (`redact.ts`) so the two cannot drift apart on what "free of" means.
      */
     authHeaders: (row: McpServerRow) => Promise<Record<string, string>>;
     /** Test-only seam: replaces real stdio/http/sse transport construction with whatever a test wants a
@@ -243,7 +250,7 @@ export class McpHub {
     if (row.transport === "stdio") {
       // Captured before `makeTransport`/`StdioClientTransport` run, so a failure in either still has
       // something to redact against in `connect()`'s catch — see `Entry.redact`'s doc comment.
-      entry.redact = Object.values(row.secrets);
+      entry.redact = credentialValues(Object.values(row.secrets));
       return (await this.d.makeTransport?.(row, {})) ?? new StdioClientTransport({ command: row.command, args: row.args, env: row.secrets });
     }
     // Captured from `row.secrets` alone BEFORE `authHeaders` runs, same reasoning as the stdio branch
@@ -252,11 +259,14 @@ export class McpHub {
     // value quoted back in a provider error), `sanitize()` below needs something to redact against.
     // Without this line, a mid-`await` throw here left `entry.redact` at its previous (possibly empty)
     // value and the row's secrets sailed through unredacted.
-    entry.redact = Object.values(row.secrets);
+    entry.redact = credentialValues(Object.values(row.secrets));
     // OAuth (W5) is merged in last so a completed connection overrides a leftover header of the same
     // name from before the server was switched to OAuth (mirrors `authKind`'s "oauth beats secrets").
     const headers = { ...row.secrets, ...(await this.d.authHeaders(row)) };
-    entry.redact = Object.values(headers);
+    // `credentialValues`, not `Object.values`: an OAuth header is `"Bearer <token>"`, and an upstream
+    // error is just as likely to quote the BARE token back as the whole header value. Storing only the
+    // full string matched neither form of the bare quote — see `redact.ts` for the leak that caused.
+    entry.redact = credentialValues(Object.values(headers));
     if (this.d.makeTransport) return this.d.makeTransport(row, headers);
     return row.transport === "http"
       ? new StreamableHTTPClientTransport(new URL(row.url), { requestInit: { headers } })
@@ -307,8 +317,8 @@ export class McpHub {
 }
 
 /**
- * Wraps an upstream failure as a structured error: `err.message`, with every value in `redact` (≥4
- * chars — shorter values would turn ordinary words into swiss cheese) scrubbed to `[redacted]`.
+ * Wraps an upstream failure as a structured error: `err.message`, with every value in `redact` scrubbed
+ * to `[redacted]` under `redact.ts`'s shared rules (including its length floor).
  *
  * Not just defensive: never *constructing* a message from a secret isn't enough, because a transport
  * error can legitimately echo part of a failed request back (`Error POSTing to endpoint: ${responseBody}`,
@@ -319,11 +329,8 @@ export class McpHub {
  * redaction (a fresh `servers.get(id)` at throw time can come back `null`; `Entry.redact` can't).
  */
 function sanitize(id: string, err: unknown, redact: string[]): RpcError {
-  let message = err instanceof Error ? err.message : String(err);
-  for (const value of redact) {
-    if (value.length >= 4) message = message.split(value).join("[redacted]");
-  }
-  return new RpcError("MCP_UPSTREAM_ERROR", `mcp server ${id}: ${message}`);
+  const raw = err instanceof Error ? err.message : String(err);
+  return new RpcError("MCP_UPSTREAM_ERROR", `mcp server ${id}: ${redactValues(raw, redact)}`);
 }
 
 /** Names `mcp.retry` in the message itself, per the plan's error-handling table, so a caller that only

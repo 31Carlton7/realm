@@ -15,6 +15,7 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { NotFoundError, RpcError } from "../store/rows";
+import { credentialValues, redactValues } from "./redact";
 import type { McpServerRow, McpServersStore } from "../store/mcp";
 
 /**
@@ -145,6 +146,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
  * leaving the orchestration where Realm's architecture already put it.
  */
 export class McpOauth {
+  /** serverId → the token refresh currently in flight for that row. See `refreshOnce`. */
+  private readonly refreshing = new Map<string, Promise<Record<string, string>>>();
+
   constructor(private readonly d: {
     servers: McpServersStore;
     /** The gateway's bound loopback port, or `null` before `McpGateway.listen()` has run — the redirect
@@ -280,9 +284,12 @@ export class McpOauth {
     const redact = new Redactor();
     redact.add(prev.client?.client_secret, prev.tokens?.access_token, prev.tokens?.refresh_token);
     // The authorization code is short-lived and single-use, but it is still a credential — an error
-    // response that quotes the rejected code back must not carry it into a log or an error toast.
+    // response that quotes the rejected code back must not carry it into a log or an error toast. The
+    // PKCE verifier is the other half of that exchange and just as quotable: an authorization server
+    // reporting a failed verification can echo `code_verifier` straight into its 400 body, and this
+    // failure path renders onto the gateway's callback page.
     const code = url.searchParams.get("code");
-    redact.add(code ?? undefined);
+    redact.add(code ?? undefined, pending.codeVerifier);
     try {
       const failure = url.searchParams.get("error");
       if (failure) {
@@ -337,16 +344,51 @@ export class McpOauth {
     // request at an authorization server that has said no — a refresh storm the user cannot see or stop.
     if (state.reconnectNeeded) throw reconnectError(row.name);
     if (!state.tokens) return {};
+    if (!isExpired(state.tokens)) return bearer(state.tokens.access_token);
+    return this.refreshOnce(row.id, row.name);
+  }
+
+  /**
+   * Coalesce concurrent refreshes of ONE row onto a single token request.
+   *
+   * Without this, a `hub.invalidate` landing mid-refresh lets a second connect attempt start its own
+   * refresh with the same not-yet-rotated refresh token. Against an authorization server that rotates
+   * refresh tokens (the OAuth 2.1 recommendation, and what Linear and Vercel do) the second request
+   * presents a token the first one just consumed: it comes back `invalid_grant`, and the loser latches a
+   * spurious `reconnect_needed` on a row whose tokens the winner had already stored perfectly well.
+   */
+  private refreshOnce(serverId: string, name: string): Promise<Record<string, string>> {
+    const inFlight = this.refreshing.get(serverId);
+    if (inFlight) return inFlight;
+    const refresh = this.refresh(serverId, name);
+    this.refreshing.set(serverId, refresh);
+    // Cleared on settle, success or failure — a rejected refresh must not pin a permanently-failing
+    // promise in the map. `.catch` first so this bookkeeping chain never counts as an unhandled
+    // rejection; the promise CALLERS get is `refresh` itself, which still rejects normally. The identity
+    // check keeps a slow loser from evicting a newer entry that has already replaced it.
+    void refresh.catch(() => {}).finally(() => {
+      if (this.refreshing.get(serverId) === refresh) this.refreshing.delete(serverId);
+    });
+    return refresh;
+  }
+
+  private async refresh(serverId: string, name: string): Promise<Record<string, string>> {
+    // Re-read rather than trusting the caller's `row` snapshot. A caller whose snapshot was taken before
+    // a refresh that has since landed would otherwise refresh again with the stale (already-rotated)
+    // token — the same `invalid_grant` the in-flight map exists to prevent, just arriving a tick later.
+    const fresh = this.d.servers.get(serverId);
+    const state = fresh ? readOauthState(fresh.oauthJson) : {};
+    if (state.reconnectNeeded) throw reconnectError(name);
+    if (!state.tokens) return {};
+    if (!isExpired(state.tokens)) return bearer(state.tokens.access_token);
 
     const tokens = state.tokens;
-    if (!isExpired(tokens)) return bearer(tokens.access_token);
-
     const redact = new Redactor();
     redact.add(state.client?.client_secret, tokens.access_token, tokens.refresh_token);
     if (!tokens.refresh_token || !state.discovery || !state.client) {
       // Nothing to refresh WITH — an access token that expired with no refresh token is simply over.
-      this.markReconnectNeeded(row.id, state);
-      throw reconnectError(row.name);
+      this.markReconnectNeeded(serverId, state);
+      throw reconnectError(name);
     }
     try {
       const next = await refreshAuthorization(state.discovery.authorizationServerUrl, {
@@ -357,15 +399,15 @@ export class McpOauth {
         fetchFn: this.d.fetchFn,
       });
       redact.add(next.access_token, next.refresh_token);
-      this.write(row.id, { ...state, tokens: withExpiry(next) });
+      this.write(serverId, { ...state, tokens: withExpiry(next) });
       return bearer(next.access_token);
     } catch (err) {
-      this.markReconnectNeeded(row.id, state);
+      this.markReconnectNeeded(serverId, state);
       // The upstream reason is carried through (a 401 reads very differently from a DNS failure) but
       // scrubbed first — `parseErrorResponse` copies an unrecognized error body into the message
       // verbatim, and a token endpoint rejecting a refresh token is exactly the response most likely to
       // quote that token back.
-      throw redact.wrap("MCP_OAUTH_RECONNECT", err, reconnectMessage(row.name));
+      throw redact.wrap("MCP_OAUTH_RECONNECT", err, reconnectMessage(name));
     }
   }
 
@@ -419,6 +461,19 @@ function selectResource(serverUrl: string, resourceMetadata: OAuthProtectedResou
   return new URL(resourceMetadata.resource);
 }
 
+/**
+ * The most informative text an upstream failure carries. `Error.message` normally, but the SDK builds
+ * `OAuthError`s from a response's `error_description` alone — and a spec-conforming `{"error":
+ * "invalid_grant"}` has none, leaving the message EMPTY. `errorCode` is the machine reason that body
+ * did carry, and "invalid_grant" tells a user infinitely more than a blank line does.
+ */
+function describe(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  if (err.message.trim()) return err.message;
+  const code: unknown = (err as { errorCode?: unknown }).errorCode;
+  return typeof code === "string" && code ? code : err.name;
+}
+
 const reconnectMessage = (name: string): string => `"${name}" needs reconnecting — Connect again in settings`;
 const reconnectError = (name: string): RpcError => new RpcError("MCP_OAUTH_RECONNECT", reconnectMessage(name));
 
@@ -426,8 +481,8 @@ const reconnectError = (name: string): RpcError => new RpcError("MCP_OAUTH_RECON
  * Scrubs known credential values out of an error message before it becomes an `RpcError` — the
  * mechanism behind this class's "every error is sanitized" contract.
  *
- * Same `≥ 4 chars` floor as `hub.ts`'s `sanitize()`, for the same reason: replacing every occurrence of
- * a two-character value would turn ordinary words into swiss cheese. Values are collected as they
+ * Applies `redact.ts`'s shared rules, the same ones `hub.ts`'s `sanitize()` uses, so the two layers
+ * cannot drift on what counts as a credential or on the length floor. Values are collected as they
  * become known (a token that only exists after a refresh response is added the moment it is parsed), so
  * a failure at any point in a flow scrubs everything that flow had actually seen by then.
  */
@@ -435,7 +490,9 @@ class Redactor {
   private readonly values = new Set<string>();
 
   add(...values: (string | undefined)[]): void {
-    for (const v of values) if (v && v.length >= 4) this.values.add(v);
+    // Through `credentialValues` even though these are bare tokens today: if a full header value is ever
+    // handed in, its bare credential gets covered too, exactly as on the hub side.
+    for (const v of credentialValues(values.filter((v): v is string => !!v))) this.values.add(v);
   }
 
   wrap(code: string, err: unknown, prefix: string): RpcError {
@@ -443,9 +500,10 @@ class Redactor {
     // deliberate refusal ("does not offer dynamic client registration"), not an upstream failure —
     // so it passes through with its own code instead of being wrapped into a vaguer one.
     if (err instanceof RpcError) return err;
-    const raw = err instanceof Error ? err.message : String(err);
-    let message = raw;
-    for (const value of this.values) message = message.split(value).join("[redacted]");
-    return new RpcError(code, `${prefix}: ${message}`);
+    const reason = redactValues(describe(err), this.values).trim();
+    // A reasonless failure gets the bare prefix, not a dangling `": "`. The prefix is already a complete
+    // sentence ("... needs reconnecting — Connect again in settings"), and the gateway prints this text
+    // on the OAuth callback page where a trailing colon reads like something went missing.
+    return new RpcError(code, reason ? `${prefix}: ${reason}` : prefix);
   }
 }

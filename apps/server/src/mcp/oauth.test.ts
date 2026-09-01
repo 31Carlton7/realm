@@ -262,6 +262,70 @@ describe("headers — silent refresh and reconnect_needed", () => {
     expect(h.statusEvents).toEqual([h.row.id]);
   });
 
+  it("coalesces concurrent refreshes of one row onto a single token request", async () => {
+    // Without the in-flight map, a `hub.invalidate` landing mid-refresh lets a second connect refresh
+    // with the SAME not-yet-rotated refresh token. The stub rotates (it deletes each refresh token as it
+    // is redeemed), so the loser would get `invalid_grant` and latch a spurious `reconnect_needed` on a
+    // row whose tokens the winner had already stored fine.
+    const h = await setup();
+    await h.connect();
+    h.expireAccessToken();
+    const row = h.reload();
+
+    const [a, b] = await Promise.all([h.oauth.headers(row), h.oauth.headers(row)]);
+    expect(h.as.tokenRequests.filter((r) => r.grant_type === "refresh_token")).toHaveLength(1);
+    expect(a).toEqual(b);
+    expect(a).toEqual({ Authorization: `Bearer ${h.as.lastIssuedAccessToken()}` });
+    expect(oauthStatusOf(h.reload())).toBe("connected");
+  });
+
+  it("a caller holding a row snapshot from before a refresh does not refresh again", async () => {
+    // The other half of the same race: a snapshot read before the rotation still carries the OLD tokens,
+    // so trusting it would redeem an already-consumed refresh token a tick after the map cleared.
+    const h = await setup();
+    await h.connect();
+    h.expireAccessToken();
+    const stale = h.reload(); // captured while expired, deliberately reused after the refresh lands
+    await h.oauth.headers(stale);
+    const after = h.as.tokenRequests.length;
+
+    expect(await h.oauth.headers(stale)).toEqual({ Authorization: `Bearer ${h.as.lastIssuedAccessToken()}` });
+    expect(h.as.tokenRequests).toHaveLength(after);
+    expect(oauthStatusOf(h.reload())).toBe("connected");
+  });
+
+  it("a failed refresh releases the in-flight entry — the row is flagged, not wedged", async () => {
+    // A rejected promise left in the map would replay the same failure forever, so a LATER refresh (on a
+    // row the user has since reconnected) has to reach the network again rather than resolve from a
+    // stale cached rejection.
+    const h = await setup();
+    await h.connect();
+    h.expireAccessToken();
+    h.as.failTokenNext(1, 400, JSON.stringify({ error: "invalid_grant" }));
+    await rejection(() => h.oauth.headers(h.reload()));
+    expect(oauthStatusOf(h.reload())).toBe("reconnect_needed");
+
+    await h.connect(); // the user reconnects; the flag clears
+    h.expireAccessToken();
+    const before = h.as.tokenRequests.length;
+    expect(await h.oauth.headers(h.reload())).toEqual({ Authorization: `Bearer ${h.as.lastIssuedAccessToken()}` });
+    expect(h.as.tokenRequests.length).toBe(before + 1);
+    expect(oauthStatusOf(h.reload())).toBe("connected");
+  });
+
+  it("names the machine reason when an OAuth error body carries no description", async () => {
+    // `{"error":"invalid_grant"}` is spec-conforming and has no `error_description`, which leaves the
+    // SDK's `OAuthError.message` EMPTY. Rendered as-is that produced a dangling `"...: "` — on the
+    // gateway's callback page, a sentence that looks like it lost its ending.
+    const h = await setup();
+    await h.connect();
+    h.expireAccessToken();
+    h.as.failTokenNext(1, 400, JSON.stringify({ error: "invalid_grant" }));
+    const err = await rejection(() => h.oauth.headers(h.reload()));
+    expect(err.message).toContain("invalid_grant");
+    expect(err.message).not.toMatch(/:\s*$/);
+  });
+
   it("a still-valid token is used as-is, without touching the token endpoint", async () => {
     const h = await setup();
     await h.connect();
@@ -329,6 +393,19 @@ describe("sanitization — a thrown error never carries a credential", () => {
     expect(err.message).toContain("[redacted]");
     // Still says something useful about what happened — sanitizing must not mean saying nothing.
     expect(err.message).toContain("is revoked");
+  });
+
+  it("scrubs the PKCE verifier out of a failed exchange — it renders onto the callback page", async () => {
+    // An AS reporting a failed PKCE check can echo `code_verifier` straight into its 400 body, and this
+    // failure path is exactly the one whose message the gateway prints on the callback page.
+    const h = await setup();
+    const { authUrl } = await h.oauth.start(h.row.id);
+    const verifier = h.state().pending!.codeVerifier;
+    const redirect = h.as.authorize(authUrl);
+    h.as.failTokenNext(1, 400, `{"detail":"code_verifier ${verifier} did not match"}`);
+    const err = await rejection(() => h.oauth.handleCallback(redirect));
+    expect(err.message).not.toContain(verifier);
+    expect(err.message).toContain("[redacted]");
   });
 
   it("scrubs the authorization code out of a failed exchange", async () => {
