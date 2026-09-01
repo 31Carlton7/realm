@@ -84,7 +84,7 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, onToggleFavorite, effo
   const pos = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose: close });
   const [query, setQuery] = useState("");
   const [provider, setProvider] = useState<RailFilter>(null);
-  const [active, setActive] = useState(0);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
 
   // Favourites float to the top of whatever the search and the rail have left, so the ⌘-digit rows
   // are always the ones the eye lands on first.
@@ -95,14 +95,16 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, onToggleFavorite, effo
   // not. The cost is that starring a model renumbers the ones below it, which is a rare thing the
   // user just did on purpose and can watch happen.
   const shortcuts = useMemo(() => shown.filter((r) => r.favorite && !r.blockedReason).slice(0, MAX_SHORTCUTS), [shown]);
-  // The highlight is clamped rather than stored as a row key: filtering can shrink the list under it,
-  // and a highlight pointing past the end would make Enter do nothing with no visible reason why.
-  const cur = Math.min(active, shown.length - 1);
+  // Anchored to the ROW, not to its index. ⌥↩ re-sorts the starred row to the top from under the
+  // highlight, and an index would leave the highlight on whatever slid into that slot — the user
+  // stars one model and finds another one selected. A key the list no longer holds (search narrowed
+  // it away, or nothing is highlighted yet) resolves to the first row, so Enter never dead-ends.
+  const cur = Math.max(0, shown.findIndex((r) => r.key === activeKey));
   const activeRow = shown[cur];
 
   // With live catalogs the list runs to 40+ rows inside `.mp-list`'s max-height, so arrowing past the
   // fold must bring the highlight along. `nearest` keeps this a no-op for rows already visible, which
-  // also makes the mouseEnter -> setActive path scroll-free.
+  // also makes the mouseEnter -> setActiveKey path scroll-free.
   useEffect(() => {
     if (activeRow) document.getElementById(`mp-${activeRow.key}`)?.scrollIntoView?.({ block: "nearest" });
   }, [activeRow]);
@@ -114,8 +116,8 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, onToggleFavorite, effo
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "ArrowDown") { e.preventDefault(); setActive(Math.min(shown.length - 1, cur + 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(Math.max(0, cur - 1)); }
+    if (e.key === "ArrowDown") { e.preventDefault(); setActiveKey(shown[Math.min(shown.length - 1, cur + 1)]?.key ?? null); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveKey(shown[Math.max(0, cur - 1)]?.key ?? null); }
     // ⌥↩ stars the highlighted row. The star is a <button> that focus never enters (rows are
     // options, not stops), so without this a keyboard user could reach every model and favourite
     // none of them.
@@ -135,16 +137,16 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, onToggleFavorite, effo
           and reading it left-to-right before typing matches the order the user actually works in. */}
       <div className="mp-rail" role="group" aria-label="Filter models">
         <button type="button" className="mp-rail-btn" aria-label="Favourites" title="Favourites"
-          aria-pressed={provider === "favorites"} onClick={() => { setProvider(provider === "favorites" ? null : "favorites"); setActive(0); }}>
+          aria-pressed={provider === "favorites"} onClick={() => { setProvider(provider === "favorites" ? null : "favorites"); setActiveKey(null); }}>
           <Icon name="star" size={15} />
         </button>
         <button type="button" className="mp-rail-btn" aria-label="All providers" title="All providers"
-          aria-pressed={provider === null} onClick={() => { setProvider(null); setActive(0); }}>
+          aria-pressed={provider === null} onClick={() => { setProvider(null); setActiveKey(null); }}>
           <Icon name="layout" size={15} />
         </button>
         {rail.map((k) => (
           <button key={k} type="button" className="mp-rail-btn" aria-label={AGENT_META[k].label} title={AGENT_META[k].label}
-            aria-pressed={provider === k} onClick={() => { setProvider(provider === k ? null : k); setActive(0); }}>
+            aria-pressed={provider === k} onClick={() => { setProvider(provider === k ? null : k); setActiveKey(null); }}>
             <Icon name={AGENT_META[k].icon} size={15} />
           </button>
         ))}
@@ -154,7 +156,7 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, onToggleFavorite, effo
         {/* Autofocused because the picker opens for typing — the same bargain the command palette makes. */}
         <input autoFocus type="text" value={query} placeholder="Search models…" aria-label="Search models"
           role="combobox" aria-expanded aria-controls="mp-list" aria-activedescendant={activeRow ? `mp-${activeRow.key}` : undefined}
-          onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onKeyDown} />
+          onChange={(e) => { setQuery(e.target.value); setActiveKey(null); }} onKeyDown={onKeyDown} />
       </div>
       <div className="mp-body">
         <div className="mp-list" id="mp-list" role="listbox" aria-label="Models">
@@ -163,7 +165,7 @@ function ModelPopover({ rows, anchorRef, onClose, onPick, onToggleFavorite, effo
                 className="mp-row" aria-selected={r.selected} aria-disabled={r.blockedReason ? true : undefined}
                 data-active={r === activeRow || undefined} data-blocked={r.blockedReason ? "" : undefined}
                 title={r.blockedReason ?? (r.note ? `${r.agentLabel} is ${r.note}; pick it to see how to fix that` : undefined)}
-                onMouseEnter={() => setActive(shown.indexOf(r))}
+                onMouseEnter={() => setActiveKey(r.key)}
                 onClick={() => pick(r)}>
                 <span className="mp-row-text">
                   <span className="mp-row-name">{r.label}</span>

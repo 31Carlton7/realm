@@ -1327,6 +1327,23 @@ describe("prompter model picker", () => {
       expect(store.getState().sessions.se1?.model).toBeNull(); // ⌥↩ stars; it does not pick
     });
 
+    it("keeps the highlight on the row ⌥↩ just starred, after it sorts to the top", async () => {
+      // Starring re-sorts the list under the highlight. Anchored to an index, the highlight would
+      // stay in slot 2 while the starred row moved to slot 0 — so the very next Enter would pick
+      // whichever model slid into that slot, not the one the user was looking at.
+      const { store } = await mountFresh();
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, row 3 of the list
+      fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
+      expect(rowNames()[0]).toBe("Claude Opus 5"); // it moved
+      const active = document.querySelector(".mp-row[data-active] .mp-row-name")?.textContent;
+      expect(active).toBe("Claude Opus 5"); // and the highlight moved with it
+      fireEvent.keyDown(searchBox(), { key: "Enter" });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
+    });
+
     it("the favourites tab lists the starred models and nothing else", async () => {
       await withFavorites([OPUS]);
       openPicker();
