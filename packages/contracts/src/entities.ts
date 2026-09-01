@@ -25,10 +25,31 @@ export const ProjectSchema = z.object({
 });
 export type Project = z.infer<typeof ProjectSchema>;
 
-/** `diff` (Plan 7 W3) is the one kind whose `refId` is an ENVIRONMENT id, not a session or terminal:
- *  a diff is a view of a checkout, and several sessions may share one. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff"]);
+/** `diff` (Plan 7 W3) is the one kind whose `refId` is not a session or terminal — it is an
+ *  ENVIRONMENT id: a diff is a view of a checkout, and several sessions may share one.
+ *  `space-page` (Plan 12 W3) follows that precedent: its `refId` is the SPACE id itself — the pane is
+ *  the space's own page (General/Memory/Skills/Connections/Sessions/History), one per space. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "space-page", "library-page", "connections-page", "notifications-page", "settings-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
+
+/**
+ * Sentinel refIds for the sidebar's destination pages (Plan 12 W4: `library-page`, `connections-page`).
+ *
+ * These pages are identified by their KIND — there is no space, session or environment row behind them —
+ * but every item must carry a refId and the RPC validates it as an id, so each page kind gets one
+ * well-known ULID. They are valid per `IdSchema` yet unmintable by `newId()`: their timestamp component
+ * is all zeros (1970), which a ULID generated today can never carry.
+ *
+ * One page item per SPACE, not per app: an item lives in a space's layout, and that `spaceId` is the
+ * vantage the page's scope groups ("This space" / "From <profile>" / "Everywhere") are computed from.
+ */
+export const PAGE_REF_IDS = {
+  "library-page": "00000000000000000000000001",
+  "connections-page": "00000000000000000000000002",
+  "notifications-page": "00000000000000000000000003",
+  "settings-page": "00000000000000000000000004",
+} as const;
+export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 
 export const ItemSchema = z.object({
   id: IdSchema, spaceId: IdSchema, kind: ItemKindSchema, title: z.string(),

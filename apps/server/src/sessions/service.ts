@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_META, AGENT_SKILL_SUPPORT, PERSISTED_EVENT_TYPES, SkillIdSchema, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -8,6 +8,7 @@ import type { ProjectsStore } from "../store/projects";
 import type { SessionsStore, SessionEventsStore, SessionUpdate } from "../store/sessions";
 import type { EnvironmentsStore } from "../store/environments";
 import type { SpacesStore } from "../store/spaces";
+import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
 import { portEnv, type PortAllocator } from "../workspace/ports";
@@ -28,7 +29,23 @@ export function titleFromMessage(text: string): string {
   return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1).trimEnd()}…` : one;
 }
 
-export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string; title?: string };
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string | null; title?: string };
+
+/**
+ * The permission mode a session starts in when its creator named none (Plan 12 W6) — every
+ * instant-create path, which is every path there is since W3 retired the session sheet.
+ *
+ * `raw` is whatever sits under `DEFAULT_PERMISSION_MODE_KEY` and is treated as untrusted twice over:
+ * it must be a real `PERMISSION_MODES` id (which excludes `"plan"` — a mode axis, not a permission),
+ * and the agent must be one whose permission model Realm can actually set. An unsupported agent
+ * (`AGENT_SUPPORTS_PERMISSION_MODES` false) starts on `"default"` no matter what is stored: its
+ * adapter never reads the field, and a session row claiming `bypassPermissions` about an agent Realm
+ * has no lever on would be a lie the composer's chip then repeats.
+ */
+export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): string {
+  if (!AGENT_SUPPORTS_PERMISSION_MODES[kind]) return "default";
+  return PERMISSION_MODES.some((m) => m.id === raw) ? (raw as string) : "default";
+}
 /** `skillsInjected` remembers whether THIS handle was started with Realm's library — the fact mention
  *  resolution gates on, because a `/realm:<name>` prepend into a session that never loaded the plugin
  *  is a command that does not exist there. */
@@ -43,7 +60,7 @@ type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean 
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
@@ -53,6 +70,12 @@ export class SessionService {
      *  record/run; `extraSystemContext` is the browsing-policy preamble a delegated child starts
      *  with. Optional — a harness without browser agents behaves exactly as before. */
     browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined };
+    /** Plan 12 W5: the notifications feed's session hooks. `handleSessionEvent` gets the session row as
+     *  it stood BEFORE the event (so a status event carries its previous status implicitly); it is
+     *  called from `onEvent` — the pump and `emitExternal` alike — and from `markStaleOnBoot`'s
+     *  synthetic denies, so the feed reconciles on every path an answer can travel. `probeResults`
+     *  feeds CLI availability regressions. Optional — a harness without it behaves exactly as before. */
+    notifications?: { handleSessionEvent(session: Session, ev: SessionEvent): void; probeResults(results: ProbeResult[]): void };
   }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
@@ -65,8 +88,12 @@ export class SessionService {
   async probeAll(): Promise<ProbeResult[]> {
     const adapters = Object.values(this.d.adapters);
     const results = await Promise.allSettled(adapters.map((a) => a.probe()));
-    return results.map((r, i) => r.status === "fulfilled" ? r.value
+    const probes = results.map((r, i): ProbeResult => r.status === "fulfilled" ? r.value
       : { kind: adapters[i]!.kind, available: false, version: null, loggedIn: null, reason: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+    // Every probe that actually ran reports here — the feed's agent_probe rows come from the same
+    // results the install card renders, never from a second probe of their own.
+    this.d.notifications?.probeResults(probes);
+    return probes;
   }
 
   isLive(id: string): boolean { return this.live.has(id); }
@@ -82,7 +109,9 @@ export class SessionService {
     if (input.projectId && !project) throw new NotFoundError("project", input.projectId);
     const env = this.resolveEnvironment(input.spaceId, input.environmentId ?? null, project?.rootPath ?? null);
     const title = input.title?.trim() || defaultTitle(input.agentKind);
-    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode: input.permissionMode, environmentId: env.id, title });
+    // A named mode travels verbatim; null (the instant-create paths) is the user's configured default.
+    const permissionMode = input.permissionMode ?? resolveDefaultPermissionMode(input.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY));
+    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode, environmentId: env.id, title });
     const item = this.d.items.create({ spaceId: input.spaceId, kind: "session", title, refId: session.id });
     this.d.rpc.broadcast("items.changed", { spaceId: input.spaceId });
     return { session, itemId: item.id };
@@ -224,6 +253,21 @@ export class SessionService {
   }
 
   /**
+   * Re-point a session that has not started yet at another environment (Plan 12 W1 — the under-strip's
+   * workspace selector). Same authority and same guard as `setAgent`, for the same reason: one persisted
+   * event ties the transcript to the checkout it ran in — its cwds, its turn checkpoints, its terminal —
+   * and "moving" it afterwards would leave every one of those pointing at the wrong tree. The store's
+   * `setEnvironment` owns the wrong-space refusal, mirroring `create`; `cwd` needs no touch at all,
+   * because it is read off the environment row on every read.
+   */
+  setEnvironment(id: string, environmentId: string): Session {
+    const s = this.get(id);
+    if (s.environmentId === environmentId) return s;
+    if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; it can no longer move to another checkout");
+    return this.d.sessions.setEnvironment(id, environmentId);
+  }
+
+  /**
    * The session's terminal side panel (W4), created on FIRST call and never before — a session whose
    * panel is never opened must never spawn a pty. Idempotent afterwards: the same trio comes back.
    * A recorded terminal whose pty is gone (it exited, or its cwd vanished at boot) is torn down and
@@ -285,7 +329,13 @@ export class SessionService {
    */
   markStaleOnBoot(): void {
     for (const s of this.d.sessions.listAll()) {
-      for (const requestId of this.d.events.findDanglingPermissions(s.id)) this.persist(s.id, sessionEvent("permission_response", { requestId, decision: "deny" }));
+      for (const requestId of this.d.events.findDanglingPermissions(s.id)) {
+        const deny = sessionEvent("permission_response", { requestId, decision: "deny" });
+        this.persist(s.id, deny);
+        // A synthetic deny is still an answer: the feed's permission row must stop reading "pending"
+        // the same way it would for a real one.
+        this.d.notifications?.handleSessionEvent(s, deny);
+      }
       const resumable = s.status === "running" || s.status === "waiting_permission" || (s.status === "ended" && s.providerSessionId !== null);
       if (resumable) this.d.sessions.update({ id: s.id, status: "idle" });
     }
@@ -431,7 +481,11 @@ export class SessionService {
 
   private onEvent(id: string, ev: SessionEvent): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
-    if (!this.d.sessions.get(id)) return; // deleted underneath a still-draining pump
+    const before = this.d.sessions.get(id);
+    if (!before) return; // deleted underneath a still-draining pump
+    // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
+    // transition, and only this side of the update still knows both ends of it.
+    this.d.notifications?.handleSessionEvent(before, ev);
     if (ev.type === "init") this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });

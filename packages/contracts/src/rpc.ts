@@ -6,6 +6,7 @@ import { StoredSessionEventSchema } from "./session-events";
 import { SkillSchema, SkillIdSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
+import { NotificationSchema } from "./notifications";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -339,6 +340,17 @@ export const Methods = {
   /** Turn one skill on or off for one space. Unknown ids are accepted: a skill can be removed from
    *  disk and put back, and the preference should survive that. */
   "skills.setEnabled": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Move a skill's defining scope from space level to `spaceId`'s profile (W2). Effective-set neutral
+   * for every space of that profile at the moment it runs: the per-space disabled-set applies to
+   * inherited skills exactly as it applied before, so a skill disabled in a space stays disabled there.
+   * What changes is reach — spaces of OTHER profiles stop seeing it, and profile spaces created later
+   * inherit it ON by default.
+   */
+  "skills.promote": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** The inverse: pin a profile-scoped skill to `spaceId` alone (must be a space of its profile).
+   *  This space's enable state is preserved; sibling spaces stop seeing it. */
+  "skills.demote": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * Every MCP server Realm knows about, each carrying this space's own enabled flag.
@@ -361,6 +373,9 @@ export const Methods = {
   "mcp.add": {
     params: z.object({
       spaceId: IdSchema.nullable().default(null),
+      /** W2: pass a profile id to define the server at PROFILE scope instead — inherited (default ON,
+       *  per-space disableable) by every space of that profile. Mutually exclusive with `spaceId`. */
+      profileId: IdSchema.nullable().default(null),
       name: McpServerNameSchema,
       transport: McpTransportSchema,
       command: z.string().default(""), args: z.array(z.string()).default([]), env: McpSecretsSchema.default({}),
@@ -392,6 +407,17 @@ export const Methods = {
   /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
   "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
+   * Move a server's defining scope from space level to `spaceId`'s profile (W2). Effective-set neutral
+   * at the moment it runs: every space of the profile where the server was not enabled gets a per-space
+   * disable override, so promotion never arms a space that had not opted in. What changes is reach —
+   * profile spaces created later inherit it ON, spaces of other profiles stop seeing it, and toggling
+   * an inherited server flips the override instead of the space-scope enabled-set.
+   */
+  "mcp.promote": { params: z.object({ spaceId: IdSchema, id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** The inverse: pin a profile-scoped server to `spaceId` alone (must be a space of its profile).
+   *  This space's effective on/off state is preserved; sibling spaces stop seeing it. */
+  "mcp.demote": { params: z.object({ spaceId: IdSchema, id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /**
    * Turn a Realm-native tool provider (`realm-browser` today) on or off for one space. Providers are
    * Realm's own in-process toolsets on the gateway, not server rows — and unlike servers they default
    * ON, because they are Realm's own code operating under Realm's own permission flow, not a process
@@ -399,6 +425,11 @@ export const Methods = {
    * (the gateway re-checks at call time too, like any policy edit).
    */
   "mcp.setProviderEnabled": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /** The gateway's registered Realm-native providers with this space's switch state (W4: the
+   *  Connections surface renders them as rows). Names come from the gateway registry, never config —
+   *  a provider is code compiled into Realm, so this list is the same in every space; only `enabled`
+   *  is per-space. */
+  "mcp.providers.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ providers: z.array(z.object({ name: z.string(), enabled: z.boolean() })) }) },
   /**
    * Actually try the server, now: spawn the stdio command (with its stored env) and wait for an MCP
    * initialize response, or hit the http/sse URL (with its stored headers) and report the status. Run
@@ -452,6 +483,15 @@ export const Methods = {
    * Turning it off removes the file only when it still carries Realm's marker.
    */
   "memory.setAgentsFile": { params: z.object({ spaceId: IdSchema, enabled: z.boolean() }), result: MemoryStateSchema },
+  /** The PROFILE memory document (W2) — the standing context every space of the profile inherits ahead
+   *  of its own doc. Lives at `<realmHome>/memory/profile-<profileId>.md`. */
+  "memory.getProfile": { params: z.object({ profileId: IdSchema }), result: z.object({ profileId: IdSchema, path: z.string(), doc: z.string() }) },
+  /** Replace the profile document. Same cap as a space doc; the COMBINED injection is additionally
+   *  capped at `MEMORY_COMBINED_MAX` where the CLIs meet it (`systemContextFor`). */
+  "memory.setProfile": { params: z.object({ profileId: IdSchema, doc: z.string().max(MEMORY_DOC_MAX) }), result: z.object({ profileId: IdSchema, path: z.string(), doc: z.string() }) },
+  /** Per-space toggle for the inherited profile doc (W2): the profile doc is an inherited item like any
+   *  other — ON by default, disableable per space, never editable from the space. */
+  "memory.setProfileDocEnabled": { params: z.object({ spaceId: IdSchema, enabled: z.boolean() }), result: MemoryStateSchema },
   /**
    * Ground truth (or the honest absence of it) about the durable context one session's agent loads:
    * Codex sessions report the exact files (`instructionSources`, captured from THIS session's own
@@ -460,7 +500,10 @@ export const Methods = {
    */
   "memory.sources": { params: z.object({ sessionId: IdSchema }), result: MemorySourcesSchema },
 
-  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string() }) },
+  /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
+   *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12
+   *  W1): Realm runs agents on this machine and no other, so there is nothing to select. */
+  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string(), machineName: z.string() }) },
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
 
@@ -490,6 +533,23 @@ export const Methods = {
     result: ShipResultSchema,
   },
 
+  /**
+   * The durable notifications feed (Plan 12 W5), newest first. GLOBAL — one feed across every space,
+   * matching the sidebar row it feeds (the row sits above the space section). `cursor` is the previous
+   * page's `nextCursor`, opaque to clients; `unread` is the whole feed's unread count and the ONE
+   * source every badge renders — computed server-side, never by counting rows a client happens to hold.
+   */
+  "notifications.list": {
+    params: z.object({ cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
+    result: z.object({ notifications: z.array(NotificationSchema), nextCursor: z.string().nullable(), unread: z.number().int() }),
+  },
+  /** Mark rows read: named `ids`, or `all: true` for the whole feed (global, deliberately — see
+   *  `notifications.list`; there is no per-space feed for an "all" to leak across). Unknown ids are
+   *  ignored, not errors: a row can be deleted (or already read from another window) under the click. */
+  "notifications.markRead": {
+    params: z.object({ ids: z.array(IdSchema).default([]), all: z.boolean().default(false) }),
+    result: z.object({ ok: z.literal(true), unread: z.number().int() }),
+  },
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable() })) },
@@ -498,8 +558,11 @@ export const Methods = {
   "sessions.listAll": { params: z.object({}), result: z.array(SessionSchema) },
   "sessions.get":    { params: z.object({ id: IdSchema }), result: SessionSchema },
   /** `environmentId` pins the session to an existing checkout (the seam W2 uses to open one in a
-   *  worktree). Omitted, the session lands in the project's checkout, or the space's primary. */
-  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().default("default"), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
+   *  worktree). Omitted, the session lands in the project's checkout, or the space's primary.
+   *  `permissionMode: null` (the instant-create paths, which never ask) means "the user's configured
+   *  default" — resolved server-side from `DEFAULT_PERMISSION_MODE_KEY`, in ONE place, so the palette,
+   *  ⌘N and "+" can never disagree about what a new session is allowed to do. */
+  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().nullable().default(null), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
   /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */
@@ -511,6 +574,12 @@ export const Methods = {
    *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a
    *  model id from the old kind means nothing to the new one. */
   "sessions.setAgent": { params: z.object({ id: IdSchema, agentKind: AgentKindSchema }), result: SessionSchema },
+  /** Re-point an untouched session at another of its space's environments (the under-strip's workspace
+   *  selector, Plan 12 W1). Server-guarded exactly like `setAgent`: rejected (SESSION_STARTED) once the
+   *  session has any event — a transcript's cwds, checkpoints and terminal all belong to the checkout
+   *  that produced them. Cross-space environments are refused (ENVIRONMENT_WRONG_SPACE). `cwd` follows,
+   *  since it is derived from the environment row on every read. */
+  "sessions.setEnvironment": { params: z.object({ id: IdSchema, environmentId: IdSchema }), result: SessionSchema },
   "sessions.events":  { params: z.object({ id: IdSchema, afterSeq: z.number().int().default(0), limit: z.number().int().default(2000) }), result: z.array(StoredSessionEventSchema) },
   /** Get-or-create the session's terminal side panel (W4), at the session's cwd. Idempotent: the pty is
    *  spawned on the FIRST call and only then — a session whose panel is never opened never has one. */
@@ -569,6 +638,12 @@ export const Events = {
    *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
    *  an agent-driven browser the user cannot see defeats the point of the architecture. */
   "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema }),
+  /** The notifications feed changed (Plan 12 W5). `unread` is the fresh global unread count — the
+   *  sidebar pill applies it directly, so the count has exactly one derivation site (the server's).
+   *  `notification` is the row an event just created or re-surfaced, so the renderer can react to it
+   *  (auto-reading a `session_done` for the pane the user is looking at) without a refetch race; null
+   *  when the change was a markRead or a resolution, where a held list refetches instead. */
+  "notifications.changed": z.object({ notification: NotificationSchema.nullable(), unread: z.number().int() }),
   /** A mutating browser tool call SETTLED on this browser (Plan 11 W4) — the pane chrome's action
    *  ticker appends it. `text` is the same attributed description the permission card showed (page
    *  text only ever inside the `the page labels "…"` framing — never laundered into Realm's voice);

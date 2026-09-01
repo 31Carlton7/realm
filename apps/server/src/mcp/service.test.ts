@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
+import { RpcError } from "../store/rows";
 import { McpServersStore } from "../store/mcp";
 import { McpService } from "./service";
 
@@ -42,25 +43,25 @@ describe("per-space scoping", () => {
   it("enables it nowhere when no space is named", () => {
     mcp.add(stdio("airtable"), null);
     expect(mcp.list(WORK).servers[0]!.enabled).toBe(false);
-    expect(mcp.enabledServerIds(WORK)).toEqual([]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([]);
   });
 
   it("keeps one space's servers out of another's enabled set — the gateway's own scoping seam", () => {
     // The named mutant: key the enable set on anything but the space id and this leaks.
     const a = mcp.add(stdio("work_only"), WORK);
     const b = mcp.add(stdio("school_only"), SCHOOL);
-    expect(mcp.enabledServerIds(WORK)).toEqual([a.id]);
-    expect(mcp.enabledServerIds(SCHOOL)).toEqual([b.id]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([a.id]);
+    expect(mcp.effectiveServerIds(SCHOOL)).toEqual([b.id]);
     mcp.setEnabled(SCHOOL, a.id, true);
-    expect(mcp.enabledServerIds(SCHOOL).sort()).toEqual([a.id, b.id].sort());
+    expect(mcp.effectiveServerIds(SCHOOL).sort()).toEqual([a.id, b.id].sort());
   });
 
   it("stops enabling a server the moment it is disabled", () => {
     // The named mutant: a disabled server still enabled.
     const s = mcp.add(stdio("airtable"), WORK);
-    expect(mcp.enabledServerIds(WORK)).toEqual([s.id]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([s.id]);
     mcp.setEnabled(WORK, s.id, false);
-    expect(mcp.enabledServerIds(WORK)).toEqual([]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([]);
     expect(mcp.list(WORK).servers[0]!.enabled).toBe(false);
   });
 
@@ -227,7 +228,7 @@ describe("status injection (Plan 9 W3)", () => {
   });
 });
 
-describe("setAllowedTools / enabledServerIds (Plan 9 W3 — the gateway's own reads/writes)", () => {
+describe("setAllowedTools / effectiveServerIds (Plan 9 W3 — the gateway's own reads/writes)", () => {
   it("setAllowedTools writes what allowedTools reads back, scoped to the space it was set for", () => {
     const s = mcp.add(stdio("airtable"), WORK);
     mcp.setAllowedTools(WORK, s.id, ["search", "create"]);
@@ -243,10 +244,126 @@ describe("setAllowedTools / enabledServerIds (Plan 9 W3 — the gateway's own re
     expect(mcp.allowedTools(WORK, s.id)).toBeNull();
   });
 
-  it("enabledServerIds returns exactly this space's enabled ids, empty for a space that enabled nothing", () => {
+  it("effectiveServerIds returns exactly this space's enabled ids, empty for a space that enabled nothing", () => {
     const a = mcp.add(stdio("airtable"), WORK);
     mcp.add(stdio("school_only"), SCHOOL);
-    expect(mcp.enabledServerIds(WORK)).toEqual([a.id]);
-    expect(mcp.enabledServerIds("01ARZ3NDEKTSV4RRFFQ69G5FAX")).toEqual([]);
+    expect(mcp.effectiveServerIds(WORK)).toEqual([a.id]);
+    expect(mcp.effectiveServerIds("01ARZ3NDEKTSV4RRFFQ69G5FAX")).toEqual([]);
+  });
+});
+
+describe("scoping (W2) — profile vs space defining scope", () => {
+  // Two profiles, three spaces: A1/A2 in PA, B1 in PB — the seam app.ts wires from SpacesStore,
+  // reduced to the three questions McpService asks.
+  const A1 = "spc_a1", A2 = "spc_a2", B1 = "spc_b1";
+  const profileOf: Record<string, string> = { [A1]: "PA", [A2]: "PA", [B1]: "PB" };
+  const scopes = {
+    profileIdOf: (sid: string) => profileOf[sid] ?? null,
+    spaceIdsOf: (pid: string) => Object.keys(profileOf).filter((sid) => profileOf[sid] === pid),
+    allSpaceIds: () => Object.keys(profileOf),
+  };
+  const scoped = () => new McpService({ servers, settings, scopes });
+  const effective = (svc: McpService, sid: string) => svc.effectiveServerIds(sid);
+
+  it("space-scopes a server added from a space: siblings and other profiles never even list it", () => {
+    const svc = scoped();
+    const a = svc.add(stdio("airtable"), A1);
+    expect(a.scope).toEqual({ kind: "space", spaceId: A1 });
+    expect(svc.list(A1).servers.map((x) => [x.name, x.enabled])).toEqual([["airtable", true]]);
+    expect(svc.list(A2).servers).toEqual([]);
+    expect(svc.list(B1).servers).toEqual([]);
+    expect(effective(svc, A2)).toEqual([]);
+  });
+
+  it("profile-scopes a server added with a profileId: default ON in that profile's spaces, invisible elsewhere", () => {
+    // The named mutant: inheritance math wrong — a PA server leaking into PB's space.
+    const svc = scoped();
+    const a = svc.add(stdio("airtable"), null, "PA");
+    expect(a.scope).toEqual({ kind: "profile", profileId: "PA" });
+    expect(effective(svc, A1)).toEqual([a.id]);
+    expect(effective(svc, A2)).toEqual([a.id]);
+    expect(effective(svc, B1)).toEqual([]);
+    expect(svc.list(B1).servers).toEqual([]);
+  });
+
+  it("toggling an inherited server flips ONLY that space's override", () => {
+    // The named mutant: a per-space disable of an inherited item bleeding into a sibling space.
+    const svc = scoped();
+    const a = svc.add(stdio("airtable"), null, "PA");
+    svc.setEnabled(A1, a.id, false);
+    expect(effective(svc, A1)).toEqual([]);
+    expect(effective(svc, A2)).toEqual([a.id]);
+    expect(svc.list(A1).servers[0]).toMatchObject({ enabled: false });
+    expect(svc.list(A2).servers[0]).toMatchObject({ enabled: true });
+    svc.setEnabled(A1, a.id, true);
+    expect(effective(svc, A1)).toEqual([a.id]);
+  });
+
+  it("promote is effective-set neutral: on stays on, never-opted-in stays OFF everywhere", () => {
+    // The named mutant: promotion arming a space that had not opted in. Under MCP's enabled-set
+    // polarity "never enabled" and "disabled" are the same stored fact, so BOTH must come out off.
+    const svc = scoped();
+    const a = svc.add(stdio("airtable"), A1);
+    const before = [effective(svc, A1), effective(svc, A2), effective(svc, B1)];
+    svc.promote(A1, a.id);
+    expect([effective(svc, A1), effective(svc, A2), effective(svc, B1)]).toEqual(before);
+    expect(svc.list(A2).servers[0]).toMatchObject({ enabled: false, scope: { kind: "profile", profileId: "PA" } });
+  });
+
+  it("promote of a pre-scoping server retires other profiles' opt-ins for good", () => {
+    // A legacy row enabled in ANOTHER profile's space is the cross-profile state promotion ends: B1
+    // loses it (it is PA's now), and demoting back later must not resurrect B1's old opt-in.
+    const svc = scoped();
+    const a = svc.add(stdio("airtable"), null);
+    svc.setEnabled(A1, a.id, true);
+    svc.setEnabled(B1, a.id, true);
+    svc.promote(A1, a.id);
+    expect(effective(svc, A1)).toEqual([a.id]);
+    expect(effective(svc, B1)).toEqual([]);
+    svc.demote(A1, a.id);
+    expect(effective(svc, A1)).toEqual([a.id]);
+    expect(effective(svc, B1)).toEqual([]);
+  });
+
+  it("demote preserves the acting space's state — including overridden-off", () => {
+    const svc = scoped();
+    const a = svc.add(stdio("airtable"), null, "PA");
+    svc.setEnabled(A1, a.id, false);
+    svc.demote(A1, a.id);
+    // A1 keeps its off state and the row; A2 stops seeing it entirely.
+    expect(svc.list(A1).servers[0]).toMatchObject({ enabled: false, scope: { kind: "space", spaceId: A1 } });
+    expect(svc.list(A2).servers).toEqual([]);
+    expect(effective(svc, A2)).toEqual([]);
+    // ...and the state is live: the panel toggle still works on it at its new scope.
+    svc.setEnabled(A1, a.id, true);
+    expect(effective(svc, A1)).toEqual([a.id]);
+  });
+
+  it("isEnabled answers from the same computation as effectiveServerIds, at both scopes", () => {
+    const svc = scoped();
+    const a = svc.add(stdio("a_srv"), A1);
+    const b = svc.add(http("b_srv"), null, "PA");
+    for (const sid of [A1, A2, B1]) {
+      for (const id of [a.id, b.id]) expect(svc.isEnabled(sid, id)).toBe(effective(svc, sid).includes(id));
+    }
+  });
+
+  it("remove clears the inherited-disable overrides too, so a re-add starts clean", () => {
+    const svc = scoped();
+    const a = svc.add(stdio("airtable"), null, "PA");
+    svc.setEnabled(A2, a.id, false);
+    svc.remove(a.id, [A1, A2, B1]);
+    expect(settings.get(`mcp.profileDisabled:${A2}`)).not.toContain(a.id);
+    expect(svc.list(A1).servers).toEqual([]);
+  });
+
+  it("refuses scope moves that make no sense, with a code a client can act on", () => {
+    const svc = scoped();
+    const a = svc.add(stdio("airtable"), A1);
+    expect(() => svc.demote(A1, a.id)).toThrow(RpcError);      // not profile-scoped
+    expect(() => svc.promote(A2, a.id)).toThrow(RpcError);     // defined in A1, not A2
+    svc.promote(A1, a.id);
+    expect(() => svc.promote(A1, a.id)).toThrow(RpcError);     // already profile-scoped
+    expect(() => svc.demote(B1, a.id)).toThrow(RpcError);      // B1 is not in PA
   });
 });

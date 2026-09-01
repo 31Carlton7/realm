@@ -51,6 +51,10 @@ export type CheckpointDeps = {
   /** Retention budget per environment. Overridable only so tests can reach the pruning branch without
    *  spawning fifty-odd git processes; production passes nothing. */
   maxPerEnvironment?: number;
+  /** Plan 12 W5: the feed's worktree_hazard hook, called when a restore is REFUSED on a stale
+   *  acknowledgement (the tree moved under an open confirmation). Optional — a harness without the
+   *  notifications feed behaves exactly as before. */
+  notifications?: { worktreeHazard(input: { spaceId: string | null; environmentId: string; title: string; body: string }): void };
 };
 
 /**
@@ -165,6 +169,10 @@ export class CheckpointService {
       throw new RpcError("CHECKPOINT_GONE", "this checkpoint's git objects are no longer in the repository");
     }
     if (acknowledge.filesChanged !== preview.filesChanged || acknowledge.commitsRolledBack !== preview.commitsRolledBack) {
+      // The user said yes to numbers the checkout has since moved past — a hazard worth a feed row,
+      // because the sheet they were looking at is exactly the surface that just went stale under them.
+      this.d.notifications?.worktreeHazard({ spaceId: env.spaceId, environmentId: env.id,
+        title: "Checkpoint restore refused", body: describeRestore(preview) });
       throw new RpcError("RESTORE_UNSAFE", describeRestore(preview));
     }
 

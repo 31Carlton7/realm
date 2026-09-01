@@ -71,28 +71,39 @@ describe("SpaceStrip badges (U-H3)", () => {
   });
 });
 
-describe("SpaceStrip settings gear (U-M9)", () => {
-  it("opens the space-settings sheet for the active space", async () => {
+describe("SpaceStrip settings gear (U-M9, retargeted by W6)", () => {
+  const settingsItem = (store: { getState(): { items: { kind: string; id: string }[] } }) =>
+    store.getState().items.find((i) => i.kind === "settings-page");
+
+  it("opens the SETTINGS page, not the space page — the gear was overloaded (W3's interim wiring)", async () => {
     const { store } = await mount();
     expect(store.getState().activeSpaceId).toBe("s1");
     const gear = screen.getByRole("button", { name: "Settings" });
     expect(gear).toBeEnabled();
     fireEvent.click(gear);
-    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1" });
+    await waitFor(() => expect(settingsItem(store)).toBeDefined());
+    // The page is IN the layout, not merely created; it is a pane, never a sheet; and the SPACE page
+    // did not open — that one keeps its own entry points (header, palette "Open space").
+    expect(JSON.stringify(store.getState().layout)).toContain(settingsItem(store)!.id);
+    expect(store.getState().sheet).toBeNull();
+    expect(store.getState().items.find((i) => i.kind === "space-page")).toBeUndefined();
   });
 
-  it("follows the active space, and is disabled with no space at all", async () => {
-    const { store } = await mount();
+  it("lands the page in the ACTIVE space's layout, and is disabled with no space at all", async () => {
+    const { store, api } = await mount();
     fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s2" });
+    await waitFor(() => expect(settingsItem(store)).toBeDefined());
+    // The item row lives in s2 — the space that was active under the click.
+    expect((api.data.items.s2 ?? []).some((i) => i.kind === "settings-page")).toBe(true);
+    expect((api.data.items.s1 ?? []).some((i) => i.kind === "settings-page")).toBe(false);
 
     const empty = await mount(fakeApi({ spaces: [], items: {} }));
     expect(empty.store.getState().activeSpaceId).toBeNull();
     const gears = screen.getAllByRole("button", { name: "Settings" });
     expect(gears.at(-1)).toBeDisabled();
     fireEvent.click(gears.at(-1)!);
-    expect(empty.store.getState().sheet).toBeNull();
+    expect(empty.store.getState().items).toEqual([]);
   });
 });

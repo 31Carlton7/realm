@@ -1,4 +1,4 @@
-import { MCP_SECRET_STORAGE_NOTE, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { liveCheck, type McpTestResult } from "./live-check";
 import type { SettingsStore } from "../store/settings";
@@ -15,6 +15,17 @@ import { readOauthState } from "./oauth";
  * default is off, and a space's set names what it opted into.
  */
 const enabledKey = (spaceId: string): string => `mcp.enabled:${spaceId}`;
+
+/**
+ * Per-space disable OVERRIDES for **inherited** (profile-scoped) servers — W2's third key, with the
+ * third polarity, and deliberately so. A profile-scoped server exists because the user promoted it (or
+ * defined it at the profile): that act is the opt-in the space-scope enabled-set exists to collect, so
+ * inherited servers default ON and this set names the spaces that opted back out. It is a different key
+ * from `enabledKey` because the two answer different questions about different scopes — folding both
+ * into one set would make "never opted in" and "opted out of the profile's choice" the same stored
+ * fact, and promote/demote need to tell them apart to preserve effective sets.
+ */
+const profileDisabledKey = (spaceId: string): string => `mcp.profileDisabled:${spaceId}`;
 
 /** Per-space, per-server tool allowlist (W1 storage only — `mcp.setAllowedTools`/RPC wiring is W3).
  *  Absent = every cached tool allowed, which is also a server nobody has ever narrowed. */
@@ -47,14 +58,36 @@ export class McpService {
    *  business knowing `McpHub` exists, and a caller that doesn't wire one (older tests, a stripped
    *  harness) gets the W1-era "always idle" behavior for free. Wired for real in `app.ts` from the hub's
    *  own `onStatus` cache. */
-  constructor(private d: { servers: McpServersStore; settings: SettingsStore; statusOf?: (id: string) => McpServerStatus }) {}
+  constructor(private d: {
+    servers: McpServersStore; settings: SettingsStore; statusOf?: (id: string) => McpServerStatus;
+    /** W2: the one slice of the spaces/profiles world this service may see, for scope resolution.
+     *  Optional like `statusOf`: unwired (older tests), every space reads as profile-less, profile-
+     *  scoped rows apply nowhere, and pre-scoping rows behave exactly as they did before W2. */
+    scopes?: { profileIdOf(spaceId: string): string | null; spaceIdsOf(profileId: string): string[]; allSpaceIds(): string[] };
+  }) {}
+
+  private profileIdOf(spaceId: string): string | null { return this.d.scopes?.profileIdOf(spaceId) ?? null; }
+
+  /**
+   * Does this row's defining scope reach `spaceId` at all (before any enable state is consulted)?
+   * Space-scoped: its own space, or every space for a pre-scoping row (`spaceId: null`) — and a
+   * defining space that no longer exists degrades to the pre-scoping reading, so the row stays
+   * reachable (and safely OFF everywhere, per the opt-in polarity) instead of orphaned. Profile-scoped:
+   * exactly the spaces of ITS profile — never a space of any other profile; a dead profile therefore
+   * applies nowhere (see the v11 migration comment).
+   */
+  private appliesTo(scope: ItemScope, spaceId: string): boolean {
+    if (scope.kind === "profile") { const pid = this.profileIdOf(spaceId); return pid !== null && pid === scope.profileId; }
+    return scope.spaceId === null || scope.spaceId === spaceId || this.profileIdOf(scope.spaceId) === null;
+  }
 
   /** Every server, carrying this space's enable flag and tool allowlist, plus the storage note the UI
    *  must show. */
   list(spaceId: string): { servers: McpServer[]; secretNote: string } {
-    const enabled = new Set(readIds(this.d.settings, enabledKey(spaceId)));
+    const effective = new Set(this.effectiveServerIds(spaceId));
     return {
-      servers: this.d.servers.list().map((r) => toContract(r, enabled.has(r.id), this.allowedTools(spaceId, r.id), this.statusOf(r.id))),
+      servers: this.d.servers.list().filter((r) => this.appliesTo(r.scope, spaceId))
+        .map((r) => toContract(r, effective.has(r.id), this.allowedTools(spaceId, r.id), this.statusOf(r.id))),
       secretNote: MCP_SECRET_STORAGE_NOTE,
     };
   }
@@ -78,25 +111,43 @@ export class McpService {
     this.d.settings.set(allowedToolsKey(spaceId, id), tools);
   }
 
-  /** ids of the servers this space has opted into — the gateway's `tools/list` universe. Same enabled
-   *  set `list()` reads, exposed directly so the gateway isn't forced through a full `McpServer[]`
-   *  projection just to learn which ids to ask the hub about. */
-  enabledServerIds(spaceId: string): string[] {
-    return readIds(this.d.settings, enabledKey(spaceId));
+  /**
+   * **The effective set** (W2) — the ONE place the profile/space scoping math for MCP servers lives.
+   * Everything that answers "which servers does this space run" flows through here: `list()`'s enabled
+   * flags, `isEnabled`, the gateway's `tools/list` universe and its call routing. The panels and the
+   * wire are structurally unable to disagree because neither has anything else to read (the settings
+   * keys are private to this file — `scoping.test.ts` enforces that with a grep).
+   *
+   * Effective(space) = profile-scoped servers of the space's profile MINUS its per-space disable
+   * overrides (inherited items default ON), PLUS space-scoped servers in its enabled-set (space-scope
+   * items keep MCP's own polarity: default OFF, opt-in — see `enabledKey`'s doc comment for why the
+   * two polarities differ). Ordered as `servers.list()` orders rows, so every consumer agrees on order.
+   */
+  effectiveServerIds(spaceId: string): string[] {
+    const enabled = new Set(readIds(this.d.settings, enabledKey(spaceId)));
+    const overridden = new Set(readIds(this.d.settings, profileDisabledKey(spaceId)));
+    return this.d.servers.list()
+      .filter((r) => this.appliesTo(r.scope, spaceId) && (r.scope.kind === "profile" ? !overridden.has(r.id) : enabled.has(r.id)))
+      .map((r) => r.id);
   }
 
   /**
-   * Define a server, and enable it in the space it was added from — and nowhere else.
+   * Define a server. Scope is decided ONCE, here, at creation (the plan's rule 3):
    *
-   * `spaceId: null` adds it enabled nowhere, which is what an import or a settings screen with no
-   * space in scope wants.
+   * - `spaceId` given — space-scoped to that space, and enabled there (the add is the opt-in). Before
+   *   W2 the row was global-with-one-enable; now the definition itself lives where it was made.
+   * - `profileId` given — profile-scoped: inherited (default ON) by every space of that profile, with
+   *   no per-space overrides to start.
+   * - neither — a pre-scoping row (visible everywhere, enabled nowhere), which is what an import or a
+   *   settings screen with no scope in view wants.
    */
-  add(fields: McpServerFields & { name: string; transport: McpTransport }, spaceId: string | null): McpServer {
+  add(fields: McpServerFields & { name: string; transport: McpTransport }, spaceId: string | null, profileId: string | null = null): McpServer {
     const input = { name: fields.name, ...normalize(fields, fields.transport, blank()) };
     requireEndpoint(input);
-    const row = this.d.servers.create(input);
-    if (spaceId) this.setEnabled(spaceId, row.id, true);
-    return toContract(row, spaceId !== null, spaceId ? this.allowedTools(spaceId, row.id) : null, this.statusOf(row.id));
+    const scope: ItemScope = profileId ? { kind: "profile", profileId } : { kind: "space", spaceId };
+    const row = this.d.servers.create(input, scope);
+    if (spaceId && !profileId) this.setEnabled(spaceId, row.id, true);
+    return toContract(row, profileId !== null || spaceId !== null, spaceId ? this.allowedTools(spaceId, row.id) : null, this.statusOf(row.id));
   }
 
   /**
@@ -119,13 +170,15 @@ export class McpService {
     return this.get(id, spaceId)!;
   }
 
-  /** Forget the server and every space's opt-in to it, so re-adding the same name starts clean. */
+  /** Forget the server and every space's opt-in to it — and every space's inherited-disable override
+   *  (W2), so re-adding the same name starts clean at either scope. */
   remove(id: string, spaceIds: readonly string[]): void {
     this.d.servers.delete(id);
     for (const spaceId of spaceIds) {
-      const key = enabledKey(spaceId);
-      const ids = readIds(this.d.settings, key);
-      if (ids.includes(id)) this.d.settings.set(key, ids.filter((x) => x !== id));
+      for (const key of [enabledKey(spaceId), profileDisabledKey(spaceId)]) {
+        const ids = readIds(this.d.settings, key);
+        if (ids.includes(id)) this.d.settings.set(key, ids.filter((x) => x !== id));
+      }
     }
   }
 
@@ -143,15 +196,92 @@ export class McpService {
     return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null, this.statusOf(id));
   }
 
+  /**
+   * Flip one server for one space — routed by the row's defining scope (W2), so the panels' existing
+   * toggle keeps working against the new model without knowing it exists. A space-scoped row keeps the
+   * opt-in enabled-set; an INHERITED (profile-scoped) row flips this space's disable override instead —
+   * per-space in both directions, so a sibling space's state never moves (each space has its own key).
+   * An id with no row falls through to the space-scope write: the preference-survives-the-row posture
+   * `skills.setEnabled` established.
+   */
   setEnabled(spaceId: string, id: string, enabled: boolean): void {
-    const key = enabledKey(spaceId);
+    const row = this.d.servers.get(id);
+    const inherited = row?.scope.kind === "profile";
+    const key = inherited ? profileDisabledKey(spaceId) : enabledKey(spaceId);
     const ids = new Set(readIds(this.d.settings, key));
-    if (enabled) ids.add(id); else ids.delete(id);
+    // Inherited rows store the disable set (default ON), space rows the enable set (default OFF).
+    if (enabled === !inherited) ids.add(id); else ids.delete(id);
     this.d.settings.set(key, [...ids].sort());
   }
 
+  /** Membership in `effectiveServerIds` — the same computation, asked about one id. */
   isEnabled(spaceId: string, id: string): boolean {
-    return readIds(this.d.settings, enabledKey(spaceId)).includes(id);
+    return this.effectiveServerIds(spaceId).includes(id);
+  }
+
+  /** Whether this server is even VISIBLE to `spaceId` (scope reach, before enable state) — what the
+   *  gateway's blocked-call attribution asks, so its "turn it on in Space Settings" guidance is only
+   *  ever given for a server that actually appears in that space's settings. Same `appliesTo` the
+   *  effective set uses — reach stays one computation. */
+  reaches(spaceId: string, id: string): boolean {
+    const row = this.d.servers.get(id);
+    return row !== null && this.appliesTo(row.scope, spaceId);
+  }
+
+  /**
+   * Promote: move a space-scoped (or pre-scoping) server's defining scope to `spaceId`'s profile.
+   *
+   * **Effective-set neutral, by construction, for every space that exists right now.** For each space
+   * of the profile: enabled → stays effectively on (its enabled-set entry is retired; no override);
+   * not enabled → a disable override is written, because under MCP's polarity "never opted in" and
+   * "off" are the same observable fact and the safe reading is off — promotion must never arm a space
+   * that had not agreed to run this server. Spaces of other profiles lose the (pre-scoping) row from
+   * their lists — but it was in their effective set only if enabled there, and a pre-scoping row
+   * enabled elsewhere is exactly the cross-profile state promotion exists to end; their stale
+   * enabled-set entries are retired too so a later demote cannot resurrect them by accident.
+   * What promotion changes is the future: profile spaces created later inherit it ON.
+   */
+  promote(spaceId: string, id: string): void {
+    const row = this.d.servers.get(id);
+    if (!row) throw new RpcError("NOT_FOUND", `mcp server ${id} not found`);
+    if (row.scope.kind === "profile") throw new RpcError("SCOPE_MISMATCH", `"${row.name}" is already profile-scoped`);
+    if (!this.appliesTo(row.scope, spaceId)) throw new RpcError("SCOPE_MISMATCH", `"${row.name}" is not defined in this space`);
+    const profileId = this.profileIdOf(spaceId);
+    if (!profileId) throw new RpcError("SCOPE_MISMATCH", `space ${spaceId} has no profile to promote into`);
+    const profileSpaces = new Set(this.d.scopes!.spaceIdsOf(profileId));
+    for (const s of this.d.scopes!.allSpaceIds()) {
+      const wasOn = readIds(this.d.settings, enabledKey(s)).includes(id);
+      this.retire(enabledKey(s), id);
+      if (profileSpaces.has(s) && !wasOn) this.addTo(profileDisabledKey(s), id);
+    }
+    this.d.servers.setScope(id, { kind: "profile", profileId });
+  }
+
+  /**
+   * Demote: pin a profile-scoped server to `spaceId` alone (which must be a space of its profile).
+   * This space's effective state is preserved exactly (on → enabled-set entry; overridden-off → none).
+   * Sibling spaces stop seeing it — that is what "defined in this space" means — and every space's now-
+   * meaningless override entry is retired. Promote→demote→promote is therefore lossy FOR SIBLINGS
+   * (space scope has nowhere to remember their states), which is stated here rather than papered over.
+   */
+  demote(spaceId: string, id: string): void {
+    const row = this.d.servers.get(id);
+    if (!row) throw new RpcError("NOT_FOUND", `mcp server ${id} not found`);
+    if (row.scope.kind !== "profile") throw new RpcError("SCOPE_MISMATCH", `"${row.name}" is not profile-scoped`);
+    if (this.profileIdOf(spaceId) !== row.scope.profileId) throw new RpcError("SCOPE_MISMATCH", `space ${spaceId} is not in "${row.name}"'s profile`);
+    const wasOn = this.isEnabled(spaceId, id);
+    for (const s of this.d.scopes?.allSpaceIds() ?? [spaceId]) this.retire(profileDisabledKey(s), id);
+    if (wasOn) this.addTo(enabledKey(spaceId), id);
+    this.d.servers.setScope(id, { kind: "space", spaceId });
+  }
+
+  private addTo(key: string, id: string): void {
+    const ids = new Set(readIds(this.d.settings, key)); ids.add(id);
+    this.d.settings.set(key, [...ids].sort());
+  }
+  private retire(key: string, id: string): void {
+    const ids = readIds(this.d.settings, key);
+    if (ids.includes(id)) this.d.settings.set(key, ids.filter((x) => x !== id));
   }
 
   /**
@@ -235,7 +365,7 @@ function normalize(f: McpServerFields, transport: McpTransport, base: Omit<McpSe
 function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | null, status: McpServerStatus): McpServer {
   const keys = Object.keys(r.secrets).sort();
   return {
-    id: r.id, name: r.name, transport: r.transport,
+    id: r.id, name: r.name, transport: r.transport, scope: r.scope,
     command: r.command, args: r.args, url: r.url,
     envKeys: r.transport === "stdio" ? keys : [],
     headerKeys: r.transport === "stdio" ? [] : keys,

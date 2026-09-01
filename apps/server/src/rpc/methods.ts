@@ -20,6 +20,7 @@ import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
+import type { NotificationsService } from "../notifications/service";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
 import type { GitWriteService } from "../workspace/git-write";
@@ -31,8 +32,8 @@ type Params<M extends MethodName> = z.infer<(typeof Methods)[M]["params"]>;
 type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
-  rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
+  rpc: RpcServer; home: string; version: string; machineName: string;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -40,7 +41,7 @@ export function registerMethods(d: Deps): void {
   const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
-  reg("system.info", () => ({ realmHome: d.home, version: d.version }));
+  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName }));
 
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
   reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
@@ -91,6 +92,21 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("skills.changed", { spaceId: p.spaceId });
     return { ok: true as const };
   });
+  // Promote/demote change which spaces SEE the skill (a pre-scoping skill leaves other profiles'
+  // lists; a demoted one leaves the siblings'), so every space's panel is told, not just the actor's.
+  const skillsScopeChanged = () => { for (const sp of d.spaces.listAll()) rpc.broadcast("skills.changed", { spaceId: sp.id }); };
+  reg("skills.promote", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.skills.promote(p.spaceId, p.id);
+    skillsScopeChanged();
+    return { ok: true as const };
+  });
+  reg("skills.demote", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.skills.demote(p.spaceId, p.id);
+    skillsScopeChanged();
+    return { ok: true as const };
+  });
 
   // Every one of these checks the space exists first, for the same reason the skills pair does: the
   // enable set is keyed by space id, so a typo would silently read and write preferences for a space
@@ -100,12 +116,17 @@ export function registerMethods(d: Deps): void {
     return d.mcp.list(p.spaceId);
   });
   reg("mcp.add", (p) => {
+    // Scope is decided once, at creation (the plan's rule 3) — so it has to be ONE scope.
+    if (p.spaceId !== null && p.profileId !== null) throw new RpcError("SCOPE_MISMATCH", "pass spaceId or profileId, not both");
     if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
-    const server = d.mcp.add(p, p.spaceId);
-    // A new server is enabled ONLY in the space it was added from (`McpService.add`'s own doc comment) —
-    // but a live session already running in exactly that space needs to see it show up without a
-    // restart. This is the add-server flow W6's settings UI drives end to end.
+    if (p.profileId !== null && !d.profiles.get(p.profileId)) throw new NotFoundError("profile", p.profileId);
+    const server = d.mcp.add(p, p.spaceId, p.profileId);
+    // A new space-scoped server is enabled ONLY in the space it was added from (`McpService.add`'s own
+    // doc comment) — but a live session already running in exactly that space needs to see it show up
+    // without a restart. A profile-scoped one arms every space of the profile (default ON), so every
+    // one of them is told. This is the add-server flow W6's settings UI drives end to end.
     if (p.spaceId) d.gateway.notifyPolicyChanged(p.spaceId);
+    if (p.profileId) for (const sp of d.spaces.list(p.profileId)) d.gateway.notifyPolicyChanged(sp.id);
     rpc.broadcast("mcp.changed", {});
     return server;
   });
@@ -159,8 +180,33 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
+  // Promote is effective-set neutral and demote strips siblings (`McpService.promote`/`demote` doc
+  // comments), but visibility moves for every space of the profile either way — and a pre-scoping row
+  // leaves other profiles' lists on promote — so every space re-lists and every session is nudged.
+  const mcpScopeChanged = () => {
+    for (const sp of d.spaces.listAll()) d.gateway.notifyPolicyChanged(sp.id);
+    rpc.broadcast("mcp.changed", {});
+  };
+  reg("mcp.promote", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.mcp.promote(p.spaceId, p.id);
+    mcpScopeChanged();
+    return { ok: true as const };
+  });
+  reg("mcp.demote", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.mcp.demote(p.spaceId, p.id);
+    mcpScopeChanged();
+    return { ok: true as const };
+  });
   /** Realm-native gateway providers (`realm-browser`): default ON, per-space off switch. Same
    *  policy-change plumbing as `mcp.setEnabled` — connected sessions re-list. */
+  /** The gateway's registered providers with this space's switch state (W4) — names from the code
+   *  registry, `enabled` from McpService's per-space disable set (default ON). */
+  reg("mcp.providers.list", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return { providers: d.gateway.providerNames().map((name) => ({ name, enabled: d.mcp.providerEnabled(p.spaceId, name) })) };
+  });
   reg("mcp.setProviderEnabled", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.mcp.setProviderEnabled(p.spaceId, p.name, p.enabled);
@@ -222,6 +268,24 @@ export function registerMethods(d: Deps): void {
   reg("memory.setAgentsFile", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     const r = d.memory.setAgentsFile(p.spaceId, p.enabled);
+    rpc.broadcast("memory.changed", { spaceId: p.spaceId });
+    return r;
+  });
+  // The PROFILE doc (W2): read anywhere, edited only at its defining scope. A profile-doc edit reaches
+  // every space of the profile, so each of their panels is told.
+  reg("memory.getProfile", (p) => {
+    if (!d.profiles.get(p.profileId)) throw new NotFoundError("profile", p.profileId);
+    return d.memory.profileState(p.profileId);
+  });
+  reg("memory.setProfile", (p) => {
+    if (!d.profiles.get(p.profileId)) throw new NotFoundError("profile", p.profileId);
+    const r = d.memory.setProfile(p.profileId, p.doc);
+    for (const sp of d.spaces.list(p.profileId)) rpc.broadcast("memory.changed", { spaceId: sp.id });
+    return r;
+  });
+  reg("memory.setProfileDocEnabled", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const r = d.memory.setProfileDocEnabled(p.spaceId, p.enabled);
     rpc.broadcast("memory.changed", { spaceId: p.spaceId });
     return r;
   });
@@ -315,6 +379,12 @@ export function registerMethods(d: Deps): void {
   });
   reg("browserHost.result", (p) => { d.browserBridge.handleResult(p); return { ok: true as const }; });
 
+  // The feed (Plan 12 W5). Reads and read-marking only: rows are written by the producers' hooks
+  // (sessions, hub, refusal sites), never over RPC. Both answers carry the server-computed unread
+  // count, the sidebar pill's one source; the service broadcasts `notifications.changed` itself.
+  reg("notifications.list", (p) => d.notifications.list(p));
+  reg("notifications.markRead", (p) => d.notifications.markRead(p));
+
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
   reg("sessions.listAll", () => d.sessions.listAll());
@@ -325,6 +395,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode }));
   reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
+  reg("sessions.setEnvironment", (p) => d.sessions.setEnvironment(p.id, p.environmentId));
   reg("sessions.events", (p) => d.sessions.events(p.id, p.afterSeq, p.limit));
   reg("sessions.openTerminal", (p) => d.sessions.openTerminal(p.id));
   reg("sessions.delete", async (p) => { await d.sessions.delete(p.id); return { ok: true as const }; });

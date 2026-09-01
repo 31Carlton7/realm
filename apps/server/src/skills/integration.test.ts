@@ -92,6 +92,25 @@ describe("skills over rpc", () => {
     c.close();
   });
 
+  it("promote/demote move the defining scope over RPC, broadcasting to every space (W2)", async () => {
+    const { c, sp, home } = await boot();
+    const p2 = (await c.call("profiles.create", { name: "P2" })).result;
+    const other = (await c.call("spaces.create", { profileId: p2.id, name: "Elsewhere" })).result;
+    skill(join(home, "skills"), "mac");
+    // Pre-scoping: visible in both profiles' spaces.
+    expect((await c.call("skills.list", { spaceId: other.id })).result.skills.map((s: Any) => s.id)).toEqual(["mac"]);
+    expect((await c.call("skills.promote", { spaceId: sp.id, id: "mac" })).result).toEqual({ ok: true });
+    // The other profile's panel is told, and the skill has left its list.
+    await waitFor(() => c.events.some((e: Any) => e.event === "skills.changed" && e.payload.spaceId === other.id));
+    expect((await c.call("skills.list", { spaceId: other.id })).result.skills).toEqual([]);
+    expect((await c.call("skills.list", { spaceId: sp.id })).result.skills[0].scope).toEqual({ kind: "profile", profileId: sp.profileId });
+    // Demote from the wrong profile is refused with an actionable code; from its own space it lands.
+    expect((await c.call("skills.demote", { spaceId: other.id, id: "mac" })).error.code).toBe("SCOPE_MISMATCH");
+    expect((await c.call("skills.demote", { spaceId: sp.id, id: "mac" })).result).toEqual({ ok: true });
+    expect((await c.call("skills.list", { spaceId: sp.id })).result.skills[0].scope).toEqual({ kind: "space", spaceId: sp.id });
+    c.close();
+  });
+
   it("refuses a space that does not exist rather than reading preferences for a typo", async () => {
     const { c } = await boot();
     const gone = newId(); // well-formed, just not a space: the preferences are keyed by this id

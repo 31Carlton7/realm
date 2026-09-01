@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Profile, Project, RestorePreview, Session, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, Session, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -14,7 +14,8 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
-  ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null, ...extra });
+  ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
+    scope: { kind: "space", spaceId: null }, ...extra });
 
 export const agentsFileState = (extra: Partial<AgentsFileState> = {}): AgentsFileState =>
   ({ enabled: false, path: "/realm-home/spaces/s1/AGENTS.md", exists: false, managedByRealm: false, writable: true, reason: null, ...extra });
@@ -31,13 +32,18 @@ export const preview = (id: string, environmentId: string, extra: Partial<Restor
 export const mcpServer = (id: string, extra: Partial<McpServer> = {}): McpServer =>
   ({ id, name: `srv-${id}`, transport: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"], url: "",
     envKeys: [], headerKeys: [], authKind: "none", oauthStatus: "unconfigured", status: "idle", tools: [], allowedTools: null,
-    enabled: false, createdAt: 0, ...extra });
+    enabled: false, scope: { kind: "space", spaceId: null }, createdAt: 0, ...extra });
 export const mcpTool = (name: string, description = ""): McpTool => ({ name, description });
 /** A logged call (W7). `serverName: ""` + `tool` holding the full namespaced string is the
  *  blocked-attribution shape (plan amendment); tests that need it pass that combination explicitly. */
 export const mcpCall = (id: string, sessionId: string, extra: Partial<McpCall> = {}): McpCall =>
   ({ id, sessionId, serverId: "mcp1", serverName: "srv1", tool: "echo", argsJson: "{}", resultSummary: "ok",
     ok: true, durationMs: 120, ts: 0, ...extra });
+
+/** A feed row (W5). Defaults to an unread, already-acted session_done; ids must sort as ULIDs do. */
+export const notification = (id: string, extra: Partial<Notification> = {}): Notification =>
+  ({ id, category: "session_done", spaceId: "s1", sessionId: null, refId: null, title: "a session",
+    body: "Finished a turn", createdAt: 0, readAt: null, actedAt: 0, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
@@ -82,6 +88,9 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
+  /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
+   *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
+  tccRows?: TccRow[];
   /** MCP servers `mcp.list` answers with (W6). One flat list — see `mcpServer`'s doc comment. */
   mcpServers?: McpServer[];
   /** What the next `mcp.tools.list` answers for a given server id, if scripted; otherwise the fake
@@ -94,6 +103,17 @@ export type FakeData = {
   /** The full call log `mcp.calls.list` pages over (W7). Unordered on the way in — the fake sorts and
    *  filters like the real store does, so a test can just append in whatever order it likes. */
   mcpCalls?: McpCall[];
+  /** Realm-native providers `mcp.providers.list` answers with (W4). Flat like `mcpServers`: these
+   *  fakes exercise one space at a time. */
+  mcpProviders?: { name: string; enabled: boolean }[];
+  /** Profile memory docs by profile id (W4's Library page). */
+  profileMemoryDocs?: Record<string, string>;
+  /** Per-space disable override for the inherited profile doc — mirrors the server's polarity
+   *  (absent = inherited ON). */
+  profileDocDisabled?: Record<string, boolean>;
+  /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
+   *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
+  notifications?: Notification[];
 };
 
 export type FakeApi = Api & {
@@ -148,16 +168,38 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    tccRows: overrides.tccRows ?? [
+      { id: "filesAndFolders", label: "Files & Folders", state: "unknown", detail: "Can't be checked until used — macOS only reveals these grants by asking." },
+      { id: "automation", label: "Automation", state: "unknown", detail: "Can't be checked until used — grants are per-app-pair." },
+      { id: "screenRecording", label: "Screen Recording", state: "denied", detail: "macOS reports the grant as refused." },
+      { id: "accessibility", label: "Accessibility", state: "granted", detail: "macOS reports Realm as a trusted accessibility client." },
+      { id: "fullDisk", label: "Full Disk Access", state: "denied", detail: "macOS refused Realm a file only Full Disk Access unlocks." },
+    ],
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
     mcpCalls: overrides.mcpCalls ?? [],
+    mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true }],
+    profileMemoryDocs: overrides.profileMemoryDocs ?? {},
+    profileDocDisabled: overrides.profileDocDisabled ?? {},
+    notifications: overrides.notifications ?? [],
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const mcpWrites: FakeApi["mcpWrites"] = [];
-  const memState = (spaceId: string): MemoryState =>
-    ({ path: `/realm-home/memory/${spaceId}.md`, doc: data.memoryDocs[spaceId] ?? "", agentsFile: data.agentsFiles[spaceId] ?? agentsFileState() });
+  const memState = (spaceId: string): MemoryState => {
+    // The inherited profile doc rides along as the real `memory.get` reports it (W2/W4): the space's
+    // own profile, ON unless this space disabled it. Null only when the space is unknown.
+    const profileId = data.spaces.find((s) => s.id === spaceId)?.profileId ?? null;
+    return {
+      path: `/realm-home/memory/${spaceId}.md`, doc: data.memoryDocs[spaceId] ?? "",
+      agentsFile: data.agentsFiles[spaceId] ?? agentsFileState(),
+      profile: profileId === null ? null : {
+        profileId, path: `/realm-home/memory/profile-${profileId}.md`,
+        doc: data.profileMemoryDocs[profileId] ?? "", enabledHere: !data.profileDocDisabled[spaceId],
+      },
+    };
+  };
   const api: FakeApi = {
     calls, disposed, sent, mcpWrites, delays: {}, onCreateTerminal: null, data,
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
@@ -227,6 +269,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     deleteItem: async (id) => { calls.push(`deleteItem:${id}`); for (const k of Object.keys(data.items)) data.items[k] = data.items[k]!.filter((i) => i.id !== id); },
     getSetting: async (key) => { calls.push(`getSetting:${key}`); return data.settings[key] ?? null; },
     setSetting: async (key, value) => { calls.push(`setSetting:${key}=${String(value)}`); data.settings[key] = value; },
+    machineName: async () => { calls.push("machineName"); return "Carlton's M4 MacBook Pro"; },
     pickFolder: async () => "/tmp/picked-repo",
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
@@ -265,6 +308,27 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = rows.findIndex((s) => s.id === id);
       if (i >= 0) rows[i] = { ...rows[i]!, enabled };
     },
+    promoteSkill: async (spaceId, id) => {
+      calls.push(`promoteSkill:${spaceId}:${id}`);
+      // Mirrors the server: the defining scope becomes the VANTAGE space's profile — one scope map,
+      // so the row flips in every space of that profile that lists it.
+      const profileId = findSpace(spaceId).profileId;
+      for (const [sid, rows] of Object.entries(data.skills)) {
+        if (data.spaces.find((s) => s.id === sid)?.profileId !== profileId) continue;
+        const i = rows.findIndex((s) => s.id === id);
+        if (i >= 0) rows[i] = { ...rows[i]!, scope: { kind: "profile", profileId } };
+      }
+    },
+    demoteSkill: async (spaceId, id) => {
+      calls.push(`demoteSkill:${spaceId}:${id}`);
+      // Mirrors the server: pinned to this space; profile siblings stop listing it.
+      for (const [sid, rows] of Object.entries(data.skills)) {
+        const i = rows.findIndex((s) => s.id === id);
+        if (i < 0) continue;
+        if (sid === spaceId) rows[i] = { ...rows[i]!, scope: { kind: "space", spaceId } };
+        else if (rows[i]!.scope.kind === "profile") rows.splice(i, 1);
+      }
+    },
     testMcpServer: async (id) => {
       calls.push(`testMcpServer:${id}`);
       await wait(`testMcpServer:${id}`);
@@ -284,6 +348,22 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       // Mirrors the server: turning ON is refused where the folder is not Realm's; turning OFF is safe.
       if (enabled && !af.writable) throw new Error(af.reason ?? "Realm will not write an AGENTS.md here");
       data.agentsFiles[spaceId] = { ...af, enabled, exists: enabled || (af.exists && !af.managedByRealm), managedByRealm: enabled };
+      return memState(spaceId);
+    },
+    getProfileMemory: async (profileId) => {
+      calls.push(`getProfileMemory:${profileId}`);
+      return { profileId, path: `/realm-home/memory/profile-${profileId}.md`, doc: data.profileMemoryDocs[profileId] ?? "" };
+    },
+    setProfileMemory: async (profileId, doc) => {
+      calls.push(`setProfileMemory:${profileId}:${doc.length}`);
+      if (doc.length > MEMORY_DOC_MAX) throw new Error(`the memory document is capped at ${MEMORY_DOC_MAX} characters`);
+      data.profileMemoryDocs[profileId] = doc;
+      return { profileId, path: `/realm-home/memory/profile-${profileId}.md`, doc };
+    },
+    setProfileDocEnabled: async (spaceId, enabled) => {
+      // The per-space override, exactly as the server keys it — the doc itself is untouched.
+      calls.push(`setProfileDocEnabled:${spaceId}=${enabled}`);
+      data.profileDocDisabled[spaceId] = !enabled;
       return memState(spaceId);
     },
     memorySources: async (sessionId) => {
@@ -306,6 +386,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (data.sessions[i]!.lastEventSeq > 0) throw new Error("this session has already run; its agent can no longer be changed");
       const s = { ...data.sessions[i]!, agentKind, model: null }; data.sessions[i] = s; return s;
     },
+    setSessionEnvironment: async (id, environmentId) => {
+      calls.push(`setSessionEnvironment:${id}=${environmentId}`);
+      const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
+      // Mirrors the server: the same one-persisted-event lock as setAgent, and cwd follows the row.
+      if (data.sessions[i]!.lastEventSeq > 0) throw new Error("this session has already run; it can no longer move to another checkout");
+      const env = Object.values(data.environments).flat().find((e) => e.id === environmentId);
+      if (!env) throw new Error(`no environment ${environmentId}`);
+      if (env.spaceId !== data.sessions[i]!.spaceId) throw new Error("that environment belongs to another space");
+      const s = { ...data.sessions[i]!, environmentId, cwd: env.path }; data.sessions[i] = s; return s;
+    },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     // Mirrors the server: get-or-create, so a second call for the same session returns the same trio —
     // and the hidden item never joins `data.items` (it is not a sidebar item).
@@ -322,6 +412,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     writeTerminal: async (terminalId, data) => { calls.push(`writeTerminal:${terminalId}=${data}`); },
     prefillTerminal: async (terminalId, command) => { calls.push(`prefillTerminal:${terminalId}=${command}`); },
+    tccProbe: async () => { calls.push("tccProbe"); return [...data.tccRows]; },
+    openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");
@@ -444,6 +536,22 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, enabled };
     },
+    promoteMcpServer: async (spaceId, id) => {
+      calls.push(`promoteMcpServer:${spaceId}:${id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, scope: { kind: "profile", profileId: findSpace(spaceId).profileId } };
+    },
+    demoteMcpServer: async (spaceId, id) => {
+      calls.push(`demoteMcpServer:${spaceId}:${id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, scope: { kind: "space", spaceId } };
+    },
+    listMcpProviders: async (spaceId) => { calls.push(`listMcpProviders:${spaceId}`); return data.mcpProviders.map((p) => ({ ...p })); },
+    setMcpProviderEnabled: async (spaceId, name, enabled) => {
+      calls.push(`setMcpProviderEnabled:${spaceId}:${name}=${enabled}`);
+      const i = data.mcpProviders.findIndex((p) => p.name === name); if (i < 0) throw new Error(`no provider ${name}`);
+      data.mcpProviders[i] = { ...data.mcpProviders[i]!, enabled };
+    },
     mcpToolsList: async (id) => {
       calls.push(`mcpToolsList:${id}`);
       const err = data.mcpToolsError[id] ?? null;
@@ -487,6 +595,29 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       rows.sort((a, b) => b.ts - a.ts || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
       return { calls: rows.slice(0, limit) };
+    },
+    // Mirrors NotificationsStore.list (apps/server/src/store/notifications.ts): created_at DESC, id
+    // DESC, `${createdAt}:${id}` cursor — and the unread count comes from the whole set, never the
+    // page, because the pill's number is the SERVER's derivation on the real wire too.
+    listNotifications: async (cursor, limit) => {
+      calls.push(`listNotifications:${cursor ?? "-"}:${limit ?? "-"}`);
+      const cap = Math.max(1, Math.min(limit ?? 100, 200));
+      let rows = [...data.notifications].sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      if (cursor) {
+        const i = cursor.indexOf(":"); const at = Number(cursor.slice(0, i)); const id = cursor.slice(i + 1);
+        rows = rows.filter((x) => x.createdAt < at || (x.createdAt === at && x.id < id));
+      }
+      const page = rows.slice(0, cap);
+      return { notifications: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null,
+        unread: data.notifications.filter((x) => x.readAt === null).length };
+    },
+    markNotificationsRead: async (input) => {
+      calls.push(`markNotificationsRead:${input.all ? "all" : (input.ids ?? []).join(",")}`);
+      const t = Date.now();
+      for (const x of data.notifications) {
+        if (x.readAt === null && (input.all || (input.ids ?? []).includes(x.id))) x.readAt = t;
+      }
+      return { ok: true as const, unread: data.notifications.filter((x) => x.readAt === null).length };
     },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));

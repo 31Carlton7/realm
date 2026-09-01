@@ -1,5 +1,5 @@
 import type { Db } from "../db/database";
-import { newId, type McpTransport } from "@realm/contracts";
+import { newId, type ItemScope, type McpTransport } from "@realm/contracts";
 import { NotFoundError, RpcError, now } from "./rows";
 
 /** One cached entry from an upstream server's `tools/list` — enough for settings to render a tool list
@@ -33,14 +33,26 @@ export type McpServerRow = {
   oauthJson: string;
   /** The last successful `tools/list`, cached so settings can render it without connecting. */
   tools: McpToolRow[];
+  /** Where this server is defined (Plan 12 W2) — see the v11 migration comment and `ItemScope`. */
+  scope: ItemScope;
   createdAt: number;
   updatedAt: number;
 };
 
 type Row = {
   id: string; name: string; transport: string; command: string; args_json: string; url: string;
-  secrets_json: string; oauth_json: string; tools_json: string; created_at: number; updated_at: number;
+  secrets_json: string; oauth_json: string; tools_json: string;
+  scope: string; scope_space_id: string | null; scope_profile_id: string | null;
+  created_at: number; updated_at: number;
 };
+
+/** Columns → `ItemScope`. A 'profile' row whose profile was deleted (scope_profile_id NULL — see the
+ *  v11 ON DELETE SET NULL comment) degrades to the pre-scoping space scope: still listed everywhere,
+ *  opt-in per space, rather than a row that exists but can never appear anywhere. */
+const parseScope = (r: Row): ItemScope =>
+  r.scope === "profile" && r.scope_profile_id !== null
+    ? { kind: "profile", profileId: r.scope_profile_id }
+    : { kind: "space", spaceId: r.scope === "profile" ? null : r.scope_space_id };
 
 /** Both JSON columns are Realm's own writes, so a parse failure is corruption, not input — degrade to
  *  empty rather than making the whole list unreadable because one row went bad. */
@@ -68,6 +80,7 @@ const toServer = (r: Row): McpServerRow => ({
   id: r.id, name: r.name, transport: r.transport as McpTransport, command: r.command,
   args: parseArgs(r.args_json), url: r.url, secrets: parseSecrets(r.secrets_json),
   oauthJson: r.oauth_json, tools: parseTools(r.tools_json),
+  scope: parseScope(r),
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
@@ -89,11 +102,28 @@ export class McpServersStore {
     return r ? toServer(r) : null;
   }
 
-  create(input: McpServerInput): McpServerRow {
+  /** `scope` defaults to the pre-scoping space scope (spaceId null) — `McpService.add` passes the real
+   *  defining scope; older callers and tests get exactly the pre-W2 row. */
+  create(input: McpServerInput, scope: ItemScope = { kind: "space", spaceId: null }): McpServerRow {
     const id = newId(); const t = now();
     this.guardName(input.name, null);
-    this.db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, input.name, input.transport, input.command, JSON.stringify(input.args), input.url, JSON.stringify(input.secrets), t, t);
+    this.db.prepare(`INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, scope, scope_space_id, scope_profile_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, input.name, input.transport, input.command, JSON.stringify(input.args), input.url, JSON.stringify(input.secrets),
+        scope.kind, scope.kind === "space" ? scope.spaceId : null, scope.kind === "profile" ? scope.profileId : null, t, t);
+    return this.get(id)!;
+  }
+
+  /**
+   * Move the row's defining scope (promote/demote). Deliberately NOT part of `update()`: a scope move
+   * is a different user action from an edit (it changes which spaces see the server, not what the
+   * server is), and `update()`'s carry-forward semantics must never be able to move a scope as a side
+   * effect of a rename.
+   */
+  setScope(id: string, scope: ItemScope): McpServerRow {
+    if (!this.get(id)) throw new NotFoundError("mcp server", id);
+    this.db.prepare("UPDATE mcp_servers SET scope = ?, scope_space_id = ?, scope_profile_id = ?, updated_at = ? WHERE id = ?")
+      .run(scope.kind, scope.kind === "space" ? scope.spaceId : null, scope.kind === "profile" ? scope.profileId : null, now(), id);
     return this.get(id)!;
   }
 

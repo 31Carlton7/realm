@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
-import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
@@ -55,7 +54,6 @@ function SheetHost() {
   const sheet = useApp((s) => s.sheet);
   if (!sheet) return null;
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
-  if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;
@@ -161,12 +159,19 @@ export function App() {
     const offBD = rpc().on("browser.driving", (p) => store.getState().applyBrowserDriving(p));
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
+    // The feed (Plan 12 W5): every change carries the server's unread count for the sidebar pill, and
+    // a surfaced row for the focused-pane auto-read — see applyNotificationsChanged.
+    const offN = rpc().on("notifications.changed", (p) => store.getState().applyNotificationsChanged(p));
     // No payload — `mcp.changed` just means "something about some server changed". Only worth a refetch
-    // while the settings sheet is actually open on a space's server list. (One subscription, not one
-    // per held space: since the merge there is a single MCP settings surface, and it is in this sheet.)
+    // while a space page's Connections tab is actually mounted on a space's server list (Plan 12 W3:
+    // the settings sheet is gone; `mcpPanelSpaceId` is McpSection's mounted-for-which-space record).
     const offM = rpc().on("mcp.changed", () => {
-      const sheet = store.getState().sheet;
-      if (sheet?.kind === "space-settings") store.getState().run(() => store.getState().refreshMcpServers(sheet.spaceId));
+      const st = store.getState();
+      const panelSpaceId = st.mcpPanelSpaceId;
+      if (panelSpaceId) st.run(() => st.refreshMcpServers(panelSpaceId));
+      // The plus-menu's per-space cache (Plan 12 W1): only spaces already fetched — a space whose menu
+      // was never opened has nothing to go stale.
+      for (const spaceId of Object.keys(st.connectors)) st.run(() => st.refreshConnectors(spaceId));
     });
     const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
     // Broadcast for EVERY space/session (binding rule 5) — applyMcpCall itself is the gate on whether
@@ -184,7 +189,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

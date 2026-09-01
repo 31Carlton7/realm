@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
-import { fakeApi, item, session, skillRow, space, type FakeApi } from "./store.test-fakes";
+import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
+import { allItems, findLeafOfItem, firstLeaf, sessionEvent, PAGE_REF_IDS, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { fakeApi, item, mcpServer, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
 const split = (id: string, dir: "row" | "col", children: Layout[]): Layout =>
@@ -154,8 +154,8 @@ describe("app store", () => {
   it("palette and sheet flags toggle", async () => {
     const store = createAppStore(api);
     store.getState().setPaletteOpen(true); expect(store.getState().paletteOpen).toBe(true);
-    store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
-    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1" });
+    store.getState().openSheet({ kind: "new-space" });
+    expect(store.getState().sheet).toEqual({ kind: "new-space" });
     store.getState().closeSheet(); expect(store.getState().sheet).toBeNull();
   });
 
@@ -1061,7 +1061,7 @@ describe("app store", () => {
       const store = await seed();
       const original = store.getState().layout!;
       store.getState().openSheet({ kind: "new-space" });
-      store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
+      store.getState().openSheet({ kind: "activity" });
       expect(store.getState().sheetSnap?.saved).toBe(original);
       store.getState().closeSheet();
       expect(store.getState().layout).toBe(original);
@@ -1782,5 +1782,181 @@ describe("browser watching state (Plan 11 W4)", () => {
     await store.getState().deleteItem("i1");
     expect(store.getState().browserActions.b1).toBeUndefined();
     expect(store.getState().browserDriving.b1).toBeUndefined();
+  });
+});
+
+describe("under-strip: environment rebinding + the '+' menu's connectors cache (Plan 12 W1)", () => {
+  const env = (id: string, spaceId: string, extra: Partial<Environment> = {}): Environment =>
+    ({ id, spaceId, path: `/tmp/${id}`, branch: null, kind: "checkout", portBlockStart: null, createdAt: 0, updatedAt: 0, ...extra });
+  const seed = () => fakeApi({
+    items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+    sessions: [session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA" })],
+    environments: { s1: [env("envA", "s1", { kind: "primary" }), env("envB", "s1")] },
+  });
+
+  it("setSessionEnvironment sends EXACTLY the picked id and renders the server's answer (cwd follows)", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    await store.getState().setSessionEnvironment("se1", "envB");
+    expect(a.calls).toContain("setSessionEnvironment:se1=envB");
+    expect(store.getState().sessions.se1).toMatchObject({ environmentId: "envB", cwd: "/tmp/envB" });
+    // The chips must describe the NEW tree: a git refresh was kicked for the new cwd.
+    await tick();
+    expect(a.calls).toContain("gitInfo:/tmp/envB");
+  });
+
+  it("a session with events is refused by the (fake) server and the store keeps the truth", async () => {
+    const a = seed();
+    a.data.sessions[0] = session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA", lastEventSeq: 3 });
+    const store = createAppStore(a); await store.getState().boot();
+    await expect(store.getState().setSessionEnvironment("se1", "envB")).rejects.toThrow(/already run/);
+    expect(store.getState().sessions.se1?.environmentId).toBe("envA");
+  });
+
+  it("moveSessionToNewWorktree creates AND selects — the worktree is titled from the draft's first words", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    store.getState().setDraft("se1", "Fix the flaky checkpoint test before it bites again");
+    await store.getState().moveSessionToNewWorktree("se1");
+    expect(a.calls).toContain("createWorktree:s1");
+    const made = a.data.environments.s1!.at(-1)!;
+    expect(made.branch).toBe("realm/fix-the-flaky-checkpoint"); // first 4 words, slugged by the (fake) server
+    // Creating without selecting is the named mutant: the session must now BE in the new worktree.
+    expect(a.calls).toContain(`setSessionEnvironment:se1=${made.id}`);
+    expect(store.getState().sessions.se1?.environmentId).toBe(made.id);
+    expect(store.getState().environments[made.id]).toEqual(made); // the selector can render it at once
+  });
+
+  it("moveSessionToNewWorktree with an empty draft lets the server name it 'session'", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    await store.getState().moveSessionToNewWorktree("se1");
+    expect(a.data.environments.s1!.at(-1)!.branch).toBe("realm/session");
+  });
+
+  it("worktreeTitleFrom: first four words, clipped; whitespace-only is null", () => {
+    expect(worktreeTitleFrom("Fix the flaky checkpoint test tomorrow")).toBe("Fix the flaky checkpoint");
+    expect(worktreeTitleFrom("  one\n two  ")).toBe("one two");
+    expect(worktreeTitleFrom("   \n ")).toBeNull();
+    expect(worktreeTitleFrom("")).toBeNull();
+    expect(worktreeTitleFrom("x".repeat(90))!.length).toBeLessThanOrEqual(40);
+  });
+
+  it("boot fetches the machine name; a failure degrades to '' instead of failing boot", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    expect(store.getState().machineName).toBe("Carlton's M4 MacBook Pro");
+    const b = seed();
+    b.machineName = async () => { throw new Error("no scutil"); };
+    const store2 = createAppStore(b); await store2.getState().boot();
+    expect(store2.getState().booted).toBe(true);
+    expect(store2.getState().machineName).toBe("");
+  });
+
+  it("refreshConnectors caches per space, and mcp.serverStatus broadcasts patch the cache live", async () => {
+    const a = seed();
+    a.data.mcpServers = [mcpServer("m1", { name: "linear", enabled: true, status: "idle" })];
+    const store = createAppStore(a); await store.getState().boot();
+    await store.getState().refreshConnectors("s1");
+    expect(store.getState().connectors.s1).toMatchObject([{ id: "m1", status: "idle" }]);
+    // The live push is the ONLY thing that turns the dot — never a fixed status (named mutant).
+    store.getState().applyMcpServerStatus({ id: "m1", status: "connected", oauthStatus: "unconfigured" });
+    expect(store.getState().connectors.s1).toMatchObject([{ id: "m1", status: "connected" }]);
+    store.getState().applyMcpServerStatus({ id: "m1", status: "circuit_open", oauthStatus: "reconnect_needed" });
+    expect(store.getState().connectors.s1).toMatchObject([{ id: "m1", status: "circuit_open", oauthStatus: "reconnect_needed" }]);
+  });
+});
+
+/** Plan 12 W3: the space page — a `space-page` item whose refId is the SPACE id (diff-pane precedent). */
+describe("openSpacePage", () => {
+  it("creates ONE page per space, opens it into the layout, and dedups every later open", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openSpacePage("s1");
+    const page = store.getState().items.find((i) => i.kind === "space-page")!;
+    expect(page).toMatchObject({ refId: "s1", spaceId: "s1", title: "Overview" });
+    expect(allItems(store.getState().layout!)).toContain(page.id);
+    // Second open — with a tab this time: no second item, but the tab still lands.
+    await store.getState().openSpacePage("s1", "connections");
+    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("space-page"))).toHaveLength(1);
+    expect(store.getState().items.filter((i) => i.kind === "space-page")).toHaveLength(1);
+    expect(store.getState().spacePageTab.s1).toBe("connections");
+  });
+
+  it("never adopts a page into the WRONG space's layout — a stale spaceId is a no-op", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot(); // active: s1
+    await store.getState().openSpacePage("s2", "skills");
+    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
+    expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
+    // The tab preference still lands, so opening s2's page later starts where the caller asked.
+    expect(store.getState().spacePageTab.s2).toBe("skills");
+  });
+
+  it("the tab selection is per space — one space's rail never leaks onto another's page", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    store.getState().setSpacePageTab("s1", "history");
+    store.getState().setSpacePageTab("s2", "memory");
+    expect(store.getState().spacePageTab).toEqual({ s1: "history", s2: "memory" });
+  });
+});
+
+/** Plan 12 W4: the sidebar destinations — `library-page`/`connections-page` items whose refId is the
+ *  kind's well-known sentinel (PAGE_REF_IDS) and whose spaceId is the vantage the page reads from. */
+describe("openDestinationPage", () => {
+  it("creates ONE Library page in the active space, opens it, and dedups every later open (named mutant: two Library panes)", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot(); // active: s1
+    await store.getState().openDestinationPage("library-page");
+    const page = store.getState().items.find((i) => i.kind === "library-page")!;
+    expect(page).toMatchObject({ spaceId: "s1", title: "Library", refId: PAGE_REF_IDS["library-page"] });
+    expect(allItems(store.getState().layout!)).toContain(page.id);
+    await store.getState().openDestinationPage("library-page");
+    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("library-page"))).toHaveLength(1);
+    expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1);
+  });
+
+  it("Library and Connections are separate pages — opening one never satisfies the other's dedup", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openDestinationPage("library-page");
+    await store.getState().openDestinationPage("connections-page");
+    const kinds = store.getState().items.map((i) => i.kind);
+    expect(kinds.filter((k) => k === "library-page")).toHaveLength(1);
+    expect(kinds.filter((k) => k === "connections-page")).toHaveLength(1);
+    expect(store.getState().items.find((i) => i.kind === "connections-page")).toMatchObject({ title: "Connections", refId: PAGE_REF_IDS["connections-page"] });
+  });
+
+  it("with no active space (mid-boot) it is a no-op rather than an item with nowhere to live", async () => {
+    const api = fakeApi({ spaces: [] });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openDestinationPage("library-page");
+    expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
+  });
+});
+
+/** The `mcpServers` guard moved off the retired sheet (Plan 12 W3): `mcpPanelSpaceId` — set by the
+ *  Connections panel's mount/unmount — decides whether a `mcp.list` response may land. */
+describe("refreshMcpServers guard (space page era)", () => {
+  it("applies the list only while THAT space's panel is mounted; late or foreign responses are dropped", async () => {
+    const api = fakeApi({ mcpServers: [mcpServer("m1")] });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    // No panel mounted: the response must be dropped, not shown to whoever mounts next.
+    await store.getState().refreshMcpServers("s1");
+    expect(store.getState().mcpServers).toEqual([]);
+    // s1's panel mounted: applies.
+    store.getState().clearMcpServers("s1");
+    await store.getState().refreshMcpServers("s1");
+    expect(store.getState().mcpServers).toHaveLength(1);
+    // Panel re-mounted for s2 (space switched under a slow s1 response): s1's response is stale.
+    store.getState().clearMcpServers("s2");
+    await store.getState().refreshMcpServers("s1");
+    expect(store.getState().mcpServers).toEqual([]);
+    // Unmount clears the record entirely.
+    store.getState().clearMcpServers(null);
+    expect(store.getState().mcpPanelSpaceId).toBeNull();
   });
 });

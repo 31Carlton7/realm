@@ -1,8 +1,10 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
+  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
+  type DestinationPageKind, type NotificationCategory,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -83,6 +85,8 @@ export type Api = {
   deleteItem(id: string): Promise<void>;
   getSetting(key: string): Promise<unknown>;
   setSetting(key: string, value: unknown): Promise<void>;
+  /** `system.info.machineName` — the under-strip's display-only machine label (Plan 12 W1). */
+  machineName(): Promise<string>;
   /** Native folder picker; resolves null when cancelled. */
   pickFolder(): Promise<string | null>;
   /** Native multi-select file picker; resolves [] when cancelled. */
@@ -105,6 +109,11 @@ export type Api = {
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
   /** `skills.setEnabled` — one skill, one SPACE. The store is a per-space disabled set. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `skills.promote` — move a skill's defining scope from space level into `spaceId`'s profile (W2
+   *  RPC, W4 UI). Effective-set neutral at the moment it runs; what changes is reach. */
+  promoteSkill(spaceId: string, id: string): Promise<void>;
+  /** `skills.demote` — pin a profile-scoped skill to `spaceId` alone. */
+  demoteSkill(spaceId: string, id: string): Promise<void>;
   /** `mcp.test` — a live connection attempt from realm-server; resolves reached/failed with a sentence.
    *  The rest of the MCP surface is declared with the gateway methods further down. */
   testMcpServer(id: string): Promise<McpTestResult>;
@@ -124,6 +133,8 @@ export type Api = {
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
   /** `sessions.setAgent` — rejected by the server once the session has any event. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
+  /** `sessions.setEnvironment` — same guard: rejected once the session has any event. */
+  setSessionEnvironment(id: string, environmentId: string): Promise<Session>;
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
   /** `sessions.openTerminal` — get-or-create the session's terminal side panel. The FIRST call is what
@@ -136,6 +147,11 @@ export type Api = {
   prefillTerminal(terminalId: string, command: string): Promise<void>;
   /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
   probeAgents(force: boolean): Promise<AgentProbe[]>;
+  /** The macOS Permissions tab's rows (Plan 12 W6) — main-process IPC, not RPC. Honest by
+   *  construction: the probe behind it never triggers a TCC prompt (see main/tcc.ts). */
+  tccProbe(): Promise<TccRow[]>;
+  /** Deep-link one permission row's System Settings pane. Takes the ROW id; main owns the URLs. */
+  openTccPane(pane: string): Promise<void>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
   /** `workspace.diff` — the changed-file list. Null when cwd is not a repo. */
@@ -167,6 +183,20 @@ export type Api = {
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.promote` / `mcp.demote` — move a server's defining scope (W2 RPCs, W4 UI). */
+  promoteMcpServer(spaceId: string, id: string): Promise<void>;
+  demoteMcpServer(spaceId: string, id: string): Promise<void>;
+  /** `mcp.providers.list` — the gateway's Realm-native toolsets with THIS space's switch state (W4). */
+  listMcpProviders(spaceId: string): Promise<{ name: string; enabled: boolean }[]>;
+  /** `mcp.setProviderEnabled` — providers default ON (Realm's own code); this is the per-space off switch. */
+  setMcpProviderEnabled(spaceId: string, name: string, enabled: boolean): Promise<void>;
+  /** `memory.getProfile` / `memory.setProfile` — the profile doc at its DEFINING scope; a save applies
+   *  to every space of the profile, which is why the editor for it must say so (W4's Library page). */
+  getProfileMemory(profileId: string): Promise<ProfileMemoryDoc>;
+  setProfileMemory(profileId: string, doc: string): Promise<ProfileMemoryDoc>;
+  /** `memory.setProfileDocEnabled` — THIS space's inheritance override for the profile doc, never a
+   *  write to the doc itself. */
+  setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<MemoryState>;
   /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
    *  the list is still a renderable result. */
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
@@ -180,10 +210,35 @@ export type Api = {
   /** `mcp.calls.list` — Realm's own call log (Activity), newest first. `before` pages backward by the
    *  composite `{ ts, id }` cursor (W1 amendment); omitted, it starts from the top. */
   mcpCallsList(params: McpCallsFilter & { before?: { ts: number; id: string }; limit?: number }): Promise<{ calls: McpCall[] }>;
+  /** `notifications.list` (Plan 12 W5): one page of the global feed, plus the server's unread count —
+   *  the ONE source every unread badge renders. */
+  listNotifications(cursor: string | null, limit?: number): Promise<{ notifications: Notification[]; nextCursor: string | null; unread: number }>;
+  /** `notifications.markRead` — named ids, or the whole (global) feed. */
+  markNotificationsRead(input: { ids?: string[]; all?: boolean }): Promise<{ ok: true; unread: number }>;
 };
 
 /** The two narrowing dimensions Activity's chips apply — `undefined` means "not filtering by this". */
 export type McpCallsFilter = { sessionId?: string; serverId?: string };
+
+/** `memory.getProfile`'s shape: the profile doc at its defining scope — no per-space fields, because
+ *  the defining scope has none (`enabledHere` belongs to `MemoryState.profile`, a space's view). */
+export type ProfileMemoryDoc = { profileId: string; path: string; doc: string };
+
+/** One Realm-native gateway toolset as `mcp.providers.list` reports it for a space (W4). */
+export type McpProvider = { name: string; enabled: boolean };
+
+/** Item titles for the destination pages (W4). Static like the space page's "Overview": the page
+ *  header renders the live copy, so a snapshot in the item row has nothing to go stale against. */
+export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
+  "library-page": "Library",
+  "connections-page": "Connections",
+  "notifications-page": "Notifications",
+  "settings-page": "Settings",
+};
+
+/** Feed page size (W5). Modest: the page is a glance at what waited, not an archive browser —
+ *  "Load more" pages further on the server's cursor. */
+export const NOTIFICATIONS_PAGE = 50;
 
 /** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
 export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean };
@@ -236,10 +291,15 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
   return out;
 }
 
+/** The space page's tab rail (Plan 12 W3). "connections" is what the retired sheet called "mcp" —
+ *  openers that used `tab: "mcp"` (the plus-menu's "Manage connections…") map to it. */
+export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sessions" | "history";
+
 /** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
  *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
 export type Sheet =
-  | { kind: "space-settings"; spaceId: string }
+  /** Space settings retired from this union (Plan 12 W3): a space is a PAGE now — a `space-page` item
+   *  in the layout, opened via `openSpacePage` — not a modal. */
   | { kind: "new-space" }
   /** Removing a worktree: the one destructive confirm in Plan 7, which must name what would be lost
    *  and pass an acknowledgement it re-read at the moment of confirming (W3). */
@@ -304,7 +364,25 @@ export type AppState = {
   sessionSpace: Record<string, string>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
+  /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what the page renders.
+   *  Empty until the page (or a broadcast) loads it; broadcasts prepend surfaced rows. */
+  notifications: Notification[];
+  /** The whole feed's unread count, applied VERBATIM from `notifications.list`/`notifications.changed`
+   *  — never derived by counting `notifications`, which only holds the pages fetched so far. One
+   *  derivation site (the server's store), one number everywhere. */
+  notificationsUnread: number;
+  /** `nextCursor` of the last page fetched; null = end reached (or nothing fetched yet). */
+  notificationsCursor: string | null;
   agentProbe: AgentProbe[];
+  /** The Settings page's App-tab preferences (Plan 12 W6), read from the server's settings rows:
+   *  which notification categories are switched OFF (`NOTIFICATIONS_DISABLED_KEY` — default-on
+   *  polarity, matching the service), and the permission mode new sessions start in
+   *  (`DEFAULT_PERMISSION_MODE_KEY`). Null until the page first loads them — the page fetches on
+   *  mount, and a null renders as loading rather than as every-toggle-on lies. */
+  settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string } | null;
+  /** The Permissions tab's TCC rows, exactly as main's prompt-free probe reported them; null until
+   *  the tab first probes. Never synthesised client-side — a row with no probe basis says so. */
+  tccRows: TccRow[] | null;
   /** Composer drafts by session id — store-owned so layout reshapes/pane remounts never lose typed
    *  text (A-M9). Never persisted; dropped when the session's item is deleted. */
   drafts: Record<string, string>;
@@ -367,9 +445,33 @@ export type AppState = {
   terminalPanel: Record<string, TerminalPanel>;
   /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
-  /** MCP servers for the space currently open in settings (W6) — `mcp.list`'s per-space projection.
-   *  Empty until `refreshMcpServers` runs; McpSection fetches on mount, i.e. on sheet open. */
+  /** `system.info.machineName` (Plan 12 W1) — the under-strip's machine label. Display only: Realm runs
+   *  agents on this Mac and no other, so there is no selector to back. "" until boot's fetch answers
+   *  (the strip renders nothing rather than a wrong name). */
+  machineName: string;
+  /** The prompter's Connectors submenu source (Plan 12 W1), by space id: the same `mcp.list` projection
+   *  the settings sheet reads, cached HERE so the menu shows LAST KNOWN state — `mcp.list` reads rows
+   *  and the hub's held status, it dials nothing, so refreshing on menu open never probes a server.
+   *  `mcp.serverStatus` broadcasts patch it live; absent = never fetched, rendered as such. */
+  connectors: Record<string, McpServer[]>;
+  /** MCP servers for the space whose Connections tab is currently mounted (W6) — `mcp.list`'s
+   *  per-space projection. Empty until `refreshMcpServers` runs; McpSection fetches on mount. */
   mcpServers: McpServer[];
+  /** Realm-native gateway providers for that same mounted space (W4) — fetched alongside
+   *  `mcpServers`, under the same `mcpPanelSpaceId` guard, cleared with them. */
+  mcpProviders: McpProvider[];
+  /** Profile memory docs at their defining scope, by profile id (W4: the Library page's
+   *  "Edit in profile" editor). Absent = never fetched. */
+  profileMemory: Record<string, ProfileMemoryDoc>;
+  /** Which space's Connections panel (McpSection) is mounted right now, null when none is. Set
+   *  synchronously by `clearMcpServers` on mount/unmount; it is the guard that keeps a slow
+   *  `mcp.list` response — or an `mcp.changed` refetch — from clobbering another space's list
+   *  (Plan 12 W3: the sheet whose open/closed state used to be this guard is gone). */
+  mcpPanelSpaceId: string | null;
+  /** The space page's selected tab, PER SPACE (Plan 12 W3): switching spaces must never carry one
+   *  space's tab — and with it another space's data fetch — onto a different space's page. Absent =
+   *  "general". */
+  spacePageTab: Record<string, SpacePageTab>;
   /** The last `mcp.tools.list` error per server id, `null` once a refresh succeeds. A RESULT, not an
    *  exception (see the Api doc comment) — kept apart from `error` so it renders inline on the row that
    *  caused it instead of stealing the app's one error banner. */
@@ -478,6 +580,16 @@ export type AppState = {
   /** Switch an unstarted session's agent (prompter model picker). The server refuses once events exist —
    *  cross-agent rows go unavailable there, so this is only ever called while it is legal. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
+  /** Move an unstarted session to another of its space's environments (the under-strip's workspace
+   *  selector, Plan 12 W1). Same server guard as the agent switch — after the first event the chip is a
+   *  label, so this is only ever called while it is legal. */
+  setSessionEnvironment(id: string, environmentId: string): Promise<void>;
+  /** The selector's "New worktree…": make the worktree (titled from the draft's first words, or the
+   *  server's "session" default) AND move the session into it — one action, so creating without
+   *  selecting cannot happen. */
+  moveSessionToNewWorktree(sessionId: string): Promise<void>;
+  /** Fetch a space's servers into `connectors` (plus-menu open, `mcp.changed`). */
+  refreshConnectors(spaceId: string): Promise<void>;
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
@@ -492,6 +604,10 @@ export type AppState = {
   refreshSkills(spaceId: string): Promise<void>;
   /** Toggle one skill for ONE space (the settings panel), then re-read that space's library. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** Move a skill's defining scope into `spaceId`'s profile (W4's "Move to profile"), then re-read. */
+  promoteSkill(spaceId: string, id: string): Promise<void>;
+  /** Pin a profile-scoped skill to `spaceId` alone (W4's "Move to this space"), then re-read. */
+  demoteSkill(spaceId: string, id: string): Promise<void>;
   /** `mcp.test`, resolved to the caller: the result is per-click UI state, not store state. The rest of
    *  the MCP actions live with the gateway slice below (`refreshMcpServers` and friends). */
   testMcpServer(id: string): Promise<McpTestResult>;
@@ -538,6 +654,46 @@ export type AppState = {
   /** Open (or focus) the diff pane for an environment. The pane's item has the ENVIRONMENT's id as
    *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
+  /** Open the space's PAGE (Plan 12 W3) — a `space-page` item whose refId is the space id, one per
+   *  space (the diff pane's dedup precedent). `tab` lands the page on a section — the plus-menu's
+   *  "Manage connections…" passes "connections"; omitted keeps whatever tab the page last showed. */
+  openSpacePage(spaceId: string, tab?: SpacePageTab): Promise<void>;
+  /** The page's tab, per space — see `spacePageTab`. */
+  setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
+  /** Open (or focus) a sidebar destination page (Plan 12 W4: Library, Connections) in the ACTIVE
+   *  space's layout. One page item per space, deduped by KIND — the refId is the kind's well-known
+   *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from. */
+  openDestinationPage(kind: DestinationPageKind): Promise<void>;
+  /** Read both Settings-page preference keys into `settingsPrefs` (Plan 12 W6). Junk in a row —
+   *  an unknown category, a mode PERMISSION_MODES doesn't name — is dropped/defaulted here, once,
+   *  so the page never renders a state the server would not honor. */
+  refreshSettingsPrefs(): Promise<void>;
+  /** Flip ONE category's off switch and persist the whole disabled set under
+   *  `NOTIFICATIONS_DISABLED_KEY`. Disabling stops NEW rows only — the service's contract. */
+  setNotificationCategoryEnabled(category: NotificationCategory, enabled: boolean): Promise<void>;
+  /** Persist the default permission mode for new sessions (`DEFAULT_PERMISSION_MODE_KEY`) —
+   *  consumed server-side at `sessions.create`. The bypass confirm lives in the page, not here:
+   *  by the time this runs the user has already said it twice. */
+  setDefaultPermissionMode(mode: string): Promise<void>;
+  /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
+  refreshTcc(): Promise<void>;
+  /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
+  openTccPane(pane: string): Promise<void>;
+  /** Fetch the feed's first page (replacing what is held — sized to cover at least what was showing,
+   *  so a refetch triggered by `notifications.changed` never shrinks the visible list). */
+  refreshNotifications(): Promise<void>;
+  /** Page further on the held cursor; no-op at the end of the feed. */
+  loadMoreNotifications(): Promise<void>;
+  /** Mark rows read — named ids, or the whole global feed ("all"). Applies the server's returned
+   *  unread count; the broadcast that follows carries the same number. */
+  markNotificationsRead(ids: string[] | "all"): Promise<void>;
+  /** The `notifications.changed` handler: applies the server's unread count, folds a surfaced row into
+   *  the held feed, and auto-reads a `session_done` for the session pane the user is looking at (the
+   *  renderer is the one honest holder of focus — see the server service's doc comment). */
+  applyNotificationsChanged(payload: { notification: Notification | null; unread: number }): void;
+  /** The row's jump affordance: land on the notification's session (switching space if needed) and
+   *  mark it read — it has, by definition, been seen. */
+  openNotificationTarget(n: Notification): Promise<void>;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
   /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
@@ -558,15 +714,30 @@ export type AppState = {
    *  still open for this exact space — a slow response after the user closed or switched must not
    *  clobber whatever the sheet is showing now. */
   refreshMcpServers(spaceId: string): Promise<void>;
-  /** Drop whatever `mcpServers`/`mcpToolsError` currently hold. Called once, synchronously, when
-   *  `McpSection` mounts (or re-mounts for a different space) — BEFORE `refreshMcpServers` kicks off its
-   *  fetch — so reopening settings for a different space never flashes the previous space's rows (or a
+  /** Drop whatever `mcpServers`/`mcpToolsError` currently hold and record which space's panel is
+   *  mounted (`mcpPanelSpaceId` — null on unmount). Called synchronously when `McpSection` mounts
+   *  (or re-mounts for a different space) — BEFORE `refreshMcpServers` kicks off its fetch — so
+   *  opening the Connections tab for a different space never flashes the previous space's rows (or a
    *  tools error belonging to a server not even shown here) while the new list is in flight. */
-  clearMcpServers(): void;
+  clearMcpServers(spaceId: string | null): void;
   addMcpServer(input: AddMcpServerInput): Promise<McpServer>;
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** Move a server's defining scope into `spaceId`'s profile, then re-read (guarded like any refresh). */
+  promoteMcpServer(spaceId: string, id: string): Promise<void>;
+  /** Pin a profile-scoped server to `spaceId` alone, then re-read. */
+  demoteMcpServer(spaceId: string, id: string): Promise<void>;
+  /** Flip one Realm-native provider for ONE space (providers default ON — this is the off switch). */
+  setMcpProviderEnabled(spaceId: string, name: string, enabled: boolean): Promise<void>;
+  /** Fetch one profile's memory doc at its defining scope into `profileMemory` (the Library page's
+   *  "Edit in profile" editor). */
+  refreshProfileMemory(profileId: string): Promise<void>;
+  /** Replace the PROFILE doc — every space of the profile sees the change; callers must have said so.
+   *  Patches every `spaceMemory` snapshot that inherits this doc, so no open panel goes stale. */
+  saveProfileMemoryDoc(profileId: string, doc: string): Promise<void>;
+  /** THIS space's inheritance override for the profile doc — never a write to the doc itself. */
+  setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<void>;
   /** Narrow (or, with `null`, reset) this space's allowlist for one server. */
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
   /** Refresh one server's cached tools. Never throws for a connect failure — that lands in
@@ -601,6 +772,14 @@ export type AppState = {
   run(action: () => Promise<unknown>): void;
   clearError(): void;
 };
+
+/** The title "New worktree…" sends (Plan 12 W1): the draft's first few words — enough to recognise the
+ *  branch by — or null, which the server names "session". Slugging is the server's job (slugifyBranch);
+ *  this only decides what the worktree is ABOUT. */
+export function worktreeTitleFrom(draft: string): string | null {
+  const words = draft.trim().split(/\s+/).filter(Boolean).slice(0, 4).join(" ");
+  return words ? words.slice(0, 40) : null;
+}
 
 /** Prune-only: drop ids that no longer exist. Never adds — unopened items live in the SPACE group. */
 export function reconcileLayout(layout: Layout | null, items: Item[]): Layout {
@@ -875,29 +1054,41 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
+      spacePageTab: {}, mcpPanelSpaceId: null,
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
-      mcpServers: [], mcpToolsError: {},
+      machineName: "", connectors: {},
+      mcpServers: [], mcpProviders: [], mcpToolsError: {},
+      profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
+      notifications: [], notificationsUnread: 0, notificationsCursor: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, swipeInvert, lastAgent, panels] = await Promise.all([
+        const [profiles, spaces, saved, theme, swipeInvert, lastAgent, panels, machineName] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_TERMINAL_PANEL),
+          // A label, not a dependency: a failure here must not take boot down with it — the strip
+          // simply shows no machine name.
+          api.machineName().catch(() => ""),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true, lastAgentKind: agent.success ? agent.data : null,
-          terminalPanel: parseTerminalPanels(panels) });
+          terminalPanel: parseTerminalPanels(panels), machineName });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
         await get().refreshAllSessions();
+        // The sidebar's unread pill needs the count before the page is ever opened. One row, not a
+        // page — the count rides every list result. A badge, not a dependency: a failure here must
+        // not take boot down with it.
+        const feed = await api.listNotifications(null, 1).catch(() => null);
+        if (feed) set({ notificationsUnread: feed.unread });
         // Last, so `booted && spaces.length === 0` is only ever true for a genuinely empty home.
         set({ booted: true });
       },
@@ -1334,6 +1525,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // The server renames an untouched default title to match the new agent; the sidebar row shows it.
         await get().refreshItems();
       },
+      async setSessionEnvironment(id, environmentId) {
+        // The id travels verbatim and the merged session is the server's answer — the chip renders
+        // what was persisted, never what was hoped.
+        mergeSession(await api.setSessionEnvironment(id, environmentId));
+        refreshGitFor(id); // a different checkout: the branch/diff chips must describe THAT tree now
+      },
+      async moveSessionToNewWorktree(sessionId) {
+        const s = get().sessions[sessionId]; if (!s) return;
+        // Create FIRST; if it throws (not a repo, no commits) the session stays where it was and `run`
+        // surfaces the reason — same shape as newSessionInWorktree.
+        const env = await api.createWorktree(s.spaceId, worktreeTitleFrom(get().drafts[sessionId] ?? ""));
+        if (get().activeSpaceId === s.spaceId) set({ environments: { ...get().environments, [env.id]: env } });
+        // …then select it. Creating without selecting is the named mutant this line kills.
+        await get().setSessionEnvironment(sessionId, env.id);
+      },
+      async refreshConnectors(spaceId) {
+        const { servers } = await api.listMcpServers(spaceId);
+        set({ connectors: { ...get().connectors, [spaceId]: servers } });
+      },
       async probeAgents(force = false) {
         // Mount-storm guard: a split of four session panes asks four times in the same tick. The server
         // holds the TTL cache (probe-cache.ts); this only collapses the round trips.
@@ -1382,6 +1592,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSkillEnabled(spaceId, id, enabled);
         await get().refreshSkills(spaceId);
       },
+      async promoteSkill(spaceId, id) {
+        // Same rule as setSkillEnabled: the VANTAGE space id travels verbatim — the server resolves
+        // the profile from it. Passing anything else moves the skill into the wrong profile.
+        await api.promoteSkill(spaceId, id);
+        await get().refreshSkills(spaceId);
+      },
+      async demoteSkill(spaceId, id) {
+        await api.demoteSkill(spaceId, id);
+        await get().refreshSkills(spaceId);
+      },
       testMcpServer: (id) => api.testMcpServer(id),
       async refreshMemory(spaceId) {
         const state = await api.getMemory(spaceId);
@@ -1393,6 +1613,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async setAgentsFile(spaceId, enabled) {
         const state = await api.setAgentsFile(spaceId, enabled);
+        set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async refreshProfileMemory(profileId) {
+        const doc = await api.getProfileMemory(profileId);
+        set({ profileMemory: { ...get().profileMemory, [profileId]: doc } });
+      },
+      async saveProfileMemoryDoc(profileId, doc) {
+        const saved = await api.setProfileMemory(profileId, doc);
+        // Patch every space snapshot that inherits this doc, so an open Memory surface reads what was
+        // just written without waiting for its own refetch.
+        const spaceMemory = Object.fromEntries(Object.entries(get().spaceMemory).map(([sid, m]) =>
+          [sid, m.profile?.profileId === profileId ? { ...m, profile: { ...m.profile, doc: saved.doc } } : m]));
+        set({ profileMemory: { ...get().profileMemory, [profileId]: saved }, spaceMemory });
+      },
+      async setProfileDocEnabled(spaceId, enabled) {
+        // The per-space inheritance override — `memory.setProfileDocEnabled`, keyed by SPACE. The one
+        // thing this must never do is touch the profile doc itself (the named W4 mutant: an inherited
+        // row's toggle writing the defining scope's state).
+        const state = await api.setProfileDocEnabled(spaceId, enabled);
         set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
       },
       async refreshMemorySources(sessionId) {
@@ -1509,6 +1748,119 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
         await adoptItem(sid, created.id, targetLeafId);
       },
+      async openSpacePage(spaceId, tab) {
+        // The tab lands even when the page item already exists — "Manage connections…" on an
+        // already-open page must still end up on Connections.
+        if (tab) get().setSpacePageTab(spaceId, tab);
+        // Page items live in the layout of the space they describe; every opener is active-space
+        // scoped (gear, header, palette, session pane), so a mismatch means the space changed
+        // under the click — do nothing rather than adopt an item into the wrong layout.
+        if (get().activeSpaceId !== spaceId) return;
+        // One page per space, the diff pane's dedup precedent: a second open goes to the pane that
+        // already exists rather than accumulating identical pages.
+        const existing = get().items.find((i) => i.kind === "space-page" && i.refId === spaceId);
+        if (existing) { await get().openItem(existing.id); return; }
+        // Title is static ("Overview"), never the space name: the page header renders the live name,
+        // and a snapshot in the item row would go stale on rename.
+        const created = await api.createItem(spaceId, "space-page", "Overview", spaceId);
+        await adoptItem(spaceId, created.id, null);
+      },
+      async openDestinationPage(kind) {
+        // The page lives in the ACTIVE space's layout — that space is the vantage its scope groups
+        // ("This space" / "From <profile>" / "Everywhere") are computed from. No active space
+        // (mid-boot) → no-op, openSpacePage's guard.
+        const spaceId = get().activeSpaceId;
+        if (!spaceId) return;
+        // One page per space, deduped by KIND (`items` only ever holds the active space's items).
+        // The named W4 mutant: a second click accumulating a second Library pane.
+        const existing = get().items.find((i) => i.kind === kind);
+        if (existing) { await get().openItem(existing.id); return; }
+        // Static title (the page header owns the live copy); refId is the kind's well-known sentinel —
+        // there is no row behind these pages, and identity is really the kind (see PAGE_REF_IDS).
+        const created = await api.createItem(spaceId, kind, DESTINATION_PAGE_TITLES[kind], PAGE_REF_IDS[kind]);
+        await adoptItem(spaceId, created.id, null);
+      },
+      setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
+      async refreshSettingsPrefs() {
+        const [rawDisabled, rawMode] = await Promise.all([
+          api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY),
+        ]);
+        const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
+          .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
+        const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
+        set({ settingsPrefs: { disabledCategories, defaultPermissionMode } });
+      },
+      async setNotificationCategoryEnabled(category, enabled) {
+        const prefs = get().settingsPrefs; if (!prefs) return; // toggles only exist once prefs loaded
+        // Recomputed from the held set so a double-toggle can't write a duplicate, and — the named
+        // mutant — only THIS category moves: everything else passes through untouched.
+        const disabledCategories = enabled
+          ? prefs.disabledCategories.filter((c) => c !== category)
+          : [...prefs.disabledCategories.filter((c) => c !== category), category];
+        await api.setSetting(NOTIFICATIONS_DISABLED_KEY, disabledCategories);
+        set({ settingsPrefs: { ...prefs, disabledCategories } });
+      },
+      async setDefaultPermissionMode(mode) {
+        const prefs = get().settingsPrefs; if (!prefs) return;
+        await api.setSetting(DEFAULT_PERMISSION_MODE_KEY, mode);
+        set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
+      },
+      async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
+      async openTccPane(pane) { await api.openTccPane(pane); },
+      async refreshNotifications() {
+        // Sized to cover what is already showing: a refetch triggered by a broadcast must not shrink
+        // the list the user is scrolled into. Capped at the wire's own limit.
+        const limit = Math.min(200, Math.max(NOTIFICATIONS_PAGE, get().notifications.length));
+        const page = await api.listNotifications(null, limit);
+        set({ notifications: page.notifications, notificationsCursor: page.nextCursor, notificationsUnread: page.unread });
+      },
+      async loadMoreNotifications() {
+        const cursor = get().notificationsCursor; if (!cursor) return;
+        const page = await api.listNotifications(cursor, NOTIFICATIONS_PAGE);
+        // Guard against a duplicate landing across a refetch that raced this page in.
+        const known = new Set(get().notifications.map((n) => n.id));
+        set({ notifications: [...get().notifications, ...page.notifications.filter((n) => !known.has(n.id))],
+          notificationsCursor: page.nextCursor, notificationsUnread: page.unread });
+      },
+      async markNotificationsRead(ids) {
+        const r = ids === "all" ? await api.markNotificationsRead({ all: true }) : await api.markNotificationsRead({ ids });
+        const t = Date.now();
+        set({ notificationsUnread: r.unread,
+          notifications: get().notifications.map((n) => n.readAt === null && (ids === "all" || ids.includes(n.id)) ? { ...n, readAt: t } : n) });
+      },
+      applyNotificationsChanged(payload) {
+        set({ notificationsUnread: payload.unread });
+        const n = payload.notification;
+        if (n) {
+          // A surfaced row lands at the top of whatever slice is held (a reopen moves, not
+          // duplicates). An unloaded feed stays unloaded — the page fetches on mount.
+          if (get().notifications.length > 0) {
+            set({ notifications: [n, ...get().notifications.filter((x) => x.id !== n.id)] });
+          }
+          // The session_done contract's renderer half: the server writes a row for EVERY settle; the
+          // focused pane's settle is one the user is watching, so it is read the moment it exists.
+          if (n.category === "session_done" && n.sessionId) {
+            const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
+            if (focused?.kind === "session" && focused.refId === n.sessionId) {
+              void get().run(() => get().markNotificationsRead([n.id]));
+            }
+          }
+        } else if (get().notifications.length > 0) {
+          // A resolution or a markRead from elsewhere: re-read the held slice so a permission row can
+          // never keep rendering "pending" after it was answered in some other pane or window.
+          void get().run(() => get().refreshNotifications());
+        }
+      },
+      async openNotificationTarget(n) {
+        const sid = n.sessionId;
+        if (sid) {
+          const spaceId = get().sessionSpace[sid] ?? n.spaceId;
+          if (spaceId && spaceId !== get().activeSpaceId) await get().selectSpace(spaceId);
+          const item = get().items.find((i) => i.kind === "session" && i.refId === sid);
+          if (item) await get().openItem(item.id);
+        }
+        if (n.readAt === null) await get().markNotificationsRead([n.id]);
+      },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);
         set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: status }, worktreeAckStale: null,
@@ -1585,12 +1937,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (result.path in get().diffs) await get().refreshDiff(result.path);
       },
       async refreshMcpServers(spaceId) {
-        const { servers } = await api.listMcpServers(spaceId);
-        const sheet = get().sheet;
-        if (sheet?.kind !== "space-settings" || sheet.spaceId !== spaceId) return;
-        set({ mcpServers: servers });
+        // Providers ride along (W4): the Connections surface renders both, and a provider toggled in
+        // another surface must not survive a refetch here.
+        const [{ servers }, providers] = await Promise.all([api.listMcpServers(spaceId), api.listMcpProviders(spaceId)]);
+        // Apply only if this space's panel is STILL the mounted one — a slow response after the user
+        // closed the page or switched its space must not clobber what the panel shows now.
+        if (get().mcpPanelSpaceId !== spaceId) return;
+        set({ mcpServers: servers, mcpProviders: providers });
       },
-      clearMcpServers() { set({ mcpServers: [], mcpToolsError: {} }); },
+      clearMcpServers(spaceId) { set({ mcpServers: [], mcpProviders: [], mcpToolsError: {}, mcpPanelSpaceId: spaceId }); },
       async addMcpServer(input) {
         const s = await api.addMcpServer(input);
         // Optimistic: `mcp.changed` will also refetch, but that broadcast round-trip must not be the
@@ -1610,6 +1965,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setMcpEnabled(spaceId, id, enabled) {
         await api.setMcpEnabled(spaceId, id, enabled);
         set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, enabled } : x)) });
+      },
+      // Promote/demote re-read rather than patch: the scope AND the enabled flag can both change
+      // shape server-side (demotion retires overrides), and the refresh guard already protects a
+      // panel that moved on. Same shape for skills below.
+      async promoteMcpServer(spaceId, id) {
+        await api.promoteMcpServer(spaceId, id);
+        await get().refreshMcpServers(spaceId);
+      },
+      async demoteMcpServer(spaceId, id) {
+        await api.demoteMcpServer(spaceId, id);
+        await get().refreshMcpServers(spaceId);
+      },
+      async setMcpProviderEnabled(spaceId, name, enabled) {
+        await api.setMcpProviderEnabled(spaceId, name, enabled);
+        set({ mcpProviders: get().mcpProviders.map((p) => (p.name === name ? { ...p, enabled } : p)) });
       },
       async setMcpAllowedTools(spaceId, id, tools) {
         await api.setMcpAllowedTools(spaceId, id, tools);
@@ -1637,7 +2007,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, oauthStatus: "unconfigured" } : x)) });
       },
       applyMcpServerStatus({ id, status, oauthStatus }) {
-        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, status, oauthStatus } : x)) });
+        // Both holders of `mcp.list` rows: the settings sheet's list and the plus-menu's per-space
+        // cache. One patch for both, or an open Connectors submenu would show yesterday's dot.
+        const patch = (x: McpServer) => (x.id === id ? { ...x, status, oauthStatus } : x);
+        set({ mcpServers: get().mcpServers.map(patch),
+          connectors: Object.fromEntries(Object.entries(get().connectors).map(([sid, list]) => [sid, list.map(patch)])) });
       },
       async openActivity() {
         // Always opens showing everything (binding rule 5) — a filter left over from a previous visit

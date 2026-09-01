@@ -1,18 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MCP_SECRET_STORAGE_NOTE } from "@realm/contracts";
-import { SpaceSettingsSheet } from "./SpaceSettingsSheet";
+import { SpacePage } from "../../panes/space/SpacePage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, mcpServer, mcpTool, session } from "../../state/store.test-fakes";
+import { fakeApi, item, mcpServer, mcpTool, session } from "../../state/store.test-fakes";
 
 async function mount(overrides: Parameters<typeof fakeApi>[0] = {}) {
   const api = fakeApi(overrides);
   const store = createAppStore(api);
   await store.getState().boot();
-  store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
-  render(<StoreContext.Provider value={store}><SpaceSettingsSheet spaceId="s1" /></StoreContext.Provider>);
-  // Since the W5 merge the sheet is a settings HOME and opens on General; McpSection is the Connections
-  // tab, so it does not mount (and does not fetch) until that tab is selected.
+  // Since Plan 12 W3 the settings home is the space PAGE; McpSection is its Connections tab, and it
+  // does not mount (or fetch) until that tab is selected.
+  render(<StoreContext.Provider value={store}><SpacePage item={item("pg1", "s1", { kind: "space-page", title: "Overview", refId: "s1" })} visible /></StoreContext.Provider>);
   fireEvent.click(screen.getByRole("radio", { name: "Connections" }));
   // McpSection fetches on mount — wait for that before asserting on its contents.
   await waitFor(() => expect(api.calls).toContain("listMcpServers:s1"));
@@ -35,6 +34,16 @@ describe("McpSection", () => {
     const row = screen.getByText("Everything").closest(".mcp-row") as HTMLElement;
     expect(within(row).getByRole("checkbox", { name: "Enabled" })).toBeChecked();
     expect(store.getState().mcpServers.some((s) => s.name === "Everything" && s.enabled)).toBe(true);
+  });
+
+  it("the Enabled toggle is wired to THIS space — the per-space opt-in, not a global flag", async () => {
+    const srv = mcpServer("m1", { name: "srv1", enabled: true, tools: [] });
+    const { api } = await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv1")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("checkbox", { name: "Enabled" }));
+    // The named mutant (Plan 12 W3): the panel, re-mounted inside the space page, sending the
+    // toggle for some other space than the one whose page this is.
+    await waitFor(() => expect(api.calls).toContain("setMcpEnabled:s1:m1=false"));
   });
 
   it("toggling a tool checkbox sends the explicit allowlist; re-checking everything restores null", async () => {
@@ -198,5 +207,109 @@ describe("McpSection", () => {
     const row = (await screen.findByText("srv12")).closest(".mcp-row") as HTMLElement;
     expect(within(row).getByText("Needs reauth")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: "Reconnect" })).toBeNull();
+  });
+});
+
+/* ——— Plan 12 W4: scope groups, inherited-row discipline, scope movement, providers, honest dots.
+   Mounted through the SPACE PAGE's Connections tab on purpose — proving the space-page panel carries
+   the same grouped sections as the Connections page (which renders this very component). ——— */
+
+describe("scoped server groups (W4)", () => {
+  const scopedServers = () => [
+    mcpServer("m-mine", { name: "mine", scope: { kind: "space", spaceId: "s1" } }),
+    mcpServer("m-shared", { name: "shared", enabled: true, scope: { kind: "profile", profileId: "p1" } }),
+    mcpServer("m-legacy", { name: "legacy" }), // pre-scoping → Everywhere
+  ];
+
+  it("groups rows This space / From Work / Everywhere", async () => {
+    await mount({ mcpServers: scopedServers() });
+    await screen.findByText("mine");
+    expect(within(screen.getByRole("region", { name: "This space" })).getByText("mine")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "From Work" })).getByText("shared")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Everywhere" })).getByText("legacy")).toBeInTheDocument();
+  });
+
+  it("an inherited server is NEVER editable in place: no bare Edit — 'Edit in profile' opens the same form wearing the defining-scope banner (named mutant)", async () => {
+    await mount({ mcpServers: scopedServers() });
+    const row = (await screen.findByText("shared")).closest(".mcp-row") as HTMLElement;
+    expect(within(row).queryByRole("button", { name: "Edit" })).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "Edit in profile" }));
+    expect(within(row).getByText("Defined in Work. Changes here apply to every space of Work.")).toBeInTheDocument();
+    // Still the one shared form — same fields, same component.
+    expect(within(row).getByRole("textbox", { name: "Server name" })).toBeInTheDocument();
+    // A this-space row keeps its plain in-place Edit, without the banner.
+    const mine = screen.getByText("mine").closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(mine).getByRole("button", { name: "Edit" }));
+    expect(within(mine).queryByText(/Changes here apply to every space/)).toBeNull();
+  });
+
+  it("the inherited row's Enabled toggle rides the per-space wire with the vantage space id (named mutant: writing the defining scope)", async () => {
+    const { api } = await mount({ mcpServers: scopedServers() });
+    const row = (await screen.findByText("shared")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("checkbox", { name: "Enabled" }));
+    await waitFor(() => expect(api.calls).toContain("setMcpEnabled:s1:m-shared=false"));
+    expect(api.calls.some((c) => c.startsWith("promoteMcpServer") || c.startsWith("demoteMcpServer"))).toBe(false);
+  });
+
+  it("Move to profile: confirm copy states the reach; Cancel fires nothing; confirm fires mcp.promote with the vantage space id and SERVER id (named mutant: wrong RPC / wrong scope id)", async () => {
+    const { api } = await mount({ mcpServers: scopedServers() });
+    const row = (await screen.findByText("mine")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Move to profile…" }));
+    expect(within(row).getByText("Move “mine” to Work? Other spaces in Work will see it; spaces that had it stay as they are.")).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "Cancel" }));
+    expect(api.calls.some((c) => c.startsWith("promoteMcpServer"))).toBe(false);
+    fireEvent.click(within(row).getByRole("button", { name: "Move to profile…" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Move to profile" }));
+    await waitFor(() => expect(api.calls).toContain("promoteMcpServer:s1:m-mine"));
+    expect(api.calls.some((c) => c.startsWith("demoteMcpServer"))).toBe(false);
+    // The re-read regroups the row under the profile.
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "From Work" })).getByText("mine")).toBeInTheDocument());
+  });
+
+  it("the symmetric demote from an inherited row fires mcp.demote with the same ids", async () => {
+    const { api } = await mount({ mcpServers: scopedServers() });
+    const row = (await screen.findByText("shared")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Move to this space…" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Move to this space" }));
+    await waitFor(() => expect(api.calls).toContain("demoteMcpServer:s1:m-shared"));
+    expect(api.calls.some((c) => c.startsWith("promoteMcpServer"))).toBe(false);
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "This space" })).getByText("shared")).toBeInTheDocument());
+  });
+
+  it("removing an inherited server names its reach before the destructive click", async () => {
+    await mount({ mcpServers: scopedServers() });
+    const row = (await screen.findByText("shared")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Remove…" }));
+    expect(within(row).getByText("Removes it for every space of Work.")).toBeInTheDocument();
+  });
+
+  it("Realm's own tools render as provider rows whose switch rides mcp.setProviderEnabled for THIS space", async () => {
+    const { api } = await mount();
+    const toggle = await screen.findByRole("checkbox", { name: "Provider realm-browser in this space" });
+    expect(toggle).toBeChecked(); // default ON — Realm's own code
+    fireEvent.click(toggle);
+    await waitFor(() => expect(api.calls).toContain("setMcpProviderEnabled:s1:realm-browser=false"));
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Provider realm-browser in this space" })).not.toBeChecked());
+  });
+
+  it("a provider row has no status dot — in-process, there is no connection to have checked", async () => {
+    await mount();
+    const row = (await screen.findByText("realm-browser")).closest(".mcp-row") as HTMLElement;
+    expect(row.querySelector(".status-dot")).toBeNull();
+  });
+
+  it("the idle status dot says 'Not checked yet' — the honest state, never an implied health check", async () => {
+    await mount({ mcpServers: [mcpServer("m1", { name: "srv1", status: "idle" })] });
+    await screen.findByText("srv1");
+    expect(screen.getByTitle("Not checked yet")).toBeInTheDocument();
+    expect(screen.queryByTitle("Idle")).toBeNull();
+  });
+
+  it("Test connection rides mcp.test and renders the probe's sentence on the row", async () => {
+    const { api } = await mount({ mcpServers: [mcpServer("m1", { name: "srv1" })], mcpTest: { m1: { reached: true, detail: "initialized in 42ms" } } });
+    const row = (await screen.findByText("srv1")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Test" }));
+    await waitFor(() => expect(api.calls).toContain("testMcpServer:m1"));
+    await waitFor(() => expect(within(row).getByText("initialized in 42ms")).toBeInTheDocument());
   });
 });

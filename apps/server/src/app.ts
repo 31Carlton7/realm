@@ -24,6 +24,8 @@ import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
+import { NotificationsStore } from "./store/notifications";
+import { NotificationsService } from "./notifications/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
@@ -36,6 +38,7 @@ import { CheckpointGit } from "./workspace/checkpoints";
 import { CheckpointService } from "./checkpoints/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
+import { machineName } from "./machine-name";
 
 export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
@@ -91,6 +94,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // remove outside of — so it is given the home rather than deriving one.
   const worktrees = new WorktreeService(opts.home);
   const sessionsStore = new SessionsStore(db);
+  const settings = new SettingsStore(db);
+  // The notifications feed (Plan 12 W5): the ONE writer of notification rows. Every producer below —
+  // SessionService's event hook, the hub's onStatus callback, the two stale-ack refusal sites — hands
+  // its events here rather than writing rows of its own, so the dedup rule and the category toggles
+  // have exactly one home.
+  const notifications = new NotificationsService({ store: new NotificationsStore(db), settings, rpc });
   // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
   // services genuinely need each other: SessionService checkpoints every turn, and CheckpointService
   // must refuse to restore under a live agent. One direction is the dependency; the other is this.
@@ -98,14 +107,21 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const checkpoints = new CheckpointService({
     checkpoints: new CheckpointsStore(db), environments, sessions: sessionsStore, git: new CheckpointGit(),
     isEnvironmentBusy: (id) => sessionService?.isEnvironmentBusy(id) ?? false,
+    notifications,
   });
-  const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints });
+  const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints, notifications });
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
   const browsersStore = new BrowsersStore(db);
   const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
-  const settings = new SettingsStore(db);
+  // W2: the one slice of the spaces/profiles world the scoped services (skills, MCP, memory) may see.
+  // A seam rather than the store so each service declares exactly the questions it asks.
+  const scopeSeam = {
+    profileIdOf: (spaceId: string): string | null => spaces.get(spaceId)?.profileId ?? null,
+    spaceIdsOf: (profileId: string): string[] => spaces.list(profileId).map((sp) => sp.id),
+    allSpaceIds: (): string[] => spaces.listAll().map((sp) => sp.id),
+  };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
-  const skills = new SkillsService({ home: opts.home, settings });
+  const skills = new SkillsService({ home: opts.home, settings, scopes: scopeSeam });
   const installed = skills.installBundled();
   if (installed.length) console.error(`[skills] installed bundled skill(s): ${installed.join(", ")}`);
   const mcpServersStore = new McpServersStore(db);
@@ -114,7 +130,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // `mcp.list` can report `connected`/`error`/`circuit_open` without asking the hub directly — the same
   // "inject rather than import" split `McpService`'s constructor doc comment explains.
   const mcpStatus = new Map<string, McpServerStatus>();
-  const mcp = new McpService({ servers: mcpServersStore, settings, statusOf: (id) => mcpStatus.get(id) ?? "idle" });
+  const mcp = new McpService({ servers: mcpServersStore, settings, statusOf: (id) => mcpStatus.get(id) ?? "idle", scopes: scopeSeam });
   // `gateway` is assigned after construction below (it needs `hub`, which needs THIS callback) — the
   // same late-bound-closure pattern `sessionService` above uses for the same reason: two things that
   // genuinely need each other, with one direction as the constructor dependency and the other as this.
@@ -159,6 +175,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       const row = mcpServersStore.get(id);
       const oauthStatus = row ? oauthStatusOf(row) : "unconfigured";
       rpc.broadcast("mcp.serverStatus", { id, status, oauthStatus });
+      // The feed's mcp_health hook (Plan 12 W5), on the same status flow the UI's dots ride — repeated
+      // errors collapse into one open row server-side, so the loop-termination story above is unchanged.
+      notifications.mcpServerStatus(id, row?.name ?? null, status);
       // A hub status change is the gateway's only signal that a cached tool list may have changed
       // (`connected` after a reconnect, or `onToolsChanged`'s `list_changed`-triggered relist) — so every
       // status event, not just the interesting ones, tells every registered session to re-list. Status
@@ -182,7 +201,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url),
     sessionToolset: (sessionId) => browserAgents?.sessionToolset(sessionId) ?? null });
   gateway = mcpGateway;
-  const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir });
+  const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
@@ -192,7 +211,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications,
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
       release: (id) => browserAgents?.release(id),
@@ -206,8 +225,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp));
   registerMethods({
-    rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
+    rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints, notifications,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

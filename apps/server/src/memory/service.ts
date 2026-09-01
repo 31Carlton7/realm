@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AGENT_MEMORY_CHANNEL, MEMORY_DOC_MAX, memorySupportNote,
-  type AgentKind, type AgentsFileState, type Environment, type MemorySource, type MemorySources, type MemoryState,
+  AGENT_MEMORY_CHANNEL, MEMORY_COMBINED_MAX, MEMORY_DOC_MAX, memorySupportNote,
+  type AgentKind, type AgentsFileState, type Environment, type MemorySource, type MemorySources, type MemoryState, type ProfileMemoryState,
 } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
@@ -10,6 +10,11 @@ import { claudeMemoryFiles, claudeUserDir } from "./claude-files";
 
 /** Per-space opt-in flag for the managed `AGENTS.md`. Off by default: it is a write into a folder. */
 const agentsKey = (spaceId: string): string => `memory.agentsFile:${spaceId}`;
+
+/** W2: per-space opt-OUT of the inherited profile memory doc. The profile doc is an inherited item like
+ *  a promoted skill or server: ON by default (defining it at the profile is the opt-in), toggleable per
+ *  space, never editable from the space. Stored as the disable so absence means inherit. */
+const profileDocDisabledKey = (spaceId: string): string => `memory.profileDocDisabled:${spaceId}`;
 
 /**
  * The first line of every `AGENTS.md` Realm writes, and the ONLY kind it will ever rewrite or remove.
@@ -41,16 +46,62 @@ export class MemoryService {
   /** Where user-level Claude files are read from. Overridable so tests and live checks never touch the
    *  real `~/.claude`; the default is the exact directory the CLI itself reads. */
   private readonly claudeDir: string;
-  constructor(private d: { home: string; settings: SettingsStore; environments: PrimaryEnvironments; claudeDir?: string }) {
+  constructor(private d: {
+    home: string; settings: SettingsStore; environments: PrimaryEnvironments; claudeDir?: string;
+    /** W2: space → profile, for the inherited profile doc. Optional like the other services' scope
+     *  seams: unwired, no space has a profile and only the space doc exists — the pre-W2 behavior. */
+    scopes?: { profileIdOf(spaceId: string): string | null };
+  }) {
     this.claudeDir = d.claudeDir ?? claudeUserDir();
   }
 
   docPath(spaceId: string): string { return join(this.d.home, "memory", `${spaceId}.md`); }
 
+  /** `profile-` prefixed so a profile doc can never collide with a space doc in the same directory,
+   *  and so `ls ~/Realm/memory` says which is which. */
+  profileDocPath(profileId: string): string { return join(this.d.home, "memory", `profile-${profileId}.md`); }
+
   readDoc(spaceId: string): string { return tryRead(this.docPath(spaceId)) ?? ""; }
 
+  readProfileDoc(profileId: string): string { return tryRead(this.profileDocPath(profileId)) ?? ""; }
+
+  profileState(profileId: string): { profileId: string; path: string; doc: string } {
+    return { profileId, path: this.profileDocPath(profileId), doc: this.readProfileDoc(profileId) };
+  }
+
+  /** Replace the PROFILE document — same cap as a space doc; the combined injection cap is enforced
+   *  where the docs meet a session (`systemContextFor`), not here. */
+  setProfile(profileId: string, doc: string): { profileId: string; path: string; doc: string } {
+    if (doc.length > MEMORY_DOC_MAX) throw new RpcError("MEMORY_DOC_TOO_LARGE", `the memory document is capped at ${MEMORY_DOC_MAX} characters`);
+    mkdirSync(join(this.d.home, "memory"), { recursive: true });
+    writeFileSync(this.profileDocPath(profileId), doc);
+    return this.profileState(profileId);
+  }
+
+  profileDocEnabled(spaceId: string): boolean { return this.d.settings.get(profileDocDisabledKey(spaceId)) !== true; }
+
+  setProfileDocEnabled(spaceId: string, enabled: boolean): MemoryState {
+    this.d.settings.set(profileDocDisabledKey(spaceId), !enabled);
+    return this.state(spaceId);
+  }
+
+  /**
+   * **The effective memory for one space** (W2) — the ONE place the profile/space scoping of memory
+   * docs is resolved: the space's own doc, plus the profile doc of the space's OWN profile (never any
+   * other's) with this space's inherit toggle. `state()` (→ the panel) and `systemContextFor` (→ the
+   * session) both consume this, so what the UI shows and what the agent reads cannot diverge.
+   */
+  effective(spaceId: string): { profile: ProfileMemoryState | null; spaceDoc: string } {
+    const profileId = this.d.scopes?.profileIdOf(spaceId) ?? null;
+    return {
+      profile: profileId === null ? null : { ...this.profileState(profileId), enabledHere: this.profileDocEnabled(spaceId) },
+      spaceDoc: this.readDoc(spaceId),
+    };
+  }
+
   state(spaceId: string): MemoryState {
-    return { path: this.docPath(spaceId), doc: this.readDoc(spaceId), agentsFile: this.agentsFileState(spaceId) };
+    const eff = this.effective(spaceId);
+    return { path: this.docPath(spaceId), doc: eff.spaceDoc, agentsFile: this.agentsFileState(spaceId), profile: eff.profile };
   }
 
   set(spaceId: string, doc: string): MemoryState {
@@ -159,8 +210,18 @@ export class MemoryService {
         parts.push(`Contents of ${f.path} (re-injected by Realm; this session loads no settings files itself because its skills library isolates them):\n\n${f.content}`);
       }
     }
-    const doc = this.readDoc(o.spaceId).trim();
-    if (doc) parts.push(`# Space memory\n\nThe user keeps this context for every session in this workspace (managed in Realm):\n\n${doc}`);
+    // W2: profile doc first, then space doc — general context before specific, so the space doc can
+    // override it the way later prompt content overrides earlier. Both docs are write-capped at
+    // MEMORY_DOC_MAX, but TWO full docs would double the pre-W2 injection budget, so the combined cap
+    // is enforced here, where the CLIs actually meet the content: the SPACE doc always rides whole (it
+    // is the specific standing instruction for the workspace this session is in) and the PROFILE doc is
+    // truncated to whatever room remains under MEMORY_COMBINED_MAX.
+    const eff = this.effective(o.spaceId);
+    const spaceDoc = eff.spaceDoc.trim();
+    let profileDoc = eff.profile !== null && eff.profile.enabledHere ? eff.profile.doc.trim() : "";
+    if (profileDoc.length + spaceDoc.length > MEMORY_COMBINED_MAX) profileDoc = profileDoc.slice(0, MEMORY_COMBINED_MAX - spaceDoc.length);
+    if (profileDoc) parts.push(`# Profile memory\n\nThe user keeps this context for every session in every workspace of this profile (managed in Realm):\n\n${profileDoc}`);
+    if (spaceDoc) parts.push(`# Space memory\n\nThe user keeps this context for every session in this workspace (managed in Realm):\n\n${spaceDoc}`);
     return parts.length > 0 ? parts.join("\n\n") : undefined;
   }
 
@@ -172,7 +233,11 @@ export class MemoryService {
   sourcesFor(o: { kind: AgentKind; spaceId: string; cwd: string; skillsInjected: boolean; reported: string[] | null }): MemorySources {
     const channel = AGENT_MEMORY_CHANNEL[o.kind];
     const note = memorySupportNote(o.kind);
-    const realmMemoryInjected = channel !== "none" && this.readDoc(o.spaceId).trim().length > 0;
+    // Same effective computation the injection uses — any doc that would ride (space, or an inherited
+    // profile doc this space has not turned off) counts.
+    const eff = this.effective(o.spaceId);
+    const realmMemoryInjected = channel !== "none"
+      && (eff.spaceDoc.trim().length > 0 || (eff.profile !== null && eff.profile.enabledHere && eff.profile.doc.trim().length > 0));
     if (o.kind === "claude") {
       const sources: MemorySource[] = claudeMemoryFiles(o.cwd, this.claudeDir).map((f) => ({
         path: f.path, origin: f.origin, exists: f.exists,

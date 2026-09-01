@@ -1,8 +1,9 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_SKILL_SUPPORT, SkillIdSchema, type AgentKind, type Skill } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, ItemScopeSchema, LEGACY_SPACE_SCOPE, SkillIdSchema, type AgentKind, type ItemScope, type Skill } from "@realm/contracts";
 import type { SkillsInjection } from "@realm/adapters";
+import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { parseFrontmatter } from "./frontmatter";
 
@@ -19,6 +20,15 @@ const disabledKey = (spaceId: string): string => `skills.disabled:${spaceId}`;
 /** Bundled ids already installed once. Install-once, not sync: a bundled skill the user deletes stays
  *  deleted, and a bundled skill the user edits is never overwritten from under them. */
 const INSTALLED_KEY = "skills.bundledInstalled";
+
+/**
+ * W2: one map of skill id → defining scope (`ItemScope`). An id with no entry is a pre-scoping skill
+ * (`LEGACY_SPACE_SCOPE`: space-level, visible everywhere) — which is the whole migration: nothing is
+ * written on upgrade, so no space's effective set can move. Entries appear only when the user promotes
+ * or demotes, and they outlive the directory the same way the disabled set does (a skill deleted from
+ * disk and put back keeps its scope).
+ */
+const SCOPES_KEY = "skills.scope";
 
 /**
  * Where the repo-shipped skills (`<repo>/skills/<id>/SKILL.md`) are on this machine.
@@ -57,8 +67,68 @@ const readIds = (settings: SettingsStore, key: string): string[] => {
  */
 export class SkillsService {
   readonly root: string;
-  constructor(private d: { home: string; settings: SettingsStore; bundledDir?: string | null }) {
+  constructor(private d: {
+    home: string; settings: SettingsStore; bundledDir?: string | null;
+    /** W2: space → profile, for scope resolution. Optional like `McpService.scopes`: unwired, every
+     *  space reads as profile-less, profile-scoped skills apply nowhere, pre-scoping skills everywhere. */
+    scopes?: { profileIdOf(spaceId: string): string | null };
+  }) {
     this.root = skillsRoot(d.home);
+  }
+
+  /** The stored scope map, entries validated individually — one corrupt entry costs that entry its
+   *  scope (back to pre-scoping), not the whole library its model. */
+  private scopeMap(): Record<string, ItemScope> {
+    const v = this.d.settings.get(SCOPES_KEY);
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: Record<string, ItemScope> = {};
+    for (const [id, raw] of Object.entries(v as Record<string, unknown>)) {
+      const parsed = ItemScopeSchema.safeParse(raw);
+      if (parsed.success) out[id] = parsed.data;
+    }
+    return out;
+  }
+
+  scopeOf(id: string): ItemScope { return this.scopeMap()[id] ?? LEGACY_SPACE_SCOPE; }
+
+  /** Same reach question `McpService.appliesTo` answers, same liveness degrade — see that doc comment.
+   *  (For a skill the degrade means "back to default ON everywhere", which is W1's stated polarity
+   *  cost: the price of being wrong about a skill is a paragraph of text, and the alternative is a
+   *  library directory no panel can ever show again.) */
+  private appliesTo(scope: ItemScope, spaceId: string): boolean {
+    if (scope.kind === "profile") { const pid = this.d.scopes?.profileIdOf(spaceId) ?? null; return pid !== null && pid === scope.profileId; }
+    return scope.spaceId === null || scope.spaceId === spaceId || (this.d.scopes?.profileIdOf(scope.spaceId) ?? null) === null;
+  }
+
+  /**
+   * Promote: move a skill's defining scope to `spaceId`'s profile. Effective-set neutral for every
+   * space of that profile at the moment it runs, with NOTHING to rewrite: skills keep ONE per-space
+   * disabled-set for both scopes (unlike MCP's two keys), because the polarity of an inherited item
+   * (default ON minus disables) IS the polarity space-scoped skills already had — so a skill disabled
+   * in a space stays disabled there across promote AND demote, by construction. Spaces of other
+   * profiles stop seeing a pre-scoping skill; that reach change is what promotion means.
+   */
+  promote(spaceId: string, id: string): void {
+    const scope = this.scopeOf(id);
+    if (scope.kind === "profile") throw new RpcError("SCOPE_MISMATCH", `skill "${id}" is already profile-scoped`);
+    if (!this.appliesTo(scope, spaceId)) throw new RpcError("SCOPE_MISMATCH", `skill "${id}" is not defined in this space`);
+    if (!this.dirNames(this.root).includes(id)) throw new RpcError("NOT_FOUND", `skill "${id}" is not in the library`);
+    const profileId = this.d.scopes?.profileIdOf(spaceId) ?? null;
+    if (!profileId) throw new RpcError("SCOPE_MISMATCH", `space ${spaceId} has no profile to promote into`);
+    this.setScope(id, { kind: "profile", profileId });
+  }
+
+  /** Demote: pin a profile-scoped skill to `spaceId` alone (must be a space of its profile). The shared
+   *  disabled-set preserves this space's enable state untouched; siblings stop seeing it. */
+  demote(spaceId: string, id: string): void {
+    const scope = this.scopeOf(id);
+    if (scope.kind !== "profile") throw new RpcError("SCOPE_MISMATCH", `skill "${id}" is not profile-scoped`);
+    if ((this.d.scopes?.profileIdOf(spaceId) ?? null) !== scope.profileId) throw new RpcError("SCOPE_MISMATCH", `space ${spaceId} is not in skill "${id}"'s profile`);
+    this.setScope(id, { kind: "space", spaceId });
+  }
+
+  private setScope(id: string, scope: ItemScope): void {
+    this.d.settings.set(SCOPES_KEY, { ...this.scopeMap(), [id]: scope });
   }
 
   /**
@@ -88,10 +158,22 @@ export class SkillsService {
     return installed;
   }
 
-  /** Every directory in the library, valid or not, with this space's enabled flag. Sorted by id. */
+  /**
+   * Every directory in the library whose scope reaches this space, valid or not, with this space's
+   * enabled flag. Sorted by id.
+   *
+   * **The effective set** (W2) lives here and nowhere else: scope reach (profile-scoped skills of this
+   * space's profile + space-scoped skills of this space + pre-scoping skills) minus this space's
+   * disabled-set — ONE disabled-set for both scopes, see `promote`'s doc comment. `injectionFor`,
+   * `wouldInject` and the `skills.list` RPC all consume this method, so the panel and the staged
+   * library cannot disagree (`scoping.test.ts` greps the keys to keep it that way).
+   */
   list(spaceId: string): { root: string; skills: Skill[] } {
     const disabled = new Set(readIds(this.d.settings, disabledKey(spaceId)));
-    const skills = this.dirNames(this.root).map((id) => this.read(id, !disabled.has(id)));
+    const scopes = this.scopeMap();
+    const skills = this.dirNames(this.root)
+      .filter((id) => this.appliesTo(scopes[id] ?? LEGACY_SPACE_SCOPE, spaceId))
+      .map((id) => this.read(id, !disabled.has(id), scopes[id] ?? LEGACY_SPACE_SCOPE));
     return { root: this.root, skills };
   }
 
@@ -158,9 +240,9 @@ export class SkillsService {
   }
 
   /** One directory. Every failure below produces a listed-but-invalid skill, never an exception. */
-  private read(id: string, enabled: boolean): Skill {
+  private read(id: string, enabled: boolean, scope: ItemScope): Skill {
     const path = join(this.root, id, "SKILL.md");
-    const invalid = (reason: string): Skill => ({ id, name: id, description: "", path, enabled, valid: false, reason });
+    const invalid = (reason: string): Skill => ({ id, name: id, description: "", path, enabled, valid: false, reason, scope });
     let text: string;
     try { text = readFileSync(path, "utf8"); }
     catch { return invalid("no SKILL.md in this directory"); }
@@ -172,6 +254,6 @@ export class SkillsService {
     // Every agent decides whether to invoke a skill from its description alone, so one without a
     // description is not a skill that works badly — it is a skill that never runs.
     if (!description) return invalid("frontmatter has no `description`");
-    return { id, name, description, path, enabled, valid: true, reason: null };
+    return { id, name, description, path, enabled, valid: true, reason: null, scope };
   }
 }

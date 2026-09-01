@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeAdapter } from "@realm/adapters";
 import { createApp, type App } from "../app";
+import { DEFAULT_PERMISSION_MODE_KEY } from "@realm/contracts";
 import { titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
@@ -273,6 +274,67 @@ describe("SessionService over rpc", () => {
       expect((await c.call("sessions.setAgent", { id: session.id, agentKind: "acp:gemini" })).error.code).toBe("AGENT_UNAVAILABLE");
       expect((await c.call("sessions.setAgent", { id: session.id, agentKind: "not-an-agent" })).error.code).toBe("INVALID_PARAMS");
       expect((await c.call("sessions.setAgent", { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", agentKind: "codex" })).error.code).toBe("NOT_FOUND");
+      c.close();
+    });
+  });
+
+  describe("sessions.setEnvironment (Plan 12 W1 — the under-strip's workspace selector)", () => {
+    /** Two environments in one space: the primary (materialised by a plain session) and a project
+     *  checkout (materialised by a session created with `projectId`). Text-only script: the tests
+     *  that send a message need an event, not a turn parked on a permission prompt at teardown. */
+    async function bootTwoEnvs() {
+      const booted = await boot(new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "ok" }] }] }));
+      const root = mkdtempSync(join(tmpdir(), "realm-checkout-"));
+      const project = (await booted.c.call("projects.create", { spaceId: booted.sp.id, name: "web", rootPath: root })).result;
+      const anchor = (await booted.c.call("sessions.create", { spaceId: booted.sp.id, agentKind: "fake", projectId: project.id })).result.session;
+      return { ...booted, anchor };
+    }
+
+    it("re-points an untouched session at EXACTLY the named environment; cwd follows the row", async () => {
+      const { c, sp, anchor } = await bootTwoEnvs();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      expect(session.environmentId).not.toBe(anchor.environmentId); // primary vs checkout — a real move
+      const r = await c.call("sessions.setEnvironment", { id: session.id, environmentId: anchor.environmentId });
+      expect(r.ok).toBe(true);
+      expect(r.result.environmentId).toBe(anchor.environmentId);
+      // cwd is derived from the environment row on every read — the move carries the checkout with it.
+      expect(r.result.cwd).toBe(anchor.cwd);
+      expect((await c.call("sessions.get", { id: session.id })).result.cwd).toBe(anchor.cwd);
+      c.close();
+    });
+
+    it("refuses once the session has ANY event — same authority as setAgent, and nothing moves", async () => {
+      const { c, sp, anchor } = await bootTwoEnvs();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      await c.call("sessions.send", { id: session.id, text: "go" });
+      await waitFor(() => c.eventTypes(session.id).includes("usage"));
+      const r = await c.call("sessions.setEnvironment", { id: session.id, environmentId: anchor.environmentId });
+      expect(r.ok).toBe(false);
+      expect(r.error.code).toBe("SESSION_STARTED");
+      expect((await c.call("sessions.get", { id: session.id })).result.environmentId).toBe(session.environmentId);
+      c.close();
+    });
+
+    it("re-pointing at the environment it is already in is a no-op, even after events exist", async () => {
+      const { c, sp } = await bootTwoEnvs();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      await c.call("sessions.send", { id: session.id, text: "go" });
+      await waitFor(() => c.eventTypes(session.id).includes("usage"));
+      const r = await c.call("sessions.setEnvironment", { id: session.id, environmentId: session.environmentId });
+      expect(r.ok).toBe(true); // where it already runs — nothing to refuse
+      expect(r.result.environmentId).toBe(session.environmentId);
+      c.close();
+    });
+
+    it("refuses another space's environment (ENVIRONMENT_WRONG_SPACE) and an unknown one (NOT_FOUND)", async () => {
+      const { c, sp } = await bootTwoEnvs();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      const profileId = (await c.call("profiles.list", {})).result[0].id;
+      const sp2 = (await c.call("spaces.create", { profileId, name: "Elsewhere" })).result;
+      const other = (await c.call("sessions.create", { spaceId: sp2.id, agentKind: "fake" })).result.session;
+      expect((await c.call("sessions.setEnvironment", { id: session.id, environmentId: other.environmentId })).error.code).toBe("ENVIRONMENT_WRONG_SPACE");
+      expect((await c.call("sessions.setEnvironment", { id: session.id, environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).error.code).toBe("NOT_FOUND");
+      expect((await c.call("sessions.get", { id: session.id })).result.environmentId).toBe(session.environmentId); // nothing moved
       c.close();
     });
   });
@@ -734,6 +796,31 @@ describe("MCP gateway wiring (Plan 9 W3)", () => {
     const { url, headers } = throwing.starts[0]!.mcpServers[0] as { url: string; headers: Record<string, string> };
     const afterThrow = await fetch(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
     expect(afterThrow.status).toBe(401);
+    c.close();
+  });
+});
+
+describe("default permission mode for new sessions (Plan 12 W6)", () => {
+  it("sessions.create with no permissionMode consumes the stored default — the instant-create seam", async () => {
+    const { c, sp } = await boot();
+    await c.call("settings.set", { key: DEFAULT_PERMISSION_MODE_KEY, value: "acceptEdits" });
+    // No permissionMode in the params — exactly what "+" / ⌘N / the palette send.
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    expect(session.permissionMode).toBe("acceptEdits");
+    // The named mutant: the setting read at some other time than create. Changing it re-routes the NEXT
+    // create only; the first session keeps the mode it was born with.
+    await c.call("settings.set", { key: DEFAULT_PERMISSION_MODE_KEY, value: "bypassPermissions" });
+    const next = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    expect(next.permissionMode).toBe("bypassPermissions");
+    expect((await c.call("sessions.get", { id: session.id })).result.permissionMode).toBe("acceptEdits");
+    c.close();
+  });
+
+  it("a caller that names a mode wins over the setting", async () => {
+    const { c, sp } = await boot();
+    await c.call("settings.set", { key: DEFAULT_PERMISSION_MODE_KEY, value: "bypassPermissions" });
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", permissionMode: "plan" })).result;
+    expect(session.permissionMode).toBe("plan"); // the Plan chip's wire value travels verbatim, setting or no setting
     c.close();
   });
 });

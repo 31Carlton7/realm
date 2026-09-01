@@ -87,7 +87,13 @@ async function setupApp(opts: {
 
   const stubs = new Map<string, StubServer>();
   const broken = new Set<string>();
-  const mcp = new McpService({ servers, settings });
+  // The scope seam, wired exactly as app.ts wires it (W2) — so every test here runs against the
+  // production shape of the effective-set computation, not the seamless legacy fallback.
+  const mcp = new McpService({ servers, settings, scopes: {
+    profileIdOf: (sid) => spacesStore.get(sid)?.profileId ?? null,
+    spaceIdsOf: (pid) => spacesStore.list(pid).map((sp) => sp.id),
+    allSpaceIds: () => spacesStore.listAll().map((sp) => sp.id),
+  } });
   const hub = new McpHub({
     servers,
     onStatus: () => {},
@@ -211,6 +217,35 @@ describe("tools/list — namespacing and policy", () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(["alpha__boom", "alpha__echo"]);
     await client.close();
+  });
+
+  it("serves a promoted (profile-scoped) server's tools to the profile's sessions and to NO other profile's (W2)", async () => {
+    // The inheritance mutants at the wire: the gateway consumes `effectiveServerIds`, so a session in a
+    // sibling space of the SAME profile sees an inherited server (default ON), a session in a space of
+    // ANOTHER profile never does, and a per-space disable override reaches only its own space's session.
+    const app = await setupApp();
+    const { row } = app.addServer("alpha");
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    app.mcp.promote(app.spaceId, row.id);
+    const sibling = app.createSpaceAndSession("Sibling");
+    const otherProfileId = new ProfilesStore(app.db).create({ name: "Q", icon: "x", color: "#000" }).id;
+    const otherSpaceId = new SpacesStore(app.db, mkdtempSync(join(tmpdir(), "realm-gw-q-"))).create({ profileId: otherProfileId, name: "Elsewhere", icon: "folder" }).id;
+    const otherEnvId = new EnvironmentsStore(app.db).ensurePrimary(otherSpaceId).id;
+    const otherSessionId = new SessionsStore(app.db).create({ spaceId: otherSpaceId, projectId: null, agentKind: "claude", model: null, effort: null, permissionMode: "default", environmentId: otherEnvId, title: "q" }).id;
+
+    const mine = await connectClient(app);
+    const sib = await connectClient(app, sibling);
+    const other = await connectClient(app, { sessionId: otherSessionId, spaceId: otherSpaceId });
+    expect((await mine.client.listTools()).tools.map((t) => t.name).sort()).toEqual(["alpha__boom", "alpha__echo"]);
+    expect((await sib.client.listTools()).tools.map((t) => t.name).sort()).toEqual(["alpha__boom", "alpha__echo"]);
+    expect((await other.client.listTools()).tools).toEqual([]);
+    // Call-time recheck agrees with the listing: the other profile's session cannot reach it by name.
+    expect(asText(await other.client.callTool({ name: "alpha__echo", arguments: { message: "hi" } }) as CallToolResult)).toMatch(/not part of this space's toolset/);
+    // A sibling's override is the sibling's alone.
+    app.mcp.setEnabled(sibling.spaceId, row.id, false);
+    expect((await sib.client.listTools()).tools).toEqual([]);
+    expect((await mine.client.listTools()).tools.length).toBe(2);
+    await mine.client.close(); await sib.client.close(); await other.client.close();
   });
 
   it("setEnabled(false) drops the server from the very next tools/list, not just the call-time recheck", async () => {

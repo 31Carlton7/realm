@@ -181,4 +181,52 @@ export const migrations: string[] = [
     url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
   CREATE INDEX browsers_space ON browsers(space_id);
   `,
+  // v11 — defining scope for MCP servers (Plan 12 W2). Every row is defined at 'space' or 'profile'
+  // level. Existing rows all become scope 'space' with scope_space_id NULL — the "pre-scoping row"
+  // (`LEGACY_SPACE_SCOPE`): listed in every space, governed by the per-space enabled-set in `settings`
+  // exactly as before, so NO space's effective set moves on upgrade. No backfill guesses a row into a
+  // space: a row enabled in two spaces has no single defining space, and inventing one would change
+  // somebody's set. Profile-scoped rows are inherited (default ON) by every space of scope_profile_id,
+  // minus per-space disable overrides (`mcp.profileDisabled:<spaceId>` in settings).
+  //
+  // Plain TEXT, no foreign keys — the same posture as every per-space settings key (`mcp.enabled:` et
+  // al. reference space ids with nothing enforcing them): scope liveness is the SERVICE's question, and
+  // `McpService.appliesTo` answers it in the one place the effective set is computed. A defining space
+  // that no longer exists degrades the row to a pre-scoping one (visible everywhere, opt-in per space —
+  // safe under MCP's default-off polarity, and the row stays reachable in panels instead of being
+  // orphaned); a defining profile that no longer exists parks the row (applies nowhere) — profile
+  // deletion cascades the profile's spaces away, so there is nowhere it could honestly apply, and W4's
+  // cross-scope Connections page is the recovery surface.
+  `
+  ALTER TABLE mcp_servers ADD COLUMN scope TEXT NOT NULL DEFAULT 'space';
+  ALTER TABLE mcp_servers ADD COLUMN scope_space_id TEXT;
+  ALTER TABLE mcp_servers ADD COLUMN scope_profile_id TEXT;
+  `,
+  // v12 — the notifications feed (Plan 12 W5): a durable row per thing that waited on the user, so the
+  // feed survives restart. `read_at` is about the USER (they saw the row); `acted_at` is about the
+  // WORLD (the underlying condition resolved — permission answered, MCP server recovered). The two are
+  // independent on purpose: a permission can be answered before anyone reads the row, and read before
+  // anyone answers.
+  //
+  // Plain TEXT references, no foreign keys — deliberately. A notification is a LOG: "session X asked
+  // for permission" stays true (and stays worth showing) after session X is deleted, exactly the
+  // posture mcp_call_log takes with its ON DELETE SET NULL. `ref_id` is the category's own reference
+  // (a permission requestId — possibly a broker's `bperm_…`, so not necessarily a ULID — an MCP server
+  // id, an agent kind, an environment id) and, with `category`, the service's dedup key.
+  `
+  CREATE TABLE notifications (
+    id TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    space_id TEXT,
+    session_id TEXT,
+    ref_id TEXT,
+    title TEXT NOT NULL,
+    body TEXT,
+    created_at INTEGER NOT NULL,
+    read_at INTEGER,
+    acted_at INTEGER);
+  CREATE INDEX notifications_feed ON notifications(created_at DESC, id DESC);
+  CREATE INDEX notifications_unread ON notifications(read_at) WHERE read_at IS NULL;
+  CREATE INDEX notifications_dedup ON notifications(category, ref_id);
+  `,
 ];

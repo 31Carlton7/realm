@@ -15,6 +15,11 @@ interface Window {
     pathForFile(file: File): string;
     /** Native trackpad scroll phases (macOS helper); optional — may never fire. */
     onScrollPhase?(cb: (m: ScrollPhaseMessage) => void): () => void;
+    /** macOS Permissions tab (Plan 12 W6): TCC rows with honest states; probe never prompts. */
+    permissions: {
+      probe(): Promise<TccRow[]>;
+      openSettings(pane: string): Promise<void>;
+    };
     /** Browser pane (Plan 11 W1): drives the native WebContentsView main owns for a browser item. */
     browser: {
       create(id: string, url: string, allowlist: string[] | null): Promise<void>;
@@ -29,5 +34,7 @@ interface Window {
     };
   };
 }
+/** Mirrors TccRow in main/tcc.ts — the Permissions tab's row payload. */
+interface TccRow { id: string; label: string; state: "granted" | "denied" | "unknown"; detail: string }
 /** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */
 interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }

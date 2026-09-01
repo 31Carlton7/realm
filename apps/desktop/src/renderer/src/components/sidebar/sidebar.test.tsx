@@ -212,12 +212,28 @@ describe("Arc sidebar", () => {
     expect(pages[0]!.hasAttribute("inert")).toBe(true);
   });
 
-  it("the profile pill opens the space settings sheet and + opens the new-space sheet", async () => {
+  it("the profile pill opens the space PAGE and + opens the new-space sheet", async () => {
     const { store } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
-    expect(store.getState().sheet).toEqual({ kind: "space-settings", spaceId: "s1" });
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    expect(store.getState().sheet).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "New space" }));
     expect(store.getState().sheet).toEqual({ kind: "new-space" });
+  });
+
+  it("the header title row itself opens the space PAGE (the transcription's front door)", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Versed" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    const page = store.getState().items.find((i) => i.kind === "space-page")!;
+    expect(JSON.stringify(store.getState().layout)).toContain(page.id);
+  });
+
+  it("the space menu's Open space opens the page — the sheet's ⋯ entry point did not go dead", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open space" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
   });
 
   it("OPEN label is absent when nothing is open; unopened items render under SPACE", async () => {
@@ -488,5 +504,38 @@ describe("browser driving dot (Plan 11 W4)", () => {
     act(() => store.getState().applyBrowserDriving({ browserId: "b1", driving: false }));
     expect(row().querySelector(".status-dot")).toBeNull();
     expect(row()).toHaveAccessibleName("Stripe docs");
+  });
+});
+
+describe("sidebar destinations (Plan 12 W4)", () => {
+  it("Library, Connections and Notifications sit between the New-session block and the space section (W5 filled the seam)", async () => {
+    await mount();
+    const nav = screen.getByRole("navigation", { name: "Destinations" });
+    expect(within(nav).getByRole("button", { name: "Library" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Connections" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: /Notifications/ })).toBeInTheDocument();
+    expect(within(nav).getAllByRole("button")).toHaveLength(3);
+    // No unread pill at zero — a permanent 0 would be the dead chrome this nav bans.
+    expect(within(nav).queryByLabelText(/unread/)).toBeNull();
+    // Placement: the nav follows the sb-top block (search + New session) and precedes the swiper.
+    expect(nav.previousElementSibling).toHaveClass("sb-top");
+  });
+
+  it("clicking Library opens ONE library-page item in the active space; a second click focuses it (named mutant: two Library panes)", async () => {
+    const { store, api } = await mount();
+    // Scoped to the nav: once the page exists, its ITEM row is also titled "Library".
+    const nav = screen.getByRole("navigation", { name: "Destinations" });
+    fireEvent.click(within(nav).getByRole("button", { name: "Library" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(true));
+    fireEvent.click(within(nav).getByRole("button", { name: "Library" }));
+    await waitFor(() => expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1));
+    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("library-page"))).toHaveLength(1);
+  });
+
+  it("clicking Connections opens the connections-page item", async () => {
+    const { store } = await mount();
+    const nav = screen.getByRole("navigation", { name: "Destinations" });
+    fireEvent.click(within(nav).getByRole("button", { name: "Connections" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "connections-page")).toBe(true));
   });
 });

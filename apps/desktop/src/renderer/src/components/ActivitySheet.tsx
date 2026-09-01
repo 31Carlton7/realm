@@ -62,7 +62,7 @@ function sessionLabel(sessionId: string, sessions: Record<string, Session>): str
  * Realm's log of every proxied MCP call (Plan 9 W7) — reverse-chronological, filterable by session and
  * server, live-updating from the `mcp.call` broadcast App.tsx subscribes to.
  *
- * Opened from McpSection's "Activity" button (replacing the space-settings sheet it lives inside — the
+ * Opened from McpSection's "Activity" button (opening over the space page it lives inside — the
  * one-slot ruling) and the command palette's "MCP Activity" entry, both through `openActivity`, which
  * always resets to the unfiltered view: this is a global log, not a per-space one, so nothing here is
  * scoped to whatever space the sheet happened to be opened from.

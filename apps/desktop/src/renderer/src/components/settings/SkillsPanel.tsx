@@ -1,10 +1,11 @@
-import { AGENT_META, SELECTABLE_AGENT_KINDS, skillSupportNote } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, skillSupportNote, type Skill } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "../../state/store";
+import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
 
 /**
- * The skills tab of the space-settings sheet (W5): Realm's library with THIS space's toggles.
+ * The skills tab of the space page (W5, sheet-era; a pane tab since Plan 12 W3): Realm's library with THIS space's toggles.
  *
  * Two disclosures here are load-bearing, not copy (the plan's W1 carry-forwards):
  *
@@ -21,7 +22,6 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
   const skills = useApp((s) => s.spaceSkills[spaceId]);
   const root = useApp((s) => s.skillsRoot);
   const refreshSkills = useApp((s) => s.refreshSkills);
-  const setSkillEnabled = useApp((s) => s.setSkillEnabled);
   const run = useApp((s) => s.run);
   useEffect(() => { run(() => refreshSkills(spaceId)); }, [spaceId, refreshSkills, run]);
 
@@ -37,24 +37,9 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
         {!skills ? <p className="env-empty">Loading…</p> : skills.length === 0 ? (
           <p className="env-empty">No skills yet. Drop a folder containing a SKILL.md into <code className="env-path">{root}</code>.</p>
         ) : (
-          <ul className="settings-list">
-            {skills.map((sk) => (
-              <li key={sk.id} className="settings-row" data-invalid={!sk.valid || undefined}>
-                <div className="settings-row-main">
-                  <span className="settings-row-name">{sk.name}</span>
-                  {sk.valid
-                    ? <span className="settings-row-desc">{sk.description}</span>
-                    : <span className="settings-row-problem"><Icon name="alert" size={12} /> {sk.reason}</span>}
-                </div>
-                {/* Invalid skills carry no toggle: they are never handed to an agent whatever the flag
-                    says, and a switch that does nothing would claim otherwise. */}
-                {sk.valid && (
-                  <input type="checkbox" role="switch" className="switch" aria-label={`Skill ${sk.name} in this space`}
-                    checked={sk.enabled} onChange={(e) => run(() => setSkillEnabled(spaceId, sk.id, e.target.checked))} />
-                )}
-              </li>
-            ))}
-          </ul>
+          // W4: the shared scope grouping — "This space" / "From <profile>" / "Everywhere" — over the
+          // same rows this list always held.
+          <ScopeGroups entries={skills.map((sk) => ({ key: sk.id, scope: sk.scope, row: <SkillRow key={sk.id} spaceId={spaceId} skill={sk} /> }))} />
         )}
         {skills && skills.length > 0 && (
           <p className="settings-hint">New skills are on by default. Library: <code className="env-path">{root}</code></p>
@@ -76,5 +61,61 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
         </ul>
       </div>
     </div>
+  );
+}
+
+/**
+ * One skill row, wherever its group sits. The toggle is ALWAYS this space's state: for an inherited
+ * (profile-scoped) skill the server flips the per-space override, never the defining scope — the same
+ * `skills.setEnabled` wire either way, which is why the row never branches on scope for it.
+ *
+ * Skills have no editor at any scope (a skill IS its directory on disk — the path names it), so unlike
+ * MCP rows there is no in-place edit to withhold and no "Edit in profile" to offer. What scope adds
+ * here is movement: "Move to profile…" on a space/pre-scoping row, "Move to this space…" on an
+ * inherited one, both behind the shared confirm that states the reach semantics.
+ */
+function SkillRow({ spaceId, skill: sk }: { spaceId: string; skill: Skill }) {
+  const profiles = useApp((s) => s.profiles);
+  const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
+  const setSkillEnabled = useApp((s) => s.setSkillEnabled);
+  const promoteSkill = useApp((s) => s.promoteSkill);
+  const demoteSkill = useApp((s) => s.demoteSkill);
+  const run = useApp((s) => s.run);
+  const [confirming, setConfirming] = useState(false);
+
+  const inherited = sk.scope.kind === "profile";
+  // Promote resolves the profile from the VANTAGE space server-side; the confirm names the same one.
+  // For an inherited row the name comes from the row's own defining profile instead.
+  const profileId = sk.scope.kind === "profile" ? sk.scope.profileId : space?.profileId;
+  const profileName = profiles.find((p) => p.id === profileId)?.name ?? "profile";
+
+  return (
+    <li className="settings-row" data-invalid={!sk.valid || undefined}>
+      <div className="settings-row-main">
+        <span className="settings-row-name">{sk.name}</span>
+        {sk.valid
+          ? <span className="settings-row-desc">{sk.description}</span>
+          : <span className="settings-row-problem"><Icon name="alert" size={12} /> {sk.reason}</span>}
+      </div>
+      {/* Movement only for valid rows: moving a broken skill between scopes would dignify a row that
+          no agent will ever see. Invalid rows keep exactly what they had — the reason line. */}
+      {sk.valid && !confirming && (
+        <button type="button" className="btn-quiet scope-move" onClick={() => setConfirming(true)}>
+          {inherited ? "Move to this space…" : "Move to profile…"}
+        </button>
+      )}
+      {/* Invalid skills carry no toggle: they are never handed to an agent whatever the flag says, and
+          a switch that does nothing would claim otherwise. */}
+      {sk.valid && (
+        <input type="checkbox" role="switch" className="switch" aria-label={`Skill ${sk.name} in this space`}
+          title={inherited ? `Defined in ${profileName} — this switch is this space's override.` : undefined}
+          checked={sk.enabled} onChange={(e) => run(() => setSkillEnabled(spaceId, sk.id, e.target.checked))} />
+      )}
+      {confirming && (
+        <MoveScopeConfirm direction={inherited ? "demote" : "promote"} name={sk.name} profileName={profileName}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => { setConfirming(false); run(() => (inherited ? demoteSkill : promoteSkill)(spaceId, sk.id)); }} />
+      )}
+    </li>
   );
 }

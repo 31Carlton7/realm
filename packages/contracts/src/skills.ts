@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AGENT_META } from "./presets";
+import { ItemScopeSchema } from "./scoping";
 import type { AgentKind } from "./entities";
 
 /**
@@ -28,6 +29,11 @@ export const SkillSchema = z.object({
   path: z.string(),
   /** Whether this space passes it to its agents. Defaults to true; per-space, persisted. */
   enabled: z.boolean(),
+  /** Where this skill is defined (W2). Space-scoped with `spaceId: null` = a pre-scoping library entry,
+   *  visible in every space; profile-scoped = inherited by every space of that profile. Only skills that
+   *  APPLY to the listed space are returned, so an inherited entry here always belongs to this space's
+   *  own profile. */
+  scope: ItemScopeSchema,
   /** False when `SKILL.md` is missing, unreadable, or has no `name`/`description` frontmatter. */
   valid: z.boolean(),
   /** Why it is invalid, in one sentence. Null when valid. */

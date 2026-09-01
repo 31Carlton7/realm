@@ -69,6 +69,16 @@ export const AGENT_CONVERSATION_REWIND = {
 export const PERMISSION_MODES = [{ id: "default", label: "Ask" }, { id: "acceptEdits", label: "Accept edits" }, { id: "bypassPermissions", label: "Full access" }] as const;
 
 /**
+ * Settings key for the permission mode NEW sessions start in (Plan 12 W6) — consumed server-side by
+ * `sessions.create` whenever the caller does not name a mode (which is every instant-create path:
+ * "+", ⌘N, the palette's one-shots). Stored as a `PERMISSION_MODES` id; anything else — including
+ * `"plan"`, which is a mode axis and not a permission — resolves to `"default"`, as does any agent
+ * whose permission model Realm cannot actually set (`AGENT_SUPPORTS_PERMISSION_MODES`): storing
+ * `bypassPermissions` must never quietly widen an agent the table says Realm has no lever on.
+ */
+export const DEFAULT_PERMISSION_MODE_KEY = "sessions.defaultPermissionMode";
+
+/**
  * The wire value for Plan. It is still transmitted through the `permissionMode` field because that is
  * the channel both supporting adapters read it on — Claude Code has a first-class `"plan"` permission
  * mode, and `codexPolicyFor` maps this exact string onto `approvalPolicy: "untrusted"` +

@@ -53,6 +53,9 @@ describe("rpc methods", () => {
     await waitFor(() => ["profiles.changed", "spaces.changed", "items.changed"].every((e) => c.events.some((x) => x.event === e)));
     const info = (await c.call("system.info", {})).result;
     expect(info.realmHome).toBe(home);
+    // The under-strip's machine label (Plan 12 W1): always a non-empty name, whatever the host calls itself.
+    expect(typeof info.machineName).toBe("string");
+    expect(info.machineName.length).toBeGreaterThan(0);
     c.close();
   });
 

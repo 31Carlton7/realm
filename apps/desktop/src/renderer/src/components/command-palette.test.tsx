@@ -230,3 +230,41 @@ describe("CommandPalette", () => {
     expect(store.getState().paletteOpen).toBe(false); // ignored while a sheet is open
   });
 });
+
+/** Plan 12 W3: the palette's settings entry survived the sheet's retirement — it opens the space PAGE.
+ *  (An entry point silently dead is the failure mode; this one had no coverage in the sheet era.) */
+describe("Open space (Plan 12 W3)", () => {
+  it("runs openSpacePage for the active space — a pane, not a sheet", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open space" } });
+    fireEvent.click(screen.getByRole("option", { name: /Open space/ }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    expect(store.getState().sheet).toBeNull();
+  });
+});
+
+/** Plan 12 W4: the destination pages get palette routes of their own. */
+describe("Open library / Open connections (Plan 12 W4)", () => {
+  it("Open library runs openDestinationPage — one library-page item in the active space", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open library" } });
+    fireEvent.click(screen.getByRole("option", { name: /Open library/ }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(true));
+    expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1);
+  });
+
+  it("Open connections opens the connections-page item", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open connections" } });
+    fireEvent.click(screen.getByRole("option", { name: /Open connections/ }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "connections-page")).toBe(true));
+  });
+
+  it("Open settings opens the settings-page item (W6) — the SETTINGS page, not the space page", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open settings" } });
+    fireEvent.click(screen.getByRole("option", { name: /Open settings/ }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "settings-page")).toBe(true));
+    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
+  });
+});

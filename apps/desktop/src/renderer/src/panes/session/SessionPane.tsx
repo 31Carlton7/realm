@@ -155,6 +155,25 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const attachFiles = useApp((s) => s.attachFiles);
   const attachFromPicker = useApp((s) => s.attachFromPicker);
   const removeAttachment = useApp((s) => s.removeAttachment);
+  // Under-strip + "+" menu (Plan 12 W1).
+  const machineName = useApp((s) => s.machineName);
+  const environments = useApp((s) => s.environments);
+  const setSessionEnvironment = useApp((s) => s.setSessionEnvironment);
+  const moveSessionToNewWorktree = useApp((s) => s.moveSessionToNewWorktree);
+  const connectors = useApp((s) => { const sess = s.sessions[id]; return (sess && s.connectors[sess.spaceId]) ?? null; });
+  const refreshConnectors = useApp((s) => s.refreshConnectors);
+  const pickAndLinkProject = useApp((s) => s.pickAndLinkProject);
+  const openSpacePage = useApp((s) => s.openSpacePage);
+  const spaceEnvironments = useMemo(
+    () => Object.values(environments).filter((e) => session && e.spaceId === session.spaceId),
+    [environments, session],
+  );
+  // The environments map loads on space activation, BEFORE this session (and its lazily-created
+  // primary row) may exist — so a session whose own environment is missing from the map re-fetches
+  // once. Also what makes the diff button above appear without a space switch.
+  const refreshEnvironments = useApp((s) => s.refreshEnvironments);
+  const missingOwnEnv = session !== undefined && !environments[session.environmentId];
+  useEffect(() => { if (missingOwnEnv) run(() => refreshEnvironments()); }, [missingOwnEnv, refreshEnvironments, run]);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
   const panelOpen = useApp((s) => s.terminalPanel[id]?.open ?? false);
   const agentProbe = useApp((s) => s.agentProbe);
@@ -214,6 +233,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             canSwitchAgent={canSwitchAgent}
             agentProbe={agentProbe}
             mentionSkills={mentionSkills} staleMentions={staleMentions}
+            machineName={machineName} environments={spaceEnvironments}
+            onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
+            onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}
+            connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
+            onAddFolder={() => run(() => pickAndLinkProject())}
+            onManageConnections={() => run(() => openSpacePage(session.spaceId, "connections"))}
             hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />}
     </div>
   );

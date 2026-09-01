@@ -91,6 +91,15 @@ const BINDINGS: Binding[] = [
     match: (e) => e.key.toLowerCase() === "n" && mod(e, { meta: true }),
     run: (s) => s.run(() => s.newSessionInstant()),
   },
+  // ⌘U → attach files to the focused session (Plan 12 W1 — the "+" menu's Add files, whose ⌘U label
+  // is purely visual per the Menu contract; THIS is the one binding). `inInputs` for the same reason
+  // ⌘J earns it: the hand that reaches for it is in the composer, an editable target the guard would
+  // otherwise swallow — and ⌘U types nothing there.
+  {
+    match: (e) => e.key.toLowerCase() === "u" && mod(e, { meta: true }),
+    inInputs: true,
+    run: (s) => { const it = focusedItem(s); if (it?.kind === "session") s.run(() => s.attachFromPicker(it.refId)); },
+  },
   // ⌘J → show/hide the focused session's terminal drawer (W4). `inInputs` on purpose: the two places
   // your hands ever are in a session pane are the composer (an editable target, which the guard would
   // otherwise swallow) and the drawer itself (exempted by isEditableTarget's .xterm clause) — a toggle

@@ -132,6 +132,12 @@ export class McpGateway {
     this.notifyToolsChanged();
   }
 
+  /** Registered provider names, in registration order — what `mcp.providers.list` enumerates (W4).
+   *  Names only: the enabled flag is per-space policy and belongs to McpService, not this registry. */
+  providerNames(): string[] {
+    return [...this.providers.keys()];
+  }
+
   /** Binds 127.0.0.1:0 (OS-assigned — see the plan's port-0 amendment) and returns the bound port. */
   async listen(): Promise<number> {
     this.httpServer = createServer((req, res) => void this.handleHttp(req, res));
@@ -361,7 +367,7 @@ export class McpGateway {
       } catch { return []; }
     }));
     if (toolset !== null) return { tools: perProvider.flat() };
-    const perServer = await Promise.all(this.d.mcp.enabledServerIds(spaceId).map(async (id): Promise<Tool[]> => {
+    const perServer = await Promise.all(this.d.mcp.effectiveServerIds(spaceId).map(async (id): Promise<Tool[]> => {
       const row = this.d.servers.get(id);
       if (!row) return [];
       let tools: McpLiveTool[];
@@ -424,6 +430,13 @@ export class McpGateway {
     if (!resolved) {
       const disabled = this.resolveAnyServer(fullName);
       if (disabled) {
+        // W2: "turn it on in Space Settings" is only true for a server this space can SEE. One that is
+        // scoped to another profile or space is blocked with its real attribution but no false remedy.
+        if (!this.d.mcp.reaches(spaceId, disabled.row.id)) {
+          return this.blocked(sessionId, disabled.row.id, disabled.row.name, disabled.tool, argsJson,
+            `mcp: "${disabled.row.name}" is not part of this space's toolset — it is defined in another profile or space.`,
+            `blocked: ${disabled.row.name} is out of scope for this space`);
+        }
         return this.blocked(sessionId, disabled.row.id, disabled.row.name, disabled.tool, argsJson,
           `mcp: "${disabled.row.name}" is disabled for this space — turn it on in Space Settings → MCP.`,
           `blocked: ${disabled.row.name} is disabled in this space`);
@@ -497,7 +510,7 @@ export class McpGateway {
    *  rather than a split on the first `__`. Enabled servers ONLY — see `handleCall`'s comment on why a
    *  disabled server's name must never win this match. */
   private resolveCall(spaceId: string, fullName: string): { serverId: string; serverName: string; tool: string } | null {
-    const match = longestPrefixMatch(fullName, this.d.mcp.enabledServerIds(spaceId).map((id) => this.d.servers.get(id)).filter((r): r is McpServerRow => r !== null));
+    const match = longestPrefixMatch(fullName, this.d.mcp.effectiveServerIds(spaceId).map((id) => this.d.servers.get(id)).filter((r): r is McpServerRow => r !== null));
     return match ? { serverId: match.row.id, serverName: match.row.name, tool: match.tool } : null;
   }
 

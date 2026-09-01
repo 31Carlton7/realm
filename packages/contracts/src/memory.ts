@@ -9,9 +9,33 @@ import { AgentKindSchema, type AgentKind } from "./entities";
  * `systemPrompt.append` for Claude, `thread/start` `developerInstructions` for Codex — or not at all.
  */
 
-/** Hard cap on the Realm memory document. It travels inside every session's system context, so an
- *  unbounded doc is a prompt that quietly swallows the context window. */
+/** Hard cap on ONE Realm memory document (space or profile). It travels inside every session's system
+ *  context, so an unbounded doc is a prompt that quietly swallows the context window. */
 export const MEMORY_DOC_MAX = 100_000;
+
+/**
+ * W2: cap on the COMBINED memory content injected into one session (profile doc + space doc), enforced
+ * where the CLIs actually meet the docs — `MemoryService.systemContextFor`. Each doc is write-capped at
+ * `MEMORY_DOC_MAX`, so two full docs could otherwise double the old injection budget. When the pair
+ * exceeds this, the PROFILE doc is truncated to fit and the space doc rides whole: the space doc is the
+ * more specific standing instruction for the workspace the session is actually in.
+ */
+export const MEMORY_COMBINED_MAX = 150_000;
+
+/**
+ * The profile-level memory doc as one space sees it (W2). `enabledHere` is the per-space inheritance
+ * toggle — the profile doc is an inherited item like any other: ON by default, per-space disableable,
+ * never editable from a space (`memory.setProfile` edits it at its defining scope).
+ */
+export const ProfileMemoryStateSchema = z.object({
+  profileId: z.string(),
+  /** Where the profile document lives: `<realmHome>/memory/profile-<profileId>.md`. */
+  path: z.string(),
+  doc: z.string(),
+  /** Whether THIS space injects the profile doc. Per-space, default true. */
+  enabledHere: z.boolean(),
+});
+export type ProfileMemoryState = z.infer<typeof ProfileMemoryStateSchema>;
 
 /**
  * One file of durable context, as `memory.sources` reports it for a session.
@@ -57,6 +81,9 @@ export const MemoryStateSchema = z.object({
   path: z.string(),
   doc: z.string(),
   agentsFile: AgentsFileStateSchema,
+  /** The profile doc this space inherits (W2), or null when the space's profile is unknown. Injection
+   *  order is profile doc then space doc, combined cap `MEMORY_COMBINED_MAX`. */
+  profile: ProfileMemoryStateSchema.nullable(),
 });
 export type MemoryState = z.infer<typeof MemoryStateSchema>;
 
