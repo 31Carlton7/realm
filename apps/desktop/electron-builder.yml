@@ -1,0 +1,30 @@
+# Packaging (electron-builder). Run via `pnpm dist` / `pnpm dist:dir` at the repo root:
+# root build first (packages, server tsup bundle, electron-vite out/), then scripts/stage-pack.mjs
+# assembles .pack-stage/ (server deploy w/ node_modules, bundled skills, scrollphase helper, icon),
+# then electron-builder packs out/ into the asar and .pack-stage/ into Contents/Resources.
+appId: co.charmtechnologies.realm
+productName: Realm
+directories:
+  output: release
+files:
+  - out/**
+# Nothing native lives in the app itself, and there are no production deps to collect (see
+# package.json "//dependencies") — never invoke npm/node-gyp during packaging.
+npmRebuild: false
+nodeGypRebuild: false
+asar: true
+extraResources:
+  # Everything the packaged app needs on real disk (asar cannot serve node-pty's native bits or a
+  # spawnable server entry): server/ (dist + prod node_modules), skills/, scrollphase (when built).
+  - from: .pack-stage
+    to: .
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  # No signing identity on this machine: identity null skips codesign entirely rather than failing
+  # the build hunting for one. Consequence (README "Install"): first launch on another Mac needs
+  # right-click → Open, or `xattr -cr /Applications/Realm.app` if Gatekeeper reports it damaged.
+  identity: null
