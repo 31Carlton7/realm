@@ -15,6 +15,8 @@ function setup(opts: {
   gate?: GateResult;
   enabled?: boolean;
   bridgeResults?: Record<string, unknown>;
+  /** W5: stands in for `BrowserAgentService.checkMutation`. Omitted = no constraints dep at all. */
+  checkMutation?: (tool: string, url?: string) => string | null;
 } = {}) {
   const rows = new Map<string, Browser>();
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", createdAt: 1, updatedAt: 1 });
@@ -61,10 +63,25 @@ function setup(opts: {
     },
     rpc: { broadcast: (event, payload) => { calls.broadcasts.push({ event, payload }); } } as BrowserAgentToolsDeps["rpc"],
   };
+  const checkCalls: { tool: string; url?: string }[] = [];
+  if (opts.checkMutation) {
+    const check = opts.checkMutation;
+    deps.constraints = {
+      checkMutation: (_sessionId, tool, url) => {
+        checkCalls.push(url !== undefined ? { tool, url } : { tool });
+        return check(tool, url);
+      },
+    };
+  }
   const provider = createBrowserAgentProvider(deps);
   const ctx = { sessionId: "sess1", spaceId: "space1" };
   const call = (tool: string, args: unknown): Promise<CallToolResult> => provider.call(ctx, tool, args);
-  return { provider, ctx, call, calls };
+  return { provider, ctx, call, calls, checkCalls };
+}
+
+/** W5 shorthand: a provider whose constraints seam answers with `refuse`. */
+function setupWithConstraints(refuse: (tool: string, url?: string) => string | null) {
+  return setup({ checkMutation: refuse });
 }
 
 const text = (r: CallToolResult): string =>
@@ -369,5 +386,67 @@ describe("W4 — watching broadcasts (browser.driving / browser.action)", () => 
     for (const b of calls.broadcasts) {
       expect(b.payload).toMatchObject({ spaceId: "space1", browserId: "b1" });
     }
+  });
+});
+
+/**
+ * Plan 11 W5: the per-session constraints seam. A delegated child's `allowedOrigins`/`maxActs` are
+ * enforced HERE, before the gate and the bridge, for direct calls AND batch steps — the mutant is a
+ * mutating path that skips `checkMutation` (or consults it after prompting the user).
+ */
+describe("W5 constraints seam (delegated browser agents)", () => {
+  it("browser_open consults checkMutation BEFORE the gate and refuses without opening", async () => {
+    const s = setupWithConstraints((tool, url) => (url?.includes("evil") ? `refused: ${url} is outside the allowed origins` : null));
+    const result = await s.call("browser_open", { url: "https://evil.example/steal" });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("outside the allowed origins");
+    expect(s.calls.gates).toEqual([]);      // the user was never prompted for a doomed action
+    expect(s.calls.opened).toEqual([]);     // and nothing opened
+    expect(s.checkCalls).toEqual([{ tool: "browser_open", url: "https://evil.example/steal" }]);
+  });
+
+  it("an allowed browser_open passes the URL through checkMutation and proceeds", async () => {
+    const s = setupWithConstraints(() => null);
+    const result = await s.call("browser_open", { url: "https://ok.example/" });
+    expect(result.isError).toBe(false);
+    expect(s.checkCalls).toEqual([{ tool: "browser_open", url: "https://ok.example/" }]);
+    expect(s.calls.opened).toEqual(["https://ok.example/"]);
+  });
+
+  it("browser_navigate consults checkMutation with the target URL", async () => {
+    const s = setupWithConstraints((_tool, url) => (url?.includes("evil") ? "refused: origin" : null));
+    const result = await s.call("browser_navigate", { browserId: "b1", url: "https://evil.example/x" });
+    expect(result.isError).toBe(true);
+    expect(s.calls.bridge.filter((b) => b.op === "navigate")).toEqual([]);
+    expect(s.calls.gates).toEqual([]);
+  });
+
+  it("browser_act consults checkMutation (no URL) — a spent maxActs budget refuses before the gate", async () => {
+    const s = setupWithConstraints(() => "refused: maxActs spent");
+    const result = await s.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("maxActs");
+    expect(s.calls.gates).toEqual([]);
+    expect(s.calls.bridge.filter((b) => b.op === "act")).toEqual([]);
+  });
+
+  it("batch steps go through checkMutation too — the already-gated path cannot bypass the constraint", async () => {
+    const s = setupWithConstraints((_tool, url) => (url?.includes("evil") ? "refused: origin" : null));
+    const result = await s.call("browser_batch", { actions: [
+      { tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 11 } } },
+      { tool: "browser_navigate", arguments: { browserId: "b1", url: "https://evil.example/x" } },
+    ] });
+    expect(result.isError).toBe(true);           // the batch stopped at the refused step
+    expect(text(result)).toContain("refused: origin");
+    expect(s.checkCalls.map((c) => c.tool)).toEqual(["browser_act", "browser_navigate"]);
+    expect(s.calls.bridge.filter((b) => b.op === "navigate")).toEqual([]); // the refused step never reached the bridge
+    expect(s.calls.bridge.filter((b) => b.op === "act")).toHaveLength(1);  // the allowed step ran
+  });
+
+  it("without the constraints dep every mutating path behaves exactly as before", async () => {
+    const { call, calls } = setup();
+    const result = await call("browser_open", { url: "https://anywhere.example/" });
+    expect(result.isError).toBe(false);
+    expect(calls.opened).toEqual(["https://anywhere.example/"]);
   });
 });

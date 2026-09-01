@@ -37,7 +37,7 @@ import { CheckpointService } from "./checkpoints/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /**
@@ -70,7 +70,12 @@ export function defaultAdapters(): AdapterRegistry {
 
 /** `claudeDir` overrides where MemoryService reads user-level Claude files (`~/.claude` otherwise) —
  *  for tests and live checks, which must never depend on (or expose) the real user's memory files. */
-export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string }): Promise<App> {
+export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string;
+  /** W5 test/live-check knobs for the browser-agent registry: `fallbackKind` (default claude) is the
+   *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
+   *  budget so suites don't wait minutes. Production callers pass neither. */
+  browserAgent?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perActMs: number; pollMs: number } };
+}): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
   // First boot: without a profile the New Space sheet is a dead end (spaces require one), so seed a
@@ -197,7 +202,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // W5: the browser-agent registry + its `realm-agent` provider (one tool, `browser_agent_run`).
   // A delegated child is a REAL session whose specialization all rides existing seams — see the
   // class doc comment in browsers/browser-agent.ts, including the bypass-is-never-inherited rule.
-  browserAgents = new BrowserAgentService({ settings, sessions, rpc, skillsRoot: skills.root });
+  browserAgents = new BrowserAgentService({ settings, sessions, rpc, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
   mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp));
   registerMethods({
@@ -211,7 +216,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   await mcpGateway.listen();
   const port = await rpc.listen(opts.port);
   return {
-    port, db, terminals, sessions,
+    port, db, terminals, sessions, browserAgents,
     close: async () => {
       terminals.closeAll();
       await sessions.closeAll();

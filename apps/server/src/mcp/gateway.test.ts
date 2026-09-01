@@ -64,6 +64,8 @@ async function setupApp(opts: {
   onOauthCallback?: (url: string) => Promise<{ serverId: string }>;
   /** Stands in for `McpOauth.headers` — the seam a real OAuth bearer arrives through. */
   authHeaders?: (row: McpServerRow) => Promise<Record<string, string>>;
+  /** Stands in for `BrowserAgentService.sessionToolset` — W5's per-session provider restriction. */
+  sessionToolset?: (sessionId: string) => string[] | null;
 } = {}): Promise<App> {
   const home = mkdtempSync(join(tmpdir(), "realm-mcp-gw-"));
   const db = openDatabase(join(home, "realm.db"));
@@ -98,7 +100,7 @@ async function setupApp(opts: {
     },
   });
   const rpc = new RecordingRpc();
-  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers, onOauthCallback: opts.onOauthCallback });
+  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers, onOauthCallback: opts.onOauthCallback, sessionToolset: opts.sessionToolset });
   const port = await gateway.listen();
 
   const app: App = {
@@ -642,5 +644,98 @@ describe("in-process providers (Plan 11 W3)", () => {
     expect(asText(result)).toContain("hi");
     expect(providerCalls).toEqual([]);
     await client.close();
+  });
+});
+
+/**
+ * Plan 11 W5: the per-session toolset restriction — how a delegated browser-agent child is born with
+ * a narrowed toolset. The seam (`sessionToolset`) answers per SESSION; a non-null answer means the
+ * session sees ONLY the named in-process providers: no user-configured MCP server rows (the "child
+ * toolset containing user MCP servers" mutant), and no other providers (`realm-agent` excluded is
+ * the recursion guard's gateway half).
+ */
+describe("per-session toolset restriction (Plan 11 W5)", () => {
+  const provider = (name: string, onCall?: (tool: string) => void) => ({
+    name,
+    tools: async () => [{ name: "ping", description: "pong", inputSchema: { type: "object" as const } }],
+    call: async (_ctx: unknown, tool: string): Promise<CallToolResult> => {
+      onCall?.(tool);
+      return { content: [{ type: "text", text: `${name} ran ${tool}` }], isError: false };
+    },
+  });
+
+  /** Two providers + one enabled user server; `restricted` (a second session in the same space) is
+   *  limited to `realm-browser`; the app's default session is unrestricted. */
+  async function restrictedApp() {
+    const restrictedIds = new Set<string>();
+    const app = await setupApp({ sessionToolset: (sessionId) => (restrictedIds.has(sessionId) ? ["realm-browser"] : null) });
+    const upstreamCalls: string[] = [];
+    const { row } = app.addServer("alpha", { onCall: (tool) => upstreamCalls.push(tool) });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    const browserCalls: string[] = [];
+    const agentCalls: string[] = [];
+    app.gateway.registerProvider(provider("realm-browser", (t) => browserCalls.push(t)));
+    app.gateway.registerProvider(provider("realm-agent", (t) => agentCalls.push(t)));
+    const child = app.createSpaceAndSession("same-space-child");
+    // Same space as the default session on purpose: the restriction is per SESSION, not per space.
+    const restricted = { sessionId: child.sessionId, spaceId: app.spaceId };
+    restrictedIds.add(restricted.sessionId);
+    return { app, restricted, upstreamCalls, browserCalls, agentCalls };
+  }
+
+  it("a restricted session lists ONLY its allowed provider — no user servers, no other providers", async () => {
+    const { app, restricted } = await restrictedApp();
+    const r = await connectClient(app, restricted);
+    expect((await r.client.listTools()).tools.map((t) => t.name)).toEqual(["realm-browser__ping"]);
+    await r.client.close();
+    // The unrestricted session in the same gateway still sees everything.
+    const u = await connectClient(app);
+    expect((await u.client.listTools()).tools.map((t) => t.name).sort())
+      .toEqual(["alpha__boom", "alpha__echo", "realm-agent__ping", "realm-browser__ping"]);
+    await u.client.close();
+  });
+
+  it("a restricted session's call to a user server tool is blocked, logged, and never reaches the upstream", async () => {
+    const { app, restricted, upstreamCalls } = await restrictedApp();
+    const r = await connectClient(app, restricted);
+    const result = (await r.client.callTool({ name: "alpha__echo", arguments: { message: "hi" } })) as CallToolResult;
+    expect(result.isError).toBe(true);
+    expect(asText(result)).toContain("restricted");
+    expect(upstreamCalls).toEqual([]);
+    const log = app.calls.list({ limit: 10 }).find((c) => c.sessionId === restricted.sessionId);
+    expect(log).toMatchObject({ ok: false });
+    expect(log?.resultSummary).toContain("restricted toolset");
+    await r.client.close();
+  });
+
+  it("a restricted session's call to a NON-allowed provider is blocked — the recursion guard's gateway half", async () => {
+    const { app, restricted, agentCalls } = await restrictedApp();
+    const r = await connectClient(app, restricted);
+    const result = (await r.client.callTool({ name: "realm-agent__ping", arguments: {} })) as CallToolResult;
+    expect(result.isError).toBe(true);
+    expect(asText(result)).toContain("restricted");
+    expect(agentCalls).toEqual([]);
+    await r.client.close();
+  });
+
+  it("the allowed provider still works for the restricted session, with the session's own identity", async () => {
+    const { app, restricted, browserCalls } = await restrictedApp();
+    const r = await connectClient(app, restricted);
+    const result = (await r.client.callTool({ name: "realm-browser__ping", arguments: {} })) as CallToolResult;
+    expect(asText(result)).toBe("realm-browser ran ping");
+    expect(browserCalls).toEqual(["ping"]);
+    await r.client.close();
+  });
+
+  it("the restriction is consulted at call time — it survives a session re-register (adapter restart)", async () => {
+    const { app, restricted } = await restrictedApp();
+    let r = await connectClient(app, restricted);
+    await r.client.close();
+    // Re-register (what a session restart does) mints a fresh token/entry; the restriction must hold.
+    r = await connectClient(app, restricted);
+    expect((await r.client.listTools()).tools.map((t) => t.name)).toEqual(["realm-browser__ping"]);
+    const blocked = (await r.client.callTool({ name: "alpha__echo", arguments: { message: "x" } })) as CallToolResult;
+    expect(blocked.isError).toBe(true);
+    await r.client.close();
   });
 });
