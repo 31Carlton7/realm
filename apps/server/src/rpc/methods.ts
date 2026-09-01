@@ -26,6 +26,7 @@ import type { NotificationsService } from "../notifications/service";
 import type { ReviewService } from "../delegation/review";
 import type { SearchService } from "../search/service";
 import type { ForkService } from "../sessions/fork";
+import type { ImportService } from "../import/service";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
 import type { GitWriteService } from "../workspace/git-write";
@@ -39,7 +40,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService; search: SearchService; forks: ForkService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
 };
 
@@ -375,6 +376,12 @@ export function registerMethods(d: Deps): void {
   // Deep search (Plan 16 W1). Profile-scoped server-side — the service's joins are the enforcement,
   // and the service itself checks the profile exists (a typo'd id should say so, not answer empty).
   reg("search.query", (p) => d.search.query(p.profileId, p.query, p.limit));
+
+  // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
+  // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and
+  // broadcasts its own items/spaces/memory/skills changes once at the end rather than per row.
+  reg("import.scan", () => d.imports.scan());
+  reg("import.apply", (p) => d.imports.apply(p));
 
   reg("items.list", (p) => d.items.list(p.spaceId));
   reg("items.listAll", () => d.items.listAll());

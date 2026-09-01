@@ -63,6 +63,8 @@ export const liveApi = (): Api => ({
   writeTerminal: async (terminalId, data) => { await rpc().call("terminals.write", { terminalId, data }); },
   prefillTerminal: async (terminalId, command) => { await rpc().call("terminals.prefill", { terminalId, command }); },
   probeAgents: (force) => rpc().call("agents.probe", { force }),
+  importScan: () => rpc().call("import.scan", {}),
+  importApply: (selection) => rpc().call("import.apply", selection),
   tccProbe: () => window.realm.permissions.probe(),
   openTccPane: (pane) => window.realm.permissions.openSettings(pane),
   updateStatus: () => window.realm.updates.status(),

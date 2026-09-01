@@ -1,0 +1,200 @@
+import { describe, it, expect } from "vitest";
+import type { SessionEvent } from "@realm/contracts";
+import { parseClaudeTranscript } from "./claude";
+import { parseCodexRollout } from "./codex";
+import { chainIds, parseCursorChain, parseCursorMeta } from "./cursor";
+import { TOOL_PAYLOAD_MAX } from "./transcript";
+
+const NOW = 1_800_000_000_000;
+const jsonl = (rows: unknown[]): string => rows.map((r) => JSON.stringify(r)).join("\n");
+const texts = (events: SessionEvent[], type: SessionEvent["type"]): string[] =>
+  events.filter((e) => e.type === type).map((e) => ("text" in e.payload ? e.payload.text : ""));
+
+describe("parseClaudeTranscript", () => {
+  const base = { sessionId: "s-1", cwd: "/Users/me/proj", isSidechain: false };
+  const transcript = jsonl([
+    { type: "queue-operation", operation: "enqueue", sessionId: "s-1" },
+    { type: "ai-title", aiTitle: "Derived title", sessionId: "s-1" },
+    { ...base, type: "user", timestamp: "2027-01-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: "hello" }] } },
+    { ...base, type: "assistant", timestamp: "2027-01-01T00:00:01.000Z", message: { id: "m1", model: "claude-opus-5", content: [{ type: "thinking", thinking: "pondering" }, { type: "text", text: "hi back" }] } },
+    { ...base, type: "assistant", timestamp: "2027-01-01T00:00:02.000Z", message: { id: "m2", content: [{ type: "tool_use", id: "t1", name: "Read", input: { path: "/x" } }] } },
+    { ...base, type: "user", timestamp: "2027-01-01T00:00:03.000Z", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "file body", is_error: false }] } },
+  ]);
+
+  it("maps speech, thinking and tools into Realm's vocabulary", () => {
+    const t = parseClaudeTranscript(transcript, NOW)!;
+    expect(t.providerSessionId).toBe("s-1");
+    expect(t.cwd).toBe("/Users/me/proj");
+    expect(t.model).toBe("claude-opus-5");
+    expect(t.events.map((e) => e.type)).toEqual(["user_message", "thinking", "assistant_text", "tool_call", "tool_result"]);
+    expect(texts(t.events, "user_message")).toEqual(["hello"]);
+    expect(texts(t.events, "assistant_text")).toEqual(["hi back"]);
+  });
+
+  it("counts only spoken turns — tool chatter must not make a quiet session look busy", () => {
+    expect(parseClaudeTranscript(transcript, NOW)!.messages).toBe(2);
+  });
+
+  it("keeps real timestamps rather than stamping everything with the import time", () => {
+    const t = parseClaudeTranscript(transcript, NOW)!;
+    expect(t.startedAt).toBe(Date.parse("2027-01-01T00:00:00.000Z"));
+    expect(t.updatedAt).toBe(Date.parse("2027-01-01T00:00:03.000Z"));
+  });
+
+  it("prefers a hand-set title over the derived one, and the derived one over the first message", () => {
+    expect(parseClaudeTranscript(transcript, NOW)!.title).toBe("Derived title");
+    expect(parseClaudeTranscript(jsonl([{ type: "custom-title", customTitle: "Mine", sessionId: "s-1" },
+      { type: "ai-title", aiTitle: "Derived title", sessionId: "s-1" },
+      { ...base, type: "user", timestamp: "2027-01-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: "hello" }] } }]), NOW)!.title).toBe("Mine");
+    expect(parseClaudeTranscript(jsonl([{ ...base, type: "user", timestamp: "2027-01-01T00:00:00.000Z", message: { role: "user", content: "bare string form" } }]), NOW)!.title)
+      .toBe("bare string form");
+  });
+
+  it("skips sidechain lines — a subagent's turns are not the parent's conversation", () => {
+    const withSide = jsonl([
+      { ...base, type: "user", timestamp: "2027-01-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: "mine" }] } },
+      { ...base, isSidechain: true, type: "user", timestamp: "2027-01-01T00:00:01.000Z", message: { role: "user", content: [{ type: "text", text: "subagent's" }] } },
+    ]);
+    expect(texts(parseClaudeTranscript(withSide, NOW)!.events, "user_message")).toEqual(["mine"]);
+  });
+
+  it("survives a truncated final line — a killed CLI must cost that line only", () => {
+    const t = parseClaudeTranscript(`${transcript}\n{"type":"user","messa`, NOW)!;
+    expect(t.messages).toBe(2);
+  });
+
+  it("clips tool output but never spoken text", () => {
+    const huge = "x".repeat(TOOL_PAYLOAD_MAX * 2);
+    const t = parseClaudeTranscript(jsonl([
+      { ...base, type: "user", timestamp: "2027-01-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: huge }] } },
+      { ...base, type: "user", timestamp: "2027-01-01T00:00:01.000Z", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: huge }] } },
+    ]), NOW)!;
+    expect(texts(t.events, "user_message")[0]).toHaveLength(huge.length);
+    const result = t.events.find((e) => e.type === "tool_result")!;
+    expect(result.type === "tool_result" && result.payload.content.length).toBeLessThan(huge.length);
+    expect(result.type === "tool_result" && result.payload.content).toContain("Realm import clipped");
+  });
+
+  it("reports nothing for a file with no conversation in it", () => {
+    expect(parseClaudeTranscript(jsonl([{ type: "ai-title", aiTitle: "x", sessionId: "s-1" }]), NOW)).toBeNull();
+    expect(parseClaudeTranscript("", NOW)).toBeNull();
+  });
+});
+
+describe("parseCodexRollout", () => {
+  const rollout = jsonl([
+    { timestamp: "2027-02-01T00:00:00.000Z", type: "session_meta", payload: { session_id: "c-1", cwd: "/Users/me/stora", originator: "Codex Desktop" } },
+    { timestamp: "2027-02-01T00:00:01.000Z", type: "turn_context", payload: { model: "gpt-5.2-codex", cwd: "/Users/me/stora" } },
+    // The wire register: the harness's injected preamble, wearing the `user` role.
+    { timestamp: "2027-02-01T00:00:02.000Z", type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "<recommended_plugins>buy things</recommended_plugins>" }] } },
+    { timestamp: "2027-02-01T00:00:02.000Z", type: "response_item", payload: { type: "message", role: "developer", content: [{ type: "input_text", text: "<permissions instructions>" }] } },
+    // The shown register: what the user actually typed.
+    { timestamp: "2027-02-01T00:00:03.000Z", type: "event_msg", payload: { type: "user_message", message: "fix the build" } },
+    { timestamp: "2027-02-01T00:00:04.000Z", type: "event_msg", payload: { type: "agent_reasoning", text: "checking" } },
+    { timestamp: "2027-02-01T00:00:05.000Z", type: "response_item", payload: { type: "function_call", name: "exec_command", arguments: '{"cmd":"pnpm build"}', call_id: "call_1" } },
+    { timestamp: "2027-02-01T00:00:06.000Z", type: "response_item", payload: { type: "function_call_output", call_id: "call_1", output: "ok" } },
+    { timestamp: "2027-02-01T00:00:07.000Z", type: "event_msg", payload: { type: "agent_message", message: "done" } },
+    { timestamp: "2027-02-01T00:00:08.000Z", type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 10, output_tokens: 20 } } } },
+    { timestamp: "2027-02-01T00:00:09.000Z", type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 30, output_tokens: 40 } } } },
+  ]);
+
+  it("reads speech from the shown register, never the injected wire one", () => {
+    const t = parseCodexRollout(rollout, NOW)!;
+    expect(texts(t.events, "user_message")).toEqual(["fix the build"]);
+    expect(JSON.stringify(t.events)).not.toContain("recommended_plugins");
+    expect(JSON.stringify(t.events)).not.toContain("permissions instructions");
+  });
+
+  it("maps reasoning, function calls and their outputs", () => {
+    const t = parseCodexRollout(rollout, NOW)!;
+    expect(t.events.map((e) => e.type)).toEqual(["user_message", "thinking", "tool_call", "tool_result", "assistant_text", "usage"]);
+    const call = t.events.find((e) => e.type === "tool_call")!;
+    expect(call.type === "tool_call" && call.payload).toMatchObject({ toolUseId: "call_1", name: "exec_command", input: { cmd: "pnpm build" } });
+    expect(t.model).toBe("gpt-5.2-codex");
+  });
+
+  it("collapses hundreds of token_count lines into one running total", () => {
+    const usage = parseCodexRollout(rollout, NOW)!.events.filter((e) => e.type === "usage");
+    expect(usage).toHaveLength(1);
+    expect(usage[0]!.type === "usage" && usage[0]!.payload).toMatchObject({ inputTokens: 30, outputTokens: 40 });
+  });
+
+  it("believes the source when it says Realm drove the session", () => {
+    expect(parseCodexRollout(rollout, NOW)!.fromRealm).toBe(false);
+    expect(parseCodexRollout(rollout.replace('"Codex Desktop"', '"realm"'), NOW)!.fromRealm).toBe(true);
+    expect(parseCodexRollout(rollout.replace('"Codex Desktop"', '"realm-smoke"'), NOW)!.fromRealm).toBe(true);
+  });
+
+  it("keeps the FIRST session_meta — a resumed thread must not change its own id", () => {
+    const resumed = `${rollout}\n${JSON.stringify({ timestamp: "2027-02-02T00:00:00.000Z", type: "session_meta", payload: { session_id: "c-2", cwd: "/elsewhere" } })}`;
+    const t = parseCodexRollout(resumed, NOW)!;
+    expect(t.providerSessionId).toBe("c-1");
+    expect(t.cwd).toBe("/Users/me/stora");
+  });
+
+  it("wraps a free-text custom tool input rather than pretending it was arguments", () => {
+    const t = parseCodexRollout(jsonl([
+      { timestamp: "2027-02-01T00:00:00.000Z", type: "session_meta", payload: { session_id: "c-9", cwd: "/x" } },
+      { timestamp: "2027-02-01T00:00:01.000Z", type: "response_item", payload: { type: "custom_tool_call", name: "apply_patch", input: "*** Begin Patch", call_id: "c1" } },
+      { timestamp: "2027-02-01T00:00:02.000Z", type: "response_item", payload: { type: "custom_tool_call_output", call_id: "c1", output: [{ type: "input_text", text: "applied" }] } },
+    ]), NOW)!;
+    const call = t.events.find((e) => e.type === "tool_call")!;
+    expect(call.type === "tool_call" && call.payload.input).toEqual({ input: "*** Begin Patch" });
+    const res = t.events.find((e) => e.type === "tool_result")!;
+    expect(res.type === "tool_result" && res.payload.content).toBe("applied");
+  });
+});
+
+describe("cursor store", () => {
+  const meta = { agentId: "a-1", latestRootBlobId: "ff".repeat(32), name: "Blur Adjustment", createdAt: 1_700_000_000_000 };
+
+  it("decodes the hex-encoded meta row", () => {
+    const hex = Buffer.from(JSON.stringify(meta), "utf8").toString("hex");
+    expect(parseCursorMeta(hex)).toMatchObject({ agentId: "a-1", name: "Blur Adjustment" });
+    expect(parseCursorMeta("not hex")).toBeNull();
+    expect(parseCursorMeta(Buffer.from("{}").toString("hex"))).toBeNull();
+  });
+
+  it("reads the ordered message chain out of protobuf field 1 and skips every other field", () => {
+    const id = (byte: number) => Buffer.alloc(32, byte);
+    const root = Buffer.concat([
+      Buffer.from([0x0a, 32]), id(1),             // field 1, 32 bytes — a chain entry
+      Buffer.from([0x0a, 32]), id(2),             // another
+      Buffer.from([0x50, 0x01]),                  // field 10, varint — skipped
+      Buffer.from([0x2a, 3]), Buffer.from("abc"), // field 5, length-delimited — skipped
+      Buffer.from([0x0a, 32]), id(3),             // and a third, after the noise
+    ]);
+    expect(chainIds(root)).toEqual([id(1).toString("hex"), id(2).toString("hex"), id(3).toString("hex")]);
+  });
+
+  it("returns what it read when the message is truncated rather than throwing it all away", () => {
+    const root = Buffer.concat([Buffer.from([0x0a, 32]), Buffer.alloc(32, 7), Buffer.from([0x0a, 32]), Buffer.alloc(10, 9)]);
+    expect(chainIds(root)).toEqual([Buffer.alloc(32, 7).toString("hex")]);
+  });
+
+  it("drops the system prompt and the injected preamble, keeping the real turns", () => {
+    const t = parseCursorChain([
+      { role: "system", content: "You are an AI coding assistant, powered by Composer." },
+      { role: "user", content: "<user_info>\nWorkspace Path: /Users/me/versed\n</user_info>" },
+      { role: "user", content: [{ type: "text", text: "<timestamp>Sat</timestamp>make the blur softer" }] },
+      { role: "assistant", content: [{ type: "redacted-reasoning", data: "opaque" }, { type: "tool-call", toolCallId: "t1", toolName: "Read", args: { path: "/x" } }] },
+      { role: "tool", content: [{ type: "tool-result", toolCallId: "t1", result: "body" }] },
+      { role: "assistant", content: [{ type: "text", text: "done" }] },
+    ], meta, NOW)!;
+    expect(t.cwd).toBe("/Users/me/versed");
+    expect(t.title).toBe("Blur Adjustment");
+    expect(texts(t.events, "user_message")).toEqual(["make the blur softer"]);
+    expect(t.events.map((e) => e.type)).toEqual(["user_message", "tool_call", "tool_result", "assistant_text"]);
+    expect(t.messages).toBe(2);
+  });
+
+  it("stamps events in chain order from the session's creation time, since the store keeps none", () => {
+    const t = parseCursorChain([
+      { role: "user", content: [{ type: "text", text: "a" }] },
+      { role: "assistant", content: [{ type: "text", text: "b" }] },
+    ], meta, NOW)!;
+    expect(t.events[0]!.ts).toBe(meta.createdAt);
+    expect(t.events[1]!.ts).toBeGreaterThan(t.events[0]!.ts);
+    expect(t.startedAt).toBe(meta.createdAt);
+  });
+});

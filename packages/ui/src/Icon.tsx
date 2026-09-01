@@ -7,7 +7,7 @@ import {
   SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowDown02Icon, ArrowUp02Icon, Loading03Icon, CheckmarkCircle02Icon, CancelCircleIcon,
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
   Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon,
-  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon,
+  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon, Download04Icon,
   // Space icon picker's "Default" section (SPACE_ICONS, packages/contracts/src/presets.ts) — every
   // name there must have a matching key below.
   Rocket01Icon, StarIcon, Book01Icon, Camera01Icon, MusicNote01Icon, Shield01Icon, Flag01Icon, Coffee01Icon, Target01Icon, Compass01Icon,
@@ -30,7 +30,7 @@ export const icons = {
   copy: Copy01Icon, plan: Task01Icon, attach: Attachment01Icon, image: Image01Icon, reload: RefreshIcon,
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
-  laptop: LaptopIcon, plug: PlugSocketIcon,
+  laptop: LaptopIcon, plug: PlugSocketIcon, download: Download04Icon,
   // Space icon picker's "Default" section — one entry per SPACE_ICONS name (packages/contracts/src/presets.ts).
   rocket: Rocket01Icon, star: StarIcon, book: Book01Icon, camera: Camera01Icon, musicNote: MusicNote01Icon,
   shield: Shield01Icon, flag: Flag01Icon, coffee: Coffee01Icon, target: Target01Icon, compass: Compass01Icon,

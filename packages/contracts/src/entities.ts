@@ -161,12 +161,13 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
  * `review` is W3's reviewer recipe (the diff pane's "Request review" or the `agent_review` tool —
  * `sessionId` is the requesting session for the tool path, null for the user's click); `fork` is
  * Plan 16 W3's "Fork from here" — `sessionId` is the ANCESTOR session the fork carried context from,
- * which that fork leaves byte-untouched. A session the
- * user created normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is
+ * which that fork leaves byte-untouched; `import` is a transcript carried in from an agent CLI's own
+ * store (`ImportService`), whose `sessionId` is null because nothing dispatched it — it already
+ * existed. A session the user created normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is
  * nullable rather than having a "user" member: absence IS the ordinary case, and no backfill invents
  * one.
  */
-export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork"]);
+export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork", "import"]);
 export type DispatchKind = z.infer<typeof DispatchKindSchema>;
 export const DispatchedBySchema = z.object({
   /** The delegating session, or null for an origin with no parent agent (`user-dispatch`). */

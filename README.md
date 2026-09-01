@@ -68,6 +68,38 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
   real check, and quit-and-install already tears the server child down cleanly
   (`before-quit-for-update`).
 
+## Importing from the agent CLIs
+
+Settings → **Import** brings what Claude Code, Codex and Cursor already have on disk into Realm:
+transcripts, the Claude memory tool's per-project fact folders, and user-level skills.
+
+- **The agents' directories are read-only.** `~/.claude`, `~/.codex`, `~/.cursor`, `~/.agents` and
+  `~/.gemini` are copied *from* — never written, moved or cleaned up. Everything the import produces
+  lands in Realm's database or under `~/Realm/`.
+- **`import.scan` writes nothing.** It opens files, matches candidates to spaces and answers; no
+  space, session or environment is created by looking. Only `import.apply` writes, and only for the
+  keys it is handed — so the preview you approve is the work that happens.
+- **Space matching is most-specific-location-wins** (`apps/server/src/import/match.ts`): walking the
+  cwd and its parent, asking in turn for an environment, a project root, a space folder, and a
+  directory named after a space. The walk is bounded (`MATCH_MAX_HOPS`) because one broadly-registered
+  ancestor would otherwise capture every session on the machine. Anything unmatched falls to a
+  profile's `Imported` space, and every row shows the rule that placed it so a wrong guess is visible.
+- **Imported sessions keep their provider id** when the recorded cwd still exists, so sending a
+  message resumes the real CLI conversation. Where the directory is gone the link is left off and the
+  session imports as searchable history. Re-target rows in the preview: `sessions.moveToSpace` refuses
+  once a session has events, and an imported session has a transcript from the moment it exists.
+- **Memory is not flattened into the space doc.** Fact files are copied to
+  `~/Realm/memory/imported/<spaceId>/<project>/` and the index goes into the space's memory document
+  between `<!-- realm:imported-memory -->` markers (replaced on re-import, never duplicated). The
+  largest folder here was 712k characters against a 100k doc cap; inlining would have dropped most of
+  it and called that an import.
+- **Skills are copied, never symlinked or overwritten**, and land unscoped — visible in every space,
+  the honest translation of "installed for my user".
+
+`pnpm --filter @realm/server exec tsx scripts/live-import-check.ts` prints what an import would do
+against this machine's real CLI directories, reading a `VACUUM INTO` copy of the database so it can
+reason over your actual spaces without being able to write to them.
+
 ## Skills
 
 `skills/` holds skills Realm ships, one folder per skill, laid out exactly like the library at
