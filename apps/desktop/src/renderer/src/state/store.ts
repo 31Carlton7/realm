@@ -139,7 +139,7 @@ export type Api = {
    *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
   sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[]): Promise<void>;
   interruptSession(id: string): Promise<void>;
-  respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
   /** `sessions.setAgent` — rejected by the server once the session has any event. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
@@ -642,7 +642,7 @@ export type AppState = {
    *  The draft clears exactly as a normal send; an empty draft is a no-op. */
   dispatchDraft(sessionId: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
-  respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
   /** Move a session between Build and Plan (the prompter's mode chip), parking and restoring the
    *  permission mode around the trip. See the implementation for why the parking is necessary. */
@@ -1657,7 +1657,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().openItemBesideQuiet(itemId);
       },
       async interruptSession(id) { await api.interruptSession(id); },
-      async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },
+      async respondPermission(id, requestId, decision, answers) { await api.respondPermission(id, requestId, decision, answers); },
       async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
       /**
        * Build ⇄ Plan.

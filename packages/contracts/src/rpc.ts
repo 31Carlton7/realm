@@ -643,7 +643,10 @@ export const Methods = {
   "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]) })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
-  "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]) }), result: z.object({ ok: z.literal(true) }) },
+  /** `answers` rides along only for question-shaped tools (AskUserQuestion): question text -> chosen
+   *  label, multi-select comma-joined. Deliberately a record of strings rather than a free-form input
+   *  override — the UI answers a question, it never gets to rewrite the tool's arguments. */
+  "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }), result: z.object({ ok: z.literal(true) }) },
   "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional() }), result: SessionSchema },
   /** Re-point an untouched session at another agent. Server-guarded: rejected (SESSION_STARTED) once the
    *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a

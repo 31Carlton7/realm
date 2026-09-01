@@ -209,7 +209,7 @@ export class SessionService {
     this.d.browserAgents?.parentInterrupted(id);
     await this.live.get(id)?.handle.interrupt();
   }
-  respondPermission(id: string, requestId: string, decision: PermissionDecision): void {
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void {
     this.get(id);
     // Browser-tool permission requests (Plan 11 W3) are raised by the SERVER, not the adapter — the
     // broker owns their requestIds and routes the answer back to the blocked tool call. Deliberately
@@ -218,7 +218,7 @@ export class SessionService {
     if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision); return; }
     const l = this.live.get(id);
     if (!l) throw new RpcError("SESSION_NOT_LIVE", "the agent is not running; the request is stale (send a message to resume)");
-    l.handle.respondPermission(requestId, decision);
+    l.handle.respondPermission(requestId, decision, answers);
   }
 
   /**

@@ -1,4 +1,4 @@
-import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, acpPlanMode, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, isImageMime, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, acpPlanMode, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -6,6 +6,7 @@ import type { AgentProbe, PickedAttachment, SessionOptions } from "../../state/s
 import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
 import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
+import { AttachmentTile } from "./AttachmentTile";
 
 // ~10 lines of 15px/1.55 plus the vertical padding (Ara refresh §1 raises the input to 15px; §4:
 // autogrows to 10 lines). Matches .composer-input's max-height in styles.css.
@@ -80,13 +81,10 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
     <>
       <ul className="composer-attachments" aria-label="Attachments">
         {attachments.map((a) => (
-          <li key={a.path} className="attach-chip" data-disposition={attachmentDisposition(kind, a.mime)}
-            title={`${a.path} · ${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}>
-            <Icon name={isImageMime(a.mime) ? "image" : "artifact"} size={12} className="attach-glyph" />
-            <span className="chip-label">{a.name}</span>
-            <button type="button" className="attach-remove" aria-label={`Remove ${a.name}`} onClick={() => onRemove(a.path)}>
-              <Icon name="close" size={11} />
-            </button>
+          <li key={a.path} className="composer-attach-item">
+            <AttachmentTile path={a.path} mime={a.mime} name={a.name} disposition={attachmentDisposition(kind, a.mime)}
+              title={`${a.path} · ${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
+              onRemove={() => onRemove(a.path)} />
           </li>
         ))}
       </ul>

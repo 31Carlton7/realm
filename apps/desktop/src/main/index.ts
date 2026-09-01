@@ -1,4 +1,5 @@
-import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
+import { isImageMime, mimeForPath } from "@realm/contracts";
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { startServer } from "./server-process";
@@ -157,6 +158,24 @@ const updater = new RealmUpdater({
 ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
 ipcMain.handle("updates:install", () => { updater.install(); });
+
+/** Attachment thumbnails. An attached image can only ever be NAMED in the renderer unless the pixels
+ *  get there somehow: the renderer has no filesystem access (contextIsolation), and the page's CSP is
+ *  `img-src 'self' data:` — so `file://` is refused even in a packaged build. A data: URL minted here
+ *  is the one channel that needs neither a protocol handler nor a CSP hole.
+ *
+ *  Downscaled in main on purpose: a 12-megapixel screenshot would otherwise cross the bridge whole,
+ *  as base64, for a 44px tile. Non-images and unreadable files answer null — the caller draws its
+ *  file glyph instead, which is also what makes a deleted/moved path degrade quietly. */
+const THUMB_PX = 96;
+ipcMain.handle("attachment-thumbnail", (_e, path: string): string | null => {
+  try {
+    if (typeof path !== "string" || !isImageMime(mimeForPath(path))) return null;
+    const img = nativeImage.createFromPath(path);
+    if (img.isEmpty()) return null;
+    return img.resize({ height: THUMB_PX }).toDataURL();
+  } catch { return null; }
+});
 
 /** Paste. A pasted image has no path, and every adapter's contract is a path — so one is made here.
  *  Refuses before the server has announced its home; the renderer surfaces the message. */

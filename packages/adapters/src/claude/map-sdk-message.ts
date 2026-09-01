@@ -5,8 +5,11 @@ type Block = { type: string; [k: string]: unknown };
 
 /**
  * Pure, stateful mapper from SDK messages to normalized SessionEvents.
- * - Streaming deltas share a message id with the final `assistant` message: `message_start` sets the id, keyed by
- *   `parent_tool_use_id` so concurrent subagent streams don't clobber the top-level one.
+ * - Streaming deltas share a message id with the final `assistant` message: `message_start` sets the id and
+ *   `message_stop` retires it, keyed by `parent_tool_use_id` so concurrent subagent streams don't clobber the
+ *   top-level one. Retiring on an interim `assistant` notification instead (one can arrive per completed content
+ *   block — e.g. after `thinking`, before the trailing `text` block even starts) would drop the id mid-stream and
+ *   splinter every remaining delta onto its own id.
  * - v1 drops assistant text/thinking/delta events from subagents (`parent_tool_use_id != null`); their output reaches
  *   the transcript via the Task tool's `tool_result`. Subagent `tool_call`/`tool_result` events are kept (with
  *   `parentToolUseId`) so the UI can nest them.
@@ -26,7 +29,11 @@ export function createSdkMapper() {
         case "stream_event": {
           const parent = msg.parent_tool_use_id;
           const ev = msg.event as { type: string; index?: number; content_block?: Block; delta?: Block };
+          // A message's content can hold several blocks (thinking, then text); the SDK reports each as
+          // it completes via an interim `assistant` notification well before `message_stop` — completion
+          // of the id's owning stream, not completion of any one block, is what should retire the id.
           if (ev.type === "message_start") streamMsgIds.set(parent, msg.uuid);
+          else if (ev.type === "message_stop") streamMsgIds.delete(parent);
           if (parent !== null) break;
           if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") {
             out.push(sessionEvent("assistant_delta", { messageId: streamMsgIds.get(parent) ?? msg.uuid, delta: String(ev.delta.text) }));
@@ -37,7 +44,6 @@ export function createSdkMapper() {
           const parent = msg.parent_tool_use_id;
           const m = msg.message as unknown as { id: string; content: Block[] };
           const messageId = streamMsgIds.get(parent) ?? m.id;
-          streamMsgIds.delete(parent);
           for (const b of m.content) {
             if (b.type === "tool_use") {
               out.push(sessionEvent("tool_call", { toolUseId: String(b.id), name: String(b.name), input: (b.input as Record<string, unknown>) ?? {}, parentToolUseId: parent }));

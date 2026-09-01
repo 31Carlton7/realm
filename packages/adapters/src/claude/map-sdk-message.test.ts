@@ -31,6 +31,29 @@ describe("map-sdk-message", () => {
     const d = m.map({ type: "stream_event", session_id: "s", parent_tool_use_id: "toolu_parent", uuid: "u", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "x" } } } as never);
     expect(d).toEqual([]);
   });
+  it("an interim assistant snapshot after the thinking block completes must not retire the streaming id — every text delta for the turn keeps sharing it with the final assistant_text", () => {
+    const m = createSdkMapper();
+    const push = (msg: unknown) => m.map(msg as never);
+    const se = (uuid: string, event: unknown) => ({ type: "stream_event", session_id: "s", parent_tool_use_id: null, uuid, event });
+    push(se("u0", { type: "message_start", message: { id: "msg_1", content: [] } }));
+    push(se("u1", { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }));
+    push(se("u2", { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "hmm" } }));
+    // The SDK reports the thinking block as done via an interim `assistant` snapshot before the
+    // trailing text block has even started — this must not retire the id the text deltas need.
+    push(asst([{ type: "thinking", thinking: "hmm", signature: "x" }], null, "msg_1"));
+    push(se("u3", { type: "content_block_stop", index: 0 }));
+    push(se("u4", { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } }));
+    const d1 = push(se("u5", { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Yes" } }));
+    const d2 = push(se("u6", { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: " — it overflows." } }));
+    const fin = push(asst([{ type: "thinking", thinking: "hmm", signature: "x" }, { type: "text", text: "Yes — it overflows." }], null, "msg_1"));
+    push(se("u7", { type: "message_stop" }));
+
+    const delta1 = d1.find((e) => e.type === "assistant_delta")!;
+    const delta2 = d2.find((e) => e.type === "assistant_delta")!;
+    const text = fin.find((e) => e.type === "assistant_text")!;
+    expect(delta1.type === "assistant_delta" && delta1.payload.messageId).toBe(delta2.type === "assistant_delta" && delta2.payload.messageId);
+    expect(delta1.type === "assistant_delta" && delta1.payload.messageId).toBe(text.type === "assistant_text" && text.payload.messageId);
+  });
   it("result with is_error emits usage then error, and resets text dedupe", () => {
     const m = createSdkMapper();
     m.map(asst([{ type: "text", text: "same" }], null, "m1") as never);

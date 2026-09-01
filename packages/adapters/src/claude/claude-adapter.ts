@@ -58,7 +58,7 @@ export class ClaudeAdapter implements AgentAdapter {
   start(opts: StartOptions): AgentHandle {
     const events = new AsyncQueue<SessionEvent>();
     const input = new AsyncQueue<SDKUserMessage>();
-    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[] }>();
+    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown> }>();
     const abort = new AbortController();
     const mapper = createSdkMapper();
     const stderrTail: string[] = [];
@@ -77,13 +77,15 @@ export class ClaudeAdapter implements AgentAdapter {
     };
     const withStderr = (message: string) => (stderrTail.length ? `${message}\n--- stderr (last ${stderrTail.length} lines) ---\n${stderrTail.join("\n")}` : message);
 
-    const resolvePermission = (requestId: string, d: PermissionDecision) => {
+    // `answers` (AskUserQuestion) rides back as `updatedInput`: the SDK reads the user's choices off the
+    // tool's own arguments, so answering a question IS allowing the call with the answers filled in.
+    const resolvePermission = (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => {
       const p = pending.get(requestId); if (!p) return;
       pending.delete(requestId);
-      events.push(sessionEvent("permission_response", { requestId, decision: d }));
+      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(answers ? { answers } : {}) }));
       if (d === "deny") p.resolve({ behavior: "deny", message: "User denied" });
       else if (d === "allow_always") p.resolve({ behavior: "allow", updatedPermissions: p.suggestions });
-      else p.resolve({ behavior: "allow" });
+      else p.resolve({ behavior: "allow", ...(answers ? { updatedInput: { ...p.input, answers } } : {}) });
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
 
@@ -95,7 +97,7 @@ export class ClaudeAdapter implements AgentAdapter {
       if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
       events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[] }));
       const result = await new Promise<PermissionResult>((resolve) => {
-        pending.set(requestId, { resolve, suggestions });
+        pending.set(requestId, { resolve, suggestions, input: toolInput as Record<string, unknown> });
         o.signal.addEventListener("abort", () => {
           if (!pending.delete(requestId)) return;
           events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));

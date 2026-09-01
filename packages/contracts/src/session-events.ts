@@ -8,7 +8,9 @@ const P = {
   tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable() }),
   tool_result: z.object({ toolUseId: z.string(), content: z.string(), isError: z.boolean() }),
   permission_request: z.object({ requestId: z.string(), toolName: z.string(), input: z.record(z.unknown()), title: z.string(), suggestions: z.array(z.unknown()) }),
-  permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]) }),
+  /** `answers` present only for question-shaped tools (AskUserQuestion): question text -> chosen label.
+   *  Persisted so a replayed transcript records what was actually answered, not just that it was allowed. */
+  permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }),
   status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]) }),
   error: z.object({ message: z.string() }),
   usage: z.object({ costUsd: z.number(), inputTokens: z.number(), outputTokens: z.number(), numTurns: z.number() }),
