@@ -24,7 +24,25 @@ mac:
     - zip
   category: public.app-category.developer-tools
   icon: build/icon.icns
-  # No signing identity on this machine: identity null skips codesign entirely rather than failing
-  # the build hunting for one. Consequence (README "Install"): first launch on another Mac needs
-  # right-click → Open, or `xattr -cr /Applications/Realm.app` if Gatekeeper reports it damaged.
-  identity: null
+  # Signing (Plan 15 W3): no `identity` here — scripts/pack.mjs adds `-c.mac.identity=null` (skip
+  # codesign entirely rather than fail hunting for a cert) exactly when the env carries no
+  # CSC_LINK/CSC_NAME. With credentials present the build signs with hardened runtime, and
+  # scripts/notarize.cjs notarizes+staples when APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID
+  # are set too (it no-ops loudly otherwise). Human steps: docs/dev/signing.md. Unsigned
+  # consequence (README "Install"): first launch on another Mac needs right-click → Open, or
+  # `xattr -cr /Applications/Realm.app` if Gatekeeper reports it damaged.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+afterSign: scripts/notarize.cjs
+# The update feed's shape (Plan 15 W1/W2): presence of this block makes electron-builder emit
+# latest-mac.yml next to the dmg/zip (what `pnpm release` stages for a GitHub release) and embed
+# app-update.yml in the app. It does NOT publish — both dist scripts pin `--publish never`; humans
+# publish (see `pnpm release`'s printed next steps). The repo is PRIVATE today, so the in-app
+# updater ships gated off (src/main/updater.ts's doc comment has the activation conditions —
+# private-repo updates would require embedding a GitHub token in the app, which is banned).
+publish:
+  provider: github
+  owner: 31Carlton7
+  repo: realm

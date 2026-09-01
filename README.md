@@ -31,10 +31,42 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
 - Proof: `node apps/desktop/scripts/packaged-smoke.cjs` launches the packaged binary with a
   scratch `REALM_HOME` and a stripped `PATH=/usr/bin:/bin` and asserts boot, `agents.probe`
   finding `claude`, bundled skills, and a terminal resolving `claude`.
-- **Unsigned**: builds are not codesigned or notarized (`identity: null` — no signing identity on
-  this machine). A copy downloaded to another Mac will be quarantined: first launch needs
-  right-click → Open, and on Apple Silicon Gatekeeper may report the app "damaged" — clear it with
-  `xattr -cr /Applications/Realm.app`. Locally built copies launch normally.
+- **Unsigned by default**: with no signing credentials in the env, `pnpm dist` builds an unsigned,
+  un-notarized app (`scripts/pack.mjs` passes `-c.mac.identity=null` and says so). A copy
+  downloaded to another Mac will be quarantined: first launch needs right-click → Open, and on
+  Apple Silicon Gatekeeper may report the app "damaged" — clear it with
+  `xattr -cr /Applications/Realm.app`. Locally built copies launch normally. Signing and
+  notarization are fully wired and env-activated (`CSC_LINK`/`CSC_KEY_PASSWORD` +
+  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID`): with those set, the same `pnpm dist`
+  signs, notarizes and staples with zero code changes — exact steps in `docs/dev/signing.md`.
+
+## Releasing
+
+- `pnpm release` — bumps the app version (patch; `--minor` / `--major` for more), prepends a
+  changelog stub to `CHANGELOG.md` from merged PR titles since the last tag (via `gh` when it
+  answers, else git log's squash-merge subjects; offline it degrades to plain commit subjects),
+  builds the dmg + zip + `latest-mac.yml` through the normal `pnpm dist`, commits, and creates the
+  `vX.Y.Z` tag **locally**. It never pushes and never publishes — it ends by printing the exact
+  manual next steps (review the stub, push branch + tag, `gh release create` with the artifacts).
+  `--dry-run` shows the whole plan without touching anything.
+
+## Updates
+
+- The app carries auto-update scaffolding (`electron-updater`, Settings → App → Updates), but the
+  updater **ships disabled** and the Settings row says why instead of pretending. The gate
+  (`apps/desktop/src/main/updater.ts`) only ever enables when ALL of: packaged app, signed build,
+  and `UPDATE_FEED_LIVE` flipped true.
+- Why disabled: this repo is **private**. electron-updater's GitHub provider can only read private
+  release assets with an API token, and shipping a GitHub token inside the app would hand it to
+  every user — banned, permanently. And updates into an unsigned app can't pass Squirrel.Mac's
+  signature validation anyway.
+- Activation conditions (both required): **(1)** releases reachable without credentials — public
+  GitHub releases carrying the dmg/zip + `latest-mac.yml` that `pnpm release` builds, or a generic
+  update server (any static host serving the same files) swapped into `electron-builder.yml`'s
+  `publish` block; **(2)** signed + notarized builds (`docs/dev/signing.md`). Then flip
+  `UPDATE_FEED_LIVE` in `updater.ts` — nothing else changes: the Settings row starts offering a
+  real check, and quit-and-install already tears the server child down cleanly
+  (`before-quit-for-update`).
 
 ## Skills
 

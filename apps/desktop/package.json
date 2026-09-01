@@ -11,8 +11,8 @@
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "build:native": "node scripts/build-native.mjs",
     "predev": "node scripts/build-native.mjs",
-    "dist": "node scripts/stage-pack.mjs && electron-builder --mac dmg zip",
-    "dist:dir": "node scripts/stage-pack.mjs && electron-builder --dir"
+    "dist": "node scripts/stage-pack.mjs && node scripts/pack.mjs --mac dmg zip --publish never",
+    "dist:dir": "node scripts/stage-pack.mjs && node scripts/pack.mjs --dir --publish never"
   },
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
