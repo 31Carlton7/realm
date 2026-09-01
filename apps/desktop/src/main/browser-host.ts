@@ -152,7 +152,10 @@ export class BrowserPaneHost {
   destroy(id: string): void {
     const v = this.views.get(id); if (!v) return;
     this.views.delete(id);
-    v.handle.destroy();
+    // Tolerate a view the window already tore down: on BrowserWindow "closed", Electron has destroyed
+    // the children before this runs, and a second destroy throws "Object has been destroyed". The row
+    // must be forgotten either way (user-hit crash, 2026-08-31).
+    try { v.handle.destroy(); } catch { /* already gone with its window */ }
   }
 
   /** Window teardown: the views must never outlive the window they composite into. */

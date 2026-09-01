@@ -189,6 +189,19 @@ describe("BrowserPaneHost", () => {
     expect(views.get("b1")!.calls.filter((c) => c === "destroy")).toHaveLength(1);
   });
 
+  it("destroyAll survives views the window already destroyed (the close-crash regression)", () => {
+    // Electron destroys child views WITH the window before the "closed" listener fires; a handle that
+    // throws "Object has been destroyed" on a second destroy is exactly what the real adapter guards.
+    // The host-level contract: destroyAll never throws and still forgets every row.
+    const { host, views } = makeHost();
+    host.create("b1", "https://a.example", null);
+    host.create("b2", "https://b.example", null);
+    views.get("b1")!.handle.destroy = () => { throw new TypeError("Object has been destroyed"); };
+    expect(() => host.destroyAll()).not.toThrow();
+    expect(host.has("b1")).toBe(false);
+    expect(host.has("b2")).toBe(false);
+  });
+
   it("destroyAll tears down every view (window teardown)", () => {
     const { host, views } = makeHost();
     host.create("b1", "", null);

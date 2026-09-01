@@ -57,7 +57,14 @@ export function electronViewFactory(win: BrowserWindow): ViewFactory {
       getURL: () => wc.getURL(),
       getTitle: () => wc.getTitle(),
       isLoading: () => wc.isLoading(),
-      destroy: () => { win.contentView.removeChildView(view); wc.close(); },
+      destroy: () => {
+        // On window close, Electron tears the child views down WITH the window before our "closed"
+        // listener runs — destroying again throws "Object has been destroyed" (user-hit crash,
+        // 2026-08-31). The guard makes teardown idempotent from either direction.
+        if (wc.isDestroyed()) return;
+        if (!win.isDestroyed()) win.contentView.removeChildView(view);
+        wc.close();
+      },
     };
   };
 }
