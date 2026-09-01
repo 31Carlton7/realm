@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
+import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { startServer } from "./server-process";
 import { loginShellPath, mergePath } from "./login-shell-path";
@@ -8,6 +9,7 @@ import { blockBrowserDownloads, createBrowserPane, type BrowserPane } from "./br
 import type { BrowserPaneHost, ViewRect } from "./browser-host";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
+import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
@@ -125,6 +127,21 @@ ipcMain.handle("pick-folder", async () => {
 ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
   const r = await dialog.showOpenDialog({ properties: ["openFile", "multiSelections"] });
   return r.canceled ? [] : describeFiles(r.filePaths);
+});
+
+// Settings page, Permissions tab (Plan 12 W6). Every decision — which rows exist, what state each
+// may claim, the no-prompt rule — lives in tcc.ts; only the Electron/fs legs are bound here.
+ipcMain.handle("tcc:probe", (): TccRow[] => probeTcc({
+  screenStatus: () => systemPreferences.getMediaAccessStatus("screen"),
+  // false = never show the prompt; querying trust only.
+  accessibilityTrusted: () => systemPreferences.isTrustedAccessibilityClient(false),
+  openForRead: (path) => { closeSync(openSync(path, "r")); },
+}));
+/** The renderer names a ROW, never a URL: the pane id is validated against tcc.ts's closed table and
+ *  the URL built from it here, so no IPC payload can point `openExternal` anywhere else. */
+ipcMain.handle("tcc:open-settings", (_e, pane: unknown) => {
+  if (!isTccPermissionId(pane)) throw new Error(`unknown permissions pane: ${String(pane)}`);
+  void shell.openExternal(TCC_SETTINGS_URLS[pane]);
 });
 
 /** Paste. A pasted image has no path, and every adapter's contract is a path — so one is made here.

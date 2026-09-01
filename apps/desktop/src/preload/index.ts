@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
+import type { TccRow } from "../main/tcc";
+export type { TccRow } from "../main/tcc";
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
 const port = arg("realm-port");
 export type PickedFile = { path: string; mime: string; name: string; size: number };
@@ -20,6 +22,13 @@ contextBridge.exposeInMainWorld("realm", {
     const handler = (_e: IpcRendererEvent, m: ScrollPhaseMessage) => cb(m);
     ipcRenderer.on("realm:scroll-phase", handler);
     return () => ipcRenderer.removeListener("realm:scroll-phase", handler);
+  },
+  /** Settings page's macOS Permissions tab (Plan 12 W6). `probe` never triggers a TCC prompt —
+   *  tcc.ts's governing rule; `openSettings` takes a ROW id (validated in main against a closed
+   *  table), never a URL. */
+  permissions: {
+    probe: (): Promise<TccRow[]> => ipcRenderer.invoke("tcc:probe"),
+    openSettings: (pane: string): Promise<void> => ipcRenderer.invoke("tcc:open-settings", pane),
   },
   /** Browser pane (Plan 11 W1): drives the native WebContentsView the main process owns for a
    *  browser item. `setBounds` is per-frame and fire-and-forget; the rest are invokes. */
