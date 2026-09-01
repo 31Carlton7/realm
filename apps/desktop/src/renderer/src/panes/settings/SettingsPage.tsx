@@ -242,6 +242,53 @@ function AppTab() {
           </>
         )}
       </div>
+
+      <UpdatesField />
+    </div>
+  );
+}
+
+/** Why the Updates button is disabled, in words — one honest sentence per gate reason (Plan 15 W1).
+ *  The reasons are main's (updater.ts): the renderer names them, it never decides them. */
+export const UPDATE_DISABLED_COPY = {
+  dev: "Update checks don't run in development builds.",
+  unsigned: "Updates unavailable: unsigned build — macOS can only install a signed update. Signing steps: docs/dev/signing.md.",
+  "no-feed": "Updates unavailable: no public update feed — this build's releases are private. Activation conditions: README → Updates.",
+} as const;
+
+/** One line per updater state — every word is a fact main reported, and the button only ever claims
+ *  an action that would really run (no fake spinner: `checking` IS a check in flight in main). */
+function UpdatesField() {
+  const status = useApp((s) => s.updateStatus);
+  const refreshUpdateStatus = useApp((s) => s.refreshUpdateStatus);
+  const checkForUpdates = useApp((s) => s.checkForUpdates);
+  const installUpdate = useApp((s) => s.installUpdate);
+  const run = useApp((s) => s.run);
+  useEffect(() => { void run(() => refreshUpdateStatus()); }, [run, refreshUpdateStatus]);
+  if (!status) return <div className="field"><span>Updates</span><p className="env-empty">Loading…</p></div>;
+  const st = status.state;
+  const desc =
+    st.kind === "disabled" ? UPDATE_DISABLED_COPY[st.reason]
+    : st.kind === "checking" ? "Checking for updates…"
+    : st.kind === "up-to-date" ? "You're on the latest version."
+    : st.kind === "downloading" ? `Downloading v${st.version}…`
+    : st.kind === "downloaded" ? `v${st.version} is ready — restart to finish installing.`
+    : st.kind === "error" ? `Update check failed: ${st.message}`
+    : "Checks only run when you ask — nothing polls in the background.";
+  return (
+    <div className="field"><span>Updates</span>
+      <div className="settings-row update-row">
+        <div className="settings-row-main">
+          <span className="settings-row-name">Realm v{status.version}</span>
+          <span className="settings-row-desc">{desc}</span>
+        </div>
+        {st.kind === "downloaded"
+          ? <button type="button" className="btn" onClick={() => run(() => installUpdate())}>Restart to update</button>
+          : <button type="button" className="btn" disabled={st.kind === "disabled" || st.kind === "checking" || st.kind === "downloading"}
+              onClick={() => run(() => checkForUpdates())}>
+              Check for updates
+            </button>}
+      </div>
     </div>
   );
 }

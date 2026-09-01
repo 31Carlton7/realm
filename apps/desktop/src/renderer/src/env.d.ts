@@ -20,6 +20,13 @@ interface Window {
       probe(): Promise<TccRow[]>;
       openSettings(pane: string): Promise<void>;
     };
+    /** Settings→App Updates row (Plan 15 W1). The gate lives in main: on a gated build `check`
+     *  answers the same disabled state `status` does — the renderer can't start a check main won't run. */
+    updates: {
+      status(): Promise<UpdateStatus>;
+      check(): Promise<UpdateStatus>;
+      install(): Promise<void>;
+    };
     /** Browser pane (Plan 11 W1): drives the native WebContentsView main owns for a browser item. */
     browser: {
       create(id: string, url: string, allowlist: string[] | null): Promise<void>;
@@ -34,6 +41,17 @@ interface Window {
     };
   };
 }
+/** Mirrors UpdateState/UpdateStatus in main/updater.ts — the Updates row's payload. Every kind is a
+ *  fact main reported; `disabled` carries the reason so the row can say why, honestly. */
+type UpdateState =
+  | { kind: "disabled"; reason: "dev" | "unsigned" | "no-feed" }
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "up-to-date" }
+  | { kind: "downloading"; version: string }
+  | { kind: "downloaded"; version: string }
+  | { kind: "error"; message: string };
+interface UpdateStatus { version: string; state: UpdateState }
 /** Mirrors TccRow in main/tcc.ts — the Permissions tab's row payload. */
 interface TccRow { id: string; label: string; state: "granted" | "denied" | "unknown"; detail: string }
 /** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */

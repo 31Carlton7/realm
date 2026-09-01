@@ -156,6 +156,13 @@ export type Api = {
   tccProbe(): Promise<TccRow[]>;
   /** Deep-link one permission row's System Settings pane. Takes the ROW id; main owns the URLs. */
   openTccPane(pane: string): Promise<void>;
+  /** The Updates row's state (Plan 15 W1) — main-process IPC. The gate lives in main (updater.ts):
+   *  a gated build answers `disabled` with its reason, and `checkUpdates` on such a build returns
+   *  that same state rather than pretending to check. */
+  updateStatus(): Promise<UpdateStatus>;
+  checkUpdates(): Promise<UpdateStatus>;
+  /** Quit-and-install; main ignores it unless an update is actually downloaded. */
+  installUpdate(): Promise<void>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
   /** `workspace.diff` — the changed-file list. Null when cwd is not a repo. */
@@ -404,6 +411,9 @@ export type AppState = {
   /** The Permissions tab's TCC rows, exactly as main's prompt-free probe reported them; null until
    *  the tab first probes. Never synthesised client-side — a row with no probe basis says so. */
   tccRows: TccRow[] | null;
+  /** The Updates row's state (Plan 15 W1), exactly as main's gated updater reported it; null until
+   *  the App tab first asks. A disabled state renders its reason — never a dead button. */
+  updateStatus: UpdateStatus | null;
   /** Composer drafts by session id — store-owned so layout reshapes/pane remounts never lose typed
    *  text (A-M9). Never persisted; dropped when the session's item is deleted. */
   drafts: Record<string, string>;
@@ -750,6 +760,13 @@ export type AppState = {
   refreshTcc(): Promise<void>;
   /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
   openTccPane(pane: string): Promise<void>;
+  /** Fetch the Updates row's current state from main's gated updater into `updateStatus`. */
+  refreshUpdateStatus(): Promise<void>;
+  /** Run a real update check (or receive the disabled state unchanged — main's gate decides).
+   *  The interim `checking` shown is main's genuine in-flight state, not renderer theatre. */
+  checkForUpdates(): Promise<void>;
+  /** Restart into a downloaded update; a no-op in main unless one is actually downloaded. */
+  installUpdate(): Promise<void>;
   /** Fetch the feed's first page (replacing what is held — sized to cover at least what was showing,
    *  so a refetch triggered by `notifications.changed` never shrinks the visible list). */
   refreshNotifications(): Promise<void>;
@@ -1129,7 +1146,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -1998,6 +2015,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
       async openTccPane(pane) { await api.openTccPane(pane); },
+      async refreshUpdateStatus() { set({ updateStatus: await api.updateStatus() }); },
+      async checkForUpdates() {
+        const held = get().updateStatus;
+        // A gated build's check answers the disabled state unchanged, so no interim is shown at all;
+        // an enabled build's IPC call IS a check in flight in main — "checking" reflects that fact.
+        if (held && held.state.kind !== "disabled") set({ updateStatus: { ...held, state: { kind: "checking" } } });
+        set({ updateStatus: await api.checkUpdates() });
+      },
+      async installUpdate() { await api.installUpdate(); },
       async refreshNotifications() {
         // Sized to cover what is already showing: a refetch triggered by a broadcast must not shrink
         // the list the user is scrolled into. Capped at the wire's own limit.
