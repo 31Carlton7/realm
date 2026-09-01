@@ -1051,9 +1051,30 @@ describe("prompter model picker", () => {
   it("lists every agent's models, current agent first, each carrying its provider's brand mark", async () => {
     await mountKindFresh("codex");
     openPicker();
-    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "Composer"]);
+    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
+      // Then the rest of SELECTABLE_AGENT_KINDS, in its order. The six Plan 18 agents each contribute
+      // one "Default" row: their real catalogs are enumerated live by the probe, and naming a guess
+      // here would put a model the session is not on into the picker.
+      "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
-    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor"]);
+    // `undefined` is the honest answer for the six: `brandMarks` carries real vendor path data for four
+    // vendors, and inventing SVG paths for the rest would render as garbage. They use Hugeicons glyphs.
+    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
+      undefined, undefined, undefined, undefined, undefined, undefined]);
+  });
+
+  it("six rows labelled Default are still told apart — the row carries its agent, not just its model", async () => {
+    // The named mutant: DEFAULT_MODEL_LABEL giving every Plan 18 agent the same string is only safe
+    // because the row's accessible name includes the agent. Drop `mp-row-provider` and the picker
+    // becomes six identical options.
+    await mountKindFresh("codex");
+    openPicker();
+    const defaults = screen.getAllByRole("option").filter((n) => n.querySelector(".mp-row-name")!.textContent === "Default");
+    expect(defaults).toHaveLength(6);
+    const names = defaults.map((n) => n.textContent);
+    expect(new Set(names).size).toBe(6);
+    expect(names.join("|")).toContain("OpenCode");
+    expect(names.join("|")).toContain("Qwen Code");
   });
 
   it("never hides a session's own kind, even one that is not offered fresh", async () => {
@@ -1061,7 +1082,8 @@ describe("prompter model picker", () => {
     // see itself would show a list with nothing selected.
     await mountFresh({ agentKind: "fake" });
     openPicker();
-    expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6", "Composer"]);
+    expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
+      "GPT-5.6", "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
     expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -1171,7 +1193,10 @@ describe("prompter model picker", () => {
       // Cursor first (session's own kind): default row, then the catalog verbatim; Claude's static
       // list and Codex's default row are untouched by Cursor's probe models.
       expect(rowNames()).toEqual(["Composer", "Auto", "composer-2.5", "gpt-5.3-codex",
-        "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6"]);
+        "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6",
+        // Every other offered kind still contributes exactly its default row: one agent's probe
+        // catalog must not leak onto another's rows.
+        "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
       expect(screen.getByRole("option", { name: /Composer/ })).toHaveAttribute("aria-selected", "true");
       expect(screen.getByRole("option", { name: /Auto/ })).toHaveAttribute("aria-selected", "false");
     });

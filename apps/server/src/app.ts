@@ -77,7 +77,61 @@ export function defaultAdapters(): AdapterRegistry {
       bin: process.env.REALM_GEMINI_BIN ?? "gemini",
       args: ["--acp"],
       label: "Gemini",
-      loginHint: "Gemini's free personal tier was discontinued — configure a Gemini API key or Vertex AI credentials.",
+      // Measured 2026-09-01 (gemini-cli 0.56.0): `initialize` advertises oauth-personal, gemini-api-key,
+      // vertex-ai and a custom AI gateway. Only the first is dead — `session/new` under it fails
+      // IneligibleTierError — so the hint names the three that work.
+      loginHint: "Gemini's free personal tier was discontinued — sign in with a Gemini API key, Vertex AI credentials, or a custom AI gateway.",
+    }),
+    // ── Plan 18: agents that speak ACP natively ────────────────────────────────────────────────
+    // Every `args` below was confirmed by a live `initialize` on 2026-09-01. None sets `modelCatalog`:
+    // opencode and Copilot report their catalogs through `configOptions` (which the probe now reads
+    // via acpSessionConfig, so a catalog arrives without the flag), and Grok puts its models in
+    // `initialize._meta.modelState` — a place `session/new` never carries, so a probe-time session
+    // spawn would cost a real round trip to learn nothing.
+    "acp:opencode": new AcpAdapter({
+      kind: "acp:opencode",
+      bin: process.env.REALM_OPENCODE_BIN ?? "opencode",
+      args: ["acp"],
+      label: "OpenCode",
+      loginHint: "Run `opencode auth login`.",
+    }),
+    "acp:copilot": new AcpAdapter({
+      kind: "acp:copilot",
+      bin: process.env.REALM_COPILOT_BIN ?? "copilot",
+      args: ["--acp"],
+      label: "GitHub Copilot",
+      loginHint: "Run `copilot login`.",
+    }),
+    "acp:goose": new AcpAdapter({
+      kind: "acp:goose",
+      bin: process.env.REALM_GOOSE_BIN ?? "goose",
+      args: ["acp"],
+      label: "goose",
+      loginHint: "Run `goose configure` to pick a provider and set its API key.",
+    }),
+    "acp:qwen": new AcpAdapter({
+      kind: "acp:qwen",
+      bin: process.env.REALM_QWEN_BIN ?? "qwen",
+      args: ["--acp"],
+      label: "Qwen Code",
+      loginHint: "Run `qwen` once to sign in with your Qwen account, or set OPENAI_API_KEY.",
+    }),
+    "acp:grok": new AcpAdapter({
+      kind: "acp:grok",
+      bin: process.env.REALM_GROK_BIN ?? "grok",
+      args: ["agent", "stdio"],
+      label: "Grok",
+      loginHint: "Run `grok login` (browser sign-in, needs SuperGrok or X Premium), or set XAI_API_KEY.",
+    }),
+    "acp:fx": new AcpAdapter({
+      kind: "acp:fx",
+      bin: process.env.REALM_FX_BIN ?? "fx",
+      args: ["acp"],
+      label: "fx",
+      // fx gates `initialize` ITSELF on being signed in (measured: -32600 with this exact text), so a
+      // signed-out fx fails on the boot branch with no `authMethods` to list. This hint is the only
+      // thing that tells the user what to run.
+      loginHint: "Run `fx login` to sign in with Vercel, `fx setup` for an AI Gateway API key, or set AI_GATEWAY_API_KEY.",
     }),
   };
   if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ script: [], delayMs: 15 });

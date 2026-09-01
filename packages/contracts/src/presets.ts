@@ -61,7 +61,12 @@ export type AgentModel = { id: string; label: string };
  */
 export const AGENT_MODELS = {
   claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
-  codex: [], "acp:gemini": [], "acp:cursor": [], fake: [{ id: "fake", label: "Fake" }],
+  codex: [], "acp:gemini": [], "acp:cursor": [],
+  // Plan 18's ACP agents: empty for the same reason as Cursor's — the catalog is enumerated live by
+  // the probe (through `configOptions` now, see acpSessionConfig), so a hardcoded list would only ever
+  // be a stale copy that shadows the truth. opencode alone reported 50 models on 2026-09-01.
+  "acp:opencode": [], "acp:copilot": [], "acp:goose": [], "acp:qwen": [], "acp:grok": [], "acp:fx": [],
+  fake: [{ id: "fake", label: "Fake" }],
 } as const satisfies Record<import("./entities").AgentKind, readonly AgentModel[]>;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 /**
@@ -72,11 +77,21 @@ export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
  * `fake` is the scripted dev adapter. Callers that must show a session's *current* kind prepend it when
  * it is missing here rather than hiding the agent the session actually runs.
  */
-export const SELECTABLE_AGENT_KINDS = ["claude", "codex", "acp:cursor"] as const satisfies ReadonlyArray<import("./entities").AgentKind>;
+export const SELECTABLE_AGENT_KINDS = [
+  "claude", "codex", "acp:cursor", "acp:gemini",
+  "acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx",
+] as const satisfies ReadonlyArray<import("./entities").AgentKind>;
 /** Frontier default model label per kind — what the prompter's model chip shows while `session.model`
  *  is null (the adapter's own default). Display-only: never transmitted as a model id. */
 export const DEFAULT_MODEL_LABEL = {
-  claude: "Fable 5.1", codex: "GPT-5.6", "acp:cursor": "Composer", "acp:gemini": "Gemini", fake: "Fake",
+  claude: "Fable 5.1", codex: "GPT-5.6", "acp:cursor": "Composer", "acp:gemini": "Gemini",
+  // "Default" rather than a model name, because for these we do not know one before the handshake:
+  // Cursor's default IS "Composer", but opencode's is whatever the user configured (measured:
+  // `opencode/big-pickle` on this machine, which is a local config value, not a constant). Naming a
+  // guess here would put a model the session is not on into the prompter's chip.
+  "acp:opencode": "Default", "acp:copilot": "Default", "acp:goose": "Default",
+  "acp:qwen": "Default", "acp:grok": "Default", "acp:fx": "Default",
+  fake: "Fake",
 } as const satisfies Record<import("./entities").AgentKind, string>;
 /**
  * Agent kinds whose permission model Realm can actually control.
@@ -92,7 +107,12 @@ export const DEFAULT_MODEL_LABEL = {
  * so there is still nothing honest to map Ask/Accept edits/Full access onto.
  */
 export const AGENT_SUPPORTS_PERMISSION_MODES = {
-  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false, fake: true,
+  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false,
+  // Every ACP agent, for the reason above: mode ids are agent-defined, so there is nothing honest to
+  // map Ask / Accept edits / Full access onto. One adapter, one answer.
+  "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
 /**
@@ -116,7 +136,10 @@ export const AGENT_SUPPORTS_PERMISSION_MODES = {
  * reads this table for the sentence it returns, so there is one place to change.
  */
 export const AGENT_CONVERSATION_REWIND = {
-  claude: false, codex: false, "acp:cursor": false, "acp:gemini": false, fake: false,
+  claude: false, codex: false, "acp:cursor": false, "acp:gemini": false,
+  "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  fake: false,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
 /**
@@ -171,7 +194,15 @@ export type SessionMode = (typeof SESSION_MODES)[number]["id"];
  *   prompter shows the same controls as a real one (as it already does for permission modes).
  */
 export const AGENT_SUPPORTS_PLAN_MODE = {
-  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false, fake: true,
+  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false,
+  // Same per-session answer as Cursor's, and now genuinely load-bearing: opencode reports its modes
+  // through `configOptions`, so whether it has a Plan equivalent depends on the user's own agent
+  // config. Measured on this machine it does NOT (its modes are custom agents named "Sisyphus",
+  // "Prometheus - Plan Builder", …) — and "Plan Builder" is exactly the name a fuzzy match would
+  // wrongly accept. The chip appears only when acpPlanMode finds a well-known id.
+  "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
 /** One advertised ACP session mode, as `session/new`'s `modes.availableModes` carries it. */
@@ -331,7 +362,17 @@ export function acpSessionConfig(session: unknown): AcpSessionConfig {
  */
 export const AGENT_META = {
   claude: { label: "Claude", icon: "claude" }, codex: { label: "Codex", icon: "openai" }, "acp:gemini": { label: "Gemini", icon: "gemini" },
-  "acp:cursor": { label: "Cursor", icon: "cursor" }, fake: { label: "Fake agent", icon: "bot" },
+  "acp:cursor": { label: "Cursor", icon: "cursor" },
+  // Hugeicons glyphs, not brand marks: `brandMarks` carries real vendor path data for four vendors and
+  // inventing SVG paths for the rest would render as garbage. Distinct glyphs so the picker rows are
+  // still tellable apart; swap each for its real mark as the path data is added.
+  "acp:opencode": { label: "OpenCode", icon: "code" },
+  "acp:copilot": { label: "GitHub Copilot", icon: "branch" },
+  "acp:goose": { label: "goose", icon: "compass" },
+  "acp:qwen": { label: "Qwen Code", icon: "sparkles" },
+  "acp:grok": { label: "Grok", icon: "zap" },
+  "acp:fx": { label: "fx", icon: "rocket" },
+  fake: { label: "Fake agent", icon: "bot" },
 } as const satisfies Record<import("./entities").AgentKind, { label: string; icon: string }>;
 
 /**
@@ -349,6 +390,14 @@ export const AGENT_CLI_COMMANDS = {
   codex: { install: "npm install -g @openai/codex", login: "codex login" },
   "acp:cursor": { install: "curl https://cursor.com/install -fsS | bash", login: "cursor-agent login" },
   "acp:gemini": { install: "npm install -g @google/gemini-cli", login: null },
+  "acp:opencode": { install: "npm install -g opencode-ai", login: "opencode auth login" },
+  "acp:copilot": { install: "npm install -g @github/copilot", login: "copilot login" },
+  "acp:goose": { install: "brew install block-goose-cli", login: "goose configure" },
+  "acp:qwen": { install: "npm install -g @qwen-code/qwen-code", login: "qwen" },
+  "acp:grok": { install: "npm install -g @xai-official/grok", login: "grok login" },
+  // fx installs by shell script and gates its ACP handshake on being signed in — `fx login` is the
+  // Vercel OAuth route, `fx setup` the API-key one. One command per slot, so `login` names the former.
+  "acp:fx": { install: "curl -fsSL https://fx.sh/setup.sh | bash", login: "fx login" },
   fake: { install: null, login: null },
 } as const satisfies Record<import("./entities").AgentKind, { install: string | null; login: string | null }>;
 
@@ -357,6 +406,17 @@ export const AGENT_LOGIN_HINTS = {
   claude: "Uses your `claude` login — run `claude auth login` if sessions fail to authenticate.",
   codex: "Uses your `codex` login — run `codex login` if sessions fail to authenticate.",
   "acp:cursor": "Uses your Cursor login — run `cursor-agent login` if sessions fail to authenticate.",
-  "acp:gemini": "Google discontinued the free personal tier for the Gemini CLI; sessions need a Gemini API key or Vertex AI credentials.",
+  // Measured 2026-09-01 against gemini-cli 0.56.0: `initialize` succeeds and advertises four auth
+  // methods; only `oauth-personal` is dead (session/new fails IneligibleTierError). The other three
+  // work, so the kind is offered again with the live routes named instead of the dead one.
+  "acp:gemini": "Google discontinued the Gemini CLI's free personal tier — sign in with a Gemini API key, Vertex AI credentials, or a custom AI gateway.",
+  "acp:opencode": "Uses your OpenCode login — run `opencode auth login` if sessions fail to authenticate.",
+  "acp:copilot": "Uses your GitHub Copilot login — run `copilot login` if sessions fail to authenticate.",
+  "acp:goose": "Run `goose configure` to pick a provider and set its API key; goose has no login of its own.",
+  "acp:qwen": "Run `qwen` once to sign in with your Qwen account, or set OPENAI_API_KEY.",
+  "acp:grok": "Run `grok login` (browser sign-in, needs SuperGrok or X Premium), or set XAI_API_KEY.",
+  // fx refuses `initialize` itself when signed out, so its failure lands on the boot branch with an
+  // empty auth-method list; this hint is the only thing that tells the user what to do.
+  "acp:fx": "Run `fx login` to sign in with Vercel, `fx setup` for an AI Gateway API key, or set AI_GATEWAY_API_KEY.",
   fake: "Scripted offline agent used for development.",
 } as const satisfies Record<import("./entities").AgentKind, string>;

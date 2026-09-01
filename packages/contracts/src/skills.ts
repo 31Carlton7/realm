@@ -62,6 +62,17 @@ export const AGENT_SKILL_SUPPORT = {
   "acp:cursor": "unsupported",
   // Same ACP session shape; Gemini has no skills concept to inject into either.
   "acp:gemini": "unsupported",
+  // Plan 18's ACP agents, all "unsupported" for the same structural reason: `session/new` is
+  // `{cwd, mcpServers}` and carries nowhere to put a skills root. Several of these DO have a skills
+  // concept of their own (Qwen's registry entry passes --experimental-skills; opencode and Copilot
+  // both load skill directories) — but Realm cannot reach it over ACP, and "we cannot inject" is the
+  // claim this table makes. A `true` nobody measured is worse than a `false`.
+  "acp:opencode": "unsupported",
+  "acp:copilot": "unsupported",
+  "acp:goose": "unsupported",
+  "acp:qwen": "unsupported",
+  "acp:grok": "unsupported",
+  "acp:fx": "unsupported",
   // fake-adapter.ts never looks at `skills`.
   fake: "unsupported",
 } as const satisfies Record<AgentKind, SkillSupport>;

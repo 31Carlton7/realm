@@ -4,7 +4,7 @@ import {
 } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
-import { agentAvailability } from "../../state/agent-availability";
+import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import type { ThemePref } from "../../theme/useTheme";
@@ -81,10 +81,14 @@ function CommandCopy({ command }: { command: string }) {
   );
 }
 
-/** Engine rows in a fixed, honest order: the offerable kinds, then Gemini — listed, not hidden,
- *  with its dead-end named (SELECTABLE_AGENT_KINDS's reasoning) — then anything else the server's
- *  adapter registry probes (the dev harness's fake). */
-const ENGINE_ORDER: AgentKind[] = [...SELECTABLE_AGENT_KINDS, "acp:gemini"];
+/** Engine rows in a fixed, honest order: every offerable kind, then anything else the server's adapter
+ *  registry probes (the dev harness's fake, and any kind withheld from the picker).
+ *
+ *  Gemini used to be appended by hand here because it was registered but not offered. Plan 18 put it
+ *  back in SELECTABLE_AGENT_KINDS — so the hand-append became a DUPLICATE row, which is exactly why
+ *  this list is derived rather than restated. Anything withheld still shows up, through the probe tail
+ *  below; nothing needs naming twice. */
+const ENGINE_ORDER: AgentKind[] = [...SELECTABLE_AGENT_KINDS];
 
 function EnginesTab() {
   const agentProbe = useApp((s) => s.agentProbe);
@@ -129,11 +133,18 @@ function EngineRow({ kind }: { kind: AgentKind }) {
           <span className="engine-name">{meta.label}</span>
           <span className="engine-status" data-state={!p ? "unknown" : p.available ? "installed" : "missing"}>{status}</span>
         </div>
-        {/* The dead-end note (AGENT_LOGIN_HINTS's reasoning): Gemini appears, honestly, rather than
-            being hidden — but the row says why Realm won't offer it for new sessions. */}
-        {!offered && kind !== "fake" && <p className="settings-hint">Not offered for new sessions. {AGENT_LOGIN_HINTS[kind]}</p>}
+        {/* A kind Realm keeps registered but will not offer says so, and only that — the how-to-fix
+            sentence below is shared with every other blocked row. */}
+        {!offered && kind !== "fake" && <p className="settings-hint">Not offered for new sessions.</p>}
         {a.state === "missing" && install && <CommandCopy command={install} />}
         {a.state === "logged_out" && login && <CommandCopy command={login} />}
+        {/* The login hint on ANY blocked row, not just un-offered ones. It used to hang off `!offered`,
+            which was fine only while every kind with something awkward to explain was also withheld.
+            Gemini broke that the moment it was offered again: `login` is null for it (there is no login
+            command — it needs an API key, Vertex credentials, or a gateway), so the row would have gone
+            from a full explanation to nothing but "Not installed". A blocked agent must always say what
+            would unblock it. */}
+        {isBlocked(a) && kind !== "fake" && <p className="settings-hint">{AGENT_LOGIN_HINTS[kind]}</p>}
         {p && !p.available && p.reason && <p className="settings-hint">{p.reason}</p>}
       </div>
     </li>

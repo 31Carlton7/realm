@@ -158,7 +158,20 @@ export const CheckpointSchema = z.object({
 });
 export type Checkpoint = z.infer<typeof CheckpointSchema>;
 
-export const AgentKindSchema = z.enum(["claude", "codex", "acp:gemini", "acp:cursor", "fake"]);
+/**
+ * Every agent Realm can run. `acp:*` members all ride the ONE generic `AcpAdapter` — the prefix is a
+ * promise about the protocol, not just a naming habit, and a kind without it needs its own adapter.
+ *
+ * Widening only: a new member is a compile error in each of the exhaustive `Record<AgentKind, …>`
+ * tables (13 of them) and nothing else. `agent_kind TEXT NOT NULL` carries no CHECK constraint and the
+ * read path never re-parses, so no persisted row can start failing.
+ */
+export const AgentKindSchema = z.enum([
+  "claude", "codex", "acp:gemini", "acp:cursor",
+  // Plan 18: every one of these answered a live ACP `initialize` on 2026-09-01 (see the plan's table).
+  "acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx",
+  "fake",
+]);
 export type AgentKind = z.infer<typeof AgentKindSchema>;
 
 /**

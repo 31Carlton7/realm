@@ -150,6 +150,15 @@ export const AGENT_HAS_MCP: Record<AgentKind, boolean> = {
   codex: true,
   "acp:cursor": true,
   "acp:gemini": true,
+  // ACP `session/new` takes `mcpServers`, so every agent on the generic adapter reads it. goose's
+  // `initialize` additionally advertises `mcpCapabilities {http: true, sse: false}`, which
+  // `acpMcpServers` already honours.
+  "acp:opencode": true,
+  "acp:copilot": true,
+  "acp:goose": true,
+  "acp:qwen": true,
+  "acp:grok": true,
+  "acp:fx": true,
   fake: false,
 };
 

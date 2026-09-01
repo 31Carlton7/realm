@@ -129,12 +129,29 @@ describe("SELECTABLE_AGENT_KINDS", () => {
     }
     expect(new Set(SELECTABLE_AGENT_KINDS).size).toBe(SELECTABLE_AGENT_KINDS.length);
   });
-  it("deliberately withholds the dead-end and dev-only kinds while keeping them registered", () => {
-    // Both still have metadata (existing sessions keep working); neither is offered as a new choice.
-    expect(SELECTABLE_AGENT_KINDS).not.toContain("acp:gemini"); // free personal tier discontinued
-    expect(SELECTABLE_AGENT_KINDS).not.toContain("fake");       // scripted dev adapter
-    expect(AGENT_META["acp:gemini"]).toBeDefined();
+  it("withholds the dev-only kind while keeping it registered, and offers Gemini again", () => {
+    // `fake` stays withheld and still has metadata: it is the scripted dev adapter, and an existing
+    // fake session must keep working.
+    expect(SELECTABLE_AGENT_KINDS).not.toContain("fake");
     expect(AGENT_META.fake).toBeDefined();
+    // Gemini WAS withheld as a dead end. Measured 2026-09-01 against gemini-cli 0.56.0: only the free
+    // personal tier is dead; an API key, Vertex AI, and a custom gateway all still open a session. So
+    // withholding it is no longer the honest call — offering it with the live routes named is.
+    expect(SELECTABLE_AGENT_KINDS).toContain("acp:gemini");
+    expect(AGENT_LOGIN_HINTS["acp:gemini"]).toMatch(/Vertex AI/);
+  });
+
+  it("offers every ACP agent whose handshake was verified, and each is on the generic ACP adapter", () => {
+    // Kills a mutation that adds a kind to AgentKindSchema and its tables but forgets the picker —
+    // the agent would be registered, probed, and unreachable.
+    for (const k of ["acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx"] as const) {
+      expect(SELECTABLE_AGENT_KINDS, k).toContain(k);
+      expect(AGENT_META[k].label).toBeTruthy();
+      // The `acp:` prefix is a promise about the protocol, not a naming habit: it means the kind rides
+      // the generic AcpAdapter, so its permission/plan/skills/memory answers must match Cursor's.
+      expect(AGENT_SUPPORTS_PERMISSION_MODES[k], k).toBe(false);
+      expect(AGENT_SUPPORTS_PLAN_MODE[k], k).toBe(false);
+    }
   });
 });
 

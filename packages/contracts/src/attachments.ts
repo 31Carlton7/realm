@@ -96,6 +96,15 @@ const DISPOSITIONS = {
   // acp-adapter.ts: `resource_link` unless the agent advertised image support.
   "acp:gemini": { image: "link", other: "link" },
   "acp:cursor": { image: "link", other: "link" },
+  // Same adapter, same rule: `resource_link` unless THIS session's `initialize` advertised
+  // `promptCapabilities.image`, which the adapter reads at runtime. The table is the floor, not a
+  // claim that images never inline.
+  "acp:opencode": { image: "link", other: "link" },
+  "acp:copilot": { image: "link", other: "link" },
+  "acp:goose": { image: "link", other: "link" },
+  "acp:qwen": { image: "link", other: "link" },
+  "acp:grok": { image: "link", other: "link" },
+  "acp:fx": { image: "link", other: "link" },
   // fake-adapter.ts never looks at `attachments`.
   fake: { image: "ignored", other: "ignored" },
 } as const satisfies Record<AgentKind, { image: AttachmentDisposition; other: AttachmentDisposition }>;
