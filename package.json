@@ -9,7 +9,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck",
-    "dev": "pnpm --filter @realm/server build && pnpm -r --parallel --filter @realm/server --filter @realm/desktop dev"
+    "dev": "pnpm --filter @realm/server build && pnpm -r --parallel --filter @realm/server --filter @realm/desktop dev",
+    "dist": "pnpm build && pnpm --filter @realm/desktop dist",
+    "dist:dir": "pnpm build && pnpm --filter @realm/desktop dist:dir"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",

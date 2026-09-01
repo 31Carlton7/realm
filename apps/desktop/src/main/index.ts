@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { join } from "node:path";
 import { startServer } from "./server-process";
+import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { describeFiles, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { blockBrowserDownloads, createBrowserPane, type BrowserPane } from "./browser-pane";
@@ -136,6 +137,13 @@ ipcMain.handle("save-temp-attachment", async (_e, name: string, mime: string, by
 app.whenReady().then(async () => {
   try {
     installMenu();
+    // Launched from Finder, the app inherits launchd's minimal PATH — no Homebrew, no agent CLIs, no
+    // mac-cli. Adopt the login shell's PATH BEFORE the first spawn: the server child inherits this
+    // env, and every probe/terminal/agent it spawns inherits the server's. Failure (exotic shell,
+    // timeout) degrades to current PATH + /opt/homebrew/bin:/usr/local/bin — see login-shell-path.ts.
+    const login = await loginShellPath();
+    process.env.PATH = mergePath(process.env.PATH, login);
+    if (!login) console.warn("[env] login-shell PATH resolution failed; using fallback:", process.env.PATH);
     const { child, ready } = startServer();
     serverChild = child;
     // TODO(plan-2): reconnect/restart when server exits after ready

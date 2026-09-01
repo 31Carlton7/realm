@@ -14,6 +14,28 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
 - Offline / UI work: `REALM_ENABLE_FAKE_AGENT=1 pnpm dev` registers a scripted **Fake agent** (echoes what you send) next to Claude in New → Session….
 - **MCP gateway** — third-party MCP servers are configured in a space's settings, not per-agent: every session gets one Realm gateway endpoint, and credentials or OAuth tokens never reach the agent CLI. Every proxied tool call shows up in the Activity view (space settings → Activity, or "MCP Activity" in the command palette).
 
+## Packaging
+
+- `pnpm dist` — full build + DMG and zip in `apps/desktop/release/` (`pnpm dist:dir` stops at an
+  unpacked `Realm.app` for fast iteration). Under the hood: root `pnpm build`, then
+  `apps/desktop/scripts/stage-pack.mjs` stages `.pack-stage/` (a `pnpm deploy` of realm-server with
+  its production `node_modules`, the bundled `skills/`, the ScrollPhase helper, the icon), then
+  electron-builder (`apps/desktop/electron-builder.yml`) packs it — server and skills as real files
+  under `Contents/Resources/`, never inside the asar, because `node-pty`'s native prebuilds and a
+  spawnable server entry can't load from an archive.
+- No system Node needed: the packaged app runs realm-server under its own binary with
+  `ELECTRON_RUN_AS_NODE`. Launched from Finder (launchd's minimal `PATH`), main adopts the login
+  shell's `PATH` at startup (`login-shell-path.ts`) before anything spawns, so agent CLIs and
+  `mac` resolve; if the login shell can't be asked (exotic shell, timeout), it falls back to the
+  inherited `PATH` plus `/opt/homebrew/bin:/usr/local/bin`. Terminals spawn login shells (`-l`).
+- Proof: `node apps/desktop/scripts/packaged-smoke.cjs` launches the packaged binary with a
+  scratch `REALM_HOME` and a stripped `PATH=/usr/bin:/bin` and asserts boot, `agents.probe`
+  finding `claude`, bundled skills, and a terminal resolving `claude`.
+- **Unsigned**: builds are not codesigned or notarized (`identity: null` — no signing identity on
+  this machine). A copy downloaded to another Mac will be quarantined: first launch needs
+  right-click → Open, and on Apple Silicon Gatekeeper may report the app "damaged" — clear it with
+  `xattr -cr /Applications/Realm.app`. Locally built copies launch normally.
+
 ## Skills
 
 `skills/` holds skills Realm ships, one folder per skill, laid out exactly like the library at
