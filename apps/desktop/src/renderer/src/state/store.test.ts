@@ -1061,7 +1061,7 @@ describe("app store", () => {
       const store = await seed();
       const original = store.getState().layout!;
       store.getState().openSheet({ kind: "new-space" });
-      store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
+      store.getState().openSheet({ kind: "activity" });
       expect(store.getState().sheetSnap?.saved).toBe(original);
       store.getState().closeSheet();
       expect(store.getState().layout).toBe(original);
@@ -1782,6 +1782,8 @@ describe("browser watching state (Plan 11 W4)", () => {
     await store.getState().deleteItem("i1");
     expect(store.getState().browserActions.b1).toBeUndefined();
     expect(store.getState().browserDriving.b1).toBeUndefined();
+  });
+});
 
 describe("under-strip: environment rebinding + the '+' menu's connectors cache (Plan 12 W1)", () => {
   const env = (id: string, spaceId: string, extra: Partial<Environment> = {}): Environment =>
