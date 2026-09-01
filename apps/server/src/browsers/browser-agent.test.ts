@@ -173,6 +173,22 @@ describe("cancellation and budgets", () => {
     await waitFor(() => app.sessions.get(child.id).status === "idle");
   });
 
+  it("cancellation wins even when the child settles to idle inside the same poll window (live-found)", async () => {
+    // A coarse poll (400ms) + a child that winds down fast (delay 10) reproduces the live race: by
+    // the poll after the interrupt, the child is ALREADY idle with assistant text — a drain that
+    // checks settled-first would mislabel the cancelled run as a clean finish.
+    const { spaceId, parentId } = await boot({ script: longScript(200), delayMs: 10, timeouts: { baseMs: 30_000, perActMs: 0, pollMs: 400 } });
+    const running = app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    await waitFor(() => app.sessions.list(spaceId).length === 2);
+    const child = childOf(spaceId, parentId);
+    await waitFor(() => app.sessions.get(child.id).status === "running");
+    await app.sessions.interrupt(parentId);
+    await waitFor(() => app.sessions.get(child.id).status === "idle");
+    const result = await running;
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("delegating session was interrupted");
+  });
+
   it("a run that exceeds its settle budget is reported as timed out (with partial text) and the child is interrupted", async () => {
     const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 50, timeouts: { baseMs: 400, perActMs: 0, pollMs: 20 } });
     const result = await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });

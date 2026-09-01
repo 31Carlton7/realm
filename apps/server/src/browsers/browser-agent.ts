@@ -271,9 +271,13 @@ export class BrowserAgentService {
         if (ev.type === "status") lastStatus = ev.payload.status;
         if (ev.type === "assistant_text") finalText = ev.payload.text;
       }
+      // Cancellation wins over everything, including a turn that settled in the same poll window:
+      // once the parent interrupted, the honest answer is "this run was cancelled (here is the
+      // partial text)" — proven live: an interrupted Claude child winds down to idle WITH earlier
+      // assistant text present, and checking settled first mislabels that as a clean finish.
+      if (run.cancelled) return { outcome: "interrupted", finalText, lastStatus };
       if (lastStatus === "idle" && finalText !== null) return { outcome: "done", finalText, lastStatus };
       if (lastStatus === "error" || lastStatus === "ended") return { outcome: "failed", finalText, lastStatus };
-      if (run.cancelled) return { outcome: "interrupted", finalText, lastStatus };
       if (Date.now() >= deadline) {
         void this.d.sessions.interrupt(childId).catch(() => { /* best effort — it may have just ended */ });
         return { outcome: "timeout", finalText, lastStatus };
