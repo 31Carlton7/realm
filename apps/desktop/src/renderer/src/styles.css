@@ -1096,6 +1096,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The two kinds of prose here: a NOTE is a disclosure the panel exists to make (always visible, dim,
    set off by a left tick); a HINT is auxiliary fine print (faint). */
 .settings-note { margin: 0; padding: 6px 10px; border-left: 2px solid var(--rl-line-strong); font-size: 11.5px; line-height: 1.5; color: var(--rl-text-dim); }
+/* Browser origins (Plan 14 W4): the add form is one inline row inside the field. */
+.origin-add { display: flex; gap: 8px; }
+.origin-add input { flex: 1; }
 .settings-note code { font: 10.5px var(--font-mono); }
 .settings-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); }
 .settings-hint[data-tone="danger"] { color: var(--rl-danger); }

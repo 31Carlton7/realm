@@ -12,6 +12,39 @@ export function parseAllowlist(v: unknown): string[] | null {
   return v.filter((x): x is string => typeof x === "string");
 }
 
+/** The editor's posture sentence, verbatim from the enforcement's own doctrine (`originAllowed` in
+ *  Electron main / Plan 11 W1): the list is a guardrail, and pretending otherwise would be the lie. */
+export const ALLOWLIST_GUARDRAIL_NOTE =
+  "This is a guardrail against agent and user mistakes, explicitly not a security boundary — DNS rebinding, redirect chains and subresource loads can get past an origin check. Treat it as a fence, not a wall.";
+
+/**
+ * One typed allowlist entry → the ORIGIN it names, or null when it does not name one (Plan 14 W4).
+ *
+ * Origins, not URLs, deliberately: `originAllowed` compares `new URL(entry).origin`, so a stored
+ * `https://example.com/admin` would silently mean all of `https://example.com` — the editor refusing
+ * the path is what keeps the list honest about what it fences. Scheme defaults mirror main's
+ * `normalizeAddress`: bare loopback hosts get `http://` (dev servers do not speak TLS), everything
+ * else `https://`. What is stored is `URL.origin` itself — scheme-explicit, so the enforcement's
+ * default-scheme guess never has to be right about it later.
+ */
+export function parseOriginInput(input: string): string | null {
+  const raw = input.trim();
+  if (raw === "") return null;
+  let candidate = raw;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    const bare = (raw.replace(/^\/*/, "").split(/[/?#]/)[0] ?? "").split(":")[0]?.toLowerCase() ?? "";
+    candidate = `${bare === "localhost" || bare === "127.0.0.1" || bare === "[::1]" ? "http" : "https"}://${raw}`;
+  }
+  let u: URL;
+  try { u = new URL(candidate); } catch { return null; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  // A path, query, hash or credentials means the user pasted a URL, not an origin. A single "/" is
+  // the origin form as browsers print it, so it alone passes.
+  if ((u.pathname !== "/" && u.pathname !== "") || u.search !== "" || u.hash !== "" || u.username !== "" || u.password !== "") return null;
+  if (u.hostname === "") return null;
+  return u.origin;
+}
+
 /** The native side (Electron main's BrowserPaneHost, over the preload). Structural mirror of
  *  `window.realm.browser` so tests can fake it without a preload. */
 export type BrowserHostBridge = {

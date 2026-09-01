@@ -10,6 +10,7 @@ import { createContext, useCallback, useContext, useSyncExternalStore } from "re
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
+import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
@@ -467,6 +468,10 @@ export type AppState = {
    *  and the hub's held status, it dials nothing, so refreshing on menu open never probes a server.
    *  `mcp.serverStatus` broadcasts patch it live; absent = never fetched, rendered as such. */
   connectors: Record<string, McpServer[]>;
+  /** The per-space browser origin allowlist (Plan 14 W4), by space id — `browser.allowedOrigins:<id>`
+   *  as last fetched. null = no list = allow everything (W1's default posture); absent = never
+   *  fetched. The Connections tab's Browser origins section reads and writes this. */
+  browserAllowlists: Record<string, string[] | null>;
   /** MCP servers for the space whose Connections tab is currently mounted (W6) — `mcp.list`'s
    *  per-space projection. Empty until `refreshMcpServers` runs; McpSection fetches on mount. */
   mcpServers: McpServer[];
@@ -607,6 +612,11 @@ export type AppState = {
   moveSessionToNewWorktree(sessionId: string): Promise<void>;
   /** Fetch a space's servers into `connectors` (plus-menu open, `mcp.changed`). */
   refreshConnectors(spaceId: string): Promise<void>;
+  /** Fetch a space's browser origin allowlist into `browserAllowlists` (Connections tab mount). */
+  refreshBrowserAllowlist(spaceId: string): Promise<void>;
+  /** Persist a space's browser origin allowlist AND push it into every live browser view of that
+   *  space, so the fence moves without a pane reopen (Plan 14 W4). null = back to allow-all. */
+  setBrowserAllowlist(spaceId: string, allowlist: string[] | null): Promise<void>;
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
@@ -1086,7 +1096,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
-      machineName: "", connectors: {},
+      machineName: "", connectors: {}, browserAllowlists: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
@@ -1575,6 +1585,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshConnectors(spaceId) {
         const { servers } = await api.listMcpServers(spaceId);
         set({ connectors: { ...get().connectors, [spaceId]: servers } });
+      },
+      async refreshBrowserAllowlist(spaceId) {
+        const list = parseAllowlist(await api.getSetting(allowlistKey(spaceId)));
+        set({ browserAllowlists: { ...get().browserAllowlists, [spaceId]: list } });
+      },
+      async setBrowserAllowlist(spaceId, allowlist) {
+        await api.setSetting(allowlistKey(spaceId), allowlist);
+        set({ browserAllowlists: { ...get().browserAllowlists, [spaceId]: allowlist } });
+        // The live half of the write (Plan 14 W4): every open browser view of THIS space is re-fenced
+        // now — new panes read the setting at create, but a pane already open would otherwise keep
+        // enforcing the old list until it was closed and reopened. Open panes always belong to the
+        // active space's layout, so another space's rows have no views to re-point (and this space's
+        // items would be the wrong list to consult).
+        if (get().activeSpaceId !== spaceId) return;
+        const { host } = getBrowserBridges();
+        for (const it of get().items) {
+          if (it.kind === "browser") void host.setAllowlist(it.refId, allowlist);
+        }
       },
       async probeAgents(force = false) {
         // Mount-storm guard: a split of four session panes asks four times in the same tick. The server

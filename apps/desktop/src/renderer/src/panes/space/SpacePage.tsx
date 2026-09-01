@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useApp, type SpacePageTab } from "../../state/store";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { McpSection } from "../../components/sidebar/McpSection";
+import { BrowserOrigins } from "../../components/sidebar/BrowserOrigins";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import type { PaneProps } from "../registry";
@@ -350,7 +351,12 @@ export function SpacePage({ item }: PaneProps) {
           {tab === "skills" && <SkillsPanel spaceId={spaceId} />}
           {/* Plan 9's gateway-era MCP surface IS this tab — one settings surface for one set of
               servers, exactly as it was in the retired sheet. */}
-          {tab === "connections" && <McpSection spaceId={spaceId} />}
+          {tab === "connections" && <>
+            <McpSection spaceId={spaceId} />
+            {/* The per-space browser origin allowlist (Plan 14 W4) — same tab as the other things
+                agents reach out through. Its own settings-panel block, below the servers. */}
+            <div className="form settings-panel"><BrowserOrigins spaceId={spaceId} /></div>
+          </>}
           {tab === "sessions" && <SessionsTab spaceId={spaceId} />}
           {tab === "history" && <HistoryTab spaceId={spaceId} />}
         </div>
