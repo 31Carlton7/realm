@@ -89,6 +89,34 @@ describe("memory over rpc", () => {
     c.close();
   });
 
+  it("profile doc CRUD over RPC: inherited by the profile's spaces, per-space toggleable, broadcast to each (W2)", async () => {
+    const { c, spA, spB, home } = await boot();
+    const set = (await c.call("memory.setProfile", { profileId: spA.profileId, doc: "profile-wide" })).result;
+    expect(set).toMatchObject({ doc: "profile-wide", path: join(home, "memory", `profile-${spA.profileId}.md`) });
+    // Every space of the profile hears about it — its panel shows the inherited doc.
+    await waitFor(() => [spA.id, spB.id].every((sid) => c.events.some((e: Any) => e.event === "memory.changed" && e.payload.spaceId === sid)));
+    expect((await c.call("memory.get", { spaceId: spB.id })).result.profile).toMatchObject({ doc: "profile-wide", enabledHere: true });
+    expect((await c.call("memory.getProfile", { profileId: spA.profileId })).result.doc).toBe("profile-wide");
+    // The per-space toggle is one space's alone.
+    expect((await c.call("memory.setProfileDocEnabled", { spaceId: spA.id, enabled: false })).result.profile).toMatchObject({ enabledHere: false });
+    expect((await c.call("memory.get", { spaceId: spB.id })).result.profile).toMatchObject({ enabledHere: true });
+    // An unknown profile is refused, not silently written.
+    expect((await c.call("memory.setProfile", { profileId: newId(), doc: "x" })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+
+  it("injects the profile doc ahead of the space doc into a real session start (W2)", async () => {
+    const { c, spA, codex } = await boot();
+    await c.call("memory.setProfile", { profileId: spA.profileId, doc: "profile-wide context" });
+    await c.call("memory.set", { spaceId: spA.id, doc: "space context" });
+    await startSession(c, spA.id, "codex");
+    await waitFor(() => codex.starts.length === 1);
+    const ctx = codex.starts[0]!.systemContext!;
+    expect(ctx.indexOf("profile-wide context")).toBeGreaterThanOrEqual(0);
+    expect(ctx.indexOf("profile-wide context")).toBeLessThan(ctx.indexOf("space context"));
+    c.close();
+  });
+
   it("refuses a space that does not exist rather than reading memory for a typo", async () => {
     const { c } = await boot();
     const gone = newId();
