@@ -1051,9 +1051,9 @@ describe("prompter model picker", () => {
   it("lists every agent's models, current agent first, each carrying its provider's brand mark", async () => {
     await mountKindFresh("codex");
     openPicker();
-    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "Composer"]);
+    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "Composer"]);
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
-    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "cursor"]);
+    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor"]);
   });
 
   it("never hides a session's own kind, even one that is not offered fresh", async () => {
@@ -1061,7 +1061,7 @@ describe("prompter model picker", () => {
     // see itself would show a list with nothing selected.
     await mountFresh({ agentKind: "fake" });
     openPicker();
-    expect(rowNames()).toEqual(["Fake", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6", "Composer"]);
+    expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6", "Composer"]);
     expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -1150,7 +1150,7 @@ describe("prompter model picker", () => {
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.keyDown(search, { key: "ArrowDown" });
       fireEvent.keyDown(search, { key: "Enter" });
-      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5")); // row 2 of Claude's list
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-fable-5")); // row 2 of Claude's list
     });
   });
 
@@ -1171,7 +1171,7 @@ describe("prompter model picker", () => {
       // Cursor first (session's own kind): default row, then the catalog verbatim; Claude's static
       // list and Codex's default row are untouched by Cursor's probe models.
       expect(rowNames()).toEqual(["Composer", "Auto", "composer-2.5", "gpt-5.3-codex",
-        "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6"]);
+        "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6"]);
       expect(screen.getByRole("option", { name: /Composer/ })).toHaveAttribute("aria-selected", "true");
       expect(screen.getByRole("option", { name: /Auto/ })).toHaveAttribute("aria-selected", "false");
     });
@@ -1398,7 +1398,7 @@ describe("the CLI-missing install card (W4)", () => {
     openPicker();
     const codex = screen.getByRole("option", { name: /GPT-5\.6/ });
     expect(codex).toHaveTextContent("not installed");
-    expect(screen.getByRole("option", { name: /Claude Fable 5/ })).not.toHaveTextContent("not installed");
+    expect(screen.getByRole("option", { name: /Claude Fable 5\.1/ })).not.toHaveTextContent("not installed");
     // Pickable, not disabled: choosing it is how the user reaches the install command.
     expect(codex).not.toHaveAttribute("aria-disabled");
     fireEvent.click(codex);
