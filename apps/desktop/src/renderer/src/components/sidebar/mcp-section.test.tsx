@@ -36,6 +36,16 @@ describe("McpSection", () => {
     expect(store.getState().mcpServers.some((s) => s.name === "Everything" && s.enabled)).toBe(true);
   });
 
+  it("the Enabled toggle is wired to THIS space — the per-space opt-in, not a global flag", async () => {
+    const srv = mcpServer("m1", { name: "srv1", enabled: true, tools: [] });
+    const { api } = await mount({ mcpServers: [srv] });
+    const row = (await screen.findByText("srv1")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("checkbox", { name: "Enabled" }));
+    // The named mutant (Plan 12 W3): the panel, re-mounted inside the space page, sending the
+    // toggle for some other space than the one whose page this is.
+    await waitFor(() => expect(api.calls).toContain("setMcpEnabled:s1:m1=false"));
+  });
+
   it("toggling a tool checkbox sends the explicit allowlist; re-checking everything restores null", async () => {
     const srv = mcpServer("m1", { name: "srv1", enabled: true, tools: [mcpTool("a"), mcpTool("b")] });
     const { api } = await mount({ mcpServers: [srv] });
