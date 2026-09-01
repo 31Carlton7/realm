@@ -313,6 +313,9 @@ export const SETTING_THEME = "ui.theme";
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
 const SETTING_SUBMIT_KEY = "ui.submitKey";
+/** Whether the sidebar is collapsed to the top rail. Persisted so a collapsed window stays
+ *  collapsed across launches — the whole point of collapsing is reclaiming the 280px for good. */
+const SETTING_SIDEBAR_COLLAPSED = "ui.sidebarCollapsed";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 export const EVENTS_PAGE = 1000;
@@ -378,6 +381,9 @@ export type AppState = {
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
   submitKey: SubmitKey;
+  /** Sidebar hidden, its toggle moved to the top rail. The toggle is rendered in BOTH states —
+   *  a collapse with no way back is a trap — which is why this is one boolean and not a mode. */
+  sidebarCollapsed: boolean;
   items: Item[];
   /** The active space's pane groups — several named split arrangements, exactly one of them active.
    *  Null only before a space is selected. This is the source of truth; `layout` mirrors it. */
@@ -589,6 +595,8 @@ export type AppState = {
   reorderSpaces(ids: string[]): Promise<void>;
   setThemePref(pref: ThemePref): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
+  /** Flip the sidebar between full column and top rail, and persist it. */
+  toggleSidebar(): Promise<void>;
   setSubmitKey(v: SubmitKey): Promise<void>;
   refreshSpaces(): Promise<void>;
   refreshItems(): Promise<void>;
@@ -1264,17 +1272,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (snap.spaceId !== get().activeSpaceId) return { sheetSnap: null };
       return writeLayout(reconcileLayout(snap.saved, get().items), { sheetSnap: null });
     };
-    const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
+    const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside = false) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
       if (!isSpace(sid)) return;
       if (seq === itemsFetchSeq) set({ items }); // superseded by a newer fetch? its list is newer — keep it
+      if (beside && targetLeafId === null) { await get().openItemBeside(itemId); return; }
       await get().openItem(itemId, targetLeafId);
     };
 
     return {
       booted: false,
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, submitKey: "enter", items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
@@ -1294,8 +1303,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, swipeInvert, submitKey, lastAgent, panels, machineName] = await Promise.all([
-          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_LAST_AGENT),
+        const [profiles, spaces, saved, theme, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, machineName] = await Promise.all([
+          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_TERMINAL_PANEL),
           // A label, not a dependency: a failure here must not take boot down with it — the strip
           // simply shows no machine name.
@@ -1303,7 +1312,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true,
-          submitKey: isSubmitKey(submitKey) ? submitKey : "enter", lastAgentKind: agent.success ? agent.data : null,
+          submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true, lastAgentKind: agent.success ? agent.data : null,
           terminalPanel: parseTerminalPanels(panels), machineName });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
@@ -1430,6 +1439,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setSwipeInvert(v) {
         set({ swipeInvert: v });
         await api.setSetting(SETTING_SWIPE_INVERT, v);
+      },
+      async toggleSidebar() {
+        const next = !get().sidebarCollapsed;
+        set({ sidebarCollapsed: next });
+        await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
       },
       async setSubmitKey(v) {
         set({ submitKey: v });
@@ -2196,10 +2210,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // One diff pane per environment: a second "show changes" on the same checkout goes to the
         // pane that already exists rather than accumulating identical panes.
         const existing = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
-        if (existing) { await get().openItem(existing.id, targetLeafId); return; }
+        // Same eviction bug openItemBeside exists to fix, just triggered by the user instead of an
+        // agent: replacing the focused leaf in place stranded the session with no way back. Split
+        // beside it instead — unless the caller named an explicit target leaf.
+        if (existing) {
+          if (targetLeafId === null) { await get().openItemBeside(existing.id); return; }
+          await get().openItem(existing.id, targetLeafId);
+          return;
+        }
         const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
         const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
-        await adoptItem(sid, created.id, targetLeafId);
+        await adoptItem(sid, created.id, targetLeafId, true);
       },
       async requestReview(environmentId) {
         if (get().reviewing[environmentId]) return; // the button is disabled too; the server refuses regardless

@@ -16,7 +16,7 @@ import {
   Award01Icon, BulbIcon, Key01Icon, LockIcon, Notification01Icon, Mic01Icon, HeadphonesIcon, Video01Icon, DiceIcon, Store01Icon,
   House01Icon, PlaneIcon, Train01Icon, BicycleIcon, Globe02Icon, PaintBucketIcon, Pen01Icon, RulerIcon, PenTool01Icon, StartUp01Icon,
   Bookmark01Icon, BookOpen02Icon, FavouriteIcon, HeartbreakIcon, CameraAiIcon, FireworksIcon, DiceFaces01Icon, GameboyIcon, PentagonIcon, MicroscopeIcon,
-  Maximize01Icon, Minimize01Icon, LayoutTable01Icon,
+  Maximize01Icon, Minimize01Icon, LayoutTable01Icon, SidebarLeft01Icon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -24,6 +24,7 @@ export const icons = {
   add: Add01Icon, close: Cancel01Icon, folder: Folder01Icon, briefcase: Briefcase01Icon, cap: MortarboardIcon,
   home: Home01Icon, user: UserIcon, terminal: ComputerTerminal01Icon, browser: GlobeIcon, simulator: SmartPhone01Icon,
   artifact: File01Icon, context: BrainIcon, layout: LayoutGridIcon, settings: Settings01Icon, more: MoreHorizontalIcon,
+  sidebar: SidebarLeft01Icon,
   session: ChatIcon, search: Search01Icon, pin: PinIcon, unpin: PinOffIcon, chevronLeft: ArrowLeft01Icon, chevronRight: ArrowRight01Icon,
   check: Tick01Icon, trash: Delete02Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
   send: SentIcon, stop: StopIcon, sparkles: SparklesIcon, chevronDown: ArrowDown01Icon, arrowDown: ArrowDown02Icon, arrowUp: ArrowUp02Icon, spinner: Loading03Icon,

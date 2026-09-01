@@ -121,7 +121,23 @@ kbd { font: 11px var(--font-mono); }
 .sidebar { width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
   background: color-mix(in srgb, var(--page) 82%, transparent); border-right: 1px solid var(--rl-hairline); -webkit-app-region: drag; }
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
-.sb-top { padding: 40px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
+/* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
+   sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
+   the 48px of head room the sidebar had before, so nothing below it moves. */
+.sb-head { flex: none; height: 40px; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px 0 16px; }
+.sb-top { padding: 0 16px 8px; display: flex; flex-direction: column; gap: 8px; }
+/* Collapsed: the app stacks, so the rail spans the window above the content. padding-left clears the
+   traffic lights (main sets them at x:12 and they run ~52px wide), which puts the toggle immediately
+   right of them — the same vertical band it occupies inside .sb-head, so collapsing reads as the
+   button moving rather than as one control being swapped for another. */
+.app[data-sidebar-collapsed] { flex-direction: column; }
+.sb-rail { flex: none; height: 38px; display: flex; align-items: center; padding-left: 76px;
+  background: color-mix(in srgb, var(--page) 82%, transparent); -webkit-app-region: drag; }
+.sb-rail button { -webkit-app-region: no-drag; }
+/* ink-3 → ink-2 on hover, matching .search: the glyph itself IS the state, no fill change. */
+.sb-toggle { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  border-radius: var(--r-ctl); color: var(--rl-text-faint); }
+.sb-toggle:hover { color: var(--rl-text-bright); background: var(--field); }
 /* Plan 9 W3 — BUI SidebarNav's chat-search field: field fill behind a hairline ring, 13/500,
    ink-3 → ink-2 as the pointer arrives (the fill itself does not change; the field IS the state). */
 .search { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border-radius: var(--r-ctl);

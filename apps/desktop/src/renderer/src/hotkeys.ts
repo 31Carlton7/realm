@@ -101,6 +101,14 @@ const BINDINGS: Binding[] = [
     match: (e) => e.key.toLowerCase() === "t" && mod(e, { meta: true }),
     run: (s) => s.run(() => s.newTerminal()),
   },
+  // ⌘B → collapse/restore the sidebar. No `inInputs`: ⌘B is bold in every rich text field on the
+  // platform, and the composer is a rich editor — a global steal would break bolding in the one
+  // place the hand most often is. The toggle button itself is always on screen in both states, so
+  // the guard costs nothing but a click.
+  {
+    match: (e) => e.key.toLowerCase() === "b" && mod(e, { meta: true }),
+    run: (s) => s.run(() => s.toggleSidebar()),
+  },
   // ⌘N → new session, immediately (W3): no sheet, no questions — last-used agent, straight to the
   // hero prompter, which carries every choice.
   {
