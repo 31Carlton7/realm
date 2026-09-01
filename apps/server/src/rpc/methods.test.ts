@@ -392,3 +392,73 @@ describe("diff and the git write path over rpc", () => {
     c.close();
   });
 });
+
+/** The durable ship log over the wire (Plan 14 W1): attribution, listing, and the broadcast. The
+ *  WHEN-a-row-logs rules live in git-write.test.ts; the cursor rules in store/ships.test.ts. */
+describe("the ship log over rpc", () => {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+
+  async function bootRepoSpace() {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const cwd = space.folderPath;
+    git(cwd, "init", "-b", "main");
+    git(cwd, "config", "user.email", "t@example.com");
+    git(cwd, "config", "user.name", "t");
+    git(cwd, "config", "commit.gpgsign", "false");
+    writeFileSync(join(cwd, "a.txt"), "one\n");
+    git(cwd, "add", "."); git(cwd, "commit", "-m", "init");
+    return { c, space, cwd };
+  }
+
+  it("a ship that names its environment writes a row, lists it, and broadcasts ships.changed", async () => {
+    const { c, space } = await bootRepoSpace();
+    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "log me" })).result;
+    writeFileSync(join(env.path, "a.txt"), "edited\n");
+    await c.call("workspace.stage", { cwd: env.path, paths: ["a.txt"] });
+    const ship = (await c.call("workspace.ship", { cwd: env.path, commit: true, message: "one change", push: false, openPr: false, environmentId: env.id })).result;
+    expect(ship.commit.state).toBe("committed");
+    await waitFor(() => c.events.some((e) => e.event === "ships.changed" && e.payload.spaceId === space.id));
+    const { ships, nextCursor } = (await c.call("ships.list", { spaceId: space.id })).result;
+    expect(nextCursor).toBeNull();
+    expect(ships).toHaveLength(1);
+    expect(ships[0]).toMatchObject({ environmentId: env.id, spaceId: space.id, branch: "realm/log-me",
+      subject: "one change", prUrl: null, pushState: "skipped" });
+    expect(ships[0].sha).toBe(git(env.path, "rev-parse", "HEAD").trim());
+    c.close();
+  });
+
+  it("refuses an environment whose path is not the shipped cwd — nothing mis-files silently", async () => {
+    const { c, space, cwd } = await bootRepoSpace();
+    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "elsewhere" })).result;
+    writeFileSync(join(cwd, "a.txt"), "edited\n");
+    await c.call("workspace.stage", { cwd, paths: ["a.txt"] });
+    // The space folder's cwd with the WORKTREE's environment id: refused, and no commit happened.
+    const r = await c.call("workspace.ship", { cwd, commit: true, message: "m", push: false, openPr: false, environmentId: env.id });
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe("ENVIRONMENT_MISMATCH");
+    expect(git(cwd, "log", "--oneline").trim().split("\n")).toHaveLength(1);
+    expect((await c.call("ships.list", { spaceId: space.id })).result.ships).toEqual([]);
+    c.close();
+  });
+
+  it("an environment-less ship still ships, and logs nothing", async () => {
+    const { c, space, cwd } = await bootRepoSpace();
+    writeFileSync(join(cwd, "a.txt"), "edited\n");
+    await c.call("workspace.stage", { cwd, paths: ["a.txt"] });
+    const ship = (await c.call("workspace.ship", { cwd, commit: true, message: "m", push: false, openPr: false })).result;
+    expect(ship.commit.state).toBe("committed");
+    expect((await c.call("ships.list", { spaceId: space.id })).result.ships).toEqual([]);
+    c.close();
+  });
+
+  it("ships.list refuses an unknown space instead of answering an empty page", async () => {
+    const { c } = await bootRepoSpace();
+    const r = await c.call("ships.list", { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FA9" });
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+});

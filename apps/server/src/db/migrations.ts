@@ -229,4 +229,31 @@ export const migrations: string[] = [
   CREATE INDEX notifications_unread ON notifications(read_at) WHERE read_at IS NULL;
   CREATE INDEX notifications_dedup ON notifications(category, ref_id);
   `,
+  // v13 — the durable ship log (Plan 14 W1). One row per `workspace.ship` that changed something
+  // durable (a commit was made, or a push reached the remote), written by GitWriteService.ship at the
+  // moment the legs settle. `push_state` records the push leg's ACTUAL outcome — a commit whose push
+  // was rejected logs `rejected`; a commit-only ship logs `skipped`.
+  //
+  // Plain TEXT references, no foreign keys — the notifications posture: a ship row is a LOG, and
+  // "branch X was shipped from worktree Y" stays true (and stays worth showing on the History tab)
+  // after that worktree is removed or its space deleted.
+  //
+  // NOTE (merge coordination): Plan 13 W1 also appends a v13 migration in its own worktree. Whichever
+  // branch merges second renumbers by moving this block after the other's — the SQL is self-contained,
+  // so the fix is a one-line reordering of this array.
+  `
+  CREATE TABLE ships (
+    id TEXT PRIMARY KEY,
+    environment_id TEXT NOT NULL,
+    space_id TEXT NOT NULL,
+    branch TEXT,
+    sha TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    pr_url TEXT,
+    push_state TEXT NOT NULL,
+    created_at INTEGER NOT NULL);
+  -- Every listing is "this space, newest first"; id DESC is the same-millisecond tiebreak the
+  -- notifications feed uses, so keyset pagination can never skip or repeat a row.
+  CREATE INDEX ships_space ON ships(space_id, created_at DESC, id DESC);
+  `,
 ];
