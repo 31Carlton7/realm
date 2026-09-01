@@ -1,6 +1,7 @@
 import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
 import { isImageMime, mimeForPath } from "@realm/contracts";
-import { closeSync, openSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { startServer } from "./server-process";
 import { loginShellPath, mergePath } from "./login-shell-path";
@@ -11,6 +12,10 @@ import type { BrowserPaneHost, ViewRect } from "./browser-host";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
+import {
+  MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macSettingsUrl,
+  parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
+} from "./mac-access";
 import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
@@ -153,6 +158,67 @@ ipcMain.handle("tcc:open-settings", (_e, pane: unknown) => {
   if (!isTccPermissionId(pane)) throw new Error(`unknown permissions pane: ${String(pane)}`);
   void shell.openExternal(TCC_SETTINGS_URLS[pane]);
 });
+
+// ── The `mac` CLI's access (Permissions tab, "Apps on this Mac") ────────────────────────────────
+// Unlike tcc:probe, this half can actually GRANT: for everything but Full Disk Access the grant is a
+// prompt, and the only way to raise a prompt is to run a real command — so `mac:grant` runs one. All
+// the decisions (which command, which rows may offer it, why a denied row may not) live in
+// mac-access.ts; only the child-process/shell legs are here.
+
+/** Run `mac` with a fixed argv. `spawn` with an argv array, never a shell string: nothing here is
+ *  ever concatenated into a command line, so there is no quoting bug to have. */
+function runMac(bin: string, argv: readonly string[], timeoutMs: number): Promise<{ code: number | null; stdout: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(bin, [...argv], { env: process.env, stdio: ["ignore", "pipe", "ignore"] });
+    let stdout = "";
+    child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    const done = (code: number | null) => { clearTimeout(timer); resolve({ code, stdout }); };
+    child.once("error", () => done(null));
+    child.once("close", done);
+  });
+}
+
+/** `mac doctor --json` is documented never to prompt and to always exit 0, so this is safe to run on
+ *  every visit to the tab. A missing binary, a crash, or unparseable output all land on `null` rows
+ *  — which render as "unknown", not as a page full of green checks. */
+async function macAccessStatus(): Promise<MacAccessStatus> {
+  const host: MacAccessHost = { name: app.getName(), bundlePath: appBundlePath(app.getPath("exe")), packaged: app.isPackaged };
+  const bin = resolveMacBin({ pathEnv: process.env.PATH, exists: (p) => existsSync(p) });
+  if (!bin) return { cli: { present: false, searched: [...MAC_FALLBACK_DIRS] }, rows: macAccessRows(null), host };
+  const [doctor, version] = await Promise.all([
+    runMac(bin, ["doctor", "--json"], 15_000),
+    runMac(bin, ["--version"], 5_000),
+  ]);
+  return {
+    cli: { present: true, path: bin, version: parseMacVersion(version.stdout) },
+    rows: macAccessRows(parseMacDoctor(doctor.stdout)),
+    host,
+  };
+}
+
+ipcMain.handle("mac:status", (): Promise<MacAccessStatus> => macAccessStatus());
+
+/** Raise ONE capability's macOS prompt, then re-read the audit so what renders is the answer the
+ *  user just gave. The renderer names a capability id; the argv comes from mac-access.ts's closed
+ *  table, so no IPC payload can choose what runs. The long timeout is the point — the child blocks
+ *  in the macOS consent dialog until the user clicks, and killing it early would abandon the prompt. */
+ipcMain.handle("mac:grant", async (_e, id: unknown): Promise<MacAccessStatus> => {
+  if (!isMacCapabilityId(id)) throw new Error(`unknown mac capability: ${String(id)}`);
+  const argv = macGrantArgv(id);
+  const bin = resolveMacBin({ pathEnv: process.env.PATH, exists: (p) => existsSync(p) });
+  // No binary, or a capability with no prompt (Full Disk Access): report the state, don't pretend.
+  if (bin && argv) await runMac(bin, argv, 180_000);
+  return macAccessStatus();
+});
+
+ipcMain.handle("mac:open-settings", (_e, id: unknown) => {
+  void shell.openExternal(macSettingsUrl(typeof id === "string" ? id : ""));
+});
+
+/** Full Disk Access has no prompt — it is a drag-the-app-in list. Reveal the bundle so the drag has
+ *  something to start from; `showItemInFolder` selects it in Finder. */
+ipcMain.handle("mac:reveal-app", () => { shell.showItemInFolder(appBundlePath(app.getPath("exe"))); });
 
 // Settings→App "Updates" row (Plan 15 W1). The gate (dev never; packaged only when signed AND the
 // feed is live — see updater.ts's doc comment) lives in main: the renderer can only ever render what

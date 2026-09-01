@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { packPlan } from "./pack.mjs";
 // @ts-expect-error — CJS hook module; vitest interops the named export fine.
 import { notarizeDecision } from "./notarize.cjs";
@@ -59,5 +60,42 @@ describe("notarizeDecision — no-op loudly unless EVERYTHING needed is present"
   it("signed + all three Apple vars: runs — this is the zero-code-change activation", () => {
     expect(notarizeDecision({ CSC_LINK: "x", ...apple })).toEqual({ run: true });
     expect(notarizeDecision({ CSC_NAME: "Developer ID Application: …", ...apple })).toEqual({ run: true });
+  });
+});
+
+/**
+ * The two packaging inputs that decide whether a macOS consent dialog can EXIST. Both fail silently
+ * when wrong — no build error, no runtime error, just a prompt that never appears and a Permissions
+ * page that looks broken — so they are pinned here rather than trusted to survive a tidy-up.
+ */
+describe("macOS consent packaging (Settings → Permissions can only work if these hold)", () => {
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const entitlements = read("../resources/entitlements.mac.plist");
+  const builder = read("../electron-builder.yml");
+
+  it("signed builds carry the apple-events entitlement — without it macOS answers -1743 and never offers the dialog", () => {
+    expect(entitlements).toContain("com.apple.security.automation.apple-events");
+    // The build that consumes it: hardened runtime, pointed at this exact file.
+    expect(builder).toContain("hardenedRuntime: true");
+    expect(builder).toContain("entitlements: resources/entitlements.mac.plist");
+  });
+
+  it("every TCC grant the mac CLI needs has its usage string — macOS refuses the EventKit/Contacts requests outright when the key is absent", () => {
+    for (const key of ["NSAppleEventsUsageDescription", "NSCalendarsUsageDescription", "NSRemindersUsageDescription", "NSContactsUsageDescription"]) {
+      expect(builder, `${key} missing from mac.extendInfo`).toContain(`${key}:`);
+    }
+  });
+
+  it("carries macOS 14's Full* variants — with only the plain Calendars/Reminders keys the grant comes back add-only (writes land, reads return nothing)", () => {
+    expect(builder).toContain("NSCalendarsFullAccessUsageDescription:");
+    expect(builder).toContain("NSRemindersFullAccessUsageDescription:");
+  });
+
+  it("each usage string says what REALM does with the access — the dialog quotes it verbatim to the user", () => {
+    // The mutant: Electron's boilerplate ("This app needs access to …"), which tells nobody anything.
+    expect(builder).not.toMatch(/This app needs access to/);
+    const strings = builder.match(/NS\w+UsageDescription: >-\n(?:\s{6}.+\n)+/g) ?? [];
+    expect(strings).toHaveLength(6);
+    for (const s of strings) expect(s).toContain("Realm");
   });
 });

@@ -24,6 +24,15 @@ interface Window {
       probe(): Promise<TccRow[]>;
       openSettings(pane: string): Promise<void>;
     };
+    /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` runs `mac doctor`,
+     *  which never prompts; `grant` deliberately DOES — it runs the one read-only command that
+     *  raises that capability's macOS dialog, so it stays pending while the dialog is up. */
+    macAccess: {
+      status(): Promise<MacAccessStatus>;
+      grant(id: string): Promise<MacAccessStatus>;
+      openSettings(id: string): Promise<void>;
+      revealApp(): Promise<void>;
+    };
     /** Settings→App Updates row (Plan 15 W1). The gate lives in main: on a gated build `check`
      *  answers the same disabled state `status` does — the renderer can't start a check main won't run. */
     updates: {
@@ -58,5 +67,29 @@ type UpdateState =
 interface UpdateStatus { version: string; state: UpdateState }
 /** Mirrors TccRow in main/tcc.ts — the Permissions tab's row payload. */
 interface TccRow { id: string; label: string; state: "granted" | "denied" | "unknown"; detail: string }
+/** Mirrors MacAccessRow/MacAccessStatus in main/mac-access.ts. The five states are mac doctor's own,
+ *  kept apart on purpose: `writeOnly` is a half-grant (writes land, reads come back empty), so
+ *  collapsing it into "granted" would put a green check over a broken capability. */
+type MacAccessState = "granted" | "denied" | "notRequested" | "writeOnly" | "unknown";
+interface MacAccessRow {
+  id: string; label: string; group: "data" | "automation" | "disk" | "other";
+  state: MacAccessState; detail: string;
+  /** The command Realm would run, shown before it runs. Null where macOS has no prompt at all. */
+  grantCommand: string | null;
+  /** Realm can still raise this prompt — false once granted, and false once DENIED, because a
+   *  denial is sticky and re-running would be a button that cannot work. */
+  canPrompt: boolean;
+  /** A trip to System Settings is the reliable fix (denied, writeOnly, Full Disk Access). */
+  needsSettings: boolean;
+  /** Raising the prompt will open the target app — AppleScript has to talk to something. */
+  launchesApp: boolean;
+}
+interface MacAccessStatus {
+  cli: { present: true; path: string; version: string | null } | { present: false; searched: string[] };
+  rows: MacAccessRow[];
+  /** The app macOS attributes the grants to. Under `pnpm dev` that is Electron, not Realm — the
+   *  page says so, because grants made in dev do not carry into the packaged app. */
+  host: { name: string; bundlePath: string; packaged: boolean };
+}
 /** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */
 interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }

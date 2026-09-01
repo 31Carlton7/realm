@@ -33,6 +33,29 @@ mac:
   # `xattr -cr /Applications/Realm.app` if Gatekeeper reports it damaged.
   hardenedRuntime: true
   gatekeeperAssess: false
+  # The sentences macOS puts in its own consent dialogs. TCC attributes a `mac` CLI call to the app
+  # that owns the process tree — Realm — so these are the strings the user reads when Settings →
+  # Permissions raises a prompt, and the reason each one gives has to be true of Realm, not of a
+  # generic "this app". For the EventKit/Contacts grants the string is also load-bearing rather than
+  # cosmetic: macOS refuses the request outright when the matching key is absent. The Full*
+  # variants are macOS 14's split — without them a Calendar grant comes back add-only (`writeOnly`
+  # in the Permissions tab: writes land, reads come back empty).
+  extendInfo:
+    NSAppleEventsUsageDescription: >-
+      Realm lets the coding agents you run control apps like Mail, Messages, Notes and Finder on
+      your behalf — reading a thread, drafting a reply, filing a note.
+    NSCalendarsUsageDescription: >-
+      Realm lets the coding agents you run read and add Calendar events on your behalf.
+    NSCalendarsFullAccessUsageDescription: >-
+      Realm lets the coding agents you run read and add Calendar events on your behalf. Reading
+      needs full access; with add-only access they can create events but never see them.
+    NSRemindersUsageDescription: >-
+      Realm lets the coding agents you run read, add and complete Reminders on your behalf.
+    NSRemindersFullAccessUsageDescription: >-
+      Realm lets the coding agents you run read, add and complete Reminders on your behalf.
+    NSContactsUsageDescription: >-
+      Realm lets the coding agents you run look up contacts on your behalf — to address an email or
+      a message you asked for.
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
 afterSign: scripts/notarize.cjs
