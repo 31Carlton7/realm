@@ -64,8 +64,9 @@ async function setupApp(opts: {
   onOauthCallback?: (url: string) => Promise<{ serverId: string }>;
   /** Stands in for `McpOauth.headers` — the seam a real OAuth bearer arrives through. */
   authHeaders?: (row: McpServerRow) => Promise<Record<string, string>>;
-  /** Stands in for `BrowserAgentService.sessionToolset` — W5's per-session provider restriction. */
-  sessionToolset?: (sessionId: string) => string[] | null;
+  /** Stands in for the delegation registries' toolset shapes — W5's only-mode restriction
+   *  (`string[]`) and Plan 13 W1's exclude mode (`{ exclude }`). */
+  sessionToolset?: (sessionId: string) => import("./gateway").SessionToolset;
 } = {}): Promise<App> {
   const home = mkdtempSync(join(tmpdir(), "realm-mcp-gw-"));
   const db = openDatabase(join(home, "realm.db"));
@@ -771,6 +772,91 @@ describe("per-session toolset restriction (Plan 11 W5)", () => {
     expect((await r.client.listTools()).tools.map((t) => t.name)).toEqual(["realm-browser__ping"]);
     const blocked = (await r.client.callTool({ name: "alpha__echo", arguments: { message: "x" } })) as CallToolResult;
     expect(blocked.isError).toBe(true);
+    await r.client.close();
+  });
+});
+
+/**
+ * Plan 13 W1: the exclude-mode toolset shape — how an `agent_run` child is born with the space's
+ * FULL surface minus the delegation provider. The mutants this block exists to kill: the child
+ * seeing `realm-agent` tools (recursion), and the exclusion accidentally taking the user's MCP
+ * servers or other providers with it (the child must keep its NORMAL surface).
+ */
+describe("per-session toolset exclusion (Plan 13 W1)", () => {
+  const provider = (name: string, onCall?: (tool: string) => void) => ({
+    name,
+    tools: async () => [{ name: "ping", description: "pong", inputSchema: { type: "object" as const } }],
+    call: async (_ctx: unknown, tool: string): Promise<CallToolResult> => {
+      onCall?.(tool);
+      return { content: [{ type: "text", text: `${name} ran ${tool}` }], isError: false };
+    },
+  });
+
+  /** Two providers + one enabled user server; `excluded` (a second session in the same space) sees
+   *  everything EXCEPT the realm-agent provider; the app's default session is unrestricted. */
+  async function excludedApp() {
+    const excludedIds = new Set<string>();
+    const app = await setupApp({ sessionToolset: (sessionId) => (excludedIds.has(sessionId) ? { exclude: ["realm-agent"] } : null) });
+    const upstreamCalls: string[] = [];
+    const { row } = app.addServer("alpha", { onCall: (tool) => upstreamCalls.push(tool) });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    const browserCalls: string[] = [];
+    const agentCalls: string[] = [];
+    app.gateway.registerProvider(provider("realm-browser", (t) => browserCalls.push(t)));
+    app.gateway.registerProvider(provider("realm-agent", (t) => agentCalls.push(t)));
+    const child = app.createSpaceAndSession("same-space-agent-child");
+    // Same space as the default session on purpose: the exclusion is per SESSION, not per space.
+    const excluded = { sessionId: child.sessionId, spaceId: app.spaceId };
+    excludedIds.add(excluded.sessionId);
+    return { app, excluded, upstreamCalls, browserCalls, agentCalls };
+  }
+
+  it("an excluded session lists the FULL surface minus the excluded provider — user servers and other providers intact", async () => {
+    const { app, excluded } = await excludedApp();
+    const r = await connectClient(app, excluded);
+    expect(((await r.client.listTools()).tools.map((t) => t.name)).sort())
+      .toEqual(["alpha__boom", "alpha__echo", "realm-browser__ping"]);
+    await r.client.close();
+    // The unrestricted session in the same gateway still sees realm-agent.
+    const u = await connectClient(app);
+    expect((await u.client.listTools()).tools.map((t) => t.name).sort())
+      .toEqual(["alpha__boom", "alpha__echo", "realm-agent__ping", "realm-browser__ping"]);
+    await u.client.close();
+  });
+
+  it("an excluded session's call to the excluded provider is blocked, logged, and never reaches it — the recursion guard's gateway half", async () => {
+    const { app, excluded, agentCalls } = await excludedApp();
+    const r = await connectClient(app, excluded);
+    const result = (await r.client.callTool({ name: "realm-agent__ping", arguments: {} })) as CallToolResult;
+    expect(result.isError).toBe(true);
+    expect(asText(result)).toContain("depth-1");
+    expect(agentCalls).toEqual([]);
+    const log = app.calls.list({ limit: 10 }).find((c) => c.sessionId === excluded.sessionId);
+    expect(log).toMatchObject({ ok: false });
+    expect(log?.resultSummary).toContain("excluded provider");
+    await r.client.close();
+  });
+
+  it("the excluded session's calls to user servers and OTHER providers still work — the child keeps its normal surface", async () => {
+    const { app, excluded, upstreamCalls, browserCalls } = await excludedApp();
+    const r = await connectClient(app, excluded);
+    const viaRow = (await r.client.callTool({ name: "alpha__echo", arguments: { message: "hi" } })) as CallToolResult;
+    expect(viaRow.isError).not.toBe(true);
+    expect(upstreamCalls).toEqual(["echo"]);
+    const viaProvider = (await r.client.callTool({ name: "realm-browser__ping", arguments: {} })) as CallToolResult;
+    expect(asText(viaProvider)).toBe("realm-browser ran ping");
+    expect(browserCalls).toEqual(["ping"]);
+    await r.client.close();
+  });
+
+  it("the exclusion is consulted at call time — it survives a session re-register (adapter restart)", async () => {
+    const { app, excluded } = await excludedApp();
+    let r = await connectClient(app, excluded);
+    await r.client.close();
+    r = await connectClient(app, excluded);
+    const blocked = (await r.client.callTool({ name: "realm-agent__ping", arguments: {} })) as CallToolResult;
+    expect(blocked.isError).toBe(true);
+    expect(asText(blocked)).toContain("depth-1");
     await r.client.close();
   });
 });
