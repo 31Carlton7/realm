@@ -145,6 +145,8 @@ export type Api = {
   setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
   /** `sessions.setEnvironment` — same guard: rejected once the session has any event. */
   setSessionEnvironment(id: string, environmentId: string): Promise<Session>;
+  /** `sessions.moveToSpace` — same guard as setAgent/setEnvironment: rejected once the session has any event. */
+  moveSessionToSpace(id: string, spaceId: string): Promise<Session>;
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
   /** `sessions.openTerminal` — get-or-create the session's terminal side panel. The FIRST call is what
@@ -668,6 +670,10 @@ export type AppState = {
    *  server's "session" default) AND move the session into it — one action, so creating without
    *  selecting cannot happen. */
   moveSessionToNewWorktree(sessionId: string): Promise<void>;
+  /** Sidebar's "Move to space…" (item context menu). Same server guard as the agent/environment
+   *  switches — closes the item out of the current space's layout first, then re-homes it; any open
+   *  terminal panel for the session is torn down client-side to match the server's teardown. */
+  moveSessionToSpace(sessionId: string, spaceId: string): Promise<void>;
   /** Fetch a space's servers into `connectors` (plus-menu open, `mcp.changed`). */
   refreshConnectors(spaceId: string): Promise<void>;
   /** Fetch a space's browser origin allowlist into `browserAllowlists` (Connections tab mount). */
@@ -1729,6 +1735,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (get().activeSpaceId === s.spaceId) set({ environments: { ...get().environments, [env.id]: env } });
         // …then select it. Creating without selecting is the named mutant this line kills.
         await get().setSessionEnvironment(sessionId, env.id);
+      },
+      async moveSessionToSpace(sessionId, spaceId) {
+        const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
+        // Drop it from the CURRENT space's layout/persist FIRST, same ordering deleteItem uses.
+        if (item) await get().closeFromLayout(item.id);
+        mergeSession(await api.moveSessionToSpace(sessionId, spaceId));
+        // It now belongs to `spaceId`'s item list, not this one's.
+        if (item) set({ items: get().items.filter((i) => i.id !== item.id) });
+        set({ sessionSpace: { ...get().sessionSpace, [sessionId]: spaceId } });
+        // The server already tore down any open terminal (its pty was rooted at the OLD cwd) —
+        // mirror deleteItem's client-side half of that cleanup for the renderer's xterm handle.
+        const termId = get().sessionTerminals[sessionId];
+        if (termId) {
+          api.disposeTerminal(termId);
+          const { [sessionId]: _tid, ...sessionTerminals } = get().sessionTerminals;
+          const { [sessionId]: _tp, ...terminalPanel } = get().terminalPanel;
+          set({ sessionTerminals, terminalPanel });
+        }
       },
       async refreshConnectors(spaceId) {
         const { servers } = await api.listMcpServers(spaceId);

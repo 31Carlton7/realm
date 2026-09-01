@@ -339,6 +339,91 @@ describe("SessionService over rpc", () => {
     });
   });
 
+  describe("sessions.moveToSpace (sidebar's \"Move to space…\")", () => {
+    // Text-only script (like bootTwoEnvs above): tests that send a message need an event, not a turn
+    // parked on a permission prompt at teardown.
+    async function twoSpaces(fake = new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "ok" }] }] })) {
+      const booted = await boot(fake);
+      const profileId = (await booted.c.call("profiles.list", {})).result[0].id;
+      const other = (await booted.c.call("spaces.create", { profileId, name: "Other" })).result;
+      return { ...booted, other };
+    }
+
+    it("moves an untouched session: space/environment/cwd land on the destination's primary, item follows", async () => {
+      const { c, sp, other } = await twoSpaces();
+      const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      const r = await c.call("sessions.moveToSpace", { id: session.id, spaceId: other.id });
+      expect(r.ok).toBe(true);
+      expect(r.result.spaceId).toBe(other.id);
+      expect(r.result.cwd).toBe(other.folderPath);
+      expect((await c.call("items.list", { spaceId: other.id })).result.map((i: Any) => i.id)).toContain(itemId);
+      expect((await c.call("items.list", { spaceId: sp.id })).result.map((i: Any) => i.id)).not.toContain(itemId);
+      c.close();
+    });
+
+    it("clears projectId on move — a project is scoped to the space it was left in", async () => {
+      const { c, sp, other } = await twoSpaces();
+      const root = mkdtempSync(join(tmpdir(), "realm-checkout-"));
+      const project = (await c.call("projects.create", { spaceId: sp.id, name: "web", rootPath: root })).result;
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", projectId: project.id })).result;
+      expect(session.projectId).toBe(project.id);
+      const r = await c.call("sessions.moveToSpace", { id: session.id, spaceId: other.id });
+      expect(r.result.projectId).toBeNull();
+      c.close();
+    });
+
+    it("tears down an open terminal panel — its pty was rooted at the OLD cwd", async () => {
+      const { c, sp, other } = await twoSpaces();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      const { terminalId } = (await c.call("sessions.openTerminal", { id: session.id })).result;
+      expect(app.terminals.has(terminalId)).toBe(true);
+      await c.call("sessions.moveToSpace", { id: session.id, spaceId: other.id });
+      expect(app.terminals.has(terminalId)).toBe(false);
+      expect((await c.call("sessions.get", { id: session.id })).result.terminalItemId).toBeNull();
+      c.close();
+    });
+
+    it("refuses once the session has ANY event — same authority as setAgent/setEnvironment, nothing moves", async () => {
+      const { c, sp, other } = await twoSpaces();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      await c.call("sessions.send", { id: session.id, text: "go" });
+      await waitFor(() => c.eventTypes(session.id).includes("usage"));
+      const r = await c.call("sessions.moveToSpace", { id: session.id, spaceId: other.id });
+      expect(r.ok).toBe(false);
+      expect(r.error.code).toBe("SESSION_STARTED");
+      expect((await c.call("sessions.get", { id: session.id })).result.spaceId).toBe(sp.id);
+      c.close();
+    });
+
+    it("moving into the space it's already in is a no-op, even after events exist", async () => {
+      const { c, sp } = await twoSpaces();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      await c.call("sessions.send", { id: session.id, text: "go" });
+      await waitFor(() => c.eventTypes(session.id).includes("usage"));
+      const r = await c.call("sessions.moveToSpace", { id: session.id, spaceId: sp.id });
+      expect(r.ok).toBe(true);
+      expect(r.result.spaceId).toBe(sp.id);
+      c.close();
+    });
+
+    it("NOT_FOUND for an unknown destination space", async () => {
+      const { c, sp } = await twoSpaces();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      expect((await c.call("sessions.moveToSpace", { id: session.id, spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).error.code).toBe("NOT_FOUND");
+      c.close();
+    });
+
+    it("broadcasts items.changed for both the origin and destination spaces", async () => {
+      const { c, sp, other } = await twoSpaces();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      await c.call("sessions.moveToSpace", { id: session.id, spaceId: other.id });
+      const spaceIds = c.events.filter((e) => e.event === "items.changed").map((e) => e.payload.spaceId);
+      expect(spaceIds).toContain(sp.id);
+      expect(spaceIds).toContain(other.id);
+      c.close();
+    });
+  });
+
   it("survives a restart: statuses reset on boot, dangling permission denied, events replayed, a new send resumes with providerSessionId", async () => {
     const started: Array<{ resume?: string | null }> = [];
     const script = [{ on: "go", emit: [{ kind: "tool" as const, name: "Bash", input: { command: "ls" }, needsPermission: true, result: "x" }] }];

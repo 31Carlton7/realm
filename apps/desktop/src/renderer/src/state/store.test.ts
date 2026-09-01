@@ -2023,6 +2023,36 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     expect(a.data.environments.s1!.at(-1)!.branch).toBe("realm/session");
   });
 
+  it("moveSessionToSpace drops the item from the current space and re-homes the session", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    expect(store.getState().items.map((i) => i.id)).toContain("i2");
+    await store.getState().moveSessionToSpace("se1", "s2");
+    expect(a.calls).toContain("moveSessionToSpace:se1=s2");
+    expect(store.getState().items.map((i) => i.id)).not.toContain("i2");
+    expect(store.getState().sessions.se1?.spaceId).toBe("s2");
+    expect(store.getState().sessionSpace.se1).toBe("s2");
+  });
+
+  it("moveSessionToSpace disposes the renderer's open terminal panel — the server already tore down its pty", async () => {
+    const a = seed();
+    a.data.sessionTerminals.se1 = { terminalId: "term-se1", itemId: "titem-se1" };
+    const store = createAppStore(a); await store.getState().boot();
+    store.setState({ sessionTerminals: { se1: "term-se1" }, terminalPanel: { se1: { open: true, width: 320 } } });
+    await store.getState().moveSessionToSpace("se1", "s2");
+    expect(a.disposed).toContain("term-se1");
+    expect(store.getState().sessionTerminals.se1).toBeUndefined();
+    expect(store.getState().terminalPanel.se1).toBeUndefined();
+  });
+
+  it("moveSessionToSpace is refused once the session has run, and nothing local changes", async () => {
+    const a = seed();
+    a.data.sessions[0] = session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA", lastEventSeq: 3 });
+    const store = createAppStore(a); await store.getState().boot();
+    await expect(store.getState().moveSessionToSpace("se1", "s2")).rejects.toThrow(/already run/);
+    expect(store.getState().sessions.se1?.spaceId).toBe("s1");
+    expect(store.getState().items.map((i) => i.id)).toContain("i2");
+  });
+
   it("worktreeTitleFrom: first four words, clipped; whitespace-only is null", () => {
     expect(worktreeTitleFrom("Fix the flaky checkpoint test tomorrow")).toBe("Fix the flaky checkpoint");
     expect(worktreeTitleFrom("  one\n two  ")).toBe("one two");

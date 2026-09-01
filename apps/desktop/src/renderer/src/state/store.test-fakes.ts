@@ -442,6 +442,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (env.spaceId !== data.sessions[i]!.spaceId) throw new Error("that environment belongs to another space");
       const s = { ...data.sessions[i]!, environmentId, cwd: env.path }; data.sessions[i] = s; return s;
     },
+    moveSessionToSpace: async (id, spaceId) => {
+      calls.push(`moveSessionToSpace:${id}=${spaceId}`);
+      const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
+      // Mirrors the server: the same one-persisted-event lock as setAgent/setEnvironment.
+      if (data.sessions[i]!.lastEventSeq > 0) throw new Error("this session has already run; it can no longer move to another space");
+      findSpace(spaceId);
+      // The fake has no per-space "primary environment" concept; unlike the real server this leaves
+      // environmentId/cwd untouched, so a test asserting on the destination cwd should seed one.
+      const s = { ...data.sessions[i]!, spaceId, projectId: null }; data.sessions[i] = s; return s;
+    },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     // Mirrors the server: get-or-create, so a second call for the same session returns the same trio —
     // and the hidden item never joins `data.items` (it is not a sidebar item).

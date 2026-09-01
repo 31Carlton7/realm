@@ -128,6 +128,20 @@ describe("ItemsStore", () => {
     expect(items.update({ id: a.id, title: "renamed", pinned: true }).pinned).toBe(true);
     expect(items.get(a.id)?.title).toBe("renamed");
   });
+  it("moveToSpace re-homes the item, appended after the destination's existing items", () => {
+    const profiles = new ProfilesStore(db); const spaces = new SpacesStore(db, home); const items = new ItemsStore(db);
+    const p = profiles.create({ name: "W", icon: "x", color: "#000" });
+    const a = spaces.create({ profileId: p.id, name: "A", icon: "f" });
+    const b = spaces.create({ profileId: p.id, name: "B", icon: "f" });
+    items.create({ spaceId: b.id, kind: "terminal", title: "existing", refId: b.id });
+    const it = items.create({ spaceId: a.id, kind: "terminal", title: "moving", refId: a.id });
+    const moved = items.moveToSpace(it.id, b.id);
+    expect(moved.spaceId).toBe(b.id);
+    expect(items.list(b.id).map((x) => x.title)).toEqual(["existing", "moving"]);
+    expect(items.list(a.id)).toHaveLength(0);
+    expect(() => items.moveToSpace(it.id, "01ARZ3NDEKTSV4RRFFQ69G5FAV")).toThrow(NotFoundError);
+    expect(() => items.moveToSpace("01ARZ3NDEKTSV4RRFFQ69G5FAV", b.id)).toThrow(NotFoundError);
+  });
 });
 
 describe("EnvironmentsStore", () => {

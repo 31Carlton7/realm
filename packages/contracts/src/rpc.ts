@@ -655,6 +655,14 @@ export const Methods = {
    *  that produced them. Cross-space environments are refused (ENVIRONMENT_WRONG_SPACE). `cwd` follows,
    *  since it is derived from the environment row on every read. */
   "sessions.setEnvironment": { params: z.object({ id: IdSchema, environmentId: IdSchema }), result: SessionSchema },
+  /** Move an untouched session to another space (the sidebar's "Move to space…"). Server-guarded
+   *  exactly like setAgent/setEnvironment: rejected (SESSION_STARTED) once the session has any event.
+   *  Re-points environment_id at the destination space's primary checkout and clears project_id — a
+   *  project is space-scoped and the old one names nothing in the destination. Any open terminal panel
+   *  is torn down (its pty was rooted at the OLD cwd). The item is appended to the destination space's
+   *  list; the origin space drops it via items.changed the same way sessions.delete does. Moving to the
+   *  space a session is already in is a no-op, even once it has run. */
+  "sessions.moveToSpace": { params: z.object({ id: IdSchema, spaceId: IdSchema }), result: SessionSchema },
   "sessions.events":  { params: z.object({ id: IdSchema, afterSeq: z.number().int().default(0), limit: z.number().int().default(2000) }), result: z.array(StoredSessionEventSchema) },
   /** Get-or-create the session's terminal side panel (W4), at the session's cwd. Idempotent: the pty is
    *  spawned on the FIRST call and only then — a session whose panel is never opened never has one. */

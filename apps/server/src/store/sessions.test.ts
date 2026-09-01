@@ -92,4 +92,18 @@ describe("SessionsStore + SessionEventsStore", () => {
     expect(s.get(a.id)!.cwd).toBe("/moved");
     expect(s.list(space.id).map((x) => x.cwd)).toEqual(["/moved", "/moved"]);
   });
+  it("moveToSpace re-points space/environment/project together, and rejects the same invariants as create", () => {
+    const { db, home, space, env } = fresh();
+    const s = new SessionsStore(db); const envs = new EnvironmentsStore(db);
+    const other = new SpacesStore(db, home).create({ profileId: new ProfilesStore(db).list()[0]!.id, name: "Other", icon: "f" });
+    const otherEnv = envs.ensurePrimary(other.id);
+    const sess = s.create({ ...input(space.id, env.id), projectId: null });
+    const moved = s.moveToSpace(sess.id, other.id, otherEnv.id, "some-project-id");
+    expect(moved.spaceId).toBe(other.id); expect(moved.environmentId).toBe(otherEnv.id);
+    expect(moved.projectId).toBe("some-project-id"); expect(moved.cwd).toBe(otherEnv.path);
+    expect(() => s.moveToSpace("01ARZ3NDEKTSV4RRFFQ69G5FAV", other.id, otherEnv.id, null)).toThrow(NotFoundError);
+    expect(() => s.moveToSpace(sess.id, "01ARZ3NDEKTSV4RRFFQ69G5FAV", otherEnv.id, null)).toThrow(NotFoundError);
+    expect(() => s.moveToSpace(sess.id, other.id, "01ARZ3NDEKTSV4RRFFQ69G5FAV", null)).toThrow(NotFoundError);
+    expect(() => s.moveToSpace(sess.id, other.id, env.id, null)).toThrow(/another space/);
+  });
 });

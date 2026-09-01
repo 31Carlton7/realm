@@ -52,6 +52,7 @@ export const liveApi = (): Api => ({
   setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),
   setSessionAgent: (id, agentKind) => rpc().call("sessions.setAgent", { id, agentKind }),
   setSessionEnvironment: (id, environmentId) => rpc().call("sessions.setEnvironment", { id, environmentId }),
+  moveSessionToSpace: (id, spaceId) => rpc().call("sessions.moveToSpace", { id, spaceId }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),
   openSessionTerminal: (id) => rpc().call("sessions.openTerminal", { id }),
   writeTerminal: async (terminalId, data) => { await rpc().call("terminals.write", { terminalId, data }); },

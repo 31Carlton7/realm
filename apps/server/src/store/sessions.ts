@@ -73,6 +73,20 @@ export class SessionsStore {
     this.db.prepare("UPDATE sessions SET environment_id = ?, updated_at = ? WHERE id = ?").run(environmentId, now(), id);
     return this.get(id)!;
   }
+  /** Re-point space_id, environment_id, and project_id together (SessionService.moveToSpace's write
+   *  path). Distinct from `setEnvironment`: that method holds space_id fixed and only lets the
+   *  environment change within it; this one moves the space itself, so the wrong-space refusal is
+   *  checked against the NEW spaceId, not the session's current one. */
+  moveToSpace(id: string, spaceId: string, environmentId: string, projectId: string | null): Session {
+    const cur = this.get(id); if (!cur) throw new NotFoundError("session", id);
+    if (!this.db.prepare("SELECT 1 FROM spaces WHERE id = ?").get(spaceId)) throw new NotFoundError("space", spaceId);
+    const env = this.db.prepare("SELECT space_id FROM environments WHERE id = ?").get(environmentId) as { space_id: string } | undefined;
+    if (!env) throw new NotFoundError("environment", environmentId);
+    if (env.space_id !== spaceId) throw new RpcError("ENVIRONMENT_WRONG_SPACE", "that environment belongs to another space");
+    this.db.prepare("UPDATE sessions SET space_id = ?, environment_id = ?, project_id = ?, updated_at = ? WHERE id = ?")
+      .run(spaceId, environmentId, projectId, now(), id);
+    return this.get(id)!;
+  }
   /** Point the session at its terminal's item, or clear it. Deliberately not part of `update`: the
    *  column is owned by SessionService.openTerminal, and SQLite clears it on its own (ON DELETE SET
    *  NULL) when the item goes. */

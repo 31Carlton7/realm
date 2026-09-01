@@ -434,6 +434,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode }));
   reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
   reg("sessions.setEnvironment", (p) => d.sessions.setEnvironment(p.id, p.environmentId));
+  reg("sessions.moveToSpace", (p) => d.sessions.moveToSpace(p.id, p.spaceId));
   reg("sessions.events", (p) => d.sessions.events(p.id, p.afterSeq, p.limit));
   reg("sessions.openTerminal", (p) => d.sessions.openTerminal(p.id));
   // "Fork from here" (Plan 16 W3): new worktree at the checkpoint's tree + new session carrying the

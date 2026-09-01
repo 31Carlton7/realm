@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act, within } from "@testing-librar
 import type { Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, space } from "../../state/store.test-fakes";
+import { fakeApi, item, session, space } from "../../state/store.test-fakes";
 import { leafPositionOf } from "./ItemList";
 
 async function mount(api = fakeApi()) {
@@ -492,6 +492,38 @@ describe("leafPositionOf", () => {
     const inner = split("col", [leaf("L1", "a"), leaf("L2", "b")]);
     const l = split("row", [inner, leaf("L3", "d")]);
     expect(leafPositionOf(l, "b")).toBe(0);
+  });
+});
+
+describe("item context menu: \"Move to space…\"", () => {
+  it("lists every OTHER space as a destination, and moving calls the store action", async () => {
+    const { store, api } = await mount(fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
+      sessions: [session("se1", "s1")],
+    }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /Fix the build/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to space…" }));
+    // The space it's already in never appears as a destination.
+    expect(screen.queryByRole("menuitem", { name: "Versed" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Homework" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Homework" }));
+    await waitFor(() => expect(api.calls).toContain("moveSessionToSpace:se1=s2"));
+    expect(store.getState().sessions.se1?.spaceId).toBe("s2");
+  });
+
+  it("is hidden once the session has run — the server-side guard's client-visible proxy", async () => {
+    await mount(fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
+      sessions: [session("se1", "s1", { lastEventSeq: 3 })],
+    }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /Fix the build/ }));
+    expect(screen.queryByRole("menuitem", { name: "Move to space…" })).not.toBeInTheDocument();
+  });
+
+  it("is absent for non-session items", async () => {
+    await mount(fakeApi({ items: { s1: [item("i1", "s1", { title: "Terminal" })] } }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
+    expect(screen.queryByRole("menuitem", { name: "Move to space…" })).not.toBeInTheDocument();
   });
 });
 
