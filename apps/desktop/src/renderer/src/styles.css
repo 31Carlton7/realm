@@ -430,6 +430,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { font-size: 11px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* Deep-search snippets (Plan 16 W2): one clipped line; matches brighten, they do not highlight —
+   a row is a glance, and a yellow smear would out-shout the label. */
+.palette-snippet { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-snippet mark { background: transparent; color: var(--rl-text-bright); font-weight: 600; }
 .palette-empty { padding: 14px; text-align: center; }
 
 /* ── Session pane ──────────────────────────────────────────────────────── */
