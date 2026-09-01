@@ -23,6 +23,13 @@ const TABS: { id: SettingsTab; label: string }[] = [
  * The pane's `item` goes unused like the Notifications page's: nothing here has a per-space vantage —
  * engines, app preferences and TCC grants are facts about the machine and the app, not a space.
  */
+
+/** "2.1.223" → "v2.1.223", but "codex-cli 0.146.0" stays as-is — the v is for bare numbers only
+ *  (live-pass finding: "vcodex-cli"). */
+export function engineVersionLabel(version: string): string {
+  return /^\d/.test(version) ? `v${version}` : version;
+}
+
 export function SettingsPage(_props: PaneProps) {
   const [tab, setTab] = useState<SettingsTab>("engines");
   return (
@@ -112,7 +119,7 @@ function EngineRow({ kind }: { kind: AgentKind }) {
   // and both ACP agents report null = "couldn't tell", which renders as nothing, not as either claim).
   const identity = p?.loggedIn === true ? "signed in" : p?.loggedIn === false ? "signed out" : null;
   const status = !p ? "Checking…"
-    : p.available ? ["Installed", p.version ? `v${p.version}` : null, identity].filter(Boolean).join(" · ")
+    : p.available ? ["Installed", p.version ? engineVersionLabel(p.version) : null, identity].filter(Boolean).join(" · ")
     : "Not installed";
   return (
     <li className="engine-row" aria-label={`${meta.label}: ${status}`}>

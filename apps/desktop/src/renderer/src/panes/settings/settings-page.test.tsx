@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, PAGE_REF_IDS } from "@realm/contracts";
-import { SettingsPage } from "./SettingsPage";
+import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
 import type { AgentProbe } from "../../state/store";
@@ -182,5 +182,11 @@ describe("Permissions tab (macOS TCC)", () => {
     ] });
     expect(await screen.findByRole("listitem", { name: "Full Disk Access: Not granted" })).toBeInTheDocument();
     expect(document.querySelectorAll('.tcc-state[data-state="granted"]')).toHaveLength(0);
+  });
+
+  it("does not glue a v onto a version that already names its product (codex-cli 0.146.0)", () => {
+    // Live-pass finding: "vcodex-cli 0.146.0". The v is for bare numbers only.
+    expect(engineVersionLabel("codex-cli 0.146.0")).toBe("codex-cli 0.146.0");
+    expect(engineVersionLabel("2.1.223 (Claude Code)")).toBe("v2.1.223 (Claude Code)");
   });
 });
