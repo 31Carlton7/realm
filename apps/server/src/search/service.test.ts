@@ -112,13 +112,18 @@ describe("indexed sources — each write path pins its own FTS row", () => {
     expect(h.search.query(h.work.id, "flamingo").items).toHaveLength(0);
   });
 
-  it("deleting a session scrubs its transcript from the index", () => {
+  it("deleting a session scrubs its transcript from the index — the ROWS, not just the query view", () => {
     const h = harness();
     const s = h.newSession(h.alpha.id, h.envA.id);
     h.events.append(s.id, sessionEvent("user_message", { text: "ephemeral axolotl question", attachments: [] }));
     expect(h.search.query(h.work.id, "axolotl").sessions).toHaveLength(1);
     h.sessions.delete(s.id);
     expect(h.search.query(h.work.id, "axolotl").sessions).toHaveLength(0);
+    // The sessions join would hide an orphan from every query, so the query assertion above cannot
+    // see this on its own: the deleted transcript's TEXT must be gone from the database, not merely
+    // unreachable — a deleted session's words lingering in the FTS table is a privacy leak.
+    const orphans = h.db.prepare("SELECT COUNT(*) AS c FROM search_index WHERE kind = 'session' AND ref = ?").get(s.id) as { c: number };
+    expect(orphans.c).toBe(0);
   });
 
   it("a session-owned terminal item never surfaces (the palette's own hidden-item rule)", () => {
