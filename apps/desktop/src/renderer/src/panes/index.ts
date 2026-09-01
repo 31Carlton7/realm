@@ -6,3 +6,5 @@ import { SessionPane } from "./session/SessionPane";
 registerPane("session", SessionPane);
 import { DiffPane } from "./diff/DiffPane";
 registerPane("diff", DiffPane);
+import { BrowserPane } from "./browser/BrowserPane";
+registerPane("browser", BrowserPane);

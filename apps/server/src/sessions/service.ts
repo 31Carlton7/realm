@@ -43,7 +43,17 @@ type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean 
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService }) {}
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
+    /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
+     *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
+     *  behaves exactly as before. */
+    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision): void; release(sessionId: string): void };
+    /** Plan 11 W5: browser-agent delegation hooks. `parentInterrupted` cancels a session's in-flight
+     *  delegated run when THAT session is interrupted; `release` forgets a deleted session's child
+     *  record/run; `extraSystemContext` is the browsing-policy preamble a delegated child starts
+     *  with. Optional — a harness without browser agents behaves exactly as before. */
+    browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined };
+  }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
@@ -155,12 +165,35 @@ export class SessionService {
     try { return realpathSync(path); } catch { return path; }
   }
 
-  async interrupt(id: string): Promise<void> { this.get(id); await this.live.get(id)?.handle.interrupt(); }
+  async interrupt(id: string): Promise<void> {
+    this.get(id);
+    // Interrupting a session also cancels its delegated browser-agent run (W5): the child is
+    // interrupted and the blocked `browser_agent_run` call resolves as cancelled. BEFORE the handle
+    // interrupt, and unconditional — the run wait lives in the gateway, not the adapter, so it must
+    // be cancelled even when the parent's adapter process is already gone.
+    this.d.browserAgents?.parentInterrupted(id);
+    await this.live.get(id)?.handle.interrupt();
+  }
   respondPermission(id: string, requestId: string, decision: PermissionDecision): void {
     this.get(id);
+    // Browser-tool permission requests (Plan 11 W3) are raised by the SERVER, not the adapter — the
+    // broker owns their requestIds and routes the answer back to the blocked tool call. Deliberately
+    // BEFORE the live-handle check: the prompt blocks an MCP call inside the gateway, which stays
+    // answerable even if the adapter process died while the card sat unanswered.
+    if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision); return; }
     const l = this.live.get(id);
     if (!l) throw new RpcError("SESSION_NOT_LIVE", "the agent is not running; the request is stale (send a message to resume)");
     l.handle.respondPermission(requestId, decision);
+  }
+
+  /**
+   * Persist + broadcast one event on a session's transcript from OUTSIDE its adapter pump — the
+   * browser permission broker's `permission_request`/`permission_response`/`status` events (Plan 11
+   * W3). Same `onEvent` path the pump uses, so persistence rules, status rows and broadcasts cannot
+   * diverge between the two producers.
+   */
+  emitExternal(id: string, ev: SessionEvent): void {
+    this.onEvent(id, ev);
   }
   async setOptions(id: string, o: { model?: string; effort?: string; permissionMode?: string }): Promise<Session> {
     const s = this.d.sessions.update({ id, ...o });
@@ -223,6 +256,11 @@ export class SessionService {
     // deliberately redundant, idempotent call for the case it was not (never started, or already
     // stopped): a deleted session's token must never remain valid.
     this.d.gateway.release(id);
+    // Same idempotence: a deleted session's pending browser prompts resolve deny, its grants die.
+    this.d.browserPermissions?.release(id);
+    // And its browser-agent state (W5): as a parent, its run is cancelled; as a child, its persisted
+    // record and act budget are forgotten — the restriction dies with the session.
+    this.d.browserAgents?.release(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (term) this.closeTerminalItem(term.refId);
@@ -238,7 +276,7 @@ export class SessionService {
   /** Shutdown: dispose live handles; rows/items stay so sessions resume next boot. */
   async closeAll(): Promise<void> {
     this.closing = true;
-    for (const id of [...this.live.keys()]) { await this.stop(id); this.d.gateway.release(id); }
+    for (const id of [...this.live.keys()]) { await this.stop(id); this.d.gateway.release(id); this.d.browserPermissions?.release(id); }
   }
   /**
    * Boot: no adapter survives a restart. Live statuses become idle; `ended` (an adapter that exited — after `error` on a
@@ -360,7 +398,13 @@ export class SessionService {
     // injection above is active on a Claude session — the CLAUDE.md content that `settingSources: []`
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
     // isolation on, so the re-injection can never disagree with it.
-    const systemContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    const baseContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
+    // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
+    // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
+    const agentContext = this.d.browserAgents?.extraSystemContext(id);
+    const joined = [baseContext, agentContext].filter((p): p is string => Boolean(p)).join("\n\n");
+    const systemContext = joined.length > 0 ? joined : undefined;
     let handle: AgentHandle;
     try {
       handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers, resume: s.providerSessionId,

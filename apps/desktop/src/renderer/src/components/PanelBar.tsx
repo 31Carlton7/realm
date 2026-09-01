@@ -25,6 +25,7 @@ export function PanelBar({ item, onSplit, onClose }: {
   const menuBtn = useRef<HTMLButtonElement>(null);
   const Meta = paneMeta[item.kind];
   const Actions = paneActions[item.kind];
+  const isBrowser = item.kind === "browser";
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
   return (
     <div className="panel-bar">
@@ -38,13 +39,34 @@ export function PanelBar({ item, onSplit, onClose }: {
       <span className="panel-meta">{Meta ? <Meta item={item} /> : null}</span>
       <span className="panel-actions">
         {Actions ? <Actions item={item} /> : null}
-        <button ref={menuBtn} className="icon-btn" aria-label={`Pane menu for ${item.title}`} aria-haspopup="menu"
-          aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen((v) => !v); }}>
-          <Icon name="more" size={14} />
-        </button>
+        {isBrowser ? (
+          // W2.3 (no-overlay): a browser pane's header may never spawn a dropdown — the native view
+          // paints over anything that opens below the bar. Everything the ⋯ menu carried is inline:
+          // rename is the title itself (click to rename), split and delete are toolbar buttons, and
+          // delete keeps its two-step confirm (U-H2) in place instead of inside a menu.
+          <>
+            <button className="icon-btn" aria-label={`Split ${item.title} right`} title="Split right (⌘\)"
+              onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
+            <button className="icon-btn" aria-label={`Split ${item.title} down`} title="Split down (⌘⇧\)"
+              onClick={() => onSplit("col")}><Icon name="splitDown" size={14} /></button>
+            {confirmingDelete ? (
+              <button className="icon-btn danger panel-confirm" aria-label={`Really delete ${item.title}?`}
+                title="Click again to delete" onBlur={() => setConfirmingDelete(false)}
+                onClick={() => run(() => deleteItem(item.id))}>Really delete?</button>
+            ) : (
+              <button className="icon-btn danger" aria-label={`Delete ${item.title}`} title="Delete"
+                onClick={() => setConfirmingDelete(true)}><Icon name="trash" size={14} /></button>
+            )}
+          </>
+        ) : (
+          <button ref={menuBtn} className="icon-btn" aria-label={`Pane menu for ${item.title}`} aria-haspopup="menu"
+            aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen((v) => !v); }}>
+            <Icon name="more" size={14} />
+          </button>
+        )}
         <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={14} /></button>
       </span>
-      {menuOpen && (
+      {!isBrowser && menuOpen && (
         <Menu anchorRef={menuBtn} align="right" label={`Actions for ${item.title}`} onClose={closeMenu} items={[
           { label: "Rename", onSelect: () => setRenaming(true) },
           { kind: "separator" },

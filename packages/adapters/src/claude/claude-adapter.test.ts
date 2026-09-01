@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, claudeMcpServers } from "./claude-adapter";
+import { ClaudeAdapter, claudeAllowedTools, claudeMcpServers } from "./claude-adapter";
 import type { SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -309,5 +309,50 @@ describe("claudeMcpServers", () => {
 
   it("is empty — not absent — when there is nothing configured", () => {
     expect(claudeMcpServers([])).toEqual({});
+  });
+});
+
+/**
+ * W4's double-prompt fix: the SDK's `canUseTool` fires for every MCP tool, stacking Claude's own
+ * prompt on top of Realm's broker — which deliberately lets read-only browser tools run free.
+ * `allowedTools` pre-allows exactly the read-only four; mutating tools stay double-gated on purpose.
+ */
+describe("realm-browser allowedTools (Plan 11 W4)", () => {
+  const gatewayEntry = { name: "realm", transport: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: "Bearer t" } };
+
+  it("expands to exactly the four read-only tools under the gateway's server name — nothing more", () => {
+    expect(claudeAllowedTools([gatewayEntry])).toEqual([
+      "mcp__realm__realm-browser__browser_list",
+      "mcp__realm__realm-browser__browser_snapshot",
+      "mcp__realm__realm-browser__browser_read",
+      "mcp__realm__realm-browser__browser_screenshot",
+    ]);
+  });
+
+  it("NEVER contains a mutating tool name (the named mutant: a pre-allowed act)", () => {
+    const allowed = claudeAllowedTools([gatewayEntry]);
+    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch"]) {
+      expect(allowed.some((t) => t.endsWith(`__${mutating}`))).toBe(false);
+    }
+  });
+
+  it("rides the configured server NAME, so a renamed gateway entry cannot orphan the allow-list; no servers, no entries", () => {
+    expect(claudeAllowedTools([{ ...gatewayEntry, name: "realm2" }])[0]).toBe("mcp__realm2__realm-browser__browser_list");
+    expect(claudeAllowedTools([])).toEqual([]);
+  });
+
+  it("start() passes the expansion to the SDK as Options.allowedTools", async () => {
+    let seen: Record<string, unknown> | null = null;
+    const adapter = new ClaudeAdapter({
+      query: ((args: { options: Record<string, unknown> }) => {
+        seen = args.options;
+        const gen = (async function* () { /* no turn needed */ })();
+        return Object.assign(gen, { interrupt: async () => {}, setPermissionMode: async () => {}, setModel: async () => {} });
+      }) as never,
+    });
+    const handle = adapter.start({ cwd: "/tmp", mcpServers: [gatewayEntry] });
+    await handle.send({ text: "hi", attachments: [] });
+    expect((seen as unknown as Record<string, unknown>).allowedTools).toEqual(claudeAllowedTools([gatewayEntry]));
+    await handle.dispose();
   });
 });

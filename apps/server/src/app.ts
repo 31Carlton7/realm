@@ -7,6 +7,12 @@ import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
 import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
+import { BrowsersStore } from "./store/browsers";
+import { BrowserService } from "./browsers/service";
+import { BrowserHostBridge } from "./browsers/host-bridge";
+import { BrowserPermissionBroker } from "./browsers/permissions";
+import { createBrowserAgentProvider } from "./browsers/agent-tools";
+import { BrowserAgentService, createRealmAgentProvider } from "./browsers/browser-agent";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
@@ -31,7 +37,7 @@ import { CheckpointService } from "./checkpoints/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /**
@@ -64,7 +70,12 @@ export function defaultAdapters(): AdapterRegistry {
 
 /** `claudeDir` overrides where MemoryService reads user-level Claude files (`~/.claude` otherwise) —
  *  for tests and live checks, which must never depend on (or expose) the real user's memory files. */
-export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string }): Promise<App> {
+export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string;
+  /** W5 test/live-check knobs for the browser-agent registry: `fallbackKind` (default claude) is the
+   *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
+   *  budget so suites don't wait minutes. Production callers pass neither. */
+  browserAgent?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perActMs: number; pollMs: number } };
+}): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
   // First boot: without a profile the New Space sheet is a dead end (spaces require one), so seed a
@@ -90,6 +101,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints });
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
+  const browsersStore = new BrowsersStore(db);
+  const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
   const settings = new SettingsStore(db);
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
   const skills = new SkillsService({ home: opts.home, settings });
@@ -162,14 +175,39 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       gateway?.notifyToolsChanged();
     },
   });
-  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url) });
+  // Late-bound like `sessionService`/`gateway` above: the gateway consults the browser-agent
+  // registry for per-session toolset restrictions (W5), and that registry needs SessionService,
+  // which needs the gateway. Nothing reads the seam before a session makes a request.
+  let browserAgents: BrowserAgentService | null = null;
+  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url),
+    sessionToolset: (sessionId) => browserAgents?.sessionToolset(sessionId) ?? null });
   gateway = mcpGateway;
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints });
+  // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
+  // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
+  // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
+  const browserBridge = new BrowserHostBridge({ rpc });
+  const browserBroker = new BrowserPermissionBroker({
+    // A missing row degrades to "plan" — the refuse-mutations mode — never to a prompt on a ghost.
+    permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
+    emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
+  });
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker,
+    browserAgents: {
+      parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
+      release: (id) => browserAgents?.release(id),
+      extraSystemContext: (id) => browserAgents?.extraSystemContext(id),
+    } });
   sessionService = sessions;
+  // W5: the browser-agent registry + its `realm-agent` provider (one tool, `browser_agent_run`).
+  // A delegated child is a REAL session whose specialization all rides existing seams — see the
+  // class doc comment in browsers/browser-agent.ts, including the bypass-is-never-inherited rule.
+  browserAgents = new BrowserAgentService({ settings, sessions, rpc, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
+  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
+  mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp));
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();
@@ -178,7 +216,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   await mcpGateway.listen();
   const port = await rpc.listen(opts.port);
   return {
-    port, db, terminals, sessions,
+    port, db, terminals, sessions, browserAgents,
     close: async () => {
       terminals.closeAll();
       await sessions.closeAll();

@@ -157,6 +157,17 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
+  it("respondPermission routes broker-owned requestIds (bperm_) even with NO live handle (Plan 11 W3)", async () => {
+    // The browser permission broker's prompts block an MCP call in the gateway, not the adapter — so
+    // answering one must not require a live adapter. A bperm_ id on a handle-less session resolves ok
+    // (a stale/unknown id is a broker no-op), where any other id is SESSION_NOT_LIVE above.
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const res = await c.call("sessions.respondPermission", { id: session.id, requestId: "bperm_stale", decision: "allow" });
+    expect(res.ok).toBe(true);
+    c.close();
+  });
+
   it("rejects unknown agents, unknown sessions and unknown projects", async () => {
     const { c, sp } = await boot();
     expect((await c.call("sessions.create", { spaceId: sp.id, agentKind: "codex" })).error.code).toBe("AGENT_UNAVAILABLE");

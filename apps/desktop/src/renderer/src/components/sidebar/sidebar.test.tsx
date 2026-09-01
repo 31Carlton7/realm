@@ -475,3 +475,18 @@ describe("leafPositionOf", () => {
     expect(leafPositionOf(l, "b")).toBe(0);
   });
 });
+
+describe("browser driving dot (Plan 11 W4)", () => {
+  it("a browser row wears the driving dot ONLY while an act is in flight, and the accessible name says so", async () => {
+    const { store } = await mount(fakeApi({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", title: "Stripe docs" })] } }));
+    const row = () => screen.getByRole("button", { name: /^Stripe docs/ });
+    expect(row().querySelector(".status-dot")).toBeNull();
+    act(() => store.getState().applyBrowserDriving({ browserId: "b1", driving: true }));
+    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "driving");
+    expect(row()).toHaveAccessibleName("Stripe docs — agent is driving");
+    // Settle clears it — a stuck dot is the named mutant, and the row must shed it entirely.
+    act(() => store.getState().applyBrowserDriving({ browserId: "b1", driving: false }));
+    expect(row().querySelector(".status-dot")).toBeNull();
+    expect(row()).toHaveAccessibleName("Stripe docs");
+  });
+});

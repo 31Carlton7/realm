@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema } from "./entities";
 
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
@@ -302,6 +302,28 @@ export const Methods = {
   "terminals.resize": { params: z.object({ terminalId: IdSchema, cols: z.number().int(), rows: z.number().int() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.close":  { params: z.object({ terminalId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
+  /** The browser trio is row + item only (Plan 11 W1): the native `WebContentsView` lives in Electron
+   *  main and is driven over IPC, never through the server. These methods carry only what must survive
+   *  a restart. `url` defaults to "" — a fresh pane opens on its empty state, not a page. */
+  "browsers.create": { params: z.object({ spaceId: IdSchema, url: z.string().default("") }), result: z.object({ browserId: IdSchema, itemId: IdSchema, url: z.string() }) },
+  "browsers.get":    { params: z.object({ browserId: IdSchema }), result: BrowserSchema },
+  /** Last committed navigation state, written back by the renderer (debounced). A `title` also renames
+   *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip. */
+  "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
+  "browsers.close":  { params: z.object({ browserId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /**
+   * The browser agent host's side of the main↔server bridge (Plan 11 W3). Electron main — the process
+   * that owns the `WebContentsView`s and their `webContents.debugger` — connects to this same RPC
+   * socket as a client and `register`s itself as the ONE executor for browser CDP operations. The
+   * server then sends it `browserHost.op` events (targeted at that client only, never broadcast) and
+   * main answers each with a `browserHost.result` call. Loopback-only like the whole RPC surface; a
+   * renderer could call `register` too, but it would only be volunteering to execute CDP work it has
+   * no views for — there is no privilege to gain, every op still runs under main's own guards.
+   */
+  "browserHost.register": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
+  "browserHost.result": { params: z.object({ callId: z.string(), ok: z.boolean(), result: z.unknown().optional(), error: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
+
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
@@ -369,6 +391,14 @@ export const Methods = {
   "mcp.remove": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
   "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Turn a Realm-native tool provider (`realm-browser` today) on or off for one space. Providers are
+   * Realm's own in-process toolsets on the gateway, not server rows — and unlike servers they default
+   * ON, because they are Realm's own code operating under Realm's own permission flow, not a process
+   * the user configured. Sessions already connected see the change on their next `tools/list`
+   * (the gateway re-checks at call time too, like any policy edit).
+   */
+  "mcp.setProviderEnabled": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Actually try the server, now: spawn the stdio command (with its stored env) and wait for an MCP
    * initialize response, or hit the http/sse URL (with its stored headers) and report the status. Run
@@ -526,6 +556,28 @@ export const Events = {
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),
+  /** One browser CDP operation for the registered browser host (Plan 11 W3). Sent TARGETED to the one
+   *  client that called `browserHost.register`, never broadcast — see that method's doc comment. The
+   *  host answers with a `browserHost.result` call carrying the same `callId`. */
+  "browserHost.op":   z.object({ callId: z.string(), op: z.string(), params: z.record(z.unknown()) }),
+  /** A parent session's `browser_agent_run` created a delegated browser-agent session (Plan 11 W5).
+   *  The row + item already exist (`items.changed` was broadcast too); this tells the renderer to
+   *  bring the child session INTO the layout — the whole point of a delegated agent being a real
+   *  session is that the user watches its full trace. */
+  "session.agentOpened": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema }),
+  /** An agent opened a browser pane via `browser_open` (Plan 11 W3). The row + item already exist
+   *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
+   *  an agent-driven browser the user cannot see defeats the point of the architecture. */
+  "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema }),
+  /** A mutating browser tool call SETTLED on this browser (Plan 11 W4) — the pane chrome's action
+   *  ticker appends it. `text` is the same attributed description the permission card showed (page
+   *  text only ever inside the `the page labels "…"` framing — never laundered into Realm's voice);
+   *  `ok` is whether the action succeeded. Emitted after the act, never before. */
+  "browser.action": z.object({ spaceId: IdSchema, browserId: IdSchema, text: z.string(), ok: z.boolean(), ts: z.number() }),
+  /** An agent's act/batch step is in flight (`true`) or has settled/failed/timed out (`false`) on
+   *  this browser (Plan 11 W4) — feeds the sidebar row and pane header's "agent is driving" dot.
+   *  Every `true` is followed by a `false` on the same browserId, whatever the outcome. */
+  "browser.driving": z.object({ spaceId: IdSchema, browserId: IdSchema, driving: z.boolean() }),
 } as const;
 export type EventName = keyof typeof Events;
 export type EventPayload<E extends EventName> = z.infer<(typeof Events)[E]>;

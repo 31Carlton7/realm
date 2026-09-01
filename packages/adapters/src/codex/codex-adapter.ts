@@ -21,6 +21,16 @@ const EXTRA_ROOTS_TIMEOUT_MS = 10_000;
 /** JSON-RPC "method not found": the signal that this codex build predates `skills/extraRoots/set`. */
 const METHOD_NOT_FOUND = -32601;
 
+/**
+ * W4 double-prompt verdict for Codex: NOTHING to wire, on purpose. Claude's SDK prompts per MCP tool
+ * (fixed there via `allowedTools`); Codex's app-server protocol raises approvals ONLY for the two
+ * methods below — captured live, and `mcpToolCall` items stream through `map-codex.ts` as tool calls
+ * with no approval request at all. So a read-only realm-browser tool already runs promptless on
+ * Codex, and a mutating one is gated by Realm's broker alone (single prompt — the desired end
+ * state). The protocol offers no per-MCP-tool allow-list on `thread/start` to wire even if we
+ * wanted one; if a future preview build starts raising MCP-tool approvals, it will surface here as
+ * a new request method and this verdict gets revisited, not assumed away.
+ */
 const APPROVAL_METHODS: Record<string, { toolName: string; title: string }> = {
   "item/commandExecution/requestApproval": { toolName: "exec_command", title: "Run this command?" },
   "item/fileChange/requestApproval": { toolName: "apply_patch", title: "Apply these edits?" },

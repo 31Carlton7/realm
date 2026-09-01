@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { Menu, type MenuItem } from "./Menu";
+import { StoreContext, createAppStore } from "../state/store";
+import { fakeApi } from "../state/store.test-fakes";
 
 function mount(items: MenuItem[], over: Partial<Parameters<typeof Menu>[0]> = {}) {
   const onClose = vi.fn();
@@ -20,9 +22,9 @@ describe("Menu placement", () => {
    *  menu would make `top = a.top - height - 4` indistinguishable from `top = a.top - 4` — i.e. it
    *  would not test up-placement at all. */
   const MENU_H = 120;
-  const anchor = (top = 500) => {
+  const anchor = (top = 500, left = 100) => {
     const el = document.createElement("button");
-    el.getBoundingClientRect = () => rect(top, 20);
+    el.getBoundingClientRect = () => rect(top, 20, left);
     document.body.appendChild(el);
     return { current: el };
   };
@@ -52,6 +54,58 @@ describe("Menu placement", () => {
     withMenuHeight();
     mount([plain("A")], { anchorRef: anchor(2), placement: "up" }); // 2 - 120 - 4 is off-screen
     expect(screen.getByRole("menu").style.top).toBe("26px"); // flipped: anchor.bottom + 4
+  });
+
+  /** W2 (Plan 11): the same placement, with browser view rects to avoid. The store carries the
+   *  rects; the MENU's own rect is mocked non-zero (a 0×0 menu would make every position "clear"
+   *  and the tests hollow — the exact failure a past review caught). jsdom window: 1024×768. */
+  describe("browser-rect avoidance (no-overlay)", () => {
+    const withRects = (rects: { x: number; y: number; width: number; height: number }[]) => {
+      const store = createAppStore(fakeApi());
+      rects.forEach((r2, i) => store.getState().setBrowserRect(`b${i}`, r2));
+      return store;
+    };
+    const mountAvoiding = (rects: { x: number; y: number; width: number; height: number }[], over: Partial<Parameters<typeof Menu>[0]>) => {
+      render(
+        <StoreContext.Provider value={withRects(rects)}>
+          <Menu items={[plain("A")]} onClose={() => {}} label="Avoiding menu" {...over} />
+        </StoreContext.Provider>);
+    };
+
+    it("a menu whose normal below-placement lands in a view flips above instead", () => {
+      withMenuHeight();
+      mountAvoiding([{ x: 0, y: 330, width: 1024, height: 400 }], { anchorRef: anchor(300) });
+      const m = screen.getByRole("menu");
+      expect(m.style.top).toBe("176px"); // 300 - 120 - 4: rect-driven flip, not window-driven
+      expect(m.style.left).toBe("100px");
+      expect(m.style.transformOrigin).toBe("bottom left");
+    });
+
+    it("MUTANT: near the bottom edge it must not flip INTO the view above — it slides along the edge", () => {
+      withMenuHeight();
+      // No room below (window 768); the view covers x0–600 over the whole flip zone. The pre-W2
+      // rule would put the menu at (100, 576) — inside the view. It must slide clear instead.
+      const view = { x: 0, y: 200, width: 600, height: 560 };
+      mountAvoiding([view], { anchorRef: anchor(700) });
+      const m = screen.getByRole("menu");
+      expect(m.style.left).toBe("606px"); // just past the view's right edge (600 + 6)
+      expect(m.style.top).toBe("576px"); // still on the preferred (flipped-up) side of the anchor
+      // The placed rect really is clear of the view.
+      const left = parseFloat(m.style.left), top = parseFloat(m.style.top);
+      const overlaps = left < view.x + view.width && view.x < left + 160 && top < view.y + view.height && view.y < top + 120;
+      expect(overlaps).toBe(false);
+    });
+
+    it("TWO views: the seam between them is not treated as clear (union, not per-rect)", () => {
+      withMenuHeight();
+      // Two views tile 200–1024; the only clear column is 0–200. A per-rect slide could land at
+      // 446 (right of view 1, "clear" of it) — inside view 2.
+      mountAvoiding(
+        [{ x: 200, y: 0, width: 400, height: 768 }, { x: 600, y: 0, width: 424, height: 768 }],
+        { anchorRef: anchor(300, 400) });
+      const m = screen.getByRole("menu");
+      expect(m.style.left).toBe("34px"); // 200 - 160 - 6: left of the whole union
+    });
   });
 
   /** §6 wants the 140ms scale-in "origin-aware": the menu has to grow out of the corner it is

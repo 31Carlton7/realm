@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -22,6 +22,26 @@ export function claudeMcpServers(servers: readonly McpServerConfig[]): Record<st
       ? { type: "stdio" as const, command: s.command, args: s.args, env: s.env }
       : { type: s.transport, url: s.url, headers: s.headers },
   ]));
+}
+
+/**
+ * W4's double-prompt fix, read-only half ONLY. The SDK asks `canUseTool` for every MCP tool — which
+ * Realm bridges to an ApprovalCard — so before this, a `browser_snapshot` that Realm's own broker
+ * deliberately lets run free still raised a card from Claude's side. Pre-allowing the READ-ONLY
+ * `realm-browser` tools via `Options.allowedTools` makes reads promptless end to end.
+ *
+ * Tool naming, verified against the gateway (`apps/server/src/mcp/gateway.ts`): every session's one
+ * MCP server is the gateway entry named `realm`, whose provider tools are re-exported as
+ * `realm-browser__browser_*`; the SDK prefixes MCP tools as `mcp__<serverName>__<toolName>` — so
+ * `mcp__realm__realm-browser__browser_snapshot` etc. Derived from `opts.mcpServers` rather than a
+ * literal "realm" so a renamed gateway entry cannot silently orphan the allow-list.
+ *
+ * MUTATING tools are deliberately NOT here and must never be: they keep BOTH prompts (Claude's and
+ * Realm's ApprovalCard) — one prompt too many beats one too few. `BROWSER_READ_ONLY_TOOLS` is the
+ * same shared list the server's broker gates by, and the test pins its exact expansion.
+ */
+export function claudeAllowedTools(servers: readonly McpServerConfig[]): string[] {
+  return servers.flatMap((s) => BROWSER_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__realm-browser__${t}`));
 }
 
 const STDERR_TAIL_LINES = 50;
@@ -99,6 +119,9 @@ export class ClaudeAdapter implements AgentAdapter {
       // A RECORD keyed by name, not an array: `sdk.d.ts` `mcpServers?: Record<string, McpServerConfig>`.
       // Some documentation shows an array; disk wins.
       mcpServers: claudeMcpServers(opts.mcpServers) as Options["mcpServers"],
+      // Read-only realm-browser tools run without the SDK's own prompt (see claudeAllowedTools —
+      // mutating tools stay double-gated on purpose).
+      allowedTools: claudeAllowedTools(opts.mcpServers),
       // Realm's skills library as a local plugin, and `settingSources: []` so it is the ONLY library
       // this session has. The two go together and neither works alone for what Realm wants:
       //

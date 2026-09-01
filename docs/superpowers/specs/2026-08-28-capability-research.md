@@ -525,3 +525,20 @@ Three claims in `2026-08-17-realm-v1-design.md` are now known to be wrong and sh
 1. **§5 Simulator** — "live view from periodic `xcrun simctl io <udid> screenshot` frames (~5–10 fps)" is off by 3–5× (measured ~2 fps at ~4 MB/frame, degrading to seconds per frame under load), and "tap/type forwarded via `simctl`" is impossible — `simctl` has no input verbs at all.
 2. **§5 Browser** — the plan to implement `browser.click/fill/type/press` in realm-mcp is redundant; `agent-browser` ships an MCP mode with the same tools and CDP target pinning.
 3. **§2 Architecture** — the diagram implies the browser pane is straightforward. The native-view-over-DOM layering constraint is wontfix in Electron and needs to be a stated design constraint, because it affects the command palette and every sheet.
+
+---
+
+## Addendum 2026-08-31 — the two W7 spikes, run on Electron 37.10.3
+
+Both load-bearing unknowns resolved (script: coordinator scratchpad `browser-spikes.cjs`; BaseWindow + WebContentsView + `webContents.debugger`):
+
+1. **`Accessibility.getFullAXTree` populates WITHOUT `app.setAccessibilitySupportEnabled(true)`** — 11 nodes,
+   button role + accessible name present. The switch enriches (14 nodes) but is not required. Agent
+   legibility is free; no app-wide a11y cost.
+2. **`Page.startScreencast` works against a `WebContentsView`** — 25 frames/2.5s (~10fps under forced
+   commits), ~9KB/frame JPEG q60 @800w. **Hidden window: 1 frame then nothing** — occluded windows stop
+   compositing, so streamed-pixels is a visible-only fallback; it cannot cover a hidden/minimized app.
+
+Verdict: build architecture A (native WebContentsView + in-process CDP, no debugging port, focus-free
+input), screencast-into-canvas only for visible overlay-heavy layouts. The overlay/z-order design decision
+remains the prerequisite before code.

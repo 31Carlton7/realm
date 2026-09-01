@@ -37,6 +37,17 @@ export const ItemSchema = z.object({
 export type Item = z.infer<typeof ItemSchema>;
 
 /**
+ * A browser pane's persisted half (Plan 11 W1). The row carries only what a restart needs — the last
+ * committed `url` and page `title`; the live `WebContentsView` (history, session state beyond the
+ * `persist:browser` partition's own disk cache) belongs to Electron main and dies with the pane.
+ * `url: ""` = never navigated (the pane opens on its empty state, not about:blank).
+ */
+export const BrowserSchema = z.object({
+  id: IdSchema, spaceId: IdSchema, url: z.string(), title: z.string(), ...Timestamps,
+});
+export type Browser = z.infer<typeof BrowserSchema>;
+
+/**
  * Where work happens, split out of Session (Plan 7 W1) so that several sessions can share one checkout
  * and W2 has somewhere to hang a worktree, a branch and a port block.
  *

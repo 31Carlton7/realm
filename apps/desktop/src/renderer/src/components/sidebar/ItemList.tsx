@@ -64,6 +64,7 @@ export function ItemList({ items, variant }: { items: Item[]; variant: "open" | 
   const layout = useApp((s) => s.layout) ?? emptyLayout();
   const focusedLeafId = useApp((s) => s.focusedLeafId);
   const sessionStatus = useApp((s) => s.sessionStatus);
+  const browserDriving = useApp((s) => s.browserDriving);
   const openItem = useApp((s) => s.openItem);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const run = useApp((s) => s.run);
@@ -86,11 +87,17 @@ export function ItemList({ items, variant }: { items: Item[]; variant: "open" | 
             <>
               {/* The status is part of the accessible name (A-L4): the dot alone is invisible to a reader. */}
               <button className="item-row"
-                aria-label={it.kind === "session" && sessionStatus[it.refId] ? `${it.title} — ${STATUS_LABEL[sessionStatus[it.refId]!]}` : it.title}
+                aria-label={it.kind === "session" && sessionStatus[it.refId] ? `${it.title} — ${STATUS_LABEL[sessionStatus[it.refId]!]}`
+                  : it.kind === "browser" && browserDriving[it.refId] ? `${it.title} — agent is driving` : it.title}
                 onClick={() => run(() => openItem(it.id))}>
                 <Icon name={it.kind} size={16} /><span className="item-title">{it.title}</span>
                 {it.kind === "session" && sessionStatus[it.refId] && (
                   <span className="status-dot item-status" data-status={sessionStatus[it.refId]} title={STATUS_LABEL[sessionStatus[it.refId]!]} />
+                )}
+                {/* W4: a browser row wears the driving dot only WHILE an agent act is in flight —
+                    the same status-dot idiom sessions use, a new `driving` state on the same rail. */}
+                {it.kind === "browser" && browserDriving[it.refId] && (
+                  <span className="status-dot item-status" data-status="driving" title="Agent is driving" />
                 )}
                 {variant === "open" && <ItemGlyph layout={layout} itemId={it.id} />}
               </button>

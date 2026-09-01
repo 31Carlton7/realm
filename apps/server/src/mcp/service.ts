@@ -19,6 +19,9 @@ const enabledKey = (spaceId: string): string => `mcp.enabled:${spaceId}`;
 /** Per-space, per-server tool allowlist (W1 storage only — `mcp.setAllowedTools`/RPC wiring is W3).
  *  Absent = every cached tool allowed, which is also a server nobody has ever narrowed. */
 const allowedToolsKey = (spaceId: string, serverId: string): string => `mcp.allowedTools:${spaceId}:${serverId}`;
+/** The *disabled* Realm-native provider names for a space — inverted vs `enabledKey` because providers
+ *  default ON; see `providerEnabled`. */
+const providersDisabledKey = (spaceId: string): string => `mcp.providersDisabled:${spaceId}`;
 
 const readIds = (settings: SettingsStore, key: string): string[] => {
   const v = settings.get(key);
@@ -149,6 +152,24 @@ export class McpService {
 
   isEnabled(spaceId: string, id: string): boolean {
     return readIds(this.d.settings, enabledKey(spaceId)).includes(id);
+  }
+
+  /**
+   * Realm-native gateway providers (`realm-browser`) — per-space disableable like any server, but
+   * default ON where server rows default OFF, so the settings key stores the *disabled* set (the
+   * skills rationale, not the servers one: a provider is Realm's own code operating under Realm's own
+   * permission flow, not a process or URL the user configured — presence in the product IS the opt-in,
+   * and the per-space switch exists to turn it off).
+   */
+  providerEnabled(spaceId: string, name: string): boolean {
+    return !readIds(this.d.settings, providersDisabledKey(spaceId)).includes(name);
+  }
+
+  setProviderEnabled(spaceId: string, name: string, enabled: boolean): void {
+    const key = providersDisabledKey(spaceId);
+    const names = new Set(readIds(this.d.settings, key));
+    if (enabled) names.delete(name); else names.add(name);
+    this.d.settings.set(key, [...names].sort());
   }
 
   /**

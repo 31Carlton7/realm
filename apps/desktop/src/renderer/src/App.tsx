@@ -139,6 +139,26 @@ export function App() {
       const st = store.getState();
       if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
     });
+    // An agent opened a browser pane (Plan 11 W3): bring it into the layout — the whole point of the
+    // architecture is that the user WATCHES agent-driven browsing, and the native view only exists
+    // once the pane mounts. Other spaces just gain the sidebar item via items.changed.
+    const offB = rpc().on("browser.agentOpened", ({ spaceId, itemId }) => {
+      const st = store.getState();
+      if (spaceId === st.activeSpaceId) st.run(async () => { await st.refreshItems(); await st.openItemBeside(itemId); });
+    });
+    // A session delegated a browsing goal to a browser-agent session (Plan 11 W5): same idiom — the
+    // child is a real session, and the point of it being one is that the user watches its whole
+    // trace, so it comes into the layout the moment it exists. Other spaces gain the sidebar item
+    // via items.changed as usual.
+    const offSA = rpc().on("session.agentOpened", ({ spaceId, itemId }) => {
+      const st = store.getState();
+      if (spaceId === st.activeSpaceId) st.run(async () => { await st.refreshItems(); await st.openItemBeside(itemId); });
+    });
+    // W4's watching feed: settled actions into the pane chrome's ticker, in-flight acts onto the
+    // driving dot. Applied for every space (like session.status) — the maps are cheap and a switch
+    // back should find the ticker already truthful.
+    const offBA = rpc().on("browser.action", (p) => store.getState().applyBrowserAction(p));
+    const offBD = rpc().on("browser.driving", (p) => store.getState().applyBrowserDriving(p));
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     // No payload — `mcp.changed` just means "something about some server changed". Only worth a refetch
@@ -164,7 +184,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offK(); offMem(); offE(); offT(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

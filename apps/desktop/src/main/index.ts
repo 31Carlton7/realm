@@ -3,10 +3,22 @@ import { join } from "node:path";
 import { startServer } from "./server-process";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { describeFiles, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
+import { blockBrowserDownloads, createBrowserPane, type BrowserPane } from "./browser-pane";
+import type { BrowserPaneHost, ViewRect } from "./browser-host";
+import { BrowserAgentHost } from "./browser-agent-host";
+import { startBrowserAgentBridge } from "./browser-agent-bridge";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
 let realmHome: string | null = null;
+/** The window's browser-pane views (Plan 11 W1). Set in createWindow; null before/after. */
+let browserHost: BrowserPaneHost | null = null;
+/** The full pane surface (W3): CDP access + identity for the agent executor. Same lifetime. */
+let browserPane: BrowserPane | null = null;
+/** The agent op executor + its server bridge (W3). The bridge lives as long as the app: it serves
+ *  whichever window's views exist, and honestly reports "pane not open" between windows. */
+let agentHost: BrowserAgentHost | null = null;
+let agentBridge: { stop(): void } | null = null;
 
 /** With no explicit application menu, Electron installs its default one, whose File → Close Window
  *  binds ⌘W — and menu accelerators fire in the main process before the renderer ever sees the
@@ -29,6 +41,15 @@ function installMenu() {
 
 // Dev affordance: REALM_DEVTOOLS_PORT=9223 exposes the Chrome DevTools protocol for tooling.
 if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugging-port", process.env.REALM_DEVTOOLS_PORT);
+
+// Load-bearing for the browser agent (Plan 11 W3), found empirically and held by the live check:
+// when macOS marks the window occluded, Chromium backgrounds its renderers, and a backgrounded
+// WebContentsView that goes through a cross-process navigation never produces a compositor frame —
+// after which BOTH synthetic input paths (CDP Input.dispatchMouseEvent and wc.sendInputEvent) are
+// silently dropped until a fresh frame exists (a reload or a real resize revives it; nothing cheaper
+// does). With this switch, occluded windows keep compositing and agent input works no matter what is
+// stacked over Realm. Cost: some battery while occluded — a workstation-app tradeoff made knowingly.
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
 async function createWindow(info: { port: number; home: string }) {
   const win = new BrowserWindow({
@@ -61,8 +82,36 @@ async function createWindow(info: { port: number; home: string }) {
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   // Native trackpad phases for the space swiper (macOS; optional helper).
   const phases = startScrollPhaseStream(win);
-  win.on("closed", () => phases.stop());
+  const pane = createBrowserPane(win); // destroys its views on win "closed" itself
+  browserPane = pane;
+  browserHost = pane.host;
+  // The agent executor (W3): drives the pane's views over in-process CDP for realm-server's
+  // realm-browser tools. Buffers and snapshot-diff state die with each view.
+  const host = new BrowserAgentHost({
+    attach: (id) => pane.attachCdp(id),
+    hasView: (id) => pane.hasView(id),
+    navigate: (id, url) => pane.host.navigate(id, url),
+    pageState: (id) => pane.pageState(id),
+  });
+  pane.onViewDestroyed((id) => host.release(id));
+  agentHost = host;
+  // Downloads are a hard block on the browser partition — cancelled in every permission mode.
+  blockBrowserDownloads((wcId, url) => {
+    const id = browserPane?.browserIdForWebContents(wcId);
+    if (id) agentHost?.noteBlockedDownload(id, url);
+    console.error(`[browser-agent] download blocked${id ? ` (browser ${id})` : ""}: ${url}`);
+  });
+  win.on("closed", () => { phases.stop(); browserHost = null; browserPane = null; agentHost = null; });
 }
+
+// Browser pane (Plan 11 W1): the renderer drives the native WebContentsViews over this surface.
+// Mutations are invokes; the per-frame bounds sync is a plain send (no reply to wait on).
+ipcMain.handle("browser:create", (_e, id: string, url: string, allowlist: string[] | null) => { browserHost?.create(id, url, allowlist); });
+ipcMain.handle("browser:destroy", (_e, id: string) => { browserHost?.destroy(id); });
+ipcMain.handle("browser:navigate", (_e, id: string, input: string): string | null => browserHost?.navigate(id, input) ?? null);
+ipcMain.handle("browser:nav", (_e, id: string, action: "back" | "forward" | "reload" | "stop") => { browserHost?.navAction(id, action); });
+ipcMain.handle("browser:set-allowlist", (_e, id: string, allowlist: string[] | null) => { browserHost?.setAllowlist(id, allowlist); });
+ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { browserHost?.setBounds(id, rect, dpr, visible); });
 
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
@@ -97,6 +146,17 @@ app.whenReady().then(async () => {
     // restarts the app is bounded too.
     void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});
     await createWindow(info);
+    // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
+    // that does not exist fail honestly inside the executor; the bridge just relays.
+    agentBridge = startBrowserAgentBridge({
+      port: info.port,
+      handleOp: (op, params) => {
+        const host = agentHost;
+        if (!host) return Promise.reject(new Error("the Realm window is not open — browser tools need it"));
+        return host.handleOp(op, params);
+      },
+      onLog: (line) => console.error(line),
+    });
   } catch (e) {
     console.error(e);
     dialog.showErrorBox("Realm failed to start", e instanceof Error ? e.message : String(e));
@@ -104,4 +164,4 @@ app.whenReady().then(async () => {
   }
 });
 app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => { serverChild?.kill("SIGTERM"); });
+app.on("before-quit", () => { agentBridge?.stop(); serverChild?.kill("SIGTERM"); });

@@ -38,6 +38,16 @@ export class RpcServer {
     for (const c of this.clients) if (c.readyState === WebSocket.OPEN) c.send(msg);
   }
 
+  /** Send one event to ONE client (the `ctx.client` a handler captured) — the browser host bridge's op
+   *  channel (Plan 11 W3), where a broadcast would spray CDP work at every connected renderer. Returns
+   *  false when the socket is no longer open, so the caller can fail its op instead of waiting on a
+   *  message nobody received. */
+  sendTo<E extends EventName>(client: WebSocket, event: E, payload: EventPayload<E>): boolean {
+    if (client.readyState !== WebSocket.OPEN) return false;
+    client.send(JSON.stringify({ event, payload }));
+    return true;
+  }
+
   async close(): Promise<void> {
     for (const c of this.clients) c.terminate();
     this.clients.clear();

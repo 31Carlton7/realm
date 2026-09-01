@@ -4,7 +4,8 @@ import {
   AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath,
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
+import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
 
@@ -35,6 +36,15 @@ export type PermissionDecision = "allow" | "allow_always" | "deny";
 /** Where a sidebar row was dropped on a pane: an edge splits there, center replaces the pane's item.
  *  Canonical home of this type — PaneHost imports it from here. */
 export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
+/** Live css-pixel rect where one browser pane's NATIVE view paints (Plan 11 W2), keyed by the
+ *  browser ITEM id. What the no-overlay primitives avoid. */
+export type BrowserRect = { itemId: string; x: number; y: number; width: number; height: number };
+/** One settled agent action on a browser (W4's ticker line): the permission system's attributed
+ *  description, whether it succeeded, and when it settled. */
+export type BrowserActionTick = { text: string; ok: boolean; ts: number };
+/** How many recent actions the per-browser ring buffer keeps — the ticker shows the latest; the
+ *  hover reveal shows the rest. Small on purpose: this is a glance, not a transcript. */
+export const BROWSER_ACTIONS_MAX = 8;
 export type AgentProbe = MethodResult<"agents.probe">[number];
 /** `mcp.test`'s answer: reached or not, and one sentence saying why. Built server-side from things that
  *  cannot be secrets (see live-check.ts), so a UI may render `detail` verbatim. */
@@ -66,6 +76,8 @@ export type Api = {
   createProject(spaceId: string, name: string, rootPath: string): Promise<Project>;
   setLayout(spaceId: string, layout: Layout): Promise<Space>;
   createTerminal(spaceId: string): Promise<{ terminalId: string; itemId: string }>;
+  /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
+  createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
   updateItem(input: UpdateItemInput): Promise<Item>;
   /** Deleting a terminal item closes its pty server-side. */
   deleteItem(id: string): Promise<void>;
@@ -270,6 +282,18 @@ export type AppState = {
   connectionState: "connected" | "reconnecting";
   paletteOpen: boolean;
   sheet: Sheet | null;
+  /** Every visible browser view's rect, reference-stable between real changes (W2). */
+  browserRects: BrowserRect[];
+  /** W4: recent settled agent actions per browserId (ring, newest last, `BROWSER_ACTIONS_MAX` deep) —
+   *  the pane chrome's ticker. Kept across space switches like sessionStatus: broadcasts fire for
+   *  every space and a ticker that forgets on switch would lie by omission. */
+  browserActions: Record<string, BrowserActionTick[]>;
+  /** W4: browserIds an agent act/batch step is CURRENTLY in flight on — the "agent is driving" dot
+   *  on the sidebar row and pane chrome. Every set is cleared by the matching settle broadcast. */
+  browserDriving: Record<string, boolean>;
+  /** W2.4: the pre-snap layout while a sheet forced the browser leaf to a ≤50% split. Non-null
+   *  exactly while a snap is active; the layout to restore when the sheet actually closes. */
+  sheetSnap: { saved: Layout; spaceId: string | null } | null;
   /** Sessions of the active space, by id. */
   sessions: Record<string, Session>;
   /** Statuses across spaces: seeded by refreshAllSessions, kept current by session.status broadcasts
@@ -381,11 +405,15 @@ export type AppState = {
   linkProject(rootPath: string): Promise<void>;
   pickAndLinkProject(): Promise<void>;
   newTerminal(targetLeafId?: string | null): Promise<void>;
+  /** New browser pane in the active space (opens into the target/focused leaf). */
+  newBrowser(targetLeafId?: string | null): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
   /** Open an item into `leafId` ?? the focused leaf ?? the first leaf, replacing what it held (the
    *  replaced item returns to the SPACE group); focuses that leaf. With no explicit `leafId`, an
    *  already-open item is only focused (click = go there) — layout untouched, nothing persisted. */
   openItem(itemId: string, leafId?: string | null): Promise<void>;
+  /** Agent-opened panes: open beside the focused pane (split right), never replacing it. */
+  openItemBeside(itemId: string): Promise<void>;
   /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). Never deletes. */
   closeFromLayout(itemId: string): Promise<void>;
   /** Destructive: closes from the layout, deletes the item server-side (kills ptys), and drops local
@@ -413,6 +441,12 @@ export type AppState = {
   setPaletteOpen(open: boolean): void;
   openSheet(sheet: Sheet): void;
   closeSheet(): void;
+  /** Each browser pane reports the rect its native view paints; null when it stops (unmount, no
+   *  page). The registration point for W2's no-overlay invariant. */
+  setBrowserRect(itemId: string, rect: { x: number; y: number; width: number; height: number } | null): void;
+  /** W4 broadcasts: one settled action for the ticker's ring buffer / the driving flag flip. */
+  applyBrowserAction(p: { browserId: string; text: string; ok: boolean; ts: number }): void;
+  applyBrowserDriving(p: { browserId: string; driving: boolean }): void;
   refreshSessions(): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
@@ -701,9 +735,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     let layoutHydrated = false;
     const persist = async () => {
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
-      const { activeSpaceId, layout } = get();
+      const { activeSpaceId, layout, sheetSnap } = get();
       if (!activeSpaceId || !layout) return;
-      const saved = await api.setLayout(activeSpaceId, layout);
+      // While W2.4's sheet-snap is active the on-screen layout is temporary by definition; what
+      // persists is the layout the user actually built (restored on close anyway — a crash or
+      // space switch mid-sheet must not cement the snap).
+      const persistable = sheetSnap && sheetSnap.spaceId === activeSpaceId ? sheetSnap.saved : layout;
+      const saved = await api.setLayout(activeSpaceId, persistable);
       // Keep the cached Space current so a later selectSpace seeds from the newest layout.
       set({ spaces: get().spaces.map((x) => (x.id === saved.id ? saved : x)) });
     };
@@ -794,6 +832,35 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (!s || AGENT_SKILL_SUPPORT[s.agentKind] !== "injected") return [];
       return (get().spaceSkills[s.spaceId] ?? []).filter((k) => k.enabled && k.valid).map((k) => k.id);
     };
+    /**
+     * W2.4 — the degenerate case, entry side. Every sheet-opening path calls this: when browser
+     * views leave the widest non-browser column too narrow for a sheet (SHEET_MIN_WIDTH), the
+     * LAYOUT moves instead of the sheet overlaying — every browser leaf snaps to a ≤50% split for
+     * the sheet's lifetime. Lives in the store, not any Sheet component, so it survives re-renders
+     * and cannot double-apply: while a snap is active a second openSheet keeps the ORIGINAL saved
+     * layout. The snapped layout never persists (see persist()).
+     */
+    const maybeSnapForSheet = (): Partial<AppState> => {
+      if (get().sheetSnap) return {};
+      const { browserRects, layout } = get();
+      if (browserRects.length === 0 || !layout) return {};
+      const win = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+      if (complementOf(win, browserRects).width >= SHEET_MIN_WIDTH) return {};
+      const browserIds = new Set(get().items.filter((i) => i.kind === "browser").map((i) => i.id));
+      const snapped = snapBrowserLeaves(layout, browserIds);
+      if (snapped === layout) return {};
+      return { sheetSnap: { saved: layout, spaceId: get().activeSpaceId }, layout: snapped };
+    };
+    /** W2.4, exit side: restore EXACTLY the pre-snap layout — keyed to the sheet actually closing
+     *  in the STORE (closeSheet / palette takeover / confirm flows), never to a Sheet component
+     *  unmounting (remounts race). Items deleted while the sheet was open are re-pruned; a snap
+     *  from a space that is no longer active is simply dropped (its true layout was what persisted). */
+    const restoreSnap = (): Partial<AppState> => {
+      const snap = get().sheetSnap;
+      if (!snap) return {};
+      if (snap.spaceId !== get().activeSpaceId) return { sheetSnap: null };
+      return { sheetSnap: null, layout: reconcileLayout(snap.saved, get().items) };
+    };
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
@@ -807,7 +874,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
-      paletteOpen: false, sheet: null,
+      paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
@@ -843,6 +910,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // could show one belongs to the space being left. Keeping them would mean a diff pane opening
         // on stale hunks from before the switch.
         set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], environments: {}, sessions: {}, error: null,
+          sheetSnap: null, // a snap belongs to the layout being left; that layout persisted UNsnapped
           diffs: {}, diffLoading: {}, patches: {} });
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
         await Promise.all([get().refreshProjects(), get().refreshEnvironments(), get().refreshItems(), get().refreshSessions()]);
@@ -952,10 +1020,32 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { itemId } = await api.createTerminal(sid);
         await adoptItem(sid, itemId, targetLeafId);
       },
+      async newBrowser(targetLeafId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const { itemId } = await api.createBrowser(sid);
+        await adoptItem(sid, itemId, targetLeafId);
+      },
       async updateItem(input) {
         const sid = get().activeSpaceId;
         const it = await api.updateItem(input);
         if (sid && isSpace(sid)) set({ items: get().items.map((x) => (x.id === it.id ? it : x)) });
+      },
+      /** Agent-opened panes arrive BESIDE the user's focused pane, never replacing it. Replacing was a
+       *  live-found deadlock: the browser evicted the very session whose permission card the user had to
+       *  answer — and eviction destroys an agent's browser view mid-task (close is final for browsers).
+       *  If the focused leaf is empty, filling it is fine; otherwise split right and open there. */
+      async openItemBeside(itemId) {
+        const current = get().layout ?? emptyLayout();
+        const focused = get().focusedLeafId;
+        const occupant = focused ? itemIdOfLeaf(current, focused) : null;
+        if (focused && occupant !== null && occupant !== itemId && !findLeafOfItem(current, itemId)) {
+          const layout = splitLeaf(current, focused, "row", itemId);
+          const leaf = findLeafOfItem(layout, itemId);
+          set({ layout, focusedLeafId: leaf?.id ?? get().focusedLeafId });
+          await persist();
+          return;
+        }
+        await get().openItem(itemId);
       },
       async openItem(itemId, leafId = null) {
         const current = get().layout ?? emptyLayout();
@@ -988,6 +1078,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.deleteItem(itemId); // server closes the pty for terminal items
         set({ items: get().items.filter((i) => i.id !== itemId) });
         if (it?.kind === "terminal") api.disposeTerminal(it.refId);
+        if (it?.kind === "browser") {
+          // The ticker and driving dot die with the browser — a reused id must start blank.
+          const { [it.refId]: _ba, ...browserActions } = get().browserActions;
+          const { [it.refId]: _bd, ...browserDriving } = get().browserDriving;
+          set({ browserActions, browserDriving });
+        }
         if (it?.kind === "session") {
           dropTranscript(it.refId); loading.delete(it.refId);
           // The server killed the pty with the session; drop the renderer half (xterm + scrollback) too.
@@ -1054,9 +1150,35 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
-      setPaletteOpen(open) { set(open ? { paletteOpen: true, sheet: null } : { paletteOpen: false }); },
-      openSheet(sheet) { set({ sheet, paletteOpen: false }); },
-      closeSheet() { set({ sheet: null }); },
+      setPaletteOpen(open) { set(open ? { paletteOpen: true, sheet: null, ...restoreSnap() } : { paletteOpen: false }); },
+      openSheet(sheet) { set({ sheet, paletteOpen: false, ...maybeSnapForSheet() }); },
+      closeSheet() { set({ sheet: null, ...restoreSnap() }); },
+      // Reference-stable: an unchanged rect never produces a new array, so the popover/palette/
+      // sheet subscribers only re-place on real movement, not on every rAF echo.
+      setBrowserRect(itemId, rect) {
+        const cur = get().browserRects;
+        const idx = cur.findIndex((b) => b.itemId === itemId);
+        if (!rect) {
+          if (idx !== -1) set({ browserRects: cur.filter((b) => b.itemId !== itemId) });
+          return;
+        }
+        const prev = cur[idx];
+        if (prev && prev.x === rect.x && prev.y === rect.y && prev.width === rect.width && prev.height === rect.height) return;
+        const next: BrowserRect = { itemId, x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        set({ browserRects: idx === -1 ? [...cur, next] : cur.map((b, i) => (i === idx ? next : b)) });
+      },
+      applyBrowserAction({ browserId, text, ok, ts }) {
+        const cur = get().browserActions[browserId] ?? [];
+        const next = [...cur, { text, ok, ts }].slice(-BROWSER_ACTIONS_MAX);
+        set({ browserActions: { ...get().browserActions, [browserId]: next } });
+      },
+      applyBrowserDriving({ browserId, driving }) {
+        const cur = get().browserDriving;
+        if (driving) { set({ browserDriving: { ...cur, [browserId]: true } }); return; }
+        if (!(browserId in cur)) return; // clearing what was never set: no churn
+        const { [browserId]: _gone, ...rest } = cur;
+        set({ browserDriving: rest });
+      },
       async refreshSessions() {
         const sid = get().activeSpaceId; if (!sid) return;
         const list = await api.listSessions(sid);
@@ -1390,7 +1512,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);
         set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: status }, worktreeAckStale: null,
-          sheet: { kind: "remove-worktree", environmentId }, paletteOpen: false });
+          sheet: { kind: "remove-worktree", environmentId }, paletteOpen: false, ...maybeSnapForSheet() });
       },
       /**
        * The acknowledgement is read HERE, not taken from what the sheet is displaying.
@@ -1410,7 +1532,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         await api.removeWorktree(environmentId, { dirtyFiles: fresh.dirtyFiles, unpushedCommits: fresh.unpushedCommits });
         const { [environmentId]: _gone, ...worktreeStatuses } = get().worktreeStatuses;
-        set({ worktreeStatuses, worktreeAckStale: null, sheet: null });
+        set({ worktreeStatuses, worktreeAckStale: null, sheet: null, ...restoreSnap() });
         // The environment is gone; so is anything keyed to its checkout.
         const { [fresh.path]: _d, ...diffs } = get().diffs;
         set({ diffs });
@@ -1423,7 +1545,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({
           checkpoints: { ...get().checkpoints, [environmentId]: list },
           checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
-          sheet: { kind: "checkpoints", environmentId, sessionId }, paletteOpen: false,
+          sheet: { kind: "checkpoints", environmentId, sessionId }, paletteOpen: false, ...maybeSnapForSheet(),
         });
       },
       async refreshCheckpoints(environmentId, sessionId) {
@@ -1592,4 +1714,17 @@ export function useApp<T>(sel: (s: AppState) => T): T {
 export function useAppStore(): StoreApi<AppState> {
   const store = useContext(StoreContext); if (!store) throw new Error("StoreContext missing");
   return store;
+}
+/** The store or null — for components that unit tests also render bare (Menu, BrowserPane) and
+ *  that must degrade to "no store" instead of throwing. */
+export function useAppStoreMaybe(): StoreApi<AppState> | null {
+  return useContext(StoreContext);
+}
+const NO_RECTS: BrowserRect[] = [];
+/** `browserRects[]` for the two floating-surface primitives; [] outside the provider (bare unit
+ *  tests) — which reproduces the pre-W2 placement exactly. */
+export function useBrowserRects(): BrowserRect[] {
+  const store = useContext(StoreContext);
+  const subscribe = useCallback((cb: () => void) => (store ? store.subscribe(cb) : () => {}), [store]);
+  return useSyncExternalStore(subscribe, () => (store ? store.getState().browserRects : NO_RECTS));
 }

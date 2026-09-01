@@ -301,6 +301,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .panel-rename .rename { height: 24px; }
 .panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .panel-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+/* Browser panes (W2.3): the header's actions are inline buttons, never a dropdown. The two-step
+   delete confirm swaps the trash icon for a small labelled button in place. */
+.panel-actions .icon-btn.danger:hover { color: var(--rl-danger); }
+.panel-actions .panel-confirm { width: auto; padding: 0 8px; font-size: 11.5px; font-weight: 600; white-space: nowrap; color: var(--rl-danger); }
 .panel-body { flex: 1; min-height: 0; position: relative; display: flex; }
 .pane-slot { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .pane-placeholder { flex: 1; display: grid; place-content: center; text-align: center; gap: 6px; color: var(--rl-text-dim); }
@@ -331,6 +335,34 @@ button.panel-title:hover { background: var(--rl-hover); }
 .terminal-hint[data-hidden] { opacity: 0; }
 .terminal-hint-path { font: 12px var(--font-mono); color: rgba(255,255,255,.55); }
 .terminal-hint-keys { font-size: 11px; color: rgba(255,255,255,.32); }
+/* ── Browser pane (Plan 11 W1) ─────────────────────────────────────────────
+   Chrome sits ABOVE the native WebContentsView; the view's bounds start below it. Every control is
+   an inline toolbar button — no dropdowns, no menus (W2's no-overlay invariant starts here). */
+.browser-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.browser-chrome { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 8px; border-bottom: 1px solid var(--rl-hairline); }
+.browser-address { flex: 1; min-width: 0; display: flex; margin-left: 6px; }
+.browser-address input { flex: 1; min-width: 0; height: 28px; padding: 0 10px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.browser-address input::placeholder { color: var(--rl-text-faint); }
+.browser-address input:focus { border-color: var(--rl-accent); }
+/* W4 action ticker: an inline strip in the chrome (never a dropdown — no-overlay rule). The text is
+   the permission card's wording; failures dim to danger. Capped so a long label never squeezes the
+   address bar out. */
+.browser-ticker { flex: none; display: flex; align-items: center; gap: 6px; margin-left: 8px; max-width: 40%; min-width: 0; }
+.browser-ticker-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--rl-text-dim); }
+.browser-ticker-text[data-failed] { color: var(--rl-danger); }
+.browser-ticker-time { flex: none; font-size: 10.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* The placeholder the native view is bounds-synced onto. Painted the view's own opaque white so the
+   sliver the view trails behind during a resize never flashes the panel tone (research: do NOT
+   debounce the sync; match the colours instead). Pages are their own light world — like the
+   terminal's always-dark interior, but inverted. */
+.browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; background: #fff; }
+/* Before the first navigation there is no view to match — the empty state sits on the panel tone. */
+.browser-pane:has(.browser-hint) .browser-view-host { background: var(--rl-panel); }
+.browser-hint { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px;
+  text-align: center; pointer-events: none; user-select: none; font-size: 12px; }
+.browser-hint-title { font-size: 14px; font-weight: 550; color: var(--rl-text-bright); }
+
 .error-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 6px; padding: 6px 10px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); color: var(--rl-danger); font-size: 12px; -webkit-app-region: no-drag; }
 .error-bar button { color: inherit; padding: 2px 6px; }
@@ -416,6 +448,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .status-dot[data-status="error"] { background: var(--rl-danger); }
 .status-dot[data-status="idle"] { background: var(--rl-line-strong); } /* idle is a state, not a verdict (V-C5) */
 .status-dot[data-status="ended"] { background: var(--rl-text-faint); opacity: .6; }
+/* W4: an agent act is in flight on a browser. Accent, not success — this is "Realm is acting here,
+   watch", a pointer to activity, not a session verdict. */
+.status-dot[data-status="driving"] { background: var(--rl-accent); animation: rl-pulse 0.9s ease-in-out infinite; }
 /* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
    for "running"/"waiting on the user", so they get the same success/danger treatment. */
 .status-dot[data-status="connected"] { background: var(--rl-success); }

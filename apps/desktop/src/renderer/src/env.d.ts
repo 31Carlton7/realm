@@ -15,5 +15,19 @@ interface Window {
     pathForFile(file: File): string;
     /** Native trackpad scroll phases (macOS helper); optional — may never fire. */
     onScrollPhase?(cb: (m: ScrollPhaseMessage) => void): () => void;
+    /** Browser pane (Plan 11 W1): drives the native WebContentsView main owns for a browser item. */
+    browser: {
+      create(id: string, url: string, allowlist: string[] | null): Promise<void>;
+      destroy(id: string): Promise<void>;
+      /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
+      navigate(id: string, input: string): Promise<string | null>;
+      nav(id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void>;
+      setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
+      /** Per-frame, fire-and-forget: placeholder rect (CSS px) + devicePixelRatio + visibility. */
+      setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
+      onState(cb: (s: BrowserViewState) => void): () => void;
+    };
   };
 }
+/** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */
+interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }

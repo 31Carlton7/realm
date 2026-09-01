@@ -2,7 +2,8 @@ import { Icon } from "@realm/ui";
 import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type Item, type PresetName } from "@realm/contracts";
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
-import { useApp, type AppState } from "../state/store";
+import { centerOverComplement } from "../state/no-overlay";
+import { useApp, useBrowserRects, type AppState } from "../state/store";
 import type { ThemePref } from "../theme/useTheme";
 import { ItemGlyph } from "./sidebar/ItemList";
 
@@ -59,6 +60,9 @@ export function relTime(ts: number, now = Date.now()): string {
 
 const THEMES: ThemePref[] = ["system", "light", "dark"];
 
+/** The palette's CSS width (styles.css `.palette`); the no-overlay path needs the number. */
+const PALETTE_WIDTH = 560;
+
 /** Layout presets moved here from the retired topbar LayoutMenu (spec amendment §A1). */
 const PRESET_LABELS: Record<PresetName, string> = { one: "1-up", "two-col": "2 columns", "three-col": "3 columns", "grid-2x2": "2×2 grid", "grid-3x3": "3×3 grid" };
 
@@ -82,6 +86,7 @@ function PaletteBody() {
   const selectSpace = useApp((s) => s.selectSpace);
   const openItem = useApp((s) => s.openItem);
   const newTerminal = useApp((s) => s.newTerminal);
+  const newBrowser = useApp((s) => s.newBrowser);
   const newSession = useApp((s) => s.newSession);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
@@ -101,6 +106,12 @@ function PaletteBody() {
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const close = () => setPaletteOpen(false);
+  // W2 (no-overlay): with a browser pane open, center over the widest non-browser column instead
+  // of the window — the native view would paint over a window-centered palette. Computed inline
+  // and applied as plain positioning (the palette is on the do-NOT-animate list; nothing tweens).
+  const browserRects = useBrowserRects();
+  const spot = centerOverComplement({ width: window.innerWidth, height: window.innerHeight }, browserRects, PALETTE_WIDTH);
+  const paletteStyle = spot ? { position: "absolute" as const, left: spot.left, top: "12vh", width: spot.width } : undefined;
 
   // Cross-space listings come from items.listAll; refresh on every open so ages/titles are current.
   useEffect(() => { run(() => refreshAllItems()); }, [refreshAllItems, run]);
@@ -143,6 +154,7 @@ function PaletteBody() {
       ...(anyWaiting ? [act("respond-permission", "Respond to pending permission", "alert", () => run(() => jumpToPermission()))] : []),
       ...spaces.map((sp) => act(`space-${sp.id}`, `Switch to ${sp.name}`, sp.icon, () => run(() => selectSpace(sp.id)), sp.id === activeSpaceId ? "current" : undefined)),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), <kbd>⌘T</kbd>),
+      act("new-browser", "New browser", "browser", () => run(() => newBrowser())),
       // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through
       // newSession — the only difference is whether the agent is named or inherited from last use.
       act("new-session", "New session", "session", () => run(() => newSessionInstant()), <kbd>⌘N</kbd>),
@@ -169,7 +181,7 @@ function PaletteBody() {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref,
-      selectSpace, openItem, newTerminal, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
+      selectSpace, openItem, newTerminal, newBrowser, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
       interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openActivity, run]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked
@@ -197,7 +209,7 @@ function PaletteBody() {
 
   return (
     <div className="palette-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div className="palette" role="dialog" aria-label="Command palette">
+      <div className="palette" role="dialog" aria-label="Command palette" style={paletteStyle}>
         <div className="palette-input">
           <Icon name="search" size={16} />
           <input autoFocus role="combobox" aria-label="Command palette" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list"

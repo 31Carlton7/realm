@@ -1,4 +1,6 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { placeAnchored } from "../state/no-overlay";
+import { useBrowserRects } from "../state/store";
 
 export type PopoverPosition = { left: number; top: number; origin: string };
 
@@ -23,38 +25,29 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
   returnFocusRef?: RefObject<HTMLElement | null>;
 }): PopoverPosition | null {
   const [pos, setPos] = useState<PopoverPosition | null>(null);
+  // W2's no-overlay invariant, enforced in the primitive: browser view rects are avoided by every
+  // anchored surface (preferred side → flip → slide along the anchor edge → complement fallback).
+  // [] outside the provider, which makes placeAnchored the pre-W2 placement exactly.
+  const browserRects = useBrowserRects();
 
   useLayoutEffect(() => {
     const el = ref.current; if (!el) return;
     const { width, height } = el.getBoundingClientRect();
-    let left: number, top: number;
+    const a = at ? { x: at.x, y: at.y, width: 0, height: 0 } : anchorRef?.current?.getBoundingClientRect();
+    if (!a) { setPos({ left: MARGIN, top: MARGIN, origin: "top left" }); return; }
+    const placed = placeAnchored({
+      anchor: { x: a.x, y: a.y, width: a.width, height: a.height },
+      size: { width, height },
+      win: { width: window.innerWidth, height: window.innerHeight },
+      align, placement: at ? "down" : placement, gap: at ? 0 : 4, margin: MARGIN,
+      avoid: browserRects,
+    });
     // §6: the 140ms scale-in is origin-aware — the surface grows out of the corner nearest its
     // trigger. The vertical half flips with the surface itself (one that flipped above its anchor
     // grows upward); the horizontal half follows `align`. A point-placed menu grows from its point.
-    let origin = "top left";
-    if (at) { left = at.x; top = at.y; }
-    else {
-      const a = anchorRef?.current?.getBoundingClientRect();
-      if (!a) { left = MARGIN; top = MARGIN; }
-      else {
-        left = align === "right" ? a.right - width : a.left;
-        let above: boolean;
-        if (placement === "up") {
-          top = a.top - height - 4;
-          above = true;
-          if (top < MARGIN) { top = a.bottom + 4; above = false; } // flip below near the top edge
-        } else {
-          top = a.bottom + 4;
-          above = false;
-          if (top + height > window.innerHeight - MARGIN) { top = a.top - height - 4; above = true; } // flip above
-        }
-        origin = `${above ? "bottom" : "top"} ${align === "right" ? "right" : "left"}`;
-      }
-    }
-    left = Math.max(MARGIN, Math.min(left, window.innerWidth - width - MARGIN));
-    top = Math.max(MARGIN, Math.min(top, window.innerHeight - height - MARGIN));
-    setPos({ left, top, origin });
-  }, [ref, at, anchorRef, align, placement]);
+    const origin = `${placed.above ? "bottom" : "top"} ${align === "right" ? "right" : "left"}`;
+    setPos({ left: placed.left, top: placed.top, origin });
+  }, [ref, at, anchorRef, align, placement, browserRects]);
 
   // Focus restore on close. The target is captured once at mount, before any roving focus moves into
   // the surface, so it is the trigger unless the caller overrides it.
