@@ -84,6 +84,26 @@ describe("the Notifications page (Plan 12 W5)", () => {
     expect(api.calls).not.toContain("respondPermission:se1:r1:allow");
   });
 
+  it("…and with two pending requests on ONE session, each row's card is the one its refId names", async () => {
+    const { api } = await mount({
+      sessions: [session("se1", "s1", { status: "waiting_permission" })],
+      sessionEvents: { se1: [
+        { seq: 1, sessionId: "se1", event: sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }) },
+        { seq: 2, sessionId: "se1", event: sessionEvent("permission_request", { requestId: "r2", toolName: "Read", input: { file_path: "/x" }, title: "Read x?", suggestions: [] }) },
+      ] },
+      notifications: [
+        notification("na", { category: "permission", sessionId: "se1", refId: "r1", actedAt: null, title: "row one", createdAt: 200 }),
+        notification("nb", { category: "permission", sessionId: "se1", refId: "r2", actedAt: null, title: "row two", createdAt: 100 }),
+      ],
+    });
+    await waitFor(() => expect(screen.getAllByRole("group", { name: "Permission request" })).toHaveLength(2));
+    const rowB = screen.getByRole("article", { name: "row two" });
+    expect(within(rowB).getByText("Read")).toBeInTheDocument(); // r2's card, not "whatever is pending first"
+    within(rowB).getByRole("button", { name: "Allow" }).click();
+    await waitFor(() => expect(api.calls).toContain("respondPermission:se1:r2:allow"));
+    expect(api.calls.filter((c) => c.startsWith("respondPermission"))).toEqual(["respondPermission:se1:r2:allow"]);
+  });
+
   it("a resolved permission row shows what happened and offers only the jump — never a dead card", async () => {
     await mount({
       sessions: [session("se1", "s1", { status: "idle" })],
