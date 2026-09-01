@@ -53,8 +53,20 @@ positioning primitive, not per-callsite discipline:
 
 ## W3 — The agent tool surface (an MCP server every agent gets)
 
-Realm-owned MCP server `realm-browser`, auto-present in every session's `mcpServers` (per-space
-disableable like any server). Tools, designed from the browser brief's evidence:
+> **Built (2026-08-31), one transport amendment:** the Plan 9 gateway merged first, so `realm-browser`
+> ships as an **in-process provider on the MCP gateway** (`RealmToolProvider`, mounted in
+> `apps/server/src/mcp/gateway.ts`) rather than its own MCP server entry — agents reach it through the
+> one `realm` endpoint they already connect to, as `realm-browser__browser_*` tools. The mount point is
+> the gateway, not the hub, because the permission model needs the CALLING session's identity and the
+> hub is deliberately session-blind. Per-space off switch: `mcp.setProviderEnabled` (default ON —
+> Realm's own code under Realm's own permission flow). CDP executes in Electron main
+> (`browser-agent*.ts`), reached over targeted `browserHost.op`/`browserHost.result` frames on the
+> existing RPC socket. Live-check-found constraint: an occluded window's `WebContentsView` drops all
+> synthetic input after any cross-process navigation until a compositor frame exists, so main carries
+> `--disable-backgrounding-occluded-windows`.
+
+Realm-owned toolset `realm-browser`, auto-present in every session's tool surface (per-space
+disableable). Tools, designed from the browser brief's evidence:
 
 - **`browser_snapshot`** — the legibility core: one fused pass (`DOMSnapshot.captureSnapshot` +
   `DOM.getDocument({pierce:true})` + `Accessibility.getFullAXTree` + `Page.getLayoutMetrics`, fired in
