@@ -211,7 +211,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications,
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
       release: (id) => browserAgents?.release(id),

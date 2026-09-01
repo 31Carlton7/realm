@@ -558,8 +558,11 @@ export const Methods = {
   "sessions.listAll": { params: z.object({}), result: z.array(SessionSchema) },
   "sessions.get":    { params: z.object({ id: IdSchema }), result: SessionSchema },
   /** `environmentId` pins the session to an existing checkout (the seam W2 uses to open one in a
-   *  worktree). Omitted, the session lands in the project's checkout, or the space's primary. */
-  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().default("default"), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
+   *  worktree). Omitted, the session lands in the project's checkout, or the space's primary.
+   *  `permissionMode: null` (the instant-create paths, which never ask) means "the user's configured
+   *  default" — resolved server-side from `DEFAULT_PERMISSION_MODE_KEY`, in ONE place, so the palette,
+   *  ⌘N and "+" can never disagree about what a new session is allowed to do. */
+  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().nullable().default(null), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
   /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */

@@ -227,6 +227,7 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   "library-page": "Library",
   "connections-page": "Connections",
   "notifications-page": "Notifications",
+  "settings-page": "Settings",
 };
 
 /** Feed page size (W5). Modest: the page is a glance at what waited, not an archive browser —

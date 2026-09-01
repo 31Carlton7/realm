@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_META, AGENT_SKILL_SUPPORT, PERSISTED_EVENT_TYPES, SkillIdSchema, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -8,6 +8,7 @@ import type { ProjectsStore } from "../store/projects";
 import type { SessionsStore, SessionEventsStore, SessionUpdate } from "../store/sessions";
 import type { EnvironmentsStore } from "../store/environments";
 import type { SpacesStore } from "../store/spaces";
+import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
 import { portEnv, type PortAllocator } from "../workspace/ports";
@@ -28,7 +29,23 @@ export function titleFromMessage(text: string): string {
   return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1).trimEnd()}…` : one;
 }
 
-export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string; title?: string };
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string | null; title?: string };
+
+/**
+ * The permission mode a session starts in when its creator named none (Plan 12 W6) — every
+ * instant-create path, which is every path there is since W3 retired the session sheet.
+ *
+ * `raw` is whatever sits under `DEFAULT_PERMISSION_MODE_KEY` and is treated as untrusted twice over:
+ * it must be a real `PERMISSION_MODES` id (which excludes `"plan"` — a mode axis, not a permission),
+ * and the agent must be one whose permission model Realm can actually set. An unsupported agent
+ * (`AGENT_SUPPORTS_PERMISSION_MODES` false) starts on `"default"` no matter what is stored: its
+ * adapter never reads the field, and a session row claiming `bypassPermissions` about an agent Realm
+ * has no lever on would be a lie the composer's chip then repeats.
+ */
+export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): string {
+  if (!AGENT_SUPPORTS_PERMISSION_MODES[kind]) return "default";
+  return PERMISSION_MODES.some((m) => m.id === raw) ? (raw as string) : "default";
+}
 /** `skillsInjected` remembers whether THIS handle was started with Realm's library — the fact mention
  *  resolution gates on, because a `/realm:<name>` prepend into a session that never loaded the plugin
  *  is a command that does not exist there. */
@@ -43,7 +60,7 @@ type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean 
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
-  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
+  constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
@@ -92,7 +109,9 @@ export class SessionService {
     if (input.projectId && !project) throw new NotFoundError("project", input.projectId);
     const env = this.resolveEnvironment(input.spaceId, input.environmentId ?? null, project?.rootPath ?? null);
     const title = input.title?.trim() || defaultTitle(input.agentKind);
-    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode: input.permissionMode, environmentId: env.id, title });
+    // A named mode travels verbatim; null (the instant-create paths) is the user's configured default.
+    const permissionMode = input.permissionMode ?? resolveDefaultPermissionMode(input.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY));
+    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode, environmentId: env.id, title });
     const item = this.d.items.create({ spaceId: input.spaceId, kind: "session", title, refId: session.id });
     this.d.rpc.broadcast("items.changed", { spaceId: input.spaceId });
     return { session, itemId: item.id };

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeAdapter } from "@realm/adapters";
 import { createApp, type App } from "../app";
+import { DEFAULT_PERMISSION_MODE_KEY } from "@realm/contracts";
 import { titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
@@ -795,6 +796,31 @@ describe("MCP gateway wiring (Plan 9 W3)", () => {
     const { url, headers } = throwing.starts[0]!.mcpServers[0] as { url: string; headers: Record<string, string> };
     const afterThrow = await fetch(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
     expect(afterThrow.status).toBe(401);
+    c.close();
+  });
+});
+
+describe("default permission mode for new sessions (Plan 12 W6)", () => {
+  it("sessions.create with no permissionMode consumes the stored default — the instant-create seam", async () => {
+    const { c, sp } = await boot();
+    await c.call("settings.set", { key: DEFAULT_PERMISSION_MODE_KEY, value: "acceptEdits" });
+    // No permissionMode in the params — exactly what "+" / ⌘N / the palette send.
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    expect(session.permissionMode).toBe("acceptEdits");
+    // The named mutant: the setting read at some other time than create. Changing it re-routes the NEXT
+    // create only; the first session keeps the mode it was born with.
+    await c.call("settings.set", { key: DEFAULT_PERMISSION_MODE_KEY, value: "bypassPermissions" });
+    const next = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    expect(next.permissionMode).toBe("bypassPermissions");
+    expect((await c.call("sessions.get", { id: session.id })).result.permissionMode).toBe("acceptEdits");
+    c.close();
+  });
+
+  it("a caller that names a mode wins over the setting", async () => {
+    const { c, sp } = await boot();
+    await c.call("settings.set", { key: DEFAULT_PERMISSION_MODE_KEY, value: "bypassPermissions" });
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", permissionMode: "plan" })).result;
+    expect(session.permissionMode).toBe("plan"); // the Plan chip's wire value travels verbatim, setting or no setting
     c.close();
   });
 });
