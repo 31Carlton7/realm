@@ -29,7 +29,10 @@ export function titleFromMessage(text: string): string {
   return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1).trimEnd()}…` : one;
 }
 
-export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string | null; title?: string };
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string | null; title?: string;
+  /** Plan 13 W1: the dispatch origin recorded on the row when a delegation tool (or W2's dispatch
+   *  gesture) creates the session. Absent/null for every user-created session — never defaulted. */
+  dispatchedBy?: import("@realm/contracts").DispatchedBy | null };
 
 /**
  * The permission mode a session starts in when its creator named none (Plan 12 W6) — every
@@ -65,11 +68,14 @@ export class SessionService {
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
     browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision): void; release(sessionId: string): void };
-    /** Plan 11 W5: browser-agent delegation hooks. `parentInterrupted` cancels a session's in-flight
-     *  delegated run when THAT session is interrupted; `release` forgets a deleted session's child
-     *  record/run; `extraSystemContext` is the browsing-policy preamble a delegated child starts
-     *  with. Optional — a harness without browser agents behaves exactly as before. */
-    browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined };
+    /** Plan 11 W5 (+ Plan 13 W1): delegation hooks — in production one closure fanning out to BOTH
+     *  delegation registries (browser-agent children and agent_run children). `parentInterrupted`
+     *  cancels a session's in-flight delegated run when THAT session is interrupted; `release`
+     *  forgets a deleted session's child record/run; `extraSystemContext` is the policy preamble a
+     *  delegated child starts with; `skillsFilter` (optional, Plan 13 W1) narrows which of the
+     *  space's enabled skills an agent_run child is staged — null/undefined for every other session.
+     *  Optional — a harness without delegation behaves exactly as before. */
+    browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined; skillsFilter?(sessionId: string): string[] | null };
     /** Plan 12 W5: the notifications feed's session hooks. `handleSessionEvent` gets the session row as
      *  it stood BEFORE the event (so a status event carries its previous status implicitly); it is
      *  called from `onEvent` — the pump and `emitExternal` alike — and from `markStaleOnBoot`'s
@@ -111,7 +117,7 @@ export class SessionService {
     const title = input.title?.trim() || defaultTitle(input.agentKind);
     // A named mode travels verbatim; null (the instant-create paths) is the user's configured default.
     const permissionMode = input.permissionMode ?? resolveDefaultPermissionMode(input.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY));
-    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode, environmentId: env.id, title });
+    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode, environmentId: env.id, title, dispatchedBy: input.dispatchedBy ?? null });
     const item = this.d.items.create({ spaceId: input.spaceId, kind: "session", title, refId: session.id });
     this.d.rpc.broadcast("items.changed", { spaceId: input.spaceId });
     return { session, itemId: item.id };
@@ -437,8 +443,13 @@ export class SessionService {
     // Realm's skills library, staged for this space and handed over per-invocation (W1). Null for an
     // agent that has no route for it and for a space with nothing enabled — and null must stay null
     // rather than becoming an empty root, because on Claude the option's presence is also what isolates
-    // the session from the user's own settings.
-    const skills = this.d.skills.injectionFor(s.spaceId, s.agentKind) ?? undefined;
+    // the session from the user's own settings. An agent_run child with a `skills` constraint (Plan 13
+    // W1) stages the narrowed subset under its own session-keyed stage instead of the space's shared
+    // one, so other live sessions' symlinked trees are never rebuilt out from under them.
+    const only = this.d.browserAgents?.skillsFilter?.(id) ?? null;
+    const skills = (only
+      ? this.d.skills.injectionFor(s.spaceId, s.agentKind, { only, stageId: id })
+      : this.d.skills.injectionFor(s.spaceId, s.agentKind)) ?? undefined;
     // The ONLY MCP config any agent ever receives (W3): one `realm` gateway entry, minted fresh per
     // session start by `gateway.register`. Third-party server endpoints, API keys and OAuth tokens never
     // leave realm-server — an agent reaches them only by proxy, through the Bearer token below, which

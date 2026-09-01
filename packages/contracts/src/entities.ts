@@ -138,6 +138,22 @@ export type Checkpoint = z.infer<typeof CheckpointSchema>;
 
 export const AgentKindSchema = z.enum(["claude", "codex", "acp:gemini", "acp:cursor", "fake"]);
 export type AgentKind = z.infer<typeof AgentKindSchema>;
+
+/**
+ * How a session came to exist when something other than the user's own click created it (Plan 13 W1)
+ * — the seam W2's Tasks lens filters on. `agent_run`/`browser_agent_run` are the two delegation
+ * tools; `user-dispatch` is reserved for W2's ⌘⇧↩ composer gesture. A session the user created
+ * normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is nullable
+ * rather than having a "user" member: absence IS the ordinary case, and no backfill invents one.
+ */
+export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch"]);
+export type DispatchKind = z.infer<typeof DispatchKindSchema>;
+export const DispatchedBySchema = z.object({
+  /** The delegating session, or null for an origin with no parent agent (`user-dispatch`). */
+  sessionId: IdSchema.nullable(),
+  kind: DispatchKindSchema,
+});
+export type DispatchedBy = z.infer<typeof DispatchedBySchema>;
 export const SessionStatusSchema = z.enum(["idle", "running", "waiting_permission", "error", "ended"]);
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 export const SessionSchema = z.object({
@@ -151,6 +167,9 @@ export const SessionSchema = z.object({
   /** The item of the session's own terminal side panel, once it has been opened at least once (W4).
    *  That item is hidden from every item listing — the terminal belongs to the session, not the space. */
   terminalItemId: IdSchema.nullable(),
+  /** Set when a delegation tool (or W2's dispatch gesture) created this session; null for every
+   *  session the user created themselves. Recorded at creation, never rewritten. */
+  dispatchedBy: DispatchedBySchema.nullable(),
   ...Timestamps,
 });
 export type Session = z.infer<typeof SessionSchema>;

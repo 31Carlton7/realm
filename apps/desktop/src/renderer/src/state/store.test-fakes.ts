@@ -11,7 +11,7 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
+    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra });
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,

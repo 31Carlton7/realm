@@ -1,6 +1,9 @@
 import { z } from "zod";
-import { AGENT_SKILL_SUPPORT, BrowserAgentConstraintsSchema, type AgentKind, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, BrowserAgentConstraintsSchema, type AgentKind } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { DelegationEngine } from "../delegation/engine";
+import type { AgentRunService } from "../delegation/agent-run";
+import { AGENT_RUN_TOOL, AGENT_RUN_TOOL_NAME } from "../delegation/agent-run";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
@@ -34,8 +37,6 @@ const RunArgs = z.object({
   constraints: BrowserAgentConstraintsSchema.optional(),
 });
 
-type ActiveRun = { childSessionId: string; cancelled: boolean };
-
 type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown): void };
 
 /**
@@ -64,8 +65,6 @@ type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown
  * is refused here.
  */
 export class BrowserAgentService {
-  /** One active run per parent session. In memory: an in-flight MCP call cannot outlive the process. */
-  private readonly runs = new Map<string, ActiveRun>();
   /** Mutating-act budget consumed per CHILD session. In memory — a server restart resets the count,
    *  which errs on the generous side for a session the user chose to resume by hand. */
   private readonly actsUsed = new Map<string, number>();
@@ -74,6 +73,9 @@ export class BrowserAgentService {
     settings: SettingsLike;
     sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt">;
     rpc: Pick<RpcServer, "broadcast">;
+    /** The shared settle/drain + run registry (Plan 13 W1) — ONE engine instance for this service and
+     *  `AgentRunService`, so one-run-per-parent and parent-interrupt-cancels span both tools. */
+    engine: DelegationEngine;
     /** Where the user's skills library lives — quoted in the child's policy preamble so it knows
      *  where site playbooks (`site-<host>/SKILL.md`) go. */
     skillsRoot: string;
@@ -162,20 +164,17 @@ export class BrowserAgentService {
   }
 
   /** The PARENT was interrupted: its delegated run (if any) is cancelled and the child interrupted —
-   *  a stop on the delegating session must not leave a ghost agent driving the web. Called from
-   *  `SessionService.interrupt` for every session; a session with no active run is a no-op. */
+   *  a stop on the delegating session must not leave a ghost agent driving the web. The engine owns
+   *  the registry (shared with `agent_run`); this is kept as the public face `app.ts` wires. */
   parentInterrupted(sessionId: string): void {
-    const run = this.runs.get(sessionId);
-    if (!run) return;
-    run.cancelled = true;
-    void this.d.sessions.interrupt(run.childSessionId).catch(() => { /* child may be gone already */ });
+    this.d.engine.parentInterrupted(sessionId);
   }
 
   /** A session was deleted. As a parent: cancel its run. As a child: forget its persisted record and
    *  budget — the restriction dies with the session, never leaks to a future id. */
   release(sessionId: string): void {
-    this.parentInterrupted(sessionId);
-    this.runs.delete(sessionId);
+    this.d.engine.parentInterrupted(sessionId);
+    this.d.engine.end(sessionId);
     this.actsUsed.delete(sessionId);
     if (this.childRecord(sessionId)) this.d.settings.set(childKey(sessionId), null);
   }
@@ -189,7 +188,7 @@ export class BrowserAgentService {
     // Recursion guard, second half (the first is the toolset restriction that keeps this tool out of
     // a child's list entirely): even a child that somehow names this tool is refused server-side.
     if (this.isChild(ctx.sessionId)) return err("refused: a browser agent may not spawn another browser agent — delegation is depth-1 only.");
-    if (this.runs.has(ctx.sessionId)) return err("refused: this session already has a browser agent running; wait for that call's result.");
+    if (this.d.engine.hasRun(ctx.sessionId)) return err("refused: this session already has a browser agent running; wait for that call's result.");
 
     let parent;
     try { parent = this.d.sessions.get(ctx.sessionId); } catch { return err("the calling session no longer exists."); }
@@ -208,6 +207,8 @@ export class BrowserAgentService {
       created = this.d.sessions.create({
         spaceId: ctx.spaceId, agentKind, projectId: null, model: null, effort: null, permissionMode,
         title: clip(`Browser agent: ${goal.split("\n")[0]}`, 40),
+        // The dispatch origin (Plan 13 W1) — the seam W2's Tasks lens reads.
+        dispatchedBy: { sessionId: ctx.sessionId, kind: "browser_agent_run" },
       });
     } catch (e) {
       return err(`could not create the browser-agent session: ${e instanceof Error ? e.message : String(e)}`);
@@ -222,12 +223,11 @@ export class BrowserAgentService {
     this.d.rpc.broadcast("session.agentOpened", { spaceId: ctx.spaceId, sessionId: childId, itemId: created.itemId });
 
     const t = this.d.timeouts ?? DEFAULT_TIMEOUTS;
-    const run: ActiveRun = { childSessionId: childId, cancelled: false };
-    this.runs.set(ctx.sessionId, run);
+    const run = this.d.engine.begin(ctx.sessionId, childId);
     try {
       const fromSeq = created.session.lastEventSeq;
       await this.d.sessions.send(childId, { text: childMessage(goal), attachments: [] });
-      const settled = await this.drain(childId, fromSeq, run, Date.now() + t.baseMs + maxActs * t.perActMs, t.pollMs);
+      const settled = await this.d.engine.drain(childId, fromSeq, run, Date.now() + t.baseMs + maxActs * t.perActMs, t.pollMs);
       const trail = `\n\nThe browser agent's session is "${created.session.title}" (session id ${childId}) — its full trace, including every page action and permission prompt, is in that session's pane.`;
       const output = settled.finalText ? fenceAgentOutput(settled.finalText) : "(the agent produced no output)";
       switch (settled.outcome) {
@@ -245,69 +245,41 @@ export class BrowserAgentService {
           return err(`Browser agent session was deleted before it finished.`);
       }
     } finally {
-      this.runs.delete(ctx.sessionId);
-    }
-  }
-
-  /**
-   * The settle wait — `live-agent-check`'s drain idiom, scoped to events AFTER `fromSeq` so history
-   * from before this run can never satisfy the condition. Settled means: the child's LAST status in
-   * the slice is `idle` AND at least one `assistant_text` arrived — the turn actually ran and ended.
-   * The adapter's start-of-life `idle` (emitted before the turn begins) cannot settle it, because no
-   * assistant_text exists yet; a turn that is still running cannot either, because its last status
-   * is `running`/`waiting_permission` until the adapter closes the turn.
-   */
-  private async drain(childId: string, fromSeq: number, run: ActiveRun, deadline: number, pollMs: number):
-    Promise<{ outcome: "done" | "interrupted" | "timeout" | "failed" | "gone"; finalText: string | null; lastStatus: string | null }> {
-    let last = fromSeq;
-    let lastStatus: string | null = null;
-    let finalText: string | null = null;
-    for (;;) {
-      let batch: StoredSessionEvent[];
-      try { batch = this.d.sessions.events(childId, last, 500); } catch { return { outcome: "gone", finalText, lastStatus }; }
-      for (const stored of batch) {
-        last = stored.seq;
-        const ev = stored.event;
-        if (ev.type === "status") lastStatus = ev.payload.status;
-        if (ev.type === "assistant_text") finalText = ev.payload.text;
-      }
-      // Cancellation wins over everything, including a turn that settled in the same poll window:
-      // once the parent interrupted, the honest answer is "this run was cancelled (here is the
-      // partial text)" — proven live: an interrupted Claude child winds down to idle WITH earlier
-      // assistant text present, and checking settled first mislabels that as a clean finish.
-      if (run.cancelled) return { outcome: "interrupted", finalText, lastStatus };
-      if (lastStatus === "idle" && finalText !== null) return { outcome: "done", finalText, lastStatus };
-      if (lastStatus === "error" || lastStatus === "ended") return { outcome: "failed", finalText, lastStatus };
-      if (Date.now() >= deadline) {
-        void this.d.sessions.interrupt(childId).catch(() => { /* best effort — it may have just ended */ });
-        return { outcome: "timeout", finalText, lastStatus };
-      }
-      await sleep(pollMs);
+      this.d.engine.end(ctx.sessionId);
     }
   }
 }
 
 /**
- * The `realm-agent` gateway provider: ONE tool, `browser_agent_run`. A delegated child session sees
- * an empty tool list here (and a refusal on call) even before the gateway-level toolset restriction
- * hides the provider entirely — two independent server-side enforcements of depth-1. Per-space off
- * switch via `mcp.setProviderEnabled`, same as `realm-browser` (the gateway contract: a provider
- * handles its own enablement).
+ * The `realm-agent` gateway provider: `browser_agent_run` (Plan 11 W5) and — when an
+ * `AgentRunService` is wired (Plan 13 W1; production always does, older tests need not) —
+ * `agent_run` beside it. A delegated child session of EITHER tool sees an empty tool list here (and
+ * a refusal on call) even before the gateway-level toolset restriction hides the provider entirely —
+ * two independent server-side enforcements of depth-1. Per-space off switch via
+ * `mcp.setProviderEnabled`, same as `realm-browser` (the gateway contract: a provider handles its
+ * own enablement).
  */
-export function createRealmAgentProvider(service: BrowserAgentService, mcp: { providerEnabled(spaceId: string, name: string): boolean }): RealmToolProvider {
+export function createRealmAgentProvider(service: BrowserAgentService, mcp: { providerEnabled(spaceId: string, name: string): boolean }, agentRuns?: AgentRunService): RealmToolProvider {
+  const isDelegatedChild = (sessionId: string): boolean => service.isChild(sessionId) || (agentRuns?.isChild(sessionId) ?? false);
+  const toolNames = (): string => (agentRuns ? `${RUN_TOOL_NAME}, ${AGENT_RUN_TOOL_NAME}` : RUN_TOOL_NAME);
   return {
     name: REALM_AGENT_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME)) return [];
-      if (service.isChild(ctx.sessionId)) return [];
-      return [RUN_TOOL];
+      if (isDelegatedChild(ctx.sessionId)) return [];
+      return agentRuns ? [RUN_TOOL, AGENT_RUN_TOOL] : [RUN_TOOL];
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME))
         return err(`the ${REALM_AGENT_PROVIDER_NAME} tools are disabled for this space — mcp.setProviderEnabled turns them back on.`);
-      if (tool !== RUN_TOOL_NAME) return err(`unknown tool "${tool}" — this provider has: ${RUN_TOOL_NAME}`);
+      // The provider's own belt across BOTH tools: a delegated child (of either kind) is refused
+      // here, before each tool's run() re-checks its own registry — depth-1, twice over.
+      if (isDelegatedChild(ctx.sessionId) && (tool === RUN_TOOL_NAME || tool === AGENT_RUN_TOOL_NAME))
+        return err("refused: a delegated agent may not delegate further — delegation is depth-1 only.");
       try {
-        return await service.run(ctx, args);
+        if (tool === RUN_TOOL_NAME) return await service.run(ctx, args);
+        if (tool === AGENT_RUN_TOOL_NAME && agentRuns) return await agentRuns.run(ctx, args);
+        return err(`unknown tool "${tool}" — this provider has: ${toolNames()}`);
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -366,4 +338,3 @@ function originInList(url: string, list: readonly string[]): boolean {
 const ok = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: false });
 const err = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

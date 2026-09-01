@@ -256,4 +256,15 @@ export const migrations: string[] = [
   -- notifications feed uses, so keyset pagination can never skip or repeat a row.
   CREATE INDEX ships_space ON ships(space_id, created_at DESC, id DESC);
   `,
+  // v14 — dispatch origin (Plan 13 W1; renumbered past Plan 14's v13 ships table at merge): who caused a session to exist, when something other than the
+  // user's own click created it. `dispatched_by_kind` is a DispatchKindSchema value ('agent_run' /
+  // 'browser_agent_run' / 'user-dispatch', the last reserved for W2's composer gesture);
+  // `dispatched_by_session_id` is the delegating session, plain TEXT with no foreign key on purpose —
+  // the same log posture notifications takes: "session X dispatched this" stays true (and stays worth
+  // showing in W2's Tasks lens) after session X is deleted. Both NULL for every existing row and for
+  // every session the user creates directly; nothing is backfilled, because absence IS the fact.
+  `
+  ALTER TABLE sessions ADD COLUMN dispatched_by_kind TEXT;
+  ALTER TABLE sessions ADD COLUMN dispatched_by_session_id TEXT;
+  `,
 ];

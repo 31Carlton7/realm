@@ -13,3 +13,4 @@ export * from "./memory";
 export * from "./session-events";
 export * from "./notifications";
 export * from "./browser-agent";
+export * from "./delegation";
