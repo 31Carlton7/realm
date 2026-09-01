@@ -1623,7 +1623,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // The old destructive close, minus the layout removal handled above.
         const it = get().items.find((i) => i.id === itemId);
         await api.deleteItem(itemId); // server closes the pty for terminal items
-        set({ items: get().items.filter((i) => i.id !== itemId) });
+        const items = get().items.filter((i) => i.id !== itemId);
+        // This path prunes `items` itself rather than going through refreshItems, so it owes the
+        // back/forward trails the same prune: an item deleted here must leave no way back to it.
+        set({ items, paneHistory: forgetNavItems(get().paneHistory, new Set(items.map((i) => i.id))) });
         if (it?.kind === "terminal") api.disposeTerminal(it.refId);
         if (it?.kind === "browser") {
           // The ticker and driving dot die with the browser — a reused id must start blank.

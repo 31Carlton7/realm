@@ -1409,8 +1409,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    brighter title, never a wash. The inline permission card is the session pane's own component. ——— */
 .notifications-page-pane .page-head { align-items: flex-start; }
 /* The feed is SCANNED, not read: it takes the whole pane instead of the ~720px reading column the
-   other destination pages cap themselves at, and spends the width on a second column. */
-.notifications-page-pane .page-content { max-width: none; }
+   other destination pages cap themselves at (there is no `.page-content` here at all), and spends
+   the width on a second column. A size container, so the two columns answer to the PANE's width and
+   not the window's — this page is as likely to be half of a split as it is to be the whole screen. */
+.notifications-page-pane { container-type: inline-size; }
 .notif-split { gap: 0; }
 .notif-list { flex: 1 1 380px; min-width: 0; max-width: 480px; overflow-y: auto; padding-right: 16px; }
 .notif-detail { flex: 2 1 0; min-width: 0; overflow-y: auto; padding-left: 20px; border-left: 1px solid var(--rl-hairline); }
@@ -1421,6 +1423,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .notif-detail-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .notif-detail-body { margin: 0; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .notif-detail-card .notif-inline-card { width: 100%; }
+/* Too narrow for two columns: stack them and let the whole body scroll as one, rather than pinching
+   the list and the detail into two unreadable gutters. */
+@container (max-width: 640px) {
+  .notif-split { flex-direction: column; overflow-y: auto; }
+  .notif-list, .notif-detail { flex: none; max-width: none; overflow: visible; padding-right: 0; padding-left: 0; }
+  .notif-detail { border-left: none; border-top: 1px solid var(--rl-hairline); padding-top: 14px; margin-top: 6px; }
+}
 .notif-mark-all { margin-left: auto; flex: none; }
 .notif-empty { font-size: 13px; padding: 12px 0; }
 .notif-day { display: flex; flex-direction: column; margin-bottom: 18px; }

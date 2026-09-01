@@ -106,6 +106,23 @@ describe("reconcileNav — the one recording site", () => {
     expect(canNav(afterWrite, "l1", 1)).toBe(true); // b is still ahead — the trail was not forked
   });
 
+  it("THE view-clobber mutant: a pane parked on an in-pane view is not 'news' on an unrelated write", () => {
+    // The pane holds the notifications page and the user has opened row n7. A resize, a split, a
+    // group switch — any layout write — must not read that as the pane having moved back to the bare
+    // list and push `{np, null}` over the forward run.
+    let h = reconcileNav({}, groups(leaf("l1", "np")));
+    h = pushNav(h, "l1", { itemId: "np", view: "n7" });
+    const after = reconcileNav(h, groups(leaf("l1", "np")));
+    expect(after).toBe(h);
+    expect(navEntry(after, "l1")).toEqual({ itemId: "np", view: "n7" });
+
+    // …and the same holds mid-trail: stepping BACK onto the bare list leaves n7 reachable by Forward.
+    const back = reconcileNav(stepNav(h, "l1", -1), groups(leaf("l1", "np")));
+    expect(navEntry(back, "l1")).toEqual({ itemId: "np", view: null });
+    expect(canNav(back, "l1", 1)).toBe(true);
+    expect(back.l1!.entries).toHaveLength(2);
+  });
+
   it("keeps the trails of groups that are off screen, and forgets leaves that are truly gone", () => {
     const two = groups(leaf("l1", "a"), leaf("l2", "b"));
     let h = reconcileNav({}, two);
