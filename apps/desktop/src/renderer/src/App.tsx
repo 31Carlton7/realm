@@ -4,6 +4,7 @@ import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
+import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { PaneHost } from "./components/PaneHost";
 import { Onboarding } from "./components/Onboarding";
@@ -57,6 +58,7 @@ function SheetHost() {
   if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
+  if (sheet.kind === "activity") return <ActivitySheet />;
   return null;
 }
 
@@ -135,6 +137,9 @@ export function App() {
       if (sheet?.kind === "space-settings") store.getState().run(() => store.getState().refreshMcpServers(sheet.spaceId));
     });
     const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
+    // Broadcast for EVERY space/session (binding rule 5) — applyMcpCall itself is the gate on whether
+    // Activity is even open and whether the row matches its filter, same as mcp.serverStatus above.
+    const offMC = rpc().on("mcp.call", (call) => store.getState().applyMcpCall(call));
     const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
     // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
     const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
@@ -147,7 +152,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offE(); offT(); offM(); offMS(); offC();
+      offS(); offI(); offV(); offW(); offP(); offE(); offT(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

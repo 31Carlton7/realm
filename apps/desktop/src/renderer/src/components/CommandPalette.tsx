@@ -93,6 +93,7 @@ function PaletteBody() {
   const applyPreset = useApp((s) => s.applyPreset);
   const setThemePref = useApp((s) => s.setThemePref);
   const openSheet = useApp((s) => s.openSheet);
+  const openActivity = useApp((s) => s.openActivity);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
   const refreshAllItems = useApp((s) => s.refreshAllItems);
   const run = useApp((s) => s.run);
@@ -149,6 +150,8 @@ function PaletteBody() {
       ...SELECTABLE_AGENT_KINDS.map((a) => act(`new-${a}`, `New ${AGENT_META[a].label} session`, AGENT_META[a].icon, () => run(() => newSession({ agentKind: a })))),
       act("new-space", "New space…", "add", () => openSheet({ kind: "new-space" })),
       ...(activeSpaceId ? [act("space-settings", "Space settings…", "settings", () => openSheet({ kind: "space-settings", spaceId: activeSpaceId }))] : []),
+      // Global (every space's calls, W7) — unlike space-settings above, it never needs an activeSpaceId.
+      act("mcp-activity", "MCP Activity", "tool", () => run(() => openActivity())),
       act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), <kbd>⌘\</kbd>),
       act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), <kbd>⌘⇧\</kbd>),
       ...(focusedItem ? [
@@ -167,7 +170,7 @@ function PaletteBody() {
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref,
       selectSpace, openItem, newTerminal, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
-      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, run]);
+      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openActivity, run]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked
   // by match score (ties keep the sectioned order, so recency still breaks ties).

@@ -2,7 +2,7 @@ import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
   basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mimeForPath,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -144,7 +144,13 @@ export type Api = {
   disconnectMcpOauth(id: string): Promise<void>;
   /** `mcp.retry` — closes a tripped circuit breaker and drops the stale client. */
   retryMcpServer(id: string): Promise<void>;
+  /** `mcp.calls.list` — Realm's own call log (Activity), newest first. `before` pages backward by the
+   *  composite `{ ts, id }` cursor (W1 amendment); omitted, it starts from the top. */
+  mcpCallsList(params: McpCallsFilter & { before?: { ts: number; id: string }; limit?: number }): Promise<{ calls: McpCall[] }>;
 };
+
+/** The two narrowing dimensions Activity's chips apply — `undefined` means "not filtering by this". */
+export type McpCallsFilter = { sessionId?: string; serverId?: string };
 
 /** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
 export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean };
@@ -169,6 +175,14 @@ const SETTING_SWIPE_INVERT = "ui.swipeInvert";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 export const EVENTS_PAGE = 1000;
+/** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
+ *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
+export const MCP_CALLS_PAGE = 50;
+/** Ceiling on `mcpCalls` while the sheet is open and live events are prepending (W7 plan: "cap the
+ *  in-memory list... so a chatty agent can't grow it unboundedly"). Only the live-prepend path
+ *  (`applyMcpCall`) enforces this — `loadMoreMcpCalls` is a page the user explicitly asked for, and
+ *  trimming it would make "Load more" lie about what it just fetched. */
+export const MCP_CALLS_LIVE_CAP = 500;
 /** Plan 6 W4: the session's terminal panel takes 38% of the session pane the first time it opens. */
 export const TERMINAL_PANEL_WIDTH = 38;
 
@@ -199,7 +213,11 @@ export type Sheet =
   | { kind: "remove-worktree"; environmentId: string }
   /** A checkout's checkpoints, and the confirm for restoring one (W4). One sheet in two states: the
    *  list, and — once `selected` is set — the confirmation naming exactly what restoring would cost. */
-  | { kind: "checkpoints"; environmentId: string; sessionId: string | null };
+  | { kind: "checkpoints"; environmentId: string; sessionId: string | null }
+  /** Realm's log of every proxied MCP call (W7), global across spaces/sessions — see `openActivity`.
+   *  Opened from McpSection ("Activity") or the palette ("MCP Activity"); replaces whatever sheet was
+   *  open (the one-slot ruling — see the sheet-plumbing note above), including space settings itself. */
+  | { kind: "activity" };
 
 export type AppState = {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
@@ -296,6 +314,15 @@ export type AppState = {
    *  exception (see the Api doc comment) — kept apart from `error` so it renders inline on the row that
    *  caused it instead of stealing the app's one error banner. */
   mcpToolsError: Record<string, string | null>;
+  /** Activity's loaded page(s), newest first (W7). Empty until `openActivity`/`refreshMcpCalls` runs. */
+  mcpCalls: McpCall[];
+  /** Activity's active narrowing — both `undefined` is "everything" (binding rule 5: the sheet shows
+   *  every space/session by default). Read by `refreshMcpCalls`/`loadMoreMcpCalls` and by the live
+   *  `mcp.call` matcher in `applyMcpCall`. */
+  mcpCallsFilter: McpCallsFilter;
+  /** False once a fetch (initial or "Load more") returns fewer rows than it asked for — the signal
+   *  ActivitySheet uses to hide the button rather than offering a page that would come back empty. */
+  mcpCallsHasMore: boolean;
   activeSpace(): Space | undefined;
   activeIndex(): number;
   boot(): Promise<void>;
@@ -467,6 +494,22 @@ export type AppState = {
    *  payload twice (the event can repeat, and can arrive without a matching `mcp.changed`) leaves the
    *  same state, and a server not currently in `mcpServers` is a no-op rather than an error. */
   applyMcpServerStatus(payload: { id: string; status: McpServerStatus; oauthStatus: McpOauthStatus }): void;
+  /** Open the Activity sheet (McpSection's "Activity" button, the palette's "MCP Activity"): resets any
+   *  filter left over from a previous visit — Activity always opens showing everything, per binding
+   *  rule 5 — and loads the first page. Replaces whatever sheet was open (ruling 4: one sheet slot). */
+  openActivity(): Promise<void>;
+  /** Re-fetch Activity's first page with the current filter, replacing `mcpCalls` outright (never a
+   *  merge — a filter change can drop rows the old page had and add ones it didn't). */
+  refreshMcpCalls(): Promise<void>;
+  /** Fetch the next page after the last loaded row's `{ ts, id }` (W1's composite cursor) and append. */
+  loadMoreMcpCalls(): Promise<void>;
+  /** Narrow (or, with `null`, clear) Activity's session or server filter and re-fetch. Only the given
+   *  key changes — passing `{ sessionId: null }` leaves any active server filter exactly as it was. */
+  setMcpCallsFilter(patch: { sessionId?: string | null; serverId?: string | null }): Promise<void>;
+  /** Apply one `mcp.call` broadcast (App.tsx's live wiring, W7): prepended only while the sheet is open
+   *  AND the row matches the active filter, and only once per id — the event can repeat (binding rule
+   *  6), and a resend must not duplicate the row. */
+  applyMcpCall(call: McpCall): void;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
   clearError(): void;
@@ -710,6 +753,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
       mcpServers: [], mcpToolsError: {},
+      mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
@@ -1365,6 +1409,47 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       applyMcpServerStatus({ id, status, oauthStatus }) {
         set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, status, oauthStatus } : x)) });
+      },
+      async openActivity() {
+        // Always opens showing everything (binding rule 5) — a filter left over from a previous visit
+        // would silently hide rows the user has no reason to expect are being hidden.
+        set({ mcpCallsFilter: {}, mcpCalls: [], mcpCallsHasMore: false, sheet: { kind: "activity" }, paletteOpen: false });
+        await get().refreshMcpCalls();
+      },
+      async refreshMcpCalls() {
+        const { calls } = await api.mcpCallsList({ ...get().mcpCallsFilter, limit: MCP_CALLS_PAGE });
+        // The sheet may have closed (or the filter may have changed again) while this was in flight;
+        // a slow response landing after the fact must not clobber whatever is showing now.
+        if (get().sheet?.kind !== "activity") return;
+        set({ mcpCalls: calls, mcpCallsHasMore: calls.length === MCP_CALLS_PAGE });
+      },
+      async loadMoreMcpCalls() {
+        const last = get().mcpCalls.at(-1);
+        if (!last) return; // nothing loaded yet — Load more has nothing to page after
+        const { calls } = await api.mcpCallsList({ ...get().mcpCallsFilter, before: { ts: last.ts, id: last.id }, limit: MCP_CALLS_PAGE });
+        if (get().sheet?.kind !== "activity") return;
+        set({ mcpCalls: [...get().mcpCalls, ...calls], mcpCallsHasMore: calls.length === MCP_CALLS_PAGE });
+      },
+      async setMcpCallsFilter(patch) {
+        const next: McpCallsFilter = { ...get().mcpCallsFilter };
+        if ("sessionId" in patch) { if (patch.sessionId) next.sessionId = patch.sessionId; else delete next.sessionId; }
+        if ("serverId" in patch) { if (patch.serverId) next.serverId = patch.serverId; else delete next.serverId; }
+        set({ mcpCallsFilter: next });
+        // Paging respects the filter (plan requirement), so a filter change re-fetches from the top
+        // rather than filtering the already-loaded page client-side.
+        await get().refreshMcpCalls();
+      },
+      applyMcpCall(call) {
+        // Nothing is collecting while the sheet is shut — the next openActivity re-fetches anyway, so
+        // growing this array for a view nobody has open is work for nothing (mirrors checkpoints.changed).
+        if (get().sheet?.kind !== "activity") return;
+        if (get().mcpCalls.some((c) => c.id === call.id)) return; // the event can repeat (binding rule 6)
+        const { sessionId, serverId } = get().mcpCallsFilter;
+        if (sessionId && call.sessionId !== sessionId) return;
+        if (serverId && call.serverId !== serverId) return;
+        const next = [call, ...get().mcpCalls];
+        // Cap enforced ONLY here — see MCP_CALLS_LIVE_CAP's doc comment for why loadMoreMcpCalls doesn't.
+        set({ mcpCalls: next.length > MCP_CALLS_LIVE_CAP ? next.slice(0, MCP_CALLS_LIVE_CAP) : next });
       },
       run(action) {
         action().catch((e: unknown) => {

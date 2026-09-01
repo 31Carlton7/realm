@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { MCP_SECRET_STORAGE_NOTE, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type McpServer, type McpTool, type Profile, type Project, type RestorePreview, type Session, type ShipResult, type Space, type StoredSessionEvent, type WorktreeStatus } from "@realm/contracts";
+import { MCP_SECRET_STORAGE_NOTE, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type McpCall, type McpServer, type McpTool, type Profile, type Project, type RestorePreview, type Session, type ShipResult, type Space, type StoredSessionEvent, type WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, PickedAttachment, UpdateMcpServerInput } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -26,6 +26,11 @@ export const mcpServer = (id: string, extra: Partial<McpServer> = {}): McpServer
     envKeys: [], headerKeys: [], authKind: "none", oauthStatus: "unconfigured", status: "idle", tools: [], allowedTools: null,
     enabled: false, createdAt: 0, ...extra });
 export const mcpTool = (name: string, description = ""): McpTool => ({ name, description });
+/** A logged call (W7). `serverName: ""` + `tool` holding the full namespaced string is the
+ *  blocked-attribution shape (plan amendment); tests that need it pass that combination explicitly. */
+export const mcpCall = (id: string, sessionId: string, extra: Partial<McpCall> = {}): McpCall =>
+  ({ id, sessionId, serverId: "mcp1", serverName: "srv1", tool: "echo", argsJson: "{}", resultSummary: "ok",
+    ok: true, durationMs: 120, ts: 0, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
@@ -66,6 +71,9 @@ export type FakeData = {
   /** What `mcp.tools.list` answers as `error` for a server id, if set — a connect failure is a result,
    *  never a throw (see the Api doc comment). */
   mcpToolsError?: Record<string, string | null>;
+  /** The full call log `mcp.calls.list` pages over (W7). Unordered on the way in — the fake sorts and
+   *  filters like the real store does, so a test can just append in whatever order it likes. */
+  mcpCalls?: McpCall[];
 };
 
 export type FakeApi = Api & {
@@ -113,6 +121,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
+    mcpCalls: overrides.mcpCalls ?? [],
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -385,6 +394,23 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`retryMcpServer:${id}`);
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, status: "idle" };
+    },
+    // Mirrors McpCallLogStore.list (apps/server/src/store/mcp.ts): newest first (ts DESC, id DESC — the
+    // same total order the composite cursor relies on to resume a same-millisecond boundary without
+    // skipping or repeating a row), filtered by sessionId/serverId equality, paged by the `{ ts, id }`
+    // cursor rather than a plain `ts <` — see that store's doc comment for why a plain cursor is wrong.
+    mcpCallsList: async (params) => {
+      calls.push(`mcpCallsList:${params.sessionId ?? "*"}:${params.serverId ?? "*"}:${params.before ? `${params.before.ts},${params.before.id}` : "-"}:${params.limit ?? "-"}`);
+      const limit = Math.max(1, Math.min(params.limit ?? 50, 200));
+      let rows = [...data.mcpCalls];
+      if (params.sessionId !== undefined) rows = rows.filter((c) => c.sessionId === params.sessionId);
+      if (params.serverId !== undefined) rows = rows.filter((c) => c.serverId === params.serverId);
+      if (params.before) {
+        const b = params.before;
+        rows = rows.filter((c) => c.ts < b.ts || (c.ts === b.ts && c.id < b.id));
+      }
+      rows.sort((a, b) => b.ts - a.ts || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      return { calls: rows.slice(0, limit) };
     },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));

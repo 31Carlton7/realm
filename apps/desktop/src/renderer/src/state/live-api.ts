@@ -66,4 +66,5 @@ export const liveApi = (): Api => ({
   startMcpOauth: (id) => rpc().call("mcp.oauth.start", { id }),
   disconnectMcpOauth: async (id) => { await rpc().call("mcp.oauth.disconnect", { id }); },
   retryMcpServer: async (id) => { await rpc().call("mcp.retry", { id }); },
+  mcpCallsList: (params) => rpc().call("mcp.calls.list", params),
 });

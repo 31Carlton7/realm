@@ -29,6 +29,7 @@ export function McpSection({ spaceId }: { spaceId: string }) {
   const sessions = useApp((s) => s.sessions);
   const refreshMcpServers = useApp((s) => s.refreshMcpServers);
   const clearMcpServers = useApp((s) => s.clearMcpServers);
+  const openActivity = useApp((s) => s.openActivity);
   const run = useApp((s) => s.run);
   const [adding, setAdding] = useState(false);
 
@@ -46,7 +47,12 @@ export function McpSection({ spaceId }: { spaceId: string }) {
 
   return (
     <div className="field">
-      <span>MCP servers</span>
+      <div className="mcp-section-head">
+        <span>MCP servers</span>
+        {/* Opening Activity REPLACES this settings sheet — the app's one sheet slot (ruling 4) — rather
+            than stacking on top of it; that is accepted, not a bug to work around here. */}
+        <button type="button" className="btn-quiet" onClick={() => run(() => openActivity())}>Activity</button>
+      </div>
       {servers.length === 0
         ? <p className="env-empty">No MCP servers yet — add one to give this space's agents tools.</p>
         : (
