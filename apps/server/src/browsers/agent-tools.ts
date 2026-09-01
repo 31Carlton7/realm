@@ -38,14 +38,16 @@ export const BROWSER_PROVIDER_NAME = "realm-browser";
  * permission prompt needs an element's label, the label is explicitly attributed to the page
  * (`the element the page labels …`) rather than laundered into Realm's own voice.
  */
-export function createBrowserAgentProvider(d: {
-  browsers: BrowsersStore;
-  browserService: BrowserService;
-  mcp: McpService;
-  bridge: BrowserHostBridge;
-  broker: BrowserPermissionBroker;
-  rpc: RpcServer;
-}): RealmToolProvider {
+export type BrowserAgentToolsDeps = {
+  browsers: Pick<BrowsersStore, "get" | "list">;
+  browserService: Pick<BrowserService, "open">;
+  mcp: Pick<McpService, "providerEnabled">;
+  bridge: Pick<BrowserHostBridge, "call">;
+  broker: Pick<BrowserPermissionBroker, "gate">;
+  rpc: Pick<RpcServer, "broadcast">;
+};
+
+export function createBrowserAgentProvider(d: BrowserAgentToolsDeps): RealmToolProvider {
   return {
     name: BROWSER_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
@@ -166,7 +168,7 @@ const BatchArgs = z.object({
 
 /* ---------------------------------- handlers ---------------------------------- */
 
-type Deps = Parameters<typeof createBrowserAgentProvider>[0];
+type Deps = BrowserAgentToolsDeps;
 type Handler = (d: Deps, ctx: ProviderCallContext, args: unknown) => Promise<CallToolResult>;
 
 const HANDLERS: Record<string, Handler> = {

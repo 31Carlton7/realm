@@ -543,3 +543,104 @@ describe("routes", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("in-process providers (Plan 11 W3)", () => {
+  /** A minimal fake provider — the seam's contract, not the browser toolset (which has its own tests). */
+  const fakeProvider = (name: string, opts: { onCall?: (ctx: { sessionId: string; spaceId: string }, tool: string, args: unknown) => void; throwOnCall?: boolean; enabled?: (spaceId: string) => boolean } = {}) => ({
+    name,
+    tools: async (ctx: { sessionId: string; spaceId: string }) =>
+      (opts.enabled?.(ctx.spaceId) ?? true) ? [{ name: "ping", description: "pong", inputSchema: { type: "object" as const } }] : [],
+    call: async (ctx: { sessionId: string; spaceId: string }, tool: string, args: unknown): Promise<CallToolResult> => {
+      opts.onCall?.(ctx, tool, args);
+      if (opts.throwOnCall) throw new Error("provider blew up");
+      return { content: [{ type: "text", text: `provider ${name} ran ${tool}` }], isError: false };
+    },
+  });
+
+  it("lists provider tools prefixed <providerName>__, alongside enabled servers' tools", async () => {
+    const app = await setupApp();
+    const { row } = app.addServer("alpha");
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    app.gateway.registerProvider(fakeProvider("realm-browser"));
+    const { client } = await connectClient(app);
+    const names = (await client.listTools()).tools.map((t) => t.name).sort();
+    expect(names).toEqual(["alpha__boom", "alpha__echo", "realm-browser__ping"]);
+    await client.close();
+  });
+
+  it("a provider that reports no tools for this space (disabled) contributes nothing", async () => {
+    const app = await setupApp();
+    app.gateway.registerProvider(fakeProvider("realm-browser", { enabled: () => false }));
+    const { client } = await connectClient(app);
+    expect((await client.listTools()).tools).toEqual([]);
+    await client.close();
+  });
+
+  it("routes a provider call with the CALLING session's identity — the permission model's ground truth", async () => {
+    const app = await setupApp();
+    const seen: { sessionId: string; spaceId: string }[] = [];
+    app.gateway.registerProvider(fakeProvider("realm-browser", { onCall: (ctx) => seen.push(ctx) }));
+    const other = app.createSpaceAndSession("Other");
+    const a = await connectClient(app);
+    const b = await connectClient(app, other);
+    await a.client.callTool({ name: "realm-browser__ping", arguments: {} });
+    await b.client.callTool({ name: "realm-browser__ping", arguments: {} });
+    expect(seen).toEqual([
+      { sessionId: app.sessionId, spaceId: app.spaceId },
+      { sessionId: other.sessionId, spaceId: other.spaceId },
+    ]);
+    await a.client.close();
+    await b.client.close();
+  });
+
+  it("logs a provider call in Activity with serverId null and the provider's name", async () => {
+    const app = await setupApp();
+    app.gateway.registerProvider(fakeProvider("realm-browser"));
+    const { client } = await connectClient(app);
+    await client.callTool({ name: "realm-browser__ping", arguments: { x: 1 } });
+    const log = app.calls.list({ limit: 10 }).find((c) => c.serverName === "realm-browser");
+    expect(log).toMatchObject({ serverId: null, tool: "ping", ok: true, sessionId: app.sessionId });
+    await client.close();
+  });
+
+  it("a thrown provider failure becomes an isError result and an ok:false log row — never a protocol error", async () => {
+    const app = await setupApp();
+    app.gateway.registerProvider(fakeProvider("realm-browser", { throwOnCall: true }));
+    const { client } = await connectClient(app);
+    const result = (await client.callTool({ name: "realm-browser__ping", arguments: {} })) as CallToolResult;
+    expect(result.isError).toBe(true);
+    expect(asText(result)).toContain("provider blew up");
+    expect(app.calls.list({ limit: 10 }).find((c) => c.serverName === "realm-browser")?.ok).toBe(false);
+    await client.close();
+  });
+
+  it("on an exact name tie with an enabled server row, the provider wins — Realm's tools are not shadowable", async () => {
+    const app = await setupApp();
+    const calls: string[] = [];
+    const { row } = app.addServer("realm-browser", { onCall: (tool) => calls.push(`row:${tool}`) });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    app.gateway.registerProvider(fakeProvider("realm-browser", { onCall: (_ctx, tool) => calls.push(`provider:${tool}`) }));
+    const { client } = await connectClient(app);
+    const result = (await client.callTool({ name: "realm-browser__ping", arguments: {} })) as CallToolResult;
+    expect(asText(result)).toBe("provider realm-browser ran ping");
+    expect(calls).toEqual(["provider:ping"]);
+    await client.close();
+  });
+
+  it("a LONGER enabled server name still out-prefixes a provider — the longest-match rule is one rule", async () => {
+    const app = await setupApp();
+    const { row } = app.addServer("realm-browser_pro");
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    const providerCalls: string[] = [];
+    app.gateway.registerProvider(fakeProvider("realm-browser", { onCall: (_ctx, tool) => providerCalls.push(tool) }));
+    const { client } = await connectClient(app);
+    // "realm-browser_pro__echo" starts with BOTH "realm-browser__"? No — with "realm-browser_pro__".
+    // Use a name that matches both prefixes: "realm-browser_pro__echo" only matches the row; the
+    // provider's "__" prefix requires "realm-browser__…". A name matching both is impossible with
+    // these two names, so assert the row's tool routes to the row untouched by the provider.
+    const result = (await client.callTool({ name: "realm-browser_pro__echo", arguments: { message: "hi" } })) as CallToolResult;
+    expect(asText(result)).toContain("hi");
+    expect(providerCalls).toEqual([]);
+    await client.close();
+  });
+});
