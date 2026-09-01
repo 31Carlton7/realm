@@ -95,15 +95,23 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
 
     cancelViewDestroy(browserId); // a StrictMode remount adopts the still-live view
     void (async () => {
-      const [row, allowlist] = await Promise.all([server.get(browserId), server.allowlist(item.spaceId)]);
-      if (disposed) return;
-      setInitialUrl(row.url);
-      await host.create(browserId, row.url, allowlist);
-      if (disposed) return;
-      created = true;
-      flags.hasUrl = row.url !== "";
-      persisted = { url: row.url, title: row.title };
-      schedule();
+      try {
+        const [row, allowlist] = await Promise.all([server.get(browserId), server.allowlist(item.spaceId)]);
+        if (disposed) return;
+        setInitialUrl(row.url);
+        await host.create(browserId, row.url, allowlist);
+        if (disposed) return;
+        created = true;
+        // `||`: the live state channel may already have spoken (an adopted view emits state during
+        // create) and its url is truer than a row whose debounced persist never landed.
+        flags.hasUrl = flags.hasUrl || row.url !== "";
+        persisted = { url: row.url, title: row.title };
+        schedule();
+      } catch (e) {
+        // The pane shows its DOM empty state; an unhandled rejection here would kill the whole
+        // chain silently (and with it the no-overlay rect updates).
+        console.error("browser pane adopt failed", e);
+      }
     })();
 
     return () => {
@@ -117,10 +125,16 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       window.removeEventListener("dragend", onDragEnd);
       window.removeEventListener("drop", onDragEnd);
       window.removeEventListener("resize", schedule);
-      store?.getState().setBrowserRect(item.id, null); // nothing paints here any more
-      // Closing the pane destroys the view — a browser is not a terminal, no hidden survival.
+      // The no-overlay rect lives and dies WITH THE VIEW, so its clear rides the same deferred
+      // destroy: on a layout remount (leaf reparented by a split/unwrap) the adopted view never
+      // stops painting, and clearing the rect eagerly would open a window — until the remount's
+      // async re-adopt lands — where floating surfaces believe no view exists. A remount cancels
+      // this timer and the rect never blinks; a real close clears rect and view together.
       // (Deferred one macrotask so a StrictMode double-mount re-adopts instead of reloading.)
-      scheduleViewDestroy(browserId, () => void host.destroy(browserId));
+      scheduleViewDestroy(browserId, () => {
+        store?.getState().setBrowserRect(item.id, null); // nothing paints here any more
+        void host.destroy(browserId);
+      });
     };
   }, [browserId, item.id, item.spaceId, store]);
 

@@ -195,7 +195,12 @@ describe("BrowserPane", () => {
       expect(f.bounds.at(-1)!.visible).toBe(false); // native view hidden for the drag...
       expect(store.getState().browserRects).toHaveLength(1); // ...but the no-overlay rect stays
       unmount();
+      // The rect clears WITH the deferred view destroy (one macrotask), not eagerly — a layout
+      // remount cancels that timer and the rect never blinks while the adopted view keeps painting.
+      expect(store.getState().browserRects).toHaveLength(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
       expect(store.getState().browserRects).toEqual([]);
+      expect(f.calls).toContain("destroy:b1");
     });
   });
 
