@@ -115,6 +115,17 @@ describe("one row per model, not per (harness, model)", () => {
     expect(fable(rows)[0]).toMatchObject({ kind: "acp:cursor", modelId: "claude-fable-5.1" });
   });
 
+  it("keeps a model on the session's own harness even when that CLI is signed out", () => {
+    // Availability is reported, never blocking (the install card is the fix, not a silent reroute).
+    // Without the own-harness short-circuit this row would quietly move the session onto Cursor
+    // because Cursor's probe is the happier one — switching the agent under a user who asked for
+    // neither. The note still shows; the route does not change.
+    const signedOut: AgentProbe = { kind: "claude", available: true, version: "1", loggedIn: false, reason: null, models: null };
+    const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
+      agentProbe: [signedOut, probe("acp:cursor", cursorWithClaude)] });
+    expect(fable(rows)[0]).toMatchObject({ kind: "claude", modelId: "claude-fable-5-1", note: "signed out" });
+  });
+
   it("prefers the vendor's own CLI over a proxy when the session's harness offers neither", () => {
     const rows = modelRows({ kind: "codex", model: null, canSwitchAgent: true,
       agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });

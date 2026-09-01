@@ -153,7 +153,10 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
       row.icon = AGENT_META[harness].icon;
       row.note = noteOf.get(harness) ?? null;
       row.modelId = row.ids[harness] ?? null;
-      row.selected = harness === kind && row.ids[kind] === selectedId;
+      // `ids[kind]` exists only for a harness that offers the model, so this already means "on the
+      // session's own harness AND running the pinned id" — no separate `harness === kind` guard,
+      // which would be dead: resolveHarness returns `kind` in exactly the cases where the id is set.
+      row.selected = row.ids[kind] === selectedId;
     }
   }
   return rows;
