@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MODEL_LABEL } from "@realm/contracts";
-import { filterRows, modelRows, railKinds } from "./model-rows";
+import { DEFAULT_MODEL_LABEL, canonicalModelKey } from "@realm/contracts";
+import { filterRows, modelIdOn, modelRows, railKinds, sortFavoritesFirst } from "./model-rows";
 import type { AgentProbe } from "../../state/store";
 
 const probe = (kind: AgentProbe["kind"], models: AgentProbe["models"]): AgentProbe =>
@@ -84,5 +84,131 @@ describe("filterRows at catalog scale", () => {
     expect(cursorOnly).toHaveLength(41);
     expect(new Set(cursorOnly.map((r) => r.kind))).toEqual(new Set(["acp:cursor"]));
     expect(railKinds(rows)).toContain("acp:cursor");
+  });
+});
+
+/** Cursor proxies models other harnesses also run — the overlap the model-first list has to collapse. */
+const cursorWithClaude = [
+  { id: "default[]", label: "Auto" },
+  { id: "claude-fable-5.1", label: "Claude Fable 5.1" }, // Claude's own list calls this claude-fable-5-1
+  { id: "gpt-5.5", label: "GPT-5.5" },
+];
+const missing = (kind: AgentProbe["kind"]): AgentProbe =>
+  ({ kind, available: false, version: null, loggedIn: null, reason: "not on PATH", models: null });
+const fable = (rows: ReturnType<typeof modelRows>) => rows.filter((r) => r.label === "Claude Fable 5.1");
+
+describe("one row per model, not per (harness, model)", () => {
+  it("collapses a model two harnesses offer into a single row that remembers both ids", () => {
+    const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    expect(fable(rows)).toHaveLength(1); // pre-dedupe this was two rows, one per harness
+    expect(fable(rows)[0]).toMatchObject({
+      kind: "claude", harnesses: ["claude", "acp:cursor"],
+      ids: { claude: "claude-fable-5-1", "acp:cursor": "claude-fable-5.1" },
+    });
+  });
+
+  it("routes a merged row through the session's own harness, so picking it switches no agent", () => {
+    const rows = modelRows({ kind: "acp:cursor", model: null, canSwitchAgent: true,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    // Same model, same two harnesses — but this session is on Cursor, so Cursor runs it.
+    expect(fable(rows)[0]).toMatchObject({ kind: "acp:cursor", modelId: "claude-fable-5.1" });
+  });
+
+  it("prefers the vendor's own CLI over a proxy when the session's harness offers neither", () => {
+    const rows = modelRows({ kind: "codex", model: null, canSwitchAgent: true,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    expect(fable(rows)[0]).toMatchObject({ kind: "claude", modelId: "claude-fable-5-1" });
+  });
+
+  it("routes around a harness that isn't installed", () => {
+    const rows = modelRows({ kind: "codex", model: null, canSwitchAgent: true,
+      agentProbe: [missing("claude"), probe("acp:cursor", cursorWithClaude)] });
+    // Declaration order still puts claude first, but it can't run anything — Cursor gets the model.
+    expect(fable(rows)[0]).toMatchObject({ kind: "acp:cursor", modelId: "claude-fable-5.1" });
+  });
+
+  it("blocks a merged row once the session has run and its own harness can't reach the model", () => {
+    const rows = modelRows({ kind: "codex", model: null, canSwitchAgent: false,
+      agentProbe: [probe("codex", null), probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    expect(fable(rows)[0]!.blockedReason).toMatch(/already run/);
+    expect(rows.filter((r) => r.kind === "codex").every((r) => r.blockedReason === null)).toBe(true);
+  });
+
+  it("still marks exactly one row selected once rows are deduped", () => {
+    const rows = modelRows({ kind: "claude", model: "claude-fable-5-1", canSwitchAgent: true,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    expect(rows.filter((r) => r.selected).map((r) => r.label)).toEqual(["Claude Fable 5.1"]);
+  });
+
+  it("never merges two harnesses' adapter-default rows", () => {
+    // "the Codex default" and "the Cursor default" are different models described the same way.
+    const rows = modelRows({ kind: "codex", model: null, canSwitchAgent: true,
+      agentProbe: [probe("codex", [{ id: "gpt-5.6", label: "GPT-5.6" }]), probe("acp:cursor", cursorWithClaude)] });
+    const defaults = rows.filter((r) => r.key.startsWith("default:"));
+    expect(defaults.map((r) => [r.kind, r.label])).toEqual([["codex", DEFAULT_MODEL_LABEL.codex], ["acp:cursor", DEFAULT_MODEL_LABEL["acp:cursor"]]]);
+    expect(defaults.every((r) => r.harnesses.length === 1)).toBe(true);
+  });
+});
+
+describe("modelIdOn", () => {
+  const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
+    agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+
+  it("hands back the id the target harness actually accepts", () => {
+    // What the harness chip re-reads when it moves a chosen model onto another route.
+    expect(modelIdOn(fable(rows)[0]!, "acp:cursor")).toBe("claude-fable-5.1");
+    expect(modelIdOn(fable(rows)[0]!, "claude")).toBe("claude-fable-5-1");
+  });
+
+  it("says undefined — not null — for a harness that doesn't offer the model at all", () => {
+    // null would read as "use that harness's default", which is a different answer from "can't".
+    expect(modelIdOn(fable(rows)[0]!, "codex")).toBeUndefined();
+  });
+});
+
+describe("favourites", () => {
+  const withFavs = (favorites: string[]) => modelRows({ kind: "claude", model: null, canSwitchAgent: true,
+    agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)], favorites });
+
+  it("stars a model by canonical key, whichever harness ends up running it", () => {
+    const rows = withFavs([canonicalModelKey("Claude Fable 5.1")]);
+    expect(rows.filter((r) => r.favorite).map((r) => r.label)).toEqual(["Claude Fable 5.1"]);
+  });
+
+  it("defaults to nothing starred", () => {
+    expect(modelRows({ kind: "claude", model: null, agentProbe: [], canSwitchAgent: true }).some((r) => r.favorite)).toBe(false);
+  });
+
+  it("floats favourites to the top without disturbing either group's order", () => {
+    const rows = withFavs([canonicalModelKey("GPT-5.5"), canonicalModelKey("Claude Sonnet 5")]);
+    const sorted = sortFavoritesFirst(rows);
+    expect(sorted.slice(0, 2).map((r) => r.label)).toEqual(["Claude Sonnet 5", "GPT-5.5"]); // row order, not favourites-array order
+    expect(sorted.filter((r) => !r.favorite).map((r) => r.key)).toEqual(rows.filter((r) => !r.favorite).map((r) => r.key));
+  });
+
+  it("the favourites tab shows starred rows and nothing else", () => {
+    const rows = withFavs([canonicalModelKey("GPT-5.5")]);
+    expect(filterRows(rows, { query: "", provider: "favorites" }).map((r) => r.label)).toEqual(["GPT-5.5"]);
+    expect(filterRows(rows, { query: "", provider: null }).length).toBe(rows.length);
+  });
+});
+
+describe("the rail after dedupe", () => {
+  const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
+    agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+
+  it("a harness tab shows every model that harness can run, not just the ones routed to it", () => {
+    // Fable resolved to the Claude CLI, but Cursor offers it too — hiding it under Cursor's tab
+    // would tell the user Cursor can't run a model it just listed.
+    const cursorTab = filterRows(rows, { query: "", provider: "acp:cursor" }).map((r) => r.label);
+    expect(cursorTab).toContain("Claude Fable 5.1");
+    expect(cursorTab).toContain("GPT-5.5");
+    expect(cursorTab).not.toContain("Claude Sonnet 5"); // claude-only, and Cursor never offered it
+  });
+
+  it("lists every reachable harness, including ones no row resolved to", () => {
+    expect(railKinds(rows)).toContain("acp:cursor");
+    expect(railKinds(rows)).toContain("claude");
   });
 });
