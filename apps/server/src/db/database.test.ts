@@ -352,9 +352,12 @@ function v8McpFixture(path: string): { serverId: string } {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V8_MCP_SERVERS);
   // The fixture is deliberately minimal — only the tables LATER migrations touch. v14 ALTERs
-  // sessions, so a stub of it must exist for the v9..v14 replay to run; its real v3 shape is
-  // exercised by the v4/v5 fixtures above.
+  // sessions and v15 reads items/session_events and writes settings, so stubs of those must exist
+  // for the v9..v15 replay to run; their real v1/v3 shapes are exercised by the v4/v5 fixtures above.
   db.exec("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY)");
+  db.exec("CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '')");
+  db.exec("CREATE TABLE IF NOT EXISTS session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT)");
+  db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL)");
   for (const v of [1, 2, 3, 4, 5, 6, 7, 8]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run("srv1", "airtable", "stdio", "/usr/bin/node", '["/abs/s.mjs"]', "", '{"AIRTABLE_API_KEY":"pat-x"}', 1, 1);
@@ -434,6 +437,44 @@ describe("migration v14 — dispatch origin (Plan 13 W1; renumbered past Plan 14
     const row = db.prepare("SELECT dispatched_by_kind, dispatched_by_session_id FROM sessions WHERE id = 'se1'").get() as { dispatched_by_kind: string | null; dispatched_by_session_id: string | null };
     expect(row.dispatched_by_kind).toBeNull();
     expect(row.dispatched_by_session_id).toBeNull();
+    db.close();
+  });
+});
+
+describe("migration v15 — the search index (Plan 16 W1)", () => {
+  // The v4 fixture again: real items and sessions, migrated the whole way forward.
+  const migrated = () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    // A pre-v15 transcript, inserted raw (no store, so no write-time indexing) before openDatabase
+    // replays the chain — exactly what an upgrading home holds.
+    const raw = new DatabaseSync(p);
+    raw.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('se1', 1, 'user_message', ?)")
+      .run(JSON.stringify({ text: "an old pangolin question", attachments: [] }));
+    raw.close();
+    return { p, db: openDatabase(p) };
+  };
+
+  it("creates the FTS table and backfills item titles inline", () => {
+    const { db } = migrated();
+    const rows = db.prepare("SELECT text, ref FROM search_index WHERE kind = 'item'").all() as { text: string; ref: string }[];
+    expect(rows).toEqual([{ text: "versed", ref: "it-term" }]);
+    db.close();
+  });
+
+  it("does NOT backfill events inline — it freezes the resumable cursor for the boot-time backfill instead", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT COUNT(*) AS n FROM search_index WHERE kind = 'session'").get() as { n: number }).n).toBe(0);
+    const cursor = JSON.parse((db.prepare("SELECT value_json FROM settings WHERE key = 'search.backfill'").get() as { value_json: string }).value_json) as { done: number; target: number };
+    expect(cursor.done).toBe(0);
+    expect(cursor.target).toBeGreaterThan(0); // MAX(seq) of the pre-existing history
+    db.close();
+  });
+
+  it("a fresh (no-history) home gets a closed cursor: done 0, target 0 — nothing to backfill", () => {
+    const db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db"));
+    const cursor = JSON.parse((db.prepare("SELECT value_json FROM settings WHERE key = 'search.backfill'").get() as { value_json: string }).value_json) as { done: number; target: number };
+    expect(cursor).toEqual({ done: 0, target: 0 });
     db.close();
   });
 });

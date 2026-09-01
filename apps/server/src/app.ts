@@ -40,6 +40,7 @@ import { EnvironmentService } from "./environments/service";
 import { CheckpointsStore } from "./store/checkpoints";
 import { CheckpointGit } from "./workspace/checkpoints";
 import { CheckpointService } from "./checkpoints/service";
+import { SearchService } from "./search/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 import { machineName } from "./machine-name";
@@ -268,6 +269,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
+  // Global search (Plan 16 W1). The service reads; the index writes live in the stores' own choke
+  // points (SessionEventsStore.append, ItemsStore) so no producer can skip them.
+  const search = new SearchService({ db, settings, profiles, spaces, skills, memory });
   const ships = new ShipsStore(db);
   const gitWrite = new GitWriteService({ shipLog: (entry) => {
     ships.record(entry);
@@ -275,9 +279,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search,
   });
   sessions.markStaleOnBoot();
+  // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
+  // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
+  // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
+  void search.runBackfill();
   terminals.restoreAll();
   // The gateway must be accepting connections before any session can start (its listener mints the URL
   // every `sessions.create` → send hands an adapter), and well before the RPC socket opens to clients.
@@ -286,6 +294,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   return {
     port, db, terminals, sessions, browserAgents, agentRuns, reviews, gateway: mcpGateway,
     close: async () => {
+      search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
       terminals.closeAll();
       await sessions.closeAll();
       // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go

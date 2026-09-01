@@ -8,6 +8,7 @@ import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, 
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
 import { ReviewResultSchema } from "./review";
+import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -314,6 +315,20 @@ export const Methods = {
    * rewriting a working tree under a live agent's feet corrupts whatever it is halfway through.
    */
   "checkpoints.restore": { params: z.object({ id: IdSchema, acknowledge: RestoreAckSchema }), result: RestoreResultSchema },
+
+  /**
+   * Deep search across ONE profile's world (Plan 16 W1): session transcripts (user + assistant text)
+   * and item titles from the FTS index, skills and memory documents read live off disk at query time
+   * (they are user-editable files; an index over them would only ever be a way to be wrong).
+   *
+   * Profile scoping is enforced HERE, by the server's space→profile join — a Work search must not
+   * surface a School transcript, and no client-side filter is trusted with that. `limit` caps each
+   * GROUP, not the whole answer.
+   */
+  "search.query": {
+    params: z.object({ profileId: IdSchema, query: z.string().min(1).max(SEARCH_QUERY_MAX), limit: z.number().int().min(1).max(SEARCH_GROUP_LIMIT_MAX).default(SEARCH_GROUP_LIMIT) }),
+    result: SearchResultsSchema,
+  },
 
   "items.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ItemSchema) },
   /** Every item across every space (command palette search); newest-updated first. */

@@ -85,6 +85,10 @@ export class SessionsStore {
   }
   delete(id: string): void {
     if (!this.get(id)) throw new NotFoundError("session", id);
+    // The FTS rows do not cascade (virtual tables have no foreign keys), so a deleted session's
+    // transcript is scrubbed from the index here — search must not keep quoting a transcript whose
+    // events are gone.
+    this.db.prepare("DELETE FROM search_index WHERE kind = 'session' AND ref = ?").run(id);
     this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
   }
 }
@@ -96,7 +100,16 @@ export class SessionEventsStore {
   append(sessionId: string, event: SessionEvent): StoredSessionEvent {
     const r = this.db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)")
       .run(sessionId, event.ts, event.type, JSON.stringify(event.payload));
-    return { seq: Number(r.lastInsertRowid), sessionId, event };
+    const seq = Number(r.lastInsertRowid);
+    // The search index's session source (Plan 16 W1), written HERE — the one choke point every
+    // persisted event passes through — so no producer (pump, emitExternal, boot's synthetic denies)
+    // can skip it, and so the FTS row commits in the same transaction as the event when the caller
+    // (SessionService.persist) holds one. Only the two spoken-text types are search material.
+    if ((event.type === "user_message" || event.type === "assistant_text") && event.payload.text.trim() !== "") {
+      this.db.prepare("INSERT INTO search_index (text, kind, ref, seq) VALUES (?, 'session', ?, ?)")
+        .run(event.payload.text, sessionId, seq);
+    }
+    return { seq, sessionId, event };
   }
   /** Any persisted event at all — the authority behind the `sessions.setAgent` guard. */
   hasAny(sessionId: string): boolean {
