@@ -1,10 +1,12 @@
-import { AGENT_META, SPACE_COLORS, SPACE_ICONS, type Checkpoint, type DispatchKind, type Environment, type Session, type Ship } from "@realm/contracts";
+import { AGENT_META, SPACE_COLORS, type Checkpoint, type DispatchKind, type Environment, type Session, type Ship } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { useApp, type SpacePageTab } from "../../state/store";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { McpSection } from "../../components/sidebar/McpSection";
 import { BrowserOrigins } from "../../components/sidebar/BrowserOrigins";
+import { IconPicker } from "../../components/IconPicker";
+import { SpaceIcon } from "../../components/SpaceIcon";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import type { PaneProps } from "../registry";
@@ -92,12 +94,7 @@ function GeneralTab({ spaceId }: { spaceId: string }) {
           onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
       </label>
       <div className="field"><span>Icon</span>
-        <div className="icon-grid" role="radiogroup" aria-label="Icon">
-          {SPACE_ICONS.map((ic) => (
-            <button key={ic} type="button" role="radio" aria-checked={space.icon === ic} aria-label={`Icon ${ic}`} className="icon-choice" data-selected={space.icon === ic || undefined}
-              onClick={() => run(() => updateSpace({ id: space.id, icon: ic }))}><Icon name={ic} size={18} /></button>
-          ))}
-        </div>
+        <IconPicker icon={space.icon} profileId={space.profileId} onPick={(ic) => run(() => updateSpace({ id: space.id, icon: ic }))} />
       </div>
       <div className="field"><span>Color</span>
         <div className="swatches" role="radiogroup" aria-label="Color">
@@ -405,7 +402,7 @@ export function SpacePage({ item }: PaneProps) {
     // it is the swiper's per-space sidebar column).
     <div className="page space-page-pane">
       <header className="page-head">
-        <span className="page-glyph" style={{ color: space.color }}><Icon name={space.icon} size={20} /></span>
+        <span className="page-glyph" style={{ color: space.color }}><SpaceIcon icon={space.icon} size={20} /></span>
         <div className="page-title">
           <h1>{space.name}</h1>
           <span className="page-sub">{count === 1 ? "1 session" : `${count} sessions`}</span>

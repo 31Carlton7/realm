@@ -297,4 +297,21 @@ export const migrations: string[] = [
   INSERT INTO settings (key, value_json)
     VALUES ('search.backfill', json_object('done', 0, 'target', COALESCE((SELECT MAX(seq) FROM session_events), 0)));
   `,
+  // v16 — the icon asset library behind the space icon picker's "Generated"/"Uploaded" sections: one
+  // row per AI-generated or uploaded icon, saved per PROFILE (never per-space) so the same generation
+  // or upload is reusable by every space under it — the same posture the default icon list already
+  // has (one shared set, not copied per space). `Space.icon` keeps its existing `z.string()` shape;
+  // a row here is addressed as `"asset:" + id` (`parseSpaceIcon`, packages/contracts/src/presets.ts).
+  //
+  // `data_text` is a base64 data URL for an uploaded raster image, or raw SVG markup for a generated
+  // icon (`mime` disambiguates) — plain TEXT alongside the row, the same posture `layout_json` /
+  // `tools_json` / `oauth_json` already take for small JSON/text blobs, so no file-serving IPC or
+  // on-disk asset directory is needed: the RPC layer returns the data inline.
+  `
+  CREATE TABLE icon_assets (
+    id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL, mime TEXT NOT NULL, data_text TEXT NOT NULL, prompt TEXT,
+    created_at INTEGER NOT NULL);
+  CREATE INDEX icon_assets_profile ON icon_assets(profile_id, created_at DESC);
+  `,
 ];

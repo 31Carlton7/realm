@@ -261,6 +261,31 @@ kbd { font: 11px var(--font-mono); }
 .mp-check { flex: none; color: var(--rl-accent); }
 .mp-blocked { flex: none; color: var(--rl-text-faint); }
 .mp-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
+
+/* ── Space icon picker (SpacePage's General tab): trigger + tabbed popover ── */
+.icon-picker-trigger { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r-ctl);
+  border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-dim); align-self: flex-start; }
+.icon-picker-trigger:hover { color: var(--rl-text-bright); }
+.icon-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); animation: rl-menu-in 140ms var(--ease-out-strong); }
+.ip-tabs { display: flex; border-bottom: 1px solid var(--rl-hairline); }
+.ip-tab { flex: 1; padding: 8px 6px; font-size: 12px; color: var(--rl-text-dim); border-bottom: 2px solid transparent; }
+.ip-tab:hover { color: var(--rl-text-bright); }
+.ip-tab[aria-selected="true"] { color: var(--rl-text-bright); border-bottom-color: var(--rl-accent); }
+.ip-search { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
+.ip-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
+.ip-search input::placeholder { color: var(--rl-text-faint); }
+.ip-emoji-groups { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--rl-hairline); }
+.ip-emoji-group-btn { padding: 3px 7px; border-radius: var(--r-chip); font-size: 10.5px; color: var(--rl-text-dim); background: var(--rl-panel); }
+.ip-emoji-group-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
+.ip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; max-height: min(46vh, 300px); overflow-y: auto; }
+.ip-emoji { font-size: 18px; }
+.ip-empty { padding: 14px 6px; text-align: center; font-size: 12px; color: var(--rl-text-dim); width: 100%; }
+.ip-generate { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.ip-generate-prompt { min-height: 56px; resize: vertical; padding: 8px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line);
+  background: var(--rl-panel); color: var(--rl-text-bright); font: inherit; font-size: 12.5px; }
+.ip-generate .ip-grid { padding: 0; border-top: 1px solid var(--rl-hairline); padding-top: 10px; }
+.ip-error { color: var(--rl-warning); font-size: 11.5px; }
 /* Overflow home (Ara refresh §3): when the prompter's control row cannot fit its chips, effort +
    permission live here — labelled option groups under the model list, whole (never search-filtered). */
 .mp-overflow { border-top: 1px solid var(--rl-hairline); padding: 8px 11px; display: flex; flex-direction: column; gap: 6px; }

@@ -11,6 +11,8 @@ interface Window {
     pickFiles(): Promise<PickedFile[]>;
     /** Downscaled data: URL for an image attachment; null for anything not a readable image. */
     attachmentThumbnail(path: string): Promise<string | null>;
+    /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
+    pickIconImage(): Promise<PickedFile | null>;
     /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
     saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedFile>;
     /** Real filesystem path behind a dropped File ("" when it has none — a pasted image). */

@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { spaceBadge, useApp } from "../../state/store";
+import { SpaceIcon } from "../SpaceIcon";
 
 const BADGE_LABEL = { running: "agent running", waiting_permission: "agent needs permission", error: "agent error" } as const;
 
@@ -51,7 +52,7 @@ export function SpaceStrip() {
             onDragOver={onDragOver(sp.id)} onDragLeave={() => { if (overId === sp.id) setOverId(null); }}
             onDrop={(e) => { e.preventDefault(); drop(sp.id); }} onDragEnd={() => { setDragId(null); setOverId(null); }}
             onClick={() => run(() => selectSpace(sp.id))}>
-            <Icon name={sp.icon} size={16} />
+            <SpaceIcon icon={sp.icon} size={16} />
             <span className="strip-dot" aria-hidden />
             {badge && <span className="strip-badge" data-status={badge} role="status" aria-label={`${sp.name}: ${BADGE_LABEL[badge]}`} />}
           </button>

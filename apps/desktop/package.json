@@ -38,6 +38,7 @@
     "react-resizable-panels": "^3.0.0",
     "shadow-plugin": "^2.1.0",
     "tailwindcss": "^4.3.3",
+    "unicode-emoji-json": "^0.9.0",
     "vite": "^6.0.0",
     "zustand": "^5.0.0"
   },

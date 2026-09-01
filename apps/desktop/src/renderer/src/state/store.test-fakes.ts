@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { SearchResults } from "@realm/contracts";
 
@@ -50,6 +50,10 @@ export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}):
 export const notification = (id: string, extra: Partial<Notification> = {}): Notification =>
   ({ id, category: "session_done", spaceId: "s1", sessionId: null, refId: null, title: "a session",
     body: "Finished a turn", createdAt: 0, readAt: null, actedAt: 0, ...extra });
+
+export const iconAsset = (id: string, profileId: string, extra: Partial<IconAsset> = {}): IconAsset =>
+  ({ id, profileId, kind: "generated", mime: "image/svg+xml", dataText: `<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="20"/></svg>`,
+    prompt: "a circle", createdAt: 0, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
@@ -132,6 +136,11 @@ export type FakeData = {
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
    *  Delay it with `delays["search"]` to hold results in flight. */
   searchResults?: SearchResults;
+  /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. */
+  iconAssets?: Record<string, IconAsset[]>;
+  /** What `pickIconImage()` answers with. Defaults to null (cancelled) — a test opts in by setting
+   *  it, and mutates `api.data.pickIconImage` between calls to change the answer (not consumed). */
+  pickIconImage?: PickedFile | null;
 };
 
 export type FakeApi = Api & {
@@ -205,6 +214,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     notifications: overrides.notifications ?? [],
     reviews: overrides.reviews ?? {},
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
+    iconAssets: overrides.iconAssets ?? {},
+    pickIconImage: overrides.pickIconImage ?? null,
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -300,6 +311,23 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pickFolder: async () => "/tmp/picked-repo",
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
+    listIconAssets: async (profileId) => { calls.push(`listIconAssets:${profileId}`); return data.iconAssets[profileId] ?? []; },
+    generateIconAsset: async (profileId, prompt) => {
+      calls.push(`generateIconAsset:${profileId}:${prompt}`);
+      await wait("generateIconAsset");
+      const a = iconAsset(`ia${++n}`, profileId, { prompt });
+      (data.iconAssets[profileId] ??= []).unshift(a); return a;
+    },
+    pickIconImage: async () => { calls.push("pickIconImage"); return data.pickIconImage; },
+    uploadIconAsset: async (profileId, path) => {
+      calls.push(`uploadIconAsset:${profileId}:${path}`);
+      const a = iconAsset(`ia${++n}`, profileId, { kind: "image", mime: "image/png", dataText: "data:image/png;base64,ZmFrZQ==", prompt: null });
+      (data.iconAssets[profileId] ??= []).unshift(a); return a;
+    },
+    deleteIconAsset: async (id) => {
+      calls.push(`deleteIconAsset:${id}`);
+      for (const k of Object.keys(data.iconAssets)) data.iconAssets[k] = data.iconAssets[k]!.filter((a) => a.id !== id);
+    },
     // Electron hands a dropped File its real path; a pasted one has none, which is how attachFiles
     // tells the two apart. Tests set `path` on the fake File to say which it is.
     pathForFile: (file) => (file as File & { path?: string }).path ?? "",

@@ -1,6 +1,45 @@
 export const SPACE_COLORS = ["#7c6cff", "#3ddc97", "#ffb454", "#ff6b8b", "#4cc9f0", "#f4a261", "#a3e635", "#c084fc", "#38bdf8", "#fb7185"] as const;
-export const SPACE_ICONS = ["briefcase", "cap", "home", "folder", "terminal", "browser", "session", "artifact", "context", "layout"] as const;
+/**
+ * Every glyph a space's icon picker offers under its "Default" section. Curated one-clean-variant-
+ * per-concept from the much larger `@hugeicons-pro/core-stroke-standard` pack already vendored into
+ * `@realm/ui`'s `Icon` component (`packages/ui/src/Icon.tsx`) — this list and that map's keys must
+ * stay in lockstep, since a name here with no matching entry there silently falls back to the folder
+ * glyph. The first ten are the original set (unchanged order, so existing spaces keep their glyph).
+ */
+export const SPACE_ICONS = [
+  "briefcase", "cap", "home", "folder", "terminal", "browser", "session", "artifact", "context", "layout",
+  "rocket", "star", "book", "camera", "musicNote", "shield", "flag", "coffee", "target", "compass",
+  "crown", "calendar", "clock", "gameController", "paintBrush", "magicWand", "tree", "building", "zap", "diamond",
+  "fire", "leaf", "mountain", "flower", "rainbow", "umbrella", "cloud", "anchor", "puzzle", "gift",
+  "trophy", "lightbulb", "key", "lock", "bell", "mic", "headphones", "video", "dice", "store",
+  "house", "plane", "train", "bike", "globe2", "paintBucket", "pen", "ruler", "penTool", "startUp",
+  "bookmark", "bookOpen2", "heart", "heartbreak", "cameraAi", "fireworks", "diceFaces", "gameboy", "pentagon", "microscope",
+] as const;
 export const pickSpaceColor = (i: number): string => SPACE_COLORS[i % SPACE_COLORS.length]!;
+
+/**
+ * `Space.icon` (and `Profile.icon`) stay a plain string on the wire — no schema change, fully
+ * backward compatible with every row written before this parsed convention existed. A bare name (no
+ * `:`) is every icon ever stored before user-generated icons existed, so it parses as the default
+ * `hugeicon` kind rather than needing a one-time data migration.
+ *
+ * - `hugeicon:<name>` (or a bare name) — one of `SPACE_ICONS`, rendered by `@realm/ui`'s `Icon`.
+ * - `emoji:<char>` — a raw unicode emoji, rendered as text (native OS rendering, no asset).
+ * - `asset:<id>` — a user-generated or uploaded `IconAsset` row, looked up by id.
+ */
+export type SpaceIconRef = { kind: "hugeicon"; name: string } | { kind: "emoji"; char: string } | { kind: "asset"; id: string };
+export function parseSpaceIcon(icon: string): SpaceIconRef {
+  const i = icon.indexOf(":");
+  if (i < 0) return { kind: "hugeicon", name: icon };
+  const kind = icon.slice(0, i);
+  const rest = icon.slice(i + 1);
+  if (kind === "emoji" && rest.length > 0) return { kind: "emoji", char: rest };
+  if (kind === "asset" && rest.length > 0) return { kind: "asset", id: rest };
+  // Anything else (including a malformed `emoji:`/`asset:` with nothing after the colon, or an
+  // explicit `hugeicon:name`) degrades to a hugeicon lookup — `Icon` already falls back to the
+  // folder glyph for a name it doesn't recognize, so this can never render nothing.
+  return { kind: "hugeicon", name: kind === "hugeicon" ? rest : icon };
+}
 
 /** One pickable model: the id the wire transmits and the name the row shows. */
 export type AgentModel = { id: string; label: string };

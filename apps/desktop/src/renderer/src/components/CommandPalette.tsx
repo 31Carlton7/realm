@@ -6,6 +6,7 @@ import { centerOverComplement } from "../state/no-overlay";
 import { useApp, useBrowserRects, type AppState } from "../state/store";
 import type { ThemePref } from "../theme/useTheme";
 import { ItemGlyph } from "./sidebar/ItemList";
+import { SpaceIcon } from "./SpaceIcon";
 
 type Entry = { id: string; label: string; hint?: ReactNode; icon: ReactNode; run: () => void; section: string; disabled?: boolean;
   /** A deep-search row (Plan 16 W2): rendered below the instant rows, under its group header even
@@ -194,7 +195,13 @@ function PaletteBody() {
     const actions: Entry[] = [
       // A pending permission anywhere leads the actions — it is the hottest thing in the app (U-H4).
       ...(anyWaiting ? [act("respond-permission", "Respond to pending permission", "alert", () => run(() => jumpToPermission()))] : []),
-      ...spaces.map((sp) => act(`space-${sp.id}`, `Switch to ${sp.name}`, sp.icon, () => run(() => selectSpace(sp.id)), sp.id === activeSpaceId ? "current" : undefined)),
+      // Built directly rather than via `act()`: a space's icon can be an emoji or a saved asset
+      // (`parseSpaceIcon`), not just a Hugeicons name, so it needs `SpaceIcon`'s resolver — the same
+      // reason the `item:` entries above bypass `act()` for `ItemGlyph`.
+      ...spaces.map((sp): Entry => ({
+        id: `act:space-${sp.id}`, label: `Switch to ${sp.name}`, icon: <SpaceIcon icon={sp.icon} size={15} />,
+        run: () => run(() => selectSpace(sp.id)), section: "Actions", hint: sp.id === activeSpaceId ? "current" : undefined,
+      })),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), <kbd>⌘T</kbd>),
       act("new-browser", "New browser", "browser", () => run(() => newBrowser())),
       // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useApp, type ProfilePageTab } from "../../state/store";
 import { MoveScopeConfirm } from "../../components/scoped/ScopeGroups";
 import { McpServerForm } from "../../components/sidebar/McpSection";
+import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
 
 const PROFILE_TABS: { id: ProfilePageTab; label: string }[] = [
@@ -58,7 +59,7 @@ export function ProfilePage({ item }: PaneProps) {
         {profileSpaces.map((sp) => (
           <button key={sp.id} type="button" className="profile-chip" title={`Switch to ${sp.name}`}
             onClick={() => run(() => selectSpace(sp.id))}>
-            <Icon name={sp.icon} size={13} /> {sp.name}
+            <SpaceIcon icon={sp.icon} size={13} /> {sp.name}
           </button>
         ))}
       </div>

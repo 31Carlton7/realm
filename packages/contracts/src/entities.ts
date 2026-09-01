@@ -19,6 +19,21 @@ export const SpaceSchema = z.object({
 });
 export type Space = z.infer<typeof SpaceSchema>;
 
+/**
+ * A user-generated (AI-prompted) or uploaded icon, saved once per profile and reusable by any space
+ * under it (Space icon picker's "Generated"/"Uploaded" sections) — `Space.icon = "asset:" + id`
+ * (`parseSpaceIcon`, presets.ts) points at one of these. `dataText` is a base64 data URL for an
+ * uploaded raster image, or raw sanitized SVG markup for a generated icon (`mime` disambiguates).
+ */
+export const IconAssetKindSchema = z.enum(["image", "generated"]);
+export type IconAssetKind = z.infer<typeof IconAssetKindSchema>;
+export const IconAssetSchema = z.object({
+  id: IdSchema, profileId: IdSchema, kind: IconAssetKindSchema, mime: z.string(), dataText: z.string(),
+  /** The description that produced it — null for uploads. */
+  prompt: z.string().nullable(), createdAt: z.number().int(),
+});
+export type IconAsset = z.infer<typeof IconAssetSchema>;
+
 export const ProjectSchema = z.object({
   id: IdSchema, spaceId: IdSchema, name: z.string().min(1), rootPath: z.string(),
   defaultBranch: z.string().default("main"), ...Timestamps,

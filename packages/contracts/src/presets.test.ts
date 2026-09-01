@@ -1,9 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, acpBuildMode, acpPlanMode, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
-  it("has at least 8 colors and icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(8); });
+  it("has at least 8 colors and a lot more icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(50); });
+  it("has no duplicate icon names", () => { expect(new Set(SPACE_ICONS).size).toBe(SPACE_ICONS.length); });
   it("pickSpaceColor cycles by index", () => { expect(pickSpaceColor(0)).toBe(SPACE_COLORS[0]); expect(pickSpaceColor(SPACE_COLORS.length)).toBe(SPACE_COLORS[0]); });
+});
+
+describe("parseSpaceIcon", () => {
+  it("parses a bare name (every icon ever stored before user-generated icons existed) as a hugeicon", () => {
+    expect(parseSpaceIcon("folder")).toEqual({ kind: "hugeicon", name: "folder" });
+  });
+  it("parses emoji: and asset: prefixes", () => {
+    expect(parseSpaceIcon("emoji:🚀")).toEqual({ kind: "emoji", char: "🚀" });
+    expect(parseSpaceIcon("asset:01ABC")).toEqual({ kind: "asset", id: "01ABC" });
+  });
+  it("parses an explicit hugeicon: prefix", () => {
+    expect(parseSpaceIcon("hugeicon:rocket")).toEqual({ kind: "hugeicon", name: "rocket" });
+  });
+  it("degrades a malformed prefix (nothing after the colon) to a hugeicon lookup, never throwing", () => {
+    expect(parseSpaceIcon("emoji:")).toEqual({ kind: "hugeicon", name: "emoji:" });
+    expect(parseSpaceIcon("asset:")).toEqual({ kind: "hugeicon", name: "asset:" });
+  });
 });
 
 describe("AGENT_LOGIN_HINTS", () => {

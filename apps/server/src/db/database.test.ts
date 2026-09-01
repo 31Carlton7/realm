@@ -478,3 +478,28 @@ describe("migration v15 — the search index (Plan 16 W1)", () => {
     db.close();
   });
 });
+
+describe("migration v16 — the icon asset library", () => {
+  it("adds icon_assets to a pre-v16 (v4-forward) home, scoped to a profile", () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    const db = openDatabase(p);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    db.prepare("INSERT INTO icon_assets (id, profile_id, kind, mime, data_text, prompt, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("ia1", "p1", "generated", "image/svg+xml", "<svg viewBox=\"0 0 48 48\"></svg>", "a pangolin", 1);
+    const row = db.prepare("SELECT * FROM icon_assets WHERE id = ?").get("ia1") as { profile_id: string; kind: string; prompt: string | null };
+    expect(row).toMatchObject({ profile_id: "p1", kind: "generated", prompt: "a pangolin" });
+    db.close();
+  });
+
+  it("cascades on profile deletion", () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    const db = openDatabase(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.prepare("INSERT INTO icon_assets (id, profile_id, kind, mime, data_text, prompt, created_at) VALUES ('ia1', 'p1', 'image', 'image/png', 'ZGF0YQ==', NULL, 1)").run();
+    db.prepare("DELETE FROM profiles WHERE id = 'p1'").run();
+    expect((db.prepare("SELECT COUNT(*) AS n FROM icon_assets").get() as { n: number }).n).toBe(0);
+    db.close();
+  });
+});

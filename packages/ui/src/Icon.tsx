@@ -8,6 +8,14 @@ import {
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
   Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon,
   Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon,
+  // Space icon picker's "Default" section (SPACE_ICONS, packages/contracts/src/presets.ts) — every
+  // name there must have a matching key below.
+  Rocket01Icon, StarIcon, Book01Icon, Camera01Icon, MusicNote01Icon, Shield01Icon, Flag01Icon, Coffee01Icon, Target01Icon, Compass01Icon,
+  CrownIcon, Calendar01Icon, Clock01Icon, GameController01Icon, PaintBrush01Icon, MagicWand01Icon, Tree01Icon, Building01Icon, ZapIcon, DiamondIcon,
+  FireIcon, Leaf01Icon, MountainIcon, FlowerIcon, RainbowIcon, UmbrellaIcon, CloudIcon, AnchorIcon, PuzzleIcon, GiftIcon,
+  Award01Icon, BulbIcon, Key01Icon, LockIcon, Notification01Icon, Mic01Icon, HeadphonesIcon, Video01Icon, DiceIcon, Store01Icon,
+  House01Icon, PlaneIcon, Train01Icon, BicycleIcon, Globe02Icon, PaintBucketIcon, Pen01Icon, RulerIcon, PenTool01Icon, StartUp01Icon,
+  Bookmark01Icon, BookOpen02Icon, FavouriteIcon, HeartbreakIcon, CameraAiIcon, FireworksIcon, DiceFaces01Icon, GameboyIcon, PentagonIcon, MicroscopeIcon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -23,6 +31,19 @@ export const icons = {
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
   laptop: LaptopIcon, plug: PlugSocketIcon,
+  // Space icon picker's "Default" section — one entry per SPACE_ICONS name (packages/contracts/src/presets.ts).
+  rocket: Rocket01Icon, star: StarIcon, book: Book01Icon, camera: Camera01Icon, musicNote: MusicNote01Icon,
+  shield: Shield01Icon, flag: Flag01Icon, coffee: Coffee01Icon, target: Target01Icon, compass: Compass01Icon,
+  crown: CrownIcon, calendar: Calendar01Icon, clock: Clock01Icon, gameController: GameController01Icon, paintBrush: PaintBrush01Icon,
+  magicWand: MagicWand01Icon, tree: Tree01Icon, building: Building01Icon, zap: ZapIcon, diamond: DiamondIcon,
+  fire: FireIcon, leaf: Leaf01Icon, mountain: MountainIcon, flower: FlowerIcon, rainbow: RainbowIcon,
+  umbrella: UmbrellaIcon, cloud: CloudIcon, anchor: AnchorIcon, puzzle: PuzzleIcon, gift: GiftIcon,
+  trophy: Award01Icon, lightbulb: BulbIcon, key: Key01Icon, lock: LockIcon, bell: Notification01Icon,
+  mic: Mic01Icon, headphones: HeadphonesIcon, video: Video01Icon, dice: DiceIcon, store: Store01Icon,
+  house: House01Icon, plane: PlaneIcon, train: Train01Icon, bike: BicycleIcon, globe2: Globe02Icon,
+  paintBucket: PaintBucketIcon, pen: Pen01Icon, ruler: RulerIcon, penTool: PenTool01Icon, startUp: StartUp01Icon,
+  bookmark: Bookmark01Icon, bookOpen2: BookOpen02Icon, heart: FavouriteIcon, heartbreak: HeartbreakIcon, cameraAi: CameraAiIcon,
+  fireworks: FireworksIcon, diceFaces: DiceFaces01Icon, gameboy: GameboyIcon, pentagon: PentagonIcon, microscope: MicroscopeIcon,
   // Item-kind keyed (ItemList/PanelBar render `Icon name={item.kind}`): the space page (Plan 12 W3)
   // and the sidebar destinations (W4).
   "space-page": Home01Icon,
