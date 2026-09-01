@@ -30,6 +30,10 @@ export function Destinations() {
         <Icon name="notifications-page" size={16} /><span>Notifications</span>
         {unread > 0 && <span className="status-pill dest-count" data-tone="warning" aria-label={`${unread} unread`}>{unread}</span>}
       </button>
+      {/* Seam (Plan 14 W5, deliberately unbuilt): when Plan 13's Tasks lens lands, its row goes here
+          with a running-tasks count pill on the Notifications pattern above — server-derived count,
+          rendered only when non-zero. Not stubbed now: a row for a page that does not exist yet is
+          exactly the dead chrome this nav bans. */}
     </nav>
   );
 }

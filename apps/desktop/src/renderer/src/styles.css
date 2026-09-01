@@ -472,6 +472,11 @@ button.panel-title:hover { background: var(--rl-hover); }
    14px 16px padding, 85% max — and, copying Ara exactly, ragged-left (text-align: right). */
 .msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: right;
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Attached-file chips inside the user bubble (Plan 14 W5) — an attachment-only message still shows
+   WHAT it carried. Flex so the pre-wrap bubble's whitespace rules don't mangle the chip row. */
+.msg-user-files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-top: 2px; }
+.msg-user-file { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--r-ctl);
+  border: 1px solid var(--rl-line); font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }
 /* Ara refresh §4: assistant prose is plain — 15px/1.6, no card. */
 .msg-assistant { max-width: 72ch; font-size: 15px; line-height: 1.6; }
 .md { line-height: 1.55; overflow-wrap: anywhere; }

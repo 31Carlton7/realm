@@ -590,6 +590,16 @@ describe("AcpAdapter", () => {
     await linked.handle.dispose();
   });
 
+  it("attachment-only: no empty text block is manufactured — the attachments ARE the prompt (Plan 14 W5)", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "", attachments: [{ path: "/tmp/notes.txt", mime: "text/plain" }] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!)).toEqual([
+      { type: "resource_link", uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain" },
+    ]);
+    await handle.dispose();
+  });
+
   it("links non-image attachments rather than embedding them", async () => {
     const { handle, evs } = await booted();
     // Cursor reports embeddedContext:false, so a `resource` block would be rejected outright.

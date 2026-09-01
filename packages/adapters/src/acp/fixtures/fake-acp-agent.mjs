@@ -147,7 +147,10 @@ async function runTurn(id, sessionId, prompt) {
     return;
   }
   if (text.includes("HANG")) return; // resolved only by session/cancel
-  if (text.includes("ECHO")) message(sessionId, JSON.stringify(prompt));
+  // An attachment-only prompt has no text block at all (Plan 14 W5) — echoed like ECHO, for the same
+  // input-shape assertions.
+  const hasTextBlock = Array.isArray(prompt) && prompt.some((b) => b && b.type === "text");
+  if (text.includes("ECHO") || !hasTextBlock) message(sessionId, JSON.stringify(prompt));
   else if (text.includes("REVEAL")) message(sessionId, JSON.stringify(journal));
   else if (text.includes("PERMIT2")) await Promise.all([permitTurn(sessionId, 0), permitTurn(sessionId, 1)]);
   else if (text.includes("PERMIT")) await permitTurn(sessionId, 0);

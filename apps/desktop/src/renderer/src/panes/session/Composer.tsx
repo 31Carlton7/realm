@@ -401,7 +401,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     { label: "New worktree…", onSelect: () => onNewWorktree?.() },
   ];
 
-  const send = () => { const t = draft.trim(); if (!t) return; onSend(t); onDraftChange(""); };
+  // Attachment-only messages (Plan 14 W5): a send needs text OR at least one attachment this agent
+  // will actually receive. Attachments whose disposition is `ignored` (non-images on Claude, anything
+  // on the fake agent) can't carry a message by themselves — the adapter would deliver literally
+  // nothing — so they don't unlock the button, and its tooltip says why.
+  const deliverable = attachments.some((a) => attachmentDisposition(kind, a.mime) !== "ignored");
+  const send = () => { const t = draft.trim(); if (!t && !deliverable) return; onSend(t); onDraftChange(""); };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); return; }
@@ -530,12 +535,15 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               agentProbe={agentProbe} onPick={onPickModel} effortItems={effortItems} overflow={overflow} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
-            {/* `sessions.send` requires non-empty text (rpc.ts), so attachments alone cannot be sent.
-                Rather than let the button look broken, it says why. */}
+            {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's
+                text.min(1) for exactly this); ones it would IGNORE cannot — rather than let the
+                button look broken there, it says why. */}
             <button className="composer-send" data-state={running ? "stop" : "send"}
               aria-label={running ? "Stop" : "Send"}
-              title={running ? "Stop (interrupt)" : (!draft.trim() && attachments.length > 0 ? "Add a message to send with these files" : "Send (⌘↵)")}
-              disabled={!running && !draft.trim()}
+              title={running ? "Stop (interrupt)"
+                : !draft.trim() && attachments.length > 0 && !deliverable ? `${AGENT_META[kind].label} ignores these attachments — add a message to send`
+                : "Send (⌘↵)"}
+              disabled={!running && !draft.trim() && !deliverable}
               onClick={() => (running ? onStop() : send())}>
               <Icon name="arrowUp" size={16} className="send-icon" />
               <Icon name="stop" size={13} className="stop-icon" />

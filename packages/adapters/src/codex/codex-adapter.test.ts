@@ -156,6 +156,23 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
+  it("attachment-only: an image-only send is just the localImage item — no empty text item (Plan 14 W5)", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "", attachments: [{ path: "/tmp/shot.png", mime: "image/png" }] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!)).toEqual([{ type: "localImage", path: "/tmp/shot.png" }]);
+    await handle.dispose();
+  });
+
+  it("attachment-only files: the file list stands alone, no leading blank lines (Plan 14 W5)", async () => {
+    const { handle, evs } = await booted();
+    // The path carries the ECHO trigger — the file list becomes the text item, which is the point.
+    await handle.send({ text: "", attachments: [{ path: "/tmp/ECHO-notes.txt", mime: "text/plain" }] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!)).toEqual([{ type: "text", text: "Attached files:\n- /tmp/ECHO-notes.txt", text_elements: [] }]);
+    await handle.dispose();
+  });
+
   it("sends only a text block when there are no attachments", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "ECHO", attachments: [] });

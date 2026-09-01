@@ -301,6 +301,9 @@ function handleRequest(id, method, params) {
       if (text.includes("APPROVE")) { void streamApprovalTurn(params.threadId, turnId, text); return; }
       if (text.includes("ODDBALL")) { void streamOddballTurn(params.threadId, turnId, text); return; }
       if (text.includes("ECHO")) { void streamEchoTurn(params.threadId, turnId, text, params.input); return; }
+      // Attachment-only sends carry no text item at all (Plan 14 W5) — echo those too, so tests can
+      // assert the exact input shape without a text trigger to hang one on.
+      if (!params.input.some((part) => part && part.type === "text")) { void streamEchoTurn(params.threadId, turnId, text, params.input); return; }
       void streamMessageTurn(params.threadId, turnId, text);
       return;
     }

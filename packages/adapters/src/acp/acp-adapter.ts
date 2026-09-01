@@ -464,9 +464,11 @@ export class AcpAdapter implements AgentAdapter {
       }
     })();
 
-    /** `prompt: ContentBlock[]` (§3). Images inline only where the agent accepts them; everything else links. */
+    /** `prompt: ContentBlock[]` (§3). Images inline only where the agent accepts them; everything else
+     *  links. Attachment-only messages (Plan 14 W5): no empty text block is manufactured — every
+     *  attachment yields a block of its own (image or resource_link), so the prompt is never empty. */
     const promptFor = async (m: UserMessage): Promise<Bag[]> => {
-      const blocks: Bag[] = [{ type: "text", text: m.text }];
+      const blocks: Bag[] = m.text ? [{ type: "text", text: m.text }] : [];
       for (const a of m.attachments) {
         // Cursor reports embeddedContext:false, so a `resource` block is never an option — a link it is.
         const link = { type: "resource_link", uri: `file://${a.path}`, name: basename(a.path), mimeType: a.mime };

@@ -874,6 +874,44 @@ describe("prompter mode chip (Build / Plan)", () => {
   });
 });
 
+describe("attachment-only send (Plan 14 W5)", () => {
+  const png = { path: "/tmp/a.png", mime: "image/png", name: "a.png", size: 10 };
+  const pdf = { path: "/tmp/notes.pdf", mime: "application/pdf", name: "notes.pdf", size: 10 };
+
+  it("a deliverable attachment unlocks Send with an empty draft, and the send carries empty text", async () => {
+    const { api, store } = await mountFresh(); // claude: images are delivered inline
+    act(() => store.setState({ pendingAttachments: { se1: [png] } }));
+    const btn = screen.getByRole("button", { name: "Send" });
+    expect(btn).not.toBeDisabled();
+    expect(btn.title).toBe("Send (⌘↵)");
+    fireEvent.click(btn);
+    await waitFor(() => expect(api.sent).toEqual([{ id: "se1", text: "", attachments: [{ path: "/tmp/a.png", mime: "image/png" }] }]));
+  });
+
+  it("attachments the agent IGNORES cannot carry a message alone — Send stays off and says why", async () => {
+    // The named mutant's UI half: Claude drops non-images entirely, so a PDF-only send would deliver
+    // literally nothing. The gate refuses; the tooltip names the agent and the fix.
+    const { api, store } = await mountFresh();
+    act(() => store.setState({ pendingAttachments: { se1: [pdf] } }));
+    const btn = screen.getByRole("button", { name: "Send" });
+    expect(btn).toBeDisabled();
+    expect(btn.title).toBe("Claude ignores these attachments — add a message to send");
+    fireEvent.click(btn);
+    expect(api.sent).toEqual([]);
+    // One ignored + one deliverable: the deliverable one unlocks the send again.
+    act(() => store.setState({ pendingAttachments: { se1: [pdf, png] } }));
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
+  });
+
+  it("an empty draft with no attachments still sends nothing", async () => {
+    const { api } = await mountFresh();
+    const btn = screen.getByRole("button", { name: "Send" });
+    expect(btn).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: /message/i }), { key: "Enter", metaKey: true });
+    expect(api.sent).toEqual([]);
+  });
+});
+
 describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
   // The real cursor-agent 2026.07.25 triple, as the adapter's init event carries it.
   const CURSOR_MODES = [
@@ -1527,13 +1565,15 @@ describe("prompter attachments", () => {
     expect(chips()[0]).toContain("a.png");
   });
 
-  it("with attachments but no text the send button says why it is disabled", async () => {
+  it("with a deliverable attachment and no text the send button is LIVE — attachments carry the message (Plan 14 W5)", async () => {
+    // Until Plan 14 W5 this asserted the opposite (`sessions.send` required non-empty text). The
+    // relaxation is the plan's own: a Codex image rides as a localImage item with no text at all.
     await mountFor("codex", [picked("/x/a.png", "image/png")]);
     attach();
     await waitFor(() => expect(chips()).toHaveLength(1));
     const send = screen.getByRole("button", { name: "Send" });
-    expect(send).toBeDisabled();
-    expect(send).toHaveAttribute("title", "Add a message to send with these files");
+    expect(send).not.toBeDisabled();
+    expect(send).toHaveAttribute("title", "Send (⌘↵)");
   });
 
   it("shows no chip row and no notes with nothing attached", async () => {

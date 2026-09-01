@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeMcpServers } from "./claude-adapter";
 import type { SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
-import { readFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
+import { readFileSync, writeFileSync } from "node:fs"; import { tmpdir } from "node:os"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
 
 type FakeOpts = {
@@ -21,6 +21,8 @@ type FakeOpts = {
   hang?: boolean;
   /** like the real SDK: reject iteration when options.abortController aborts */
   abortable?: boolean;
+  /** record each user message pulled off the prompt stream (content-shape assertions) */
+  capture?: unknown[];
 };
 function fakeQuery(opts: FakeOpts, calls: string[] = []) {
   return ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: Record<string, unknown> }) => {
@@ -28,6 +30,7 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
       for (const l of opts.stderr ?? []) (options.stderr as (d: string) => void)(l);
       const it = prompt[Symbol.asyncIterator](); const first = await it.next();
       if (first.done) return;
+      opts.capture?.push(first.value);
       let n = 0; let asked = false;
       for (const m of fixture) {
         if (opts.throwAfter !== undefined && n++ >= opts.throwAfter) throw new Error("sdk exploded");
@@ -129,6 +132,33 @@ describe("ClaudeAdapter", () => {
     await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
     const err = got.find((e) => e.type === "error");
     expect(err?.type === "error" && err.payload.message).toBe("turn failed");
+  });
+  it("attachment-only: an image carries the message with NO empty text block (Plan 14 W5)", async () => {
+    // The Messages API rejects `text: ""` — an image-only send must be image blocks alone.
+    const png = join(tmpdir(), `realm-claude-attach-${Date.now()}.png`);
+    writeFileSync(png, Buffer.from([1, 2, 3, 4]));
+    const capture: unknown[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ capture }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await h.send({ text: "", attachments: [{ path: png, mime: "image/png" }] });
+    await c; await h.dispose();
+    const content = (capture[0] as { message: { content: Array<Record<string, unknown>> } }).message.content;
+    expect(content).toHaveLength(1);
+    expect(content[0]).toMatchObject({ type: "image" });
+  });
+  it("attachment-only where Claude ignores everything: the minimal honest stub, never empty content", async () => {
+    // The named mutant: no text + non-image attachments (which this adapter skips) would otherwise be
+    // a literally empty content array, which the API rejects. The prompter's send-gate refuses this
+    // combination; the stub is the wire-level net for any other caller.
+    const capture: unknown[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ capture }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await h.send({ text: "", attachments: [{ path: "/tmp/notes.pdf", mime: "application/pdf" }] });
+    await c; await h.dispose();
+    const content = (capture[0] as { message: { content: Array<Record<string, unknown>> } }).message.content;
+    expect(content).toEqual([{ type: "text", text: "(attached files)" }]);
   });
   it("send with an unreadable attachment emits error and does not start running", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ hang: true }) as never });

@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { RpcRequestSchema, RpcResponseSchema, RpcEventSchema, parseWireMessage, type MethodParams } from "./rpc";
+import { Methods, RpcRequestSchema, RpcResponseSchema, RpcEventSchema, parseWireMessage, type MethodParams } from "./rpc";
 
 describe("rpc envelope", () => {
   it("parses a request", () => {
@@ -20,5 +20,19 @@ describe("rpc envelope", () => {
   it("MethodParams<profiles.create> allows omitting defaulted icon/color", () => {
     expectTypeOf({ name: "Work" }).toMatchTypeOf<MethodParams<"profiles.create">>();
     expectTypeOf({ name: "Work", icon: "user", color: "#000" }).toMatchTypeOf<MethodParams<"profiles.create">>();
+  });
+});
+
+describe("sessions.send params (Plan 14 W5 — attachment-only messages)", () => {
+  const schema = Methods["sessions.send"].params;
+  const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  it("accepts text alone and attachments alone", () => {
+    expect(schema.safeParse({ id, text: "hi" }).success).toBe(true);
+    expect(schema.safeParse({ id, text: "", attachments: [{ path: "/a.png", mime: "image/png" }] }).success).toBe(true);
+  });
+  it("REFUSES empty text with zero attachments — a message that says nothing at all", () => {
+    // The named mutant: relaxing text.min(1) must not open the door to genuinely empty sends.
+    expect(schema.safeParse({ id, text: "" }).success).toBe(false);
+    expect(schema.safeParse({ id, text: "", attachments: [] }).success).toBe(false);
   });
 });

@@ -78,6 +78,13 @@ export function basenameOf(path: string): string {
  * This table MIRRORS the adapters; it does not govern them. The divergence between the three is
  * deliberate (each protocol wants something different), so the point of naming it here is that the
  * prompter can tell the user which one they are getting BEFORE they press send.
+ *
+ * Attachment-only messages (Plan 14 W5): `sessions.send` accepts empty text when attachments are
+ * present, and each adapter was re-read for that case — Claude includes no empty text block (the
+ * Messages API rejects `text: ""`; all-ignored attachments get the "(attached files)" stub so content
+ * is never empty), Codex includes no empty text item (localImage items / the file list ARE the
+ * message), ACP includes no empty text block (every attachment is its own block). `ignored`
+ * attachments cannot carry a message alone; the prompter's send-gate refuses that combination.
  */
 export type AttachmentDisposition = "inline" | "path" | "link" | "ignored";
 
