@@ -58,6 +58,8 @@ export function defaultAdapters(): AdapterRegistry {
       args: ["acp"],
       label: "Cursor",
       loginHint: "Run `cursor-agent login`.",
+      // Cursor's session/new reports availableModels (verified live); Gemini's does not get asked.
+      modelCatalog: true,
     }),
     "acp:gemini": new AcpAdapter({
       kind: "acp:gemini",

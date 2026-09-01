@@ -834,3 +834,49 @@ describe("acpMcpServers", () => {
     expect(acpMcpServers([stdio, http, sse])).toHaveLength(3);
   });
 });
+
+describe("AcpAdapter model catalog and boot-time model", () => {
+  it("probe() with modelCatalog enumerates via a throwaway session; without it, models is null", async () => {
+    const withCatalog = await newAdapter({ modelCatalog: true }).probe();
+    expect(withCatalog.available).toBe(true);
+    expect(withCatalog.models).toEqual([{ id: "fake-model-1", label: "Fake 1" }, { id: "fake-model-2", label: "Fake 2" }]);
+    // Gemini-shaped spec: no catalog claim, so no probe-time session spawn and nothing to show.
+    const without = await newAdapter().probe();
+    expect(without.models).toBeNull();
+  });
+
+  it("probe() reports models:null when the binary is missing, catalog claim or not", async () => {
+    const r = await newAdapter({ modelCatalog: true, bin: "/nonexistent/acp-bin" }).probe();
+    expect(r.available).toBe(false);
+    expect(r.models).toBeNull();
+  });
+
+  it("transmits a pinned model at boot via session/set_model and reports it on init", async () => {
+    const { handle, evs } = await booted({ model: "fake-model-2" }, { env: { FAKE_ACP_SET_MODEL_OK: "1" } });
+    expect(of(evs, "init")[0]!.payload.model).toBe("fake-model-2");
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: Record<string, unknown> }[] };
+    const call = journal.calls.find((c) => c.method === "session/set_model");
+    expect(call?.params).toEqual({ sessionId: "sess_0", modelId: "fake-model-2" });
+    await handle.dispose();
+  });
+
+  it("degrades a refused boot-time set_model to a log line and the agent's own default", async () => {
+    const logs: string[] = [];
+    const { handle, evs } = await booted({ model: "fake-model-2", onLog: (l) => logs.push(l) });
+    // The fixture's default set_model answers -32601 (ACP 0.4.5 marks it unstable): no error event,
+    // and init reports the model the agent says it is on, not the one that failed to pin.
+    expect(errors(evs)).toEqual([]);
+    expect(of(evs, "init")[0]!.payload.model).toBe("fake-model-1");
+    expect(logs.join("\n")).toContain("session/set_model");
+    await handle.dispose();
+  });
+
+  it("does not call session/set_model at boot when no model is pinned", async () => {
+    const { handle, evs } = await booted({}, { env: { FAKE_ACP_SET_MODEL_OK: "1" } });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string }[] };
+    expect(journal.calls.some((c) => c.method === "session/set_model")).toBe(false);
+    await handle.dispose();
+  });
+});

@@ -1015,6 +1015,55 @@ describe("prompter model picker", () => {
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5")); // row 2 of Claude's list
     });
   });
+
+  describe("with a live probe catalog", () => {
+    // The shape cursor-agent reported live: parameterized ids, `default[]` for Auto.
+    const catalog = [
+      { id: "default[]", label: "Auto" },
+      { id: "composer-2.5[fast=true]", label: "composer-2.5" },
+      { id: "gpt-5.3-codex[reasoning=medium,fast=false]", label: "gpt-5.3-codex" },
+    ];
+    const cursorProbe = (models: AgentProbe["models"]): AgentProbe[] =>
+      [{ kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null, models }];
+
+    it("renders the catalog under its own kind, default row leading and selected", async () => {
+      const { store } = await mountFresh({ agentKind: "acp:cursor" }, 0, cursorProbe(catalog));
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openPicker();
+      // Cursor first (session's own kind): default row, then the catalog verbatim; Claude's static
+      // list and Codex's default row are untouched by Cursor's probe models.
+      expect(rowNames()).toEqual(["Composer", "Auto", "composer-2.5", "gpt-5.3-codex",
+        "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6"]);
+      expect(screen.getByRole("option", { name: /Composer/ })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("option", { name: /Auto/ })).toHaveAttribute("aria-selected", "false");
+    });
+
+    it("picking a catalog row transmits its id verbatim — Auto's real id included", async () => {
+      const { store } = await mountFresh({ agentKind: "acp:cursor" }, 0, cursorProbe(catalog));
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openPicker();
+      fireEvent.click(screen.getByRole("option", { name: /gpt-5.3-codex/ }));
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("gpt-5.3-codex[reasoning=medium,fast=false]"));
+      openPicker();
+      // "Auto" is a REAL id in Cursor's catalog (set_model accepts `default[]`, rejects `auto`):
+      // picking it transmits that id — it is never rewritten to null or to a literal "auto".
+      fireEvent.click(screen.getAllByRole("option", { name: /Auto/ })[0]!);
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("default[]"));
+    });
+
+    it("search and keyboard still work across a 40-row catalog", async () => {
+      const big = Array.from({ length: 40 }, (_, i) => ({ id: `m-${i}[x=1]`, label: `Model ${i}` }));
+      const { store } = await mountFresh({ agentKind: "acp:cursor" }, 0, cursorProbe(big));
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openPicker();
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(40);
+      const search = screen.getByRole("combobox", { name: "Search models" });
+      fireEvent.change(search, { target: { value: "model 39" } });
+      expect(rowNames()).toEqual(["Model 39"]);
+      fireEvent.keyDown(search, { key: "Enter" });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("m-39[x=1]"));
+    });
+  });
 });
 
 

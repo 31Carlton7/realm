@@ -32,6 +32,8 @@
  * the loadSession capability, FAKE_ACP_NOIMAGE=1 drops the image prompt capability, FAKE_ACP_ALLOWONLY=1 offers no reject option, and FAKE_ACP_LOAD_ASKS=1
  * makes session/load call fs/read_text_file and session/request_permission back on us mid-replay.
  * FAKE_ACP_MUTE_INITIALIZE=1, FAKE_ACP_MUTE_SESSION_NEW=1 and FAKE_ACP_MUTE_SESSION_LOAD=1 leave that request unanswered forever.
+ * FAKE_ACP_SET_MODEL_OK=1 makes session/set_model succeed (it fails -32601 by default), and
+ * FAKE_ACP_MODEL_GARBAGE=1 pollutes session/new's availableModels with malformed rows.
  * FAKE_ACP_IGNORE_EOF=1 keeps the child alive after its stdin closes, FAKE_ACP_NOSESSIONID=1 answers session/new without a sessionId, FAKE_ACP_BADAUTH=1 sends a non-array
  * `authMethods`, and FAKE_ACP_EXIT_MARKER=<path> writes that file when our stdin closes.
  */
@@ -190,7 +192,11 @@ function handleRequest(id, method, params) {
       if (process.env.FAKE_ACP_STARTFAIL) { fail(id, -32603, "Internal error", { message: "Failed to initialize session services", details: "[unauthenticated] Error" }); return; }
       journal.newParams = params;
       if (process.env.FAKE_ACP_NOSESSIONID) { ok(id, {}); return; }
-      ok(id, { sessionId: `sess_${nextSessionN++}`, models: { currentModelId: "fake-model-1", availableModels: [{ modelId: "fake-model-1", name: "Fake 1" }] } });
+      ok(id, { sessionId: `sess_${nextSessionN++}`, models: { currentModelId: "fake-model-1", availableModels: process.env.FAKE_ACP_MODEL_GARBAGE
+        // Rows a real preview build could plausibly emit around the good ones: no modelId, wrong types,
+        // blank ids, plus one nameless-but-valid id. Only the well-formed survive parseAcpModels.
+        ? [null, 42, "composer", { name: "No id" }, { modelId: "", name: "Blank id" }, { modelId: "fake-model-1", name: "Fake 1" }, { modelId: 7, name: "Numeric id" }, { modelId: "fake-model-2" }]
+        : [{ modelId: "fake-model-1", name: "Fake 1" }, { modelId: "fake-model-2", name: "Fake 2" }] } });
       return;
     case "session/load":
       if (process.env.FAKE_ACP_MUTE_SESSION_LOAD) return; // never replies: the resume has to time out and fall back
@@ -207,6 +213,9 @@ function handleRequest(id, method, params) {
       return;
     case "session/set_model":
       journal.calls.push({ method, params });
+      // Default mirrors ACP 0.4.5's "unstable" reality; FAKE_ACP_SET_MODEL_OK=1 is a Cursor-like build
+      // that accepts it (verified live: cursor-agent answers `{}` for a catalog id).
+      if (process.env.FAKE_ACP_SET_MODEL_OK) { ok(id, {}); return; }
       fail(id, -32601, "session/set_model is unstable and not implemented");
       return;
     default:

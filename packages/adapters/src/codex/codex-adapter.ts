@@ -3,7 +3,7 @@ import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, type JsonRpcId } from "../jsonrpc/stdio";
 import { CodexConnection, type ThreadListener } from "./connection";
 import { createCodexMapper } from "./map-codex";
-import { probeCodex } from "./probe";
+import { parseCodexModelPage, probeCodex } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type Bag = Record<string, unknown>;
@@ -18,8 +18,12 @@ const BOOT_TIMEOUT_MS = 30_000;
 /** `skills/extraRoots/set` only rescans a couple of directories, and nothing about the session depends on
  *  its answer — so it gets a short leash rather than the boot budget. */
 const EXTRA_ROOTS_TIMEOUT_MS = 10_000;
-/** JSON-RPC "method not found": the signal that this codex build predates `skills/extraRoots/set`. */
+/** JSON-RPC "method not found": the signal that this codex build predates the method just asked for. */
 const METHOD_NOT_FOUND = -32601;
+/** `model/list` reads a local catalog; a slow answer means something is wrong, not that it needs longer. */
+const MODEL_LIST_TIMEOUT_MS = 10_000;
+/** Pagination guard for `model/list`: the live catalog is one page of 6; a cursor loop past this is a bug. */
+const MODEL_LIST_MAX_PAGES = 5;
 
 /**
  * W4 double-prompt verdict for Codex: NOTHING to wire, on purpose. Claude's SDK prompts per MCP tool
@@ -131,6 +135,9 @@ export class CodexAdapter implements AgentAdapter {
    * skills", never throw and never fail a session.
    */
   private extraRootsSupported = true;
+  /** Same feature-detect discipline for `model/list`: a build without it degrades to the static picker
+   *  fallback (`models: null`), never a failed probe. Sticky, because -32601 is a fact about the binary. */
+  private modelListSupported = true;
 
   constructor(deps: { bin?: string; args?: string[]; bootTimeoutMs?: number } = {}) {
     this.bin = deps.bin;
@@ -151,7 +158,47 @@ export class CodexAdapter implements AgentAdapter {
 
   async probe(): Promise<ProbeResult> {
     const p = await probeCodex(this.bin);
-    return { kind: this.kind, ...p };
+    const models = p.available ? await this.listModels() : null;
+    return { kind: this.kind, ...p, models };
+  }
+
+  /**
+   * The live model catalog over app-server `model/list` (response shape verified against codex-cli
+   * 0.146.0: `{ data, nextCursor }` — see `parseCodexModelPage`). Rides the shared connection when a
+   * session already holds one; otherwise spins up a probe-lifetime process the way the CLI probe spawns
+   * its own children, and takes it down again. `null` on ANY failure — a -32601 build (sticky, like
+   * `skills/extraRoots/set`), a dead spawn, a timeout — because the picker has a static fallback and a
+   * failed enumeration must never fail the probe that carries availability.
+   */
+  private async listModels(): Promise<{ id: string; label: string }[] | null> {
+    if (!this.modelListSupported) return null;
+    let owned: CodexConnection | null = null;
+    try {
+      // A rejected shared open is a boot problem for the session that caused it, not for this probe:
+      // fall through to a transient process rather than inheriting the rejection.
+      const shared = this.conn ? await this.conn.catch(() => null) : null;
+      const conn = shared ?? (owned = await CodexConnection.open({
+        bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
+        args: this.args,
+        cwd: process.cwd(),
+        initializeTimeoutMs: this.bootTimeoutMs,
+      }));
+      const models: { id: string; label: string }[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < MODEL_LIST_MAX_PAGES; page += 1) {
+        const res = await conn.request("model/list", cursor === null ? {} : { cursor }, MODEL_LIST_TIMEOUT_MS);
+        const parsed = parseCodexModelPage(res);
+        models.push(...parsed.models);
+        cursor = parsed.nextCursor;
+        if (cursor === null) break;
+      }
+      return models;
+    } catch (e) {
+      if (e instanceof JsonRpcCallError && e.code === METHOD_NOT_FOUND) this.modelListSupported = false;
+      return null;
+    } finally {
+      if (owned) await owned.dispose().catch(() => {});
+    }
   }
 
   /**
@@ -183,6 +230,8 @@ export class CodexAdapter implements AgentAdapter {
   get extraRootCount(): number { return this.extraRoots.size; }
   /** Visible for tests: false once a codex build has answered -32601 to `skills/extraRoots/set`. */
   get skillsSupported(): boolean { return this.extraRootsSupported; }
+  /** Visible for tests: false once a codex build has answered -32601 to `model/list`. */
+  get modelListEnumerable(): boolean { return this.modelListSupported; }
 
   /**
    * Re-sends the union to the shared connection. Never throws and never rejects: a skills root that does

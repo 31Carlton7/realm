@@ -48,3 +48,27 @@ export async function probeCodex(
     return { available: true, version: version || null, loggedIn: null, reason: `could not determine login status: ${detail}` };
   }
 }
+
+/**
+ * Extracts the picker rows from one `model/list` response page (shape verified live against
+ * codex-cli 0.146.0: `{ data: Model[], nextCursor: string | null }`, Model carrying `id`,
+ * `displayName`, `hidden`, ...).
+ *
+ * Defensive on purpose — the shape is a preview build's and may drift. A malformed page yields the
+ * rows that ARE well-formed, never a throw and never a row with an invented or blank id. `hidden`
+ * models are skipped because that is what the flag means ("hidden from the default picker list");
+ * only an explicit `hidden: true` hides — an absent flag is not treated as hiding.
+ */
+export function parseCodexModelPage(page: unknown): { models: { id: string; label: string }[]; nextCursor: string | null } {
+  const data = (page as { data?: unknown } | null)?.data;
+  const rows = Array.isArray(data) ? data : [];
+  const models: { id: string; label: string }[] = [];
+  for (const row of rows) {
+    const m = row as { id?: unknown; displayName?: unknown; hidden?: unknown } | null;
+    if (!m || typeof m.id !== "string" || m.id.trim() === "" || m.hidden === true) continue;
+    const label = typeof m.displayName === "string" && m.displayName.trim() !== "" ? m.displayName.trim() : m.id;
+    models.push({ id: m.id, label });
+  }
+  const cursor = (page as { nextCursor?: unknown } | null)?.nextCursor;
+  return { models, nextCursor: typeof cursor === "string" && cursor !== "" ? cursor : null };
+}

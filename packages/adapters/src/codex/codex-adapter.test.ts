@@ -860,3 +860,71 @@ describe("CodexAdapter memory", () => {
     expect("instructionSources" in of(evs, "init")[0]!.payload).toBe(false);
   });
 });
+
+describe("CodexAdapter model catalog", () => {
+  // The probe's transient app-server child inherits process.env (probe() has no env channel of its
+  // own), so the fixture's hooks are toggled here and always cleaned up.
+  const HOOKS = ["FAKE_CODEX_NO_MODEL_LIST", "FAKE_CODEX_MODEL_GARBAGE", "FAKE_CODEX_MODEL_PAGES"] as const;
+  afterEach(() => { for (const k of HOOKS) delete process.env[k]; });
+
+  it("probe() enumerates model/list over a transient connection and takes it down again", async () => {
+    const adapter = newAdapter();
+    const r = await adapter.probe();
+    expect(r.kind).toBe("codex");
+    expect(r.available).toBe(true);
+    // The hidden preview model is exactly what `hidden` means — it must not reach the picker.
+    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-5.6-terra", label: "GPT-5.6-Terra" }]);
+    // A probe must not leave an app-server child behind: the shared-connection refcount never saw it.
+    expect(adapter.processCount).toBe(0);
+    expect(adapter.sessionCount).toBe(0);
+  });
+
+  it("follows nextCursor across pages", async () => {
+    process.env.FAKE_CODEX_MODEL_PAGES = "1";
+    const r = await newAdapter().probe();
+    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-5.4-mini", label: "GPT-5.4-Mini" }]);
+  });
+
+  it("keeps only the well-formed rows of a polluted catalog", async () => {
+    process.env.FAKE_CODEX_MODEL_GARBAGE = "1";
+    const r = await newAdapter().probe();
+    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-nameless", label: "gpt-nameless" }]);
+  });
+
+  it("degrades -32601 to models:null (a build from before model/list) without failing the probe, sticky", async () => {
+    process.env.FAKE_CODEX_NO_MODEL_LIST = "1";
+    const adapter = newAdapter();
+    const r = await adapter.probe();
+    expect(r.available).toBe(true); // the CLI is fine; only enumeration is missing
+    expect(r.models).toBeNull();
+    expect(adapter.modelListEnumerable).toBe(false);
+    // Sticky: the verdict is about the binary, so the next probe must not ask again.
+    delete process.env.FAKE_CODEX_NO_MODEL_LIST;
+    const again = await adapter.probe();
+    expect(again.models).toBeNull();
+  });
+
+  it("reports models:null when the CLI itself is unavailable", async () => {
+    const r = await new CodexAdapter({ bin: "/definitely/not/a/codex/binary" }).probe();
+    expect(r.available).toBe(false);
+    expect(r.models).toBeNull();
+  });
+
+  it("rides the shared connection when a session already holds one", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts());
+    const { evs } = drain(handle);
+    await waitFor(() => expect(types(evs)).toContain("init"));
+    expect(adapter.processCount).toBe(1);
+    const r = await adapter.probe();
+    expect(r.models).not.toBeNull();
+    expect(r.models!.length).toBeGreaterThan(0);
+    // Still exactly the session's process: the probe neither spawned a second one nor tore this one down.
+    expect(adapter.processCount).toBe(1);
+    const conn = await adapter.connection!;
+    const counted = await conn.request<{ calls: number }>("$test/modelList");
+    expect(counted.calls).toBeGreaterThan(0); // the enumeration really went over THIS connection
+    await handle.dispose();
+    expect(adapter.processCount).toBe(0);
+  });
+});
