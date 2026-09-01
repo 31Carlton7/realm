@@ -71,30 +71,33 @@ describe("SpaceStrip badges (U-H3)", () => {
   });
 });
 
-describe("SpaceStrip settings gear (U-M9)", () => {
-  const pageFor = (store: { getState(): { items: { kind: string; refId: string; id: string }[] } }, spaceId: string) =>
-    store.getState().items.find((i) => i.kind === "space-page" && i.refId === spaceId);
+describe("SpaceStrip settings gear (U-M9, retargeted by W6)", () => {
+  const settingsItem = (store: { getState(): { items: { kind: string; id: string }[] } }) =>
+    store.getState().items.find((i) => i.kind === "settings-page");
 
-  it("opens the space PAGE for the active space (Plan 12 W3: no sheet)", async () => {
+  it("opens the SETTINGS page, not the space page — the gear was overloaded (W3's interim wiring)", async () => {
     const { store } = await mount();
     expect(store.getState().activeSpaceId).toBe("s1");
     const gear = screen.getByRole("button", { name: "Settings" });
     expect(gear).toBeEnabled();
     fireEvent.click(gear);
-    await waitFor(() => expect(pageFor(store, "s1")).toBeDefined());
-    // The page is IN the layout, not merely created; and it is a pane, never a sheet.
-    expect(JSON.stringify(store.getState().layout)).toContain(pageFor(store, "s1")!.id);
+    await waitFor(() => expect(settingsItem(store)).toBeDefined());
+    // The page is IN the layout, not merely created; it is a pane, never a sheet; and the SPACE page
+    // did not open — that one keeps its own entry points (header, palette "Open space").
+    expect(JSON.stringify(store.getState().layout)).toContain(settingsItem(store)!.id);
     expect(store.getState().sheet).toBeNull();
+    expect(store.getState().items.find((i) => i.kind === "space-page")).toBeUndefined();
   });
 
-  it("follows the active space, and is disabled with no space at all", async () => {
-    const { store } = await mount();
+  it("lands the page in the ACTIVE space's layout, and is disabled with no space at all", async () => {
+    const { store, api } = await mount();
     fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    // The mutant this kills: the gear opening the page of some OTHER space than the active one.
-    await waitFor(() => expect(pageFor(store, "s2")).toBeDefined());
-    expect(pageFor(store, "s1")).toBeUndefined();
+    await waitFor(() => expect(settingsItem(store)).toBeDefined());
+    // The item row lives in s2 — the space that was active under the click.
+    expect((api.data.items.s2 ?? []).some((i) => i.kind === "settings-page")).toBe(true);
+    expect((api.data.items.s1 ?? []).some((i) => i.kind === "settings-page")).toBe(false);
 
     const empty = await mount(fakeApi({ spaces: [], items: {} }));
     expect(empty.store.getState().activeSpaceId).toBeNull();

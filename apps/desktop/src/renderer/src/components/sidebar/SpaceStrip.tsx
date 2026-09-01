@@ -13,7 +13,7 @@ export function SpaceStrip() {
   const selectSpace = useApp((s) => s.selectSpace);
   const reorderSpaces = useApp((s) => s.reorderSpaces);
   const openSheet = useApp((s) => s.openSheet);
-  const openSpacePage = useApp((s) => s.openSpacePage);
+  const openDestinationPage = useApp((s) => s.openDestinationPage);
   const run = useApp((s) => s.run);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -36,8 +36,11 @@ export function SpaceStrip() {
 
   return (
     <div className="space-strip">
+      {/* W6: the gear opens the app-level SETTINGS page — it was overloaded as a space-page opener
+          (W3's interim wiring); the space page keeps its own entries (header title/pill/menu,
+          palette "Open space"). Disabled without a space: the page needs a layout to live in. */}
       <button className="icon-btn strip-side" aria-label="Settings" title="Settings" disabled={!activeSpaceId}
-        onClick={() => { if (activeSpaceId) run(() => openSpacePage(activeSpaceId)); }}><Icon name="settings" size={16} /></button>
+        onClick={() => { if (activeSpaceId) run(() => openDestinationPage("settings-page")); }}><Icon name="settings" size={16} /></button>
       <div className="strip-spaces" aria-label="Spaces">
         {spaces.map((sp) => {
           const badge = spaceBadge(sessionStatus, sessionSpace, sp.id);

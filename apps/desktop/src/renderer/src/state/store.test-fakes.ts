@@ -88,6 +88,9 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
+  /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
+   *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
+  tccRows?: TccRow[];
   /** MCP servers `mcp.list` answers with (W6). One flat list — see `mcpServer`'s doc comment. */
   mcpServers?: McpServer[];
   /** What the next `mcp.tools.list` answers for a given server id, if scripted; otherwise the fake
@@ -165,6 +168,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    tccRows: overrides.tccRows ?? [
+      { id: "filesAndFolders", label: "Files & Folders", state: "unknown", detail: "Can't be checked until used — macOS only reveals these grants by asking." },
+      { id: "automation", label: "Automation", state: "unknown", detail: "Can't be checked until used — grants are per-app-pair." },
+      { id: "screenRecording", label: "Screen Recording", state: "denied", detail: "macOS reports the grant as refused." },
+      { id: "accessibility", label: "Accessibility", state: "granted", detail: "macOS reports Realm as a trusted accessibility client." },
+      { id: "fullDisk", label: "Full Disk Access", state: "denied", detail: "macOS refused Realm a file only Full Disk Access unlocks." },
+    ],
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
@@ -402,6 +412,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     writeTerminal: async (terminalId, data) => { calls.push(`writeTerminal:${terminalId}=${data}`); },
     prefillTerminal: async (terminalId, command) => { calls.push(`prefillTerminal:${terminalId}=${command}`); },
+    tccProbe: async () => { calls.push("tccProbe"); return [...data.tccRows]; },
+    openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");

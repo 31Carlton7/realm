@@ -170,6 +170,7 @@ function PaletteBody() {
         act("open-library", "Open library", "library-page", () => run(() => openDestinationPage("library-page"))),
         act("open-connections", "Open connections", "connections-page", () => run(() => openDestinationPage("connections-page"))),
         act("open-notifications", "Open notifications", "notifications-page", () => run(() => openDestinationPage("notifications-page"))),
+        act("open-settings", "Open settings", "settings-page", () => run(() => openDestinationPage("settings-page"))),
       ] : []),
       // Global (every space's calls, W7) — unlike the space page above, it never needs an activeSpaceId.
       act("mcp-activity", "MCP Activity", "tool", () => run(() => openActivity())),

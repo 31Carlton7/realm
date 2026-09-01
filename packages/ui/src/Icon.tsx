@@ -29,6 +29,7 @@ export const icons = {
   "library-page": BookOpen01Icon,
   "connections-page": PlugSocketIcon,
   "notifications-page": Notification02Icon,
+  "settings-page": Settings01Icon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

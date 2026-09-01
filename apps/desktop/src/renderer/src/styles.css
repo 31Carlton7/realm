@@ -1195,6 +1195,30 @@ button.panel-title:hover { background: var(--rl-hover); }
 .notif-inline-card { margin-top: 4px; }
 .notif-jump { align-self: flex-start; font-size: 11.5px; }
 .notif-more { align-self: flex-start; margin: 4px 0 12px; }
+
+/* ——— Plan 12 W6: the Settings page. Engines rows carry the vendor mark + a status readout; the
+   Permissions tab's state chip only ever wears green on a probe basis (main/tcc.ts's rule). ——— */
+.engines-head { display: flex; align-items: center; gap: 12px; }
+.engines-head .page-lede { flex: 1; min-width: 0; }
+.engines-list { gap: 4px; }
+.engine-row { display: flex; gap: 10px; padding: 9px 10px; border-radius: var(--r-ctl); }
+.engine-row + .engine-row { border-top: 1px solid var(--rl-hairline); }
+.engine-mark { flex: none; display: inline-flex; margin-top: 1px; }
+.engine-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.engine-line { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.engine-name { font-size: 13px; font-weight: 550; color: var(--rl-text-bright); }
+.engine-status { font-size: 12px; color: var(--rl-text-dim); }
+.engine-status[data-state="missing"] { color: var(--rl-warning); }
+.engine-status[data-state="unknown"] { color: var(--rl-text-faint); }
+.tcc-row { align-items: flex-start; }
+.tcc-row .btn-quiet { flex: none; margin-top: 1px; }
+.tcc-state { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px;
+  font-size: 11px; background: var(--rl-hover); color: var(--rl-text-dim); }
+.tcc-state[data-state="granted"] { color: var(--rl-success); }
+.tcc-state[data-state="denied"] { color: var(--rl-warning); }
+.settings-page-pane .settings-tabs { max-width: 340px; }
+.settings-page-pane .bypass-confirm { align-self: flex-start; margin-top: 6px; text-align: left; }
+
 .scope-group { display: flex; flex-direction: column; gap: 4px; }
 .scope-group + .scope-group { margin-top: 12px; }
 .scope-group-label { margin: 0; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }

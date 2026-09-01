@@ -16,3 +16,5 @@ import { ConnectionsPage } from "./connections/ConnectionsPage";
 registerPane("connections-page", ConnectionsPage);
 import { NotificationsPage } from "./notifications/NotificationsPage";
 registerPane("notifications-page", NotificationsPage);
+import { SettingsPage } from "./settings/SettingsPage";
+registerPane("settings-page", SettingsPage);

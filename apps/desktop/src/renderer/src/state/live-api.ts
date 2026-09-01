@@ -55,6 +55,8 @@ export const liveApi = (): Api => ({
   writeTerminal: async (terminalId, data) => { await rpc().call("terminals.write", { terminalId, data }); },
   prefillTerminal: async (terminalId, command) => { await rpc().call("terminals.prefill", { terminalId, command }); },
   probeAgents: (force) => rpc().call("agents.probe", { force }),
+  tccProbe: () => window.realm.permissions.probe(),
+  openTccPane: (pane) => window.realm.permissions.openSettings(pane),
   gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),
   diff: (cwd) => rpc().call("workspace.diff", { cwd }),
   fileDiff: (cwd, path, staged) => rpc().call("workspace.fileDiff", { cwd, path, staged }),

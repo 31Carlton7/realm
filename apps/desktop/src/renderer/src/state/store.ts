@@ -2,7 +2,8 @@ import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
   AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  type DestinationPageKind,
+  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
+  type DestinationPageKind, type NotificationCategory,
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
@@ -146,6 +147,11 @@ export type Api = {
   prefillTerminal(terminalId: string, command: string): Promise<void>;
   /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
   probeAgents(force: boolean): Promise<AgentProbe[]>;
+  /** The macOS Permissions tab's rows (Plan 12 W6) — main-process IPC, not RPC. Honest by
+   *  construction: the probe behind it never triggers a TCC prompt (see main/tcc.ts). */
+  tccProbe(): Promise<TccRow[]>;
+  /** Deep-link one permission row's System Settings pane. Takes the ROW id; main owns the URLs. */
+  openTccPane(pane: string): Promise<void>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
   /** `workspace.diff` — the changed-file list. Null when cwd is not a repo. */
@@ -368,6 +374,15 @@ export type AppState = {
   /** `nextCursor` of the last page fetched; null = end reached (or nothing fetched yet). */
   notificationsCursor: string | null;
   agentProbe: AgentProbe[];
+  /** The Settings page's App-tab preferences (Plan 12 W6), read from the server's settings rows:
+   *  which notification categories are switched OFF (`NOTIFICATIONS_DISABLED_KEY` — default-on
+   *  polarity, matching the service), and the permission mode new sessions start in
+   *  (`DEFAULT_PERMISSION_MODE_KEY`). Null until the page first loads them — the page fetches on
+   *  mount, and a null renders as loading rather than as every-toggle-on lies. */
+  settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string } | null;
+  /** The Permissions tab's TCC rows, exactly as main's prompt-free probe reported them; null until
+   *  the tab first probes. Never synthesised client-side — a row with no probe basis says so. */
+  tccRows: TccRow[] | null;
   /** Composer drafts by session id — store-owned so layout reshapes/pane remounts never lose typed
    *  text (A-M9). Never persisted; dropped when the session's item is deleted. */
   drafts: Record<string, string>;
@@ -649,6 +664,21 @@ export type AppState = {
    *  space's layout. One page item per space, deduped by KIND — the refId is the kind's well-known
    *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from. */
   openDestinationPage(kind: DestinationPageKind): Promise<void>;
+  /** Read both Settings-page preference keys into `settingsPrefs` (Plan 12 W6). Junk in a row —
+   *  an unknown category, a mode PERMISSION_MODES doesn't name — is dropped/defaulted here, once,
+   *  so the page never renders a state the server would not honor. */
+  refreshSettingsPrefs(): Promise<void>;
+  /** Flip ONE category's off switch and persist the whole disabled set under
+   *  `NOTIFICATIONS_DISABLED_KEY`. Disabling stops NEW rows only — the service's contract. */
+  setNotificationCategoryEnabled(category: NotificationCategory, enabled: boolean): Promise<void>;
+  /** Persist the default permission mode for new sessions (`DEFAULT_PERMISSION_MODE_KEY`) —
+   *  consumed server-side at `sessions.create`. The bypass confirm lives in the page, not here:
+   *  by the time this runs the user has already said it twice. */
+  setDefaultPermissionMode(mode: string): Promise<void>;
+  /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
+  refreshTcc(): Promise<void>;
+  /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
+  openTccPane(pane: string): Promise<void>;
   /** Fetch the feed's first page (replacing what is held — sized to cover at least what was showing,
    *  so a refetch triggered by `notifications.changed` never shrinks the visible list). */
   refreshNotifications(): Promise<void>;
@@ -1025,7 +1055,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -1751,6 +1781,32 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await adoptItem(spaceId, created.id, null);
       },
       setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
+      async refreshSettingsPrefs() {
+        const [rawDisabled, rawMode] = await Promise.all([
+          api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY),
+        ]);
+        const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
+          .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
+        const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
+        set({ settingsPrefs: { disabledCategories, defaultPermissionMode } });
+      },
+      async setNotificationCategoryEnabled(category, enabled) {
+        const prefs = get().settingsPrefs; if (!prefs) return; // toggles only exist once prefs loaded
+        // Recomputed from the held set so a double-toggle can't write a duplicate, and — the named
+        // mutant — only THIS category moves: everything else passes through untouched.
+        const disabledCategories = enabled
+          ? prefs.disabledCategories.filter((c) => c !== category)
+          : [...prefs.disabledCategories.filter((c) => c !== category), category];
+        await api.setSetting(NOTIFICATIONS_DISABLED_KEY, disabledCategories);
+        set({ settingsPrefs: { ...prefs, disabledCategories } });
+      },
+      async setDefaultPermissionMode(mode) {
+        const prefs = get().settingsPrefs; if (!prefs) return;
+        await api.setSetting(DEFAULT_PERMISSION_MODE_KEY, mode);
+        set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
+      },
+      async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
+      async openTccPane(pane) { await api.openTccPane(pane); },
       async refreshNotifications() {
         // Sized to cover what is already showing: a refetch triggered by a broadcast must not shrink
         // the list the user is scrolled into. Capped at the wire's own limit.
