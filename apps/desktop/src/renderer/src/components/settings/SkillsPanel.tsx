@@ -42,6 +42,8 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
               <li key={sk.id} className="settings-row" data-invalid={!sk.valid || undefined}>
                 <div className="settings-row-main">
                   <span className="settings-row-name">{sk.name}</span>
+                  {/* W2 scope marker — see McpSection's twin comment. */}
+                  {sk.scope.kind === "profile" && <span className="env-kind" title="Defined at the profile — inherited by every space of the profile. The toggle is this space's override.">from profile</span>}
                   {sk.valid
                     ? <span className="settings-row-desc">{sk.description}</span>
                     : <span className="settings-row-problem"><Icon name="alert" size={12} /> {sk.reason}</span>}

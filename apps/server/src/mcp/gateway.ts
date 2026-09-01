@@ -424,6 +424,13 @@ export class McpGateway {
     if (!resolved) {
       const disabled = this.resolveAnyServer(fullName);
       if (disabled) {
+        // W2: "turn it on in Space Settings" is only true for a server this space can SEE. One that is
+        // scoped to another profile or space is blocked with its real attribution but no false remedy.
+        if (!this.d.mcp.reaches(spaceId, disabled.row.id)) {
+          return this.blocked(sessionId, disabled.row.id, disabled.row.name, disabled.tool, argsJson,
+            `mcp: "${disabled.row.name}" is not part of this space's toolset — it is defined in another profile or space.`,
+            `blocked: ${disabled.row.name} is out of scope for this space`);
+        }
         return this.blocked(sessionId, disabled.row.id, disabled.row.name, disabled.tool, argsJson,
           `mcp: "${disabled.row.name}" is disabled for this space — turn it on in Space Settings → MCP.`,
           `blocked: ${disabled.row.name} is disabled in this space`);

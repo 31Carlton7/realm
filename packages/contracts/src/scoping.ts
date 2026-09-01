@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { IdSchema } from "./ids";
 
 /**
  * Plan 12 W2 — where a skill, MCP server, or memory doc is **defined** (the User-vs-Workspace settings
@@ -17,9 +16,13 @@ import { IdSchema } from "./ids";
  *   space via a per-space disable override; they are never editable from the inheriting space — editing
  *   happens at the defining scope, and promote/demote move the defining scope itself.
  */
+// The ids are opaque strings rather than `IdSchema` on purpose: a scope is derived state that rides
+// OUT on list results and sits in storage — the RPC boundary already validates every id a caller can
+// send (promote/demote take `IdSchema` params and resolve the profile from a real row), and a stricter
+// shape here would only make stored scopes fail validation en masse if id formats ever changed.
 export const ItemScopeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("space"), spaceId: IdSchema.nullable() }),
-  z.object({ kind: z.literal("profile"), profileId: IdSchema }),
+  z.object({ kind: z.literal("space"), spaceId: z.string().min(1).nullable() }),
+  z.object({ kind: z.literal("profile"), profileId: z.string().min(1) }),
 ]);
 export type ItemScope = z.infer<typeof ItemScopeSchema>;
 

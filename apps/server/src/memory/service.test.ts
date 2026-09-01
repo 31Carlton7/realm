@@ -6,6 +6,7 @@ import type { Environment, EnvironmentKind } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
 import { RpcError } from "../store/rows";
+import { MEMORY_COMBINED_MAX, MEMORY_DOC_MAX } from "@realm/contracts";
 import { AGENTS_FILE_MARKER, MemoryService } from "./service";
 
 const SPACE_A = "01ARZ3NDEKTSV4RRFFQ69G5FAA";
@@ -234,5 +235,97 @@ describe("MemoryService sourcesFor", () => {
     memory.set(SPACE_A, "space A memory");
     expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).realmMemoryInjected).toBe(true);
     expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_B, cwd: "/tmp", skillsInjected: false, reported: null }).realmMemoryInjected).toBe(false);
+  });
+});
+
+describe("scoping (W2) — the inherited profile memory doc", () => {
+  // SPACE_A lives in profile PA, SPACE_B in PB — and a second seam puts them in ONE profile where a
+  // test needs siblings. Same reduction of app.ts's seam as the skills/MCP scoping suites.
+  const seam = (profileOf: Record<string, string>) => ({ profileIdOf: (sid: string) => profileOf[sid] ?? null });
+  function scopedHarness(profileOf: Record<string, string> = { [SPACE_A]: "PA", [SPACE_B]: "PB" }) {
+    const h = harness();
+    const memory = new MemoryService({
+      home: h.home, settings: h.settings, claudeDir: h.claudeDir, scopes: seam(profileOf),
+      environments: envs({ [SPACE_A]: { path: h.folderOf(SPACE_A), kind: "primary" }, [SPACE_B]: { path: h.folderOf(SPACE_B), kind: "primary" } }),
+    });
+    return { ...h, memory };
+  }
+  const ctx = (memory: MemoryService, spaceId: string) =>
+    memory.systemContextFor({ spaceId, kind: "codex", cwd: "/tmp", skillsInjected: false });
+
+  it("injects the profile doc BEFORE the space doc, for spaces of that profile only", () => {
+    // The named mutant: the profile memory doc leaking across profiles. SPACE_B is in PB and must see
+    // none of PA's context — not in its injected prompt and not in its panel state.
+    const { memory } = scopedHarness();
+    memory.setProfile("PA", "profile-wide context");
+    memory.set(SPACE_A, "space context");
+    const a = ctx(memory, SPACE_A)!;
+    expect(a.indexOf("profile-wide context")).toBeGreaterThanOrEqual(0);
+    expect(a.indexOf("profile-wide context")).toBeLessThan(a.indexOf("space context"));
+    expect(a.indexOf("# Profile memory")).toBeLessThan(a.indexOf("# Space memory"));
+    expect(ctx(memory, SPACE_B)).toBeUndefined();
+    expect(memory.state(SPACE_B).profile).toMatchObject({ profileId: "PB", doc: "" });
+    expect(memory.state(SPACE_A).profile).toMatchObject({ profileId: "PA", doc: "profile-wide context", enabledHere: true });
+  });
+
+  it("keeps profile docs apart on disk: two profiles never share a file", () => {
+    const { memory } = scopedHarness();
+    memory.setProfile("PA", "for PA");
+    memory.setProfile("PB", "for PB");
+    expect(memory.readProfileDoc("PA")).toBe("for PA");
+    expect(memory.readProfileDoc("PB")).toBe("for PB");
+    expect(ctx(memory, SPACE_B)).toContain("for PB");
+    expect(ctx(memory, SPACE_B)).not.toContain("for PA");
+  });
+
+  it("the per-space toggle turns inheritance off for ONE space and leaves its sibling alone", () => {
+    // Same override-isolation mutant as skills/MCP, for memory's one inherited item.
+    const { memory } = scopedHarness({ [SPACE_A]: "PA", [SPACE_B]: "PA" });
+    memory.setProfile("PA", "shared context");
+    const state = memory.setProfileDocEnabled(SPACE_A, false);
+    expect(state.profile).toMatchObject({ enabledHere: false, doc: "shared context" });
+    expect(ctx(memory, SPACE_A)).toBeUndefined();
+    expect(ctx(memory, SPACE_B)).toContain("shared context");
+    memory.setProfileDocEnabled(SPACE_A, true);
+    expect(ctx(memory, SPACE_A)).toContain("shared context");
+  });
+
+  it("enforces the combined cap where the CLIs meet the docs: space doc whole, profile doc truncated", () => {
+    // The named mutant: the combined cap unenforced — two write-capped docs would otherwise double the
+    // injection budget. The space doc is the more specific instruction, so it is the one that survives.
+    const { memory } = scopedHarness();
+    const profileDoc = "p".repeat(MEMORY_DOC_MAX);
+    const spaceDoc = "s".repeat(60_000);
+    memory.setProfile("PA", profileDoc);
+    memory.set(SPACE_A, spaceDoc);
+    const a = ctx(memory, SPACE_A)!;
+    const kept = MEMORY_COMBINED_MAX - spaceDoc.length;
+    expect(a).toContain(spaceDoc);
+    expect(a).toContain("p".repeat(kept));
+    expect(a).not.toContain("p".repeat(kept + 1));
+  });
+
+  it("refuses a profile doc over the per-doc cap, same as a space doc", () => {
+    const { memory } = scopedHarness();
+    expect(() => memory.setProfile("PA", "x".repeat(MEMORY_DOC_MAX + 1))).toThrow(RpcError);
+    expect(memory.readProfileDoc("PA")).toBe("");
+  });
+
+  it("counts an inherited profile doc as injected Realm memory in sourcesFor — unless this space opted out", () => {
+    const { memory } = scopedHarness();
+    memory.setProfile("PA", "profile-wide context");
+    const src = (sid: string) => memory.sourcesFor({ kind: "codex", spaceId: sid, cwd: "/tmp", skillsInjected: false, reported: null });
+    expect(src(SPACE_A).realmMemoryInjected).toBe(true);
+    expect(src(SPACE_B).realmMemoryInjected).toBe(false);
+    memory.setProfileDocEnabled(SPACE_A, false);
+    expect(src(SPACE_A).realmMemoryInjected).toBe(false);
+  });
+
+  it("without the seam (pre-W2 wiring) nothing changes: no profile state, no profile injection", () => {
+    const { memory } = harness();
+    expect(memory.state(SPACE_A).profile).toBeNull();
+    memory.set(SPACE_A, "space only");
+    expect(ctx(memory, SPACE_A)).toBe(
+      "# Space memory\n\nThe user keeps this context for every session in this workspace (managed in Realm):\n\nspace only");
   });
 });

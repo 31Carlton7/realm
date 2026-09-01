@@ -219,6 +219,15 @@ export class McpService {
     return this.effectiveServerIds(spaceId).includes(id);
   }
 
+  /** Whether this server is even VISIBLE to `spaceId` (scope reach, before enable state) — what the
+   *  gateway's blocked-call attribution asks, so its "turn it on in Space Settings" guidance is only
+   *  ever given for a server that actually appears in that space's settings. Same `appliesTo` the
+   *  effective set uses — reach stays one computation. */
+  reaches(spaceId: string, id: string): boolean {
+    const row = this.d.servers.get(id);
+    return row !== null && this.appliesTo(row.scope, spaceId);
+  }
+
   /**
    * Promote: move a space-scoped (or pre-scoping) server's defining scope to `spaceId`'s profile.
    *

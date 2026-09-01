@@ -119,6 +119,9 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <span className="status-dot" data-status={server.status} title={STATUS_LABEL[server.status]} aria-label={`Status: ${STATUS_LABEL[server.status]}`} />
         <span className="env-name">{server.name}</span>
         <span className="env-kind">{server.transport}</span>
+        {/* W2 scope marker: an inherited server is defined at the profile — the toggle here is this
+            space's override; editing happens at the defining scope (the grouped UI is W4's). */}
+        {server.scope.kind === "profile" && <span className="env-kind" title="Defined at the profile — inherited by every space of the profile. The toggle is this space's override.">from profile</span>}
         {/* The hub status dot only says whether calls currently succeed — it says nothing about auth,
             so a server needing reauth otherwise looks completely normal until Edit is opened. */}
         {server.authKind === "oauth" && server.oauthStatus === "reconnect_needed" && (

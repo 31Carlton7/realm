@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
+import { RpcError } from "../store/rows";
 import { SkillsService, bundledSkillsDir, skillsRoot } from "./service";
 
 let home: string;
@@ -224,5 +225,92 @@ describe("bundledSkillsDir", () => {
     vi.stubEnv("REALM_BUNDLED_SKILLS", join(bundled, "missing"));
     expect(bundledSkillsDir()).toBeNull();
     vi.unstubAllEnvs();
+  });
+});
+
+describe("scoping (W2) — profile vs space defining scope", () => {
+  // Two profiles, three spaces: A1/A2 belong to PA, B1 to PB. The seam is exactly what app.ts wires
+  // from SpacesStore, reduced to the one question SkillsService asks.
+  const A1 = "spc_a1", A2 = "spc_a2", B1 = "spc_b1";
+  const profileOf: Record<string, string> = { [A1]: "PA", [A2]: "PA", [B1]: "PB" };
+  const scoped = () => new SkillsService({ home, settings, bundledDir: null, scopes: { profileIdOf: (sid) => profileOf[sid] ?? null } });
+
+  it("keeps a pre-scoping skill visible and toggleable in every space of every profile", () => {
+    // The migration IS the absence of a scope entry: nothing written on upgrade, nothing moves.
+    const svc = scoped();
+    skill(svc.root, "mac");
+    for (const sp of [A1, A2, B1]) expect(svc.list(sp).skills.map((x) => [x.id, x.enabled])).toEqual([["mac", true]]);
+    expect(svc.list(A1).skills[0]!.scope).toEqual({ kind: "space", spaceId: null });
+  });
+
+  it("promote scopes a skill to the profile: inherited by every space of THAT profile and no other", () => {
+    // The named mutant: inheritance math wrong — a PA-scoped skill leaking into PB's space.
+    const svc = scoped();
+    skill(svc.root, "mac");
+    svc.promote(A1, "mac");
+    expect(svc.list(A1).skills.map((x) => x.id)).toEqual(["mac"]);
+    expect(svc.list(A2).skills.map((x) => x.id)).toEqual(["mac"]);
+    expect(svc.list(B1).skills).toEqual([]);
+    expect(svc.list(A2).skills[0]!.scope).toEqual({ kind: "profile", profileId: "PA" });
+  });
+
+  it("promote never arms a space that had the skill disabled", () => {
+    // The named mutant: promotion silently re-enabling. Skills share ONE per-space disabled-set across
+    // both scopes, so the preservation is structural — this test is what notices if that ever splits.
+    const svc = scoped();
+    skill(svc.root, "mac");
+    svc.setEnabled(A2, "mac", false);
+    svc.promote(A1, "mac");
+    expect(svc.list(A1).skills[0]!.enabled).toBe(true);
+    expect(svc.list(A2).skills[0]!.enabled).toBe(false);
+  });
+
+  it("disabling an inherited skill in one space leaves its sibling alone", () => {
+    // The named mutant: a per-space override bleeding across siblings.
+    const svc = scoped();
+    skill(svc.root, "mac");
+    svc.promote(A1, "mac");
+    svc.setEnabled(A1, "mac", false);
+    expect(svc.list(A1).skills[0]!.enabled).toBe(false);
+    expect(svc.list(A2).skills[0]!.enabled).toBe(true);
+    svc.setEnabled(A1, "mac", true);
+    expect(svc.list(A1).skills[0]!.enabled).toBe(true);
+  });
+
+  it("demote pins the skill to one space, preserving that space's enable state", () => {
+    const svc = scoped();
+    skill(svc.root, "mac");
+    svc.promote(A1, "mac");
+    svc.setEnabled(A2, "mac", false);
+    svc.demote(A2, "mac");
+    // A2 keeps its (disabled) state; A1 — a sibling — stops seeing it entirely.
+    expect(svc.list(A2).skills.map((x) => [x.id, x.enabled])).toEqual([["mac", false]]);
+    expect(svc.list(A1).skills).toEqual([]);
+    expect(svc.list(A2).skills[0]!.scope).toEqual({ kind: "space", spaceId: A2 });
+  });
+
+  it("refuses scope moves that make no sense, with a code a client can act on", () => {
+    const svc = scoped();
+    skill(svc.root, "mac");
+    expect(() => svc.demote(A1, "mac")).toThrow(RpcError);              // not profile-scoped yet
+    expect(() => svc.promote(A1, "ghost")).toThrow(RpcError);           // not in the library
+    svc.promote(A1, "mac");
+    expect(() => svc.promote(A1, "mac")).toThrow(RpcError);             // already profile-scoped
+    expect(() => svc.demote(B1, "mac")).toThrow(RpcError);              // B1 is not in PA
+    svc.demote(A2, "mac");
+    expect(() => svc.promote(A1, "mac")).toThrow(RpcError);             // now defined in A2, not A1
+    expect(() => svc.promote(B1, "mac")).toThrow(RpcError);
+  });
+
+  it("stages exactly the effective set: a profile skill of PA never reaches a PB session", () => {
+    // `injectionFor` consumes `list()` — this is the wire-side half of the leak mutant: the staged
+    // library an agent actually reads must agree with what the panel showed.
+    const svc = scoped();
+    skill(svc.root, "mac");
+    svc.promote(A1, "mac");
+    expect(svc.wouldInject(A2, "claude")).toBe(true);
+    expect(staged(svc.injectionFor(A2, "claude")!)).toEqual(["mac"]);
+    expect(svc.wouldInject(B1, "claude")).toBe(false);
+    expect(svc.injectionFor(B1, "claude")).toBeNull();
   });
 });
