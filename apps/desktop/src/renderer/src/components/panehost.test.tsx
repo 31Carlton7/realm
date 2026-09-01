@@ -140,10 +140,41 @@ describe("PaneHost", () => {
     fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Split down/ }));
     expect(props.onSplit).toHaveBeenLastCalledWith("L2", "col");
-    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Pane menu for Tab A" }));
+    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Close/ }));
-    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("A");
+    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("B");
     unmount();
+  });
+
+  /** W2.3 (Plan 11): NOTHING may ever open "over" a browser pane from its own header — the native
+   *  view paints over any dropdown. The ⋯ menu is gone for browser panes; its actions are inline. */
+  it("browser pane header has NO dropdown: no ⋯, no aria-haspopup — inline split buttons instead", () => {
+    const { props } = renderHost();
+    expect(within(panel("L1")).queryByRole("button", { name: "Pane menu for Tab A" })).toBeNull();
+    expect(panel("L1").querySelector(".panel-bar [aria-haspopup]")).toBeNull();
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Split Tab A right" }));
+    expect(props.onSplit).toHaveBeenCalledExactlyOnceWith("L1", "row");
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Split Tab A down" }));
+    expect(props.onSplit).toHaveBeenLastCalledWith("L1", "col");
+    // The non-browser pane keeps its ⋯ menu — the rework is scoped to browser panes.
+    expect(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" })).toBeInTheDocument();
+  });
+
+  it("browser pane delete is two-step INLINE (U-H2), deleting through the store on the confirm", async () => {
+    const { api } = renderHost();
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Delete Tab A" }));
+    expect(api.calls).not.toContain("deleteItem:A"); // armed, not deleted
+    const confirm = within(panel("L1")).getByRole("button", { name: "Really delete Tab A?" });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(api.calls).toContain("deleteItem:A"));
+  });
+
+  it("the inline delete confirm disarms on blur instead of staying armed forever", () => {
+    renderHost();
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Delete Tab A" }));
+    fireEvent.blur(within(panel("L1")).getByRole("button", { name: "Really delete Tab A?" }));
+    expect(within(panel("L1")).queryByRole("button", { name: "Really delete Tab A?" })).toBeNull();
+    expect(within(panel("L1")).getByRole("button", { name: "Delete Tab A" })).toBeInTheDocument();
   });
 
   it("⋯ menu closes when the ⋯ button is pressed a second time", async () => {
@@ -162,13 +193,13 @@ describe("PaneHost", () => {
   });
 
   it("⋯ menu Delete is two-step and deletes through the store on confirm", async () => {
-    const { api, unmount } = renderHost({ layout: { type: "leaf", id: "L1", itemId: "A" } });
-    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Pane menu for Tab A" }));
+    const { api, unmount } = renderHost({ layout: { type: "leaf", id: "L1", itemId: "B" } });
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Pane menu for Tab B" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
-    expect(api.calls).not.toContain("deleteItem:A"); // armed, not deleted
+    expect(api.calls).not.toContain("deleteItem:B"); // armed, not deleted
     expect(screen.getByRole("menu")).toBeInTheDocument(); // menu stayed open for the confirm
     fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
-    await waitFor(() => expect(api.calls).toContain("deleteItem:A"));
+    await waitFor(() => expect(api.calls).toContain("deleteItem:B"));
     unmount();
   });
 
