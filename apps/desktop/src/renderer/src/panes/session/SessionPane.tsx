@@ -163,7 +163,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const connectors = useApp((s) => { const sess = s.sessions[id]; return (sess && s.connectors[sess.spaceId]) ?? null; });
   const refreshConnectors = useApp((s) => s.refreshConnectors);
   const pickAndLinkProject = useApp((s) => s.pickAndLinkProject);
-  const openSheet = useApp((s) => s.openSheet);
+  const openSpacePage = useApp((s) => s.openSpacePage);
   const spaceEnvironments = useMemo(
     () => Object.values(environments).filter((e) => session && e.spaceId === session.spaceId),
     [environments, session],
@@ -238,7 +238,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
             onAddFolder={() => run(() => pickAndLinkProject())}
-            onManageConnections={() => openSheet({ kind: "space-settings", spaceId: session.spaceId, tab: "mcp" })}
+            onManageConnections={() => run(() => openSpacePage(session.spaceId, "connections"))}
             hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />}
     </div>
   );

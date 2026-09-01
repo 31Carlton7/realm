@@ -1,12 +1,13 @@
 import { AGENT_META, MEMORY_DOC_MAX, SELECTABLE_AGENT_KINDS, memorySupportNote, type MemorySource } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { useApp } from "../../state/store";
 
 const fmt = (num: number): string => num.toLocaleString("en-US");
 
 /**
- * The memory tab of the space-settings sheet (W5): this space's Realm memory document, the opt-in
+ * The memory tab of the space page (W5, sheet-era; a pane tab since Plan 12 W3): this space's Realm
+ * memory document, the opt-in
  * `AGENTS.md`, and what each agent actually loads.
  *
  * The cap is surfaced, never enforced by truncation: past MEMORY_DOC_MAX the save is refused with the
@@ -17,7 +18,9 @@ const fmt = (num: number): string => num.toLocaleString("en-US");
  * whose primary checkout is a linked directory Realm did not create shows the refusal reason instead
  * of a switch that can only error.
  */
-export function MemoryPanel({ spaceId }: { spaceId: string }) {
+export function MemoryPanel({ spaceId, editorRef }: { spaceId: string;
+  /** Lets a mount context (the space page's standing-instruction CTA) focus the document editor. */
+  editorRef?: RefObject<HTMLTextAreaElement | null> }) {
   const memory = useApp((s) => s.spaceMemory[spaceId]);
   const refreshMemory = useApp((s) => s.refreshMemory);
   const saveMemoryDoc = useApp((s) => s.saveMemoryDoc);
@@ -39,7 +42,7 @@ export function MemoryPanel({ spaceId }: { spaceId: string }) {
       <div className="field">
         <span>Space memory</span>
         <p className="settings-hint">Travels into every new Claude and Codex session in this space. Stored at <code className="env-path">{memory.path}</code> — never in any agent's config.</p>
-        <textarea className="memory-doc" aria-label="Space memory document" value={text} rows={10} spellCheck={false}
+        <textarea ref={editorRef} className="memory-doc" aria-label="Space memory document" value={text} rows={10} spellCheck={false}
           onChange={(e) => setDraft(e.target.value)} placeholder="Durable context for this space's sessions — conventions, links, standing instructions…" />
         <div className="memory-meta">
           <span className="settings-hint" data-tone={over > 0 ? "danger" : undefined}>

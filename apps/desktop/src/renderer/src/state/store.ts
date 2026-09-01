@@ -240,12 +240,15 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
   return out;
 }
 
+/** The space page's tab rail (Plan 12 W3). "connections" is what the retired sheet called "mcp" —
+ *  openers that used `tab: "mcp"` (the plus-menu's "Manage connections…") map to it. */
+export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sessions" | "history";
+
 /** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
  *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
 export type Sheet =
-  /** `tab` preselects a section — the plus-menu's "Manage connections…" lands on Connections; omitted
-   *  means General, exactly what every existing opener gets. */
-  | { kind: "space-settings"; spaceId: string; tab?: "general" | "skills" | "mcp" | "memory" }
+  /** Space settings retired from this union (Plan 12 W3): a space is a PAGE now — a `space-page` item
+   *  in the layout, opened via `openSpacePage` — not a modal. */
   | { kind: "new-space" }
   /** Removing a worktree: the one destructive confirm in Plan 7, which must name what would be lost
    *  and pass an acknowledgement it re-read at the moment of confirming (W3). */
@@ -382,9 +385,18 @@ export type AppState = {
    *  and the hub's held status, it dials nothing, so refreshing on menu open never probes a server.
    *  `mcp.serverStatus` broadcasts patch it live; absent = never fetched, rendered as such. */
   connectors: Record<string, McpServer[]>;
-  /** MCP servers for the space currently open in settings (W6) — `mcp.list`'s per-space projection.
-   *  Empty until `refreshMcpServers` runs; McpSection fetches on mount, i.e. on sheet open. */
+  /** MCP servers for the space whose Connections tab is currently mounted (W6) — `mcp.list`'s
+   *  per-space projection. Empty until `refreshMcpServers` runs; McpSection fetches on mount. */
   mcpServers: McpServer[];
+  /** Which space's Connections panel (McpSection) is mounted right now, null when none is. Set
+   *  synchronously by `clearMcpServers` on mount/unmount; it is the guard that keeps a slow
+   *  `mcp.list` response — or an `mcp.changed` refetch — from clobbering another space's list
+   *  (Plan 12 W3: the sheet whose open/closed state used to be this guard is gone). */
+  mcpPanelSpaceId: string | null;
+  /** The space page's selected tab, PER SPACE (Plan 12 W3): switching spaces must never carry one
+   *  space's tab — and with it another space's data fetch — onto a different space's page. Absent =
+   *  "general". */
+  spacePageTab: Record<string, SpacePageTab>;
   /** The last `mcp.tools.list` error per server id, `null` once a refresh succeeds. A RESULT, not an
    *  exception (see the Api doc comment) — kept apart from `error` so it renders inline on the row that
    *  caused it instead of stealing the app's one error banner. */
@@ -563,6 +575,12 @@ export type AppState = {
   /** Open (or focus) the diff pane for an environment. The pane's item has the ENVIRONMENT's id as
    *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
+  /** Open the space's PAGE (Plan 12 W3) — a `space-page` item whose refId is the space id, one per
+   *  space (the diff pane's dedup precedent). `tab` lands the page on a section — the plus-menu's
+   *  "Manage connections…" passes "connections"; omitted keeps whatever tab the page last showed. */
+  openSpacePage(spaceId: string, tab?: SpacePageTab): Promise<void>;
+  /** The page's tab, per space — see `spacePageTab`. */
+  setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
   /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
@@ -583,11 +601,12 @@ export type AppState = {
    *  still open for this exact space — a slow response after the user closed or switched must not
    *  clobber whatever the sheet is showing now. */
   refreshMcpServers(spaceId: string): Promise<void>;
-  /** Drop whatever `mcpServers`/`mcpToolsError` currently hold. Called once, synchronously, when
-   *  `McpSection` mounts (or re-mounts for a different space) — BEFORE `refreshMcpServers` kicks off its
-   *  fetch — so reopening settings for a different space never flashes the previous space's rows (or a
+  /** Drop whatever `mcpServers`/`mcpToolsError` currently hold and record which space's panel is
+   *  mounted (`mcpPanelSpaceId` — null on unmount). Called synchronously when `McpSection` mounts
+   *  (or re-mounts for a different space) — BEFORE `refreshMcpServers` kicks off its fetch — so
+   *  opening the Connections tab for a different space never flashes the previous space's rows (or a
    *  tools error belonging to a server not even shown here) while the new list is in flight. */
-  clearMcpServers(): void;
+  clearMcpServers(spaceId: string | null): void;
   addMcpServer(input: AddMcpServerInput): Promise<McpServer>;
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
@@ -908,6 +927,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
+      spacePageTab: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
@@ -1565,6 +1585,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
         await adoptItem(sid, created.id, targetLeafId);
       },
+      async openSpacePage(spaceId, tab) {
+        // The tab lands even when the page item already exists — "Manage connections…" on an
+        // already-open page must still end up on Connections.
+        if (tab) get().setSpacePageTab(spaceId, tab);
+        // Page items live in the layout of the space they describe; every opener is active-space
+        // scoped (gear, header, palette, session pane), so a mismatch means the space changed
+        // under the click — do nothing rather than adopt an item into the wrong layout.
+        if (get().activeSpaceId !== spaceId) return;
+        // One page per space, the diff pane's dedup precedent: a second open goes to the pane that
+        // already exists rather than accumulating identical pages.
+        const existing = get().items.find((i) => i.kind === "space-page" && i.refId === spaceId);
+        if (existing) { await get().openItem(existing.id); return; }
+        // Title is static ("Overview"), never the space name: the page header renders the live name,
+        // and a snapshot in the item row would go stale on rename.
+        const created = await api.createItem(spaceId, "space-page", "Overview", spaceId);
+        await adoptItem(spaceId, created.id, null);
+      },
+      setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);
         set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: status }, worktreeAckStale: null,
@@ -1642,11 +1680,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshMcpServers(spaceId) {
         const { servers } = await api.listMcpServers(spaceId);
-        const sheet = get().sheet;
-        if (sheet?.kind !== "space-settings" || sheet.spaceId !== spaceId) return;
+        // Apply only if this space's panel is STILL the mounted one — a slow response after the user
+        // closed the page or switched its space must not clobber what the panel shows now.
+        if (get().mcpPanelSpaceId !== spaceId) return;
         set({ mcpServers: servers });
       },
-      clearMcpServers() { set({ mcpServers: [], mcpToolsError: {} }); },
+      clearMcpServers(spaceId) { set({ mcpServers: [], mcpToolsError: {}, mcpPanelSpaceId: spaceId }); },
       async addMcpServer(input) {
         const s = await api.addMcpServer(input);
         // Optimistic: `mcp.changed` will also refetch, but that broadcast round-trip must not be the

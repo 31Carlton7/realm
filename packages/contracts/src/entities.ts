@@ -25,9 +25,11 @@ export const ProjectSchema = z.object({
 });
 export type Project = z.infer<typeof ProjectSchema>;
 
-/** `diff` (Plan 7 W3) is the one kind whose `refId` is an ENVIRONMENT id, not a session or terminal:
- *  a diff is a view of a checkout, and several sessions may share one. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff"]);
+/** `diff` (Plan 7 W3) is the one kind whose `refId` is not a session or terminal — it is an
+ *  ENVIRONMENT id: a diff is a view of a checkout, and several sessions may share one.
+ *  `space-page` (Plan 12 W3) follows that precedent: its `refId` is the SPACE id itself — the pane is
+ *  the space's own page (General/Memory/Skills/Connections/Sessions/History), one per space. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "space-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 export const ItemSchema = z.object({

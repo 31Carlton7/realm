@@ -16,9 +16,9 @@ const isAcpKind = (k: AgentKind) => k.startsWith("acp:");
 type SecretRow = { key: string; value: string };
 
 /**
- * MCP servers, auth and per-space/per-tool policy — the **Connections** tab of Plan 8 W5's settings
- * home (`SpaceSettingsSheet`), following the sibling panels' idiom (`useApp`, `run()`, a
- * `form settings-panel` root wrapping `.field` sections).
+ * MCP servers, auth and per-space/per-tool policy — the **Connections** tab of the space page (born
+ * in Plan 8 W5's settings sheet, promoted with it in Plan 12 W3), following the sibling panels'
+ * idiom (`useApp`, `run()`, a `form settings-panel` root wrapping `.field` sections).
  *
  * Every state here has to say something, per the plan's honesty rule: a server with no cached tools
  * names the action that would get it some; a blocked circuit names its own fix; a secret field never
@@ -33,15 +33,20 @@ export function McpSection({ spaceId }: { spaceId: string }) {
   const run = useApp((s) => s.run);
   const [adding, setAdding] = useState(false);
 
-  // Fetch on sheet open: McpSection only ever mounts (or re-mounts for a different spaceId) while the
-  // space-settings sheet is showing. Clearing first is deliberate — without it, reopening settings for
-  // a different space would flash the PREVIOUS space's server rows (and a stale tools error that
-  // belongs to a server not even shown here) until the fetch lands.
+  // Fetch on mount — since Plan 12 W3 that means the space page's Connections tab being shown.
+  // Clearing first is deliberate — without it, opening Connections for a different space would flash
+  // the PREVIOUS space's server rows (and a stale tools error that belongs to a server not even shown
+  // here) until the fetch lands. `clearMcpServers(spaceId)` also records which space's panel is
+  // mounted (the store's guard against slow responses and `mcp.changed` refetches landing elsewhere);
+  // the cleanup un-records it.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- run/refreshMcpServers/clearMcpServers are stable store actions
-  useEffect(() => { clearMcpServers(); run(() => refreshMcpServers(spaceId)); }, [spaceId]);
+  useEffect(() => {
+    clearMcpServers(spaceId); run(() => refreshMcpServers(spaceId));
+    return () => clearMcpServers(null);
+  }, [spaceId]);
 
   // Same idiom as EnvironmentList's checkout list: this state only ever holds the active space's data,
-  // so a settings sheet opened for a non-active space would show nothing here either — an existing,
+  // so a Connections tab shown for a non-active space would show nothing here either — an existing,
   // accepted limitation of how `sessions`/`environments` are scoped, not something this section invents.
   const agentKinds = [...new Set(Object.values(sessions).filter((s) => s.spaceId === spaceId).map((s) => s.agentKind))].sort();
 
@@ -50,8 +55,7 @@ export function McpSection({ spaceId }: { spaceId: string }) {
       <div className="field">
         <div className="mcp-section-head">
           <span>MCP servers</span>
-          {/* Opening Activity REPLACES this settings sheet — the app's one sheet slot (ruling 4) — rather
-              than stacking on top of it; that is accepted, not a bug to work around here. */}
+          {/* Activity is still a sheet; it opens OVER the page (one sheet slot, ruling 4). */}
           <button type="button" className="btn-quiet" onClick={() => run(() => openActivity())}>Activity</button>
         </div>
         {servers.length === 0

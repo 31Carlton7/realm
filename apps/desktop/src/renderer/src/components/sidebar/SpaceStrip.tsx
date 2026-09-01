@@ -13,6 +13,7 @@ export function SpaceStrip() {
   const selectSpace = useApp((s) => s.selectSpace);
   const reorderSpaces = useApp((s) => s.reorderSpaces);
   const openSheet = useApp((s) => s.openSheet);
+  const openSpacePage = useApp((s) => s.openSpacePage);
   const run = useApp((s) => s.run);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -36,7 +37,7 @@ export function SpaceStrip() {
   return (
     <div className="space-strip">
       <button className="icon-btn strip-side" aria-label="Settings" title="Settings" disabled={!activeSpaceId}
-        onClick={() => { if (activeSpaceId) openSheet({ kind: "space-settings", spaceId: activeSpaceId }); }}><Icon name="settings" size={16} /></button>
+        onClick={() => { if (activeSpaceId) run(() => openSpacePage(activeSpaceId)); }}><Icon name="settings" size={16} /></button>
       <div className="strip-spaces" aria-label="Spaces">
         {spaces.map((sp) => {
           const badge = spaceBadge(sessionStatus, sessionSpace, sp.id);

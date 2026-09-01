@@ -13,24 +13,27 @@ export function SpaceHeader({ space }: { space: Space }) {
   const setThemePref = useApp((s) => s.setThemePref);
   const swipeInvert = useApp((s) => s.swipeInvert);
   const setSwipeInvert = useApp((s) => s.setSwipeInvert);
-  const openSheet = useApp((s) => s.openSheet);
+  const openSpacePage = useApp((s) => s.openSpacePage);
   const newTerminal = useApp((s) => s.newTerminal);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
   const run = useApp((s) => s.run);
   const [menu, setMenu] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const closeMenu = useCallback(() => setMenu(false), []);
-  const openSettings = () => openSheet({ kind: "space-settings", spaceId: space.id });
+  // A space is a PAGE (Plan 12 W3): every path that used to open the settings sheet lands there.
+  const openPage = () => run(() => openSpacePage(space.id));
   return (
     <div className="space-header">
-      <h2><Icon name={space.icon} size={16} /><span className="space-name">{space.name}</span></h2>
+      <h2><button type="button" className="space-title" title="Open space" onClick={openPage}>
+        <Icon name={space.icon} size={16} /><span className="space-name">{space.name}</span>
+      </button></h2>
       <div className="space-header-actions">
-        {profile && <button className="pill" title="Space settings" onClick={openSettings}>{profile.name}</button>}
+        {profile && <button className="pill" title="Open space" onClick={openPage}>{profile.name}</button>}
         <button ref={btnRef} className="icon-btn" aria-label="Space menu" aria-haspopup="menu" aria-expanded={menu}
           title="More" onClick={() => setMenu((o) => !o)}><Icon name="more" size={15} /></button>
         {menu && (
           <Menu align="right" anchorRef={btnRef} label="Space menu" onClose={closeMenu} items={[
-              { label: "Space settings…", onSelect: openSettings },
+              { label: "Open space", onSelect: openPage },
               { label: "New terminal", onSelect: () => run(() => newTerminal()) },
               // Not on "+"/⌘N: those stay the no-questions path (W3). A worktree is a
               // deliberate choice — it makes a branch — so it lives behind the menu.

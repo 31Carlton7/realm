@@ -23,6 +23,8 @@ export const icons = {
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
   laptop: LaptopIcon, plug: PlugSocketIcon,
+  // Item-kind keyed (ItemList/PanelBar render `Icon name={item.kind}`): the space page (Plan 12 W3).
+  "space-page": Home01Icon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

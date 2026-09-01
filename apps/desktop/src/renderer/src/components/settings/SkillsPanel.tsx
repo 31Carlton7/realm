@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useApp } from "../../state/store";
 
 /**
- * The skills tab of the space-settings sheet (W5): Realm's library with THIS space's toggles.
+ * The skills tab of the space page (W5, sheet-era; a pane tab since Plan 12 W3): Realm's library with THIS space's toggles.
  *
  * Two disclosures here are load-bearing, not copy (the plan's W1 carry-forwards):
  *
