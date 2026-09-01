@@ -2,9 +2,10 @@ import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
+  canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
-  type DestinationPageKind, type NotificationCategory,
+  type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory,
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
@@ -405,6 +406,15 @@ export type AppState = {
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
    *  layout no longer contains it. */
   focusedLeafId: string | null;
+  /** Per-pane back/forward trails, keyed by leaf id (see `PaneHistory`). Written in exactly one place —
+   *  `writeGroups`, which reconciles it against the layout on every structural write — plus the two
+   *  explicit actions (`navigateInPane`, `stepPaneNav`) and the item prune in `refreshItems`. */
+  paneHistory: PaneHistory;
+  /** The notifications page's selected row, or null for the bare list. USER-level, not per space and
+   *  not per item: the feed is one global thing, so the page's vantage into it is too — opening
+   *  Notifications from any space lands on the row you were reading. Panes record moves into their own
+   *  leaf's trail, so Back retraces them; the selection itself has no other home. */
+  notificationsSelectedId: string | null;
   projects: Project[];
   /** The active space's environments, by id — what tells the prompter a session is in a worktree.
    *  Sparse by design: a space that has never run anything has none until one is created. */
@@ -636,6 +646,18 @@ export type AppState = {
    *  landing on the near side. */
   openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
   focusLeaf(leafId: string): void;
+
+  // ——— Per-pane back/forward (the PanelBar arrows) ———
+  /** Record a move WITHIN a pane — a notification selected, a page tab switched — on the trail of the
+   *  leaf currently showing `itemId`. Item swaps record themselves (see writeGroups); this is for the
+   *  second coordinate a pane navigates on, which no layout write can see. A no-op when the item is
+   *  not on screen: there is no pane, so there is no trail to write to. */
+  navigateInPane(itemId: string, view: string | null): void;
+  /** Step one pane `delta` stops along its own trail (`-1` back, `+1` forward) and put it back exactly
+   *  as it stood — item AND in-pane view. No-op at either end. */
+  stepPaneNav(leafId: string, delta: number): Promise<void>;
+  /** Is there a stop `delta` steps from where `leafId` stands? What greys the arrows out. */
+  canPaneNav(leafId: string | null, delta: number): boolean;
   /** Move pane focus to the structural neighbor in that direction (see neighborLeafId); no-op without one. */
   focusNeighbor(dir: FocusDir): void;
   applyPreset(name: PresetName): Promise<void>;
@@ -884,6 +906,10 @@ export type AppState = {
   /** The row's jump affordance: land on the notification's session (switching space if needed) and
    *  mark it read — it has, by definition, been seen. */
   openNotificationTarget(n: Notification): Promise<void>;
+  /** Select a feed row into the page's detail column (null = back to the bare list). Records the move
+   *  on the trail of the pane showing `pageItemId`, so the arrows retrace it, and marks the row read —
+   *  opening a notification is the definition of having seen it. */
+  selectNotification(pageItemId: string, id: string | null): Promise<void>;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
   /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
@@ -1196,6 +1222,30 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: next } });
       if (refused.length > 0) set({ error: `Too large to attach — the limit is ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}: ${refused.join(", ")}` });
     };
+    /**
+     * Put a history entry's IN-PANE view back — the half of a stop that no layout write can restore.
+     *
+     * Each kind owns the meaning of its own `view` string, and each one is written back to the very
+     * state the pane already reads, so a step Back is indistinguishable from having clicked there:
+     * the notifications page's selected row, the space/profile pages' tab. A kind with no in-pane
+     * view (a session, a terminal) has nothing to restore and falls through — its `view` is always
+     * null. Junk can't reach here: every view string is one this app minted via `navigateInPane`.
+     */
+    const applyNavView = (entry: NavEntry) => {
+      const item = get().items.find((i) => i.id === entry.itemId);
+      if (!item) return;
+      if (item.kind === "notifications-page") { set({ notificationsSelectedId: entry.view }); return; }
+      if (item.kind === "space-page") {
+        // The space page's refId IS its space id — the key `spacePageTab` is already stored under.
+        get().setSpacePageTab(item.refId, (entry.view ?? "general") as SpacePageTab);
+        return;
+      }
+      if (item.kind === "profile-page") {
+        // The profile is derived live from the vantage space, exactly as the page itself derives it.
+        const profileId = get().spaces.find((sp) => sp.id === item.spaceId)?.profileId;
+        if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "skills") as ProfilePageTab);
+      }
+    };
     /** Focus keeps its leaf while the layout still has it; otherwise it resets to the first leaf. */
     const focusIn = (layout: Layout) => {
       const f = get().focusedLeafId;
@@ -1203,8 +1253,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** The ONE way `groups` is written: `layout` is re-mirrored off the active group in the same set,
      *  so the two fields can never be observed disagreeing — not even for one render. */
+    /** Also THE recording site for per-pane history: every structural change — open, split, drop,
+     *  preset, group switch — ends here, so reconciling once covers all of them (see reconcileNav).
+     *  `extra` still wins, which is what lets `stepPaneNav` seat its own cursor: the reconcile that
+     *  runs first then sees the stepped entry already current and records nothing. */
     const writeGroups = (groups: SpaceGroups, extra: Partial<AppState> = {}): Partial<AppState> =>
-      ({ groups, layout: activeLayout(groups), ...extra });
+      ({ groups, layout: activeLayout(groups), paneHistory: reconcileNav(get().paneHistory, groups), ...extra });
     /** The ONE way the active group's layout is written — every split/open/close/resize goes through
      *  here rather than `set({ layout })`, which would leave `groups` holding the pre-edit tree. */
     const writeLayout = (layout: Layout, extra: Partial<AppState> = {}): Partial<AppState> => {
@@ -1297,7 +1351,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null,
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
@@ -1370,9 +1424,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Prune across every group, not just the one on screen: a deleted item must stop being open
         // in the arrangements the user is not currently looking at too, or switching to one would
         // render a pane for something that no longer exists.
-        const groups = reconcileGroups(get().groups ?? groupsFromLayout(get().layout), new Set(items.map((i) => i.id)));
+        const live = new Set(items.map((i) => i.id));
+        const groups = reconcileGroups(get().groups ?? groupsFromLayout(get().layout), live);
         const layout = activeLayout(groups);
         layoutHydrated = true;
+        // The same prune has to reach the back/forward trails, or Back would offer to return a pane to
+        // an item deleted here or in another window. Applied BEFORE writeGroups' reconcile so the
+        // layout's own occupants are re-seeded on top of the pruned trails, never the other way round.
+        set({ paneHistory: forgetNavItems(get().paneHistory, live) });
         set(writeGroups(groups, { items, focusedLeafId: focusIn(layout) }));
       },
       async refreshAllItems() {
@@ -1608,6 +1667,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await persist();
       },
       focusLeaf(leafId) { set({ focusedLeafId: leafId }); },
+      navigateInPane(itemId, view) {
+        const leaf = findLeafOfItem(get().layout ?? emptyLayout(), itemId);
+        if (!leaf) return;
+        set({ paneHistory: pushNav(get().paneHistory, leaf.id, { itemId, view }) });
+      },
+      canPaneNav(leafId, delta) { return canNav(get().paneHistory, leafId, delta); },
+      async stepPaneNav(leafId, delta) {
+        const stepped = stepNav(get().paneHistory, leafId, delta);
+        if (stepped === get().paneHistory) return; // nowhere to go — no layout write, nothing persisted
+        const entry = navEntry(stepped, leafId)!;
+        // Seat the cursor FIRST: writeGroups reconciles against whatever `paneHistory` holds, and with
+        // the cursor already on `entry` it sees the leaf's new occupant as the stop it is standing on
+        // and records nothing. Without this the step would push a duplicate and Back would stall.
+        set({ paneHistory: stepped });
+        const layout = layoutOpen(get().layout ?? emptyLayout(), leafId, entry.itemId);
+        set(writeLayout(layout, { focusedLeafId: leafId }));
+        applyNavView(entry);
+        await persist();
+      },
       focusNeighbor(dir) {
         const { layout, focusedLeafId } = get();
         if (!layout || !focusedLeafId) return;
@@ -2378,6 +2456,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           if (item) await get().openItem(item.id);
         }
         if (n.readAt === null) await get().markNotificationsRead([n.id]);
+      },
+      async selectNotification(pageItemId, id) {
+        set({ notificationsSelectedId: id });
+        get().navigateInPane(pageItemId, id);
+        // Read state is stamped by OPENING a row, not by the arrows: `stepPaneNav` only re-seats the
+        // selection, so retracing the trail re-shows rows without touching read state (they were read
+        // the first time through) and can never spend a markRead on a row the user is walking past.
+        const n = id ? get().notifications.find((x) => x.id === id) : null;
+        if (n && n.readAt === null) await get().markNotificationsRead([n.id]);
       },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);

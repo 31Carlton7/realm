@@ -96,6 +96,17 @@ const BINDINGS: Binding[] = [
     match: (e) => (e.key === "[" || e.key === "{") && mod(e, { meta: true, shift: true }),
     run: (s) => s.run(() => s.stepPaneGroup(-1)),
   },
+  // ⌘[ / ⌘] → back / forward along the FOCUSED pane's own trail. Deliberately the same bracket pair
+  // as group stepping one shift away: both are "move along a sequence", and the unshifted (smaller)
+  // gesture is the smaller move — within one pane rather than between arrangements.
+  {
+    match: (e) => e.key === "[" && mod(e, { meta: true }),
+    run: (s) => { const l = s.focusedLeafId; if (l) s.run(() => s.stepPaneNav(l, -1)); },
+  },
+  {
+    match: (e) => e.key === "]" && mod(e, { meta: true }),
+    run: (s) => { const l = s.focusedLeafId; if (l) s.run(() => s.stepPaneNav(l, 1)); },
+  },
   // ⌘T → new terminal.
   {
     match: (e) => e.key.toLowerCase() === "t" && mod(e, { meta: true }),

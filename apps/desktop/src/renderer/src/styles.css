@@ -373,6 +373,11 @@ kbd { font: 11px var(--font-mono); }
 /* A focused EMPTY leaf has no header to underline — the pane itself takes an accent top rule. */
 .panel[data-focused][data-empty] { box-shadow: inset 0 2px 0 var(--rl-accent); }
 .panel-icon { color: var(--rl-text-dim); display: grid; place-items: center; }
+/* The pane's own back/forward. Tight pair, hairline-separated from the title so the arrows read as
+   chrome belonging to the pane rather than as two more of the actions clustered on the right. */
+.panel-nav { flex: none; display: flex; align-items: center; gap: 0; margin-left: -8px; }
+.panel-nav .icon-btn:disabled { opacity: .3; cursor: default; }
+.panel-nav .icon-btn:disabled:hover { background: none; }
 .panel-title { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* Click-to-rename affordance (spec §A2): the title is a quiet button. */
 button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); }
@@ -1403,16 +1408,32 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ——— Plan 12 W5: the Notifications page. Quiet feed rows on the page pattern; unread is a dot and a
    brighter title, never a wash. The inline permission card is the session pane's own component. ——— */
 .notifications-page-pane .page-head { align-items: flex-start; }
+/* The feed is SCANNED, not read: it takes the whole pane instead of the ~720px reading column the
+   other destination pages cap themselves at, and spends the width on a second column. */
+.notifications-page-pane .page-content { max-width: none; }
+.notif-split { gap: 0; }
+.notif-list { flex: 1 1 380px; min-width: 0; max-width: 480px; overflow-y: auto; padding-right: 16px; }
+.notif-detail { flex: 2 1 0; min-width: 0; overflow-y: auto; padding-left: 20px; border-left: 1px solid var(--rl-hairline); }
+.notif-detail-empty { font-size: 13px; padding: 12px 0; }
+.notif-detail-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.notif-detail-head { display: flex; align-items: center; gap: 8px; width: 100%; }
+.notif-detail-kind { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
+.notif-detail-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.notif-detail-body { margin: 0; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.notif-detail-card .notif-inline-card { width: 100%; }
 .notif-mark-all { margin-left: auto; flex: none; }
 .notif-empty { font-size: 13px; padding: 12px 0; }
 .notif-day { display: flex; flex-direction: column; margin-bottom: 18px; }
 .notif-day-label { margin: 0 0 4px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
-.notif-row { display: flex; gap: 10px; padding: 10px 4px; color: var(--rl-text-dim); }
-.notif-row + .notif-row { border-top: 1px solid var(--rl-hairline); }
+.notif-row { display: flex; gap: 10px; width: 100%; padding: 10px 8px; text-align: left; color: var(--rl-text-dim);
+  background: none; border: none; border-radius: var(--r-ctl); font: inherit; cursor: pointer; }
+.notif-row:hover { background: var(--rl-hover); }
+.notif-row[data-selected] { background: var(--rl-active); }
+.notif-row[data-selected] .notif-title { color: var(--rl-text-bright); }
 .notif-row[data-unread] { color: var(--rl-text); }
-.notif-glyph { flex: none; display: inline-flex; margin-top: 1px; color: var(--rl-text-faint); }
+.notif-glyph { flex: none; display: inline-flex; align-items: flex-start; margin-top: 1px; color: var(--rl-text-faint); }
 .notif-row[data-unread] .notif-glyph { color: inherit; }
-.notif-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.notif-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; text-align: left; }
 .notif-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .notif-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); align-self: center; }
 .notif-title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -98,6 +98,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  requester's has no read-only plan mode, or the user clicked) falls back to `agentRun`'s, then
    *  `browserAgent`'s. */
   review?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { budgetMs: number; pollMs: number } };
+  /** Upgrades a session's heuristic first-line title to a short model-written summary in the
+   *  background (`SessionService.upgradeTitle`). A real, billed LLM call per session — omitted here
+   *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
+   *  passes `generateSessionTitle`. */
+  titleGenerator?: (text: string) => Promise<string>;
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -248,7 +253,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
   const sessionEvents = new SessionEventsStore(db);
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications, titleGenerator: opts.titleGenerator,
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
     // (they share the one engine, which owns the registry); the per-child seams try each registry —
     // a session is a child of at most one.

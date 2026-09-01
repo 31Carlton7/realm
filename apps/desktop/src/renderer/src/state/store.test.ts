@@ -1818,6 +1818,17 @@ describe("diff panes", () => {
     expect(store.getState().items.filter((i) => i.kind === "diff").map((i) => i.id)).toEqual([itemId]);
   });
 
+  it("splits beside the focused pane instead of evicting it — the session must stay reachable", async () => {
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openItem("i1"); // session occupies the only leaf, focused
+    await store.getState().openDiff("env1");
+    const open = allItems(store.getState().layout!);
+    expect(open).toContain("i1"); // the session was NOT evicted — there must be a way back
+    expect(open).toContain(store.getState().items.find((i) => i.kind === "diff")!.id);
+  });
+
   it("refreshes gitInfo alongside the diff, so the prompter's chips cannot disagree with the pane", async () => {
     const a = withEnv();
     const store = createAppStore(a);

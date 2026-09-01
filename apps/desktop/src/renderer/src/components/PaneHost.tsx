@@ -116,7 +116,7 @@ export function PaneHost(p: PaneHostProps) {
       return (
         <div className="panel" data-leaf-id={n.id} data-focused={n.id === p.focusedLeafId || undefined}
           data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
-          {item && <PanelBar item={item} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
+          {item && <PanelBar item={item} leafId={n.id} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
             zoomed={n.id === p.zoomedLeafId} onZoom={p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={p.onUnzoom} />}
           <div className="panel-body">
             {!item && <div className="pane-placeholder muted">Open something from the sidebar.</div>}

@@ -391,6 +391,8 @@ export function SpacePage({ item }: PaneProps) {
   const sessions = useApp((s) => s.sessions);
   const tab = useApp((s) => s.spacePageTab[spaceId] ?? "general");
   const setSpacePageTab = useApp((s) => s.setSpacePageTab);
+  // A tab IS a change of what this pane shows, so it is a stop on the pane's back/forward trail.
+  const navigateInPane = useApp((s) => s.navigateInPane);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const run = useApp((s) => s.run);
 
@@ -417,7 +419,7 @@ export function SpacePage({ item }: PaneProps) {
           <legend className="visually-hidden">Space page section</legend>
           {PAGE_TABS.map((t) => (
             <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
-              <input type="radio" name={`space-page-tab-${spaceId}`} value={t.id} checked={tab === t.id} onChange={() => setSpacePageTab(spaceId, t.id)} />
+              <input type="radio" name={`space-page-tab-${spaceId}`} value={t.id} checked={tab === t.id} onChange={() => { setSpacePageTab(spaceId, t.id); navigateInPane(item.id, t.id); }} />
               {t.label}
             </label>
           ))}

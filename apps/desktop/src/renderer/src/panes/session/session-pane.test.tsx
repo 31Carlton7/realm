@@ -1229,7 +1229,7 @@ describe("the session's terminal drawer (W4)", () => {
     store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } }, ...(panel ? { terminalPanel: { se1: panel } } : {}) });
     const r = render(
       <StoreContext.Provider value={store}>
-        <PanelBar item={sessionItem} onSplit={() => {}} onClose={() => {}} />
+        <PanelBar item={sessionItem} leafId="l1" onSplit={() => {}} onClose={() => {}} />
         <SessionPane item={sessionItem} visible />
       </StoreContext.Provider>,
     );
@@ -1284,7 +1284,7 @@ describe("the session's terminal drawer (W4)", () => {
   it("a terminal item's header has no such toggle — only sessions own one", () => {
     const api = fakeApi();
     const store = createAppStore(api);
-    render(<StoreContext.Provider value={store}><PanelBar item={item("i1", "s1", { kind: "terminal", title: "zsh" })} onSplit={() => {}} onClose={() => {}} /></StoreContext.Provider>);
+    render(<StoreContext.Provider value={store}><PanelBar item={item("i1", "s1", { kind: "terminal", title: "zsh" })} leafId="l1" onSplit={() => {}} onClose={() => {}} /></StoreContext.Provider>);
     expect(screen.queryByRole("button", { name: /terminal for zsh/ })).toBeNull();
   });
 });
@@ -1305,7 +1305,7 @@ describe("the CLI-missing install card (W4)", () => {
     store.setState({ sessionStatus: { se1: status }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
     const r = render(
       <StoreContext.Provider value={store}>
-        <PanelBar item={sessionItem} onSplit={() => {}} onClose={() => {}} />
+        <PanelBar item={sessionItem} leafId="l1" onSplit={() => {}} onClose={() => {}} />
         <SessionPane item={sessionItem} visible />
       </StoreContext.Provider>,
     );

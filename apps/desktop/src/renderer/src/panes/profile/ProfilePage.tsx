@@ -38,6 +38,8 @@ export function ProfilePage({ item }: PaneProps) {
   const selectSpace = useApp((s) => s.selectSpace);
   const tab = useApp((s) => (profile ? s.profilePageTab[profile.id] : undefined) ?? "skills");
   const setProfilePageTab = useApp((s) => s.setProfilePageTab);
+  const navigateInPane = useApp((s) => s.navigateInPane); // tabs are stops on the pane's trail
+
   const run = useApp((s) => s.run);
 
   if (!space) return <div className="pane-placeholder muted">This page's space no longer exists.</div>;
@@ -68,7 +70,7 @@ export function ProfilePage({ item }: PaneProps) {
           <legend className="visually-hidden">Profile page section</legend>
           {PROFILE_TABS.map((t) => (
             <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
-              <input type="radio" name={`profile-page-tab-${item.id}`} value={t.id} checked={tab === t.id} onChange={() => setProfilePageTab(profile.id, t.id)} />
+              <input type="radio" name={`profile-page-tab-${item.id}`} value={t.id} checked={tab === t.id} onChange={() => { setProfilePageTab(profile.id, t.id); navigateInPane(item.id, t.id); }} />
               {t.label}
             </label>
           ))}

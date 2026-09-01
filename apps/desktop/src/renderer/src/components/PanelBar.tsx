@@ -9,14 +9,23 @@ import { RenameInput } from "./RenameInput";
 /** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), ⋯ menu + close.
  *  Split/close/focus stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
  *  item-scoped and go straight to the store, like the sidebar's context menu. */
-export function PanelBar({ item, onSplit, onClose, zoomed = false, onZoom, onUnzoom }: {
-  item: Item; onSplit: (dir: "row" | "col") => void; onClose: () => void;
+export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoom, onUnzoom }: {
+  item: Item;
+  /** The leaf this bar heads — the key its back/forward trail is kept under. */
+  leafId: string;
+  onSplit: (dir: "row" | "col") => void; onClose: () => void;
   /** This pane is the one filling the host. Its bar carries the Unfocus control. */
   zoomed?: boolean;
   onZoom?: () => void; onUnzoom?: () => void;
 }) {
   const deleteItem = useApp((s) => s.deleteItem);
   const run = useApp((s) => s.run);
+  // Subscribed to the trail itself, not to canPaneNav(): the selector has to re-read on every history
+  // write or the arrows would stay greyed out until some other state change happened to re-render.
+  const history = useApp((s) => s.paneHistory[leafId]);
+  const stepPaneNav = useApp((s) => s.stepPaneNav);
+  const canBack = !!history && history.index > 0;
+  const canForward = !!history && history.index < history.entries.length - 1;
   // The palette's "Rename focused item" arms renamingItemId; items are unique in the layout, so at
   // most one PanelBar answers. Local state covers the click-to-rename path.
   const renameArmed = useApp((s) => s.renamingItemId === item.id);
@@ -44,6 +53,16 @@ export function PanelBar({ item, onSplit, onClose, zoomed = false, onZoom, onUnz
       ) : null);
   return (
     <div className="panel-bar">
+      {/* The pane's own trail, at the LEFT edge where every back button in every app lives. Rendered
+          disabled rather than hidden at the ends of the trail: arrows that come and go would shift
+          the title under the pointer mid-click, and a greyed arrow is how a user learns the pane
+          remembers at all. */}
+      <span className="panel-nav">
+        <button className="icon-btn" aria-label={`Back in ${item.title}`} title="Back (⌘[)"
+          disabled={!canBack} onClick={() => run(() => stepPaneNav(leafId, -1))}><Icon name="chevronLeft" size={14} /></button>
+        <button className="icon-btn" aria-label={`Forward in ${item.title}`} title="Forward (⌘])"
+          disabled={!canForward} onClick={() => run(() => stepPaneNav(leafId, 1))}><Icon name="chevronRight" size={14} /></button>
+      </span>
       <span className="panel-icon"><Icon name={item.kind} size={14} /></span>
       {(renaming || renameArmed)
         ? <span className="panel-rename"><RenameInput item={item} onDone={() => { setRenaming(false); if (renameArmed) requestRename(null); }} /></span>

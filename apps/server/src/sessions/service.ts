@@ -82,6 +82,11 @@ export class SessionService {
      *  synthetic denies, so the feed reconciles on every path an answer can travel. `probeResults`
      *  feeds CLI availability regressions. Optional — a harness without it behaves exactly as before. */
     notifications?: { handleSessionEvent(session: Session, ev: SessionEvent): void; probeResults(results: ProbeResult[]): void };
+    /** Upgrades the heuristic first-line title (`maybeTitleFrom`) to a short model-written summary.
+     *  Optional and OFF by default: it is a real, billed LLM call on every session's first message,
+     *  so only `main.ts`'s real server process wires it — every test and live-check script goes
+     *  through `createApp` without it and gets the heuristic title only, never a live network call. */
+    titleGenerator?: (text: string) => Promise<string>;
   }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
@@ -414,6 +419,25 @@ export class SessionService {
     // Fire-and-forget: git work must never delay (or fail) the message that carried the title.
     // `renameBranch` swallows its own failures and returns null when any of its conditions says no.
     void this.renameWorktreeBranch(s.environmentId, title);
+    // Same fire-and-forget shape: the sidebar already has the raw-first-line title above, this just
+    // swaps in a nicer one a little later, if a title generator is configured at all.
+    if (this.d.titleGenerator) void this.upgradeTitle(id, title, text);
+  }
+
+  /** Replaces the heuristic title with a short model-written summary, once the model answers —
+   *  but only if nothing has moved the title on since (a second message renamed it, or the user
+   *  renamed it by hand): this must never clobber a title that is no longer the one it was asked
+   *  to improve on. Checked on BOTH rows: a manual rename (`items.update`, `RenameInput.tsx`) only
+   *  ever touches the item's title, never the session's, so the session-row check alone would miss it. */
+  private async upgradeTitle(id: string, heuristicTitle: string, text: string): Promise<void> {
+    try {
+      const title = await this.d.titleGenerator!(text);
+      const s = this.d.sessions.get(id); if (!s || s.title !== heuristicTitle) return;
+      const item = this.d.items.findByRefId(id);
+      if (item && item.title !== heuristicTitle) return;
+      this.d.sessions.update({ id, title });
+      if (item) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
+    } catch { /* a nicer title is a nicety; it never fails a turn */ }
   }
 
   /** `realm/session` → `realm/fix-the-login-flow`, when the environment is a worktree whose branch
