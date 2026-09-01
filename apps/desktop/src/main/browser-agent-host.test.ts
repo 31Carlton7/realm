@@ -142,3 +142,21 @@ describe("createBridgeCore", () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe("act highlight wiring (W4)", () => {
+  it("a permitted click rings its target BEFORE the input dispatches — and the ring rides its own fresh quads", async () => {
+    const { host, calls } = setup({ responses: { "DOM.getContentQuads": { quads: [[10, 20, 110, 20, 110, 50, 10, 50]] } } });
+    const result = await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 42, button: "left", clickCount: 1, modifiers: [] } });
+    expect(result).toMatchObject({ ok: true });
+    const ringEval = calls.findIndex((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("data-realm-agent-highlight"));
+    const firstInput = calls.findIndex((c) => c.method === "Input.dispatchMouseEvent");
+    expect(ringEval).toBeGreaterThanOrEqual(0);
+    expect(firstInput).toBeGreaterThan(ringEval);
+  });
+
+  it("a scroll has no target to ring — no highlight evaluate is injected", async () => {
+    const { host, calls } = setup();
+    await host.handleOp("act", { browserId: "b1", action: { kind: "scroll", deltaX: 0, deltaY: 100 } });
+    expect(calls.some((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("data-realm-agent-highlight"))).toBe(false);
+  });
+});

@@ -6,7 +6,7 @@
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
 import type { BrowserAction, BrowserDescribeResult, BrowserReadKind } from "@realm/contracts";
-import { buildSnapshot, performAct, readPageText, type CdpSend, type SnapshotIndex } from "./browser-agent";
+import { buildSnapshot, highlightTargetRef, performAct, readPageText, showActionHighlight, type CdpSend, type SnapshotIndex } from "./browser-agent";
 
 /** The thin CDP surface browser-pane.ts implements over `webContents.debugger`. `onEvent`'s
  *  unsubscribe is never needed here — a binding dies with its view, taking the listener with it. */
@@ -89,7 +89,13 @@ export class BrowserAgentHost {
       case "act": {
         const entry = this.ensure(browserId);
         // The action was schema-validated server-side; this cast is the two processes' contract.
-        return performAct(entry.binding.send, params.action as BrowserAction);
+        const action = params.action as BrowserAction;
+        // W4: ring the target inside the page before acting. Only acts already PERMITTED reach this
+        // op (the gate is server-side), so the ring never marks something that was refused; and
+        // `showActionHighlight` swallows every failure — a page where it cannot draw acts anyway.
+        const ref = highlightTargetRef(action);
+        if (ref !== null) await showActionHighlight(entry.binding.send, ref);
+        return performAct(entry.binding.send, action);
       }
       case "screenshot": {
         const entry = this.ensure(browserId);

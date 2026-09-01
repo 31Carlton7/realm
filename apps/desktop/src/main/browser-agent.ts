@@ -90,6 +90,10 @@ const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n -
  * plus the fingerprint index the next snapshot diffs against.
  */
 export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | null): Promise<BrowserSnapshotResult & { index: SnapshotIndex }> {
+  // Any lingering W4 action highlight is removed BEFORE the capture (belt to the filter's braces):
+  // the ring is the watcher's, and an agent that sees it — even as a phantom layout box — is an
+  // agent chasing its own tail. Best-effort: a page that refuses the evaluate still snapshots.
+  await send("Runtime.evaluate", { expression: REMOVE_HIGHLIGHTS_JS }).catch(() => {});
   const [snapRaw, axRaw, metricsRaw] = await Promise.all([
     send("DOMSnapshot.captureSnapshot", { computedStyles: [...SNAPSHOT_STYLES], includePaintOrder: true }),
     send("Accessibility.getFullAXTree").catch(() => ({ nodes: [] })),
@@ -212,6 +216,9 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     const attrs: Record<string, string> = {};
     const flat = attrsRaw[ni] ?? [];
     for (let k = 0; k + 1 < flat.length; k += 2) attrs[s(strings, flat[k]).toLowerCase()] = s(strings, flat[k + 1]);
+    // W4's action highlight is Realm's own furniture, never page content: a snapshot that lists it
+    // hands the agent a `[new]` element that is its OWN last click's ring — and it chases it.
+    if (attrs[HIGHLIGHT_ATTR] !== undefined) return;
 
     const backendNodeId = backendIds[ni] ?? -1;
     if (backendNodeId < 0) return;
@@ -488,4 +495,69 @@ export async function readPageText(send: CdpSend): Promise<string> {
   const result = (await send("Runtime.evaluate", { expression, returnByValue: true })) as { result?: { value?: unknown } };
   const text = typeof result.result?.value === "string" ? result.result.value : "";
   return text.length > PAGE_TEXT_MAX ? `${text.slice(0, PAGE_TEXT_MAX)}\n…(truncated at ${PAGE_TEXT_MAX} chars)` : text;
+}
+
+/* ------------------------------------ action highlight (W4) ------------------------------------ */
+
+/** The attribute that marks W4's in-page action highlight as Realm furniture. Everything that touches
+ *  the ring keys off this one name: the injector sets it, `buildSnapshot` filters it out of the
+ *  element list AND removes lingering rings before capturing, and the ring's own timeout removes it. */
+export const HIGHLIGHT_ATTR = "data-realm-agent-highlight";
+
+/** How long the ring stays before fading itself out. Long enough for the eye to land where the click
+ *  did, short enough that it is gone before the page's own reaction finishes drawing. */
+const HIGHLIGHT_TTL_MS = 900;
+
+export const REMOVE_HIGHLIGHTS_JS = `(() => { try { for (const n of document.querySelectorAll("[${HIGHLIGHT_ATTR}]")) n.remove(); } catch (e) {} })()`;
+
+/** The element ref a highlight should ring for this action, or null when there is nothing to point
+ *  at (a bare key press, a page scroll). */
+export function highlightTargetRef(action: BrowserAction): number | null {
+  switch (action.kind) {
+    case "click": case "type": return action.ref;
+    case "key": return action.ref ?? null;
+    case "scroll": return null;
+  }
+}
+
+/**
+ * W4's in-page action highlight: a brief ring around the element a permitted act is about to touch —
+ * injected INTO the page via `Runtime.evaluate` (DOM injection rides the debugger, so CSP that blocks
+ * page scripts does not block it), which is what keeps the no-overlay invariant untouched: nothing of
+ * Realm's ever paints over the view.
+ *
+ * The constraints, each load-bearing:
+ *   - geometry comes from `DOM.getContentQuads` on the ref NOW — the same at-act-time re-resolution
+ *     the act itself performs. A page that navigated between permission and execution has no quads
+ *     for the ref, so the ring is silently skipped (and the act will fail honestly on its own);
+ *   - the node carries `HIGHLIGHT_ATTR` and `pointer-events:none` with a transparent background —
+ *     invisible to snapshots (filtered by the attribute), inert to the click about to land, and
+ *     see-through to the occlusion check (its background never "covers" anything);
+ *   - it removes itself (fade + remove after `HIGHLIGHT_TTL_MS`), any predecessor is removed first,
+ *     and `buildSnapshot` sweeps stragglers before every capture;
+ *   - EVERY failure path is swallowed: a failed highlight must never fail — or even delay-fail — the
+ *     act it decorates.
+ */
+export async function showActionHighlight(send: CdpSend, backendNodeId: number): Promise<void> {
+  try {
+    const { quads } = (await send("DOM.getContentQuads", { backendNodeId })) as { quads?: number[][] };
+    const quad = quads?.[0];
+    if (!quad || quad.length < 8) return; // no live geometry — likely navigated away; no ring
+    const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
+    const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
+    const x = Math.min(...xs), y = Math.min(...ys);
+    const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+    if (!Number.isFinite(x + y + w + h)) return;
+    const expression = `(() => { try {
+      ${REMOVE_HIGHLIGHTS_JS};
+      const ring = document.createElement("div");
+      ring.setAttribute("${HIGHLIGHT_ATTR}", "");
+      ring.style.cssText = "position:fixed;left:${x - 3}px;top:${y - 3}px;width:${w + 6}px;height:${h + 6}px;" +
+        "border:2px solid #4c8dff;border-radius:6px;box-shadow:0 0 0 3px rgba(76,141,255,0.28);" +
+        "background:transparent;pointer-events:none;z-index:2147483647;transition:opacity 220ms ease;";
+      (document.body || document.documentElement).appendChild(ring);
+      setTimeout(() => { try { ring.style.opacity = "0"; setTimeout(() => { try { ring.remove(); } catch (e) {} }, 260); } catch (e) {} }, ${HIGHLIGHT_TTL_MS});
+    } catch (e) {} })()`;
+    await send("Runtime.evaluate", { expression });
+  } catch { /* the ring is decoration; the act must proceed untouched */ }
 }

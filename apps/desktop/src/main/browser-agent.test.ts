@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserAction } from "@realm/contracts";
-import { buildSnapshot, performAct, SNAPSHOT_STYLES, isOpaqueColor, type CdpSend } from "./browser-agent";
+import { buildSnapshot, performAct, SNAPSHOT_STYLES, isOpaqueColor, HIGHLIGHT_ATTR, highlightTargetRef, showActionHighlight, type CdpSend } from "./browser-agent";
 
 /**
  * The executor mutants, killed against fake CDP payloads:
@@ -291,5 +291,91 @@ describe("isOpaqueColor", () => {
     ["", false],
   ])("%s → %s", (color, expected) => {
     expect(isOpaqueColor(color)).toBe(expected);
+  });
+});
+
+describe("action highlight (W4)", () => {
+  it("rings the target via Runtime.evaluate using AT-HIGHLIGHT-TIME quads, tagged and inert", async () => {
+    const { send, calls } = fakeSend({ quads: { 42: [[10, 20, 110, 20, 110, 50, 10, 50]] } });
+    await showActionHighlight(send, 42);
+    const evals = calls.filter((c) => c.method === "Runtime.evaluate");
+    expect(evals).toHaveLength(1);
+    const expr = String(evals[0]!.params.expression);
+    expect(expr).toContain(HIGHLIGHT_ATTR);            // tagged: the snapshot filter keys off this
+    expect(expr).toContain("pointer-events:none");     // inert to the click about to land
+    expect(expr).toContain("background:transparent");  // see-through to the occlusion check
+    expect(expr).toContain("setTimeout");              // self-removes
+    expect(expr).toContain("left:7px");                // quad-derived geometry (10 - 3px pad)
+    // Quads were read fresh, not taken from any snapshot.
+    expect(calls.some((c) => c.method === "DOM.getContentQuads" && c.params.backendNodeId === 42)).toBe(true);
+  });
+
+  it("draws NO ring when the ref no longer resolves — the page navigated between permission and act", async () => {
+    const throwing = fakeSend({ quads: { 42: "throw" } });
+    await showActionHighlight(throwing.send, 42);
+    expect(throwing.calls.filter((c) => c.method === "Runtime.evaluate")).toEqual([]);
+
+    const empty = fakeSend({ quads: {} });
+    await showActionHighlight(empty.send, 42);
+    expect(empty.calls.filter((c) => c.method === "Runtime.evaluate")).toEqual([]);
+  });
+
+  it("a failed highlight NEVER throws (the named mutant: highlight failure failing the act)", async () => {
+    const base = fakeSend({ quads: { 42: [[10, 20, 110, 20, 110, 50, 10, 50]] } });
+    const send: CdpSend = (method, params) => {
+      if (method === "Runtime.evaluate") throw new Error("CSP said no");
+      return base.send(method, params);
+    };
+    await expect(showActionHighlight(send, 42)).resolves.toBeUndefined();
+  });
+
+  it("highlightTargetRef points at click/type/keyed-key targets and at nothing for scroll", () => {
+    expect(highlightTargetRef({ kind: "click", ref: 7, button: "left", clickCount: 1, modifiers: [] })).toBe(7);
+    expect(highlightTargetRef({ kind: "type", ref: 8, text: "hi", method: "keys", submit: false })).toBe(8);
+    expect(highlightTargetRef({ kind: "key", key: "Enter", ref: 9 })).toBe(9);
+    expect(highlightTargetRef({ kind: "key", key: "Enter" })).toBe(null);
+    expect(highlightTargetRef({ kind: "scroll", deltaX: 0, deltaY: 100 })).toBe(null);
+  });
+
+  it("the ring is INVISIBLE to snapshots — tagged node never listed, even clickable (mutant: agent chases its own ring)", async () => {
+    const doc = makeSnapshotDoc();
+    const btn = doc.addNode({ tag: "BUTTON", backendId: 42 });
+    doc.addLayout(btn, [10, 20, 100, 30]);
+    // A ring as CDP would see it mid-fade: clickable-looking, painted last, cursor pointer even.
+    const ring = doc.addNode({ tag: "DIV", backendId: 500, attrs: { "data-realm-agent-highlight": "" }, clickable: true });
+    doc.addLayout(ring, [7, 17, 106, 36], { paint: 99, styles: { cursor: "pointer" } });
+    const { send } = fakeSend({ snapshot: doc.payload(), ax: [{ backendDOMNodeId: 42, role: "button", name: "Submit order" }] });
+    const first = await buildSnapshot(send, null);
+    expect(first.text).toContain("ref=42");
+    expect(first.text).not.toContain("ref=500");
+    // And never as [new] on the NEXT snapshot either — it is not in the index at all.
+    const second = await buildSnapshot(send, first.index);
+    expect(second.text).not.toContain("ref=500");
+    expect(second.text).not.toContain("[new]");
+  });
+
+  it("buildSnapshot sweeps lingering rings BEFORE capturing — the removal precedes the DOMSnapshot", async () => {
+    const doc = makeSnapshotDoc();
+    const btn = doc.addNode({ tag: "BUTTON", backendId: 42 });
+    doc.addLayout(btn, [10, 20, 100, 30]);
+    const { send, calls } = fakeSend({ snapshot: doc.payload(), ax: [{ backendDOMNodeId: 42, role: "button", name: "Go" }] });
+    await buildSnapshot(send, null);
+    const sweep = calls.findIndex((c) => c.method === "Runtime.evaluate" && String(c.params.expression).includes(HIGHLIGHT_ATTR));
+    const capture = calls.findIndex((c) => c.method === "DOMSnapshot.captureSnapshot");
+    expect(sweep).toBeGreaterThanOrEqual(0);
+    expect(sweep).toBeLessThan(capture);
+  });
+
+  it("a page that refuses the sweep still snapshots", async () => {
+    const doc = makeSnapshotDoc();
+    const btn = doc.addNode({ tag: "BUTTON", backendId: 42 });
+    doc.addLayout(btn, [10, 20, 100, 30]);
+    const base = fakeSend({ snapshot: doc.payload(), ax: [{ backendDOMNodeId: 42, role: "button", name: "Go" }] });
+    const send: CdpSend = (method, params) => {
+      if (method === "Runtime.evaluate") return Promise.reject(new Error("no eval for you"));
+      return base.send(method, params);
+    };
+    const snap = await buildSnapshot(send, null);
+    expect(snap.text).toContain("ref=42");
   });
 });
