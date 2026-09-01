@@ -87,3 +87,74 @@ describe("the skills panel", () => {
     expect(screen.getByText("/realm-home/skills")).toBeInTheDocument();
   });
 });
+
+/* ——— Plan 12 W4: the scoped groups over the same rows, and scope movement. ——— */
+
+describe("scoped skill groups (W4)", () => {
+  const scoped: FakeData = {
+    skills: {
+      s1: [
+        skillRow("mine", { scope: { kind: "space", spaceId: "s1" } }),
+        skillRow("shared", { scope: { kind: "profile", profileId: "p1" } }),
+        // Pre-scoping rows — exactly what the bundled mac + browsing skills are on a real install.
+        skillRow("mac"), skillRow("browsing"),
+      ],
+      s2: [],
+    },
+  };
+
+  it("groups rows This space / From Work / Everywhere — the bundled skills render under Everywhere", async () => {
+    await mount(scoped);
+    expect(within(screen.getByRole("region", { name: "This space" })).getByText("mine")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "From Work" })).getByText("shared")).toBeInTheDocument();
+    const everywhere = screen.getByRole("region", { name: "Everywhere" });
+    expect(within(everywhere).getByText("mac")).toBeInTheDocument();
+    expect(within(everywhere).getByText("browsing")).toBeInTheDocument();
+  });
+
+  it("an inherited row's toggle rides the per-space wire with the VANTAGE space id — never the defining scope (named mutant)", async () => {
+    const { api } = await mount(scoped);
+    fireEvent.click(screen.getByRole("switch", { name: "Skill shared in this space" }));
+    await waitFor(() => expect(api.calls).toContain("setSkillEnabled:s1:shared=false"));
+    expect(api.calls.some((c) => c.startsWith("promoteSkill") || c.startsWith("demoteSkill"))).toBe(false);
+  });
+
+  it("Move to profile: the confirm states the reach semantics; Cancel fires nothing", async () => {
+    const { api } = await mount(scoped);
+    const row = screen.getByText("mine").closest(".settings-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Move to profile…" }));
+    expect(within(row).getByText("Move “mine” to Work? Other spaces in Work will see it; spaces that had it stay as they are.")).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "Cancel" }));
+    expect(api.calls.some((c) => c.startsWith("promoteSkill"))).toBe(false);
+  });
+
+  it("confirming Move to profile fires skills.promote with the vantage space id and the skill id — never demote (named mutant)", async () => {
+    const { api } = await mount(scoped);
+    const row = screen.getByText("mine").closest(".settings-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Move to profile…" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Move to profile" }));
+    await waitFor(() => expect(api.calls).toContain("promoteSkill:s1:mine"));
+    expect(api.calls.some((c) => c.startsWith("demoteSkill"))).toBe(false);
+    // The re-read moves the row into the inherited group.
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "From Work" })).getByText("mine")).toBeInTheDocument());
+  });
+
+  it("the symmetric demote from the inherited group fires skills.demote with the same ids", async () => {
+    const { api } = await mount(scoped);
+    const row = screen.getByText("shared").closest(".settings-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Move to this space…" }));
+    expect(within(row).getByText("Keep “shared” in this space only? Other spaces in Work will stop seeing it; this space keeps it as it is.")).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "Move to this space" }));
+    await waitFor(() => expect(api.calls).toContain("demoteSkill:s1:shared"));
+    expect(api.calls.some((c) => c.startsWith("promoteSkill"))).toBe(false);
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "This space" })).getByText("shared")).toBeInTheDocument());
+  });
+
+  it("an invalid skill keeps its reason line inside its group and gets no move affordance", async () => {
+    await mount(); // default rows: mac (valid) + broken (invalid), both pre-scoping
+    const everywhere = screen.getByRole("region", { name: "Everywhere" });
+    const broken = within(everywhere).getByText("broken").closest(".settings-row") as HTMLElement;
+    expect(within(broken).getByText(/SKILL\.md has no description frontmatter/)).toBeInTheDocument();
+    expect(within(broken).queryByRole("button", { name: /Move to/ })).toBeNull();
+  });
+});

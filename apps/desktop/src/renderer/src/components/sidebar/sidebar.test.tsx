@@ -506,3 +506,34 @@ describe("browser driving dot (Plan 11 W4)", () => {
     expect(row()).toHaveAccessibleName("Stripe docs");
   });
 });
+
+describe("sidebar destinations (Plan 12 W4)", () => {
+  it("Library and Connections sit between the New-session block and the space section; Notifications is NOT rendered (W5's — no dead chrome)", async () => {
+    await mount();
+    const nav = screen.getByRole("navigation", { name: "Destinations" });
+    expect(within(nav).getByRole("button", { name: "Library" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Connections" })).toBeInTheDocument();
+    expect(within(nav).queryByText(/Notifications/)).toBeNull();
+    expect(within(nav).getAllByRole("button")).toHaveLength(2);
+    // Placement: the nav follows the sb-top block (search + New session) and precedes the swiper.
+    expect(nav.previousElementSibling).toHaveClass("sb-top");
+  });
+
+  it("clicking Library opens ONE library-page item in the active space; a second click focuses it (named mutant: two Library panes)", async () => {
+    const { store, api } = await mount();
+    // Scoped to the nav: once the page exists, its ITEM row is also titled "Library".
+    const nav = screen.getByRole("navigation", { name: "Destinations" });
+    fireEvent.click(within(nav).getByRole("button", { name: "Library" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(true));
+    fireEvent.click(within(nav).getByRole("button", { name: "Library" }));
+    await waitFor(() => expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1));
+    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("library-page"))).toHaveLength(1);
+  });
+
+  it("clicking Connections opens the connections-page item", async () => {
+    const { store } = await mount();
+    const nav = screen.getByRole("navigation", { name: "Destinations" });
+    fireEvent.click(within(nav).getByRole("button", { name: "Connections" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "connections-page")).toBe(true));
+  });
+});

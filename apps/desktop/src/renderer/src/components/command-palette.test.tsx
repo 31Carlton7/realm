@@ -242,3 +242,21 @@ describe("Open space (Plan 12 W3)", () => {
     expect(store.getState().sheet).toBeNull();
   });
 });
+
+/** Plan 12 W4: the destination pages get palette routes of their own. */
+describe("Open library / Open connections (Plan 12 W4)", () => {
+  it("Open library runs openDestinationPage — one library-page item in the active space", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open library" } });
+    fireEvent.click(screen.getByRole("option", { name: /Open library/ }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(true));
+    expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1);
+  });
+
+  it("Open connections opens the connections-page item", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open connections" } });
+    fireEvent.click(screen.getByRole("option", { name: /Open connections/ }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "connections-page")).toBe(true));
+  });
+});
