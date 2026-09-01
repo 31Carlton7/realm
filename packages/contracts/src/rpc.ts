@@ -312,6 +312,18 @@ export const Methods = {
   "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
   "browsers.close":  { params: z.object({ browserId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
+  /**
+   * The browser agent host's side of the main↔server bridge (Plan 11 W3). Electron main — the process
+   * that owns the `WebContentsView`s and their `webContents.debugger` — connects to this same RPC
+   * socket as a client and `register`s itself as the ONE executor for browser CDP operations. The
+   * server then sends it `browserHost.op` events (targeted at that client only, never broadcast) and
+   * main answers each with a `browserHost.result` call. Loopback-only like the whole RPC surface; a
+   * renderer could call `register` too, but it would only be volunteering to execute CDP work it has
+   * no views for — there is no privilege to gain, every op still runs under main's own guards.
+   */
+  "browserHost.register": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
+  "browserHost.result": { params: z.object({ callId: z.string(), ok: z.boolean(), result: z.unknown().optional(), error: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
+
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
@@ -379,6 +391,14 @@ export const Methods = {
   "mcp.remove": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
   "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Turn a Realm-native tool provider (`realm-browser` today) on or off for one space. Providers are
+   * Realm's own in-process toolsets on the gateway, not server rows — and unlike servers they default
+   * ON, because they are Realm's own code operating under Realm's own permission flow, not a process
+   * the user configured. Sessions already connected see the change on their next `tools/list`
+   * (the gateway re-checks at call time too, like any policy edit).
+   */
+  "mcp.setProviderEnabled": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Actually try the server, now: spawn the stdio command (with its stored env) and wait for an MCP
    * initialize response, or hit the http/sse URL (with its stored headers) and report the status. Run
@@ -536,6 +556,14 @@ export const Events = {
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),
+  /** One browser CDP operation for the registered browser host (Plan 11 W3). Sent TARGETED to the one
+   *  client that called `browserHost.register`, never broadcast — see that method's doc comment. The
+   *  host answers with a `browserHost.result` call carrying the same `callId`. */
+  "browserHost.op":   z.object({ callId: z.string(), op: z.string(), params: z.record(z.unknown()) }),
+  /** An agent opened a browser pane via `browser_open` (Plan 11 W3). The row + item already exist
+   *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
+   *  an agent-driven browser the user cannot see defeats the point of the architecture. */
+  "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema }),
 } as const;
 export type EventName = keyof typeof Events;
 export type EventPayload<E extends EventName> = z.infer<(typeof Events)[E]>;

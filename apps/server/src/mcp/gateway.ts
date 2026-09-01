@@ -13,6 +13,30 @@ import type { McpService } from "./service";
 const SUMMARY_MAX = 200;
 const truncate = (s: string): string => (s.length > SUMMARY_MAX ? s.slice(0, SUMMARY_MAX) : s);
 
+/** Who is calling a provider tool — the gateway's own session attribution, handed through so a
+ *  provider can raise `permission_request` on the RIGHT session and scope policy per space. */
+export type ProviderCallContext = { sessionId: string; spaceId: string };
+
+/**
+ * A Realm-native toolset mounted in-process on the gateway (spec §1 goal 3: "the future `browser.*` …
+ * tools register as an in-process provider on this same hub instead of needing their own delivery
+ * path"). The mount point is HERE rather than on `McpHub` deliberately: the hub is "the only code in
+ * Realm that speaks MCP to third-party servers" — row-keyed, session-blind, circuit-broken — and none
+ * of that fits code that never crosses a process boundary. What a provider needs is exactly what the
+ * gateway has and the hub never sees: the calling session's identity, for permission prompts.
+ *
+ * Providers share the row namespace (`<name>__<tool>`) and the longest-prefix routing rule; on an
+ * exact name tie with a user-defined server row, the provider wins (Realm's own tools are not
+ * shadowable by config). A provider handles its own per-space enablement: `tools()` returns `[]` and
+ * `call()` refuses when the space turned it off (`mcp.setProviderEnabled`).
+ */
+export type RealmToolProvider = {
+  /** Must satisfy `McpServerNameSchema`'s charset — it becomes a tool-name prefix on the same wire. */
+  name: string;
+  tools(ctx: ProviderCallContext): Promise<Tool[]>;
+  call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult>;
+};
+
 /** One registered Realm session: its bearer token, the space it belongs to, and — created lazily on the
  *  first authorized request — the SDK `Server`/`StreamableHTTPServerTransport` pair the agent's own MCP
  *  client actually talks to. `spaceId` is fixed at `register()` time: a session's space never changes
@@ -58,6 +82,8 @@ export class McpGateway {
   private port: number | null = null;
   /** Keyed by Realm session id. */
   private readonly sessions = new Map<string, SessionEntry>();
+  /** In-process Realm toolsets, keyed by provider name — see `RealmToolProvider`. */
+  private readonly providers = new Map<string, RealmToolProvider>();
   /** Reverse index for auth: bearer token → session id. Kept in lockstep with `sessions` by `register`/
    *  `release` — never written anywhere else. */
   private readonly tokenToSession = new Map<string, string>();
@@ -80,6 +106,14 @@ export class McpGateway {
    *  exist until there is a listener to redirect to. */
   get boundPort(): number | null {
     return this.port;
+  }
+
+  /** Mount an in-process Realm toolset (see `RealmToolProvider`). Registering the same name twice
+   *  replaces — a test convenience; production registers each provider once at startup. Connected
+   *  sessions are told to re-list, since the tool surface just changed under them. */
+  registerProvider(provider: RealmToolProvider): void {
+    this.providers.set(provider.name, provider);
+    this.notifyToolsChanged();
   }
 
   /** Binds 127.0.0.1:0 (OS-assigned — see the plan's port-0 amendment) and returns the bound port. */
@@ -257,7 +291,7 @@ export class McpGateway {
   private async connectSession(sessionId: string, entry: SessionEntry): Promise<{ server: Server; transport: StreamableHTTPServerTransport }> {
     try {
       const server = new Server({ name: "realm-gateway", version: "1.0.0" }, { capabilities: { tools: { listChanged: true } } });
-      server.setRequestHandler(ListToolsRequestSchema, async () => this.listTools(entry.spaceId));
+      server.setRequestHandler(ListToolsRequestSchema, async () => this.listTools(sessionId, entry.spaceId));
       server.setRequestHandler(CallToolRequestSchema, async (request) =>
         this.handleCall(sessionId, entry.spaceId, request.params.name, request.params.arguments));
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
@@ -296,7 +330,16 @@ export class McpGateway {
    * }` fallback only ever fires for a malformed upstream tool that omitted its own schema; the MCP spec
    * requires one.
    */
-  private async listTools(spaceId: string): Promise<{ tools: Tool[] }> {
+  private async listTools(sessionId: string, spaceId: string): Promise<{ tools: Tool[] }> {
+    // In-process providers first — same failure posture as a dead upstream: a throwing provider
+    // contributes no tools rather than erroring the whole list. A provider that is disabled for this
+    // space reports that itself by returning [].
+    const perProvider = await Promise.all([...this.providers.values()].map(async (p): Promise<Tool[]> => {
+      try {
+        const tools = await p.tools({ sessionId, spaceId });
+        return tools.map((t): Tool => ({ ...t, name: `${p.name}__${t.name}` }));
+      } catch { return []; }
+    }));
     const perServer = await Promise.all(this.d.mcp.enabledServerIds(spaceId).map(async (id): Promise<Tool[]> => {
       const row = this.d.servers.get(id);
       if (!row) return [];
@@ -306,7 +349,7 @@ export class McpGateway {
       const visible = allowed ? tools.filter((t) => allowed.includes(t.name)) : tools;
       return visible.map((t): Tool => ({ name: `${row.name}__${t.name}`, description: t.description, inputSchema: t.inputSchema ?? { type: "object" } }));
     }));
-    return { tools: perServer.flat() };
+    return { tools: [...perProvider.flat(), ...perServer.flat()] };
   }
 
   /**
@@ -325,6 +368,22 @@ export class McpGateway {
    */
   private async handleCall(sessionId: string, spaceId: string, fullName: string, args: unknown): Promise<CallToolResult> {
     const argsJson = JSON.stringify(args ?? {});
+    // In-process providers route first, under the same longest-prefix rule (an exact name tie goes to
+    // the provider — Realm's own tools are not shadowable by a config row; see `RealmToolProvider`).
+    // Provider calls land in the same Activity log, with `serverId: null` — there is no row behind them.
+    const provider = this.resolveProvider(spaceId, fullName);
+    if (provider) {
+      const start = Date.now();
+      try {
+        const result = await provider.p.call({ sessionId, spaceId }, provider.tool, args);
+        this.record(sessionId, null, provider.p.name, provider.tool, argsJson, result.isError !== true, Date.now() - start, summarize(result));
+        return result;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.record(sessionId, null, provider.p.name, provider.tool, argsJson, false, Date.now() - start, truncate(message));
+        return errorResult(message);
+      }
+    }
     // Routing (which server actually receives an ALLOWED call) only ever considers ENABLED servers — see
     // `resolveCall`'s own comment on why that is what keeps the longest-prefix match unambiguous. A
     // blocked call's log entry still deserves real attribution when one exists, so a name that matches a
@@ -381,6 +440,21 @@ export class McpGateway {
   private record(sessionId: string, serverId: string | null, serverName: string, tool: string, argsJson: string, ok: boolean, durationMs: number, resultSummary: string): void {
     const row = this.d.calls.append({ sessionId, serverId, serverName, tool, argsJson, resultSummary, ok, durationMs });
     this.d.rpc.broadcast("mcp.call", row);
+  }
+
+  /** Longest provider-name prefix of `fullName` — unless an ENABLED server row's still-longer name
+   *  out-prefixes every provider, in which case the row keeps the call (`resolveCall` will find it) and
+   *  this returns null. An exact-length tie goes to the provider: Realm's own tools win over a config
+   *  row that happens to share their name. */
+  private resolveProvider(spaceId: string, fullName: string): { p: RealmToolProvider; tool: string } | null {
+    let best: RealmToolProvider | null = null;
+    for (const p of this.providers.values()) {
+      if (fullName.startsWith(`${p.name}__`) && (!best || p.name.length > best.name.length)) best = p;
+    }
+    if (!best) return null;
+    const row = this.resolveCall(spaceId, fullName);
+    if (row && row.serverName.length > best.name.length) return null;
+    return { p: best, tool: fullName.slice(best.name.length + 2) };
   }
 
   /** See the class doc comment's "Tool naming" section for why this is a longest-enabled-prefix match

@@ -1,0 +1,89 @@
+import { randomBytes } from "node:crypto";
+import type { WebSocket } from "ws";
+import type { RpcServer } from "../rpc/server";
+
+/** Ops the bridge is willing to relay — one place that names the protocol, shared (by convention, the
+ *  two processes compile separately) with Electron main's dispatcher. Anything else is refused here,
+ *  so a typo'd op fails loudly at the caller instead of timing out against a confused host. */
+export const BROWSER_HOST_OPS = ["describe", "snapshot", "read", "act", "navigate", "screenshot"] as const;
+export type BrowserHostOp = (typeof BROWSER_HOST_OPS)[number];
+
+/** How long one op may run before the bridge gives up on it. Snapshot fuses four CDP calls plus a
+ *  listener sweep; a heavy page can take seconds — but a minute means the view is gone or the page is
+ *  hung, and the agent deserves an answer either way. */
+const OP_TIMEOUT_MS = 60_000;
+
+type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
+
+/**
+ * The server half of the main↔server browser bridge (Plan 11 W3).
+ *
+ * The `WebContentsView`s and their `webContents.debugger` live in Electron main; the agent tools live
+ * here in realm-server (on the MCP gateway). This class is the seam between them: Electron main
+ * connects to the RPC socket like any client, calls `browserHost.register`, and from then on every
+ * tool's CDP work travels out as a targeted `browserHost.op` event and comes back as a
+ * `browserHost.result` call. One host at a time — a second register supersedes the first (an Electron
+ * main that restarted), failing whatever the old one still owed.
+ */
+export class BrowserHostBridge {
+  private host: WebSocket | null = null;
+  private readonly pending = new Map<string, Pending>();
+
+  constructor(private readonly d: { rpc: RpcServer }) {}
+
+  /** Whether an executor is currently connected — the tools' "is the app even running?" check. */
+  get connected(): boolean {
+    return this.host !== null;
+  }
+
+  /** `browserHost.register`: adopt this socket as THE executor. A previous host's unanswered ops are
+   *  failed now — their answers would come from a process that no longer owns any views. */
+  register(client: WebSocket): void {
+    if (this.host && this.host !== client) this.failAll("browser host replaced by a new registration");
+    this.host = client;
+    client.once("close", () => {
+      if (this.host !== client) return; // already superseded; the new host's ops are not ours to fail
+      this.host = null;
+      this.failAll("browser host disconnected");
+    });
+  }
+
+  /** `browserHost.result`: settle one op. Unknown callIds are ignored — a late answer to an op that
+   *  already timed out, or a stale host still flushing after being superseded. */
+  handleResult(p: { callId: string; ok: boolean; result?: unknown; error?: string }): void {
+    const entry = this.pending.get(p.callId);
+    if (!entry) return;
+    this.pending.delete(p.callId);
+    clearTimeout(entry.timer);
+    if (p.ok) entry.resolve(p.result);
+    else entry.reject(new Error(p.error || "browser host reported an unnamed failure"));
+  }
+
+  /** Run one op on the registered host. Rejects (never hangs) when no host is connected, when the
+   *  socket drops mid-op, and after `OP_TIMEOUT_MS`. */
+  call(op: BrowserHostOp, params: Record<string, unknown>): Promise<unknown> {
+    if (!(BROWSER_HOST_OPS as readonly string[]).includes(op)) return Promise.reject(new Error(`unknown browser host op "${op}"`));
+    const host = this.host;
+    if (!host) return Promise.reject(new Error("the Realm app is not connected — browser tools need the desktop app running"));
+    const callId = randomBytes(9).toString("base64url");
+    return new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.pending.delete(callId)) reject(new Error(`browser host op "${op}" timed out after ${OP_TIMEOUT_MS / 1000}s`));
+      }, OP_TIMEOUT_MS);
+      this.pending.set(callId, { resolve, reject, timer });
+      if (!this.d.rpc.sendTo(host, "browserHost.op", { callId, op, params })) {
+        this.pending.delete(callId);
+        clearTimeout(timer);
+        reject(new Error("the Realm app disconnected — browser tools need the desktop app running"));
+      }
+    });
+  }
+
+  private failAll(reason: string): void {
+    for (const [, entry] of this.pending) {
+      clearTimeout(entry.timer);
+      entry.reject(new Error(reason));
+    }
+    this.pending.clear();
+  }
+}

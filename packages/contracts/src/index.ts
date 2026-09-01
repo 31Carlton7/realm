@@ -10,3 +10,4 @@ export * from "./mentions";
 export * from "./mcp";
 export * from "./memory";
 export * from "./session-events";
+export * from "./browser-agent";

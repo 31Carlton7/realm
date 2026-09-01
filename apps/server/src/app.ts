@@ -9,6 +9,9 @@ import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
 import { BrowsersStore } from "./store/browsers";
 import { BrowserService } from "./browsers/service";
+import { BrowserHostBridge } from "./browsers/host-bridge";
+import { BrowserPermissionBroker } from "./browsers/permissions";
+import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
@@ -92,7 +95,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints });
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
-  const browsers = new BrowserService({ db, rpc, spaces, items, browsers: new BrowsersStore(db) });
+  const browsersStore = new BrowsersStore(db);
+  const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
   const settings = new SettingsStore(db);
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
   const skills = new SkillsService({ home: opts.home, settings });
@@ -168,11 +172,21 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url) });
   gateway = mcpGateway;
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints });
+  // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
+  // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
+  // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
+  const browserBridge = new BrowserHostBridge({ rpc });
+  const browserBroker = new BrowserPermissionBroker({
+    // A missing row degrades to "plan" — the refuse-mutations mode — never to a prompt on a ghost.
+    permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
+    emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
+  });
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker });
   sessionService = sessions;
+  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc }));
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

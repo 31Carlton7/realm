@@ -16,6 +16,10 @@ export class BrowsersStore {
   get(id: string): Browser | null {
     const r = this.db.prepare("SELECT * FROM browsers WHERE id = ?").get(id) as Row | undefined; return r ? toBrowser(r) : null;
   }
+  /** A space's browser panes, oldest first — the `browser_list` tool's view (Plan 11 W3). */
+  list(spaceId: string): Browser[] {
+    return (this.db.prepare("SELECT * FROM browsers WHERE space_id = ? ORDER BY created_at").all(spaceId) as Row[]).map(toBrowser);
+  }
   update(id: string, patch: { url?: string; title?: string }): Browser | null {
     const cur = this.get(id); if (!cur) return null;
     this.db.prepare("UPDATE browsers SET url = ?, title = ?, updated_at = ? WHERE id = ?")
