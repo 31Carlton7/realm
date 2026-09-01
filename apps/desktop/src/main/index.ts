@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { startServer } from "./server-process";
@@ -10,6 +10,7 @@ import type { BrowserPaneHost, ViewRect } from "./browser-host";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
+import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
@@ -144,6 +145,19 @@ ipcMain.handle("tcc:open-settings", (_e, pane: unknown) => {
   void shell.openExternal(TCC_SETTINGS_URLS[pane]);
 });
 
+// Settings→App "Updates" row (Plan 15 W1). The gate (dev never; packaged only when signed AND the
+// feed is live — see updater.ts's doc comment) lives in main: the renderer can only ever render what
+// this instance reports, and a disabled updater never loads electron-updater at all. The dynamic
+// import keeps the module out of dev entirely.
+const updater = new RealmUpdater({
+  version: app.getVersion(),
+  decision: updaterDecision({ packaged: app.isPackaged, signed: __REALM_SIGNED_BUILD__, feedLive: UPDATE_FEED_LIVE }),
+  load: async () => (await import("electron-updater")).autoUpdater,
+});
+ipcMain.handle("updates:status", () => updater.status());
+ipcMain.handle("updates:check", () => updater.check());
+ipcMain.handle("updates:install", () => { updater.install(); });
+
 /** Paste. A pasted image has no path, and every adapter's contract is a path — so one is made here.
  *  Refuses before the server has announced its home; the renderer surfaces the message. */
 ipcMain.handle("save-temp-attachment", async (_e, name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> => {
@@ -189,4 +203,18 @@ app.whenReady().then(async () => {
   }
 });
 app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => { agentBridge?.stop(); serverChild?.kill("SIGTERM"); });
+/** Everything a quit must tear down, in one place: the browser-agent bridge and the realm-server
+ *  child (SIGTERM — the server's own handler closes ptys and the DB). Idempotent: quitAndInstall
+ *  paths can arrive here twice (`before-quit-for-update`, then the ordinary quit machinery). */
+function shutdownForQuit() {
+  agentBridge?.stop();
+  agentBridge = null;
+  serverChild?.kill("SIGTERM");
+}
+app.on("before-quit", shutdownForQuit);
+// electron-updater's quitAndInstall() (mac: Squirrel, driven through Electron's native autoUpdater)
+// closes every window and quits WITHOUT the ordinary before-quit ordering — the documented hook for
+// that path is `autoUpdater`'s before-quit-for-update. Without it an update-restart would strand the
+// server child (and its ptys) while Squirrel swaps the bundle under it. Registered unconditionally:
+// it costs nothing while the updater gate (updater.ts) keeps quitAndInstall unreachable.
+electronAutoUpdater.on("before-quit-for-update", shutdownForQuit);
