@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Profile, Project, RestorePreview, Session, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, Session, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -39,6 +39,11 @@ export const mcpTool = (name: string, description = ""): McpTool => ({ name, des
 export const mcpCall = (id: string, sessionId: string, extra: Partial<McpCall> = {}): McpCall =>
   ({ id, sessionId, serverId: "mcp1", serverName: "srv1", tool: "echo", argsJson: "{}", resultSummary: "ok",
     ok: true, durationMs: 120, ts: 0, ...extra });
+
+/** A feed row (W5). Defaults to an unread, already-acted session_done; ids must sort as ULIDs do. */
+export const notification = (id: string, extra: Partial<Notification> = {}): Notification =>
+  ({ id, category: "session_done", spaceId: "s1", sessionId: null, refId: null, title: "a session",
+    body: "Finished a turn", createdAt: 0, readAt: null, actedAt: 0, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
@@ -103,6 +108,9 @@ export type FakeData = {
   /** Per-space disable override for the inherited profile doc — mirrors the server's polarity
    *  (absent = inherited ON). */
   profileDocDisabled?: Record<string, boolean>;
+  /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
+   *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
+  notifications?: Notification[];
 };
 
 export type FakeApi = Api & {
@@ -164,6 +172,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true }],
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
+    notifications: overrides.notifications ?? [],
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -574,6 +583,29 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       rows.sort((a, b) => b.ts - a.ts || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
       return { calls: rows.slice(0, limit) };
+    },
+    // Mirrors NotificationsStore.list (apps/server/src/store/notifications.ts): created_at DESC, id
+    // DESC, `${createdAt}:${id}` cursor — and the unread count comes from the whole set, never the
+    // page, because the pill's number is the SERVER's derivation on the real wire too.
+    listNotifications: async (cursor, limit) => {
+      calls.push(`listNotifications:${cursor ?? "-"}:${limit ?? "-"}`);
+      const cap = Math.max(1, Math.min(limit ?? 100, 200));
+      let rows = [...data.notifications].sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      if (cursor) {
+        const i = cursor.indexOf(":"); const at = Number(cursor.slice(0, i)); const id = cursor.slice(i + 1);
+        rows = rows.filter((x) => x.createdAt < at || (x.createdAt === at && x.id < id));
+      }
+      const page = rows.slice(0, cap);
+      return { notifications: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null,
+        unread: data.notifications.filter((x) => x.readAt === null).length };
+    },
+    markNotificationsRead: async (input) => {
+      calls.push(`markNotificationsRead:${input.all ? "all" : (input.ids ?? []).join(",")}`);
+      const t = Date.now();
+      for (const x of data.notifications) {
+        if (x.readAt === null && (input.all || (input.ids ?? []).includes(x.id))) x.readAt = t;
+      }
+      return { ok: true as const, unread: data.notifications.filter((x) => x.readAt === null).length };
     },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));

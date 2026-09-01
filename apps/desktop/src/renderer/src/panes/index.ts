@@ -14,3 +14,5 @@ import { LibraryPage } from "./library/LibraryPage";
 registerPane("library-page", LibraryPage);
 import { ConnectionsPage } from "./connections/ConnectionsPage";
 registerPane("connections-page", ConnectionsPage);
+import { NotificationsPage } from "./notifications/NotificationsPage";
+registerPane("notifications-page", NotificationsPage);

@@ -13,6 +13,9 @@ import { useApp } from "../../state/store";
 export function Destinations() {
   const openDestinationPage = useApp((s) => s.openDestinationPage);
   const run = useApp((s) => s.run);
+  // The server's count, verbatim (`notifications.list`/`notifications.changed`) — never a client-side
+  // tally of rows, which would be a second derivation site that could disagree with the page's header.
+  const unread = useApp((s) => s.notificationsUnread);
   return (
     <nav className="sb-destinations" aria-label="Destinations">
       <button className="item-row dest-row" onClick={() => run(() => openDestinationPage("library-page"))}>
@@ -21,8 +24,12 @@ export function Destinations() {
       <button className="item-row dest-row" onClick={() => run(() => openDestinationPage("connections-page"))}>
         <Icon name="connections-page" size={16} /><span>Connections</span>
       </button>
-      {/* W5 seam: the Notifications row (bell glyph, unread badge) slots in here once the notifications
-          store and feed page exist — not before. */}
+      {/* W5: the feed row. The pill appears only when something is actually unread — a permanent
+          zero would be dead chrome, which this nav bans. */}
+      <button className="item-row dest-row" onClick={() => run(() => openDestinationPage("notifications-page"))}>
+        <Icon name="notifications-page" size={16} /><span>Notifications</span>
+        {unread > 0 && <span className="status-pill dest-count" data-tone="warning" aria-label={`${unread} unread`}>{unread}</span>}
+      </button>
     </nav>
   );
 }

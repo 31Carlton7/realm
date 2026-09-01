@@ -3,7 +3,7 @@ import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
   AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   type DestinationPageKind,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -204,6 +204,11 @@ export type Api = {
   /** `mcp.calls.list` — Realm's own call log (Activity), newest first. `before` pages backward by the
    *  composite `{ ts, id }` cursor (W1 amendment); omitted, it starts from the top. */
   mcpCallsList(params: McpCallsFilter & { before?: { ts: number; id: string }; limit?: number }): Promise<{ calls: McpCall[] }>;
+  /** `notifications.list` (Plan 12 W5): one page of the global feed, plus the server's unread count —
+   *  the ONE source every unread badge renders. */
+  listNotifications(cursor: string | null, limit?: number): Promise<{ notifications: Notification[]; nextCursor: string | null; unread: number }>;
+  /** `notifications.markRead` — named ids, or the whole (global) feed. */
+  markNotificationsRead(input: { ids?: string[]; all?: boolean }): Promise<{ ok: true; unread: number }>;
 };
 
 /** The two narrowing dimensions Activity's chips apply — `undefined` means "not filtering by this". */
@@ -221,7 +226,12 @@ export type McpProvider = { name: string; enabled: boolean };
 export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   "library-page": "Library",
   "connections-page": "Connections",
+  "notifications-page": "Notifications",
 };
+
+/** Feed page size (W5). Modest: the page is a glance at what waited, not an archive browser —
+ *  "Load more" pages further on the server's cursor. */
+export const NOTIFICATIONS_PAGE = 50;
 
 /** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
 export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean };
@@ -347,6 +357,15 @@ export type AppState = {
   sessionSpace: Record<string, string>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
+  /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what the page renders.
+   *  Empty until the page (or a broadcast) loads it; broadcasts prepend surfaced rows. */
+  notifications: Notification[];
+  /** The whole feed's unread count, applied VERBATIM from `notifications.list`/`notifications.changed`
+   *  — never derived by counting `notifications`, which only holds the pages fetched so far. One
+   *  derivation site (the server's store), one number everywhere. */
+  notificationsUnread: number;
+  /** `nextCursor` of the last page fetched; null = end reached (or nothing fetched yet). */
+  notificationsCursor: string | null;
   agentProbe: AgentProbe[];
   /** Composer drafts by session id — store-owned so layout reshapes/pane remounts never lose typed
    *  text (A-M9). Never persisted; dropped when the session's item is deleted. */
@@ -629,6 +648,21 @@ export type AppState = {
    *  space's layout. One page item per space, deduped by KIND — the refId is the kind's well-known
    *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from. */
   openDestinationPage(kind: DestinationPageKind): Promise<void>;
+  /** Fetch the feed's first page (replacing what is held — sized to cover at least what was showing,
+   *  so a refetch triggered by `notifications.changed` never shrinks the visible list). */
+  refreshNotifications(): Promise<void>;
+  /** Page further on the held cursor; no-op at the end of the feed. */
+  loadMoreNotifications(): Promise<void>;
+  /** Mark rows read — named ids, or the whole global feed ("all"). Applies the server's returned
+   *  unread count; the broadcast that follows carries the same number. */
+  markNotificationsRead(ids: string[] | "all"): Promise<void>;
+  /** The `notifications.changed` handler: applies the server's unread count, folds a surfaced row into
+   *  the held feed, and auto-reads a `session_done` for the session pane the user is looking at (the
+   *  renderer is the one honest holder of focus — see the server service's doc comment). */
+  applyNotificationsChanged(payload: { notification: Notification | null; unread: number }): void;
+  /** The row's jump affordance: land on the notification's session (switching space if needed) and
+   *  mark it read — it has, by definition, been seen. */
+  openNotificationTarget(n: Notification): Promise<void>;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
   /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
@@ -999,6 +1033,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
+      notifications: [], notificationsUnread: 0, notificationsCursor: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
@@ -1018,6 +1053,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
         await get().refreshAllSessions();
+        // The sidebar's unread pill needs the count before the page is ever opened. One row, not a
+        // page — the count rides every list result. A badge, not a dependency: a failure here must
+        // not take boot down with it.
+        const feed = await api.listNotifications(null, 1).catch(() => null);
+        if (feed) set({ notificationsUnread: feed.unread });
         // Last, so `booted && spaces.length === 0` is only ever true for a genuinely empty home.
         set({ booted: true });
       },
@@ -1710,6 +1750,60 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await adoptItem(spaceId, created.id, null);
       },
       setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
+      async refreshNotifications() {
+        // Sized to cover what is already showing: a refetch triggered by a broadcast must not shrink
+        // the list the user is scrolled into. Capped at the wire's own limit.
+        const limit = Math.min(200, Math.max(NOTIFICATIONS_PAGE, get().notifications.length));
+        const page = await api.listNotifications(null, limit);
+        set({ notifications: page.notifications, notificationsCursor: page.nextCursor, notificationsUnread: page.unread });
+      },
+      async loadMoreNotifications() {
+        const cursor = get().notificationsCursor; if (!cursor) return;
+        const page = await api.listNotifications(cursor, NOTIFICATIONS_PAGE);
+        // Guard against a duplicate landing across a refetch that raced this page in.
+        const known = new Set(get().notifications.map((n) => n.id));
+        set({ notifications: [...get().notifications, ...page.notifications.filter((n) => !known.has(n.id))],
+          notificationsCursor: page.nextCursor, notificationsUnread: page.unread });
+      },
+      async markNotificationsRead(ids) {
+        const r = ids === "all" ? await api.markNotificationsRead({ all: true }) : await api.markNotificationsRead({ ids });
+        const t = Date.now();
+        set({ notificationsUnread: r.unread,
+          notifications: get().notifications.map((n) => n.readAt === null && (ids === "all" || ids.includes(n.id)) ? { ...n, readAt: t } : n) });
+      },
+      applyNotificationsChanged(payload) {
+        set({ notificationsUnread: payload.unread });
+        const n = payload.notification;
+        if (n) {
+          // A surfaced row lands at the top of whatever slice is held (a reopen moves, not
+          // duplicates). An unloaded feed stays unloaded — the page fetches on mount.
+          if (get().notifications.length > 0) {
+            set({ notifications: [n, ...get().notifications.filter((x) => x.id !== n.id)] });
+          }
+          // The session_done contract's renderer half: the server writes a row for EVERY settle; the
+          // focused pane's settle is one the user is watching, so it is read the moment it exists.
+          if (n.category === "session_done" && n.sessionId) {
+            const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
+            if (focused?.kind === "session" && focused.refId === n.sessionId) {
+              void get().run(() => get().markNotificationsRead([n.id]));
+            }
+          }
+        } else if (get().notifications.length > 0) {
+          // A resolution or a markRead from elsewhere: re-read the held slice so a permission row can
+          // never keep rendering "pending" after it was answered in some other pane or window.
+          void get().run(() => get().refreshNotifications());
+        }
+      },
+      async openNotificationTarget(n) {
+        const sid = n.sessionId;
+        if (sid) {
+          const spaceId = get().sessionSpace[sid] ?? n.spaceId;
+          if (spaceId && spaceId !== get().activeSpaceId) await get().selectSpace(spaceId);
+          const item = get().items.find((i) => i.kind === "session" && i.refId === sid);
+          if (item) await get().openItem(item.id);
+        }
+        if (n.readAt === null) await get().markNotificationsRead([n.id]);
+      },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);
         set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: status }, worktreeAckStale: null,

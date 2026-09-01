@@ -159,6 +159,9 @@ export function App() {
     const offBD = rpc().on("browser.driving", (p) => store.getState().applyBrowserDriving(p));
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
+    // The feed (Plan 12 W5): every change carries the server's unread count for the sidebar pill, and
+    // a surfaced row for the focused-pane auto-read — see applyNotificationsChanged.
+    const offN = rpc().on("notifications.changed", (p) => store.getState().applyNotificationsChanged(p));
     // No payload — `mcp.changed` just means "something about some server changed". Only worth a refetch
     // while a space page's Connections tab is actually mounted on a space's server list (Plan 12 W3:
     // the settings sheet is gone; `mcpPanelSpaceId` is McpSection's mounted-for-which-space record).
@@ -186,7 +189,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);
