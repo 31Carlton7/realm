@@ -22,6 +22,7 @@ describe("SpacePage · General", () => {
     const name = screen.getByRole("textbox", { name: "Space name" });
     fireEvent.change(name, { target: { value: "Versed 2" } }); fireEvent.blur(name);
     await waitFor(() => expect(store.getState().activeSpace()?.name).toBe("Versed 2"));
+    fireEvent.click(screen.getByRole("button", { name: "Change icon…" }));
     fireEvent.click(screen.getByRole("radio", { name: "Icon cap" }));
     await waitFor(() => expect(store.getState().activeSpace()?.icon).toBe("cap"));
     fireEvent.click(screen.getByRole("radio", { name: "Color #3ddc97" }));

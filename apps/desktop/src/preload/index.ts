@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("realm", {
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),
+  /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
+  pickIconImage: (): Promise<PickedFile | null> => ipcRenderer.invoke("pick-icon-image"),
   /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
   saveTempAttachment: (name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> => ipcRenderer.invoke("save-temp-attachment", name, mime, bytes),
   /** The real filesystem path behind a dropped File. Electron 32 removed `File.path`; `webUtils` is

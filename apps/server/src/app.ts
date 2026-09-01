@@ -2,6 +2,8 @@ import { openDatabase, type Db } from "./db/database";
 import { dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
 import { SpacesStore } from "./store/spaces";
+import { IconAssetsStore } from "./store/icon-assets";
+import { IconGenerationService } from "./icons/service";
 import { ProjectsStore } from "./store/projects";
 import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
@@ -104,6 +106,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   if (profiles.list().length === 0) profiles.create({ name: "Personal", icon: "user", color: "#6b7280" });
   const rpc = new RpcServer();
   const spaces = new SpacesStore(db, opts.home);
+  const iconAssets = new IconAssetsStore(db);
+  const iconGeneration = new IconGenerationService(iconAssets);
   const items = new ItemsStore(db);
   const projects = new ProjectsStore(db);
   const environments = new EnvironmentsStore(db);
@@ -291,6 +295,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
     profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search, forks,
+    iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across

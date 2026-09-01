@@ -3,6 +3,8 @@ import type { z } from "zod";
 import type { RpcServer } from "./server";
 import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
+import type { IconAssetsStore } from "../store/icon-assets";
+import type { IconGenerationService } from "../icons/service";
 import type { ProjectsStore } from "../store/projects";
 import type { EnvironmentsStore } from "../store/environments";
 import type { EnvironmentService } from "../environments/service";
@@ -38,6 +40,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
   profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService; search: SearchService; forks: ForkService;
+  iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -101,6 +104,12 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("spaces.changed", {});
     return { ok: true as const };
   });
+
+  // The space icon picker's "Generated"/"Uploaded" library — per-profile, reusable across spaces.
+  reg("iconAssets.list", (p) => d.iconAssets.list(p.profileId));
+  reg("iconAssets.generate", (p) => d.iconGeneration.generate(p.profileId, p.prompt));
+  reg("iconAssets.upload", (p) => d.iconGeneration.upload(p.profileId, p.path));
+  reg("iconAssets.delete", (p) => { d.iconAssets.delete(p.id); return { ok: true as const }; });
 
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("settings.set", (p) => { d.settings.set(p.key, p.value); return { ok: true as const }; });

@@ -4,7 +4,7 @@ import {
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
   type DestinationPageKind, type NotificationCategory,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -106,6 +106,15 @@ export type Api = {
   saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedAttachment>;
   /** Drop the renderer-side xterm instance/scrollback for a closed terminal. */
   disposeTerminal(terminalId: string): void;
+  /** The space icon picker's per-profile library (`iconAssets.*`). */
+  listIconAssets(profileId: string): Promise<IconAsset[]>;
+  /** One-shot Claude call; can take a few seconds. Throws `ICON_INVALID`/`ICON_TOO_LARGE` on a
+   *  response that failed the server's structural check. */
+  generateIconAsset(profileId: string, prompt: string): Promise<IconAsset>;
+  /** Native single-image picker for an icon upload; null when cancelled. */
+  pickIconImage(): Promise<PickedFile | null>;
+  uploadIconAsset(profileId: string, path: string): Promise<IconAsset>;
+  deleteIconAsset(id: string): Promise<void>;
   listSessions(spaceId: string): Promise<Session[]>;
   /** Every session across every space (sessionId→spaceId map for cross-space badges). */
   listAllSessions(): Promise<Session[]>;
@@ -440,6 +449,10 @@ export type AppState = {
   skillsRoot: string;
   /** `memory.get` by space id — the memory panel's document + AGENTS.md state. */
   spaceMemory: Record<string, MemoryState>;
+  /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. One
+   *  set per profile (never per-space): a generated or uploaded icon is reusable by every space
+   *  under that profile, the same posture the built-in icon list already has. */
+  iconAssets: Record<string, IconAsset[]>;
   /** `memory.sources` by session id — fetched when the memory panel asks about a session. */
   sessionMemorySources: Record<string, MemorySources>;
   /** The permission mode a session was on when it entered Plan, by session id — see `setSessionMode`.
@@ -696,6 +709,17 @@ export type AppState = {
   setAgentsFile(spaceId: string, enabled: boolean): Promise<void>;
   /** Fetch what one session's agent actually loads into `sessionMemorySources`. */
   refreshMemorySources(sessionId: string): Promise<void>;
+  /** Fetch a profile's icon asset library into `iconAssets`. */
+  refreshIconAssets(profileId: string): Promise<void>;
+  /** Ask Claude for an SVG icon from a description, save it, and prepend it into `iconAssets`. Can
+   *  take a few seconds (a real model call) — callers show a spinner, not an optimistic result. */
+  generateIcon(profileId: string, prompt: string): Promise<IconAsset>;
+  /** The icon picker's "Uploaded" tab: native single-image picker, then upload; null if cancelled. */
+  uploadIconImage(profileId: string): Promise<IconAsset | null>;
+  /** Remove a generated/uploaded icon from the library. Any space still pointing at it degrades to
+   *  the folder glyph (`SpaceIcon`'s missing-asset fallback) — the caller is responsible for warning
+   *  if a space in view uses it. */
+  deleteIconAsset(profileId: string, id: string): Promise<void>;
   /** Attach dropped or pasted Files. A dropped file already has a path; a pasted one does not, and is
    *  written under Realm's home first (see main/attachments.ts). */
   attachFiles(sessionId: string, files: readonly File[]): Promise<void>;
@@ -1160,7 +1184,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -1830,6 +1854,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshMemorySources(sessionId) {
         const sources = await api.memorySources(sessionId);
         set({ sessionMemorySources: { ...get().sessionMemorySources, [sessionId]: sources } });
+      },
+      async refreshIconAssets(profileId) {
+        const list = await api.listIconAssets(profileId);
+        set({ iconAssets: { ...get().iconAssets, [profileId]: list } });
+      },
+      async generateIcon(profileId, prompt) {
+        const asset = await api.generateIconAsset(profileId, prompt);
+        set({ iconAssets: { ...get().iconAssets, [profileId]: [asset, ...(get().iconAssets[profileId] ?? [])] } });
+        return asset;
+      },
+      async uploadIconImage(profileId) {
+        const picked = await api.pickIconImage();
+        if (!picked) return null;
+        const asset = await api.uploadIconAsset(profileId, picked.path);
+        set({ iconAssets: { ...get().iconAssets, [profileId]: [asset, ...(get().iconAssets[profileId] ?? [])] } });
+        return asset;
+      },
+      async deleteIconAsset(profileId, id) {
+        await api.deleteIconAsset(id);
+        set({ iconAssets: { ...get().iconAssets, [profileId]: (get().iconAssets[profileId] ?? []).filter((a) => a.id !== id) } });
       },
       async attachFiles(sessionId, files) {
         const picked: PickedAttachment[] = [];

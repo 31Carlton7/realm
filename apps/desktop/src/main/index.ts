@@ -130,6 +130,14 @@ ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
   return r.canceled ? [] : describeFiles(r.filePaths);
 });
 
+/** The icon picker's "Uploaded" tab: a single image, filtered at the OS dialog level (`iconAssets.upload`
+ *  re-checks mime/size server-side — a dialog filter is a convenience, never the validation boundary). */
+ipcMain.handle("pick-icon-image", async (): Promise<PickedFile | null> => {
+  const r = await dialog.showOpenDialog({ properties: ["openFile"], filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }] });
+  if (r.canceled || r.filePaths.length === 0) return null;
+  return (await describeFiles(r.filePaths))[0] ?? null;
+});
+
 // Settings page, Permissions tab (Plan 12 W6). Every decision — which rows exist, what state each
 // may claim, the no-prompt rule — lives in tcc.ts; only the Electron/fs legs are bound here.
 ipcMain.handle("tcc:probe", (): TccRow[] => probeTcc({

@@ -9,6 +9,8 @@ interface Window {
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;
+    /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
+    pickIconImage(): Promise<PickedFile | null>;
     /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
     saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedFile>;
     /** Real filesystem path behind a dropped File ("" when it has none — a pasted image). */

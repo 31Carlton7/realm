@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema } from "./entities";
 
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
@@ -263,6 +263,14 @@ export const Methods = {
   "spaces.reorder": { params: z.object({ ids: z.array(IdSchema) }), result: z.object({ ok: z.literal(true) }) },
   "spaces.setLayout": { params: z.object({ id: IdSchema, layout: LayoutSchema }), result: SpaceSchema },
   "spaces.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  // The icon picker's "Generated"/"Uploaded" library (per-profile, reusable across every space —
+  // IconAssetsStore). "generate" is a one-shot Claude Agent SDK call server-side (generateSvgIcon),
+  // so it can be slow — callers show a spinner, not an optimistic result.
+  "iconAssets.list":     { params: z.object({ profileId: IdSchema }), result: z.array(IconAssetSchema) },
+  "iconAssets.generate": { params: z.object({ profileId: IdSchema, prompt: z.string().min(1).max(300) }), result: IconAssetSchema },
+  "iconAssets.upload":   { params: z.object({ profileId: IdSchema, path: z.string().min(1) }), result: IconAssetSchema },
+  "iconAssets.delete":   { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   "projects.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ProjectSchema) },
   "projects.create": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), rootPath: z.string(), defaultBranch: z.string().default("main") }), result: ProjectSchema },

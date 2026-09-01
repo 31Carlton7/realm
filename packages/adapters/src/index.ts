@@ -4,6 +4,7 @@ export { FakeAdapter, type FakeScript, type FakeStep } from "./fake/fake-adapter
 export { createSdkMapper } from "./claude/map-sdk-message";
 export { ClaudeAdapter } from "./claude/claude-adapter";
 export { probeClaude } from "./claude/probe";
+export { generateSvgIcon } from "./claude/generate-svg-icon";
 export { StdioJsonRpc, JsonRpcCallError, type JsonRpcId } from "./jsonrpc/stdio";
 export { CodexConnection, type ThreadListener } from "./codex/connection";
 export { createCodexMapper } from "./codex/map-codex";
