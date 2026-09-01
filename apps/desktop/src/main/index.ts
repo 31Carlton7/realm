@@ -42,6 +42,15 @@ function installMenu() {
 // Dev affordance: REALM_DEVTOOLS_PORT=9223 exposes the Chrome DevTools protocol for tooling.
 if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugging-port", process.env.REALM_DEVTOOLS_PORT);
 
+// Load-bearing for the browser agent (Plan 11 W3), found empirically and held by the live check:
+// when macOS marks the window occluded, Chromium backgrounds its renderers, and a backgrounded
+// WebContentsView that goes through a cross-process navigation never produces a compositor frame —
+// after which BOTH synthetic input paths (CDP Input.dispatchMouseEvent and wc.sendInputEvent) are
+// silently dropped until a fresh frame exists (a reload or a real resize revives it; nothing cheaper
+// does). With this switch, occluded windows keep compositing and agent input works no matter what is
+// stacked over Realm. Cost: some battery while occluded — a workstation-app tradeoff made knowingly.
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+
 async function createWindow(info: { port: number; home: string }) {
   const win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
