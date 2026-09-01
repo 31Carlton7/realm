@@ -41,13 +41,37 @@ describe("one settle/drain implementation (Plan 13 W1)", () => {
     expect(filesMentioning(needle)).toEqual(["delegation/engine.ts"]);
   });
 
-  it("both delegation tools consume the ONE engine rather than rolling their own wait", () => {
-    for (const tool of ["browsers/browser-agent.ts", "delegation/agent-run.ts"]) {
+  it("all three delegation flows consume the ONE engine rather than rolling their own wait", () => {
+    for (const tool of ["browsers/browser-agent.ts", "delegation/agent-run.ts", "delegation/review.ts"]) {
       const text = readFileSync(join(SRC, tool), "utf8");
       expect(text).toMatch(/from "\.\.?\/(delegation\/)?engine"/);
       expect(text).toContain("engine.drain(");
       // No private polling loop: the tools never sleep-and-re-read session events themselves.
       expect(text).not.toContain("setTimeout");
     }
+  });
+});
+
+/**
+ * Plan 13 W3's BAN, enforced structurally: nothing wires review→ship. The review module must be
+ * INCAPABLE of committing — it never imports git-write (or any workspace write surface), and no
+ * other module reaches git-write off a review result: `workspace/git-write` has exactly two source
+ * importers, the RPC layer (where the HUMAN's ship click arrives) and app.ts (which constructs it
+ * for that layer). A third importer appearing — or the review module mentioning ship at all — means
+ * someone built the auto-merge this plan forbids.
+ */
+describe("review→ship does not exist (Plan 13 W3)", () => {
+  it("the review module never imports git-write and never calls a ship", () => {
+    const text = readFileSync(join(SRC, "delegation/review.ts"), "utf8");
+    // Import-level, because the doctrine COMMENTS rightly name the ban: what must be absent is the
+    // capability, not the words. No git-write import, no GitWriteService type, no `.ship(` call.
+    expect(text).not.toMatch(/from "[^"]*git-write"/);
+    expect(text).not.toContain("GitWriteService");
+    expect(text).not.toMatch(/\.ship\(/);
+  });
+
+  it("git-write's only source importers are the RPC layer and app.ts — the human's click, nowhere else", () => {
+    expect(filesMentioning('from "../workspace/git-write"').concat(filesMentioning('from "./workspace/git-write"')).sort())
+      .toEqual(["app.ts", "rpc/methods.ts"]);
   });
 });

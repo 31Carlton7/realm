@@ -235,10 +235,11 @@ export class ReviewService {
    *
    * DOCTRINE (Plan 13 W3, the ban): a review result informs the human's ship click and nothing
    * else. This handler persists the verdict, broadcasts it to the diff pane, and writes one
-   * notification row — it must NEVER call `workspace.ship`, GitWriteService, or any commit/push
-   * path, and no future "auto-ship on clean verdict" may be wired here or anywhere downstream of
-   * this record. The module-level enforcement: delegation/review.ts never imports git-write
-   * (structure.test.ts pins it); the KV record is read only by the diff pane and `review.get`.
+   * notification row — it must NEVER call `workspace.ship`, the git write service, or any
+   * commit/push path, and no future "auto-ship on clean verdict" may be wired here or anywhere
+   * downstream of this record. The module-level enforcement: delegation/review.ts never imports
+   * git-write (structure.test.ts pins the identifier and the import as absent); the KV record is
+   * read only by the diff pane and `review.get`.
    */
   private publish(env: Environment, childId: string, title: string, settled: SettledRun): void {
     if (settled.outcome === "gone") return; // the session — and its environment's slot — are gone; nothing to persist

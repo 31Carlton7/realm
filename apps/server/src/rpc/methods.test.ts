@@ -223,6 +223,18 @@ describe("environments over rpc", () => {
     c.close();
   });
 
+  it("sessions.create records the user-dispatch origin ONLY when userDispatched is claimed (Plan 13 W2)", async () => {
+    const { c, space } = await bootRepoSpace();
+    const plain = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude" })).result.session;
+    expect(plain.dispatchedBy).toBeNull(); // absence IS the ordinary case — nothing invented
+    const dispatched = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude", userDispatched: true })).result.session;
+    expect(dispatched.dispatchedBy).toEqual({ kind: "user-dispatch", sessionId: null });
+    // The wire cannot claim an AGENT origin: userDispatched is a boolean, not a DispatchedBy.
+    const forged = await c.call("sessions.create", { spaceId: space.id, agentKind: "claude", dispatchedBy: { kind: "agent_run", sessionId: plain.id } });
+    if (forged.ok) expect(forged.result.session.dispatchedBy).toBeNull(); // unknown param ignored, never honored
+    c.close();
+  });
+
   it("reports the hazard, refuses without a matching acknowledgement, then removes", async () => {
     const { c, space } = await bootRepoSpace();
     const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "risk" })).result;
