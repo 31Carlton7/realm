@@ -254,6 +254,47 @@ describe("useGlobalHotkeys", () => {
     });
   });
 
+  describe("⌘⇧↩ — dispatch the focused session's draft (Plan 13 W2)", () => {
+    const focusedSession = async () => {
+      const it9 = item("i9", "s1", { kind: "session", refId: "se1" });
+      const r = await mount({ items: { s1: [it9] }, sessions: [session("se1", "s1")] });
+      act(() => r.store.setState({ layout: { type: "leaf", id: "L1", itemId: "i9" }, focusedLeafId: "L1" }));
+      act(() => r.store.getState().setDraft("se1", "go fix it"));
+      return r;
+    };
+
+    it("fires FROM the composer: creates the dispatched session, sends the draft, keeps focus put", async () => {
+      const { api, store } = await focusedSession();
+      const ta = document.createElement("textarea"); document.body.appendChild(ta); ta.focus();
+      key({ key: "Enter", metaKey: true, shiftKey: true }, ta);
+      await waitFor(() => expect(api.sent).toHaveLength(1));
+      expect(api.sent[0]!.text).toBe("go fix it");
+      const created = api.data.sessions.find((s) => s.dispatchedBy?.kind === "user-dispatch");
+      expect(created).toBeDefined();
+      expect(api.sent[0]!.id).toBe(created!.id); // the draft went to the NEW session, not se1
+      await waitFor(() => expect(store.getState().drafts["se1"]).toBe(""));
+      expect(store.getState().focusedLeafId).toBe("L1"); // the focus-steal mutant
+      ta.remove();
+    });
+
+    it("plain ⌘↩ is NOT dispatch — the chord requires shift", async () => {
+      const { api } = await focusedSession();
+      key({ key: "Enter", metaKey: true });
+      await tick();
+      expect(api.sent).toHaveLength(0);
+      expect(api.data.sessions.some((s) => s.dispatchedBy !== null)).toBe(false);
+    });
+
+    it("an empty draft is a no-op — nothing created, nothing sent", async () => {
+      const { api, store } = await focusedSession();
+      act(() => store.getState().setDraft("se1", "   "));
+      key({ key: "Enter", metaKey: true, shiftKey: true });
+      await tick();
+      expect(api.sent).toHaveLength(0);
+      expect(api.data.sessions.some((s) => s.dispatchedBy !== null)).toBe(false);
+    });
+  });
+
   describe("⌘J — the focused session's terminal drawer (W4)", () => {
     const focusedSession = async () => {
       const it9 = item("i9", "s1", { kind: "session", refId: "se1" });

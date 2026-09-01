@@ -12,7 +12,10 @@ import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
-import { BrowserAgentService, createRealmAgentProvider } from "./browsers/browser-agent";
+import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAME } from "./browsers/browser-agent";
+import { DelegationEngine } from "./delegation/engine";
+import { AgentRunService } from "./delegation/agent-run";
+import { ReviewService } from "./delegation/review";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
@@ -41,7 +44,10 @@ import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 import { machineName } from "./machine-name";
 
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; close(): Promise<void> };
+/** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
+ *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
+ *  gateway proves them). Production callers use it via sessions, never directly. */
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /**
@@ -81,6 +87,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
    *  budget so suites don't wait minutes. Production callers pass neither. */
   browserAgent?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perActMs: number; pollMs: number } };
+  /** Plan 13 W1: the same knobs for `agent_run`. `fallbackKind` falls back to `browserAgent`'s when
+   *  unset (test harnesses configure the fake once); `timeouts` shrinks the settle budget. */
+  agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number } };
+  /** Plan 13 W3: the same knobs for the reviewer recipe. `fallbackKind` (the reviewer's kind when the
+   *  requester's has no read-only plan mode, or the user clicked) falls back to `agentRun`'s, then
+   *  `browserAgent`'s. */
+  review?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { budgetMs: number; pollMs: number } };
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -197,12 +210,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       gateway?.notifyToolsChanged();
     },
   });
-  // Late-bound like `sessionService`/`gateway` above: the gateway consults the browser-agent
-  // registry for per-session toolset restrictions (W5), and that registry needs SessionService,
-  // which needs the gateway. Nothing reads the seam before a session makes a request.
+  // Late-bound like `sessionService`/`gateway` above: the gateway consults the delegation
+  // registries for per-session toolset shapes (Plan 11 W5 + Plan 13 W1), and those registries need
+  // SessionService, which needs the gateway. Nothing reads the seam before a session makes a request.
   let browserAgents: BrowserAgentService | null = null;
+  let agentRuns: AgentRunService | null = null;
+  let reviews: ReviewService | null = null;
   const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url),
-    sessionToolset: (sessionId) => browserAgents?.sessionToolset(sessionId) ?? null });
+    // A browser-agent child is only-mode (realm-browser and nothing else); an agent_run child — and
+    // a reviewer child (W3) — is exclude-mode (the space's FULL surface minus the delegation
+    // provider — the gateway half of depth-1: a reviewer sees neither agent tool nor agent_review).
+    // A session cannot be two kinds of child: each tool's child record is written by exactly one run.
+    sessionToolset: (sessionId) => {
+      const only = browserAgents?.sessionToolset(sessionId);
+      if (only) return only;
+      return agentRuns?.isChild(sessionId) || reviews?.isChild(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
+    } });
   gateway = mcpGateway;
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
@@ -215,18 +238,33 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
   const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: new SessionEventsStore(db), items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications,
+    // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
+    // (they share the one engine, which owns the registry); the per-child seams try each registry —
+    // a session is a child of at most one.
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => browserAgents?.release(id),
-      extraSystemContext: (id) => browserAgents?.extraSystemContext(id),
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); },
+      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id),
+      skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? null,
     } });
   sessionService = sessions;
-  // W5: the browser-agent registry + its `realm-agent` provider (one tool, `browser_agent_run`).
-  // A delegated child is a REAL session whose specialization all rides existing seams — see the
-  // class doc comment in browsers/browser-agent.ts, including the bypass-is-never-inherited rule.
-  browserAgents = new BrowserAgentService({ settings, sessions, rpc, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
+  // The delegation stack (Plan 11 W5 + Plan 13 W1): ONE engine (settle/drain + one-run-per-parent,
+  // shared across both tools), the browser-agent registry, the agent_run registry, and the
+  // `realm-agent` provider serving `browser_agent_run` + `agent_run`. A delegated child is a REAL
+  // session whose specialization all rides existing seams — see each service's class doc comment,
+  // including the bypass-is-never-inherited rule both tools carry.
+  const delegationEngine = new DelegationEngine({ sessions });
+  browserAgents = new BrowserAgentService({ settings, sessions, rpc, engine: delegationEngine, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
+  agentRuns = new AgentRunService({ settings, sessions, rpc, engine: delegationEngine, environments: envService, skills, otherDelegation: browserAgents,
+    fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts });
+  // The reviewer recipe (W3): same engine, read-only cap, review-origin children. `otherDelegation`
+  // fans across BOTH sibling registries — no delegated child of any kind may mint a reviewer.
+  const agentRunsFinal = agentRuns, browserAgentsFinal = browserAgents;
+  reviews = new ReviewService({ settings, sessions, rpc, engine: delegationEngine, environments, notifications,
+    otherDelegation: { isChild: (id) => agentRunsFinal.isChild(id) || browserAgentsFinal.isChild(id) },
+    fallbackKind: opts.review?.fallbackKind ?? opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.review?.timeouts });
   mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
-  mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp));
+  mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
@@ -237,7 +275,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();
@@ -246,7 +284,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   await mcpGateway.listen();
   const port = await rpc.listen(opts.port);
   return {
-    port, db, terminals, sessions, browserAgents,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, gateway: mcpGateway,
     close: async () => {
       terminals.closeAll();
       await sessions.closeAll();

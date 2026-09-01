@@ -4,7 +4,7 @@ import {
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
   type DestinationPageKind, type NotificationCategory,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -15,7 +15,10 @@ import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browse
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
-export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string;
+  /** Plan 13 W2 (⌘⇧↩): record `dispatchedBy: { kind: "user-dispatch" }` on the row — the Tasks
+   *  lens's seam. The only origin a client may claim; the agent origins are server-recorded. */
+  userDispatched?: boolean };
 /** `mcp.add` params, minus the wire's own defaulting — undefined fields simply aren't sent. */
 export type AddMcpServerInput = {
   spaceId: string | null; name: string; transport: McpTransport;
@@ -218,6 +221,13 @@ export type Api = {
   listNotifications(cursor: string | null, limit?: number): Promise<{ notifications: Notification[]; nextCursor: string | null; unread: number }>;
   /** `notifications.markRead` — named ids, or the whole (global) feed. */
   markNotificationsRead(input: { ids?: string[]; all?: boolean }): Promise<{ ok: true; unread: number }>;
+  /** `review.request` (Plan 13 W3): spawn the read-only reviewer over this environment. Returns as
+   *  soon as the reviewer session exists; the verdict arrives as a `review.changed` broadcast. */
+  requestReview(environmentId: string): Promise<{ sessionId: string; itemId: string }>;
+  /** `review.get` — the environment's persisted verdict, or null. */
+  getReview(environmentId: string): Promise<{ review: ReviewResult | null }>;
+  /** `review.dismiss` — clear the persisted verdict (server-side, so every window's pane hears it). */
+  dismissReview(environmentId: string): Promise<void>;
 };
 
 /** The two narrowing dimensions Activity's chips apply — `undefined` means "not filtering by this". */
@@ -302,7 +312,7 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
 
 /** The space page's tab rail (Plan 12 W3). "connections" is what the retired sheet called "mcp" —
  *  openers that used `tab: "mcp"` (the plus-menu's "Manage connections…") map to it. */
-export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sessions" | "history";
+export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sessions" | "tasks" | "history";
 /** The profile page's rail (Plan 14 W2). */
 export type ProfilePageTab = "skills" | "connections" | "memory";
 
@@ -437,6 +447,12 @@ export type AppState = {
   shipResults: Record<string, ShipResult>;
   /** Checkouts with a ship in flight, so the button can refuse to fire twice. */
   shipping: Record<string, boolean>;
+  /** The latest persisted review verdict per ENVIRONMENT id (Plan 13 W3) — the diff pane's `review`
+   *  section. null = known none (dismissed, shipped, or never reviewed); absent = never asked. */
+  reviews: Record<string, ReviewResult | null>;
+  /** Environments whose review is in flight — set on request, cleared when the verdict's
+   *  `review.changed` lands. Client-side convenience only; the server owns the real in-flight guard. */
+  reviewing: Record<string, boolean>;
   /** `environments.worktreeStatus` by environment id — what the removal sheet shows. */
   worktreeStatuses: Record<string, WorktreeStatus>;
   /** Set when a confirmed removal's re-read disagreed with the numbers the user was shown: the sheet
@@ -538,6 +554,11 @@ export type AppState = {
   openItem(itemId: string, leafId?: string | null): Promise<void>;
   /** Agent-opened panes: open beside the focused pane (split right), never replacing it. */
   openItemBeside(itemId: string): Promise<void>;
+  /** `openItemBeside` minus the focus move (Plan 13 W2's dispatch): the pane appears beside — or
+   *  fills the focused-but-empty leaf — and `focusedLeafId` is NOT touched, because the whole point
+   *  of dispatching is that the user keeps typing where they are. An already-open item is left
+   *  entirely alone (no "go there": that would be a focus steal by another name). */
+  openItemBesideQuiet(itemId: string): Promise<void>;
   /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). Never deletes. */
   closeFromLayout(itemId: string): Promise<void>;
   /** Destructive: closes from the layout, deletes the item server-side (kills ptys), and drops local
@@ -593,6 +614,12 @@ export type AppState = {
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
+  /** ⌘⇧↩ "dispatch" (Plan 13 W2): ONE gesture = create a session that inherits the composer's whole
+   *  setup (agent, model, effort, permission mode, and the environment the under-strip currently
+   *  names — a worktree if that is what the selector shows), send the draft + attachments + mentions
+   *  to it, record the `user-dispatch` origin, and bring its pane in BESIDE without focusing it.
+   *  The draft clears exactly as a normal send; an empty draft is a no-op. */
+  dispatchDraft(sessionId: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
@@ -681,6 +708,17 @@ export type AppState = {
   /** Open (or focus) the diff pane for an environment. The pane's item has the ENVIRONMENT's id as
    *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
+  /** "Request review" (Plan 13 W3): spawn the read-only reviewer over this environment. Marks it
+   *  `reviewing` until the verdict's `review.changed` lands; the reviewer's pane arrives via the
+   *  server's `session.agentOpened`. */
+  requestReview(environmentId: string): Promise<void>;
+  /** Fetch the environment's persisted verdict into `reviews` (diff pane mount/env change). */
+  refreshReview(environmentId: string): Promise<void>;
+  /** The review section's ✕ — server-side clear, then the local slice. */
+  dismissReview(environmentId: string): Promise<void>;
+  /** The `review.changed` handler: apply the payload directly (no refetch race) and clear the
+   *  in-flight flag. */
+  applyReviewChanged(payload: { environmentId: string; review: ReviewResult | null }): void;
   /** Open the space's PAGE (Plan 12 W3) — a `space-page` item whose refId is the space id, one per
    *  space (the diff pane's dedup precedent). `tab` lands the page on a section — the plus-menu's
    *  "Manage connections…" passes "connections"; omitted keeps whatever tab the page last showed. */
@@ -1092,7 +1130,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
-      diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
+      diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
@@ -1273,6 +1311,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           return;
         }
         await get().openItem(itemId);
+      },
+      async openItemBesideQuiet(itemId) {
+        const current = get().layout ?? emptyLayout();
+        // Already visible: leave it — and the focus — entirely alone. openItem's "go there" focus
+        // move is exactly the steal this variant exists to not perform.
+        if (findLeafOfItem(current, itemId)) return;
+        const focused = get().focusedLeafId;
+        const occupant = focused ? itemIdOfLeaf(current, focused) : null;
+        if (focused && occupant !== null && occupant !== itemId) {
+          // openItemBeside's split, minus its focus move: the pane appears at the side while
+          // focusedLeafId — and with it the composer the user is typing in — stays put.
+          const layout = splitLeaf(current, focused, "row", itemId);
+          set({ layout });
+          await persist();
+          return;
+        }
+        // The focused leaf is empty (or nothing is focused): fill in place, focus untouched.
+        const layout = layoutOpen(current, focused, itemId);
+        set({ layout });
+        await persist();
       },
       async openItem(itemId, leafId = null) {
         const current = get().layout ?? emptyLayout();
@@ -1522,6 +1580,44 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sent = new Set(pending.map((a) => a.path));
         const left = (get().pendingAttachments[id] ?? []).filter((a) => !sent.has(a.path));
         set({ pendingAttachments: { ...get().pendingAttachments, [id]: left } });
+      },
+      /**
+       * ⌘⇧↩ (Plan 13 W2). The dispatched session inherits the composer's setup VERBATIM — agent,
+       * model, effort, permission mode, and `environmentId`, which is how "dispatch into the worktree
+       * the under-strip says" works: the selector's current choice IS the source session's
+       * environment. The origin is recorded at create (`userDispatched`), the draft travels with its
+       * attachments and mentions exactly as `sendMessage` would send them, and the new pane comes in
+       * beside WITHOUT focus — the named mutant this kills twice over: a dispatch that steals the
+       * pane, and a dispatch that leaves the draft behind to be sent again.
+       */
+      async dispatchDraft(sessionId) {
+        const source = get().sessions[sessionId]; if (!source) return;
+        const text = (get().drafts[sessionId] ?? "").trim(); if (!text) return;
+        const pending = get().pendingAttachments[sessionId] ?? [];
+        // Read synchronously BEFORE anything clears — sendMessage's own idiom, same reason.
+        const mentions = mentionIds(text, new Set([...(get().draftMentions[sessionId] ?? []), ...mentionableIds(sessionId)]));
+        const { session, itemId } = await api.createSession({
+          spaceId: source.spaceId, agentKind: source.agentKind, environmentId: source.environmentId,
+          model: source.model, effort: source.effort, permissionMode: source.permissionMode,
+          userDispatched: true,
+        });
+        if (isSpace(source.spaceId)) mergeSession(session);
+        // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
+        // surfaces the reason), exactly as a failed normal send would.
+        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions);
+        const sent = new Set(pending.map((a) => a.path));
+        const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => !sent.has(a.path));
+        set({
+          drafts: { ...get().drafts, [sessionId]: "" },
+          draftMentions: { ...get().draftMentions, [sessionId]: [] },
+          pendingAttachments: { ...get().pendingAttachments, [sessionId]: left },
+        });
+        // The new pane arrives beside, quietly. Items are refetched first (the server created the
+        // sidebar item) with the same supersession guard adoptItem uses.
+        const seq = ++itemsFetchSeq;
+        const items = await api.listItems(source.spaceId);
+        if (isSpace(source.spaceId) && seq === itemsFetchSeq) set({ items });
+        await get().openItemBesideQuiet(itemId);
       },
       async interruptSession(id) { await api.interruptSession(id); },
       async respondPermission(id, requestId, decision) { await api.respondPermission(id, requestId, decision); },
@@ -1807,6 +1903,31 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
         const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
         await adoptItem(sid, created.id, targetLeafId);
+      },
+      async requestReview(environmentId) {
+        if (get().reviewing[environmentId]) return; // the button is disabled too; the server refuses regardless
+        set({ reviewing: { ...get().reviewing, [environmentId]: true } });
+        try { await api.requestReview(environmentId); }
+        catch (e) {
+          // The request never started a run — the flag must not stick on a refusal.
+          const { [environmentId]: _x, ...reviewing } = get().reviewing;
+          set({ reviewing });
+          throw e;
+        }
+        // Stays true until the verdict's review.changed lands (applyReviewChanged clears it).
+      },
+      async refreshReview(environmentId) {
+        const { review } = await api.getReview(environmentId);
+        set({ reviews: { ...get().reviews, [environmentId]: review } });
+      },
+      async dismissReview(environmentId) {
+        await api.dismissReview(environmentId);
+        // Applied locally too: the broadcast confirms, but the ✕ must not wait a round trip.
+        set({ reviews: { ...get().reviews, [environmentId]: null } });
+      },
+      applyReviewChanged({ environmentId, review }) {
+        const { [environmentId]: _done, ...reviewing } = get().reviewing;
+        set({ reviews: { ...get().reviews, [environmentId]: review }, reviewing });
       },
       async openSpacePage(spaceId, tab) {
         // The tab lands even when the page item already exists — "Manage connections…" on an

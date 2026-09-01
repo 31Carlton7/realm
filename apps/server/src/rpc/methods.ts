@@ -21,6 +21,7 @@ import type { BrowserService } from "../browsers/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
 import type { NotificationsService } from "../notifications/service";
+import type { ReviewService } from "../delegation/review";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
 import type { GitWriteService } from "../workspace/git-write";
@@ -34,7 +35,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -69,6 +70,10 @@ export function registerMethods(d: Deps): void {
     // Broadcast even when a step reported a problem: a commit that succeeded before a push that was
     // rejected still moved the tree, and the pane must show that.
     changed(p.cwd);
+    // A commit that landed makes any persisted review verdict describe a diff that no longer exists
+    // (Plan 13 W3's staleness rule). Note the direction — ship clears review; nothing ever wires
+    // review→ship, which is the banned direction.
+    if (result.commit.state === "committed") d.reviews.shipped(p.cwd);
     return result;
   });
   // The durable ship log (Plan 14 W1). Space-checked like every per-space listing: a typo'd id should
@@ -403,11 +408,20 @@ export function registerMethods(d: Deps): void {
   reg("notifications.list", (p) => d.notifications.list(p));
   reg("notifications.markRead", (p) => d.notifications.markRead(p));
 
+  // The reviewer recipe (Plan 13 W3). `request` returns the moment the reviewer session exists; the
+  // verdict arrives later as `review.changed` + a `review_done` notification. Reads and dismissal go
+  // through the service so the persisted KV blob has exactly one owner.
+  reg("review.request", (p) => d.reviews.request(p.environmentId));
+  reg("review.get", (p) => ({ review: d.reviews.get(p.environmentId) }));
+  reg("review.dismiss", (p) => { d.reviews.dismiss(p.environmentId); return { ok: true as const }; });
+
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
   reg("sessions.listAll", () => d.sessions.listAll());
   reg("sessions.get", (p) => d.sessions.get(p.id));
-  reg("sessions.create", (p) => d.sessions.create(p));
+  // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
+  // recorded by the server-side tools that create those children, never over RPC.
+  reg("sessions.create", (p) => d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }));
   reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions }); return { ok: true as const }; });
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision); return { ok: true as const }; });

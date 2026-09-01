@@ -1,6 +1,8 @@
-import type { DiffFile, FileDiff, ShipResult } from "@realm/contracts";
+import type { DiffFile, FileDiff, ReviewResult, ShipResult } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState, type KeyboardEvent } from "react";
+import { relativeTime } from "../../components/CheckpointsSheet";
+import { Markdown } from "../session/Markdown";
 import { patchKey, useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
 
@@ -99,6 +101,58 @@ function FileRow({ cwd, file }: { cwd: string; file: DiffFile }) {
   );
 }
 
+const REVIEW_OUTCOME_NOTE: Record<ReviewResult["outcome"], string | null> = {
+  done: null,
+  interrupted: "The reviewer was interrupted before finishing — this is partial.",
+  timeout: "The reviewer ran out of time — this is partial.",
+  failed: "The reviewer session failed before finishing — this is partial.",
+  gone: "The reviewer session was deleted before finishing.",
+};
+
+/**
+ * The review section (Plan 13 W3): the reviewer's verdict, rendered as what it is — a subagent's
+ * fenced output about this checkout, persisted per ENVIRONMENT in the settings KV so a reload keeps
+ * it until the next review, a dismissal, or a ship (the server clears it on commit — a verdict about
+ * a diff that no longer exists must not survive the diff).
+ *
+ * What this section is NOT: an actor. It renders text and offers dismiss + a jump to the reviewer's
+ * session; it wires NOTHING toward the commit controls below it — review informs the human's ship
+ * click, and the absence of any review→ship path here is deliberate and load-bearing (the plan's
+ * ban; the server side is pinned structurally in delegation/structure.test.ts).
+ */
+function ReviewSection({ environmentId, review }: { environmentId: string; review: ReviewResult }) {
+  const dismissReview = useApp((s) => s.dismissReview);
+  const items = useApp((s) => s.items);
+  const openItem = useApp((s) => s.openItem);
+  const run = useApp((s) => s.run);
+  const reviewerItem = items.find((i) => i.kind === "session" && i.refId === review.sessionId);
+  const note = REVIEW_OUTCOME_NOTE[review.outcome];
+  return (
+    <section className="diff-review" aria-label="Review">
+      <div className="diff-review-head">
+        <Icon name="diff" size={13} />
+        <span className="diff-review-title">Review</span>
+        <span className="diff-review-dim">{relativeTime(review.createdAt, Date.now())}</span>
+        {reviewerItem && (
+          <button type="button" className="btn-quiet" onClick={() => run(() => openItem(reviewerItem.id))}>
+            {review.sessionTitle}
+          </button>
+        )}
+        <span className="diff-head-spacer" />
+        <button type="button" className="icon-btn" aria-label="Dismiss review"
+          onClick={() => run(() => dismissReview(environmentId))}>
+          <Icon name="close" size={13} />
+        </button>
+      </div>
+      {note && <p className="diff-note">{note}</p>}
+      {/* Agent output, visibly fenced off from Realm's own chrome — the reviewer's words, verbatim. */}
+      <div className="diff-review-body" data-agent-output>
+        <Markdown text={review.text} />
+      </div>
+    </section>
+  );
+}
+
 /** The ship outcome as three sentences and, where there is one, a next action. Every state named in
  *  the contract is handled here; a state with no words would be the silence W3 exists to remove. */
 function ShipReport({ cwd, environmentId, result }: { cwd: string; environmentId: string; result: ShipResult }) {
@@ -167,9 +221,16 @@ export function DiffPane({ item }: PaneProps) {
   const unstagePaths = useApp((s) => s.unstagePaths);
   const ship = useApp((s) => s.ship);
   const openCheckpoints = useApp((s) => s.openCheckpoints);
+  const review = useApp((s) => s.reviews[environmentId]);
+  const reviewing = useApp((s) => s.reviewing[environmentId] === true);
+  const requestReview = useApp((s) => s.requestReview);
+  const refreshReview = useApp((s) => s.refreshReview);
   const run = useApp((s) => s.run);
 
   useEffect(() => { if (cwd) run(() => refreshDiff(cwd)); }, [cwd, refreshDiff, run]);
+  // The persisted verdict (W3): fetched per ENVIRONMENT — a reload lands back on whatever the last
+  // review said, until a new review, a dismissal, or a ship clears it.
+  useEffect(() => { run(() => refreshReview(environmentId)); }, [environmentId, refreshReview, run]);
 
   if (!cwd) return <div className="pane-placeholder muted">This checkout no longer exists.</div>;
   if (!known && loading) return <div className="pane-placeholder muted">Reading the working tree…</div>;
@@ -195,6 +256,9 @@ export function DiffPane({ item }: PaneProps) {
         <span className="diff-head-spacer" />
         {stageable.length > 0 && <button type="button" className="btn-quiet" onClick={() => run(() => stagePaths(cwd, stageable))}>Stage all</button>}
         {unstageable.length > 0 && <button type="button" className="btn-quiet" onClick={() => run(() => unstagePaths(cwd, unstageable))}>Unstage all</button>}
+        <button type="button" className="btn-quiet" disabled={reviewing}
+          title={reviewing ? "A reviewer session is working on this checkout" : "Spawn a read-only reviewer session over this checkout (W3) — its verdict lands here"}
+          onClick={() => run(() => requestReview(environmentId))}>{reviewing ? "Reviewing…" : "Request review"}</button>
         <button type="button" className="btn-quiet" title="Checkpoints taken before each turn (W4)"
           onClick={() => run(() => openCheckpoints(environmentId, null))}>History</button>
         <button type="button" className="icon-btn" aria-label="Refresh changes" title="Refresh" onClick={() => run(() => refreshDiff(cwd))}>
@@ -211,6 +275,8 @@ export function DiffPane({ item }: PaneProps) {
           ? <div className="diff-empty">Nothing has changed in this checkout since the last commit.</div>
           : files.map((f) => <FileRow key={f.path} cwd={cwd} file={f} />)}
       </div>
+
+      {review && <ReviewSection environmentId={environmentId} review={review} />}
 
       <div className="diff-commit">
         {result && <ShipReport cwd={cwd} environmentId={environmentId} result={result} />}

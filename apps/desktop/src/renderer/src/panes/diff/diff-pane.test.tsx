@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { DiffFile, DiffSummary, Environment, FileDiff, ShipResult } from "@realm/contracts";
 import { StoreContext, createAppStore, patchKey } from "../../state/store";
 import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
@@ -218,5 +218,54 @@ describe("checkpoint history", () => {
     fireEvent.click(screen.getByRole("button", { name: "History" }));
     await waitFor(() => expect(api.calls).toContain("listCheckpoints:env1|*"));
     expect(store.getState().sheet).toEqual({ kind: "checkpoints", environmentId: "env1", sessionId: null });
+  });
+});
+
+/** Plan 13 W3: the review section — the persisted verdict, and the pane's Request review entry. */
+describe("the review section", () => {
+  const verdict = (extra: Partial<import("@realm/contracts").ReviewResult> = {}): import("@realm/contracts").ReviewResult => ({
+    environmentId: "env1", sessionId: "01ARZ3NDEKTSV4RRFFQ69G5RV1", sessionTitle: "Review: fix-login",
+    outcome: "done", text: "Verdict: refuted — inverted guard at src/a.ts:3", createdAt: 0, ...extra });
+
+  it("fetches the persisted verdict on mount (reload keeps it) and renders it as agent output; ✕ dismisses server-side", async () => {
+    const { api } = await mount({ reviews: { env1: verdict() } });
+    expect(await screen.findByText(/Verdict: refuted/)).toBeInTheDocument();
+    expect(api.calls).toContain("getReview:env1");
+    expect(document.querySelector(".diff-review-body")).toHaveAttribute("data-agent-output");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss review" }));
+    await waitFor(() => expect(api.calls).toContain("dismissReview:env1"));
+    await waitFor(() => expect(screen.queryByText(/Verdict: refuted/)).toBeNull());
+  });
+
+  it("Request review asks the server, holds the button while in flight, and re-arms when the verdict lands", async () => {
+    const { api, store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Request review" }));
+    await waitFor(() => expect(api.calls).toContain("requestReview:env1"));
+    expect(screen.getByRole("button", { name: "Reviewing…" })).toBeDisabled();
+    // The verdict arrives as review.changed — exactly what the App subscription applies.
+    act(() => store.getState().applyReviewChanged({ environmentId: "env1", review: verdict() }));
+    expect(await screen.findByText(/Verdict: refuted/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request review" })).toBeInTheDocument();
+  });
+
+  it("a ship-cleared verdict disappears (review.changed with null) — the staleness mutant", async () => {
+    const { store } = await mount({ reviews: { env1: verdict() } });
+    expect(await screen.findByText(/Verdict: refuted/)).toBeInTheDocument();
+    act(() => store.getState().applyReviewChanged({ environmentId: "env1", review: null }));
+    await waitFor(() => expect(screen.queryByText(/Verdict: refuted/)).toBeNull());
+  });
+
+  it("a non-done outcome says the verdict is partial rather than dressing it as finished", async () => {
+    await mount({ reviews: { env1: verdict({ outcome: "timeout", text: "got as far as src/" }) } });
+    expect(await screen.findByText(/ran out of time — this is partial/)).toBeInTheDocument();
+  });
+
+  it("offers no path from the verdict to the commit controls — the review section holds text, dismiss and the session link only", async () => {
+    await mount({ reviews: { env1: verdict() } });
+    await screen.findByText(/Verdict: refuted/);
+    const section = document.querySelector(".diff-review")!;
+    // The BAN, at the UI layer: no button in the review section commits, ships or stages anything.
+    const labels = Array.from(section.querySelectorAll("button")).map((b) => b.textContent + (b.getAttribute("aria-label") ?? ""));
+    for (const label of labels) expect(label).not.toMatch(/commit|ship|push|stage|merge/i);
   });
 });

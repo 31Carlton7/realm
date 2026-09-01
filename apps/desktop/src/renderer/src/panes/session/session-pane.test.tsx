@@ -60,6 +60,19 @@ describe("SessionPane", () => {
     expect(document.querySelector(".suggestions")).toBeNull();
   });
 
+  it("⌘⇧↩ is NOT a send — the composer leaves the dispatch chord for the window binding (Plan 13 W2)", async () => {
+    const { api } = await mount();
+    const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "to dispatch" } });
+    // fireEvent returns false when the handler preventDefault'ed — a consumed chord would send AND
+    // stop the global dispatch binding from ever seeing it: the dispatch-degrades-to-send mutant.
+    const notConsumed = fireEvent.keyDown(box, { key: "Enter", metaKey: true, shiftKey: true });
+    expect(notConsumed).toBe(true);
+    expect(sent).toEqual([]);
+    expect((box as HTMLTextAreaElement).value).toBe("to dispatch"); // the draft is still the user's
+  });
+
   it("Allow always / Deny map to decisions; tool card expands", async () => {
     const { api } = await mount();
     const decided: string[] = []; api.respondPermission = async (_i, r, d) => { decided.push(`${r}:${d}`); };

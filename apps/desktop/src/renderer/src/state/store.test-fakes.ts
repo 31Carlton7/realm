@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -11,7 +11,7 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
+    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra });
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
@@ -122,6 +122,8 @@ export type FakeData = {
   /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
    *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
   notifications?: Notification[];
+  /** Persisted review verdicts by environment id (Plan 13 W3) — what `review.get` answers. */
+  reviews?: Record<string, ReviewResult | null>;
 };
 
 export type FakeApi = Api & {
@@ -192,6 +194,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
     notifications: overrides.notifications ?? [],
+    reviews: overrides.reviews ?? {},
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
@@ -299,6 +302,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       // prompter's environment chip untestable.
       const env = input.environmentId ? (data.environments[input.spaceId] ?? []).find((e) => e.id === input.environmentId) : undefined;
       const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, projectId: input.projectId ?? null, model: input.model ?? null, effort: input.effort ?? null, permissionMode: input.permissionMode ?? "default", title: input.title ?? "Fake agent session",
+        // Mirrors the server: `userDispatched` records the one client-claimable origin (Plan 13 W2).
+        ...(input.userDispatched ? { dispatchedBy: { kind: "user-dispatch" as const, sessionId: null } } : {}),
         ...(env ? { environmentId: env.id, cwd: env.path } : {}) });
       data.sessions.push(s);
       const it = item(`i${++n}`, input.spaceId, { kind: "session", title: s.title, refId: s.id }); (data.items[input.spaceId] ??= []).push(it);
@@ -641,6 +646,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       return { ok: true as const, unread: data.notifications.filter((x) => x.readAt === null).length };
     },
+    requestReview: async (environmentId) => {
+      calls.push(`requestReview:${environmentId}`);
+      return { sessionId: "01ARZ3NDEKTSV4RRFFQ69G5RVW", itemId: "01ARZ3NDEKTSV4RRFFQ69G5RVI" };
+    },
+    getReview: async (environmentId) => { calls.push(`getReview:${environmentId}`); return { review: data.reviews[environmentId] ?? null }; },
+    dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

@@ -151,6 +151,7 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string 
   mcp_health: { label: "Connection trouble", desc: "An MCP server failed or tripped its circuit breaker." },
   agent_probe: { label: "Engine regressions", desc: "A CLI that used to work stops probing available." },
   worktree_hazard: { label: "Worktree hazards", desc: "A removal or restore was refused because the tree changed underneath it." },
+  review_done: { label: "Reviews finishing", desc: "A requested review landed its verdict on the diff pane." },
 };
 
 function AppTab() {

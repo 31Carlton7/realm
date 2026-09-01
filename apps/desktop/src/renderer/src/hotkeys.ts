@@ -109,6 +109,15 @@ const BINDINGS: Binding[] = [
     inInputs: true,
     run: (s) => { const it = focusedItem(s); if (it?.kind === "session") s.run(() => s.toggleTerminalPanel(it.refId)); },
   },
+  // ⌘⇧↩ → dispatch the focused session's draft (Plan 13 W2): one gesture creates a session, sends
+  // the draft there, and brings the new pane in beside WITHOUT stealing focus. `inInputs` because it
+  // fires FROM the composer — the one editable target the hand is in; plain ⌘↩ (send) stays the
+  // composer's own handler, which deliberately ignores the shifted chord so it reaches us here.
+  {
+    match: (e) => e.key === "Enter" && mod(e, { meta: true, shift: true }),
+    inInputs: true,
+    run: (s) => { const it = focusedItem(s); if (it?.kind === "session") s.run(() => s.dispatchDraft(it.refId)); },
+  },
   // Esc → interrupt the focused pane's running session (U-L9). Works from the composer.
   {
     match: (e) => e.key === "Escape" && mod(e, {}),

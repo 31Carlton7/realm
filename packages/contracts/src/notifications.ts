@@ -17,8 +17,10 @@ import { IdSchema } from "./ids";
  * - `agent_probe`     — a CLI that probed available before now probes unavailable.
  * - `worktree_hazard` — a worktree removal or checkpoint restore was REFUSED on a stale
  *                       acknowledgement (the tree moved under an open confirmation).
+ * - `review_done`     — a requested review settled (Plan 13 W3): the reviewer's verdict is on the diff
+ *                       pane. Terminal like `session_done` (born acted); `refId` is the ENVIRONMENT.
  */
-export const NOTIFICATION_CATEGORIES = ["permission", "session_done", "mcp_health", "agent_probe", "worktree_hazard"] as const;
+export const NOTIFICATION_CATEGORIES = ["permission", "session_done", "mcp_health", "agent_probe", "worktree_hazard", "review_done"] as const;
 export const NotificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
 export type NotificationCategory = z.infer<typeof NotificationCategorySchema>;
 

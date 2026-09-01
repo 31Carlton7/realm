@@ -276,3 +276,43 @@ describe("Open library / Open connections (Plan 12 W4)", () => {
     expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
   });
 });
+
+/** Plan 13 W2: the palette's dispatch entry — the honest shape: it dispatches the focused session's
+ *  draft, and with nothing to dispatch it is disabled and says why. */
+describe("Dispatch task (Plan 13 W2)", () => {
+  const focusedSessionMount = async (draft: string) => {
+    const it9 = item("i9", "s1", { kind: "session", refId: "se1" });
+    const r = await mount({ items: { s1: [it9] }, sessions: [session("se1", "s1")] });
+    act(() => r.store.setState({ layout: { type: "leaf", id: "L1", itemId: "i9" }, focusedLeafId: "L1" }));
+    if (draft) act(() => r.store.getState().setDraft("se1", draft));
+    return r;
+  };
+
+  it("with a draft: picking the entry dispatches it — session created with the user-dispatch origin, draft cleared", async () => {
+    const { api, store } = await focusedSessionMount("build the thing");
+    fireEvent.change(input(), { target: { value: "dispatch" } });
+    fireEvent.click(screen.getByRole("option", { name: /Dispatch task/ }));
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.sent[0]!.text).toBe("build the thing");
+    expect(api.data.sessions.some((s) => s.dispatchedBy?.kind === "user-dispatch")).toBe(true);
+    await waitFor(() => expect(store.getState().drafts["se1"]).toBe(""));
+    expect(store.getState().paletteOpen).toBe(false);
+  });
+
+  it("with no draft: the entry is disabled and names what would arm it — picking it does nothing", async () => {
+    const { api } = await focusedSessionMount("");
+    fireEvent.change(input(), { target: { value: "dispatch" } });
+    const opt = screen.getByRole("option", { name: /Dispatch task/ });
+    expect(opt).toHaveAttribute("aria-disabled", "true");
+    expect(opt.textContent).toContain("type a draft first");
+    fireEvent.click(opt);
+    expect(api.sent).toHaveLength(0);
+    expect(api.data.sessions.some((s) => s.dispatchedBy !== null)).toBe(false);
+  });
+
+  it("with no focused session there is no entry at all", async () => {
+    await mount();
+    fireEvent.change(input(), { target: { value: "dispatch" } });
+    expect(screen.queryByRole("option", { name: /Dispatch task/ })).toBeNull();
+  });
+});

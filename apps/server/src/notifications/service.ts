@@ -151,6 +151,16 @@ export class NotificationsService {
     this.d.settings.set(LAST_PROBE_KEY, last);
   }
 
+  /** The reviewer recipe's settle hook (Plan 13 W3): a review of `environmentId` landed its verdict.
+   *  Terminal like `session_done` — born acted (the thing that remains is for the user to READ the
+   *  verdict, which is the read bit's job) — and default-on via the same disabled-categories toggle
+   *  every category rides. `refId` is the ENVIRONMENT: a re-review of the same checkout reuses its
+   *  unread row rather than double-counting a verdict nobody saw. */
+  reviewDone(input: { spaceId: string; sessionId: string; environmentId: string; title: string; body: string | null }): void {
+    this.notify({ category: "review_done", spaceId: input.spaceId, sessionId: input.sessionId, refId: input.environmentId,
+      title: input.title, body: input.body, acted: true });
+  }
+
   /** The stale-ack refusal hook (EnvironmentService.removeWorktree / CheckpointService.restore): the
    *  tree moved under an open confirmation and the destructive action was refused. Born acted — the
    *  refusal is complete the moment it happens; what remains is for the user to look again. */

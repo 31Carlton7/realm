@@ -206,12 +206,22 @@ export class SkillsService {
    * Never throws. A session that cannot be given skills is a session with fewer skills; it is not a
    * session that fails to start, and no `SKILL.md` anyone can write may change that.
    */
-  injectionFor(spaceId: string, kind: AgentKind): SkillsInjection | null {
+  injectionFor(spaceId: string, kind: AgentKind, narrow?: {
+    /** Plan 13 W1: stage only this SUBSET of the space's enabled skills. Ids not in the effective
+     *  set are silently dropped here — the caller (`agent_run`) has already refused unknown ids
+     *  loudly; this stays a filter, never an expander. */
+    only: string[];
+    /** Stage directory key. A narrowed set must NOT rebuild the space's shared stage (other live
+     *  sessions symlink through it), so a narrowing caller stages under its own key — the child
+     *  session id, which shares the ULID namespace with space ids and cannot collide. */
+    stageId: string;
+  }): SkillsInjection | null {
     if (AGENT_SKILL_SUPPORT[kind] !== "injected") return null;
     try {
-      const enabled = this.list(spaceId).skills.filter((s) => s.valid && s.enabled);
+      const all = this.list(spaceId).skills.filter((s) => s.valid && s.enabled);
+      const enabled = narrow ? all.filter((s) => narrow.only.includes(s.id)) : all;
       if (enabled.length === 0) return null;
-      const pluginPath = join(stageRoot(this.d.home), spaceId);
+      const pluginPath = join(stageRoot(this.d.home), narrow?.stageId ?? spaceId);
       const root = join(pluginPath, "skills");
       // Rebuilt from scratch every start rather than reconciled: the staged tree is derived state, and a
       // stale symlink to a skill the user renamed is exactly the bug reconciliation would leave behind.
@@ -228,6 +238,13 @@ export class SkillsService {
       console.error(`[skills] could not stage skills for space ${spaceId}: ${e instanceof Error ? e.message : String(e)}`);
       return null;
     }
+  }
+
+  /** Drop a per-session staged tree (`injectionFor`'s `narrow.stageId`) once its session is deleted —
+   *  the stage is derived state, and a dead session's copy is just litter. Best effort: it will be
+   *  rebuilt (or never read again) either way. */
+  discardStage(stageId: string): void {
+    try { rmSync(join(stageRoot(this.d.home), stageId), { recursive: true, force: true }); } catch { /* derived state */ }
   }
 
   /** Directory entries that could be a skill, cheapest-first: unreadable or absent root is an empty

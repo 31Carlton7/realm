@@ -17,6 +17,11 @@ const truncate = (s: string): string => (s.length > SUMMARY_MAX ? s.slice(0, SUM
  *  provider can raise `permission_request` on the RIGHT session and scope policy per space. */
 export type ProviderCallContext = { sessionId: string; spaceId: string };
 
+/** One session's toolset shape — see the `sessionToolset` seam's doc comment in the constructor.
+ *  `string[]` = only these providers (no server rows at all); `{ exclude }` = the full normal
+ *  surface minus these providers; `null` = unrestricted. */
+export type SessionToolset = string[] | { exclude: string[] } | null;
+
 /**
  * A Realm-native toolset mounted in-process on the gateway (spec §1 goal 3: "the future `browser.*` …
  * tools register as an in-process provider on this same hub instead of needing their own delivery
@@ -101,20 +106,25 @@ export class McpGateway {
      */
     onOauthCallback?: (url: string) => Promise<{ serverId: string }>;
     /**
-     * Plan 11 W5: which in-process provider names this session may see, or `null` for the default
-     * (everything the space allows). Non-null is a RESTRICTED session — a browser-agent child born
-     * with a narrowed toolset: only the named providers contribute tools, and user-configured MCP
-     * server rows contribute NOTHING (neither to `tools/list` nor to routing). Consulted fresh on
-     * every list and every call rather than captured at `register()` time, so the answer survives a
-     * session restart re-registering and can never go stale against the registry that owns it
-     * (`BrowserAgentService`, which persists child records across server restarts).
+     * Plan 11 W5 (+ Plan 13 W1): this session's toolset shape, or `null` for the default (everything
+     * the space allows). Two non-null shapes, both RESTRICTED sessions consulted fresh on every list
+     * and every call rather than captured at `register()` time — so the answer survives a session
+     * restart re-registering and can never go stale against the registries that own it (the
+     * delegation services persist child records across server restarts):
+     *
+     *   - `string[]` — a browser-agent child: ONLY the named in-process providers contribute tools,
+     *     and user-configured MCP server rows contribute NOTHING (neither to `tools/list` nor to
+     *     routing).
+     *   - `{ exclude: string[] }` — an `agent_run` child: the FULL normal surface (every provider
+     *     the space allows plus every enabled server row) MINUS the named providers — the gateway
+     *     half of that tool's depth-1 recursion guard.
      */
-    sessionToolset?: (sessionId: string) => string[] | null;
+    sessionToolset?: (sessionId: string) => SessionToolset;
   }) {}
 
   /** The restriction for one session, `null` meaning unrestricted. One read path shared by
    *  `listTools` and `handleCall` so the two can never disagree about what a session is allowed. */
-  private toolsetOf(sessionId: string): string[] | null {
+  private toolsetOf(sessionId: string): SessionToolset {
     return this.d.sessionToolset?.(sessionId) ?? null;
   }
 
@@ -353,20 +363,22 @@ export class McpGateway {
    * requires one.
    */
   private async listTools(sessionId: string, spaceId: string): Promise<{ tools: Tool[] }> {
-    // A restricted session (W5: a browser-agent child) sees ONLY its named providers. The server-row
-    // half is skipped entirely — not filtered, skipped — so a user-configured MCP server can never
-    // leak a tool into a delegated session, whatever the space enabled.
+    // A restricted session sees a reshaped provider list. `string[]` (W5: a browser-agent child) is
+    // ONLY the named providers — the server-row half below is skipped entirely, not filtered, so a
+    // user-configured MCP server can never leak a tool into that session, whatever the space
+    // enabled. `{ exclude }` (Plan 13 W1: an agent_run child) is the full surface minus the named
+    // providers — the rows still list.
     const toolset = this.toolsetOf(sessionId);
     // In-process providers first — same failure posture as a dead upstream: a throwing provider
     // contributes no tools rather than erroring the whole list. A provider that is disabled for this
     // space reports that itself by returning [].
-    const perProvider = await Promise.all([...this.providers.values()].filter((p) => toolset === null || toolset.includes(p.name)).map(async (p): Promise<Tool[]> => {
+    const perProvider = await Promise.all([...this.providers.values()].filter((p) => providerVisible(p.name, toolset)).map(async (p): Promise<Tool[]> => {
       try {
         const tools = await p.tools({ sessionId, spaceId });
         return tools.map((t): Tool => ({ ...t, name: `${p.name}__${t.name}` }));
       } catch { return []; }
     }));
-    if (toolset !== null) return { tools: perProvider.flat() };
+    if (Array.isArray(toolset)) return { tools: perProvider.flat() };
     const perServer = await Promise.all(this.d.mcp.effectiveServerIds(spaceId).map(async (id): Promise<Tool[]> => {
       const row = this.d.servers.get(id);
       if (!row) return [];
@@ -416,10 +428,25 @@ export class McpGateway {
     // claim is refused HERE, before the server-row resolution below could ever see it. This is the
     // call-time half of the guarantee `listTools` makes — a delegated session cannot reach a
     // user-configured MCP server even by guessing a tool name that was never listed to it.
-    if (toolset !== null) {
+    if (Array.isArray(toolset)) {
       return this.blocked(sessionId, null, "", fullName, argsJson,
         `mcp: this delegated session's toolset is restricted to Realm's own tools (${toolset.join(", ")}) — "${fullName}" is not available here.`,
         "blocked: restricted toolset (delegated session)");
+    }
+    // An exclude-mode session (Plan 13 W1: an agent_run child) still routes to server rows below —
+    // but a call addressed to one of its EXCLUDED providers must be refused as exactly that, not
+    // fall through to a misleading "no server provides" error. Only when no enabled row's longer
+    // name legitimately claims the call (the same shadow rule `resolveProvider` applies).
+    if (toolset !== null) {
+      const excluded = toolset.exclude.find((n) => fullName.startsWith(`${n}__`));
+      if (excluded) {
+        const row = this.resolveCall(spaceId, fullName);
+        if (!row || row.serverName.length <= excluded.length) {
+          return this.blocked(sessionId, null, "", fullName, argsJson,
+            `mcp: the ${excluded} tools are not available to this delegated session — delegation is depth-1 only.`,
+            "blocked: excluded provider (delegated session)");
+        }
+      }
     }
     // Routing (which server actually receives an ALLOWED call) only ever considers ENABLED servers — see
     // `resolveCall`'s own comment on why that is what keeps the longest-prefix match unambiguous. A
@@ -489,17 +516,19 @@ export class McpGateway {
   /** Longest provider-name prefix of `fullName` — unless an ENABLED server row's still-longer name
    *  out-prefixes every provider, in which case the row keeps the call (`resolveCall` will find it) and
    *  this returns null. An exact-length tie goes to the provider: Realm's own tools win over a config
-   *  row that happens to share their name. Under a session toolset restriction (W5) only the ALLOWED
+   *  row that happens to share their name. Under an only-mode toolset restriction (W5) only the ALLOWED
    *  providers compete, and the server-row shadow check is skipped — rows are invisible to a restricted
-   *  session, so a row name must never be able to steal (and thereby block) its provider calls. */
-  private resolveProvider(spaceId: string, fullName: string, toolset: string[] | null): { p: RealmToolProvider; tool: string } | null {
+   *  session, so a row name must never be able to steal (and thereby block) its provider calls. Under
+   *  exclude mode (Plan 13 W1) the excluded providers never compete, and rows — visible there — keep
+   *  their shadow rights. */
+  private resolveProvider(spaceId: string, fullName: string, toolset: SessionToolset): { p: RealmToolProvider; tool: string } | null {
     let best: RealmToolProvider | null = null;
     for (const p of this.providers.values()) {
-      if (toolset !== null && !toolset.includes(p.name)) continue;
+      if (!providerVisible(p.name, toolset)) continue;
       if (fullName.startsWith(`${p.name}__`) && (!best || p.name.length > best.name.length)) best = p;
     }
     if (!best) return null;
-    if (toolset === null) {
+    if (!Array.isArray(toolset)) {
       const row = this.resolveCall(spaceId, fullName);
       if (row && row.serverName.length > best.name.length) return null;
     }
@@ -535,6 +564,14 @@ function longestPrefixMatch(fullName: string, rows: readonly McpServerRow[]): { 
     if (fullName.startsWith(prefix) && (!best || row.name.length > best.name.length)) best = row;
   }
   return best ? { row: best, tool: fullName.slice(best.name.length + 2) } : null;
+}
+
+/** Whether a session with this toolset shape may see (and route to) the named provider — the ONE
+ *  predicate `listTools` and `resolveProvider` share, so listing and routing cannot disagree. */
+function providerVisible(name: string, toolset: SessionToolset): boolean {
+  if (toolset === null) return true;
+  if (Array.isArray(toolset)) return toolset.includes(name);
+  return !toolset.exclude.includes(name);
 }
 
 const errorResult = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
