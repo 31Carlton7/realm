@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type { TccRow } from "../main/tcc";
+import type { UpdateStatus } from "../main/updater";
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
 const port = arg("realm-port");
 export type PickedFile = { path: string; mime: string; name: string; size: number };
@@ -28,6 +29,13 @@ contextBridge.exposeInMainWorld("realm", {
   permissions: {
     probe: (): Promise<TccRow[]> => ipcRenderer.invoke("tcc:probe"),
     openSettings: (pane: string): Promise<void> => ipcRenderer.invoke("tcc:open-settings", pane),
+  },
+  /** Settings→App "Updates" row (Plan 15 W1). The gate lives in main (updater.ts): `check` on a
+   *  gated build answers the same honest disabled state `status` does — never a fake spinner. */
+  updates: {
+    status: (): Promise<UpdateStatus> => ipcRenderer.invoke("updates:status"),
+    check: (): Promise<UpdateStatus> => ipcRenderer.invoke("updates:check"),
+    install: (): Promise<void> => ipcRenderer.invoke("updates:install"),
   },
   /** Browser pane (Plan 11 W1): drives the native WebContentsView the main process owns for a
    *  browser item. `setBounds` is per-frame and fire-and-forget; the rest are invokes. */

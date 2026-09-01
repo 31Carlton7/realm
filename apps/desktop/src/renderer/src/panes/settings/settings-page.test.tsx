@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -144,6 +144,62 @@ describe("App tab", () => {
     expect(await screen.findByRole("switch", { name: "Permission requests" })).not.toBeChecked();
     // "plan" is a mode axis, not a permission — the server would refuse it, so the page must not show it.
     expect(screen.getByRole("radio", { name: "Ask" })).toBeChecked();
+  });
+});
+
+describe("App tab → Updates row (Plan 15 W1)", () => {
+  const openApp = async (overrides: FakeData = {}) => {
+    const mounted = await mount(overrides);
+    fireEvent.click(screen.getByRole("radio", { name: "App" }));
+    return mounted;
+  };
+
+  it("renders the current version and, on today's shipped truth (unsigned), a DISABLED button naming that reason — no dead gray mystery", async () => {
+    const { api } = await openApp();
+    await waitFor(() => expect(api.calls).toContain("updateStatus"));
+    expect(await screen.findByText("Realm v0.0.1")).toBeInTheDocument();
+    const btn = screen.getByRole("button", { name: "Check for updates" });
+    expect(btn).toBeDisabled();
+    expect(screen.getByText(/unsigned build — macOS can only install a signed update/)).toBeInTheDocument();
+    // A disabled button never checks — clicking is inert, no fake spinner, no call.
+    fireEvent.click(btn);
+    expect(api.calls).not.toContain("checkUpdates");
+    expect(screen.queryByText("Checking for updates…")).toBeNull();
+  });
+
+  it("each gate reason gets its own honest sentence (dev / no public feed)", async () => {
+    await openApp({ updateStatus: { version: "0.0.1", state: { kind: "disabled", reason: "no-feed" } } });
+    expect(await screen.findByText(/no public update feed — this build's releases are private/)).toBeInTheDocument();
+    cleanup();
+    await openApp({ updateStatus: { version: "0.0.1", state: { kind: "disabled", reason: "dev" } } });
+    expect(await screen.findByText("Update checks don't run in development builds.")).toBeInTheDocument();
+  });
+
+  it("an ENABLED build checks for real: the interim 'checking' reflects the in-flight call, then main's verdict lands verbatim", async () => {
+    const { api } = await openApp({ updateStatus: { version: "1.0.0", state: { kind: "idle" } } });
+    const btn = await screen.findByRole("button", { name: "Check for updates" });
+    expect(btn).toBeEnabled();
+    api.delays.checkUpdates = 40; // hold the fake's answer so the genuine in-flight state is visible
+    fireEvent.click(btn);
+    expect(await screen.findByText("Checking for updates…")).toBeInTheDocument();
+    expect(btn).toBeDisabled(); // no double-check while one is in flight
+    api.data.updateStatus = { version: "1.0.0", state: { kind: "up-to-date" } };
+    expect(await screen.findByText("You're on the latest version.")).toBeInTheDocument();
+    expect(api.calls.filter((c) => c === "checkUpdates")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Check for updates" })).toBeEnabled();
+  });
+
+  it("a downloaded update swaps the button for 'Restart to update', which asks main to install", async () => {
+    const { api } = await openApp({ updateStatus: { version: "1.0.0", state: { kind: "downloaded", version: "1.1.0" } } });
+    expect(await screen.findByText(/v1\.1\.0 is ready — restart to finish installing/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Restart to update" }));
+    await waitFor(() => expect(api.calls).toContain("installUpdate"));
+  });
+
+  it("a failed check reports the error and leaves the button usable for a retry", async () => {
+    await openApp({ updateStatus: { version: "1.0.0", state: { kind: "error", message: "ENOTFOUND github.com" } } });
+    expect(await screen.findByText("Update check failed: ENOTFOUND github.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check for updates" })).toBeEnabled();
   });
 });
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened-runtime entitlements for signed builds (Plan 15 W3; unused while unsigned).
+     The standard Electron set: JIT + unsigned executable memory for V8, and library validation
+     off because the server child loads node-pty's prebuilds from Resources/. Revisit (tighten)
+     once a real signed build has been exercised end to end — see docs/dev/signing.md. -->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>

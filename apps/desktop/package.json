@@ -11,10 +11,11 @@
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "build:native": "node scripts/build-native.mjs",
     "predev": "node scripts/build-native.mjs",
-    "dist": "node scripts/stage-pack.mjs && electron-builder --mac dmg zip",
-    "dist:dir": "node scripts/stage-pack.mjs && electron-builder --dir"
+    "dist": "node scripts/stage-pack.mjs && node scripts/pack.mjs --mac dmg zip --publish never",
+    "dist:dir": "node scripts/stage-pack.mjs && node scripts/pack.mjs --dir --publish never"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@realm/contracts": "workspace:*",
     "@realm/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
@@ -28,6 +29,7 @@
     "dompurify": "^3.4.13",
     "electron": "^37.0.0",
     "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
     "electron-vite": "^3.0.0",
     "jsdom": "^25.0.0",
     "marked": "^18.0.9",

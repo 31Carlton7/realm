@@ -99,6 +99,10 @@ export type FakeData = {
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
   tccRows?: TccRow[];
+  /** What main's gated updater reports (Plan 15 W1). Defaults to today's shipped truth: a packaged
+   *  local build is unsigned, so the row is disabled as "unsigned". Mutate between calls to script
+   *  an enabled build's states. */
+  updateStatus?: UpdateStatus;
   /** MCP servers `mcp.list` answers with (W6). One flat list — see `mcpServer`'s doc comment. */
   mcpServers?: McpServer[];
   /** What the next `mcp.tools.list` answers for a given server id, if scripted; otherwise the fake
@@ -186,6 +190,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       { id: "accessibility", label: "Accessibility", state: "granted", detail: "macOS reports Realm as a trusted accessibility client." },
       { id: "fullDisk", label: "Full Disk Access", state: "denied", detail: "macOS refused Realm a file only Full Disk Access unlocks." },
     ],
+    updateStatus: overrides.updateStatus ?? { version: "0.0.1", state: { kind: "disabled", reason: "unsigned" } },
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
@@ -428,6 +433,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     prefillTerminal: async (terminalId, command) => { calls.push(`prefillTerminal:${terminalId}=${command}`); },
     tccProbe: async () => { calls.push("tccProbe"); return [...data.tccRows]; },
     openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
+    updateStatus: async () => { calls.push("updateStatus"); return { ...data.updateStatus }; },
+    // Mirrors main's gate: a disabled updater answers its state unchanged — the fake never checks.
+    checkUpdates: async () => {
+      calls.push("checkUpdates");
+      await wait("checkUpdates");
+      return { ...data.updateStatus };
+    },
+    installUpdate: async () => { calls.push("installUpdate"); },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");
