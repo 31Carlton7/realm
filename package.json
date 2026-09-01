@@ -2,16 +2,8 @@
   "name": "realm",
   "private": true,
   "packageManager": "pnpm@10.21.0",
-  "engines": {
-    "node": ">=22.13"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "node-pty",
-      "esbuild",
-      "electron"
-    ]
-  },
+  "engines": { "node": ">=22.13" },
+  "pnpm": { "onlyBuiltDependencies": ["node-pty", "esbuild", "electron"] },
   "scripts": {
     "build": "pnpm -r --filter './packages/**' --filter './apps/**' build",
     "test": "vitest run",
