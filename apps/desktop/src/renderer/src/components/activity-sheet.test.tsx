@@ -58,11 +58,17 @@ describe("ActivitySheet", () => {
   });
 
   it("expanding a row shows resultSummary verbatim, never re-parsed or reformatted", async () => {
-    const raw = 'raw text with {json-ish} and [redacted] that would change if parsed';
+    // Deliberately VALID JSON, unlike the earlier fixture: pretty-printing it would visibly reformat it
+    // (space after the colon, newlines), so this is what makes the test mutation-grade for "verbatim" —
+    // a bug that accidentally ran resultSummary through the same pretty-printer argsJson gets would have
+    // passed the old (non-JSON) fixture anyway, since prettyArgs's catch just falls back to the raw string.
+    const raw = '{"b":2}';
     const c1 = mcpCall("c1", "se1", { ts: 100, resultSummary: raw, argsJson: '{"a":1}' });
     await mount({ sessions: [session("se1", "s1")], mcpCalls: [c1] });
     fireEvent.click(screen.getByRole("button", { name: /srv1__echo/ }));
-    expect(screen.getByText(raw)).toBeInTheDocument();
+    expect(screen.getByText(raw, { exact: true })).toBeInTheDocument();
+    // Would only match a pretty-printed reformat of resultSummary (raw has no space after the colon).
+    expect(screen.queryByText(/"b":\s+2/)).toBeNull();
     // argsJson IS pretty-printed (different requirement, same row) — sanity check it isn't the raw string.
     expect(screen.getByText(/"a": 1/)).toBeInTheDocument();
   });
@@ -72,6 +78,29 @@ describe("ActivitySheet", () => {
     const { api } = await mount({ sessions: [session("se1", "s1", { title: "My session" })], mcpCalls: [c1] });
     fireEvent.click(screen.getByRole("button", { name: "My session" }));
     await waitFor(() => expect(api.calls).toContain("mcpCallsList:se1:*:-:50"));
+  });
+
+  it("a slow response for a filter that has since been superseded cannot clobber the newer one", async () => {
+    // Reviewer's repro: click the se1 chip (its fetch is slow), then immediately click the se2 chip
+    // (its fetch is fast and wins the race) — the se1 response landing late must not overwrite se2's
+    // rows, even though nothing else (sheet still open, no unmount) would have caught it.
+    const c1 = mcpCall("c1", "se1", { ts: 100, tool: "one" });
+    const c2 = mcpCall("c2", "se2", { ts: 200, tool: "two" });
+    const { store, api } = await mount({
+      sessions: [session("se1", "s1", { title: "Session One" }), session("se2", "s1", { title: "Session Two" })],
+      mcpCalls: [c1, c2],
+    });
+    api.delays["mcpCallsList:se1:*:-:50"] = 40; // se2's fetch (no delay) resolves first
+
+    fireEvent.click(screen.getByRole("button", { name: "Session One" }));
+    fireEvent.click(screen.getByRole("button", { name: "Session Two" }));
+
+    await waitFor(() => expect(store.getState().mcpCallsFilter.sessionId).toBe("se2"));
+    await waitFor(() => expect(store.getState().mcpCalls.map((c) => c.id)).toEqual(["c2"]));
+    // Give the delayed se1 response, which resolves after se2's, a chance to land.
+    await new Promise((r) => setTimeout(r, 80));
+    expect(store.getState().mcpCallsFilter.sessionId).toBe("se2"); // still se2 — se1's click didn't win
+    expect(store.getState().mcpCalls.map((c) => c.id)).toEqual(["c2"]); // still just se2's row, not se1's
   });
 
   it("Load more passes the last row's {ts, id} and appends; the button hides once a page comes back short", async () => {

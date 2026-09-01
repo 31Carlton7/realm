@@ -400,7 +400,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // skipping or repeating a row), filtered by sessionId/serverId equality, paged by the `{ ts, id }`
     // cursor rather than a plain `ts <` — see that store's doc comment for why a plain cursor is wrong.
     mcpCallsList: async (params) => {
-      calls.push(`mcpCallsList:${params.sessionId ?? "*"}:${params.serverId ?? "*"}:${params.before ? `${params.before.ts},${params.before.id}` : "-"}:${params.limit ?? "-"}`);
+      const key = `mcpCallsList:${params.sessionId ?? "*"}:${params.serverId ?? "*"}:${params.before ? `${params.before.ts},${params.before.id}` : "-"}:${params.limit ?? "-"}`;
+      calls.push(key);
+      await wait(key); // lets a test park a delay on `api.delays[key]` — the supersession-guard tests need this
       const limit = Math.max(1, Math.min(params.limit ?? 50, 200));
       let rows = [...data.mcpCalls];
       if (params.sessionId !== undefined) rows = rows.filter((c) => c.sessionId === params.sessionId);

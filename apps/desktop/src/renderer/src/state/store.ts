@@ -1417,17 +1417,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().refreshMcpCalls();
       },
       async refreshMcpCalls() {
-        const { calls } = await api.mcpCallsList({ ...get().mcpCallsFilter, limit: MCP_CALLS_PAGE });
-        // The sheet may have closed (or the filter may have changed again) while this was in flight;
-        // a slow response landing after the fact must not clobber whatever is showing now.
-        if (get().sheet?.kind !== "activity") return;
+        // Captured before the await, per refreshMcpServers's isSpace(sid) idiom: `want` is the filter
+        // THIS fetch is answering. Reference equality is enough to detect a newer one superseding it —
+        // setMcpCallsFilter and openActivity always replace `mcpCallsFilter` with a new object rather
+        // than mutating it in place, so two chip clicks in quick succession never share a reference.
+        const want = get().mcpCallsFilter;
+        const { calls } = await api.mcpCallsList({ ...want, limit: MCP_CALLS_PAGE });
+        // The sheet may have closed, or a later filter change may have already started its own fetch,
+        // while this one was in flight — a slow response landing after the fact must not clobber
+        // whatever the CURRENT filter's fetch put there (or is still waiting to put there).
+        if (get().sheet?.kind !== "activity" || get().mcpCallsFilter !== want) return;
         set({ mcpCalls: calls, mcpCallsHasMore: calls.length === MCP_CALLS_PAGE });
       },
       async loadMoreMcpCalls() {
         const last = get().mcpCalls.at(-1);
         if (!last) return; // nothing loaded yet — Load more has nothing to page after
-        const { calls } = await api.mcpCallsList({ ...get().mcpCallsFilter, before: { ts: last.ts, id: last.id }, limit: MCP_CALLS_PAGE });
-        if (get().sheet?.kind !== "activity") return;
+        const want = get().mcpCallsFilter; // same supersession guard as refreshMcpCalls, same reason
+        const { calls } = await api.mcpCallsList({ ...want, before: { ts: last.ts, id: last.id }, limit: MCP_CALLS_PAGE });
+        if (get().sheet?.kind !== "activity" || get().mcpCallsFilter !== want) return;
         set({ mcpCalls: [...get().mcpCalls, ...calls], mcpCallsHasMore: calls.length === MCP_CALLS_PAGE });
       },
       async setMcpCallsFilter(patch) {
@@ -1449,7 +1456,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (serverId && call.serverId !== serverId) return;
         const next = [call, ...get().mcpCalls];
         // Cap enforced ONLY here — see MCP_CALLS_LIVE_CAP's doc comment for why loadMoreMcpCalls doesn't.
-        set({ mcpCalls: next.length > MCP_CALLS_LIVE_CAP ? next.slice(0, MCP_CALLS_LIVE_CAP) : next });
+        const trimmed = next.length > MCP_CALLS_LIVE_CAP;
+        set({
+          mcpCalls: trimmed ? next.slice(0, MCP_CALLS_LIVE_CAP) : next,
+          // Trimming the tail evicts real rows from memory, not from the log — they are still fetchable
+          // by paging further back. That has to re-arm "Load more" even if the page that loaded them
+          // had already reported hasMore:false, or those rows would simply vanish with no way back.
+          ...(trimmed ? { mcpCallsHasMore: true } : {}),
+        });
       },
       run(action) {
         action().catch((e: unknown) => {

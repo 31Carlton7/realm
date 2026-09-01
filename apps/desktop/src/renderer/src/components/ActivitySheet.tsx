@@ -12,9 +12,12 @@ import { relTime } from "./CommandPalette";
  * call was fast or slow — which is exactly the thing Activity exists to show at a glance.
  *
  * Blocked calls log `durationMs: 0` (they never reached an upstream server, so there is nothing to
- * time) — rendered as "—", never "0ms", which would read as an implausibly fast successful call.
+ * time) — rendered as "—", never "0ms", which would read as an implausibly fast successful call. A
+ * genuine sub-millisecond local stdio call is also 0 and gets the same "—", which is not quite honest
+ * for that case — an accepted conflation, since the gateway's own clock is ms-resolution and a "0ms"
+ * label would be indistinguishable noise either way.
  */
-export function formatCallDuration(ms: number): string {
+function formatCallDuration(ms: number): string {
   if (ms <= 0) return "—";
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
@@ -26,7 +29,7 @@ export function formatCallDuration(ms: number): string {
  * `serverName: ""` with `tool` already holding the full namespaced string, so prefixing it again would
  * double it up into `__realserver__tool`.
  */
-export function callLabel(call: McpCall): string {
+function callLabel(call: McpCall): string {
   return call.serverName ? `${call.serverName}__${call.tool}` : call.tool;
 }
 
