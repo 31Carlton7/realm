@@ -487,6 +487,28 @@ describe("row and control layout", () => {
     expect(bodiesFor(".page-row > svg").join(" ")).toContain("flex: none");
   });
 
+  it("a page pane can shrink to its slot — otherwise it is painted over by the pane beside it", () => {
+    // A pane is a flex ITEM, and a flex item's default `min-width: auto` floors it at its content's
+    // min-content width. Without this, a page whose content did not fit grew PAST its slot and the
+    // neighbouring pane painted over the overflow — `elementFromPoint` in the covered strip returned
+    // the neighbour, so the buttons there could not be clicked. Found by driving the real app with
+    // three panes open (Sessions overflowed by 179px, the Tasks lens by 247px). jsdom has no layout,
+    // so this line is the only thing in the suite that can notice it going away.
+    expect(bodiesFor(".page").join(" ")).toContain("min-width: 0");
+  });
+
+  it("the Tasks lens wraps rather than clipping: both columns shrink, neither is fixed-width", () => {
+    // The same failure one level down. A fixed-width detail panel beside a flexing list overflowed
+    // `.page-content` in any split layout; `flex: 1 1 <basis>` on both lets the panel drop under the
+    // list instead. A `flex: none` or bare `width` on the panel is the regression.
+    const detail = bodiesFor(".task-detail").join(" ");
+    expect(detail).toContain("flex: 1 1");
+    expect(detail).toContain("min-width: 0");
+    expect(detail).not.toContain("flex: none");
+    expect(bodiesFor(".task-lens").join(" ")).toContain("flex-wrap: wrap");
+    expect(bodiesFor(".task-lens-list").join(" ")).toContain("flex: 1 1");
+  });
+
   it("a busy control keeps its fill — only a nothing-to-do control is greyed out", () => {
     // `.btn.primary:disabled` is written for "there is nothing to commit"; applied to "Generating…"
     // it erased the button under the press that started the work.

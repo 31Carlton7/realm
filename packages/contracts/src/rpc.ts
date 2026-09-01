@@ -7,6 +7,7 @@ import { SkillSchema, SkillIdSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
+import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 
@@ -595,6 +596,64 @@ export const Methods = {
   },
 
   /**
+   * Durable runs — a goal that owns a session across attempts and survives restarts. One space at a
+   * time, newest first; cursor pagination exactly as `ships.list` / `notifications.list`. `states`
+   * narrows to a subset (the Tasks lens asks for the three live states); an empty array means all.
+   */
+  "runs.list": {
+    params: z.object({ spaceId: IdSchema, states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
+    result: z.object({ runs: z.array(RunSchema), nextCursor: z.string().nullable() }),
+  },
+  /** One run plus its full attempt log, oldest attempt first. Null result = no such run (a run the
+   *  caller holds can be deleted with its space under the click). */
+  "runs.get": {
+    params: z.object({ id: IdSchema }),
+    result: z.object({ run: RunSchema, attempts: z.array(RunAttemptSchema) }).nullable(),
+  },
+  /**
+   * Create a run and queue it. The call RETURNS as soon as the row exists — dispatch happens in the
+   * background and every later transition arrives as `runs.changed`.
+   *
+   * **`dedupeKey` makes this idempotent, deliberately.** When the key already names a LIVE run of
+   * this space, the existing run is returned unchanged rather than throwing: the caller is a poller
+   * that cannot know whether it already fired, and making it distinguish "created" from "already
+   * there" is exactly the bookkeeping the key exists to remove. `created` says which happened, for
+   * callers that do care.
+   */
+  "runs.create": {
+    params: z.object({
+      spaceId: IdSchema,
+      goal: z.string().min(1).max(8000),
+      /** Omitted: derived from the goal's first words, like every other Realm title. */
+      title: z.string().min(1).max(80).optional(),
+      constraints: RunConstraintsSchema.nullable().default(null),
+      dedupeKey: z.string().min(1).max(200).nullable().default(null),
+      maxAttempts: z.number().int().min(1).max(10).default(1),
+      /** Wall-clock deadline (epoch ms). Absolute, not a duration: a run outlives the process that
+       *  started it, and a relative budget does not survive that. */
+      deadlineAt: z.number().int().nullable().default(null),
+    }),
+    result: z.object({ run: RunSchema, created: z.boolean() }),
+  },
+  /** Cancel a live run: its current session is interrupted, the open attempt is closed `cancelled`,
+   *  and the run goes terminal. A run that is ALREADY terminal is returned untouched — cancelling a
+   *  finished run is a no-op, not an error (two windows can click it). */
+  "runs.cancel": { params: z.object({ id: IdSchema }), result: RunSchema },
+  /** Put a terminal run back on the queue for another attempt. The attempt COUNTER is preserved and
+   *  `maxAttempts` is raised to fit if needed — an explicit human retry is not what the automatic
+   *  attempt budget is there to stop. Refuses a run that is still live. */
+  "runs.retry": { params: z.object({ id: IdSchema }), result: RunSchema },
+  /**
+   * Answer a `blocked` run: `approved: true` queues another attempt carrying `note` to the agent,
+   * `approved: false` cancels it. THE HUMAN GATE — the one transition out of `blocked`, and the
+   * reason unattended automation stops at a draft. Refuses a run that is not blocked.
+   */
+  "runs.approve": {
+    params: z.object({ id: IdSchema, approved: z.boolean(), note: z.string().max(4000).nullable().default(null) }),
+    result: RunSchema,
+  },
+
+  /**
    * The durable notifications feed (Plan 12 W5), newest first. GLOBAL — one feed across every space,
    * matching the sidebar row it feeds (the row sits above the space section). `cursor` is the previous
    * page's `nextCursor`, opaque to clients; `unread` is the whole feed's unread count and the ONE
@@ -755,6 +814,10 @@ export const Events = {
    *  (auto-reading a `session_done` for the pane the user is looking at) without a refetch race; null
    *  when the change was a markRead or a resolution, where a held list refetches instead. */
   "notifications.changed": z.object({ notification: NotificationSchema.nullable(), unread: z.number().int() }),
+  /** A run's row changed (created, dispatched, settled, approved). Carries the fresh row so a Tasks
+   *  lens applies it directly — the `notifications.changed` posture, no refetch race. `run` is null
+   *  only for a bulk change with no single subject, where a held list refetches instead. */
+  "runs.changed": z.object({ spaceId: IdSchema, run: RunSchema.nullable() }),
   /** An environment's persisted review verdict changed (Plan 13 W3): a review settled (`review` is
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */

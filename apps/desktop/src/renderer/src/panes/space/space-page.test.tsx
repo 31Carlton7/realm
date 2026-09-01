@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
 import { SpacePage } from "./SpacePage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, checkpoint, item, session, shipRow, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, checkpoint, item, runAttempt, runRow, session, shipRow, type FakeData } from "../../state/store.test-fakes";
 import type { Environment } from "@realm/contracts";
 
 /** The page pane as PaneHost mounts it: an item whose refId is the SPACE id (Plan 12 W3). */
@@ -222,6 +222,227 @@ describe("the Tasks tab", () => {
     await waitFor(() => expect(JSON.stringify(store.getState().layout)).toContain('"it1"')); // the PARENT's item
     fireEvent.click(screen.getByText("Dispatched task"));
     await waitFor(() => expect(JSON.stringify(store.getState().layout)).toContain('"it3"'));
+  });
+});
+
+/**
+ * Durable runs in the Tasks lens. The named mutants this block exists to kill:
+ *
+ *   - a run's own session ALSO listed as a dispatched session  → the same task twice
+ *   - another space's runs rendering                           → the lens's oldest invariant
+ *   - a blocked run with no way to answer it                   → the panel's whole reason to exist
+ *   - approve/cancel/retry offered in states the server refuses → a button that always errors
+ *   - the note surviving a switch to another run               → answering the wrong question
+ */
+describe("the Tasks tab · durable runs", () => {
+  const runs: FakeData = {
+    items: { s1: [
+      item("itR", "s1", { kind: "session", title: "Essay run", refId: "seR" }),
+      item("it3", "s1", { kind: "session", title: "Dispatched task", refId: "se3" }),
+    ] },
+    sessions: [
+      // A run's worker session: it carries a `run` origin, so the lens must NOT list it again.
+      session("seR", "s1", { title: "Essay run", status: "idle", createdAt: 2000, dispatchedBy: { sessionId: null, kind: "run" } }),
+      session("se3", "s1", { title: "Dispatched task", status: "idle", createdAt: 1000, dispatchedBy: { sessionId: null, kind: "user-dispatch" } }),
+    ],
+    runs: {
+      s1: [
+        runRow("r1", "s1", { title: "Week 3 essay", goal: "Draft the week 3 essay", state: "succeeded",
+          result: "FINAL: drafted the essay", sessionId: "seR", attempt: 1, createdAt: 3000, settledAt: 4000 }),
+        runRow("r2", "s1", { title: "Week 4 reading", goal: "Summarise chapter 4", state: "blocked",
+          result: "NEEDS-HUMAN: which citation style should I use?", attempt: 1, createdAt: 2000 }),
+      ],
+      s2: [runRow("r9", "s2", { title: "Foreign run", createdAt: 9000 })],
+    },
+    runAttempts: {
+      r1: [runAttempt("a1", "r1", 1, { outcome: "succeeded", sessionId: "seR" })],
+      r2: [runAttempt("a2", "r2", 1, { outcome: "blocked", detail: "which citation style should I use?" })],
+    },
+  };
+
+  const openTasks = () => fireEvent.click(screen.getByRole("radio", { name: "Tasks" }));
+
+  it("lists this space's runs as their own rows, and never another space's", async () => {
+    await mount(runs);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Week 3 essay")).toBeInTheDocument());
+    expect(screen.getByText("Week 4 reading")).toBeInTheDocument();
+    expect(screen.queryByText("Foreign run")).toBeNull();
+  });
+
+  it("does NOT also list a run's own worker session — one task, one row", async () => {
+    await mount(runs);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Week 3 essay")).toBeInTheDocument());
+    // "Essay run" is seR's title: it is the RUN's session, already on screen as its run.
+    expect(screen.queryByText("Essay run")).toBeNull();
+    // A session dispatched some other way is still listed — the exclusion is by origin, not blanket.
+    expect(screen.getByText("Dispatched task")).toBeInTheDocument();
+  });
+
+  it("a row carries its state, and a blocked run says it needs you", async () => {
+    await mount(runs);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Week 3 essay")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /Week 3 essay — run — Finished/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Week 4 reading — run — Needs you/ })).toBeInTheDocument();
+  });
+
+  it("selecting a run opens the detail panel with its goal, result and attempt log", async () => {
+    await mount(runs);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Week 3 essay")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Week 3 essay/ }));
+    const panel = await screen.findByRole("complementary", { name: "Run: Week 3 essay" });
+    expect(within(panel).getByText("Draft the week 3 essay")).toBeInTheDocument();
+    expect(within(panel).getByText("FINAL: drafted the essay")).toBeInTheDocument();
+    expect(within(panel).getByText("#1")).toBeInTheDocument();
+    expect(within(panel).getByText("finished")).toBeInTheDocument();
+  });
+
+  it("a blocked run's panel offers Approve and Decline; approving sends the typed note", async () => {
+    const { api, store } = await mount(runs);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Week 4 reading")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Week 4 reading/ }));
+    const panel = await screen.findByRole("complementary", { name: "Run: Week 4 reading" });
+    // The ask is shown verbatim in the ask block — paraphrasing the question is how you answer the
+    // wrong one. (The attempt log repeats it as that attempt's detail, hence the scoped read.)
+    expect(panel.querySelector(".task-detail-result")?.textContent).toContain("which citation style");
+    fireEvent.change(within(panel).getByRole("textbox"), { target: { value: "Use MLA." } });
+    fireEvent.click(within(panel).getByRole("button", { name: /Approve/ }));
+    await waitFor(() => expect(api.calls).toContain("approveRun:r2|true|Use MLA."));
+    await waitFor(() => expect(store.getState().runs.s1?.find((r) => r.id === "r2")?.state).toBe("queued"));
+  });
+
+  it("declining cancels the run", async () => {
+    const { api } = await mount(runs);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Week 4 reading")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Week 4 reading/ }));
+    const panel = await screen.findByRole("complementary", { name: "Run: Week 4 reading" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Decline" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("approveRun:r2|false"))).toBe(true));
+  });
+
+  it("offers only the actions the server would accept: Retry when terminal, Cancel while live", async () => {
+    const live: FakeData = { ...runs, runs: { s1: [
+      runRow("rL", "s1", { title: "Still going", state: "running", attempt: 1, createdAt: 5000 }),
+      ...runs.runs!.s1!,
+    ] } };
+    await mount(live);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Still going")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /Still going/ }));
+    const running = await screen.findByRole("complementary", { name: "Run: Still going" });
+    expect(within(running).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(within(running).queryByRole("button", { name: "Retry" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Week 3 essay/ }));
+    const done = await screen.findByRole("complementary", { name: "Run: Week 3 essay" });
+    expect(within(done).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(within(done).queryByRole("button", { name: "Cancel" })).toBeNull();
+
+    // A blocked run is answered, not cancelled outright — Decline is the exit, and Cancel would be a
+    // second door to a state the server only leaves through `approve`.
+    fireEvent.click(screen.getByRole("button", { name: /Week 4 reading/ }));
+    const blocked = await screen.findByRole("complementary", { name: "Run: Week 4 reading" });
+    expect(within(blocked).queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+
+  it("cancelling a live run goes through the server and lands in the row", async () => {
+    const live: FakeData = { ...runs, runs: { s1: [runRow("rL", "s1", { title: "Still going", state: "running", attempt: 1, createdAt: 5000 })] } };
+    const { api, store } = await mount(live);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Still going")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Still going/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(api.calls).toContain("cancelRun:rL"));
+    await waitFor(() => expect(store.getState().runs.s1?.[0]?.state).toBe("cancelled"));
+  });
+
+  it("Open session appears only when the run's session item still exists", async () => {
+    const { store } = await mount(runs);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Week 3 essay")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Week 3 essay/ }));
+    const panel = await screen.findByRole("complementary", { name: "Run: Week 3 essay" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Open session" }));
+    await waitFor(() => expect(JSON.stringify(store.getState().layout)).toContain('"itR"'));
+
+    // r2 has no session at all: no dead link is offered.
+    fireEvent.click(screen.getByRole("button", { name: /Week 4 reading/ }));
+    const blocked = await screen.findByRole("complementary", { name: "Run: Week 4 reading" });
+    expect(within(blocked).queryByRole("button", { name: "Open session" })).toBeNull();
+  });
+
+  it("clears a half-typed reply when the selection moves to another run", async () => {
+    await mount(runs);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Week 4 reading")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Week 4 reading/ }));
+    const panel = await screen.findByRole("complementary", { name: "Run: Week 4 reading" });
+    fireEvent.change(within(panel).getByRole("textbox"), { target: { value: "half an answer" } });
+    fireEvent.click(screen.getByRole("button", { name: /Week 3 essay/ }));
+    await screen.findByRole("complementary", { name: "Run: Week 3 essay" });
+    fireEvent.click(screen.getByRole("button", { name: /Week 4 reading/ }));
+    const again = await screen.findByRole("complementary", { name: "Run: Week 4 reading" });
+    expect((within(again).getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("applies a runs.changed broadcast into a held space in place, and a new run onto the top", async () => {
+    const { store } = await mount(runs);
+    openTasks();
+    await waitFor(() => expect(screen.getByText("Week 3 essay")).toBeInTheDocument());
+
+    act(() => store.getState().applyRunsChanged({ spaceId: "s1", run: runRow("r2", "s1", { title: "Week 4 reading", state: "succeeded", createdAt: 2000 }) }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Week 4 reading — run — Finished/ })).toBeInTheDocument());
+    expect(store.getState().runs.s1).toHaveLength(2); // folded in place, not appended
+
+    act(() => store.getState().applyRunsChanged({ spaceId: "s1", run: runRow("r3", "s1", { title: "Brand new", createdAt: 9000 }) }));
+    await waitFor(() => expect(screen.getByText("Brand new")).toBeInTheDocument());
+    expect(store.getState().runs.s1?.[0]?.id).toBe("r3");
+  });
+
+  it("ignores a broadcast for a space whose runs nobody has asked for", async () => {
+    const { store } = await mount(runs);
+    // s2's runs were never fetched — no Tasks tab has been opened on it.
+    act(() => store.getState().applyRunsChanged({ spaceId: "s2", run: runRow("r9", "s2", { state: "succeeded" }) }));
+    expect(store.getState().runs.s2).toBeUndefined();
+  });
+
+  it("says so when nothing has been dispatched at all — but still offers a way to start one", async () => {
+    await mount({ sessions: [], runs: {} });
+    openTasks();
+    await waitFor(() => expect(screen.getByText(/Nothing has been dispatched here yet/)).toBeInTheDocument());
+    // A lens over a thing nothing can create is a lens over an empty room.
+    expect(screen.getByRole("button", { name: /New run/ })).toBeInTheDocument();
+  });
+
+  it("starts a run from a typed goal and lands the selection on it", async () => {
+    const { api, store } = await mount({ sessions: [], runs: {} });
+    openTasks();
+    await waitFor(() => expect(screen.getByRole("button", { name: /New run/ })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /New run/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Run goal" }), { target: { value: "Draft the week 5 essay" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => expect(api.calls).toContain("createRun:s1|Draft the week 5 essay"));
+    // The new run is in the list AND selected — the lens lands on the thing just made.
+    await waitFor(() => expect(store.getState().runs.s1).toHaveLength(1));
+    const made = store.getState().runs.s1![0]!;
+    expect(store.getState().selectedRunId.s1).toBe(made.id);
+    expect(await screen.findByRole("complementary", { name: `Run: ${made.title}` })).toBeInTheDocument();
+  });
+
+  it("will not start a run with an empty goal", async () => {
+    const { api } = await mount({ sessions: [], runs: {} });
+    openTasks();
+    await waitFor(() => expect(screen.getByRole("button", { name: /New run/ })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /New run/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Run goal" }), { target: { value: "   " } });
+    expect(screen.getByRole("button", { name: "Start run" })).toBeDisabled();
+    expect(api.calls.some((c) => c.startsWith("createRun"))).toBe(false);
   });
 });
 

@@ -23,6 +23,7 @@ import type { BrowserService } from "../browsers/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
 import type { NotificationsService } from "../notifications/service";
+import type { RunService } from "../runs/service";
 import type { ReviewService } from "../delegation/review";
 import type { SearchService } from "../search/service";
 import type { ForkService } from "../sessions/fork";
@@ -39,7 +40,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService; search: SearchService; forks: ForkService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
 };
 
@@ -420,6 +421,15 @@ export function registerMethods(d: Deps): void {
   // The feed (Plan 12 W5). Reads and read-marking only: rows are written by the producers' hooks
   // (sessions, hub, refusal sites), never over RPC. Both answers carry the server-computed unread
   // count, the sidebar pill's one source; the service broadcasts `notifications.changed` itself.
+  // Durable runs. `create` returns as soon as the row exists — dispatch and every later transition
+  // reach the client as `runs.changed`, so no handler here waits on an agent.
+  reg("runs.list", (p) => d.runs.list(p));
+  reg("runs.get", (p) => d.runs.get(p.id));
+  reg("runs.create", (p) => d.runs.create({ spaceId: p.spaceId, goal: p.goal, title: p.title, constraints: p.constraints, dedupeKey: p.dedupeKey, maxAttempts: p.maxAttempts, deadlineAt: p.deadlineAt }));
+  reg("runs.cancel", (p) => d.runs.cancel(p.id));
+  reg("runs.retry", (p) => d.runs.retry(p.id));
+  reg("runs.approve", (p) => d.runs.approve(p.id, p.approved, p.note));
+
   reg("notifications.list", (p) => d.notifications.list(p));
   reg("notifications.markRead", (p) => d.notifications.markRead(p));
 

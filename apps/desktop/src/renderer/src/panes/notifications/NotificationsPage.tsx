@@ -7,6 +7,7 @@ import type { PaneProps } from "../registry";
 
 const CATEGORY_ICON: Record<NotificationCategory, string> = {
   permission: "alert", session_done: "checkCircle", mcp_health: "plug", agent_probe: "bot", worktree_hazard: "branch", review_done: "diff",
+  run_blocked: "alert", run_done: "checkCircle",
 };
 
 /** Today / Yesterday / a date — the feed's day-group headers. */

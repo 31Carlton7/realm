@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Run, RunAttempt, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { SearchResults } from "@realm/contracts";
 
@@ -46,6 +46,16 @@ export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}):
   ({ id, environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId, branch: "main", sha: `sha-${id}`,
     subject: `shipped ${id}`, prUrl: null, pushState: "pushed", createdAt: 0, ...extra });
 
+/** A durable run. Defaults to a queued run with no attempts yet. */
+export const runRow = (id: string, spaceId: string, extra: Partial<Run> = {}): Run =>
+  ({ id, spaceId, title: `Run ${id}`, goal: `do ${id}`, agentKind: "claude", environmentId: null,
+    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null,
+    deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
+
+/** One attempt of a run. */
+export const runAttempt = (id: string, runId: string, n: number, extra: Partial<RunAttempt> = {}): RunAttempt =>
+  ({ id, runId, n, sessionId: null, outcome: "succeeded", detail: null, startedAt: 0, settledAt: 0, ...extra });
+
 /** A feed row (W5). Defaults to an unread, already-acted session_done; ids must sort as ULIDs do. */
 export const notification = (id: string, extra: Partial<Notification> = {}): Notification =>
   ({ id, category: "session_done", spaceId: "s1", sessionId: null, refId: null, title: "a session",
@@ -80,6 +90,11 @@ export type FakeData = {
   /** `ships.list` by space id (Plan 14 W1). Unordered on the way in — the fake sorts newest-first
    *  like the real store. */
   ships?: Record<string, Ship[]>;
+  /** `runs.list` by space id. Unordered on the way in — the fake sorts newest-first like the server. */
+  runs?: Record<string, Run[]>;
+  /** `runs.get`'s attempt log by run id. A run with no entry reports an empty log, which is what a
+   *  never-dispatched run genuinely has. */
+  runAttempts?: Record<string, RunAttempt[]>;
   /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
    *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
   checkpointPreview?: Record<string, RestorePreview>;
@@ -187,6 +202,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     worktreeStatus: overrides.worktreeStatus ?? {},
     checkpoints: overrides.checkpoints ?? {},
     ships: overrides.ships ?? {},
+    // COPIED, not aliased: `mutateRun` writes rows in place (like the server's own row update), and
+    // sharing the caller's array would let one test's cancel leak into the next test's fixture — a
+    // module-level `const data: FakeData` is the normal way these suites are written.
+    runs: Object.fromEntries(Object.entries(overrides.runs ?? {}).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
+    runAttempts: overrides.runAttempts ?? {},
     checkpointPreview: overrides.checkpointPreview ?? {},
     skills: overrides.skills ?? {},
     skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
@@ -219,6 +239,20 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
+  const findRun = (id: string) => {
+    const r = Object.values(data.runs).flat().find((x) => x.id === id);
+    if (!r) throw new Error(`no run ${id}`);
+    return r;
+  };
+  /** Apply a write to the stored run IN PLACE, like the server's own row update — a fake that
+   *  returned a fresh object while leaving the list stale would let a test pass on a stale read. */
+  const mutateRun = (id: string, patch: Partial<Run>): Run => {
+    const list = data.runs[findRun(id).spaceId]!;
+    const i = list.findIndex((r) => r.id === id);
+    const next = { ...list[i]!, ...patch, updatedAt: (list[i]!.updatedAt ?? 0) + 1 };
+    list[i] = next;
+    return next;
+  };
   const mcpWrites: FakeApi["mcpWrites"] = [];
   const memState = (spaceId: string): MemoryState => {
     // The inherited profile doc rides along as the real `memory.get` reports it (W2/W4): the space's
@@ -559,6 +593,42 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       const page = rows.slice(0, cap);
       return { ships: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
+    },
+    listRuns: async (spaceId, states, cursor = null, limit) => {
+      calls.push(`listRuns:${spaceId}`);
+      const cap = limit ?? 100;
+      let rows = [...(data.runs[spaceId] ?? [])]
+        .filter((r) => !states || states.length === 0 || states.includes(r.state))
+        .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      if (cursor) {
+        const [ts, id] = [Number(cursor.slice(0, cursor.indexOf(":"))), cursor.slice(cursor.indexOf(":") + 1)];
+        rows = rows.filter((r) => r.createdAt < ts || (r.createdAt === ts && r.id < id));
+      }
+      const page = rows.slice(0, cap);
+      return { runs: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
+    },
+    createRun: async ({ spaceId, goal, title }) => {
+      calls.push(`createRun:${spaceId}|${goal}`);
+      const r = runRow(`run${++n}`, spaceId, { goal, title: title ?? goal.slice(0, 40), createdAt: Date.now() });
+      (data.runs[spaceId] ??= []).unshift(r);
+      return { run: r, created: true };
+    },
+    getRun: async (id) => {
+      calls.push(`getRun:${id}`);
+      const found = Object.values(data.runs).flat().find((r) => r.id === id);
+      return found ? { run: found, attempts: [...(data.runAttempts[id] ?? [])] } : null;
+    },
+    cancelRun: async (id) => { calls.push(`cancelRun:${id}`); return mutateRun(id, { state: "cancelled", error: "cancelled", settledAt: 1 }); },
+    retryRun: async (id) => {
+      calls.push(`retryRun:${id}`);
+      const before = findRun(id);
+      return mutateRun(id, { state: "queued", error: null, settledAt: null, maxAttempts: Math.max(before.maxAttempts, before.attempt + 1) });
+    },
+    approveRun: async (id, approved, note) => {
+      calls.push(`approveRun:${id}|${approved}|${note ?? ""}`);
+      return approved
+        ? mutateRun(id, { state: "queued", error: null, settledAt: null })
+        : mutateRun(id, { state: "cancelled", error: note ? `declined: ${note}` : "declined by the user", settledAt: 1 });
     },
     listCheckpoints: async (environmentId, sessionId) => {
       calls.push(`listCheckpoints:${environmentId}|${sessionId ?? "*"}`);

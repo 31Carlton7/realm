@@ -124,6 +124,9 @@ export function App() {
       const st = store.getState();
       if (st.ships[spaceId]) st.run(() => st.refreshShips(spaceId));
     });
+    // A durable run moved (created, dispatched, blocked, settled). Held-only like ships: the payload
+    // carries the fresh row, so a Tasks lens already showing the space applies it without a refetch.
+    const offRun = rpc().on("runs.changed", (p) => store.getState().applyRunsChanged(p));
     // A checkpoint was taken, restored or pruned. Only re-listed when the sheet is actually showing
     // that environment: this fires on every turn, and a store holding a list nobody is looking at is
     // work for nothing.
@@ -200,7 +203,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offSh(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offR(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offSh(); offRun(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offR(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

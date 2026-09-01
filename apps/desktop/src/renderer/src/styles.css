@@ -1281,7 +1281,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ——— Page panes (Plan 12 W3). The space page is the first full "page" pane; Library, Notifications
    and Settings (W4/W5/W6) copy this pattern: `.page-head` header, `.page-rail` (~180px) of the
    sheet-era radio tabs stood upright, `.page-content` column capped at ~720px. ——— */
-.page { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); }
+/* `min-width: 0` is load-bearing, not tidying. A pane is a flex ITEM, and a flex item's default
+   `min-width: auto` floors it at its content's min-content width — so a page whose content did not
+   fit simply grew past its slot and was painted OVER by the neighbouring pane, with the covered
+   strip unclickable (`elementFromPoint` there returns the neighbour). Found by driving the real app
+   with three panes open: the Sessions tab was overflowing by 179px and the Tasks lens by 247px,
+   which put the run detail panel's Approve/Decline under the session pane. jsdom has no layout, so
+   no test in the suite could see it. */
+.page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); }
 .page-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 20px 24px 14px; }
 .page-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, currentColor 14%, transparent); }
@@ -1294,6 +1301,9 @@ button.panel-title:hover { background: var(--rl-hover); }
   margin: 0; padding: 0; border: none; background: none; }
 .page-rail .settings-tab { flex: none; text-align: left; padding: 6px 10px; font-size: 13px; border-radius: var(--r-ctl); }
 .page-content { flex: 1; min-width: 0; max-width: 720px; overflow-y: auto; padding-right: 4px; }
+/* The Tasks lens is the one tab that is a LIST BESIDE A PANEL rather than a single column of form,
+   so it opts out of the 720px measure the other tabs are set in. Nothing else does. */
+.page-content[data-wide] { max-width: none; }
 .page-lede { margin: 0; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); }
 .page-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px;
   border: 1px dashed var(--rl-line-strong); border-radius: var(--r-ctl); }
@@ -1323,6 +1333,65 @@ button.panel-title:hover { background: var(--rl-hover); }
 .ship-sha { font-size: 11px; }
 .ship-row a { display: inline-flex; align-items: center; gap: 3px; color: var(--rl-accent); text-decoration: none; }
 .ship-row a:hover { text-decoration: underline; }
+/* ——— The Tasks lens: durable runs beside a detail panel. The list keeps `.page-list` metrics; the
+   panel is a fixed 340px column so the list's own columns do not reflow as runs are selected. ——— */
+/* Bounded even though the tab opts out of `.page-content`'s 720px measure: the opt-out exists to fit
+   a second COLUMN, not to let one column run the width of a 34" display. List + panel + gap. */
+.task-lens { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; max-width: 1100px; }
+/* WRAPS rather than clips. A space page is a PANE — it is routinely half a window wide with a
+   session beside it, and at that width a fixed 340px panel next to a flexing list simply overflowed
+   `.page-content` and was invisible (found by looking at the running app; jsdom has no layout, so no
+   test could have caught it). Both columns are `flex: 1 1 <basis>`, so the panel drops under the
+   list when the pane cannot hold them side by side. */
+.task-lens-list { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.task-lens-new { display: flex; flex-direction: column; gap: 6px; }
+/* The collapsed trigger sizes to its own words; only the OPEN composer takes the column's width. */
+.task-lens-new > .btn { align-self: flex-start; }
+.task-lens-new-open { padding: 10px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-ctl); }
+.task-lens-new-open .task-detail-note { margin: 0; }
+/* Prose keeps a readable measure whatever the column does. */
+.task-lens-list .env-empty { max-width: 62ch; }
+.task-lens-heading { margin: 0 0 4px; padding: 0 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--rl-text-faint); }
+.task-lens .page-row[data-selected] { background: var(--rl-hover); }
+/* The state chip. Colour is the only thing that separates "needs you" from the rest at a glance, so
+   `blocked` gets the accent and the failures get the warning tone; everything else stays quiet. */
+.run-state { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.02em; border: 1px solid var(--rl-line-strong); color: var(--rl-text-faint); }
+.run-state[data-state="blocked"] { border-color: var(--rl-accent); color: var(--rl-accent); }
+.run-state[data-state="running"] { color: var(--rl-text-dim); }
+.run-state[data-state="succeeded"] { color: var(--rl-text-dim); }
+.run-state[data-state="failed"], .run-state[data-state="expired"] { border-color: var(--rl-danger); color: var(--rl-danger); }
+
+.task-detail { flex: 1 1 340px; min-width: 0; max-width: 420px; display: flex; flex-direction: column; gap: 14px;
+  padding: 12px 14px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-ctl); background: var(--rl-panel); }
+.task-detail-head { display: flex; align-items: center; gap: 8px; }
+.task-detail-head h3 { flex: 1; min-width: 0; margin: 0; font-size: 13.5px; font-weight: 650; color: var(--rl-text-bright);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-detail-block h4 { margin: 0 0 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--rl-text-faint); }
+.task-detail-goal, .task-detail-result, .task-detail-error {
+  margin: 0; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-detail-goal { color: var(--rl-text-dim); }
+/* The result is the run's whole deliverable, so it scrolls rather than truncating — a report the
+   user is waiting for must never be cut off by its container. */
+.task-detail-result { max-height: 260px; overflow-y: auto; color: var(--rl-text-bright); }
+.task-detail-error { color: var(--rl-danger); }
+.task-detail-ask { padding: 10px; border: 1px solid var(--rl-accent); border-radius: var(--r-ctl);
+  background: color-mix(in srgb, var(--rl-accent) 8%, transparent); }
+.task-detail-note { width: 100%; margin: 6px 0 8px; padding: 6px 8px; font: inherit; font-size: 12.5px;
+  resize: vertical; border: 1px solid var(--rl-line-strong); border-radius: var(--r-ctl);
+  background: var(--rl-bg); color: var(--rl-text-bright); }
+.task-detail-note:focus { border-color: var(--rl-accent); outline: none; }
+.task-detail-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.task-detail-foot { padding-top: 10px; border-top: 1px solid var(--rl-line); }
+.task-attempts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.task-attempts li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 12px; }
+.task-attempt-n { flex: none; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.task-attempt-outcome { color: var(--rl-text-dim); }
+.task-attempt-outcome[data-outcome="succeeded"] { color: var(--rl-text-bright); }
+.task-attempt-outcome[data-outcome="failed"], .task-attempt-outcome[data-outcome="expired"] { color: var(--rl-danger); }
+
 /* The profile page's space chips (Plan 14 W2): the profile's spaces as jump targets, under the head. */
 .profile-spaces { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
 .profile-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font-size: 12px;
