@@ -254,7 +254,8 @@ describe("results and scoping", () => {
     const r = await call("browser_open", { url: "https://example.com/docs" });
     expect(r.isError).toBe(false);
     expect(calls.opened).toEqual(["https://example.com/docs"]);
-    expect(calls.broadcasts.map((b) => b.event)).toEqual(["browser.agentOpened"]);
+    // agentOpened first (the pane must join the layout), then the W4 ticker's action record.
+    expect(calls.broadcasts.map((b) => b.event)).toEqual(["browser.agentOpened", "browser.action"]);
   });
 
   it("the provider disabled for a space lists no tools and refuses calls", async () => {
@@ -277,5 +278,96 @@ describe("results and scoping", () => {
     const r = await call("browser_snapshot", { browserId: "b1" });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("desktop app running");
+  });
+});
+
+describe("W4 — watching broadcasts (browser.driving / browser.action)", () => {
+  type B = { event: string; payload: unknown };
+  const ofBrowser = (broadcasts: B[], browserId: string) =>
+    broadcasts.filter((b) => (b.payload as { browserId?: string }).browserId === browserId);
+  const driving = (broadcasts: B[]) =>
+    broadcasts.filter((b) => b.event === "browser.driving").map((b) => (b.payload as { driving: boolean }).driving);
+  const actions = (broadcasts: B[]) =>
+    broadcasts.filter((b) => b.event === "browser.action").map((b) => b.payload as { text: string; ok: boolean; ts: number });
+
+  it("an act broadcasts driving true → false around it, then ONE action with the gate's exact attributed title", async () => {
+    const { call, calls } = setup();
+    await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    const mine = ofBrowser(calls.broadcasts, "b1");
+    expect(driving(mine)).toEqual([true, false]);
+    const acts = actions(mine);
+    expect(acts).toHaveLength(1);
+    // The ticker text IS the permission title — attributed framing and all. Raw page text outside
+    // the `the page labels "…"` framing is the laundering mutant this pins dead.
+    expect(acts[0]!.text).toBe(calls.gates[0]!.title);
+    expect(acts[0]!.text).toBe('Click the button the page labels "Submit order" on example.com');
+    expect(acts[0]!.ok).toBe(true);
+    expect(acts[0]!.ts).toBeGreaterThan(0);
+    // driving:true precedes the bridge act; the action broadcast comes AFTER settle (last of the three).
+    expect(mine.map((b) => b.event)).toEqual(["browser.driving", "browser.driving", "browser.action"]);
+  });
+
+  it("a bridge failure (timeout, dead host) can NEVER leave driving stuck ON (the named mutant)", async () => {
+    const { call, calls } = setup({ bridgeResults: { act: new Error('browser host op "act" timed out after 60s') } });
+    const r = await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    expect(r.isError).toBe(true);
+    const mine = ofBrowser(calls.broadcasts, "b1");
+    expect(driving(mine)).toEqual([true, false]);
+    expect(actions(mine)).toEqual([expect.objectContaining({ ok: false })]);
+  });
+
+  it("a failed act still settles the broadcasts, with ok: false", async () => {
+    const { call, calls } = setup({ bridgeResults: { act: { ok: false, error: "no visible geometry" } } });
+    await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    const mine = ofBrowser(calls.broadcasts, "b1");
+    expect(driving(mine)).toEqual([true, false]);
+    expect(actions(mine)[0]!.ok).toBe(false);
+  });
+
+  it("a denied gate broadcasts NOTHING — nothing ran, so nothing may tick", async () => {
+    const { call, calls } = setup({ gate: { allowed: false, reason: "no" } });
+    await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    await call("browser_navigate", { browserId: "b1", url: "https://example.com/x" });
+    expect(calls.broadcasts).toEqual([]);
+  });
+
+  it("read-only tools broadcast nothing — the ticker is for mutations", async () => {
+    const { call, calls } = setup();
+    await call("browser_snapshot", { browserId: "b1" });
+    await call("browser_read", { browserId: "b1", kind: "text" });
+    await call("browser_screenshot", { browserId: "b1" });
+    await call("browser_list", {});
+    expect(calls.broadcasts).toEqual([]);
+  });
+
+  it("navigate broadcasts its gate title; a refused navigation settles as ok: false", async () => {
+    const { call, calls } = setup({ bridgeResults: { navigate: { url: null } } });
+    await call("browser_navigate", { browserId: "b1", url: "https://example.com/next" });
+    const mine = ofBrowser(calls.broadcasts, "b1");
+    expect(driving(mine)).toEqual([true, false]);
+    expect(actions(mine)).toEqual([expect.objectContaining({ text: "Navigate the browser pane to https://example.com/next", ok: false })]);
+  });
+
+  it("each mutating batch step ticks on its own; read-only steps stay silent", async () => {
+    const { call, calls } = setup();
+    await call("browser_batch", { actions: [
+      { tool: "browser_snapshot", arguments: { browserId: "b1" } },
+      { tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 11 } } },
+      { tool: "browser_navigate", arguments: { browserId: "b1", url: "https://example.com/two" } },
+    ] });
+    const mine = ofBrowser(calls.broadcasts, "b1");
+    expect(driving(mine)).toEqual([true, false, true, false]);
+    expect(actions(mine).map((a) => ({ text: a.text, ok: a.ok }))).toEqual([
+      { text: 'Click the button the page labels "Submit order" on example.com', ok: true },
+      { text: "Navigate the browser pane to https://example.com/two", ok: true },
+    ]);
+  });
+
+  it("browser.action / browser.driving carry the space and browser ids the renderer routes on", async () => {
+    const { call, calls } = setup();
+    await call("browser_act", { browserId: "b1", action: { kind: "scroll", deltaY: 200 } });
+    for (const b of calls.broadcasts) {
+      expect(b.payload).toMatchObject({ spaceId: "space1", browserId: "b1" });
+    }
   });
 });

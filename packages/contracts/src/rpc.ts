@@ -564,6 +564,15 @@ export const Events = {
    *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
    *  an agent-driven browser the user cannot see defeats the point of the architecture. */
   "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema }),
+  /** A mutating browser tool call SETTLED on this browser (Plan 11 W4) — the pane chrome's action
+   *  ticker appends it. `text` is the same attributed description the permission card showed (page
+   *  text only ever inside the `the page labels "…"` framing — never laundered into Realm's voice);
+   *  `ok` is whether the action succeeded. Emitted after the act, never before. */
+  "browser.action": z.object({ spaceId: IdSchema, browserId: IdSchema, text: z.string(), ok: z.boolean(), ts: z.number() }),
+  /** An agent's act/batch step is in flight (`true`) or has settled/failed/timed out (`false`) on
+   *  this browser (Plan 11 W4) — feeds the sidebar row and pane header's "agent is driving" dot.
+   *  Every `true` is followed by a `false` on the same browserId, whatever the outcome. */
+  "browser.driving": z.object({ spaceId: IdSchema, browserId: IdSchema, driving: z.boolean() }),
 } as const;
 export type EventName = keyof typeof Events;
 export type EventPayload<E extends EventName> = z.infer<(typeof Events)[E]>;

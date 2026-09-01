@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  BrowserActionSchema, BrowserReadKindSchema,
+  BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserReadKindSchema,
   type BrowserAction, type BrowserActResult, type BrowserDescribeResult, type BrowserNavigateResult,
   type BrowserReadResult, type BrowserScreenshotResult, type BrowserSnapshotResult, type Browser,
 } from "@realm/contracts";
@@ -70,7 +70,7 @@ export function createBrowserAgentProvider(d: BrowserAgentToolsDeps): RealmToolP
 
 /* ---------------------------------- tool definitions ---------------------------------- */
 
-const READ_ONLY_TOOLS = new Set(["browser_list", "browser_snapshot", "browser_read", "browser_screenshot"]);
+const READ_ONLY_TOOLS = new Set<string>(BROWSER_READ_ONLY_TOOLS);
 
 const TOOLS: Tool[] = [
   {
@@ -188,10 +188,12 @@ const HANDLERS: Record<string, Handler> = {
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
-    const gate = await d.broker.gate(ctx.sessionId, "browser_open", `Open a browser pane at ${url}`, { url });
+    const title = `Open a browser pane at ${url}`;
+    const gate = await d.broker.gate(ctx.sessionId, "browser_open", title, { url });
     if (!gate.allowed) return err(gate.reason);
     const opened = d.browserService.open({ spaceId: ctx.spaceId, url });
     d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: opened.browserId, itemId: opened.itemId });
+    d.rpc.broadcast("browser.action", { spaceId: ctx.spaceId, browserId: opened.browserId, text: title, ok: true, ts: Date.now() });
     return ok(`Opened browser pane ${opened.browserId} at ${url}. The page renders in the app's pane; use browser_snapshot to read it once loaded.`);
   },
 
@@ -201,11 +203,14 @@ const HANDLERS: Record<string, Handler> = {
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
-    const gate = await d.broker.gate(ctx.sessionId, "browser_navigate", `Navigate the browser pane to ${url}`, { browserId: row.value.id, url });
+    const title = `Navigate the browser pane to ${url}`;
+    const gate = await d.broker.gate(ctx.sessionId, "browser_navigate", title, { browserId: row.value.id, url });
     if (!gate.allowed) return err(gate.reason);
-    const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
-    if (!result.url) return err(`navigation to ${url} was refused — the pane is not open in the app, or the space's origin allowlist blocks that origin.`);
-    return ok(`Navigating to ${result.url}. Use browser_snapshot once loaded.`);
+    return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
+      const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
+      if (!result.url) return err(`navigation to ${url} was refused — the pane is not open in the app, or the space's origin allowlist blocks that origin.`);
+      return ok(`Navigating to ${result.url}. Use browser_snapshot once loaded.`);
+    });
   },
 
   browser_snapshot: async (d, ctx, rawArgs) => {
@@ -233,9 +238,10 @@ const HANDLERS: Record<string, Handler> = {
   browser_act: async (d, ctx, rawArgs) => {
     const args = parse(ActArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
-    const gate = await d.broker.gate(ctx.sessionId, "browser_act", await describeAct(d, row.value.id, args.value.action), { browserId: row.value.id, action: args.value.action });
+    const title = await describeAct(d, row.value.id, args.value.action);
+    const gate = await d.broker.gate(ctx.sessionId, "browser_act", title, { browserId: row.value.id, action: args.value.action });
     if (!gate.allowed) return err(gate.reason);
-    return runAct(d, row.value.id, args.value.action);
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
   },
 
   browser_batch: async (d, ctx, rawArgs) => {
@@ -287,6 +293,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const oauth = refuseOAuth(url); if (oauth) return oauth;
     const opened = d.browserService.open({ spaceId: ctx.spaceId, url });
     d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: opened.browserId, itemId: opened.itemId });
+    d.rpc.broadcast("browser.action", { spaceId: ctx.spaceId, browserId: opened.browserId, text: `Open a browser pane at ${url}`, ok: true, ts: Date.now() });
     return ok(`Opened browser pane ${opened.browserId} at ${url}.`);
   }
   if (tool === "browser_navigate") {
@@ -295,16 +302,40 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
-    const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
-    if (!result.url) return err(`navigation to ${url} was refused (pane not open, or origin allowlist).`);
-    return ok(`Navigating to ${result.url}.`);
+    return runTracked(d, ctx.spaceId, row.value.id, `Navigate the browser pane to ${url}`, async () => {
+      const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
+      if (!result.url) return err(`navigation to ${url} was refused (pane not open, or origin allowlist).`);
+      return ok(`Navigating to ${result.url}.`);
+    });
   }
   if (tool === "browser_act") {
     const args = parse(ActArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
-    return runAct(d, row.value.id, args.value.action);
+    const title = await describeAct(d, row.value.id, args.value.action);
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
   }
   return err(`"${tool}" is not a known mutating browser tool.`);
+}
+
+/**
+ * Wrap one mutating operation with W4's watching broadcasts: `browser.driving` true before it runs,
+ * false once it settles — in a `finally`, so a bridge timeout or thrown failure can NEVER leave the
+ * dot stuck on — and then one `browser.action` carrying `text`, the SAME attributed description the
+ * permission card showed (never raw page text outside its `the page labels "…"` framing). The action
+ * broadcast comes AFTER settle, whatever the outcome: a throw is reported as `ok: false` and then
+ * rethrown for the provider's error path.
+ */
+async function runTracked(d: Deps, spaceId: string, browserId: string, text: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
+  d.rpc.broadcast("browser.driving", { spaceId, browserId, driving: true });
+  let ok = false;
+  try {
+    const result = await fn();
+    ok = !result.isError;
+    return result;
+  } finally {
+    d.rpc.broadcast("browser.driving", { spaceId, browserId, driving: false });
+    d.rpc.broadcast("browser.action", { spaceId, browserId, text, ok, ts: Date.now() });
+  }
 }
 
 /** Execute one act op; on failure, attach a screenshot — the one place vision reliably pays for

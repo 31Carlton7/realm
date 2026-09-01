@@ -13,6 +13,19 @@ import { z } from "zod";
  * make an act fail honestly but never make it click the wrong place.
  */
 
+/**
+ * The read-only half of the `realm-browser` tool surface — ONE list, shared by everything that
+ * treats "read-only" as a privilege boundary: the gateway provider (these run without a broker
+ * prompt, and a `browser_batch` of only these runs unprompted) and the Claude adapter (these are
+ * pre-allowed via the SDK's `allowedTools`, so Claude's own per-MCP-tool prompt never stacks on
+ * top of nothing — W4's double-prompt fix).
+ *
+ * NEVER add a mutating tool here. A name on this list runs promptless in every session: an
+ * addition weakens two independent gates at once, which is exactly why the list lives in one place
+ * where a test can pin its exact contents.
+ */
+export const BROWSER_READ_ONLY_TOOLS = ["browser_list", "browser_snapshot", "browser_read", "browser_screenshot"] as const;
+
 export const BrowserActionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("click"),
