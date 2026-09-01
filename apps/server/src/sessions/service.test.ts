@@ -625,3 +625,104 @@ describe("a worktree's branch catches up with its session's first message", () =
     c.close();
   });
 });
+
+/**
+ * Plan 9 W3: the direct MCP passthrough is gone. `ensureLive` now hands every adapter exactly one
+ * `realm` gateway entry, regardless of agent kind or what the space has enabled — which servers that
+ * entry actually exposes is `mcp/gateway.test.ts`'s job, over real HTTP against a stub upstream. This
+ * describes only the session-wiring seam: what the adapter is handed, and that the token dies with the
+ * session.
+ */
+describe("MCP gateway wiring (Plan 9 W3)", () => {
+  class McpSpyFake extends FakeAdapter {
+    starts: Any[] = [];
+    start(opts: Any) { this.starts.push(opts); return super.start(opts); }
+  }
+
+  it("hands the adapter exactly one `realm` mcp server — http transport, a Bearer Authorization header", async () => {
+    // The named mutant: restore the old `mcpServers: this.d.mcp.configFor(...)` (or `[]`) and this fails.
+    const fake = new McpSpyFake({ script: [] });
+    const { c, sp } = await boot(fake);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => fake.starts.length === 1);
+    const servers = fake.starts[0]!.mcpServers as Any[];
+    expect(servers).toHaveLength(1);
+    expect(servers[0]).toMatchObject({ name: "realm", transport: "http" });
+    expect(servers[0].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    expect(servers[0].headers.Authorization).toMatch(/^Bearer .+/);
+    c.close();
+  });
+
+  it("never leaks a third-party secret into the adapter's start options — only the realm gateway entry, never the deleted passthrough", async () => {
+    // The deleted `mcp/integration.test.ts` "hands the space's enabled servers to the adapter at start"
+    // test was the only guard against a gateway-entry-PLUS-passthrough regression (restoring
+    // `mcpServers: [gateway.register(...), ...this.d.mcp.configFor(...)]`, say). This is that guard,
+    // rewritten for what W3 actually promises: exactly one `realm` entry, and the space's real server
+    // definition (name, command, and secret value) nowhere in what the adapter was handed.
+    const SENTINEL = "sekrit-do-not-leak-me";
+    const fake = new McpSpyFake({ script: [] });
+    const { c, sp } = await boot(fake);
+    await c.call("mcp.add", { spaceId: sp.id, name: "airtable", transport: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { AIRTABLE_API_KEY: SENTINEL } });
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => fake.starts.length === 1);
+    const opts = fake.starts[0]!;
+    expect(opts.mcpServers).toHaveLength(1);
+    expect(opts.mcpServers[0]).toMatchObject({ name: "realm", transport: "http" });
+    expect(JSON.stringify(opts)).not.toContain(SENTINEL);
+    expect(JSON.stringify(opts)).not.toContain("airtable");
+    c.close();
+  });
+
+  it("mints a fresh token per session — two sessions never share one", async () => {
+    const fake = new McpSpyFake({ script: [] });
+    const { c, sp } = await boot(fake);
+    const a = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    const b = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    await c.call("sessions.send", { id: a.id, text: "go" });
+    await c.call("sessions.send", { id: b.id, text: "go" });
+    await waitFor(() => fake.starts.length === 2);
+    const [tokenA, tokenB] = fake.starts.map((s) => s.mcpServers[0].headers.Authorization as string);
+    expect(tokenA).not.toBe(tokenB);
+    c.close();
+  });
+
+  it("revokes the session's token on session delete — the old token is refused by the gateway afterward", async () => {
+    // "release is called on session close", proven behaviorally: a live gateway request carrying the
+    // token this session was handed must 401 once the session is gone, not just stop being referenced.
+    const fake = new McpSpyFake({ script: [] });
+    const { c, sp } = await boot(fake);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => fake.starts.length === 1);
+    const { url, headers } = fake.starts[0]!.mcpServers[0] as { url: string; headers: Record<string, string> };
+    const before = await fetch(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
+    expect(before.status).not.toBe(401);
+    await c.call("sessions.delete", { id: session.id });
+    const after = await fetch(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
+    expect(after.status).toBe(401);
+    c.close();
+  });
+
+  it("releases the just-minted token when adapter.start throws — no leaked token until the next re-register", async () => {
+    // Quality review: `gateway.register` mints a token BEFORE `adapter.start` runs. Without the
+    // try/catch this proves, a throwing start() left that token valid with no live session behind it
+    // until the next `ensureLive` call happened to re-register (which could be a long time, or never,
+    // for a session nobody retries).
+    class ThrowingFake extends FakeAdapter {
+      starts: Any[] = [];
+      start(opts: Any): never { this.starts.push(opts); throw new Error("boom: adapter refused to start"); }
+    }
+    const throwing = new ThrowingFake({ script: [] });
+    const { c, sp } = await boot(throwing);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const res = await c.call("sessions.send", { id: session.id, text: "go" });
+    expect(res.error).toBeTruthy(); // the throw really did propagate, not get swallowed somewhere
+    await waitFor(() => throwing.starts.length === 1);
+    const { url, headers } = throwing.starts[0]!.mcpServers[0] as { url: string; headers: Record<string, string> };
+    const afterThrow = await fetch(url, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
+    expect(afterThrow.status).toBe(401);
+    c.close();
+  });
+});

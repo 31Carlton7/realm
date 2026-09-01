@@ -4,6 +4,7 @@ import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { SpaceSettingsSheet } from "./components/sidebar/SpaceSettingsSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
+import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { PaneHost } from "./components/PaneHost";
 import { Onboarding } from "./components/Onboarding";
@@ -57,6 +58,7 @@ function SheetHost() {
   if (sheet.kind === "space-settings") return <SpaceSettingsSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
+  if (sheet.kind === "activity") return <ActivitySheet />;
   return null;
 }
 
@@ -132,13 +134,6 @@ export function App() {
       const st = store.getState();
       if (st.spaceSkills[spaceId]) st.run(() => st.refreshSkills(spaceId));
     });
-    // An MCP server was defined, edited, removed or toggled. The broadcast is unscoped (definitions
-    // are global); every space whose panel has fetched a list re-reads its own, because each list
-    // carries that space's enable flags.
-    const offM = rpc().on("mcp.changed", () => {
-      const st = store.getState();
-      for (const spaceId of Object.keys(st.spaceMcp)) st.run(() => st.refreshMcp(spaceId));
-    });
     // A space's memory document or AGENTS.md changed. Same held-only rule as skills.
     const offMem = rpc().on("memory.changed", ({ spaceId }) => {
       const st = store.getState();
@@ -146,6 +141,17 @@ export function App() {
     });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
+    // No payload — `mcp.changed` just means "something about some server changed". Only worth a refetch
+    // while the settings sheet is actually open on a space's server list. (One subscription, not one
+    // per held space: since the merge there is a single MCP settings surface, and it is in this sheet.)
+    const offM = rpc().on("mcp.changed", () => {
+      const sheet = store.getState().sheet;
+      if (sheet?.kind === "space-settings") store.getState().run(() => store.getState().refreshMcpServers(sheet.spaceId));
+    });
+    const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
+    // Broadcast for EVERY space/session (binding rule 5) — applyMcpCall itself is the gate on whether
+    // Activity is even open and whether the row matches its filter, same as mcp.serverStatus above.
+    const offMC = rpc().on("mcp.call", (call) => store.getState().applyMcpCall(call));
     const offC = rpc().onStatusChange((state) => store.getState().applyConnectionState(state));
     // Quit/reload with a resize inside the persist debounce window would silently lose it (A-M4).
     const onPageHide = () => { store.getState().flushPersist().catch(() => {}); }; // best-effort: socket may be gone at quit
@@ -158,7 +164,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offK(); offM(); offMem(); offE(); offT(); offC();
+      offS(); offI(); offV(); offW(); offP(); offK(); offMem(); offE(); offT(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

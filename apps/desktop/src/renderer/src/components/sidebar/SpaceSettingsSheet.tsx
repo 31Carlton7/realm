@@ -3,8 +3,8 @@ import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { useApp } from "../../state/store";
 import { Sheet } from "../Sheet";
+import { McpSection } from "./McpSection";
 import { SkillsPanel } from "../settings/SkillsPanel";
-import { McpPanel } from "../settings/McpPanel";
 import { MemoryPanel } from "../settings/MemoryPanel";
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -116,7 +116,10 @@ export function SpaceSettingsSheet({ spaceId }: { spaceId: string }) {
         ))}
       </fieldset>
       {tab === "skills" && <SkillsPanel spaceId={space.id} />}
-      {tab === "mcp" && <McpPanel spaceId={space.id} />}
+      {/* Plan 9's gateway-era MCP surface IS this tab. W5 shipped its own `McpPanel` for the same
+          domain, but that predates the gateway: it has no hub status, no OAuth, no circuit breaker and
+          no per-tool policy, and two settings surfaces for one set of servers is how they drift. */}
+      {tab === "mcp" && <McpSection spaceId={space.id} />}
       {tab === "memory" && <MemoryPanel spaceId={space.id} />}
       {tab === "general" && <div className="form">
         <label className="field"><span>Name</span>

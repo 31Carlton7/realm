@@ -4,7 +4,7 @@ import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, 
 import { LayoutSchema } from "./layout";
 import { StoredSessionEventSchema } from "./session-events";
 import { SkillSchema, SkillIdSchema } from "./skills";
-import { McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpTransportSchema } from "./mcp";
+import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
@@ -375,8 +375,36 @@ export const Methods = {
    * from the same server process that spawns sessions, so PATH and environment are the session's —
    * this is a LIVE check, not the banned definition-time validation. `detail` is one sentence and
    * never carries a secret value.
+   *
+   * Dials the UPSTREAM server directly, deliberately bypassing the hub: it answers "is this row's
+   * command/URL reachable at all", which is the question a user asks while the hub's own status dot is
+   * already saying `error`. The hub's cached status is the steady-state readout; this is the probe.
    */
   "mcp.test": { params: z.object({ id: IdSchema }), result: z.object({ reached: z.boolean(), detail: z.string() }) },
+  /** The server's live tool list — triggers the hub's lazy connect (W2+). A connect failure comes back
+   *  as `error` naming what went wrong, NOT a thrown RPC error: the list is still a renderable result,
+   *  just an empty one with a reason attached. `tools` mirrors `mcp.list`'s cache on success. */
+  "mcp.tools.list": { params: z.object({ id: IdSchema }), result: z.object({ tools: z.array(McpToolSchema), error: z.string().nullable() }) },
+  /** Narrow this space's tools for one server to exactly `tools`; `null` restores "every cached tool
+   *  allowed", the same default a server nobody has touched already has. */
+  "mcp.setAllowedTools": { params: z.object({ spaceId: IdSchema, id: IdSchema, tools: z.array(z.string()).nullable() }), result: z.object({ ok: z.literal(true) }) },
+  /** Realm's own call log (Activity), newest first — see `McpCallSchema`. `before` pages backward by a
+   *  composite `{ ts, id }` cursor — a plain `ts` cursor drops same-millisecond siblings at a page
+   *  boundary (W1 review amendment; `McpCallLogStore.list`'s doc comment has the full reasoning). W7's
+   *  "Load more" passes the last row's `{ ts, id }` back in. `limit` defaults to 50 and is capped at 200,
+   *  the same ceiling `McpCallLogStore.list` enforces. */
+  "mcp.calls.list": {
+    params: z.object({ sessionId: IdSchema.optional(), serverId: IdSchema.optional(), before: z.object({ ts: z.number().int(), id: IdSchema }).optional(), limit: z.number().int().min(1).max(200).optional() }),
+    result: z.object({ calls: z.array(McpCallSchema) }),
+  },
+  /** Begin the OAuth dance for a remote server: the server prepares PKCE state and returns the
+   *  authorization URL for the renderer to open in the system browser. */
+  "mcp.oauth.start": { params: z.object({ id: IdSchema }), result: z.object({ authUrl: z.string() }) },
+  /** Forget this server's OAuth connection. The server row survives; `oauthStatus` returns to
+   *  `unconfigured` and calls fail until it is reconnected. */
+  "mcp.oauth.disconnect": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** Close a tripped circuit breaker and let the next call try the upstream server again. */
+  "mcp.retry": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * This space's Realm memory document plus the state of its opt-in `AGENTS.md`. The document lives at
@@ -480,6 +508,12 @@ export const Events = {
    *  server list is global: add/edit/remove change what EVERY space lists, and a per-space event would
    *  leave the other spaces' open settings panes stale. Clients holding a list re-fetch. */
   "mcp.changed":      z.object({}),
+  /** One proxied call just completed — the live feed the Activity view appends to. Same shape as a row
+   *  from `mcp.calls.list`, so a client can splice it straight into a held list. */
+  "mcp.call":         McpCallSchema,
+  /** A server row's hub connection state or OAuth status changed. Carries both together because a
+   *  status flip is often the direct result of an OAuth transition (e.g. reconnect_needed → error). */
+  "mcp.serverStatus": z.object({ id: IdSchema, status: McpServerStatusSchema, oauthStatus: McpOauthStatusSchema }),
   /** A space's Realm memory document or its managed `AGENTS.md` changed. Clients holding the memory
    *  pane re-fetch; sessions already running keep the context they started with. */
   "memory.changed":   z.object({ spaceId: IdSchema }),

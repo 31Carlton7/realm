@@ -149,4 +149,27 @@ export const migrations: string[] = [
     secrets_json TEXT NOT NULL DEFAULT '{}',
     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
   `,
+  // v9 — MCP gateway (Plan 9). oauth_json holds the whole OAuth state for a remote server (client
+  // registration, tokens, expiry) — plaintext, same posture and same honesty note as secrets_json.
+  // tools_json caches the last successful tools/list so settings can render a server's tools without a
+  // live connection. mcp_call_log is Realm's view of proxied calls (Activity); the transcript keeps the
+  // agent's own view, so nothing here mirrors into session_events. server_id survives as NULL after a
+  // server row is deleted — the log outlives the config that produced it, which is the point of a log.
+  `
+  ALTER TABLE mcp_servers ADD COLUMN oauth_json TEXT NOT NULL DEFAULT '';
+  ALTER TABLE mcp_servers ADD COLUMN tools_json TEXT NOT NULL DEFAULT '[]';
+  CREATE TABLE mcp_call_log (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    server_id TEXT REFERENCES mcp_servers(id) ON DELETE SET NULL,
+    server_name TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    args_json TEXT NOT NULL,
+    result_summary TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    ts INTEGER NOT NULL);
+  CREATE INDEX mcp_call_log_session ON mcp_call_log(session_id, ts DESC);
+  CREATE INDEX mcp_call_log_ts ON mcp_call_log(ts DESC);
+  `,
 ];

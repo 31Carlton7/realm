@@ -11,6 +11,10 @@ import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { SkillsService } from "../skills/service";
 import type { McpService } from "../mcp/service";
+import type { McpHub } from "../mcp/hub";
+import type { McpGateway } from "../mcp/gateway";
+import type { McpOauth } from "../mcp/oauth";
+import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
 import type { SessionService } from "../sessions/service";
@@ -26,7 +30,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; memory: MemoryService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -96,17 +100,51 @@ export function registerMethods(d: Deps): void {
   reg("mcp.add", (p) => {
     if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     const server = d.mcp.add(p, p.spaceId);
+    // A new server is enabled ONLY in the space it was added from (`McpService.add`'s own doc comment) —
+    // but a live session already running in exactly that space needs to see it show up without a
+    // restart. This is the add-server flow W6's settings UI drives end to end.
+    if (p.spaceId) d.gateway.notifyPolicyChanged(p.spaceId);
     rpc.broadcast("mcp.changed", {});
     return server;
   });
   reg("mcp.update", (p) => {
     if (p.spaceId !== null && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
-    const server = d.mcp.update(p.id, p, p.spaceId);
+    // Read BEFORE the update: only the pre-edit values say where this server used to point, and an OAuth
+    // connection is bound to the endpoint it was granted for.
+    const before = d.mcp.get(p.id, p.spaceId);
+    let server = d.mcp.update(p.id, p, p.spaceId);
+    // A URL or transport change invalidates the row's OAuth connection outright — the tokens were minted
+    // for the OLD resource. Keeping them would send a credential valid for server A to server B on
+    // nothing more than a settings typo, and a switch to stdio would leave `authKind` reading "oauth"
+    // behind a Connect button that can only error. Cleared BEFORE `hub.invalidate` below, so the hub's
+    // next connect reads a row with no stale Bearer on it.
+    //
+    // ANY change counts, not just a cross-origin one: comparing origins would still let a path edit keep
+    // tokens scoped to a different RFC 8707 resource, and the cost of over-clearing is one Connect click
+    // on an edit the user was already making deliberately. Done after the update rather than before, so
+    // an edit that gets REFUSED (a name clash, an incomplete definition) cannot cost a working
+    // connection.
+    if (before && before.authKind === "oauth" && (before.url !== server.url || before.transport !== server.transport)) {
+      d.oauth.disconnect(p.id);
+      // Re-project: the result computed a moment ago still advertises the connection just dropped.
+      server = d.mcp.get(p.id, p.spaceId) ?? server;
+    }
+    // A renamed command, a rotated key, a URL that no longer exists — nothing may keep serving through
+    // the hub's now-stale client, and every session in a space that had this server enabled must re-list
+    // rather than keep whatever `tools/list` last returned before the edit.
+    d.hub.invalidate(p.id);
+    for (const s of d.spaces.listAll()) if (d.mcp.isEnabled(s.id, p.id)) d.gateway.notifyPolicyChanged(s.id);
     rpc.broadcast("mcp.changed", {});
     return server;
   });
   reg("mcp.remove", (p) => {
-    d.mcp.remove(p.id, d.spaces.listAll().map((s) => s.id));
+    // Computed BEFORE `d.mcp.remove` clears every space's enabled set — there is nothing left to read
+    // afterward, and a space that had this server enabled is exactly the set that needs to re-list.
+    const spaceIds = d.spaces.listAll().map((s) => s.id);
+    const enabledIn = spaceIds.filter((sid) => d.mcp.isEnabled(sid, p.id));
+    d.mcp.remove(p.id, spaceIds);
+    d.hub.invalidate(p.id);
+    for (const sid of enabledIn) d.gateway.notifyPolicyChanged(sid);
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
@@ -115,9 +153,47 @@ export function registerMethods(d: Deps): void {
   reg("mcp.setEnabled", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.mcp.setEnabled(p.spaceId, p.id, p.enabled);
+    d.gateway.notifyPolicyChanged(p.spaceId);
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
+  /** Triggers the hub's lazy connect. A connect failure is a RESULT (`error` naming what went wrong),
+   *  never a thrown RPC error — `mcp.tools.list` must stay a renderable result even for a dead server;
+   *  see `McpHub.tools()`'s own doc comment for why the hub itself throws and this layer is what catches
+   *  it. On success the fresh tools (the hub just re-cached them on the row) are returned directly. */
+  reg("mcp.tools.list", async (p) => {
+    // Projected to the contract's name+description: the hub's live list carries inputSchema for the
+    // GATEWAY's re-export, but the wire contract (and the settings UI) never declared or needed it.
+    try { return { tools: (await d.hub.tools(p.id)).map((t) => ({ name: t.name, description: t.description })), error: null }; }
+    catch (e) { return { tools: [], error: e instanceof Error ? e.message : String(e) }; }
+  });
+  reg("mcp.setAllowedTools", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.mcp.setAllowedTools(p.spaceId, p.id, p.tools);
+    d.gateway.notifyPolicyChanged(p.spaceId);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
+  reg("mcp.calls.list", (p) => ({ calls: d.calls.list(p) }));
+  /** Returns the authorization URL and nothing else — the RENDERER opens it in the system browser, and
+   *  the redirect comes back to the gateway's own `/oauth/callback`, never through RPC. Every state
+   *  change from here on is announced by `mcp.serverStatus`, not by this call's result. */
+  reg("mcp.oauth.start", async (p) => {
+    const started = await d.oauth.start(p.id);
+    // The row now carries a client registration and a pending flow, so `authKind` reads `"oauth"` even
+    // though `oauthStatus` is still `unconfigured` — the settings list has to re-read to show that.
+    rpc.broadcast("mcp.changed", {});
+    return started;
+  });
+  reg("mcp.oauth.disconnect", (p) => {
+    // `McpOauth.disconnect` clears the row's state and fires its status callback, which is what
+    // invalidates the hub client still holding the revoked Bearer and broadcasts the new `oauthStatus`.
+    // `mcp.changed` on top of that is for the settings list itself (`authKind` flips back too).
+    d.oauth.disconnect(p.id);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
+  reg("mcp.retry", async (p) => { await d.hub.retry(p.id); rpc.broadcast("mcp.changed", {}); return { ok: true as const }; });
 
   // Space existence is checked for the same reason the skills and mcp handlers do it: the memory doc,
   // its settings flag and the AGENTS.md target are all keyed by space id, so a typo would silently

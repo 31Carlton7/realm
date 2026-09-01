@@ -326,3 +326,94 @@ describe("migration v6 — port blocks", () => {
     db.close();
   });
 });
+
+/**
+ * The v8 `mcp_servers` shape as it SHIPPED (Plan 8 W2) — hand-written for the same reason V3_SCHEMA and
+ * V4_SCHEMA are: it must not move when `migrations` does. `mcp_servers` has no foreign keys to any other
+ * table, so unlike the v4/v5 fixtures above this one does not need profiles/spaces/sessions alongside it
+ * — a bare `schema_version` stamped at 8 plus the table itself is a complete, honest v8 home for the one
+ * table v9 touches.
+ */
+const V8_MCP_SERVERS = `
+CREATE TABLE mcp_servers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  transport TEXT NOT NULL,
+  command TEXT NOT NULL DEFAULT '',
+  args_json TEXT NOT NULL DEFAULT '[]',
+  url TEXT NOT NULL DEFAULT '',
+  secrets_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+`;
+
+/** A v8 home with one MCP server already defined, in the pre-v9 row shape (no oauth_json/tools_json). */
+function v8McpFixture(path: string): { serverId: string } {
+  const db = new DatabaseSync(path);
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V8_MCP_SERVERS);
+  for (const v of [1, 2, 3, 4, 5, 6, 7, 8]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run("srv1", "airtable", "stdio", "/usr/bin/node", '["/abs/s.mjs"]', "", '{"AIRTABLE_API_KEY":"pat-x"}', 1, 1);
+  db.close();
+  return { serverId: "srv1" };
+}
+
+describe("migration v9 — MCP gateway", () => {
+  const migrated = () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const { serverId } = v8McpFixture(p);
+    return { p, db: openDatabase(p), serverId };
+  };
+
+  it("is appended, not folded into v8: a v8 home reaches v9 and gains the call log", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(8);
+    const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((t) => t.name);
+    expect(tables).toContain("mcp_call_log");
+    db.close();
+  });
+
+  it("adds oauth_json and tools_json to mcp_servers with their defaults, leaving an existing row otherwise untouched", () => {
+    const { db, serverId } = migrated();
+    const cols = (db.prepare("PRAGMA table_info(mcp_servers)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining(["oauth_json", "tools_json"]));
+    const row = db.prepare("SELECT * FROM mcp_servers WHERE id = ?").get(serverId) as { name: string; oauth_json: string; tools_json: string; secrets_json: string };
+    expect(row).toMatchObject({ name: "airtable", oauth_json: "", tools_json: "[]" });
+    // The pre-v9 secret is exactly where it was — the migration adds columns, it does not touch data.
+    expect(row.secrets_json).toBe('{"AIRTABLE_API_KEY":"pat-x"}');
+    db.close();
+  });
+
+  it("mcp_call_log starts empty, with the indexes a session/ts listing needs", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT COUNT(*) AS n FROM mcp_call_log").get() as { n: number }).n).toBe(0);
+    const idx = (db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as { name: string }[]).map((i) => i.name);
+    expect(idx).toEqual(expect.arrayContaining(["mcp_call_log_session", "mcp_call_log_ts"]));
+    db.close();
+  });
+
+  // `mcp_call_log.session_id` is NOT NULL and FK-checked, so this needs an actual session — reusing
+  // the v4 fixture (which openDatabase migrates all the way to v9, mcp_servers included) rather than
+  // building a second parallel chain of profiles/spaces/environments just for one row.
+  it("server_id survives as NULL once the server row it names is deleted — the log outlives the config", () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    const db = openDatabase(p);
+    db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES ('srv1','airtable','stdio','/usr/bin/node','[]','','{}',1,1)").run();
+    db.prepare(`INSERT INTO mcp_call_log (id, session_id, server_id, server_name, tool, args_json, result_summary, ok, duration_ms, ts)
+      VALUES ('c1', 'se1', 'srv1', 'airtable', 'search', '{}', 'ok', 1, 5, 100)`).run();
+    db.prepare("DELETE FROM mcp_servers WHERE id = 'srv1'").run();
+    expect((db.prepare("SELECT server_id FROM mcp_call_log WHERE id = 'c1'").get() as { server_id: string | null }).server_id).toBeNull();
+    db.close();
+  });
+
+  it("re-running the v9 migration is impossible: a second open is a no-op and the row survives", () => {
+    const { p } = migrated();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const db = openDatabase(p);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM mcp_servers").get() as { n: number }).n).toBe(1);
+    db.close();
+  });
+});

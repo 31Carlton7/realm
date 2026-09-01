@@ -1,7 +1,7 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpServer, McpTransport, MemorySources, MemoryState, Profile, Project, RestorePreview, Session, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
-import type { AgentProbe, Api, McpTestResult, PickedAttachment } from "./store";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Profile, Project, RestorePreview, Session, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
   ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
@@ -16,15 +16,6 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null, ...extra });
 
-/**
- * One stored MCP server AS THE FAKE KEEPS IT — secrets included, exactly like the server's row. The
- * fake's `listMcp` projects this down to key names the way McpService.toContract does, so a component
- * that leaks a value can only have gotten it from user input, never from the "wire".
- */
-export type FakeMcpRow = { id: string; name: string; transport: McpTransport; command: string; args: string[]; url: string; secrets: Record<string, string>; createdAt: number };
-export const mcpRow = (id: string, name: string, extra: Partial<FakeMcpRow> = {}): FakeMcpRow =>
-  ({ id, name, transport: "stdio", command: "/usr/bin/mcp-server", args: [], url: "", secrets: {}, createdAt: 0, ...extra });
-
 export const agentsFileState = (extra: Partial<AgentsFileState> = {}): AgentsFileState =>
   ({ enabled: false, path: "/realm-home/spaces/s1/AGENTS.md", exists: false, managedByRealm: false, writable: true, reason: null, ...extra });
 
@@ -34,6 +25,19 @@ export const checkpoint = (id: string, environmentId: string, extra: Partial<Che
 export const preview = (id: string, environmentId: string, extra: Partial<RestorePreview> = {}): RestorePreview =>
   ({ checkpointId: id, environmentId, path: "/tmp", label: "a turn", createdAt: 0, filesChanged: 0, commitsRolledBack: 0,
     headMovable: true, headReason: null, intact: true, rewindsConversation: false, ...extra });
+
+/** A single-space simplification (the real row's `enabled`/`allowedTools` are per-space; these fakes
+ *  only ever exercise one space at a time, so a flat field is enough). */
+export const mcpServer = (id: string, extra: Partial<McpServer> = {}): McpServer =>
+  ({ id, name: `srv-${id}`, transport: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"], url: "",
+    envKeys: [], headerKeys: [], authKind: "none", oauthStatus: "unconfigured", status: "idle", tools: [], allowedTools: null,
+    enabled: false, createdAt: 0, ...extra });
+export const mcpTool = (name: string, description = ""): McpTool => ({ name, description });
+/** A logged call (W7). `serverName: ""` + `tool` holding the full namespaced string is the
+ *  blocked-attribution shape (plan amendment); tests that need it pass that combination explicitly. */
+export const mcpCall = (id: string, sessionId: string, extra: Partial<McpCall> = {}): McpCall =>
+  ({ id, sessionId, serverId: "mcp1", serverName: "srv1", tool: "echo", argsJson: "{}", resultSummary: "ok",
+    ok: true, durationMs: 120, ts: 0, ...extra });
 
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
@@ -65,10 +69,6 @@ export type FakeData = {
   skills?: Record<string, Skill[]>;
   /** The library folder `skills.list` reports. */
   skillsRoot?: string;
-  /** Stored MCP servers, secrets and all (see FakeMcpRow). Global, like the real store. */
-  mcpRows?: FakeMcpRow[];
-  /** Per-space ENABLED server ids — W2's opt-in set, keyed exactly as the server keys it. */
-  mcpEnabled?: Record<string, string[]>;
   /** What `mcp.test` answers, by server id. Absent id → reached false, "no test result configured". */
   mcpTest?: Record<string, McpTestResult>;
   /** Realm memory documents by space id. */
@@ -82,6 +82,18 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
+  /** MCP servers `mcp.list` answers with (W6). One flat list — see `mcpServer`'s doc comment. */
+  mcpServers?: McpServer[];
+  /** What the next `mcp.tools.list` answers for a given server id, if scripted; otherwise the fake
+   *  echoes back the server's own cached `tools`. Consumed once like `pickFiles`... except it is NOT
+   *  consumed — tests mutate it between calls to simulate a live upstream tool list. */
+  mcpToolsResult?: Record<string, McpTool[]>;
+  /** What `mcp.tools.list` answers as `error` for a server id, if set — a connect failure is a result,
+   *  never a throw (see the Api doc comment). */
+  mcpToolsError?: Record<string, string | null>;
+  /** The full call log `mcp.calls.list` pages over (W7). Unordered on the way in — the fake sorts and
+   *  filters like the real store does, so a test can just append in whatever order it likes. */
+  mcpCalls?: McpCall[];
 };
 
 export type FakeApi = Api & {
@@ -93,7 +105,7 @@ export type FakeApi = Api & {
   sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[];
   /** Every `mcp.add`/`mcp.update` input exactly as sent — what the secrecy tests read: an update that
    *  should have omitted `env` is caught here, not inferred from state. */
-  mcpWrites: (import("./store").McpAddInput | import("./store").McpUpdateInput)[];
+  mcpWrites: (AddMcpServerInput | UpdateMcpServerInput)[];
   /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
   delays: Record<string, number>;
   onCreateTerminal: (() => void) | null;
@@ -130,24 +142,20 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     checkpointPreview: overrides.checkpointPreview ?? {},
     skills: overrides.skills ?? {},
     skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
-    mcpRows: overrides.mcpRows ?? [],
-    mcpEnabled: overrides.mcpEnabled ?? {},
     mcpTest: overrides.mcpTest ?? {},
     memoryDocs: overrides.memoryDocs ?? {},
     agentsFiles: overrides.agentsFiles ?? {},
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    mcpServers: overrides.mcpServers ?? [],
+    mcpToolsResult: overrides.mcpToolsResult ?? {},
+    mcpToolsError: overrides.mcpToolsError ?? {},
+    mcpCalls: overrides.mcpCalls ?? [],
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const mcpWrites: FakeApi["mcpWrites"] = [];
-  /** Row → wire, exactly as McpService.toContract does it: key NAMES only, values never carried. */
-  const mcpContract = (r: FakeMcpRow, enabled: boolean): McpServer => {
-    const keys = Object.keys(r.secrets).sort();
-    return { id: r.id, name: r.name, transport: r.transport, command: r.command, args: r.args, url: r.url,
-      envKeys: r.transport === "stdio" ? keys : [], headerKeys: r.transport === "stdio" ? [] : keys, enabled, createdAt: r.createdAt };
-  };
   const memState = (spaceId: string): MemoryState =>
     ({ path: `/realm-home/memory/${spaceId}.md`, doc: data.memoryDocs[spaceId] ?? "", agentsFile: data.agentsFiles[spaceId] ?? agentsFileState() });
   const api: FakeApi = {
@@ -250,49 +258,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const rows = data.skills[spaceId] ?? [];
       const i = rows.findIndex((s) => s.id === id);
       if (i >= 0) rows[i] = { ...rows[i]!, enabled };
-    },
-    listMcp: async (spaceId) => {
-      calls.push(`listMcp:${spaceId}`);
-      const enabled = new Set(data.mcpEnabled[spaceId] ?? []);
-      return { servers: data.mcpRows.map((r) => mcpContract(r, enabled.has(r.id))), secretNote: MCP_SECRET_STORAGE_NOTE };
-    },
-    addMcpServer: async (input) => {
-      calls.push(`addMcpServer:${input.spaceId}:${input.name}`);
-      mcpWrites.push(input);
-      const row: FakeMcpRow = { id: `mcp${++n}`, name: input.name, transport: input.transport,
-        command: input.transport === "stdio" ? (input.command ?? "") : "", args: input.transport === "stdio" ? (input.args ?? []) : [],
-        url: input.transport === "stdio" ? "" : (input.url ?? ""),
-        secrets: (input.transport === "stdio" ? input.env : input.headers) ?? {}, createdAt: n };
-      data.mcpRows.push(row);
-      if (input.spaceId) (data.mcpEnabled[input.spaceId] ??= []).push(row.id);
-      return mcpContract(row, input.spaceId !== null);
-    },
-    updateMcpServer: async (input) => {
-      calls.push(`updateMcpServer:${input.id}`);
-      mcpWrites.push(input);
-      const i = data.mcpRows.findIndex((r) => r.id === input.id); if (i < 0) throw new Error(`no mcp server ${input.id}`);
-      const prev = data.mcpRows[i]!;
-      const transport = input.transport ?? prev.transport;
-      // Mirrors McpService.update: a transport switch carries nothing across; same-transport edits keep
-      // stored fields — INCLUDING secrets — when omitted.
-      const base = transport === prev.transport ? prev : { command: "", args: [], url: "", secrets: {} };
-      const row: FakeMcpRow = { ...prev, name: input.name ?? prev.name, transport,
-        command: transport === "stdio" ? (input.command ?? base.command) : "", args: transport === "stdio" ? (input.args ?? base.args) : [],
-        url: transport === "stdio" ? "" : (input.url ?? base.url),
-        secrets: (transport === "stdio" ? input.env : input.headers) ?? base.secrets };
-      data.mcpRows[i] = row;
-      return mcpContract(row, input.spaceId !== null && (data.mcpEnabled[input.spaceId] ?? []).includes(row.id));
-    },
-    removeMcpServer: async (id) => {
-      calls.push(`removeMcpServer:${id}`);
-      data.mcpRows = data.mcpRows.filter((r) => r.id !== id);
-      for (const k of Object.keys(data.mcpEnabled)) data.mcpEnabled[k] = data.mcpEnabled[k]!.filter((x) => x !== id);
-    },
-    setMcpEnabled: async (spaceId, id, enabled) => {
-      calls.push(`setMcpEnabled:${spaceId}:${id}=${enabled}`);
-      const ids = new Set(data.mcpEnabled[spaceId] ?? []);
-      if (enabled) ids.add(id); else ids.delete(id);
-      data.mcpEnabled[spaceId] = [...ids].sort();
     },
     testMcpServer: async (id) => {
       calls.push(`testMcpServer:${id}`);
@@ -424,6 +389,98 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { environmentId: p.environmentId, path: p.path, undoCheckpointId: undo.id,
         headMoved: p.headMovable, filesChanged: p.filesChanged, commitsRolledBack: p.headMovable ? p.commitsRolledBack : 0,
         filesRemoved: 0, conversationRewound: false };
+    },
+    listMcpServers: async (spaceId) => {
+      calls.push(`listMcpServers:${spaceId}`);
+      await wait(`listMcpServers:${spaceId}`);
+      return { servers: data.mcpServers.map((s) => ({ ...s })), secretNote: MCP_SECRET_STORAGE_NOTE };
+    },
+    addMcpServer: async (input: AddMcpServerInput) => {
+      calls.push(`addMcpServer:${input.name}`);
+      const keys = Object.keys(input.transport === "stdio" ? input.env ?? {} : input.headers ?? {});
+      const s = mcpServer(`mcp${++n}`, {
+        name: input.name, transport: input.transport,
+        command: input.command ?? "", args: input.args ?? [], url: input.url ?? "",
+        envKeys: input.transport === "stdio" ? keys : [], headerKeys: input.transport === "stdio" ? [] : keys,
+        authKind: keys.length > 0 ? "secrets" : "none",
+        enabled: input.spaceId !== null,
+      });
+      data.mcpServers.push(s);
+      return s;
+    },
+    updateMcpServer: async (input: UpdateMcpServerInput) => {
+      calls.push(`updateMcpServer:${input.id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === input.id);
+      if (i < 0) throw new Error(`no mcp server ${input.id}`);
+      const cur = data.mcpServers[i]!;
+      const transport = input.transport ?? cur.transport;
+      const sameTransport = transport === cur.transport;
+      const envKeys = input.env ? Object.keys(input.env) : sameTransport ? cur.envKeys : [];
+      const headerKeys = input.headers ? Object.keys(input.headers) : sameTransport ? cur.headerKeys : [];
+      const secretKeys = transport === "stdio" ? envKeys : headerKeys;
+      const s: McpServer = {
+        ...cur, name: input.name ?? cur.name, transport,
+        command: input.command ?? (sameTransport ? cur.command : ""),
+        args: input.args ?? (sameTransport ? cur.args : []),
+        url: input.url ?? (sameTransport ? cur.url : ""),
+        envKeys: transport === "stdio" ? envKeys : [], headerKeys: transport === "stdio" ? [] : headerKeys,
+        // Mirrors toContract: oauth beats secrets beats none, and a URL/transport change on an
+        // oauth-connected row clears the connection (binding note 3) — the fake drops it the same way.
+        authKind: cur.authKind === "oauth" && sameTransport && (input.url ?? cur.url) === cur.url ? "oauth" : secretKeys.length > 0 ? "secrets" : "none",
+        oauthStatus: cur.authKind === "oauth" && sameTransport && (input.url ?? cur.url) === cur.url ? cur.oauthStatus : "unconfigured",
+      };
+      data.mcpServers[i] = s;
+      return s;
+    },
+    removeMcpServer: async (id) => { calls.push(`removeMcpServer:${id}`); data.mcpServers = data.mcpServers.filter((s) => s.id !== id); },
+    setMcpEnabled: async (spaceId, id, enabled) => {
+      calls.push(`setMcpEnabled:${spaceId}:${id}=${enabled}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, enabled };
+    },
+    mcpToolsList: async (id) => {
+      calls.push(`mcpToolsList:${id}`);
+      const err = data.mcpToolsError[id] ?? null;
+      if (err) return { tools: [], error: err };
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      const tools = data.mcpToolsResult[id] ?? data.mcpServers[i]!.tools;
+      data.mcpServers[i] = { ...data.mcpServers[i]!, tools };
+      return { tools, error: null };
+    },
+    setMcpAllowedTools: async (spaceId, id, tools) => {
+      calls.push(`setMcpAllowedTools:${spaceId}:${id}=${tools === null ? "null" : tools.join(",")}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, allowedTools: tools };
+    },
+    startMcpOauth: async (id) => { calls.push(`startMcpOauth:${id}`); return { authUrl: `https://oauth.example/authorize?server=${id}` }; },
+    disconnectMcpOauth: async (id) => {
+      calls.push(`disconnectMcpOauth:${id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, oauthStatus: "unconfigured" };
+    },
+    retryMcpServer: async (id) => {
+      calls.push(`retryMcpServer:${id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, status: "idle" };
+    },
+    // Mirrors McpCallLogStore.list (apps/server/src/store/mcp.ts): newest first (ts DESC, id DESC — the
+    // same total order the composite cursor relies on to resume a same-millisecond boundary without
+    // skipping or repeating a row), filtered by sessionId/serverId equality, paged by the `{ ts, id }`
+    // cursor rather than a plain `ts <` — see that store's doc comment for why a plain cursor is wrong.
+    mcpCallsList: async (params) => {
+      const key = `mcpCallsList:${params.sessionId ?? "*"}:${params.serverId ?? "*"}:${params.before ? `${params.before.ts},${params.before.id}` : "-"}:${params.limit ?? "-"}`;
+      calls.push(key);
+      await wait(key); // lets a test park a delay on `api.delays[key]` — the supersession-guard tests need this
+      const limit = Math.max(1, Math.min(params.limit ?? 50, 200));
+      let rows = [...data.mcpCalls];
+      if (params.sessionId !== undefined) rows = rows.filter((c) => c.sessionId === params.sessionId);
+      if (params.serverId !== undefined) rows = rows.filter((c) => c.serverId === params.serverId);
+      if (params.before) {
+        const b = params.before;
+        rows = rows.filter((c) => c.ts < b.ts || (c.ts === b.ts && c.id < b.id));
+      }
+      rows.sort((a, b) => b.ts - a.ts || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      return { calls: rows.slice(0, limit) };
     },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));

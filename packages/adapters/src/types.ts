@@ -1,14 +1,15 @@
 import type { AgentKind, SessionEvent } from "@realm/contracts";
 
 /**
- * One MCP server on its way to an agent, secrets and all.
+ * One MCP server on its way to an agent.
  *
- * This is the ONLY shape a secret value travels in. It is built per session by `McpService.configFor`
- * and handed straight to an adapter; nothing persists it, logs it, or puts it on an event.
- *
- * Every adapter must filter by `transport` against `AGENT_MCP_TRANSPORTS` before translating — Codex
- * has no SSE, and an SSE server passed to it as though it were HTTP would connect to nothing while
- * looking configured.
+ * Since Plan 9 W3 an agent is only ever handed ONE of these per session: the Realm gateway's own `http`
+ * entry, minted by `McpGateway.register` and handed straight to an adapter. Third-party server configs
+ * (and their secret values) never leave realm-server — the gateway proxies to them instead. This type
+ * still carries `stdio`/`sse` variants for the adapter-level plumbing that decodes it, but nothing in
+ * `apps/server` constructs one of those anymore, and (Plan 9 W4) no adapter filters by `transport`
+ * either — the per-agent transport asymmetry this used to guard against (Codex has no SSE) is now
+ * entirely the gateway's problem: it is the only thing that ever dials stdio/http/sse upstream.
  */
 export type McpServerConfig =
   | { name: string; transport: "stdio"; command: string; args: string[]; env: Record<string, string> }
@@ -43,8 +44,8 @@ export type StartOptions = {
   effort?: string | null;
   permissionMode?: string;
   systemContext?: string;
-  /** This space's enabled servers. Each adapter drops the transports its agent cannot reach and says so
-   *  through `onLog`; a server that is silently absent is the failure this option exists to prevent. */
+  /** Since Plan 9 W3, `apps/server` always sends exactly ONE entry: the gateway's own `http` endpoint —
+   *  enablement or not, `fake` included (its adapter simply never reads it). Only tests pass `[]`. */
   mcpServers: McpServerConfig[];
   /** Omitted for agents Realm cannot inject skills into (see AGENT_SKILL_SUPPORT), and for a space
    *  whose enabled skill set is empty. */

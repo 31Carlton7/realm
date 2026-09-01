@@ -6,9 +6,11 @@ import type { McpServerRow } from "../store/mcp";
 /** Never a real key; every assertion about it is that it does NOT appear in a result. */
 const KEY = "pat-do-not-leak-me";
 
+// `oauthJson`/`tools` are gateway-era row fields (Plan 9 W3/W5). liveCheck reads neither — it dials the
+// upstream server with the row's own command/URL and secrets — but the row type requires them.
 const row = (extra: Partial<McpServerRow>): McpServerRow => ({
   id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "probe", transport: "stdio",
-  command: "", args: [], url: "", secrets: {}, createdAt: 0, updatedAt: 0, ...extra,
+  command: "", args: [], url: "", secrets: {}, oauthJson: "", tools: [], createdAt: 0, updatedAt: 0, ...extra,
 });
 
 /** A real MCP-shaped stdio server: reads newline-delimited JSON, answers initialize. Inline node

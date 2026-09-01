@@ -7,9 +7,14 @@ import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } fr
 import { sessionEvent, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
+import { makeStubAuthServer, type StubAuthServer } from "./fixtures/stub-auth-server";
 
 let app: App;
-afterEach(async () => { await app?.close(); });
+const authServers: StubAuthServer[] = [];
+afterEach(async () => {
+  await app?.close();
+  for (const as of authServers.splice(0)) await as.close();
+});
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -76,52 +81,12 @@ async function startSession(c: Any, adapter: RecordingAdapter, spaceId: string):
 const addStdio = (c: Any, spaceId: string | null, name: string) =>
   c.call("mcp.add", { spaceId, name, transport: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { AIRTABLE_API_KEY: KEY } });
 
-describe("mcp reaches a session", () => {
-  it("hands the space's enabled servers to the adapter at start", async () => {
-    // The named mutant: restore `mcpServers: []` in SessionService.ensureLive and this fails.
-    const { c, claude, work } = await boot();
-    await addStdio(c, work.id, "airtable");
-    const opts = await startSession(c, claude, work.id);
-    expect(opts.mcpServers).toEqual([
-      { name: "airtable", transport: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { AIRTABLE_API_KEY: KEY } },
-    ]);
-    c.close();
-  });
-
-  it("hands over an empty list when the space has enabled nothing", async () => {
-    const { c, claude, work } = await boot();
-    await addStdio(c, null, "airtable"); // defined, opted into nowhere
-    const opts = await startSession(c, claude, work.id);
-    expect(opts.mcpServers).toEqual([]);
-    c.close();
-  });
-
-  it("does not leak one space's servers into another's session", async () => {
-    const { c, claude, work, school } = await boot();
-    await addStdio(c, work.id, "work_only");
-    expect((await startSession(c, claude, school.id)).mcpServers).toEqual([]);
-    expect((await startSession(c, claude, work.id)).mcpServers.map((s) => s.name)).toEqual(["work_only"]);
-    c.close();
-  });
-
-  it("stops handing over a server that was disabled between sessions", async () => {
-    const { c, claude, work } = await boot();
-    const server = (await addStdio(c, work.id, "airtable")).result;
-    expect((await startSession(c, claude, work.id)).mcpServers).toHaveLength(1);
-    await c.call("mcp.setEnabled", { spaceId: work.id, id: server.id, enabled: false });
-    expect((await startSession(c, claude, work.id)).mcpServers).toEqual([]);
-    c.close();
-  });
-
-  it("carries an http server's url and headers through unchanged", async () => {
-    const { c, claude, work } = await boot();
-    await c.call("mcp.add", { spaceId: work.id, name: "vercel", transport: "http", url: "https://mcp.vercel.com", headers: { Authorization: `Bearer ${KEY}` } });
-    expect((await startSession(c, claude, work.id)).mcpServers).toEqual([
-      { name: "vercel", transport: "http", url: "https://mcp.vercel.com", headers: { Authorization: `Bearer ${KEY}` } },
-    ]);
-    c.close();
-  });
-});
+// W3: the passthrough this describe block used to exercise (`configFor` → an adapter receiving the
+// space's raw server configs) is gone. Every session now receives exactly one `realm` gateway entry
+// regardless of what is enabled — that shape is covered by `sessions/service.test.ts` (the fake-adapter
+// wiring test), and which upstream tools a space's policy actually exposes THROUGH that gateway entry is
+// `mcp/gateway.test.ts`'s job, over real HTTP against a stub upstream. Nothing here can still assert on
+// `mcpServers` contents without re-introducing the direct passthrough this workstream removed.
 
 describe("mcp over rpc", () => {
   it("never puts a secret value on the wire, in a result or in an event", async () => {
@@ -184,11 +149,132 @@ describe("mcp over rpc", () => {
   });
 
   it("removes a server from every space's enabled set, not just the one that asked", async () => {
-    const { c, claude, work, school } = await boot();
+    // The named mutant: `mcp.remove` only clearing the REQUESTING space's enabled set (or none at all).
+    // `McpService`'s own unit test (`service.test.ts`) already proves the store-level behavior directly
+    // via `isEnabled`; this is the RPC-level check that `mcp.remove` still passes every space through.
+    const { c, work, school } = await boot();
     const server = (await addStdio(c, work.id, "airtable")).result;
     await c.call("mcp.setEnabled", { spaceId: school.id, id: server.id, enabled: true });
+    expect((await c.call("mcp.list", { spaceId: school.id })).result.servers[0]).toMatchObject({ enabled: true });
     await c.call("mcp.remove", { id: server.id });
-    expect((await startSession(c, claude, school.id)).mcpServers).toEqual([]);
+    expect((await c.call("mcp.list", { spaceId: school.id })).result.servers).toEqual([]);
+    expect((await c.call("mcp.list", { spaceId: work.id })).result.servers).toEqual([]);
+    c.close();
+  });
+});
+
+describe("oauth over rpc — the whole flow through a real app", () => {
+  it("connects a remote server end to end: RPC start → browser redirect → gateway callback → status", async () => {
+    // The only test that exercises `app.ts`'s actual wiring: the RPC handler, `McpOauth`, the real
+    // gateway listener's callback route, and the status broadcast, against a stub authorization server
+    // on loopback. Nothing here touches a real provider.
+    const { c, work } = await boot();
+    const as = await makeStubAuthServer();
+    authServers.push(as);
+    const server = (await c.call("mcp.add", { spaceId: work.id, name: "remote", transport: "http", url: `${as.url}/mcp` })).result;
+    expect(server).toMatchObject({ authKind: "none", oauthStatus: "unconfigured" });
+
+    const { authUrl } = (await c.call("mcp.oauth.start", { id: server.id })).result;
+    // The redirect URI the flow minted points at THIS app's gateway port, so following the stub's
+    // redirect is exactly what the user's browser would do.
+    const redirect = as.authorize(authUrl);
+    expect(redirect).toContain("/oauth/callback");
+    const page = await fetch(redirect);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Connected — return to Realm.");
+
+    await waitFor(() => c.events.some((e: Any) => e.event === "mcp.serverStatus" && e.payload.id === server.id && e.payload.oauthStatus === "connected"));
+    const listed = await c.call("mcp.list", { spaceId: work.id });
+    expect(listed.result.servers[0]).toMatchObject({ authKind: "oauth", oauthStatus: "connected" });
+    // The token exists on the row by now, and no result or event has ever carried it.
+    expect(JSON.stringify([listed, c.events])).not.toContain(as.lastIssuedAccessToken()!);
+
+    await c.call("mcp.oauth.disconnect", { id: server.id });
+    await waitFor(() => c.events.some((e: Any) => e.event === "mcp.serverStatus" && e.payload.id === server.id && e.payload.oauthStatus === "unconfigured"));
+    expect((await c.call("mcp.list", { spaceId: work.id })).result.servers[0]).toMatchObject({ authKind: "none", oauthStatus: "unconfigured" });
+    c.close();
+  });
+
+  /** Add a remote server and take it all the way through a real OAuth connection. */
+  async function connected(c: Any, spaceId: string, name = "remote"): Promise<{ as: StubAuthServer; id: string }> {
+    const as = await makeStubAuthServer();
+    authServers.push(as);
+    const server = (await c.call("mcp.add", { spaceId, name, transport: "http", url: `${as.url}/mcp` })).result;
+    const { authUrl } = (await c.call("mcp.oauth.start", { id: server.id })).result;
+    await fetch(as.authorize(authUrl));
+    await waitFor(async () => (await c.call("mcp.list", { spaceId })).result.servers.find((s: Any) => s.id === server.id)?.oauthStatus === "connected");
+    return { as, id: server.id };
+  }
+
+  it("repointing a server's URL drops the OAuth connection minted for the old host", async () => {
+    // A settings typo must not send a credential granted for server A to server B. Over-clearing costs
+    // one Connect click; under-clearing hands a live token to a host the user never authorized.
+    const { c, work } = await boot();
+    const { as, id } = await connected(c, work.id);
+    const other = await makeStubAuthServer();
+    authServers.push(other);
+
+    const updated = (await c.call("mcp.update", { spaceId: work.id, id, url: `${other.url}/mcp` })).result;
+    // The RESULT itself must already be honest — not just the next `mcp.list`.
+    expect(updated).toMatchObject({ authKind: "none", oauthStatus: "unconfigured" });
+    const listed = (await c.call("mcp.list", { spaceId: work.id })).result.servers[0];
+    expect(listed).toMatchObject({ authKind: "none", oauthStatus: "unconfigured" });
+    expect(JSON.stringify([updated, listed, c.events])).not.toContain(as.lastIssuedAccessToken()!);
+    await waitFor(() => c.events.some((e: Any) => e.event === "mcp.serverStatus" && e.payload.id === id && e.payload.oauthStatus === "unconfigured"));
+    c.close();
+  });
+
+  it("switching a server to stdio drops it too, rather than leaving a Connect button that can only error", async () => {
+    const { c, work } = await boot();
+    const { id } = await connected(c, work.id);
+    const updated = (await c.call("mcp.update", { spaceId: work.id, id, transport: "stdio", command: "/usr/bin/node" })).result;
+    expect(updated).toMatchObject({ transport: "stdio", authKind: "none", oauthStatus: "unconfigured" });
+    // And a Connect attempt now refuses honestly instead of half-working.
+    expect((await c.call("mcp.oauth.start", { id })).error?.code).toBe("MCP_OAUTH_UNSUPPORTED");
+    c.close();
+  });
+
+  it("an edit that leaves the endpoint alone keeps the connection", async () => {
+    // The guard has to be narrow: renaming a server, or editing one that never used OAuth, must not
+    // silently cost the user a re-authorization.
+    const { c, work } = await boot();
+    const { id } = await connected(c, work.id);
+    const renamed = (await c.call("mcp.update", { spaceId: work.id, id, name: "renamed" })).result;
+    expect(renamed).toMatchObject({ name: "renamed", authKind: "oauth", oauthStatus: "connected" });
+    c.close();
+  });
+
+  it("a URL edit on a server that never used OAuth is left entirely alone", async () => {
+    const { c, work } = await boot();
+    const server = (await c.call("mcp.add", { spaceId: work.id, name: "keyed", transport: "http", url: "https://a.example.com/mcp", headers: { Authorization: `Bearer ${KEY}` } })).result;
+    expect(server.authKind).toBe("secrets");
+    const updated = (await c.call("mcp.update", { spaceId: work.id, id: server.id, url: "https://b.example.com/mcp" })).result;
+    // Its API-key headers are the user's own, not something Realm negotiated — they survive the move.
+    expect(updated).toMatchObject({ authKind: "secrets", oauthStatus: "unconfigured", headerKeys: ["Authorization"] });
+    c.close();
+  });
+
+  it("refuses to start a flow for a stdio server rather than opening a browser that goes nowhere", async () => {
+    const { c, work } = await boot();
+    const server = (await addStdio(c, work.id, "airtable")).result;
+    expect((await c.call("mcp.oauth.start", { id: server.id })).error?.code).toBe("MCP_OAUTH_UNSUPPORTED");
+    c.close();
+  });
+
+  it("the gateway's callback route rejects a state nobody is waiting on, and echoes nothing back", async () => {
+    const { c, work } = await boot();
+    const as = await makeStubAuthServer();
+    authServers.push(as);
+    const server = (await c.call("mcp.add", { spaceId: work.id, name: "remote", transport: "http", url: `${as.url}/mcp` })).result;
+    const { authUrl } = (await c.call("mcp.oauth.start", { id: server.id })).result;
+    const callbackBase = new URL(new URL(authUrl).searchParams.get("redirect_uri")!);
+
+    const res = await fetch(`${callbackBase}?code=some-forged-code&state=forged-state`);
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("Connection failed — try again from Realm settings.");
+    expect(body).not.toContain("some-forged-code");
+    expect((await c.call("mcp.list", { spaceId: work.id })).result.servers[0]).toMatchObject({ oauthStatus: "unconfigured" });
     c.close();
   });
 });

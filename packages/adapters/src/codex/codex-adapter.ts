@@ -4,7 +4,6 @@ import { JsonRpcCallError, type JsonRpcId } from "../jsonrpc/stdio";
 import { CodexConnection, type ThreadListener } from "./connection";
 import { createCodexMapper } from "./map-codex";
 import { probeCodex } from "./probe";
-import { selectMcpServers } from "../mcp-transport";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type Bag = Record<string, unknown>;
@@ -64,18 +63,17 @@ export function codexPolicyFor(permissionMode: string | undefined): { approvalPo
  * `thread/start` `config.mcp_servers` — a `[mcp_servers.NAME]` table per server, for this thread only.
  *
  * Codex's `RawMcpServerConfig` is one struct covering both shapes: `command`/`args`/`env` for a stdio
- * server, `url`/`http_headers` for a streamable-HTTP one. **There is no SSE variant**, which is why the
- * transport filter is not decoration — an SSE server sent as `{url}` would be dialled as HTTP and fail
- * at connect time, long after Realm told the user it was configured.
+ * server, `url`/`http_headers` for a streamable-HTTP one. There is no SSE variant, but that no longer
+ * matters here: since Plan 9 W3 `servers` is always exactly the gateway's own `http` entry (or empty) —
+ * Codex takes `http` fine, and no third-party server's real transport ever reaches this function.
  *
  * `undefined` when nothing survives, so `config` is omitted entirely rather than sent as an empty map:
  * `thread/start` does not validate `config` keys (research §1.2), so an empty one is accepted in
  * silence and there is no reason to send it.
  */
-export function codexMcpConfig(servers: readonly McpServerConfig[], onLog?: (line: string) => void): Bag | undefined {
-  const usable = selectMcpServers("codex", servers, onLog);
-  if (usable.length === 0) return undefined;
-  const entries = usable.map((s) => [
+export function codexMcpConfig(servers: readonly McpServerConfig[]): Bag | undefined {
+  if (servers.length === 0) return undefined;
+  const entries = servers.map((s) => [
     s.name,
     s.transport === "stdio"
       ? { command: s.command, ...(s.args.length ? { args: s.args } : {}), ...(Object.keys(s.env).length ? { env: s.env } : {}) }
@@ -326,7 +324,7 @@ export class CodexAdapter implements AgentAdapter {
         if (disposed) { await releaseOnce(); return; }
         conn = c;
         const { approvalPolicy, sandbox } = codexPolicyFor(opts.permissionMode);
-        const config = codexMcpConfig(opts.mcpServers, opts.onLog);
+        const config = codexMcpConfig(opts.mcpServers);
         // `opts.effort` is deliberately dropped: Codex takes reasoning effort per turn, not per thread, and
         // Realm has no per-turn effort control yet. Claude passes it through; this asymmetry is intentional.
         const common = {

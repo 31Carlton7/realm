@@ -5,7 +5,6 @@ import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
 import { probeAcp } from "./probe";
-import { selectMcpServers } from "../mcp-transport";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type Bag = Record<string, unknown>;
@@ -87,9 +86,14 @@ export function pickAcpOption(decision: PermissionDecision, options: readonly un
  *
  * The stdio variant carries no `type` discriminant; the remote ones do. Sending `type: "stdio"` is not
  * part of 0.4.5's union.
+ *
+ * The `advertised` filter below is unrelated to `AGENT_HAS_MCP`/the old per-agent-kind transport table
+ * (Plan 9 W4 deleted that machinery from this function): it is a live capability check against *this*
+ * process's own `initialize` handshake, not a static claim about "ACP agents" in general, and it stays
+ * real even though every `servers` entry since W3 is the gateway's own `http` one — a build that omits
+ * `mcpCapabilities.http` would otherwise get a server it never said it could take.
  */
 export function acpMcpServers(
-  kind: AgentKind,
   servers: readonly McpServerConfig[],
   /** `initialize`'s `agentCapabilities.mcpCapabilities`, verbatim. Both installed agents advertise
    *  `{http:true,sse:true}`, but the field is optional in 0.4.5 and an agent that omits it is telling
@@ -99,7 +103,7 @@ export function acpMcpServers(
   onLog?: (line: string) => void,
 ): Bag[] {
   const pairs = (m: Record<string, string>): Bag[] => Object.entries(m).map(([name, value]) => ({ name, value }));
-  const usable = selectMcpServers(kind, servers, onLog).filter((s) => {
+  const usable = servers.filter((s) => {
     if (s.transport === "stdio" || advertised[s.transport] === true) return true;
     onLog?.(`[mcp] skipping "${s.name}": this build did not advertise mcpCapabilities.${s.transport}`);
     return false;
@@ -369,7 +373,7 @@ export class AcpAdapter implements AgentAdapter {
         authMethods = Array.isArray(init.authMethods) ? init.authMethods : [];
         if (disposed) return;
 
-        const mcpServers = acpMcpServers(spec.kind, opts.mcpServers, obj(caps.mcpCapabilities), log);
+        const mcpServers = acpMcpServers(opts.mcpServers, obj(caps.mcpCapabilities), log);
         let id: string | null = null;
         let session: Bag = {};
         if (opts.resume && caps.loadSession === true) {

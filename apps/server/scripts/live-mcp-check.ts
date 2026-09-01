@@ -29,7 +29,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_MCP_TRANSPORTS, type AgentKind, type SessionEvent } from "@realm/contracts";
+import { AGENT_HAS_MCP, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { createApp, defaultAdapters } from "../src/app";
 import { ProfilesStore } from "../src/store/profiles";
 import { SpacesStore } from "../src/store/spaces";
@@ -99,7 +99,7 @@ async function main() {
     console.log(`\n=== ${kind} ===`);
     const probe = probes.find((p) => p.kind === kind);
     if (!probe?.available) { ok("agent available", false, probe?.reason ?? "not registered"); continue; }
-    if (AGENT_MCP_TRANSPORTS[kind].length === 0) { skip("takes MCP servers at all", `AGENT_MCP_TRANSPORTS says ${kind} takes none`); continue; }
+    if (!AGENT_HAS_MCP[kind]) { skip("takes MCP servers at all", `AGENT_HAS_MCP says ${kind} takes none`); continue; }
 
     // Fresh server names per agent: a marker left by the previous agent's session would pass this
     // agent's check for free.

@@ -2,7 +2,7 @@ import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
   AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpServer, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -12,6 +12,19 @@ export type CreateSpaceInput = { name: string; icon: string; profileId: string; 
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string };
+/** `mcp.add` params, minus the wire's own defaulting — undefined fields simply aren't sent. */
+export type AddMcpServerInput = {
+  spaceId: string | null; name: string; transport: McpTransport;
+  command?: string; args?: string[]; env?: Record<string, string>;
+  url?: string; headers?: Record<string, string>;
+};
+/** `mcp.update` params. `spaceId` is only so the result can report `enabled` for the space the editor
+ *  is open in — passing it never changes which spaces have this server enabled. */
+export type UpdateMcpServerInput = {
+  id: string; spaceId?: string | null; name?: string; transport?: McpTransport;
+  command?: string; args?: string[]; env?: Record<string, string>;
+  url?: string; headers?: Record<string, string>;
+};
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
 /** A pending attachment as the prompter holds it. `path`/`mime` are the wire fields; `name` labels the
  *  chip and `size` is what the MAX_ATTACHMENT_BYTES check reads — neither is transmitted. */
@@ -23,15 +36,8 @@ export type PermissionDecision = "allow" | "allow_always" | "deny";
  *  Canonical home of this type — PaneHost imports it from here. */
 export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
 export type AgentProbe = MethodResult<"agents.probe">[number];
-/**
- * What the MCP form sends. `env` (stdio) and `headers` (http/sse) are the ONLY place a secret value
- * ever exists client-side: typed into the form, sent, gone. `mcp.list` returns key names, so nothing
- * held in the store can leak one.
- */
-export type McpAddInput = { spaceId: string | null; name: string; transport: McpTransport; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> };
-/** An omitted `env`/`headers` keeps the stored values — how a rename saves without wiping a key the
- *  client was never shown. Passing either REPLACES the whole map. */
-export type McpUpdateInput = { id: string; spaceId: string | null; name?: string; transport?: McpTransport; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> };
+/** `mcp.test`'s answer: reached or not, and one sentence saying why. Built server-side from things that
+ *  cannot be secrets (see live-check.ts), so a UI may render `detail` verbatim. */
 export type McpTestResult = { reached: boolean; detail: string };
 /** A `session.event` broadcast: persisted rows carry their seq; ephemeral ones (deltas) have seq -1. */
 export type LiveSessionEvent = StoredSessionEvent & { ephemeral: boolean };
@@ -87,17 +93,8 @@ export type Api = {
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
   /** `skills.setEnabled` — one skill, one SPACE. The store is a per-space disabled set. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
-  /** `mcp.list` — every server with THIS space's enable flag, plus the storage note the panel must show. */
-  listMcp(spaceId: string): Promise<{ servers: McpServer[]; secretNote: string }>;
-  /** `mcp.add` — defines the server and enables it in `input.spaceId` only (opt-in everywhere else). */
-  addMcpServer(input: McpAddInput): Promise<McpServer>;
-  /** `mcp.update` — omitted `env`/`headers` keep their stored values; passed ones replace the map. */
-  updateMcpServer(input: McpUpdateInput): Promise<McpServer>;
-  /** `mcp.remove` — forgets the server everywhere, secrets and every space's opt-in included. */
-  removeMcpServer(id: string): Promise<void>;
-  /** `mcp.setEnabled` — one server, one SPACE (the per-space opt-in set). */
-  setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
-  /** `mcp.test` — a live connection attempt from realm-server; resolves reached/failed with a sentence. */
+  /** `mcp.test` — a live connection attempt from realm-server; resolves reached/failed with a sentence.
+   *  The rest of the MCP surface is declared with the gateway methods further down. */
   testMcpServer(id: string): Promise<McpTestResult>;
   /** `memory.get` — this space's Realm memory document and its AGENTS.md state. */
   getMemory(spaceId: string): Promise<MemoryState>;
@@ -152,7 +149,29 @@ export type Api = {
   previewCheckpoint(id: string): Promise<RestorePreview>;
   /** `checkpoints.restore`. The acknowledgement must equal what the server re-reads, or it refuses. */
   restoreCheckpoint(id: string, acknowledge: { filesChanged: number; commitsRolledBack: number }): Promise<RestoreResult>;
+  /** `mcp.list` — every server Realm knows about, carrying this space's own enable flag + allowlist. */
+  listMcpServers(spaceId: string): Promise<{ servers: McpServer[]; secretNote: string }>;
+  addMcpServer(input: AddMcpServerInput): Promise<McpServer>;
+  updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
+  removeMcpServer(id: string): Promise<void>;
+  setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
+   *  the list is still a renderable result. */
+  mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
+  /** `null` = every cached tool allowed. */
+  setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
+  /** `mcp.oauth.start` — the renderer opens the returned URL itself (`window.open`). */
+  startMcpOauth(id: string): Promise<{ authUrl: string }>;
+  disconnectMcpOauth(id: string): Promise<void>;
+  /** `mcp.retry` — closes a tripped circuit breaker and drops the stale client. */
+  retryMcpServer(id: string): Promise<void>;
+  /** `mcp.calls.list` — Realm's own call log (Activity), newest first. `before` pages backward by the
+   *  composite `{ ts, id }` cursor (W1 amendment); omitted, it starts from the top. */
+  mcpCallsList(params: McpCallsFilter & { before?: { ts: number; id: string }; limit?: number }): Promise<{ calls: McpCall[] }>;
 };
+
+/** The two narrowing dimensions Activity's chips apply — `undefined` means "not filtering by this". */
+export type McpCallsFilter = { sessionId?: string; serverId?: string };
 
 /** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
 export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean };
@@ -177,6 +196,14 @@ const SETTING_SWIPE_INVERT = "ui.swipeInvert";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 export const EVENTS_PAGE = 1000;
+/** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
+ *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
+export const MCP_CALLS_PAGE = 50;
+/** Ceiling on `mcpCalls` while the sheet is open and live events are prepending (W7 plan: "cap the
+ *  in-memory list... so a chatty agent can't grow it unboundedly"). Only the live-prepend path
+ *  (`applyMcpCall`) enforces this — `loadMoreMcpCalls` is a page the user explicitly asked for, and
+ *  trimming it would make "Load more" lie about what it just fetched. */
+export const MCP_CALLS_LIVE_CAP = 500;
 /** Plan 6 W4: the session's terminal panel takes 38% of the session pane the first time it opens. */
 export const TERMINAL_PANEL_WIDTH = 38;
 
@@ -207,7 +234,11 @@ export type Sheet =
   | { kind: "remove-worktree"; environmentId: string }
   /** A checkout's checkpoints, and the confirm for restoring one (W4). One sheet in two states: the
    *  list, and — once `selected` is set — the confirmation naming exactly what restoring would cost. */
-  | { kind: "checkpoints"; environmentId: string; sessionId: string | null };
+  | { kind: "checkpoints"; environmentId: string; sessionId: string | null }
+  /** Realm's log of every proxied MCP call (W7), global across spaces/sessions — see `openActivity`.
+   *  Opened from McpSection ("Activity") or the palette ("MCP Activity"); replaces whatever sheet was
+   *  open (the one-slot ruling — see the sheet-plumbing note above), including space settings itself. */
+  | { kind: "activity" };
 
 export type AppState = {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
@@ -268,10 +299,6 @@ export type AppState = {
   /** Where the library lives on disk (`skills.list` root) — the settings panel's "drop a folder here"
    *  hint. Global, not per-space; "" until the first fetch. */
   skillsRoot: string;
-  /** `mcp.list` by space id — the settings panel's server list. Only spaces whose panel was opened are
-   *  held; `mcp.changed` refreshes exactly those. Secret VALUES never appear here: the wire has no
-   *  field for them. */
-  spaceMcp: Record<string, { servers: McpServer[]; secretNote: string }>;
   /** `memory.get` by space id — the memory panel's document + AGENTS.md state. */
   spaceMemory: Record<string, MemoryState>;
   /** `memory.sources` by session id — fetched when the memory panel asks about a session. */
@@ -316,6 +343,22 @@ export type AppState = {
   terminalPanel: Record<string, TerminalPanel>;
   /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
+  /** MCP servers for the space currently open in settings (W6) — `mcp.list`'s per-space projection.
+   *  Empty until `refreshMcpServers` runs; McpSection fetches on mount, i.e. on sheet open. */
+  mcpServers: McpServer[];
+  /** The last `mcp.tools.list` error per server id, `null` once a refresh succeeds. A RESULT, not an
+   *  exception (see the Api doc comment) — kept apart from `error` so it renders inline on the row that
+   *  caused it instead of stealing the app's one error banner. */
+  mcpToolsError: Record<string, string | null>;
+  /** Activity's loaded page(s), newest first (W7). Empty until `openActivity`/`refreshMcpCalls` runs. */
+  mcpCalls: McpCall[];
+  /** Activity's active narrowing — both `undefined` is "everything" (binding rule 5: the sheet shows
+   *  every space/session by default). Read by `refreshMcpCalls`/`loadMoreMcpCalls` and by the live
+   *  `mcp.call` matcher in `applyMcpCall`. */
+  mcpCallsFilter: McpCallsFilter;
+  /** False once a fetch (initial or "Load more") returns fewer rows than it asked for — the signal
+   *  ActivitySheet uses to hide the button rather than offering a page that would come back empty. */
+  mcpCallsHasMore: boolean;
   activeSpace(): Space | undefined;
   activeIndex(): number;
   boot(): Promise<void>;
@@ -415,16 +458,8 @@ export type AppState = {
   refreshSkills(spaceId: string): Promise<void>;
   /** Toggle one skill for ONE space (the settings panel), then re-read that space's library. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
-  /** Fetch a space's MCP servers into `spaceMcp` (panel open, `mcp.changed`). */
-  refreshMcp(spaceId: string): Promise<void>;
-  addMcpServer(input: McpAddInput): Promise<void>;
-  updateMcpServer(input: McpUpdateInput): Promise<void>;
-  /** `spaceId` is only which list to re-read; removal itself is global (the server forgets every
-   *  space's opt-in with the row). */
-  removeMcpServer(spaceId: string, id: string): Promise<void>;
-  /** Toggle one server for ONE space (the per-space opt-in set), then re-read that space's list. */
-  setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
-  /** `mcp.test`, resolved to the caller: the result is per-click UI state, not store state. */
+  /** `mcp.test`, resolved to the caller: the result is per-click UI state, not store state. The rest of
+   *  the MCP actions live with the gateway slice below (`refreshMcpServers` and friends). */
   testMcpServer(id: string): Promise<McpTestResult>;
   /** Fetch a space's memory document + AGENTS.md state into `spaceMemory`. */
   refreshMemory(spaceId: string): Promise<void>;
@@ -484,6 +519,50 @@ export type AppState = {
   confirmRestoreCheckpoint(id: string): Promise<void>;
   /** `checkpoints.capture` — a point the user asked for, next to the ones every turn takes. */
   captureCheckpoint(environmentId: string, sessionId: string | null): Promise<void>;
+  /** Re-fetch this space's MCP servers. Called on `McpSection` mount (sheet open) and on `mcp.changed`
+   *  while that space's settings sheet is the one showing. Applies the result only if the sheet is
+   *  still open for this exact space — a slow response after the user closed or switched must not
+   *  clobber whatever the sheet is showing now. */
+  refreshMcpServers(spaceId: string): Promise<void>;
+  /** Drop whatever `mcpServers`/`mcpToolsError` currently hold. Called once, synchronously, when
+   *  `McpSection` mounts (or re-mounts for a different space) — BEFORE `refreshMcpServers` kicks off its
+   *  fetch — so reopening settings for a different space never flashes the previous space's rows (or a
+   *  tools error belonging to a server not even shown here) while the new list is in flight. */
+  clearMcpServers(): void;
+  addMcpServer(input: AddMcpServerInput): Promise<McpServer>;
+  updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
+  removeMcpServer(id: string): Promise<void>;
+  setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** Narrow (or, with `null`, reset) this space's allowlist for one server. */
+  setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
+  /** Refresh one server's cached tools. Never throws for a connect failure — that lands in
+   *  `mcpToolsError`, a result the row renders inline, per `mcp.tools.list`'s contract. */
+  refreshMcpTools(id: string): Promise<void>;
+  /** Close a tripped circuit breaker; the next call (including the next tools refresh) tries again. */
+  retryMcpServer(id: string): Promise<void>;
+  /** Begin the OAuth dance; the caller (the row/form) opens the returned URL itself. */
+  startMcpOauth(id: string): Promise<{ authUrl: string }>;
+  disconnectMcpOauth(id: string): Promise<void>;
+  /** Patch one server's live status from an `mcp.serverStatus` broadcast. Idempotent: applying the same
+   *  payload twice (the event can repeat, and can arrive without a matching `mcp.changed`) leaves the
+   *  same state, and a server not currently in `mcpServers` is a no-op rather than an error. */
+  applyMcpServerStatus(payload: { id: string; status: McpServerStatus; oauthStatus: McpOauthStatus }): void;
+  /** Open the Activity sheet (McpSection's "Activity" button, the palette's "MCP Activity"): resets any
+   *  filter left over from a previous visit — Activity always opens showing everything, per binding
+   *  rule 5 — and loads the first page. Replaces whatever sheet was open (ruling 4: one sheet slot). */
+  openActivity(): Promise<void>;
+  /** Re-fetch Activity's first page with the current filter, replacing `mcpCalls` outright (never a
+   *  merge — a filter change can drop rows the old page had and add ones it didn't). */
+  refreshMcpCalls(): Promise<void>;
+  /** Fetch the next page after the last loaded row's `{ ts, id }` (W1's composite cursor) and append. */
+  loadMoreMcpCalls(): Promise<void>;
+  /** Narrow (or, with `null`, clear) Activity's session or server filter and re-fetch. Only the given
+   *  key changes — passing `{ sessionId: null }` leaves any active server filter exactly as it was. */
+  setMcpCallsFilter(patch: { sessionId?: string | null; serverId?: string | null }): Promise<void>;
+  /** Apply one `mcp.call` broadcast (App.tsx's live wiring, W7): prepended only while the sheet is open
+   *  AND the row matches the active filter, and only once per id — the event can repeat (binding rule
+   *  6), and a resend must not duplicate the row. */
+  applyMcpCall(call: McpCall): void;
   /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
   clearError(): void;
@@ -729,11 +808,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMcp: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
+      mcpServers: [], mcpToolsError: {},
+      mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
@@ -1179,26 +1260,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSkillEnabled(spaceId, id, enabled);
         await get().refreshSkills(spaceId);
       },
-      async refreshMcp(spaceId) {
-        const r = await api.listMcp(spaceId);
-        set({ spaceMcp: { ...get().spaceMcp, [spaceId]: r } });
-      },
-      async addMcpServer(input) {
-        await api.addMcpServer(input);
-        if (input.spaceId) await get().refreshMcp(input.spaceId);
-      },
-      async updateMcpServer(input) {
-        await api.updateMcpServer(input);
-        if (input.spaceId) await get().refreshMcp(input.spaceId);
-      },
-      async removeMcpServer(spaceId, id) {
-        await api.removeMcpServer(id);
-        await get().refreshMcp(spaceId);
-      },
-      async setMcpEnabled(spaceId, id, enabled) {
-        await api.setMcpEnabled(spaceId, id, enabled);
-        await get().refreshMcp(spaceId);
-      },
       testMcpServer: (id) => api.testMcpServer(id),
       async refreshMemory(spaceId) {
         const state = await api.getMemory(spaceId);
@@ -1400,6 +1461,116 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sheet = get().sheet;
         await get().refreshCheckpoints(result.environmentId, sheet?.kind === "checkpoints" ? sheet.sessionId : null);
         if (result.path in get().diffs) await get().refreshDiff(result.path);
+      },
+      async refreshMcpServers(spaceId) {
+        const { servers } = await api.listMcpServers(spaceId);
+        const sheet = get().sheet;
+        if (sheet?.kind !== "space-settings" || sheet.spaceId !== spaceId) return;
+        set({ mcpServers: servers });
+      },
+      clearMcpServers() { set({ mcpServers: [], mcpToolsError: {} }); },
+      async addMcpServer(input) {
+        const s = await api.addMcpServer(input);
+        // Optimistic: `mcp.changed` will also refetch, but that broadcast round-trip must not be the
+        // only reason the row the user just created appears.
+        set({ mcpServers: [...get().mcpServers, s] });
+        return s;
+      },
+      async updateMcpServer(input) {
+        const s = await api.updateMcpServer(input);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === s.id ? s : x)) });
+        return s;
+      },
+      async removeMcpServer(id) {
+        await api.removeMcpServer(id);
+        set({ mcpServers: get().mcpServers.filter((x) => x.id !== id) });
+      },
+      async setMcpEnabled(spaceId, id, enabled) {
+        await api.setMcpEnabled(spaceId, id, enabled);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, enabled } : x)) });
+      },
+      async setMcpAllowedTools(spaceId, id, tools) {
+        await api.setMcpAllowedTools(spaceId, id, tools);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, allowedTools: tools } : x)) });
+      },
+      async refreshMcpTools(id) {
+        const { tools, error } = await api.mcpToolsList(id);
+        set({
+          // A failed refresh keeps whatever was cached before — the row still has something to show.
+          mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, tools: error ? x.tools : tools } : x)),
+          mcpToolsError: { ...get().mcpToolsError, [id]: error },
+        });
+      },
+      async retryMcpServer(id) {
+        await api.retryMcpServer(id);
+        // The real status arrives on the next `mcp.serverStatus` broadcast; optimistically clear the
+        // breaker here so the Retry button doesn't sit on a stale "circuit_open" until then.
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, status: "idle" } : x)) });
+      },
+      async startMcpOauth(id) {
+        return api.startMcpOauth(id);
+      },
+      async disconnectMcpOauth(id) {
+        await api.disconnectMcpOauth(id);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, oauthStatus: "unconfigured" } : x)) });
+      },
+      applyMcpServerStatus({ id, status, oauthStatus }) {
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, status, oauthStatus } : x)) });
+      },
+      async openActivity() {
+        // Always opens showing everything (binding rule 5) — a filter left over from a previous visit
+        // would silently hide rows the user has no reason to expect are being hidden.
+        set({ mcpCallsFilter: {}, mcpCalls: [], mcpCallsHasMore: false, sheet: { kind: "activity" }, paletteOpen: false });
+        await get().refreshMcpCalls();
+      },
+      async refreshMcpCalls() {
+        // Captured before the await, per refreshMcpServers's isSpace(sid) idiom: `want` is the filter
+        // THIS fetch is answering. Reference equality is enough to detect a newer one superseding it —
+        // setMcpCallsFilter and openActivity always replace `mcpCallsFilter` with a new object rather
+        // than mutating it in place, so two chip clicks in quick succession never share a reference.
+        const want = get().mcpCallsFilter;
+        const { calls } = await api.mcpCallsList({ ...want, limit: MCP_CALLS_PAGE });
+        // The sheet may have closed, or a later filter change may have already started its own fetch,
+        // while this one was in flight — a slow response landing after the fact must not clobber
+        // whatever the CURRENT filter's fetch put there (or is still waiting to put there).
+        if (get().sheet?.kind !== "activity" || get().mcpCallsFilter !== want) return;
+        set({ mcpCalls: calls, mcpCallsHasMore: calls.length === MCP_CALLS_PAGE });
+      },
+      async loadMoreMcpCalls() {
+        const last = get().mcpCalls.at(-1);
+        if (!last) return; // nothing loaded yet — Load more has nothing to page after
+        const want = get().mcpCallsFilter; // same supersession guard as refreshMcpCalls, same reason
+        const { calls } = await api.mcpCallsList({ ...want, before: { ts: last.ts, id: last.id }, limit: MCP_CALLS_PAGE });
+        if (get().sheet?.kind !== "activity" || get().mcpCallsFilter !== want) return;
+        set({ mcpCalls: [...get().mcpCalls, ...calls], mcpCallsHasMore: calls.length === MCP_CALLS_PAGE });
+      },
+      async setMcpCallsFilter(patch) {
+        const next: McpCallsFilter = { ...get().mcpCallsFilter };
+        if ("sessionId" in patch) { if (patch.sessionId) next.sessionId = patch.sessionId; else delete next.sessionId; }
+        if ("serverId" in patch) { if (patch.serverId) next.serverId = patch.serverId; else delete next.serverId; }
+        set({ mcpCallsFilter: next });
+        // Paging respects the filter (plan requirement), so a filter change re-fetches from the top
+        // rather than filtering the already-loaded page client-side.
+        await get().refreshMcpCalls();
+      },
+      applyMcpCall(call) {
+        // Nothing is collecting while the sheet is shut — the next openActivity re-fetches anyway, so
+        // growing this array for a view nobody has open is work for nothing (mirrors checkpoints.changed).
+        if (get().sheet?.kind !== "activity") return;
+        if (get().mcpCalls.some((c) => c.id === call.id)) return; // the event can repeat (binding rule 6)
+        const { sessionId, serverId } = get().mcpCallsFilter;
+        if (sessionId && call.sessionId !== sessionId) return;
+        if (serverId && call.serverId !== serverId) return;
+        const next = [call, ...get().mcpCalls];
+        // Cap enforced ONLY here — see MCP_CALLS_LIVE_CAP's doc comment for why loadMoreMcpCalls doesn't.
+        const trimmed = next.length > MCP_CALLS_LIVE_CAP;
+        set({
+          mcpCalls: trimmed ? next.slice(0, MCP_CALLS_LIVE_CAP) : next,
+          // Trimming the tail evicts real rows from memory, not from the log — they are still fetchable
+          // by paging further back. That has to re-arm "Load more" even if the page that loaded them
+          // had already reported hasMore:false, or those rows would simply vanish with no way back.
+          ...(trimmed ? { mcpCallsHasMore: true } : {}),
+        });
       },
       run(action) {
         action().catch((e: unknown) => {
