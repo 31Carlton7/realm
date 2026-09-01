@@ -51,7 +51,7 @@ describe("modelRows with a probe catalog", () => {
     for (const models of [null, undefined, []] as const) {
       const rows = modelRows({ kind: "claude", model: null, agentProbe: [probe("claude", models as AgentProbe["models"])], canSwitchAgent: true });
       const claude = rows.filter((r) => r.kind === "claude");
-      expect(claude.map((r) => r.modelId)).toEqual(["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]);
+      expect(claude.map((r) => r.modelId)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]);
       expect(claude[0]!.selected).toBe(true); // static lists pin first row = adapter default (presets.test.ts)
     }
   });

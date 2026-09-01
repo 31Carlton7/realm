@@ -60,7 +60,7 @@ export type AgentModel = { id: string; label: string };
  *  - **acp:gemini** is empty because the kind is no longer offered (see SELECTABLE_AGENT_KINDS).
  */
 export const AGENT_MODELS = {
-  claude: [{ id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
+  claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
   codex: [], "acp:gemini": [], "acp:cursor": [], fake: [{ id: "fake", label: "Fake" }],
 } as const satisfies Record<import("./entities").AgentKind, readonly AgentModel[]>;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -76,7 +76,7 @@ export const SELECTABLE_AGENT_KINDS = ["claude", "codex", "acp:cursor"] as const
 /** Frontier default model label per kind — what the prompter's model chip shows while `session.model`
  *  is null (the adapter's own default). Display-only: never transmitted as a model id. */
 export const DEFAULT_MODEL_LABEL = {
-  claude: "Fable 5", codex: "GPT-5.6", "acp:cursor": "Composer", "acp:gemini": "Gemini", fake: "Fake",
+  claude: "Fable 5.1", codex: "GPT-5.6", "acp:cursor": "Composer", "acp:gemini": "Gemini", fake: "Fake",
 } as const satisfies Record<import("./entities").AgentKind, string>;
 /**
  * Agent kinds whose permission model Realm can actually control.

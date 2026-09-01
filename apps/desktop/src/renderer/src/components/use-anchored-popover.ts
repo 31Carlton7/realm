@@ -32,21 +32,34 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
 
   useLayoutEffect(() => {
     const el = ref.current; if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
-    const a = at ? { x: at.x, y: at.y, width: 0, height: 0 } : anchorRef?.current?.getBoundingClientRect();
-    if (!a) { setPos({ left: MARGIN, top: MARGIN, origin: "top left" }); return; }
-    const placed = placeAnchored({
-      anchor: { x: a.x, y: a.y, width: a.width, height: a.height },
-      size: { width, height },
-      win: { width: window.innerWidth, height: window.innerHeight },
-      align, placement: at ? "down" : placement, gap: at ? 0 : 4, margin: MARGIN,
-      avoid: browserRects,
-    });
-    // §6: the 140ms scale-in is origin-aware — the surface grows out of the corner nearest its
-    // trigger. The vertical half flips with the surface itself (one that flipped above its anchor
-    // grows upward); the horizontal half follows `align`. A point-placed menu grows from its point.
-    const origin = `${placed.above ? "bottom" : "top"} ${align === "right" ? "right" : "left"}`;
-    setPos({ left: placed.left, top: placed.top, origin });
+    const place = () => {
+      const { width, height } = el.getBoundingClientRect();
+      const a = at ? { x: at.x, y: at.y, width: 0, height: 0 } : anchorRef?.current?.getBoundingClientRect();
+      if (!a) { setPos({ left: MARGIN, top: MARGIN, origin: "top left" }); return; }
+      const placed = placeAnchored({
+        anchor: { x: a.x, y: a.y, width: a.width, height: a.height },
+        size: { width, height },
+        win: { width: window.innerWidth, height: window.innerHeight },
+        align, placement: at ? "down" : placement, gap: at ? 0 : 4, margin: MARGIN,
+        avoid: browserRects,
+      });
+      // §6: the 140ms scale-in is origin-aware — the surface grows out of the corner nearest its
+      // trigger. The vertical half flips with the surface itself (one that flipped above its anchor
+      // grows upward); the horizontal half follows `align`. A point-placed menu grows from its point.
+      const origin = `${placed.above ? "bottom" : "top"} ${align === "right" ? "right" : "left"}`;
+      // Same numbers → same object, so the ResizeObserver's synchronous first callback (and any
+      // resize that does not actually move the surface) costs nothing and cannot cycle.
+      setPos((prev) => prev && prev.left === placed.left && prev.top === placed.top && prev.origin === origin
+        ? prev : { left: placed.left, top: placed.top, origin });
+    };
+    place();
+    // A surface whose CONTENT changes height after mount was placed against the height it had at
+    // mount, and the flip/clamp decision goes stale: the icon picker's tabs swing it between ~150px
+    // (Generated) and ~470px (Emoji), which off a low anchor hangs it off the bottom of the window.
+    // Re-place on its own resize — menus, whose contents never move, observe a size that never fires.
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [ref, at, anchorRef, align, placement, browserRects]);
 
   // Focus restore on close. The target is captured once at mount, before any roving focus moves into

@@ -167,6 +167,33 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor('.session-pane[data-composer="hero"] .composer-input').join(" ")).toContain("min-height: 56px");
   });
 
+  /* The rich-text mirror is only correct while it is metrically IDENTICAL to the textarea it sits
+     under: same font, same size, same line-height, same padding box, same wrapping. Nothing in jsdom
+     can notice a drift here — there is no layout — so the stylesheet is the only place to catch a
+     stray padding tweak that would slide every painted glyph off the caret above it. */
+  it("the highlight mirror matches the textarea's text metrics exactly", () => {
+    const mirror = bodiesFor(".composer-highlight").join(" ");
+    const input = bodiesFor(".composer-input").join(" ");
+    for (const decl of ["font: inherit", "font-size: 15px", "line-height: 1.55", "padding: 14px 16px 6px"]) {
+      expect(mirror, decl).toContain(decl);
+      expect(input, decl).toContain(decl);
+    }
+    // The UA's own textarea wrapping, restated — the mirror is a <div> and gets neither by default.
+    expect(mirror).toContain("white-space: pre-wrap");
+    expect(mirror).toContain("overflow-wrap: break-word");
+    // Out of the flow, and never in the way of the pointer: the textarea owns both.
+    expect(mirror).toContain("position: absolute");
+    expect(mirror).toContain("pointer-events: none");
+    // The glyphs belong to the mirror. `color` alone is not enough to hide the textarea's own.
+    expect(input).toContain("-webkit-text-fill-color: transparent");
+    // Selected text too, or the UA's selection foreground paints the hidden glyphs back over the mirror.
+    expect(bodiesFor(".composer-input::selection").join(" ")).toContain("-webkit-text-fill-color: transparent");
+    // ...but the placeholder shows in exactly the state the mirror is empty, so it opts back in.
+    expect(bodiesFor(".composer-input::placeholder").join(" ")).toContain("-webkit-text-fill-color: var(--rl-text-faint)");
+    // A classic scrollbar would take width from the textarea's text box and not from the mirror's.
+    expect(input).toContain("scrollbar-width: none");
+  });
+
   it("the control row's left group clips instead of wrapping — the measured collapse depends on it", () => {
     const body = bodiesFor(".composer-opts").join(" ");
     expect(body).toContain("flex-wrap: nowrap");
@@ -427,5 +454,47 @@ describe("§6 do-NOT-animate list", () => {
     expect(reduced).toContain("animation: none !important");
     expect(reduced).toContain("transition: none !important");
     expect(reduced).toContain(".spin { display: none; }");
+  });
+});
+
+/** The three layout regressions the space page and the icon picker shipped with. All of them are
+ *  invisible to the rest of the suite for the same reason §6's motion table is — jsdom has no
+ *  layout — so the guard has to be against the declarations themselves. */
+describe("row and control layout", () => {
+  it("a button lays its glyph and label out as a centered row that cannot wrap or shrink", () => {
+    // `.btn` was `display: block`: an icon-plus-label button ("+ New session", "Generate") put its
+    // glyph on the baseline with only a JSX whitespace node for spacing, and shrank under its own
+    // label until the text wrapped out of the fixed 30px box.
+    const btn = bodiesFor(".btn").join(" ");
+    expect(btn).toContain("display: inline-flex");
+    expect(btn).toContain("align-items: center");
+    expect(btn).toContain("gap:");
+    expect(btn).toContain("white-space: nowrap");
+    expect(btn).toContain("flex-shrink: 0");
+  });
+
+  it("a page row has exactly one elastic column, so its trailing metadata forms a straight edge", () => {
+    // The bug: `.page-row-dim` and `.item-status` both carried `margin-left: auto`, which splits the
+    // leftover space between them — every row parked its timestamp at a different x. The title grows
+    // instead, and nothing after it may claim free space.
+    const title = bodiesFor(".page-row-title").join(" ");
+    expect(title).toMatch(/flex: 1|flex-grow: 1/);
+    expect(title).toContain("min-width: 0");
+    for (const sel of [".page-row-dim", ".page-row-dim + .page-row-dim"]) {
+      for (const body of bodiesFor(sel)) expect(body, `${sel} { ${body} }`).not.toContain("margin-left: auto");
+    }
+    // …and the leading glyph is not a shrinkable column either: it went sub-pixel on narrow panes.
+    expect(bodiesFor(".page-row > svg").join(" ")).toContain("flex: none");
+  });
+
+  it("a busy control keeps its fill — only a nothing-to-do control is greyed out", () => {
+    // `.btn.primary:disabled` is written for "there is nothing to commit"; applied to "Generating…"
+    // it erased the button under the press that started the work.
+    const busy = bodiesFor('.btn.primary:disabled[aria-busy="true"]').join(" ");
+    expect(busy).toContain("background: var(--rl-accent)");
+    expect(bodiesFor('.btn:disabled[aria-busy="true"]').join(" ")).toContain("opacity: .7");
+    // The distinction only exists if the plain disabled treatment is still the dimmer one.
+    expect(bodiesFor(".btn.primary:disabled").join(" ")).toContain("background: var(--rl-raised)");
+    expect(bodiesFor(".btn:disabled").join(" ")).toContain("opacity: .45");
   });
 });
