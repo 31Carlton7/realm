@@ -422,8 +422,15 @@ button.panel-title:hover { background: var(--rl-hover); }
    read on a surface sheet; the old translucent-layer hack is gone), hover steps to the inset fill.
    Primary = the accent treatment: inset top highlight, accent-ink hover ladder. Press stays §6's
    app-wide .97 (BUI's own is .96 — one press scale everywhere beats a per-atom fork). */
+/* A button is a ROW, not a block of text: the icon-plus-label buttons ("+ New session", "Generate")
+   were laying their glyph out as inline content in a `display: block` flex item — baseline-aligned
+   instead of centered, spaced only by the JSX whitespace node, and free to shrink under its own
+   label and wrap out of the fixed 30px box. inline-flex + nowrap + no shrink is the whole fix. */
 .btn { height: 30px; padding: 0 12px; border-radius: var(--r-ctl); border: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  flex-shrink: 0; white-space: nowrap;
   background: var(--surface); box-shadow: var(--shadow-btn); }
+.btn > svg { flex: none; }
 .btn:hover:not(:disabled) { background: var(--inset); }
 .btn.primary { background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
 .btn.primary:hover:not(:disabled) { background: var(--accent-ink); }
@@ -1110,6 +1117,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* A disabled primary must not wear the accent — 45% opacity on a filled blue button still reads as
    THE action (caught in the W4 visual pass: "Commit, push & PR" looked live over "Nothing staged"). */
 .btn.primary:disabled { background: var(--rl-raised); color: var(--rl-text-faint); box-shadow: none; }
+/* Disabled-because-WORKING is not disabled-because-nothing-to-do. The rule above is for the latter,
+   and applied to a busy control it erased the button the user had just pressed — "Generating…" came
+   back as unfilled grey text at 45%, which reads as a dead surface, not as work in flight. A busy
+   button keeps its fill, one step down in emphasis. */
+.btn:disabled[aria-busy="true"] { opacity: .7; }
+.btn.primary:disabled[aria-busy="true"] { background: var(--rl-accent); color: var(--rl-accent-contrast); }
 
 /* ── Space settings: the space's checkouts (W1/W2 made visible in W3) ───── */
 .env-empty { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
@@ -1257,9 +1270,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 .page-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; text-align: left;
   border: none; border-radius: var(--r-ctl); background: none; color: var(--rl-text-dim); font-size: 13px; cursor: pointer; }
 .page-row:hover { background: var(--rl-hover); }
-.page-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
-.page-row-dim { flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: auto; font-size: 11.5px; color: var(--rl-text-faint); }
-.page-row-dim + .page-row-dim { margin-left: 10px; }
+/* The TITLE is the row's elastic column — it claims the free space and ellipsises, and everything
+   after it packs against the right edge. It used to size to its content while `.page-row-dim` and
+   `.item-status` BOTH carried `margin-left: auto`, so the leftover space split evenly between them
+   and every row parked its timestamp at a different x — a ragged column down the list. One auto
+   margin, or none plus a growing title; never two. */
+.page-row > svg { flex: none; }
+.page-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.page-row-dim { flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--rl-text-faint); }
+.page-row-dim + .page-row-dim { margin-left: 2px; } /* + the row's own 8px gap = the 10px these want */
 /* The Tasks lens's parent-session link (Plan 13 W2): a dim inline link inside the row button. */
 .page-row-link { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .page-row-link:hover { color: var(--rl-text-dim); }

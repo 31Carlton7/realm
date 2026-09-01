@@ -429,3 +429,45 @@ describe("§6 do-NOT-animate list", () => {
     expect(reduced).toContain(".spin { display: none; }");
   });
 });
+
+/** The three layout regressions the space page and the icon picker shipped with. All of them are
+ *  invisible to the rest of the suite for the same reason §6's motion table is — jsdom has no
+ *  layout — so the guard has to be against the declarations themselves. */
+describe("row and control layout", () => {
+  it("a button lays its glyph and label out as a centered row that cannot wrap or shrink", () => {
+    // `.btn` was `display: block`: an icon-plus-label button ("+ New session", "Generate") put its
+    // glyph on the baseline with only a JSX whitespace node for spacing, and shrank under its own
+    // label until the text wrapped out of the fixed 30px box.
+    const btn = bodiesFor(".btn").join(" ");
+    expect(btn).toContain("display: inline-flex");
+    expect(btn).toContain("align-items: center");
+    expect(btn).toContain("gap:");
+    expect(btn).toContain("white-space: nowrap");
+    expect(btn).toContain("flex-shrink: 0");
+  });
+
+  it("a page row has exactly one elastic column, so its trailing metadata forms a straight edge", () => {
+    // The bug: `.page-row-dim` and `.item-status` both carried `margin-left: auto`, which splits the
+    // leftover space between them — every row parked its timestamp at a different x. The title grows
+    // instead, and nothing after it may claim free space.
+    const title = bodiesFor(".page-row-title").join(" ");
+    expect(title).toMatch(/flex: 1|flex-grow: 1/);
+    expect(title).toContain("min-width: 0");
+    for (const sel of [".page-row-dim", ".page-row-dim + .page-row-dim"]) {
+      for (const body of bodiesFor(sel)) expect(body, `${sel} { ${body} }`).not.toContain("margin-left: auto");
+    }
+    // …and the leading glyph is not a shrinkable column either: it went sub-pixel on narrow panes.
+    expect(bodiesFor(".page-row > svg").join(" ")).toContain("flex: none");
+  });
+
+  it("a busy control keeps its fill — only a nothing-to-do control is greyed out", () => {
+    // `.btn.primary:disabled` is written for "there is nothing to commit"; applied to "Generating…"
+    // it erased the button under the press that started the work.
+    const busy = bodiesFor('.btn.primary:disabled[aria-busy="true"]').join(" ");
+    expect(busy).toContain("background: var(--rl-accent)");
+    expect(bodiesFor('.btn:disabled[aria-busy="true"]').join(" ")).toContain("opacity: .7");
+    // The distinction only exists if the plain disabled treatment is still the dimmer one.
+    expect(bodiesFor(".btn.primary:disabled").join(" ")).toContain("background: var(--rl-raised)");
+    expect(bodiesFor(".btn:disabled").join(" ")).toContain("opacity: .45");
+  });
+});
