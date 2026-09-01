@@ -3,14 +3,22 @@ import { join } from "node:path";
 import { startServer } from "./server-process";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { describeFiles, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
-import { createBrowserPaneHost } from "./browser-pane";
+import { blockBrowserDownloads, createBrowserPane, type BrowserPane } from "./browser-pane";
 import type { BrowserPaneHost, ViewRect } from "./browser-host";
+import { BrowserAgentHost } from "./browser-agent-host";
+import { startBrowserAgentBridge } from "./browser-agent-bridge";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
 let realmHome: string | null = null;
 /** The window's browser-pane views (Plan 11 W1). Set in createWindow; null before/after. */
 let browserHost: BrowserPaneHost | null = null;
+/** The full pane surface (W3): CDP access + identity for the agent executor. Same lifetime. */
+let browserPane: BrowserPane | null = null;
+/** The agent op executor + its server bridge (W3). The bridge lives as long as the app: it serves
+ *  whichever window's views exist, and honestly reports "pane not open" between windows. */
+let agentHost: BrowserAgentHost | null = null;
+let agentBridge: { stop(): void } | null = null;
 
 /** With no explicit application menu, Electron installs its default one, whose File → Close Window
  *  binds ⌘W — and menu accelerators fire in the main process before the renderer ever sees the
@@ -65,8 +73,26 @@ async function createWindow(info: { port: number; home: string }) {
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   // Native trackpad phases for the space swiper (macOS; optional helper).
   const phases = startScrollPhaseStream(win);
-  browserHost = createBrowserPaneHost(win); // destroys its views on win "closed" itself
-  win.on("closed", () => { phases.stop(); browserHost = null; });
+  const pane = createBrowserPane(win); // destroys its views on win "closed" itself
+  browserPane = pane;
+  browserHost = pane.host;
+  // The agent executor (W3): drives the pane's views over in-process CDP for realm-server's
+  // realm-browser tools. Buffers and snapshot-diff state die with each view.
+  const host = new BrowserAgentHost({
+    attach: (id) => pane.attachCdp(id),
+    hasView: (id) => pane.hasView(id),
+    navigate: (id, url) => pane.host.navigate(id, url),
+    pageState: (id) => pane.pageState(id),
+  });
+  pane.onViewDestroyed((id) => host.release(id));
+  agentHost = host;
+  // Downloads are a hard block on the browser partition — cancelled in every permission mode.
+  blockBrowserDownloads((wcId, url) => {
+    const id = browserPane?.browserIdForWebContents(wcId);
+    if (id) agentHost?.noteBlockedDownload(id, url);
+    console.error(`[browser-agent] download blocked${id ? ` (browser ${id})` : ""}: ${url}`);
+  });
+  win.on("closed", () => { phases.stop(); browserHost = null; browserPane = null; agentHost = null; });
 }
 
 // Browser pane (Plan 11 W1): the renderer drives the native WebContentsViews over this surface.
@@ -111,6 +137,17 @@ app.whenReady().then(async () => {
     // restarts the app is bounded too.
     void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});
     await createWindow(info);
+    // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
+    // that does not exist fail honestly inside the executor; the bridge just relays.
+    agentBridge = startBrowserAgentBridge({
+      port: info.port,
+      handleOp: (op, params) => {
+        const host = agentHost;
+        if (!host) return Promise.reject(new Error("the Realm window is not open — browser tools need it"));
+        return host.handleOp(op, params);
+      },
+      onLog: (line) => console.error(line),
+    });
   } catch (e) {
     console.error(e);
     dialog.showErrorBox("Realm failed to start", e instanceof Error ? e.message : String(e));
@@ -118,4 +155,4 @@ app.whenReady().then(async () => {
   }
 });
 app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => { serverChild?.kill("SIGTERM"); });
+app.on("before-quit", () => { agentBridge?.stop(); serverChild?.kill("SIGTERM"); });
