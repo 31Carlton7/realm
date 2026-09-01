@@ -4,7 +4,7 @@ import {
   AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath,
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
 
@@ -35,6 +35,9 @@ export type PermissionDecision = "allow" | "allow_always" | "deny";
 /** Where a sidebar row was dropped on a pane: an edge splits there, center replaces the pane's item.
  *  Canonical home of this type — PaneHost imports it from here. */
 export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
+/** Live css-pixel rect where one browser pane's NATIVE view paints (Plan 11 W2), keyed by the
+ *  browser ITEM id. What the no-overlay primitives avoid. */
+export type BrowserRect = { itemId: string; x: number; y: number; width: number; height: number };
 export type AgentProbe = MethodResult<"agents.probe">[number];
 /** `mcp.test`'s answer: reached or not, and one sentence saying why. Built server-side from things that
  *  cannot be secrets (see live-check.ts), so a UI may render `detail` verbatim. */
@@ -272,6 +275,8 @@ export type AppState = {
   connectionState: "connected" | "reconnecting";
   paletteOpen: boolean;
   sheet: Sheet | null;
+  /** Every visible browser view's rect, reference-stable between real changes (W2). */
+  browserRects: BrowserRect[];
   /** Sessions of the active space, by id. */
   sessions: Record<string, Session>;
   /** Statuses across spaces: seeded by refreshAllSessions, kept current by session.status broadcasts
@@ -417,6 +422,9 @@ export type AppState = {
   setPaletteOpen(open: boolean): void;
   openSheet(sheet: Sheet): void;
   closeSheet(): void;
+  /** Each browser pane reports the rect its native view paints; null when it stops (unmount, no
+   *  page). The registration point for W2's no-overlay invariant. */
+  setBrowserRect(itemId: string, rect: { x: number; y: number; width: number; height: number } | null): void;
   refreshSessions(): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
@@ -811,7 +819,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, items: [], layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
-      paletteOpen: false, sheet: null,
+      paletteOpen: false, sheet: null, browserRects: [],
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
@@ -1066,6 +1074,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       setPaletteOpen(open) { set(open ? { paletteOpen: true, sheet: null } : { paletteOpen: false }); },
       openSheet(sheet) { set({ sheet, paletteOpen: false }); },
       closeSheet() { set({ sheet: null }); },
+      // Reference-stable: an unchanged rect never produces a new array, so the popover/palette/
+      // sheet subscribers only re-place on real movement, not on every rAF echo.
+      setBrowserRect(itemId, rect) {
+        const cur = get().browserRects;
+        const idx = cur.findIndex((b) => b.itemId === itemId);
+        if (!rect) {
+          if (idx !== -1) set({ browserRects: cur.filter((b) => b.itemId !== itemId) });
+          return;
+        }
+        const prev = cur[idx];
+        if (prev && prev.x === rect.x && prev.y === rect.y && prev.width === rect.width && prev.height === rect.height) return;
+        const next: BrowserRect = { itemId, x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        set({ browserRects: idx === -1 ? [...cur, next] : cur.map((b, i) => (i === idx ? next : b)) });
+      },
       async refreshSessions() {
         const sid = get().activeSpaceId; if (!sid) return;
         const list = await api.listSessions(sid);
@@ -1601,4 +1623,17 @@ export function useApp<T>(sel: (s: AppState) => T): T {
 export function useAppStore(): StoreApi<AppState> {
   const store = useContext(StoreContext); if (!store) throw new Error("StoreContext missing");
   return store;
+}
+/** The store or null — for components that unit tests also render bare (Menu, BrowserPane) and
+ *  that must degrade to "no store" instead of throwing. */
+export function useAppStoreMaybe(): StoreApi<AppState> | null {
+  return useContext(StoreContext);
+}
+const NO_RECTS: BrowserRect[] = [];
+/** `browserRects[]` for the two floating-surface primitives; [] outside the provider (bare unit
+ *  tests) — which reproduces the pre-W2 placement exactly. */
+export function useBrowserRects(): BrowserRect[] {
+  const store = useContext(StoreContext);
+  const subscribe = useCallback((cb: () => void) => (store ? store.subscribe(cb) : () => {}), [store]);
+  return useSyncExternalStore(subscribe, () => (store ? store.getState().browserRects : NO_RECTS));
 }

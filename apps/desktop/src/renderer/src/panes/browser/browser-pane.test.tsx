@@ -4,7 +4,8 @@ import type { Browser } from "@realm/contracts";
 import { BrowserPane } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
-import { item } from "../../state/store.test-fakes";
+import { StoreContext, createAppStore } from "../../state/store";
+import { fakeApi, item } from "../../state/store.test-fakes";
 
 type StateMsg = BrowserViewState;
 
@@ -161,6 +162,41 @@ describe("BrowserPane", () => {
     expect(f.bounds.at(-1)!.visible).toBe(false); // hidden synchronously, not next frame
     await act(async () => { window.dispatchEvent(new Event("dragend")); await vi.advanceTimersByTimeAsync(50); });
     expect(f.bounds.at(-1)!.visible).toBe(true);
+  });
+
+  describe("no-overlay registration (W2)", () => {
+    const mountWithStore = (f: ReturnType<typeof fakeBridges>) => {
+      setBrowserBridgesForTests(f.bridges);
+      const store = createAppStore(fakeApi());
+      const view = render(
+        <StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+      return { store, ...view };
+    };
+
+    it("a pane with a page registers the rect its view paints, keyed by the ITEM id", async () => {
+      const { store } = mountWithStore(fakeBridges({ url: "https://example.com" }));
+      await settle();
+      expect(store.getState().browserRects).toEqual([{ itemId: "i1", x: 10, y: 40, width: 600, height: 400 }]);
+    });
+
+    it("no page, no rect — the empty state is plain DOM and floats may cover it", async () => {
+      const { store } = mountWithStore(fakeBridges({ url: "" }));
+      await settle();
+      expect(store.getState().browserRects).toEqual([]);
+    });
+
+    it("a drag-hidden view KEEPS its rect (the view snaps back to it) and unmount clears it", async () => {
+      const f = fakeBridges({ url: "https://example.com" });
+      const { store, unmount } = mountWithStore(f);
+      await settle();
+      const e = new Event("dragstart", { bubbles: true });
+      Object.defineProperty(e, "dataTransfer", { value: { types: ["application/x-realm-item"] } });
+      act(() => { window.dispatchEvent(e); });
+      expect(f.bounds.at(-1)!.visible).toBe(false); // native view hidden for the drag...
+      expect(store.getState().browserRects).toHaveLength(1); // ...but the no-overlay rect stays
+      unmount();
+      expect(store.getState().browserRects).toEqual([]);
+    });
   });
 
   it("unmount destroys the native view — no hidden survival", async () => {

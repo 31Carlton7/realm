@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import type { PaneProps } from "../registry";
+import { useAppStoreMaybe } from "../../state/store";
 import { cancelViewDestroy, getBrowserBridges, scheduleViewDestroy } from "./browser-client";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
 
@@ -28,6 +29,9 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  // Nullable on purpose: unit tests render the pane bare, and a missing store just means no
+  // no-overlay registration (there is nothing floating in those tests either).
+  const store = useAppStoreMaybe();
 
   const url = state?.url ?? initialUrl ?? "";
   const hasUrl = url !== "";
@@ -44,6 +48,12 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       const r = el.getBoundingClientRect();
       host.setBounds(browserId, { x: r.x, y: r.y, width: r.width, height: r.height }, window.devicePixelRatio,
         shouldShowView({ paneVisible: visibleRef.current, dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl }));
+      // W2's no-overlay registration: the rect the native view paints (or will paint — transient
+      // hides like drags and the mount settle KEEP the rect registered, because the view returns to
+      // exactly this rect and a surface placed "over" it during the blink would be covered the
+      // moment it comes back). Cleared when the pane has no page or is in a hidden leaf.
+      store?.getState().setBrowserRect(item.id,
+        visibleRef.current && flags.hasUrl ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
     };
     let raf = 0;
     const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; sync(); }); };
@@ -107,11 +117,12 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       window.removeEventListener("dragend", onDragEnd);
       window.removeEventListener("drop", onDragEnd);
       window.removeEventListener("resize", schedule);
+      store?.getState().setBrowserRect(item.id, null); // nothing paints here any more
       // Closing the pane destroys the view — a browser is not a terminal, no hidden survival.
       // (Deferred one macrotask so a StrictMode double-mount re-adopts instead of reloading.)
       scheduleViewDestroy(browserId, () => void host.destroy(browserId));
     };
-  }, [browserId, item.spaceId]);
+  }, [browserId, item.id, item.spaceId, store]);
 
   // An empty pane's natural target is the address bar (like a fresh browser tab).
   useEffect(() => {
