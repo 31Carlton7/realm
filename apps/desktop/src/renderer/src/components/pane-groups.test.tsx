@@ -4,6 +4,7 @@ import { allItems, findLeafOfItem } from "@realm/contracts";
 import { Main } from "../App";
 import { Sidebar } from "./sidebar/Sidebar";
 import { GroupBar } from "./GroupBar";
+import { CommandPalette } from "./CommandPalette";
 import { useGlobalHotkeys } from "../hotkeys";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item } from "../state/store.test-fakes";
@@ -267,5 +268,50 @@ describe("a stale focus", () => {
     });
     await waitFor(() => expect(screen.getByRole("button", { name: "Rename One" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Rename Two" })).toBeInTheDocument();
+  });
+});
+
+describe("command palette", () => {
+  const open = async () => {
+    const api = fakeApi({ items: THREE });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    const r = render(
+      <StoreContext.Provider value={store}><Main /><CommandPalette /></StoreContext.Provider>,
+    );
+    return { store, ...r };
+  };
+  const show = async (store: Awaited<ReturnType<typeof open>>["store"]) => {
+    await act(async () => { store.getState().setPaletteOpen(true); });
+  };
+
+  it("offers no group switches while a space has only one group", async () => {
+    const { store } = await open();
+    await twoPanes(store);
+    await show(store);
+    expect(screen.queryByText(/^Group: /)).not.toBeInTheDocument();
+    expect(screen.getByText("New pane group")).toBeInTheDocument();
+  });
+
+  it("lists every group once there is more than one, marking the current, and switches on pick", async () => {
+    const { store } = await open();
+    await twoPanes(store);
+    await act(async () => { await store.getState().newPaneGroup("Read"); });
+    await show(store);
+    expect(screen.getByText("Group: Main")).toBeInTheDocument();
+    expect(screen.getByText("Group: Read")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Group: Main"));
+    await waitFor(() => expect(allItems(store.getState().layout!)).toEqual(["i1", "i2"]));
+  });
+
+  it("offers Focus for the focused pane, then Unfocus, and the pick toggles it", async () => {
+    const { store } = await open();
+    await twoPanes(store);
+    await show(store);
+    fireEvent.click(screen.getByText("Focus “Two”"));
+    await waitFor(() => expect(store.getState().zoomedLeafId()).not.toBeNull());
+    await show(store);
+    fireEvent.click(screen.getByText("Unfocus pane"));
+    await waitFor(() => expect(store.getState().zoomedLeafId()).toBeNull());
   });
 });
