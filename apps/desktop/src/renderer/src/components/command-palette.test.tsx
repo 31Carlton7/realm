@@ -230,3 +230,15 @@ describe("CommandPalette", () => {
     expect(store.getState().paletteOpen).toBe(false); // ignored while a sheet is open
   });
 });
+
+/** Plan 12 W3: the palette's settings entry survived the sheet's retirement — it opens the space PAGE.
+ *  (An entry point silently dead is the failure mode; this one had no coverage in the sheet era.) */
+describe("Open space (Plan 12 W3)", () => {
+  it("runs openSpacePage for the active space — a pane, not a sheet", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open space" } });
+    fireEvent.click(screen.getByRole("option", { name: /Open space/ }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    expect(store.getState().sheet).toBeNull();
+  });
+});
