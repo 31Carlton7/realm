@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   LayoutSchema, allItems, closeItem, emptyLayout, findLeafOfItem, firstLeaf,
-  gridPreset, migrateLayout, openItem, splitLeaf, updateSizes, type Layout, type LayoutLeaf, type LayoutSplit,
+  equalSizes, equalizeSplit, gridPreset, migrateLayout, openItem, splitLeaf, updateSizes,
+  type Layout, type LayoutLeaf, type LayoutSplit,
 } from "./layout";
 
 const leaf = (itemId: string | null): LayoutLeaf => ({ type: "leaf", id: `L-${itemId ?? "empty"}`, itemId });
@@ -207,6 +208,109 @@ describe("splitLeaf", () => {
     const kids = (out as { children: LayoutLeaf[] }).children;
     expect(kids.map((c) => c.itemId)).toEqual(["a", "b"]);
     expect((out as { dir: string }).dir).toBe("col");
+  });
+
+  it("`before` puts the new leaf on the near side of a fresh split", () => {
+    const out = splitLeaf(leaf("a"), "L-a", "row", "b", true) as LayoutSplit;
+    expect(out.children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["b", "a"]);
+    expect(out.sizes).toEqual([50, 50]);
+  });
+
+  it("a leaf in a same-direction split gains a SIBLING, and the split re-balances to equal", () => {
+    // The headline case: two panes side by side, a third dropped on the right edge of the right one.
+    // Nesting would read 50/25/25; growing the row reads 33/33/33.
+    const out = splitLeaf(row([leaf("a"), leaf("b")]), "L-b", "row", "c") as LayoutSplit;
+    expect(out.id).toBe("S1"); // the same split, grown — not a new one wrapping a child
+    expect(out.children).toHaveLength(3);
+    expect(out.children.every((c) => c.type === "leaf")).toBe(true); // flat, no nesting
+    expect(out.children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["a", "b", "c"]);
+    out.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+  });
+
+  it("re-balances a dragged split too: the sibling arrives equal, not into the leftover", () => {
+    const dragged = row([leaf("a"), leaf("b")], [80, 20]);
+    const out = splitLeaf(dragged, "L-a", "row", "c", true) as LayoutSplit;
+    expect(out.children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["c", "a", "b"]);
+    out.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+  });
+
+  it("a leaf in a PERPENDICULAR split still nests, 50/50, leaving the outer split alone", () => {
+    const out = splitLeaf(row([leaf("a"), leaf("b")]), "L-b", "col", "c") as LayoutSplit;
+    expect(out.dir).toBe("row");
+    expect(out.sizes).toEqual([50, 50]); // outer shares untouched
+    const nested = out.children[1] as LayoutSplit;
+    expect(nested.type).toBe("split");
+    expect(nested.dir).toBe("col");
+    expect(nested.sizes).toEqual([50, 50]);
+    expect(nested.children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["b", "c"]);
+  });
+
+  it("grows the split that DIRECTLY holds the leaf, not an equally-directed ancestor", () => {
+    const l: Layout = { type: "split", id: "outer", dir: "row", sizes: [50, 50], children: [
+      leaf("a"),
+      { type: "split", id: "inner", dir: "row", sizes: [50, 50], children: [leaf("b"), leaf("c")] },
+    ] };
+    const out = splitLeaf(l, "L-c", "row", "d") as LayoutSplit;
+    expect(out.id).toBe("outer");
+    expect(out.sizes).toEqual([50, 50]); // the ancestor is not re-balanced
+    const inner = out.children[1] as LayoutSplit;
+    expect(inner.children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["b", "c", "d"]);
+    inner.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+  });
+
+  it("three drops onto the same growing row land in order, all equal", () => {
+    let l: Layout = leaf("a");
+    l = splitLeaf(l, "L-a", "row", "b");
+    l = splitLeaf(l, findLeafOfItem(l, "b")!.id, "row", "c");
+    l = splitLeaf(l, findLeafOfItem(l, "c")!.id, "row", "d");
+    const out = l as LayoutSplit;
+    expect(out.children).toHaveLength(4);
+    expect(allItems(out)).toEqual(["a", "b", "c", "d"]);
+    expect(out.sizes).toEqual([25, 25, 25, 25]);
+  });
+
+  it("the split result always stays schema-valid (sizes match children, sum to 100)", () => {
+    const out = splitLeaf(row([leaf("a"), leaf("b")]), "L-b", "row", "c") as LayoutSplit;
+    expect(() => LayoutSchema.parse(out)).not.toThrow();
+    expect(out.sizes).toHaveLength(out.children.length);
+    expect(out.sizes.reduce((x, y) => x + y, 0)).toBeCloseTo(100, 5);
+  });
+});
+
+describe("equalizeSplit", () => {
+  it("equalSizes splits 100 evenly", () => {
+    expect(equalSizes(2)).toEqual([50, 50]);
+    expect(equalSizes(4)).toEqual([25, 25, 25, 25]);
+    expect(equalSizes(3).reduce((x, y) => x + y, 0)).toBeCloseTo(100, 5);
+  });
+
+  it("puts a dragged split back on equal shares", () => {
+    const out = equalizeSplit(row([leaf("a"), leaf("b"), leaf("c")], [60, 25, 15]), "S1") as LayoutSplit;
+    out.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+    expect(out.children).toEqual([leaf("a"), leaf("b"), leaf("c")]); // children untouched, only sizes moved
+  });
+
+  it("returns the very same object when the split is already equal — an unmodified divider is a no-op", () => {
+    const l = row([leaf("a"), leaf("b")]);
+    expect(equalizeSplit(l, "S1")).toBe(l);
+  });
+
+  it("returns the very same object when no split carries that id", () => {
+    const l = row([leaf("a"), leaf("b")], [70, 30]);
+    expect(equalizeSplit(l, "nope")).toBe(l);
+    const bare = leaf("a");
+    expect(equalizeSplit(bare, "S1")).toBe(bare);
+  });
+
+  it("touches only the named split, leaving dragged siblings and ancestors alone", () => {
+    const l: Layout = { type: "split", id: "outer", dir: "row", sizes: [70, 30], children: [
+      { type: "split", id: "inner", dir: "col", sizes: [90, 10], children: [leaf("a"), leaf("b")] },
+      { type: "split", id: "other", dir: "col", sizes: [80, 20], children: [leaf("c"), leaf("d")] },
+    ] };
+    const out = equalizeSplit(l, "inner") as LayoutSplit;
+    expect(out.sizes).toEqual([70, 30]); // ancestor untouched
+    expect((out.children[0] as LayoutSplit).sizes).toEqual([50, 50]);
+    expect(out.children[1]).toBe((l as LayoutSplit).children[1]); // untouched subtree is not even re-created
   });
 });
 

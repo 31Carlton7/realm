@@ -74,6 +74,7 @@ export function Main() {
   const splitFocused = useApp((s) => s.splitFocused);
   const openItemAt = useApp((s) => s.openItemAt);
   const resizeSplit = useApp((s) => s.resizeSplit);
+  const equalizeSplit = useApp((s) => s.equalizeSplit);
   const run = useApp((s) => s.run);
   // First run (W4): no spaces at all — the onboarding sheet, not a sentence pointing at a "+". It is
   // gated on `booted` because an unbooted store also has zero spaces, and on the space COUNT rather than
@@ -89,6 +90,7 @@ export function Main() {
         // The split button targets its own leaf: focus it synchronously, then split reads the fresh focus.
         onSplit={(leafId, dir) => { focusLeaf(leafId); run(() => splitFocused(dir)); }}
         onResize={resizeSplit}
+        onEqualize={equalizeSplit}
         onDropItem={(id, leafId, edge) => run(() => openItemAt(id, leafId, edge))} />
     </>
   );

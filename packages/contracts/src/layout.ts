@@ -151,17 +151,68 @@ export function openItem(l: Layout, leafId: string | null, itemId: string): Layo
   return mapLeaves(base, (leaf) => (leaf.id === target ? { ...leaf, itemId } : leaf));
 }
 
+/** The shares a split is born with, and the ones `equalizeSplit` restores: every child the same. */
+export function equalSizes(count: number): number[] {
+  return Array.from({ length: count }, () => 100 / count);
+}
+
+/**
+ * Add `fresh` next to `leafId` inside the split that ALREADY runs along `dir`, re-balancing that split
+ * to equal shares. Returns null when there is no such split — the leaf is the root, or the split holding
+ * it runs the other way — and the caller wraps the leaf in a new nested split instead.
+ *
+ * This is what keeps a third pane from being a second-class citizen: without it, dropping onto the right
+ * edge of the right-hand pane of a 50/50 row nests a split INSIDE that pane, so the shares read
+ * 50/25/25. Growing the existing row instead makes them 33/33/33 — one flat row of equal columns,
+ * which is also the shape `gridPreset("three-col")` produces, so the two routes to three columns agree.
+ */
+function insertSibling(n: Layout, leafId: string, dir: "row" | "col", before: boolean, fresh: LayoutLeaf): Layout | null {
+  if (n.type === "leaf") return null;
+  if (n.dir === dir) {
+    const at = n.children.findIndex((c) => c.type === "leaf" && c.id === leafId);
+    if (at >= 0) {
+      const children = [...n.children];
+      children.splice(before ? at : at + 1, 0, fresh);
+      return { ...n, children, sizes: equalSizes(children.length) };
+    }
+  }
+  for (let i = 0; i < n.children.length; i++) {
+    const replaced = insertSibling(n.children[i]!, leafId, dir, before, fresh);
+    if (!replaced) continue;
+    const children = [...n.children];
+    children[i] = replaced;
+    return { ...n, children };
+  }
+  return null;
+}
+
 /** Split a leaf. `itemId` fills the new sibling (moved if open elsewhere); null makes an empty sibling
- *  awaiting the next openItem. Returns the new layout; the new leaf is always the second child of the
- *  split that replaced `leafId`, discoverable via findLeafOfItem (or the empty leaf id via newLeafId). */
-export function splitLeaf(l: Layout, leafId: string, dir: "row" | "col", itemId: string | null): Layout {
+ *  awaiting the next openItem. `before` puts the new leaf on the near side (the left/top drop edges)
+ *  instead of after the target. Either way the new leaf is discoverable via findLeafOfItem (or the empty
+ *  leaf id via newLeafId), and every child of the split that gained it ends up the same size. */
+export function splitLeaf(l: Layout, leafId: string, dir: "row" | "col", itemId: string | null, before = false): Layout {
   const base = itemId && findLeafOfItem(l, itemId) ? closeItem(l, itemId) : l;
   const target = hasLeaf(base, leafId) ? leafId : firstLeaf(base).id;
+  const fresh: LayoutLeaf = { type: "leaf", id: newId(), itemId };
+  const grown = insertSibling(base, target, dir, before, fresh);
+  if (grown) return grown;
   return mapLeaves(base, (leaf) => {
     if (leaf.id !== target) return leaf;
-    const fresh: LayoutLeaf = { type: "leaf", id: newId(), itemId };
-    return { type: "split", id: newId(), dir, sizes: [50, 50], children: [leaf, fresh] };
+    return { type: "split", id: newId(), dir, sizes: equalSizes(2), children: before ? [fresh, leaf] : [leaf, fresh] };
   });
+}
+
+/** Reset one split to the equal shares it was born with; every other node is returned unchanged. The
+ *  double-click-a-divider gesture. Returns the layout untouched (same object) when nothing would move,
+ *  so an unmodified split double-clicked is a genuine no-op rather than a no-op-shaped write. */
+export function equalizeSplit(l: Layout, splitId: string): Layout {
+  if (l.type === "leaf") return l;
+  if (l.id !== splitId) {
+    const children = l.children.map((c) => equalizeSplit(c, splitId));
+    return children.some((c, i) => c !== l.children[i]) ? { ...l, children } : l;
+  }
+  const sizes = equalSizes(l.children.length);
+  return sizes.every((s, i) => Math.abs(s - (l.sizes[i] ?? NaN)) < 0.01) ? l : { ...l, sizes };
 }
 
 /** Replace the sizes of the split with `splitId`; every other node is returned unchanged. */

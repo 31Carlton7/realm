@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
+import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, sessionEvent, PAGE_REF_IDS, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, item, mcpServer, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
@@ -635,6 +635,48 @@ describe("app store", () => {
       expect(count()).toBe(before + 1);
       const saved = store.getState().layout!; if (saved.type !== "split") throw new Error();
       expect(saved.sizes).toEqual([10, 90]);
+    });
+  });
+
+  describe("equalizeSplit (double-click a divider)", () => {
+    const twoCol = async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().newTerminal();
+      await store.getState().applyPreset("two-col");
+      return store;
+    };
+
+    it("puts a dragged split back on equal shares and persists", async () => {
+      const store = await twoCol();
+      const splitId = store.getState().layout!.id;
+      store.getState().resizeSplit(splitId, [80, 20]);
+      const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      store.getState().equalizeSplit(splitId);
+      const l = store.getState().layout!; if (l.type !== "split") throw new Error();
+      expect(l.sizes).toEqual([50, 50]);
+      await store.getState().flushPersist();
+      expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before + 1);
+    });
+
+    it("is a genuine no-op on an unmodified split: same layout object, nothing persisted", async () => {
+      const store = await twoCol();
+      const splitId = store.getState().layout!.id;
+      await store.getState().flushPersist();
+      const before = store.getState().layout!;
+      const writes = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      store.getState().equalizeSplit(splitId);
+      expect(store.getState().layout).toBe(before); // byte-identical
+      await store.getState().flushPersist();
+      expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(writes);
+    });
+
+    it("an unknown split id changes nothing", async () => {
+      const store = await twoCol();
+      store.getState().resizeSplit(store.getState().layout!.id, [80, 20]);
+      const before = store.getState().layout!;
+      store.getState().equalizeSplit("no-such-split");
+      expect(store.getState().layout).toBe(before);
     });
   });
 
@@ -1368,6 +1410,58 @@ describe("app store", () => {
       });
     }
 
+    it("a third item dropped beside two makes three EQUAL columns, not 50/25/25", async () => {
+      api.data.items.s1 = [item("i1", "s1"), item("i2", "s1"), item("i3", "s1")];
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right");
+      const i2Leaf = findLeafOfItem(store.getState().layout!, "i2")!.id;
+      await store.getState().openItemAt("i3", i2Leaf, "right");
+      const l = store.getState().layout!; if (l.type !== "split") throw new Error();
+      expect(l.children).toHaveLength(3); // one flat row, no nested split hiding inside a pane
+      expect(l.children.every((c) => c.type === "leaf")).toBe(true);
+      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i1", "i2", "i3"]);
+      l.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+    });
+
+    it("dropping onto the LEFT edge of the middle pane inserts before it, still all equal", async () => {
+      api.data.items.s1 = [item("i1", "s1"), item("i2", "s1"), item("i3", "s1")];
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right");
+      const i2Leaf = findLeafOfItem(store.getState().layout!, "i2")!.id;
+      await store.getState().openItemAt("i3", i2Leaf, "left");
+      const l = store.getState().layout!; if (l.type !== "split") throw new Error();
+      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i1", "i3", "i2"]);
+      l.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+      expect(store.getState().focusedLeafId).toBe(findLeafOfItem(l, "i3")!.id);
+    });
+
+    it("a drop that already re-balanced survives an earlier drag: sizes come out equal, not proportional", async () => {
+      api.data.items.s1 = [item("i1", "s1"), item("i2", "s1"), item("i3", "s1")];
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right");
+      store.getState().resizeSplit(store.getState().layout!.id, [85, 15]); // user dragged it lopsided
+      const i2Leaf = findLeafOfItem(store.getState().layout!, "i2")!.id;
+      await store.getState().openItemAt("i3", i2Leaf, "right");
+      const l = store.getState().layout!; if (l.type !== "split") throw new Error();
+      l.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+    });
+
+    it("splitFocused into a same-direction split grows it equally too", async () => {
+      api.data.items.s1 = [item("i1", "s1"), item("i2", "s1")];
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right");
+      await store.getState().splitFocused("row"); // focus is on i2's leaf
+      const l = store.getState().layout!; if (l.type !== "split") throw new Error();
+      expect(l.children).toHaveLength(3);
+      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i1", "i2", null]);
+      l.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+      expect(store.getState().focusedLeafId).toBe((l.children[2] as { id: string }).id); // the fresh empty leaf
+    });
+
     it("focusedLeafId falls back to the first leaf when its leaf is closed away", async () => {
       twoItems();
       const store = createAppStore(api); await store.getState().boot();
@@ -1462,35 +1556,37 @@ describe("app store", () => {
       expect(findEmptySiblingOf(nested, "c")).toBeNull(); // c's sibling is a split, not an empty leaf
     });
 
-    it("swapSplitChildrenOf swaps the two leaf children holding the pair, nothing else", () => {
-      const l = split("root", "row", [
-        split("other", "col", [leaf("x", "i9"), leaf("y", null)]),
-        split("target", "row", [leaf("a", "i1"), leaf("b", "i2")]),
-      ]);
-      const out = swapSplitChildrenOf(l, "a", "i2");
-      if (out.type !== "split") throw new Error();
-      expect(out.children[0]).toEqual(split("other", "col", [leaf("x", "i9"), leaf("y", null)])); // grandchildren untouched
-      expect(out.children[1]).toEqual(split("target", "row", [leaf("a", "i2"), leaf("b", "i1")]));
+    it("findEmptySiblingOf takes the ADJACENT empty leaf, not just any empty leaf in the split", () => {
+      // splitLeaf grows a same-direction split rather than nesting, so a row can hold several empty
+      // leaves at once. Only the slot right beside the target is the one the split just created —
+      // scanning the whole split would focus a pre-existing empty pane instead of the new one.
+      const l = split("s", "row", [leaf("old", null), leaf("a", "i1"), leaf("fresh", null)]);
+      expect(findEmptySiblingOf(l, "a")).toBe("fresh");
+      // With empties on both sides the following slot wins: splitLeaf appends after the target.
+      const both = split("s", "row", [leaf("before", null), leaf("a", "i1"), leaf("after", null)]);
+      expect(findEmptySiblingOf(both, "a")).toBe("after");
+      // Only the preceding slot is empty — the drop-edge `before` case still resolves.
+      const near = split("s", "row", [leaf("before", null), leaf("a", "i1"), leaf("c", "i2")]);
+      expect(findEmptySiblingOf(near, "a")).toBe("before");
+      // A far-away empty leaf is NOT adopted.
+      const far = split("s", "row", [leaf("far", null), leaf("b", "i2"), leaf("a", "i1")]);
+      expect(findEmptySiblingOf(far, "a")).toBeNull();
     });
 
-    it("swapSplitChildrenOf after nesting applies only at the freshly created all-leaf split", () => {
-      // The original leaf's side can itself become a split after nesting; the swap must target the
-      // innermost split whose two children are both leaves (always true for a fresh splitLeaf result).
-      const l = split("outer", "row", [
-        split("inner", "col", [leaf("a", "i1"), leaf("n2", "i3")]),
-        leaf("n1", "i2"),
-      ]);
-      // Swap for the fresh inner split (a + i3): outer's children are not both leaves, so it must recurse.
-      const out = swapSplitChildrenOf(l, "a", "i3");
-      if (out.type !== "split") throw new Error();
-      expect(out.children[0]).toEqual(split("inner", "col", [leaf("a", "i3"), leaf("n2", "i1")]));
-      expect(out.children[1]).toEqual(leaf("n1", "i2")); // sibling outside the fresh split untouched
+    it("splitFocused focuses the leaf it just made, even when the row already had an empty pane", async () => {
+      api.data.items.s1 = [item("i1", "s1")];
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().splitFocused("row"); // row[i1, empty]; focus on the empty one
+      const firstEmpty = store.getState().focusedLeafId!;
+      store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i1")!.id);
+      await store.getState().splitFocused("row"); // grows the row: [i1, fresh, firstEmpty]
+      const l = store.getState().layout!; if (l.type !== "split") throw new Error();
+      expect(l.children).toHaveLength(3);
+      expect(store.getState().focusedLeafId).not.toBe(firstEmpty); // the NEW pane, not the old empty
+      expect(store.getState().focusedLeafId).toBe(l.children[1]!.id);
     });
 
-    it("swapSplitChildrenOf is a no-op when no split holds the pair as direct leaf children", () => {
-      const l = split("s", "row", [split("s2", "col", [leaf("a", "i1"), leaf("b", null)]), leaf("c", "i2")]);
-      expect(swapSplitChildrenOf(l, "a", "i2")).toEqual(l); // i2 is not a's direct sibling
-    });
   });
 });
 
