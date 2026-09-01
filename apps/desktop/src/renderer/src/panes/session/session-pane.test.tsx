@@ -1261,6 +1261,10 @@ describe("prompter model picker", () => {
     it("un-starring removes only that key", async () => {
       const { store } = await withFavorites([OPUS, HAIKU]);
       openPicker();
+      // aria-pressed is not decoration here: it is the hook the filled-star CSS keys on, so a
+      // starred row that failed to set it would look unstarred with no test noticing.
+      expect(starOn(/Claude Opus 5/)).toHaveAttribute("aria-pressed", "true");
+      expect(starOn(/Claude Sonnet 5/)).toHaveAttribute("aria-pressed", "false");
       fireEvent.click(starOn(/Claude Opus 5/));
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([HAIKU]));
     });

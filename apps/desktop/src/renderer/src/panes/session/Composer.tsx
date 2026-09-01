@@ -523,8 +523,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
       label: (
         <>
           {AGENT_META[k].label}
-          {!keeps && <span className="chip-effort"> runs {DEFAULT_MODEL_LABEL[k]}</span>}
-          {note && <span className="chip-effort"> — {note}</span>}
+          {!keeps && <span className="menu-hint"> runs {DEFAULT_MODEL_LABEL[k]}</span>}
+          {note && <span className="menu-hint"> — {note}</span>}
         </>
       ),
       checked: k === kind,

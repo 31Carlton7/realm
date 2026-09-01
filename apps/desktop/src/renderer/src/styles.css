@@ -220,6 +220,10 @@ kbd { font: 11px var(--font-mono); }
 .menu-label { flex: 1; }
 .menu-sep { height: 1px; background: var(--rl-hairline); margin: 4px 2px; }
 .menu-kbd { margin-left: auto; padding-left: 18px; color: var(--rl-text-dim); }
+/* A consequence trailing an item's own label — "Cursor · runs Composer", "Codex — not installed".
+   Dimmer than the label because it qualifies the choice rather than naming it. Menu-scoped: the
+   model chip's own `.chip-effort` suffix is scoped to `.model-chip` and styles nothing out here. */
+.menu-hint { color: var(--rl-text-faint); }
 
 /* ── Mention picker (prompter, W4): @-completion over the space's enabled skills ── */
 /* Same raised-surface language as .menu; rows echo .mp-row but focus never enters — the highlight is
