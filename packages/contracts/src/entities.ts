@@ -142,11 +142,14 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
 /**
  * How a session came to exist when something other than the user's own click created it (Plan 13 W1)
  * — the seam W2's Tasks lens filters on. `agent_run`/`browser_agent_run` are the two delegation
- * tools; `user-dispatch` is reserved for W2's ⌘⇧↩ composer gesture. A session the user created
- * normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is nullable
- * rather than having a "user" member: absence IS the ordinary case, and no backfill invents one.
+ * tools; `user-dispatch` is W2's ⌘⇧↩ composer gesture (the one origin with no parent agent);
+ * `review` is W3's reviewer recipe (the diff pane's "Request review" or the `agent_review` tool —
+ * `sessionId` is the requesting session for the tool path, null for the user's click). A session the
+ * user created normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is
+ * nullable rather than having a "user" member: absence IS the ordinary case, and no backfill invents
+ * one.
  */
-export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch"]);
+export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review"]);
 export type DispatchKind = z.infer<typeof DispatchKindSchema>;
 export const DispatchedBySchema = z.object({
   /** The delegating session, or null for an origin with no parent agent (`user-dispatch`). */

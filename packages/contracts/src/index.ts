@@ -12,5 +12,6 @@ export * from "./mcp";
 export * from "./memory";
 export * from "./session-events";
 export * from "./notifications";
+export * from "./review";
 export * from "./browser-agent";
 export * from "./delegation";

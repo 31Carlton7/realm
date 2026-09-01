@@ -7,6 +7,7 @@ import { SkillSchema, SkillIdSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
+import { ReviewResultSchema } from "./review";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -587,6 +588,21 @@ export const Methods = {
     params: z.object({ ids: z.array(IdSchema).default([]), all: z.boolean().default(false) }),
     result: z.object({ ok: z.literal(true), unread: z.number().int() }),
   },
+  /**
+   * The reviewer recipe (Plan 13 W3): spawn a read-only reviewer session over this environment. The
+   * call returns as soon as the reviewer session exists — the review itself takes minutes, and the
+   * verdict arrives as a `review.changed` broadcast + a `review_done` notification when it settles.
+   * One review per environment at a time (REVIEW_IN_FLIGHT otherwise). The reviewer is hard-capped
+   * read-only (`plan` mode) and can never ship: review informs the human's ship click, never a
+   * commit — see contracts/review.ts.
+   */
+  "review.request": { params: z.object({ environmentId: IdSchema }), result: z.object({ sessionId: IdSchema, itemId: IdSchema }) },
+  /** The environment's latest persisted review verdict, or null (never reviewed, dismissed, or
+   *  cleared by a ship). */
+  "review.get": { params: z.object({ environmentId: IdSchema }), result: z.object({ review: ReviewResultSchema.nullable() }) },
+  /** Dismiss the environment's persisted verdict (the diff-pane section's ✕). Server-side so every
+   *  window's pane hears the `review.changed` that follows. */
+  "review.dismiss": { params: z.object({ environmentId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable(), models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional() })) },
@@ -598,8 +614,12 @@ export const Methods = {
    *  worktree). Omitted, the session lands in the project's checkout, or the space's primary.
    *  `permissionMode: null` (the instant-create paths, which never ask) means "the user's configured
    *  default" — resolved server-side from `DEFAULT_PERMISSION_MODE_KEY`, in ONE place, so the palette,
-   *  ⌘N and "+" can never disagree about what a new session is allowed to do. */
-  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().nullable().default(null), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
+   *  ⌘N and "+" can never disagree about what a new session is allowed to do.
+   *  `userDispatched` (Plan 13 W2, the ⌘⇧↩ gesture) records `dispatchedBy: { kind: "user-dispatch",
+   *  sessionId: null }` on the row — the Tasks lens's seam. Deliberately a boolean and not a
+   *  DispatchedBy: the agent origins (`agent_run`/`browser_agent_run`/`review`) are recorded by the
+   *  server-side tools that create those children, and a client must not be able to claim them. */
+  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().nullable().default(null), title: z.string().optional(), userDispatched: z.boolean().default(false) }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
   /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */
@@ -687,6 +707,10 @@ export const Events = {
    *  (auto-reading a `session_done` for the pane the user is looking at) without a refetch race; null
    *  when the change was a markRead or a resolution, where a held list refetches instead. */
   "notifications.changed": z.object({ notification: NotificationSchema.nullable(), unread: z.number().int() }),
+  /** An environment's persisted review verdict changed (Plan 13 W3): a review settled (`review` is
+   *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
+   *  this environment apply the payload directly — no refetch race. */
+  "review.changed": z.object({ environmentId: IdSchema, review: ReviewResultSchema.nullable() }),
   /** A mutating browser tool call SETTLED on this browser (Plan 11 W4) — the pane chrome's action
    *  ticker appends it. `text` is the same attributed description the permission card showed (page
    *  text only ever inside the `the page labels "…"` framing — never laundered into Realm's voice);

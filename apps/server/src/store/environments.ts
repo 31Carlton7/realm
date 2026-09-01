@@ -34,6 +34,12 @@ export class EnvironmentsStore {
     const r = this.db.prepare("SELECT * FROM environments WHERE space_id = ? AND path = ?").get(spaceId, path) as Row | undefined;
     return r ? toEnvironment(r) : null;
   }
+  /** Every environment at this checkout path, ACROSS spaces (Plan 13 W3: `workspace.ship` knows only
+   *  a cwd, and a shipped tree stales every space's review of it — cross-space rows at one path are
+   *  rare but possible via linked checkouts). */
+  findAllByPath(path: string): Environment[] {
+    return (this.db.prepare("SELECT * FROM environments WHERE path = ? ORDER BY created_at, rowid").all(path) as Row[]).map(toEnvironment);
+  }
 
   /**
    * The space's own checkout, created on first use. One per space: `environments_one_primary` makes a

@@ -4,6 +4,8 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { DelegationEngine } from "../delegation/engine";
 import type { AgentRunService } from "../delegation/agent-run";
 import { AGENT_RUN_TOOL, AGENT_RUN_TOOL_NAME } from "../delegation/agent-run";
+import type { ReviewService } from "../delegation/review";
+import { AGENT_REVIEW_TOOL, AGENT_REVIEW_TOOL_NAME } from "../delegation/review";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
@@ -251,34 +253,36 @@ export class BrowserAgentService {
 }
 
 /**
- * The `realm-agent` gateway provider: `browser_agent_run` (Plan 11 W5) and — when an
- * `AgentRunService` is wired (Plan 13 W1; production always does, older tests need not) —
- * `agent_run` beside it. A delegated child session of EITHER tool sees an empty tool list here (and
- * a refusal on call) even before the gateway-level toolset restriction hides the provider entirely —
- * two independent server-side enforcements of depth-1. Per-space off switch via
- * `mcp.setProviderEnabled`, same as `realm-browser` (the gateway contract: a provider handles its
- * own enablement).
+ * The `realm-agent` gateway provider: `browser_agent_run` (Plan 11 W5) and — when the services are
+ * wired (production always does, older tests need not) — `agent_run` (Plan 13 W1) and
+ * `agent_review` (Plan 13 W3) beside it. A delegated child session of ANY of the three sees an
+ * empty tool list here (and a refusal on call) even before the gateway-level toolset restriction
+ * hides the provider entirely — two independent server-side enforcements of depth-1. Per-space off
+ * switch via `mcp.setProviderEnabled`, same as `realm-browser` (the gateway contract: a provider
+ * handles its own enablement).
  */
-export function createRealmAgentProvider(service: BrowserAgentService, mcp: { providerEnabled(spaceId: string, name: string): boolean }, agentRuns?: AgentRunService): RealmToolProvider {
-  const isDelegatedChild = (sessionId: string): boolean => service.isChild(sessionId) || (agentRuns?.isChild(sessionId) ?? false);
-  const toolNames = (): string => (agentRuns ? `${RUN_TOOL_NAME}, ${AGENT_RUN_TOOL_NAME}` : RUN_TOOL_NAME);
+export function createRealmAgentProvider(service: BrowserAgentService, mcp: { providerEnabled(spaceId: string, name: string): boolean }, agentRuns?: AgentRunService, reviews?: ReviewService): RealmToolProvider {
+  const isDelegatedChild = (sessionId: string): boolean =>
+    service.isChild(sessionId) || (agentRuns?.isChild(sessionId) ?? false) || (reviews?.isChild(sessionId) ?? false);
+  const toolNames = (): string => [RUN_TOOL_NAME, ...(agentRuns ? [AGENT_RUN_TOOL_NAME] : []), ...(reviews ? [AGENT_REVIEW_TOOL_NAME] : [])].join(", ");
   return {
     name: REALM_AGENT_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME)) return [];
       if (isDelegatedChild(ctx.sessionId)) return [];
-      return agentRuns ? [RUN_TOOL, AGENT_RUN_TOOL] : [RUN_TOOL];
+      return [RUN_TOOL, ...(agentRuns ? [AGENT_RUN_TOOL] : []), ...(reviews ? [AGENT_REVIEW_TOOL] : [])];
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME))
         return err(`the ${REALM_AGENT_PROVIDER_NAME} tools are disabled for this space — mcp.setProviderEnabled turns them back on.`);
-      // The provider's own belt across BOTH tools: a delegated child (of either kind) is refused
-      // here, before each tool's run() re-checks its own registry — depth-1, twice over.
-      if (isDelegatedChild(ctx.sessionId) && (tool === RUN_TOOL_NAME || tool === AGENT_RUN_TOOL_NAME))
+      // The provider's own belt across ALL delegation tools: a delegated child (of any kind) is
+      // refused here, before each tool's run() re-checks its own registry — depth-1, twice over.
+      if (isDelegatedChild(ctx.sessionId) && (tool === RUN_TOOL_NAME || tool === AGENT_RUN_TOOL_NAME || tool === AGENT_REVIEW_TOOL_NAME))
         return err("refused: a delegated agent may not delegate further — delegation is depth-1 only.");
       try {
         if (tool === RUN_TOOL_NAME) return await service.run(ctx, args);
         if (tool === AGENT_RUN_TOOL_NAME && agentRuns) return await agentRuns.run(ctx, args);
+        if (tool === AGENT_REVIEW_TOOL_NAME && reviews) return await reviews.runTool(ctx, args);
         return err(`unknown tool "${tool}" — this provider has: ${toolNames()}`);
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
