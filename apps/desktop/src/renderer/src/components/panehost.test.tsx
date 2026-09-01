@@ -34,7 +34,7 @@ const split2: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50],
 function renderHost(over: Partial<PaneHostProps> = {}) {
   const props: PaneHostProps = {
     layout: split2, items, focusedLeafId: "L1",
-    onFocus: vi.fn(), onClose: vi.fn(), onSplit: vi.fn(), onDropItem: vi.fn(),
+    onFocus: vi.fn(), onClose: vi.fn(), onSplit: vi.fn(), onDropItem: vi.fn(), onEqualize: vi.fn(),
     ...over,
   };
   // PanelBar reads the store (rename/delete, per-kind meta), so every host render needs a provider.
@@ -274,6 +274,48 @@ describe("PaneHost", () => {
   });
 });
 
+describe("PaneHost divider double-click", () => {
+  const threeCol: Layout = { type: "split", id: "root", dir: "row", sizes: [60, 25, 15], children: [
+    { type: "leaf", id: "L1", itemId: "A" },
+    { type: "leaf", id: "L2", itemId: "B" },
+    { type: "leaf", id: "L3", itemId: null },
+  ] };
+
+  it("a split renders one divider between each adjacent pair", () => {
+    renderHost({ layout: threeCol });
+    expect(document.querySelectorAll(".resize-handle")).toHaveLength(2);
+  });
+
+  it("double-clicking any divider asks the owning split — not the pair — to equalize", () => {
+    const { props } = renderHost({ layout: threeCol });
+    const handles = document.querySelectorAll(".resize-handle");
+    fireEvent.doubleClick(handles[1]!); // the divider between L2 and L3
+    expect(props.onEqualize).toHaveBeenCalledExactlyOnceWith("root");
+  });
+
+  it("each divider names its OWN split, so a nested group equalizes independently", () => {
+    const nested: Layout = { type: "split", id: "outer", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "A" },
+      { type: "split", id: "inner", dir: "col", sizes: [70, 30], children: [
+        { type: "leaf", id: "L2", itemId: "B" },
+        { type: "leaf", id: "L3", itemId: null },
+      ] },
+    ] };
+    const { props } = renderHost({ layout: nested });
+    const handles = [...document.querySelectorAll(".resize-handle")];
+    expect(handles).toHaveLength(2);
+    const innerHandle = handles.find((h) => h.closest("[data-panel-group-id='inner']"))!;
+    fireEvent.doubleClick(innerHandle);
+    expect(props.onEqualize).toHaveBeenCalledExactlyOnceWith("inner");
+  });
+
+  it("a single ordinary click is not the gesture — dragging a divider must not reset it", () => {
+    const { props } = renderHost({ layout: threeCol });
+    fireEvent.click(document.querySelector(".resize-handle")!);
+    expect(props.onEqualize).not.toHaveBeenCalled();
+  });
+});
+
 describe("PaneHost drag-to-split overlay", () => {
   it("renders no drop-overlay when no drag is in progress", () => {
     renderHost();
@@ -439,8 +481,14 @@ describe("App shell", () => {
     fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Split right/ }));
     await waitFor(() => expect(findEmptySiblingOf(store.getState().layout!, "L2")).toBeTruthy());
-    expect(findEmptySiblingOf(store.getState().layout!, "L1")).toBeNull();
-    expect(store.getState().focusedLeafId).toBe(findEmptySiblingOf(store.getState().layout!, "L2"));
+    const l = store.getState().layout!; if (l.type !== "split") throw new Error();
+    // The row GREW rather than nesting, so "which leaf was split" is now a question of position: the
+    // fresh empty leaf sits right after L2, with L1 and L2 still the untouched first two columns.
+    expect(l.children).toHaveLength(3);
+    expect(l.children.map((c) => c.id).slice(0, 2)).toEqual(["L1", "L2"]);
+    expect(l.children[2]).toMatchObject({ type: "leaf", itemId: null });
+    expect(store.getState().focusedLeafId).toBe(l.children[2]!.id);
+    expect(findEmptySiblingOf(l, "L2")).toBe(l.children[2]!.id);
   });
 
   it("the global topbar is retired: no breadcrumb or topbar chrome, panes render full-bleed (layout presets live in the command palette)", async () => {

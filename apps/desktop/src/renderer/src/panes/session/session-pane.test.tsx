@@ -1250,6 +1250,17 @@ describe("the session's terminal drawer (W4)", () => {
     expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
   });
 
+  it("double-clicking the drawer divider restores the default width; the store follows", async () => {
+    const { store } = await mountPane({ open: true, width: 72 }); // dragged wide in a previous run
+    await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
+    const panels = [...document.querySelectorAll(".session-split > [data-panel]")];
+    expect(panels[1]).toHaveStyle({ flexGrow: "72" });
+
+    fireEvent.doubleClick(document.querySelector(".session-split .resize-handle")!);
+    // This split is not born equal — "original" here is the drawer's default width, not 50/50.
+    await waitFor(() => expect(store.getState().terminalPanel["se1"]!.width).toBe(38));
+  });
+
   it("a terminal item's header has no such toggle — only sessions own one", () => {
     const api = fakeApi();
     const store = createAppStore(api);

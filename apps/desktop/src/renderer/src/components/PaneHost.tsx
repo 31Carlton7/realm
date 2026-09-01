@@ -12,6 +12,8 @@ export type PaneHostProps = {
   onClose: (itemId: string) => void;
   onSplit: (leafId: string, dir: "row" | "col") => void;
   onResize?: (splitId: string, sizes: number[]) => void;
+  /** Double-click on a divider: put every child of that split back on equal shares. */
+  onEqualize?: (splitId: string) => void;
   /** Task 7 wires the drop-zone UI; the store's openItemAt is already self-drop-safe. */
   onDropItem?: (itemId: string, leafId: string, edge: DropEdge) => void;
 };
@@ -117,7 +119,7 @@ export function PaneHost(p: PaneHostProps) {
         </div>
       );
     }
-    return <SplitGroup node={n} onResize={p.onResize}>{n.children.map((c) => <Fragment key={c.id}>{renderNode(c)}</Fragment>)}</SplitGroup>;
+    return <SplitGroup node={n} onResize={p.onResize} onEqualize={p.onEqualize}>{n.children.map((c) => <Fragment key={c.id}>{renderNode(c)}</Fragment>)}</SplitGroup>;
   }
 }
 
@@ -128,8 +130,9 @@ export function PaneHost(p: PaneHostProps) {
  * imperatively (setLayout — instant, resize is on the do-NOT-animate list). The onLayout echo
  * round-trips through resizeSplit, whose sameSizes guard stops the loop.
  */
-function SplitGroup({ node, onResize, children }: {
-  node: LayoutSplit; onResize?: (splitId: string, sizes: number[]) => void; children: JSX.Element[];
+function SplitGroup({ node, onResize, onEqualize, children }: {
+  node: LayoutSplit; onResize?: (splitId: string, sizes: number[]) => void;
+  onEqualize?: (splitId: string) => void; children: JSX.Element[];
 }) {
   const ref = useRef<ImperativePanelGroupHandle>(null);
   const sizes = node.sizes;
@@ -143,7 +146,12 @@ function SplitGroup({ node, onResize, children }: {
     <PanelGroup ref={ref} id={node.id} direction={node.dir === "row" ? "horizontal" : "vertical"} onLayout={(s) => onResize?.(node.id, s)}>
       {node.children.map((c, i) => (
         <Fragment key={c.id}>
-          {i > 0 && <PanelResizeHandle className="resize-handle" />}
+          {/* Double-click restores the whole group's equal shares — the sizes every split is born
+              with — rather than only the two panels this handle sits between, so one gesture per
+              divider is enough to undo any amount of dragging. It goes through the STORE, not
+              setLayout: the sizes effect above is what pushes the result into the group, and the
+              store no-ops on an already-equal split, so an undragged divider ignores the gesture. */}
+          {i > 0 && <PanelResizeHandle className="resize-handle" onDoubleClick={() => onEqualize?.(node.id)} />}
           <Panel id={c.id} order={i} defaultSize={node.sizes[i] ?? 100 / node.children.length} minSize={10}>{children[i]}</Panel>
         </Fragment>
       ))}

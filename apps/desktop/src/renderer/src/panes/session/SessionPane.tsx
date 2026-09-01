@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
 import { AGENT_SKILL_SUPPORT, type Item, type Skill } from "@realm/contracts";
 import { TERMINAL_PANEL_WIDTH, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
@@ -96,14 +96,31 @@ function TerminalDrawer({ sessionId, title, visible, children }: { sessionId: st
   const ensureSessionTerminal = useApp((s) => s.ensureSessionTerminal);
   const setTerminalPanelWidth = useApp((s) => s.setTerminalPanelWidth);
   const run = useApp((s) => s.run);
+  const group = useRef<ImperativePanelGroupHandle>(null);
   // Restore path: the panel was left open in a previous run, so the terminal is fetched (never created
   // twice — the server's openTerminal is get-or-create, and the store guards concurrent calls).
   useEffect(() => { if (!terminalId) run(() => ensureSessionTerminal(sessionId)); }, [terminalId, sessionId, ensureSessionTerminal, run]);
+  // The group reads `width` at mount only, so a width the STORE changed (double-click-to-restore) has
+  // to be pushed in — the same imperative echo PaneHost's SplitGroup does for layout splits. The length
+  // guard is not cosmetic: setLayout THROWS ("Invalid 0 panel layout") on a group whose panels have not
+  // registered yet. A drag takes the other direction (onLayout → store), and lands within 0.01 of what
+  // it just reported, so the two never chase each other.
+  useEffect(() => {
+    const g = group.current; if (!g) return;
+    const current = g.getLayout();
+    if (current.length !== 2) return;
+    if (Math.abs((current[1] ?? NaN) - width) >= 0.01) g.setLayout([100 - width, width]);
+  }, [width]);
   return (
-    <PanelGroup className="session-split" id={`sterm-${sessionId}`} direction="horizontal"
+    <PanelGroup ref={group} className="session-split" id={`sterm-${sessionId}`} direction="horizontal"
       onLayout={(sizes) => { if (sizes[1] !== undefined) setTerminalPanelWidth(sessionId, sizes[1]); }}>
       <Panel id={`sbody-${sessionId}`} order={1} defaultSize={100 - width} minSize={25}>{children}</Panel>
-      <PanelResizeHandle className="resize-handle" />
+      {/* Same double-click-to-restore gesture as the layout dividers (PaneHost), and routed the same
+          way — through the store, with the effect above pushing the result back into the group. This
+          split is not born equal, so "original" here is the drawer's default width, not 50/50; the
+          store's own sub-0.01 guard is what makes an untouched divider ignore the gesture. */}
+      <PanelResizeHandle className="resize-handle"
+        onDoubleClick={() => setTerminalPanelWidth(sessionId, TERMINAL_PANEL_WIDTH)} />
       <Panel id={`sterm-p-${sessionId}`} order={2} defaultSize={width} minSize={15}>
         {terminalId
           ? <TerminalView terminalId={terminalId} title={title} visible={visible} />

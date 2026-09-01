@@ -1,6 +1,6 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
+  allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
   type DestinationPageKind, type NotificationCategory,
@@ -598,6 +598,9 @@ export type AppState = {
    *  Until the active space's items have loaded, sizes apply locally but never persist — PanelGroup
    *  fires onLayout at mount with normalized sizes, and that echo is not a user action. */
   resizeSplit(splitId: string, sizes: number[]): void;
+  /** Double-click-a-divider: give every child of one split the same share again. No-op (nothing set,
+   *  nothing persisted) when the split was never dragged off its equal shares. */
+  equalizeSplit(splitId: string): void;
   /** Flush a pending debounced layout persist immediately — wired to `pagehide` (A-M4): a resize inside
    *  the debounce window of quitting would otherwise never reach the server. No-op when nothing is pending. */
   flushPersist(): Promise<void>;
@@ -952,30 +955,23 @@ export function neighborLeafId(l: Layout, leafId: string, dir: FocusDir): string
   return null;
 }
 
-/** The id of the empty leaf sitting next to `leafId` in its immediate split, if any — i.e. the leaf a
- *  fresh `splitLeaf(..., null)` just created. Only direct siblings count. */
+/** The id of the empty leaf sitting IMMEDIATELY next to `leafId` in its own split — i.e. the leaf a
+ *  fresh `splitLeaf(..., null)` just created. Adjacency, not "any empty leaf in the split", matters
+ *  since splitLeaf grows an existing same-direction split instead of nesting: a row can hold several
+ *  empty leaves, and only the one the split just put beside `leafId` is the new one. splitLeaf appends
+ *  after the target (`before` is a drop-edge concern, never splitFocused's), so the following slot wins
+ *  a tie. */
 export function findEmptySiblingOf(l: Layout, leafId: string): string | null {
   if (l.type === "leaf") return null;
-  if (l.children.some((c) => c.type === "leaf" && c.id === leafId)) {
-    const empty = l.children.find((c) => c.type === "leaf" && c.id !== leafId && c.itemId === null);
-    return empty?.id ?? null;
+  const at = l.children.findIndex((c) => c.type === "leaf" && c.id === leafId);
+  if (at >= 0) {
+    for (const c of [l.children[at + 1], l.children[at - 1]]) {
+      if (c && c.type === "leaf" && c.itemId === null) return c.id;
+    }
+    return null;
   }
   for (const c of l.children) { const f = findEmptySiblingOf(c, leafId); if (f) return f; }
   return null;
-}
-
-/** After `splitLeaf` created a split whose two children are leaves — the original `leafId` and the leaf
- *  now holding `itemId` — swap the two children's itemIds (drag-to-split onto the near edge). Applies
- *  only to a split whose direct children are both leaves matching the pair, which is always true for a
- *  freshly created split; grandchildren and unrelated splits are never touched. */
-export function swapSplitChildrenOf(l: Layout, leafId: string, itemId: string): Layout {
-  if (l.type === "leaf") return l;
-  const [a, b] = l.children;
-  if (l.children.length === 2 && a?.type === "leaf" && b?.type === "leaf" &&
-      ((a.id === leafId && b.itemId === itemId) || (b.id === leafId && a.itemId === itemId))) {
-    return { ...l, children: [{ ...a, itemId: b.itemId }, { ...b, itemId: a.itemId }] };
-  }
-  return { ...l, children: l.children.map((c) => swapSplitChildrenOf(c, leafId, itemId)) };
 }
 
 /** Space RPC results are not zod-parsed on the client (the rpc envelope leaves `result` untouched), so a
@@ -1435,8 +1431,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.id === leafId) return;
         if (edge === "center") return get().openItem(itemId, leafId);
         const dir = edge === "left" || edge === "right" ? "row" : "col";
-        let layout = splitLeaf(get().layout ?? emptyLayout(), leafId, dir, itemId);
-        if (edge === "left" || edge === "top") layout = swapSplitChildrenOf(layout, leafId, itemId);
+        const layout = splitLeaf(get().layout ?? emptyLayout(), leafId, dir, itemId, edge === "left" || edge === "top");
         const leaf = findLeafOfItem(layout, itemId);
         set({ layout, focusedLeafId: leaf?.id ?? null });
         await persist();
@@ -1459,6 +1454,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!current || sameSizes(current, sizes)) return;
         set({ layout: updateSizes(l, splitId, sizes) });
         if (layoutHydrated) schedulePersist(); // pre-hydration resizes are mount echoes, not user actions
+      },
+      equalizeSplit(splitId) {
+        const l = get().layout; if (!l) return;
+        const next = layoutEqualize(l, splitId);
+        if (next === l) return; // already equal, or no such split — a double-click that changes nothing
+        set({ layout: next });
+        schedulePersist();
       },
       flushPersist: () => flushPersist(),
       applyConnectionState(state) {
