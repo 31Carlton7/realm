@@ -1,7 +1,7 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
+  AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
   type DestinationPageKind, type NotificationCategory,
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
@@ -1533,13 +1533,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const s = get().sessions[id];
         if (!s) return;
         const inPlan = s.permissionMode === PLAN_PERMISSION_MODE;
+        // The park is for agents whose Plan REPLACES a real permission axis (Claude, Codex — the
+        // kinds Realm can set a permission mode on at all). An ACP agent's Plan is its own mode
+        // (Plan 14 W3): there is no chosen permission to preserve, so leaving Plan simply returns
+        // the row to its resting "default" — parking would fabricate Claude-shaped semantics on an
+        // agent that never had them.
+        const parks = AGENT_SUPPORTS_PERMISSION_MODES[s.agentKind];
         if (mode === "plan") {
           if (inPlan) return;
-          set({ planReturn: { ...get().planReturn, [id]: s.permissionMode } });
+          if (parks) set({ planReturn: { ...get().planReturn, [id]: s.permissionMode } });
           await get().setSessionOptions(id, { permissionMode: PLAN_PERMISSION_MODE });
         } else {
           if (!inPlan) return;
-          const back = get().planReturn[id] ?? "default";
+          const back = parks ? get().planReturn[id] ?? "default" : "default";
           const { [id]: _used, ...planReturn } = get().planReturn;
           set({ planReturn });
           await get().setSessionOptions(id, { permissionMode: back });

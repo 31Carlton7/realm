@@ -31,6 +31,8 @@
  * fail -32603 with data (Cursor's shape), FAKE_ACP_LOADFAIL=1 makes session/load fail, FAKE_ACP_NOLOAD=1 drops
  * the loadSession capability, FAKE_ACP_NOIMAGE=1 drops the image prompt capability, FAKE_ACP_ALLOWONLY=1 offers no reject option, and FAKE_ACP_LOAD_ASKS=1
  * makes session/load call fs/read_text_file and session/request_permission back on us mid-replay.
+ * FAKE_ACP_NOMODES=1 omits `modes` from session/new and session/load (a build that names none),
+ * FAKE_ACP_NOPLANMODE=1 advertises modes without a plan-equivalent (agent/ask only).
  * FAKE_ACP_MUTE_INITIALIZE=1, FAKE_ACP_MUTE_SESSION_NEW=1 and FAKE_ACP_MUTE_SESSION_LOAD=1 leave that request unanswered forever.
  * FAKE_ACP_SET_MODEL_OK=1 makes session/set_model succeed (it fails -32601 by default), and
  * FAKE_ACP_MODEL_GARBAGE=1 pollutes session/new's availableModels with malformed rows.
@@ -62,6 +64,17 @@ const ask = (method, params) => {
   return new Promise((resolve) => pendingRequests.set(id, resolve));
 };
 const promptText = (prompt) => (Array.isArray(prompt) ? prompt : []).map((b) => (b && typeof b.text === "string" ? b.text : "")).join(" ");
+
+/** `modes` as the real cursor-agent 2026.07.25 returns them from session/new (and session/load). */
+const sessionModes = () => {
+  if (process.env.FAKE_ACP_NOMODES) return {};
+  const availableModes = [
+    { id: "agent", name: "Agent", description: "Full agent capabilities with tool access" },
+    ...(process.env.FAKE_ACP_NOPLANMODE ? [] : [{ id: "plan", name: "Plan", description: "Read-only mode for planning and designing before implementation" }]),
+    { id: "ask", name: "Ask", description: "Q&A mode - no edits or command execution" },
+  ];
+  return { modes: { currentModeId: "agent", availableModes } };
+};
 
 // FAKE_ACP_ALLOWONLY drops the reject options, the case where no optionId can carry a deny.
 const PERMISSION_OPTIONS = [
@@ -166,7 +179,7 @@ async function loadSession(id, params) {
     ]);
     journal.replayAsks = { read, permission };
   }
-  ok(id, {});
+  ok(id, sessionModes());
 }
 
 function handleRequest(id, method, params) {
@@ -192,7 +205,7 @@ function handleRequest(id, method, params) {
       if (process.env.FAKE_ACP_STARTFAIL) { fail(id, -32603, "Internal error", { message: "Failed to initialize session services", details: "[unauthenticated] Error" }); return; }
       journal.newParams = params;
       if (process.env.FAKE_ACP_NOSESSIONID) { ok(id, {}); return; }
-      ok(id, { sessionId: `sess_${nextSessionN++}`, models: { currentModelId: "fake-model-1", availableModels: process.env.FAKE_ACP_MODEL_GARBAGE
+      ok(id, { sessionId: `sess_${nextSessionN++}`, ...sessionModes(), models: { currentModelId: "fake-model-1", availableModels: process.env.FAKE_ACP_MODEL_GARBAGE
         // Rows a real preview build could plausibly emit around the good ones: no modelId, wrong types,
         // blank ids, plus one nameless-but-valid id. Only the well-formed survive parseAcpModels.
         ? [null, 42, "composer", { name: "No id" }, { modelId: "", name: "Blank id" }, { modelId: "fake-model-1", name: "Fake 1" }, { modelId: 7, name: "Numeric id" }, { modelId: "fake-model-2" }]

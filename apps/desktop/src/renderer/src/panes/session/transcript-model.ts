@@ -1,4 +1,4 @@
-import type { SessionEvent } from "@realm/contracts";
+import type { AcpSessionMode, SessionEvent } from "@realm/contracts";
 
 export type Block =
   | { kind: "user"; text: string; ts: number }
@@ -14,7 +14,9 @@ export type Transcript = {
   /** Open permission requests, oldest first (an agent may ask for several tools at once). */
   pendingPermissions: PendingPermission[];
   usage: Usage;
-  init: { model: string; tools: string[]; providerSessionId: string } | null;
+  /** `availableModes`: the agent's OWN session modes as the init event carried them (Plan 14 W3) —
+   *  undefined when the agent named none. Per-session ground truth for the ACP Build/Plan chip. */
+  init: { model: string; tools: string[]; providerSessionId: string; availableModes?: AcpSessionMode[] } | null;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -61,7 +63,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
     }
     case "error": blocks.push({ kind: "error", message: e.payload.message, ts: e.ts }); return { ...t, blocks };
     case "usage": return { ...t, usage: e.payload };
-    case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId } };
+    case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId, ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}) } };
     case "status": return t;
   }
 }

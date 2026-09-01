@@ -17,6 +17,12 @@ const P = {
     /** The instruction files the agent says it loaded — Codex `thread/start` `instructionSources`, W3's
      *  ground truth for the memory pane. Absent for agents that report nothing (all the others today). */
     instructionSources: z.array(z.string()).optional(),
+    /** The agent's OWN session modes — ACP `session/new`/`session/load` `modes.availableModes`,
+     *  captured verbatim (Plan 14 W3). Per-session ground truth for the Build/Plan chip on ACP
+     *  sessions: the chip only appears when THIS list carries a Plan-equivalent (`acpPlanMode`).
+     *  Absent for agents whose plan support is static (Claude, Codex) and for ACP builds that
+     *  returned no `modes`. */
+    availableModes: z.array(z.object({ id: z.string(), name: z.string(), description: z.string().optional() })).optional(),
   }),
 } as const;
 

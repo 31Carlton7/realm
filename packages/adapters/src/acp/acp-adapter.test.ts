@@ -636,6 +636,73 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
+  it("captures the agent's advertised modes on the init event, verbatim (Plan 14 W3)", async () => {
+    const { handle, evs } = await booted();
+    expect(of(evs, "init")[0]!.payload.availableModes).toEqual([
+      { id: "agent", name: "Agent", description: "Full agent capabilities with tool access" },
+      { id: "plan", name: "Plan", description: "Read-only mode for planning and designing before implementation" },
+      { id: "ask", name: "Ask", description: "Q&A mode - no edits or command execution" },
+    ]);
+    await handle.dispose();
+  });
+
+  it("claims no modes on the init event when the agent named none", async () => {
+    const { handle, evs } = await booted({}, { env: { FAKE_ACP_NOMODES: "1" } });
+    expect(of(evs, "init")[0]!.payload).not.toHaveProperty("availableModes");
+    await handle.dispose();
+  });
+
+  it("translates Plan and Build onto the AGENT'S own mode ids, in that order", async () => {
+    const { handle, evs } = await booted();
+    await handle.setOptions({ permissionMode: "plan" });
+    // Leaving Plan restores a Realm PERMISSION id on the wire ("default" here) — for the mode axis
+    // that means Build, which is Cursor's `agent`, never the Realm string itself.
+    await handle.setOptions({ permissionMode: "default" });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: { modeId?: string } }[] };
+    expect(journal.calls.filter((c) => c.method === "session/set_mode").map((c) => c.params.modeId)).toEqual(["plan", "agent"]);
+    await handle.dispose();
+  });
+
+  it("sends NOTHING to session/set_mode when the agent advertises no plan-equivalent", async () => {
+    // The named mutant: forwarding Realm's id would collide with Cursor's `plan` by luck today and be
+    // a foreign-id rejection (or an accidental match) on any other agent.
+    const logs: string[] = [];
+    const { handle, evs } = await booted({ onLog: (l) => logs.push(l) }, { env: { FAKE_ACP_NOPLANMODE: "1" } });
+    await handle.setOptions({ permissionMode: "plan" });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string }[] };
+    expect(journal.calls.filter((c) => c.method === "session/set_mode")).toEqual([]);
+    expect(logs.join("\n")).toContain("no advertised mode maps onto Plan");
+    await handle.dispose();
+  });
+
+  it("sends NOTHING to session/set_mode when the agent advertised no modes at all", async () => {
+    const { handle, evs } = await booted({}, { env: { FAKE_ACP_NOMODES: "1" } });
+    await handle.setOptions({ permissionMode: "default" });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string }[] };
+    expect(journal.calls.filter((c) => c.method === "session/set_mode")).toEqual([]);
+    await handle.dispose();
+  });
+
+  it("re-enters Plan at boot — with the agent's own id — when the session's row says plan", async () => {
+    const { handle, evs } = await booted({ permissionMode: "plan" });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: { modeId?: string } }[] };
+    expect(journal.calls.filter((c) => c.method === "session/set_mode").map((c) => c.params.modeId)).toEqual(["plan"]);
+    await handle.dispose();
+  });
+
+  it("boots a plan-rowed session silently when the agent has no plan mode to enter", async () => {
+    const { handle, evs } = await booted({ permissionMode: "plan" }, { env: { FAKE_ACP_NOPLANMODE: "1" } });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string }[] };
+    expect(journal.calls.filter((c) => c.method === "session/set_mode")).toEqual([]);
+    expect(errors(evs)).toEqual([]); // no plan-equivalent is not a failure; the session runs in its default mode
+    await handle.dispose();
+  });
+
   it("emits no error on a deliberate dispose, and ends the stream", async () => {
     const { handle, evs, done } = await booted();
     await handle.dispose();

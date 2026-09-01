@@ -874,6 +874,73 @@ describe("prompter mode chip (Build / Plan)", () => {
   });
 });
 
+describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
+  // The real cursor-agent 2026.07.25 triple, as the adapter's init event carries it.
+  const CURSOR_MODES = [
+    { id: "agent", name: "Agent", description: "Full agent capabilities with tool access" },
+    { id: "plan", name: "Plan", description: "Read-only mode for planning and designing before implementation" },
+    { id: "ask", name: "Ask", description: "Q&A mode - no edits or command execution" },
+  ];
+  const initEvent = (availableModes?: typeof CURSOR_MODES) =>
+    sessionEvent("init", { providerSessionId: "sess_0", model: "composer", tools: [], cwd: "/w", ...(availableModes ? { availableModes } : {}) });
+
+  /** A cursor session whose transcript already holds `events` (lastSeq > 0 ⇒ the session has started). */
+  async function mountCursor(events: ReturnType<typeof sessionEvent>[], extra: Partial<Parameters<typeof session>[2]> = {}) {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "acp:cursor", lastEventSeq: events.length, ...extra })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: events.length, t: reduceAll(events) } } });
+    const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    return { api, store, ...r };
+  }
+
+  it("renders a DISABLED chip while a started session's handshake is still pending", async () => {
+    // The materialize-honestly window: events exist, no init yet. A static label, not a button —
+    // offering Plan before the agent has named its modes would be a guess.
+    await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] })]);
+    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
+    const waiting = document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]');
+    expect(waiting).not.toBeNull();
+    expect(waiting).toHaveTextContent("Build");
+  });
+
+  it("enables the chip once the init event carries a plan-equivalent, described in the agent's own words", async () => {
+    await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent(CURSOR_MODES)]);
+    const chip = screen.getByRole("button", { name: "Mode" });
+    expect(chip).toHaveTextContent("Build");
+    expect(chip.title).toContain("Cursor's own Plan mode");
+    expect(chip.title).toContain("Read-only mode for planning and designing before implementation");
+    expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
+  });
+
+  it("shows NO chip for a session whose modes lack a plan-equivalent", async () => {
+    // The named mutant: a chip here would drive session/set_mode toward a mode that does not exist.
+    await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }),
+      initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "ask", name: "Ask", description: "d" }])]);
+    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
+    expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
+  });
+
+  it("shows NO chip when the agent named no modes at all", async () => {
+    await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent()]);
+    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
+    expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
+  });
+
+  it("enters and leaves Plan WITHOUT the Claude-shaped permission park", async () => {
+    // Cursor's Plan is its own mode: there is no chosen permission to preserve, so nothing is parked
+    // and Build returns the row to its resting default.
+    const { store } = await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent(CURSOR_MODES)]);
+    fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
+    expect(store.getState().planReturn.se1).toBeUndefined(); // no park for an agent with no permission axis
+    expect(screen.getByRole("button", { name: "Mode" })).toHaveTextContent("Plan");
+    fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Build" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("default"));
+  });
+});
+
 describe("prompter model picker", () => {
   const rowNames = () => screen.getAllByRole("option").map((n) => n.querySelector(".mp-row-name")!.textContent);
 
