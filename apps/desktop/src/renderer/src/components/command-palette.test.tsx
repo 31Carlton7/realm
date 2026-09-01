@@ -12,6 +12,26 @@ async function mount(over: Parameters<typeof fakeApi>[0] = {}) {
 }
 
 const options = () => screen.getAllByRole("option").map((o) => o.textContent);
+
+describe("no-overlay centering (W2)", () => {
+  it("with a browser view open, the palette centers over the widest non-browser column", async () => {
+    const { store } = await mount();
+    // View on the right half of the 1024×768 jsdom window; complement column is 0–512.
+    act(() => store.getState().setBrowserRect("b1", { x: 512, y: 40, width: 512, height: 728 }));
+    const palette = screen.getByRole("dialog", { name: "Command palette" });
+    expect(palette.style.position).toBe("absolute");
+    expect(palette.style.width).toBe("488px"); // 512 - 2*12: capped into the column
+    expect(palette.style.left).toBe("12px"); // centered in it
+    expect(parseFloat(palette.style.left) + 488).toBeLessThanOrEqual(512); // clear of the view
+  });
+
+  it("without browser rects nothing is overridden — CSS centering as before", async () => {
+    await mount();
+    expect(screen.getByRole("dialog", { name: "Command palette" }).style.position).toBe("");
+  });
+});
+
+
 const input = () => screen.getByRole("combobox");
 
 describe("matchScore (subsequence + boosts)", () => {
