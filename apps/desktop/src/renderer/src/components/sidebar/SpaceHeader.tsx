@@ -14,6 +14,7 @@ export function SpaceHeader({ space }: { space: Space }) {
   const swipeInvert = useApp((s) => s.swipeInvert);
   const setSwipeInvert = useApp((s) => s.setSwipeInvert);
   const openSpacePage = useApp((s) => s.openSpacePage);
+  const openProfilePage = useApp((s) => s.openProfilePage);
   const newTerminal = useApp((s) => s.newTerminal);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
   const run = useApp((s) => s.run);
@@ -28,7 +29,9 @@ export function SpaceHeader({ space }: { space: Space }) {
         <Icon name={space.icon} size={16} /><span className="space-name">{space.name}</span>
       </button></h2>
       <div className="space-header-actions">
-        {profile && <button className="pill" title="Open space" onClick={openPage}>{profile.name}</button>}
+        {/* The pill NAMES the profile, so it opens the profile page (Plan 14 W2) — it used to be a
+            second door to the space page, which the title button beside it already is. */}
+        {profile && <button className="pill" title="Open profile" onClick={() => run(() => openProfilePage())}>{profile.name}</button>}
         <button ref={btnRef} className="icon-btn" aria-label="Space menu" aria-haspopup="menu" aria-expanded={menu}
           title="More" onClick={() => setMenu((o) => !o)}><Icon name="more" size={15} /></button>
         {menu && (

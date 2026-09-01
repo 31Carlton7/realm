@@ -212,10 +212,13 @@ describe("Arc sidebar", () => {
     expect(pages[0]!.hasAttribute("inert")).toBe(true);
   });
 
-  it("the profile pill opens the space PAGE and + opens the new-space sheet", async () => {
+  it("the profile pill opens the PROFILE page (Plan 14 W2) and + opens the new-space sheet", async () => {
     const { store } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    // The pill names the profile, so it opens the profile page — the space page keeps its own two
+    // doors (the title row and the menu's Open space, tested below).
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "profile-page")).toBe(true));
+    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
     expect(store.getState().sheet).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "New space" }));
     expect(store.getState().sheet).toEqual({ kind: "new-space" });

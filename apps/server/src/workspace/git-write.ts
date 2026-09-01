@@ -31,7 +31,21 @@ export type ShipInput = {
   /** Only ever true because the user was shown "this branch has no upstream" and said yes. */
   setUpstream: boolean;
   openPr: boolean;
+  /** Attribution for the durable ship log (Plan 14 W1): which environment row (and so which space)
+   *  this checkout is. Resolved by the RPC layer from the id the PANE named — never guessed from the
+   *  path, which can be registered in two spaces. Absent/null = an unattributed ship, which ships
+   *  exactly as before and logs nothing. */
+  log?: { environmentId: string; spaceId: string } | null;
 };
+
+/** What `ship` hands the log the moment its legs settle (Plan 14 W1). `pushState` is the push leg's
+ *  ACTUAL outcome — the row records what happened, not what was hoped. */
+export type ShipLogEntry = {
+  environmentId: string; spaceId: string;
+  branch: string | null; sha: string; subject: string; prUrl: string | null;
+  pushState: PushOutcome["state"];
+};
+export type ShipLogRecorder = (entry: ShipLogEntry) => void;
 
 /**
  * The git write path (Plan 7 W3): staging, and commit → push → open PR as one action.
@@ -56,10 +70,12 @@ export class GitWriteService {
   private git: GitRun;
   private run: RunCommand;
   private gh: string;
-  constructor(opts: { git?: GitRun; run?: RunCommand; ghCommand?: string } = {}) {
+  private shipLog: ShipLogRecorder | null;
+  constructor(opts: { git?: GitRun; run?: RunCommand; ghCommand?: string; shipLog?: ShipLogRecorder } = {}) {
     this.git = opts.git ?? gitCapture;
     this.run = opts.run ?? runCommand;
     this.gh = opts.ghCommand ?? "gh";
+    this.shipLog = opts.shipLog ?? null;
   }
 
   /** The checkout root, so a path from the diff list means the same thing here as it did there. */
@@ -140,12 +156,54 @@ export class GitWriteService {
     // A failed commit means the tree is not what the user meant to publish. Pushing anyway would send
     // the previous commit under the impression that this one went out.
     const canPush = input.push && commit.state !== "failed" && commit.state !== "no-identity";
-    const push = canPush ? await this.doPush(root, input.setUpstream) : pushOutcome("skipped", { reason: input.push ? "the commit did not happen" : null });
-    const onRemote = push.state === "pushed" || push.state === "up-to-date";
-    const pr = input.openPr
-      ? onRemote ? await this.doPr(root, push.remote, push.branch, input.message) : prOutcome("skipped", { reason: "the branch is not on the remote yet" })
-      : prOutcome("skipped", {});
-    return { commit, push, pr };
+    // The push and PR legs run under a finally so the log is written with whatever HAS settled even
+    // when a later leg crashes outright (a killed push): a commit that happened must log (Plan 14 W1).
+    let push: PushOutcome | null = null;
+    let pr: PrOutcome | null = null;
+    try {
+      push = canPush ? await this.doPush(root, input.setUpstream) : pushOutcome("skipped", { reason: input.push ? "the commit did not happen" : null });
+      const onRemote = push.state === "pushed" || push.state === "up-to-date";
+      pr = input.openPr
+        ? onRemote ? await this.doPr(root, push.remote, push.branch, input.message) : prOutcome("skipped", { reason: "the branch is not on the remote yet" })
+        : prOutcome("skipped", {});
+      return { commit, push, pr };
+    } finally {
+      await this.logShip(input, root, commit, push, canPush, pr);
+    }
+  }
+
+  /**
+   * The durable ship log's one write site (Plan 14 W1), reached however `ship` exits.
+   *
+   * A row is written when something durable happened: a commit was made this call, or a push reached
+   * the remote (the retry flow, where the commit leg was deliberately skipped). `pushState` is the
+   * push leg's outcome VERBATIM — a rejected or failed push after a successful commit logs as exactly
+   * that, never as `pushed`. A push leg that was entered but never settled (the process was killed
+   * mid-push) logs `failed`: attempted-and-unaccounted-for is a failure, not a skip.
+   *
+   * Logging is subordinate to shipping: a log-write error is swallowed, because the ship's own result
+   * (or its own error) is what the user acted on and must be what they see.
+   */
+  private async logShip(input: ShipInput, root: string, commit: CommitOutcome, push: PushOutcome | null, pushAttempted: boolean, pr: PrOutcome | null): Promise<void> {
+    if (!this.shipLog || !input.log) return;
+    try {
+      const pushState: PushOutcome["state"] = push ? push.state : pushAttempted ? "failed" : "skipped";
+      const landed = commit.state === "committed" || pushState === "pushed";
+      if (!landed) return;
+      // The retry flow commits nothing, so the row's sha/subject are read off HEAD — the commit the
+      // push just sent. `sha` empty means there is no commit anywhere, and nothing to record.
+      const sha = commit.sha ?? (await this.git(root, ["rev-parse", "HEAD"])).stdout.trim();
+      if (!sha) return;
+      const subject = commit.subject ?? (await this.git(root, ["log", "-1", "--format=%s"])).stdout.trim();
+      const branch = push?.branch ?? (await this.currentBranch(root));
+      this.shipLog({ environmentId: input.log.environmentId, spaceId: input.log.spaceId, branch, sha, subject, prUrl: pr?.url ?? null, pushState });
+    } catch { /* see doc comment: the log must never change the ship's own outcome */ }
+  }
+
+  /** The checked-out branch name, or null for detached HEAD — the log's branch column. */
+  private async currentBranch(root: string): Promise<string | null> {
+    const name = (await this.git(root, ["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim();
+    return name === "" || name === "HEAD" ? null : name;
   }
 
   private async doCommit(root: string, message: string): Promise<CommitOutcome> {

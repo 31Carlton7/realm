@@ -140,6 +140,31 @@ export type PrOutcome = z.infer<typeof PrOutcomeSchema>;
 export const ShipResultSchema = z.object({ commit: CommitOutcomeSchema, push: PushOutcomeSchema, pr: PrOutcomeSchema });
 export type ShipResult = z.infer<typeof ShipResultSchema>;
 
+/**
+ * One durable ship-log row (Plan 14 W1): what a `workspace.ship` actually DID to a checkout, written
+ * the moment the legs settle — never what was hoped. A row exists when something durable happened (a
+ * commit was made, or a push reached the remote); `pushState` then records the push leg verbatim, so
+ * a commit whose push was rejected logs `rejected`, not silence and not `pushed`.
+ *
+ * Like a notification, this is a LOG: plain references, no foreign keys server-side — the record of a
+ * ship stays true (and stays worth showing) after its worktree is removed.
+ */
+export const ShipSchema = z.object({
+  id: IdSchema,
+  environmentId: IdSchema,
+  spaceId: IdSchema,
+  /** Null when HEAD was detached at commit time — the commit still happened and still logs. */
+  branch: z.string().nullable(),
+  sha: z.string(),
+  subject: z.string(),
+  /** The PR/compare URL when the PR leg produced one; null when it was skipped or had none. */
+  prUrl: z.string().nullable(),
+  /** The push leg's outcome, verbatim (`PushOutcomeSchema.state`). `skipped` = a commit-only ship. */
+  pushState: PushOutcomeSchema.shape.state,
+  createdAt: z.number().int(),
+});
+export type Ship = z.infer<typeof ShipSchema>;
+
 /** What removing a worktree would destroy, asked of git at the moment of asking (Plan 7 W2).
  *  `environments.removeWorktree` re-reads these and refuses unless the acknowledgement matches, so
  *  a confirmation the user gave before the agent wrote another file fails closed. */
@@ -529,8 +554,20 @@ export const Methods = {
     params: z.object({
       cwd: z.string(), commit: z.boolean().default(true), message: z.string().default(""),
       push: z.boolean().default(true), setUpstream: z.boolean().default(false), openPr: z.boolean().default(false),
+      /** Which checkout row this ship belongs to, for the durable log (Plan 14 W1). The pane names its
+       *  environment rather than the server guessing from `cwd` — a path can be registered in two
+       *  spaces, and a guess is exactly how a ship row lands in the wrong one. Null (an environment-less
+       *  caller) ships exactly as before and logs nothing. */
+      environmentId: IdSchema.nullable().default(null),
     }),
     result: ShipResultSchema,
+  },
+  /** The durable ship log (Plan 14 W1), newest first, one space at a time — the space page's History
+   *  tab interleaves these with checkpoints. Cursor pagination exactly as `notifications.list`:
+   *  `cursor` is the previous page's `nextCursor`, opaque to clients. */
+  "ships.list": {
+    params: z.object({ spaceId: IdSchema, cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
+    result: z.object({ ships: z.array(ShipSchema), nextCursor: z.string().nullable() }),
   },
 
   /**
@@ -566,7 +603,10 @@ export const Methods = {
   /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string().min(1), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]) }), result: z.object({ ok: z.literal(true) }) },
+  /** `text` may be empty ONLY when attachments carry the message (Plan 14 W5 — attachment-only
+   *  sends). A message with neither is nothing at all and is refused here, not by an adapter. */
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]) })
+    .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]) }), result: z.object({ ok: z.literal(true) }) },
   "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional() }), result: SessionSchema },
@@ -620,6 +660,9 @@ export const Events = {
    *  went through; clients refresh every diff they hold, because two panes on the same repository may
    *  have asked from two different subdirectories and only the server knows they are the same tree. */
   "workspace.changed": z.object({ cwd: z.string() }),
+  /** A ship-log row was written for this space (Plan 14 W1) — clients holding the space's ship list
+   *  (the space page History tab) re-fetch; everyone else ignores it. */
+  "ships.changed":    z.object({ spaceId: IdSchema }),
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */

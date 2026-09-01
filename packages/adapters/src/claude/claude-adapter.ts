@@ -204,7 +204,13 @@ export class ClaudeAdapter implements AgentAdapter {
         // as the command's argument. `name` is the frontmatter name, which is how the plugin registers
         // the skill (a prepend built from the directory id would target nothing when the two differ).
         const text = m.skill ? `/realm:${m.skill.name} ${m.text}` : m.text;
-        const content: Array<Record<string, unknown>> = [{ type: "text", text }, ...images];
+        // Attachment-only messages (Plan 14 W5): the Messages API rejects an empty text block, so one
+        // is only included when there is text. Images can carry a message alone — but a send whose
+        // attachments were ALL skipped above (Claude ignores non-images) would be literally empty
+        // content, which the API also rejects; the minimal honest stub says what the user did. The
+        // prompter's send-gate refuses that combination up front, so this is the wire-level net.
+        const content: Array<Record<string, unknown>> = [...(text ? [{ type: "text", text }] : []), ...images];
+        if (content.length === 0) content.push({ type: "text", text: "(attached files)" });
         input.push({ type: "user", message: { role: "user", content: content as never }, parent_tool_use_id: null, session_id: "" } as SDKUserMessage);
       },
       respondPermission: resolvePermission,

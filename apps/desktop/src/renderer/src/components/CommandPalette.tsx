@@ -100,6 +100,7 @@ function PaletteBody() {
   const openSheet = useApp((s) => s.openSheet);
   const openSpacePage = useApp((s) => s.openSpacePage);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
+  const openProfilePage = useApp((s) => s.openProfilePage);
   const openActivity = useApp((s) => s.openActivity);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
   const refreshAllItems = useApp((s) => s.refreshAllItems);
@@ -165,6 +166,8 @@ function PaletteBody() {
       act("new-space", "New space…", "add", () => openSheet({ kind: "new-space" })),
       // A space is a PAGE (Plan 12 W3): this routes to the space-page pane, not a sheet.
       ...(activeSpaceId ? [act("open-space", "Open space", "settings", () => run(() => openSpacePage(activeSpaceId)))] : []),
+      // The active space's PROFILE page (Plan 14 W2) — same gate: the page needs a layout to live in.
+      ...(activeSpaceId ? [act("open-profile", "Open profile", "profile-page", () => run(() => openProfilePage()))] : []),
       // The sidebar destinations (W4) — gated like "Open space": the page needs a layout to live in.
       ...(activeSpaceId ? [
         act("open-library", "Open library", "library-page", () => run(() => openDestinationPage("library-page"))),
@@ -192,7 +195,7 @@ function PaletteBody() {
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref,
       selectSpace, openItem, newTerminal, newBrowser, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
-      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, openActivity, run]);
+      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, run]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked
   // by match score (ties keep the sectioned order, so recency still breaks ties).

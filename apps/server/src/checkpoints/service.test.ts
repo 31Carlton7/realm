@@ -202,7 +202,10 @@ describe("retention", () => {
     expect(made.slice(0, 5).some((id) => store.get(id) !== null)).toBe(false);
   });
 
-  it("never prunes the undo of the last restore, however old it gets", async () => {
+  // Timeout headroom, not a behaviour change: a restore plus KEEP+5 real-git captures runs ~2s alone
+  // but crosses vitest's 5s default under a fully parallel suite — Plan 14 W1 added more real-git
+  // test files, and this was the one test the extra contention pushed over.
+  it("never prunes the undo of the last restore, however old it gets", { timeout: 20_000 }, async () => {
     initRepo(folder);
     const env = primary();
     const first = await svc.capture({ environmentId: env.id, sessionId: null, kind: "turn", label: "turn 1" });

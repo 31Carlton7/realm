@@ -188,6 +188,9 @@ function AppTab() {
             </label>
           ))}
         </fieldset>
+        {/* One line, not a switch (Plan 14 W5): the OS setting is the control, and styles.css's global
+            prefers-reduced-motion kill is what makes this sentence true. */}
+        <p className="settings-hint">Realm follows the system's Reduce Motion setting everywhere — with it on, animations and transitions are disabled app-wide.</p>
       </div>
 
       <div className="field"><span>Notifications</span>

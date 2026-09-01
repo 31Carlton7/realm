@@ -42,12 +42,15 @@ export const DEFAULT_MODEL_LABEL = {
 /**
  * Agent kinds whose permission model Realm can actually control.
  *
- * ACP mode ids are agent-defined (Cursor uses `agent`/`plan`/`ask`), so Realm's own Claude-derived ids are
- * never transmitted: `AcpAdapter.start()` does not read `permissionMode` at all, and `session/set_mode` with a
- * foreign id is rejected. Offering the picker there would be a lie about what the agent is allowed to do.
+ * ACP mode ids are agent-defined (Cursor uses `agent`/`plan`/`ask` — re-verified live 2026-09-01 against
+ * cursor-agent 2026.07.25), so Realm's own Claude-derived ids are never transmitted: `AcpAdapter.start()`
+ * does not read `permissionMode` as a permission at all, and `session/set_mode` with a foreign id is
+ * rejected. Offering the picker there would be a lie about what the agent is allowed to do.
  *
- * Follow-up (not in this change): read the `modes.availableModes` that `session/new` returns and map Realm's
- * modes onto them, then flip the ACP kinds to `true`.
+ * Plan 14 W3 took the mode-axis half of the old follow-up: the PLAN mapping now exists per session
+ * (`acpPlanMode` over the captured `availableModes`). The PERMISSION axis stays false — Cursor's
+ * `agent`/`plan`/`ask` are what-the-agent-is-doing modes, none of them a "how freely may it act" level,
+ * so there is still nothing honest to map Ask/Accept edits/Full access onto.
  */
 export const AGENT_SUPPORTS_PERMISSION_MODES = {
   claude: true, codex: true, "acp:cursor": false, "acp:gemini": false, fake: true,
@@ -120,16 +123,46 @@ export type SessionMode = (typeof SESSION_MODES)[number]["id"];
  *
  * - `claude` — Claude Code's own `permissionMode: "plan"`.
  * - `codex` — `codexPolicyFor("plan")` starts the thread read-only under an untrusted approval policy.
- * - `acp:cursor` / `acp:gemini` — false for the same reason they have no permission picker: ACP mode
- *   ids are agent-defined, `AcpAdapter.start()` never reads `permissionMode`, and `session/set_mode`
- *   rejects a foreign id. Cursor does have a `plan` mode; Realm just has no way to name it yet. The
- *   follow-up is the same one: read `modes.availableModes` from `session/new` and map onto it.
+ * - `acp:cursor` / `acp:gemini` — false HERE because the honest answer is per-session, not per-kind
+ *   (Plan 14 W3): ACP mode ids are agent-defined, so whether Plan exists is whatever THIS session's
+ *   `session/new` handshake advertised in `modes.availableModes` (captured on the init event). The
+ *   prompter answers with `acpPlanMode` over those; this static entry is only the pre-handshake
+ *   floor — no chip until the agent has named its modes.
  * - `fake` — the scripted dev adapter ignores the field entirely, but stays true so the development
  *   prompter shows the same controls as a real one (as it already does for permission modes).
  */
 export const AGENT_SUPPORTS_PLAN_MODE = {
   claude: true, codex: true, "acp:cursor": false, "acp:gemini": false, fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
+
+/** One advertised ACP session mode, as `session/new`'s `modes.availableModes` carries it. */
+export type AcpSessionMode = { id: string; name: string; description?: string };
+
+/**
+ * The advertised mode Realm treats as Plan-equivalent, or null when the agent offers none.
+ *
+ * Matched on the AGENT'S OWN id being literally `"plan"` — verified live against cursor-agent
+ * 2026.07.25 (`agent`/`plan`/`ask`, with `plan` described as "Read-only mode for planning and
+ * designing before implementation"). Deliberately no fuzzy name matching: a mode Realm merely hopes
+ * means Plan is exactly the lie the per-session capability exists to end. What `session/set_mode`
+ * transmits is the matched mode's own id, never Realm's.
+ */
+export function acpPlanMode(modes: readonly AcpSessionMode[] | null | undefined): AcpSessionMode | null {
+  return modes?.find((m) => m.id === "plan") ?? null;
+}
+
+/**
+ * The advertised mode Build maps back onto: the agent's `agent` mode when it has one (Cursor's
+ * default), else the mode the session BOOTED in — provided that is not the plan mode itself.
+ * Null means leaving Plan has nowhere honest to go, and the adapter sends nothing.
+ */
+export function acpBuildMode(modes: readonly AcpSessionMode[] | null | undefined, bootModeId: string | null): AcpSessionMode | null {
+  if (!modes) return null;
+  const agent = modes.find((m) => m.id === "agent");
+  if (agent) return agent;
+  const boot = modes.find((m) => m.id === bootModeId);
+  return boot && boot.id !== "plan" ? boot : null;
+}
 
 /**
  * Display metadata per agent kind (icon names come from @realm/ui's icon set).

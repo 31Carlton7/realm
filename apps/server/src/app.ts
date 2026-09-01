@@ -25,6 +25,7 @@ import { McpOauth } from "./mcp/oauth";
 import type { McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { NotificationsStore } from "./store/notifications";
+import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
@@ -226,9 +227,17 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   browserAgents = new BrowserAgentService({ settings, sessions, rpc, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
   mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp));
+  // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
+  // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
+  // History tab already open sees the ship land.
+  const ships = new ShipsStore(db);
+  const gitWrite = new GitWriteService({ shipLog: (entry) => {
+    ships.record(entry);
+    rpc.broadcast("ships.changed", { spaceId: entry.spaceId });
+  } });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints, notifications,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications,
   });
   sessions.markStaleOnBoot();
   terminals.restoreAll();

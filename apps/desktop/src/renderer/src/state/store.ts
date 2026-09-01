@@ -1,15 +1,16 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
+  AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
   type DestinationPageKind, type NotificationCategory,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
+import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
@@ -210,6 +211,8 @@ export type Api = {
   /** `mcp.calls.list` — Realm's own call log (Activity), newest first. `before` pages backward by the
    *  composite `{ ts, id }` cursor (W1 amendment); omitted, it starts from the top. */
   mcpCallsList(params: McpCallsFilter & { before?: { ts: number; id: string }; limit?: number }): Promise<{ calls: McpCall[] }>;
+  /** `ships.list` (Plan 14 W1): one page of a space's durable ship log, newest first. */
+  listShips(spaceId: string, cursor?: string | null, limit?: number): Promise<{ ships: Ship[]; nextCursor: string | null }>;
   /** `notifications.list` (Plan 12 W5): one page of the global feed, plus the server's unread count —
    *  the ONE source every unread badge renders. */
   listNotifications(cursor: string | null, limit?: number): Promise<{ notifications: Notification[]; nextCursor: string | null; unread: number }>;
@@ -234,6 +237,9 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   "connections-page": "Connections",
   "notifications-page": "Notifications",
   "settings-page": "Settings",
+  // Static like the rest: the page header renders the live profile name; the item row's title has
+  // nothing to go stale against (Plan 14 W2).
+  "profile-page": "Profile",
 };
 
 /** Feed page size (W5). Modest: the page is a glance at what waited, not an archive browser —
@@ -241,7 +247,10 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
 export const NOTIFICATIONS_PAGE = 50;
 
 /** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
-export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean };
+export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean;
+  /** The pane's environment — the durable log's attribution (Plan 14 W1). The diff pane always has
+   *  one (its item's refId IS the environment id), so every pane-driven ship names it. */
+  environmentId: string };
 
 /**
  * One file's patch, keyed by which side of the index it is. Two sides of one path are two entries:
@@ -294,6 +303,8 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
 /** The space page's tab rail (Plan 12 W3). "connections" is what the retired sheet called "mcp" —
  *  openers that used `tab: "mcp"` (the plus-menu's "Manage connections…") map to it. */
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sessions" | "history";
+/** The profile page's rail (Plan 14 W2). */
+export type ProfilePageTab = "skills" | "connections" | "memory";
 
 /** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
  *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
@@ -433,6 +444,9 @@ export type AppState = {
   worktreeAckStale: string | null;
   /** `checkpoints.list` by environment id (W4). Absent = never asked. */
   checkpoints: Record<string, Checkpoint[]>;
+  /** `ships.list` first page by space id (Plan 14 W1) — the History tab's other half. Absent = never
+   *  asked; the `ships.changed` handler only refreshes spaces already held here. */
+  ships: Record<string, Ship[]>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -454,6 +468,10 @@ export type AppState = {
    *  and the hub's held status, it dials nothing, so refreshing on menu open never probes a server.
    *  `mcp.serverStatus` broadcasts patch it live; absent = never fetched, rendered as such. */
   connectors: Record<string, McpServer[]>;
+  /** The per-space browser origin allowlist (Plan 14 W4), by space id — `browser.allowedOrigins:<id>`
+   *  as last fetched. null = no list = allow everything (W1's default posture); absent = never
+   *  fetched. The Connections tab's Browser origins section reads and writes this. */
+  browserAllowlists: Record<string, string[] | null>;
   /** MCP servers for the space whose Connections tab is currently mounted (W6) — `mcp.list`'s
    *  per-space projection. Empty until `refreshMcpServers` runs; McpSection fetches on mount. */
   mcpServers: McpServer[];
@@ -472,6 +490,10 @@ export type AppState = {
    *  space's tab — and with it another space's data fetch — onto a different space's page. Absent =
    *  "general". */
   spacePageTab: Record<string, SpacePageTab>;
+  /** The profile page's tab, per PROFILE id (Plan 14 W2) — in the store, not component state, because
+   *  openers land on a section ("Edit in profile" on an MCP row lands on Connections; the memory
+   *  row's on Memory) whether or not the page is already open. */
+  profilePageTab: Record<string, ProfilePageTab>;
   /** The last `mcp.tools.list` error per server id, `null` once a refresh succeeds. A RESULT, not an
    *  exception (see the Api doc comment) — kept apart from `error` so it renders inline on the row that
    *  caused it instead of stealing the app's one error banner. */
@@ -590,6 +612,11 @@ export type AppState = {
   moveSessionToNewWorktree(sessionId: string): Promise<void>;
   /** Fetch a space's servers into `connectors` (plus-menu open, `mcp.changed`). */
   refreshConnectors(spaceId: string): Promise<void>;
+  /** Fetch a space's browser origin allowlist into `browserAllowlists` (Connections tab mount). */
+  refreshBrowserAllowlist(spaceId: string): Promise<void>;
+  /** Persist a space's browser origin allowlist AND push it into every live browser view of that
+   *  space, so the fence moves without a pane reopen (Plan 14 W4). null = back to allow-all. */
+  setBrowserAllowlist(spaceId: string, allowlist: string[] | null): Promise<void>;
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
@@ -660,6 +687,12 @@ export type AppState = {
   openSpacePage(spaceId: string, tab?: SpacePageTab): Promise<void>;
   /** The page's tab, per space — see `spacePageTab`. */
   setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
+  /** Open (or focus) the ACTIVE space's profile page (Plan 14 W2) — a `profile-page` destination item
+   *  (sentinel refId; the page derives its profile live from the item's space). `tab` lands the page
+   *  on a section — the retargeted "Edit in profile" affordances pass one. */
+  openProfilePage(tab?: ProfilePageTab): Promise<void>;
+  /** The profile page's tab, per profile — see `profilePageTab`. */
+  setProfilePageTab(profileId: string, tab: ProfilePageTab): void;
   /** Open (or focus) a sidebar destination page (Plan 12 W4: Library, Connections) in the ACTIVE
    *  space's layout. One page item per space, deduped by KIND — the refId is the kind's well-known
    *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from. */
@@ -702,6 +735,9 @@ export type AppState = {
   openCheckpoints(environmentId: string, sessionId?: string | null): Promise<void>;
   /** Re-list without opening anything — what the `checkpoints.changed` broadcast triggers. */
   refreshCheckpoints(environmentId: string, sessionId: string | null): Promise<void>;
+  /** Re-fetch one space's ship log (first page — the History tab's glance, not an archive browser);
+   *  what the History tab mounts and the `ships.changed` broadcast triggers for held spaces. */
+  refreshShips(spaceId: string): Promise<void>;
   /** Move the sheet from its list state into its confirm state, with a freshly read preview. */
   askRestoreCheckpoint(id: string): Promise<void>;
   /** Back to the list, forgetting the preview. */
@@ -1054,13 +1090,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
-      spacePageTab: {}, mcpPanelSpaceId: null,
+      spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
-      machineName: "", connectors: {},
+      machineName: "", connectors: {}, browserAllowlists: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
@@ -1507,13 +1543,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const s = get().sessions[id];
         if (!s) return;
         const inPlan = s.permissionMode === PLAN_PERMISSION_MODE;
+        // The park is for agents whose Plan REPLACES a real permission axis (Claude, Codex — the
+        // kinds Realm can set a permission mode on at all). An ACP agent's Plan is its own mode
+        // (Plan 14 W3): there is no chosen permission to preserve, so leaving Plan simply returns
+        // the row to its resting "default" — parking would fabricate Claude-shaped semantics on an
+        // agent that never had them.
+        const parks = AGENT_SUPPORTS_PERMISSION_MODES[s.agentKind];
         if (mode === "plan") {
           if (inPlan) return;
-          set({ planReturn: { ...get().planReturn, [id]: s.permissionMode } });
+          if (parks) set({ planReturn: { ...get().planReturn, [id]: s.permissionMode } });
           await get().setSessionOptions(id, { permissionMode: PLAN_PERMISSION_MODE });
         } else {
           if (!inPlan) return;
-          const back = get().planReturn[id] ?? "default";
+          const back = parks ? get().planReturn[id] ?? "default" : "default";
           const { [id]: _used, ...planReturn } = get().planReturn;
           set({ planReturn });
           await get().setSessionOptions(id, { permissionMode: back });
@@ -1543,6 +1585,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshConnectors(spaceId) {
         const { servers } = await api.listMcpServers(spaceId);
         set({ connectors: { ...get().connectors, [spaceId]: servers } });
+      },
+      async refreshBrowserAllowlist(spaceId) {
+        const list = parseAllowlist(await api.getSetting(allowlistKey(spaceId)));
+        set({ browserAllowlists: { ...get().browserAllowlists, [spaceId]: list } });
+      },
+      async setBrowserAllowlist(spaceId, allowlist) {
+        await api.setSetting(allowlistKey(spaceId), allowlist);
+        set({ browserAllowlists: { ...get().browserAllowlists, [spaceId]: allowlist } });
+        // The live half of the write (Plan 14 W4): every open browser view of THIS space is re-fenced
+        // now — new panes read the setting at create, but a pane already open would otherwise keep
+        // enforcing the old list until it was closed and reopened. Open panes always belong to the
+        // active space's layout, so another space's rows have no views to re-point (and this space's
+        // items would be the wrong list to consult).
+        if (get().activeSpaceId !== spaceId) return;
+        const { host } = getBrowserBridges();
+        for (const it of get().items) {
+          if (it.kind === "browser") void host.setAllowlist(it.refId, allowlist);
+        }
       },
       async probeAgents(force = false) {
         // Mount-storm guard: a split of four session panes asks four times in the same tick. The server
@@ -1781,6 +1841,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await adoptItem(spaceId, created.id, null);
       },
       setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
+      async openProfilePage(tab) {
+        // The tab is keyed by PROFILE — resolved from the active space, the same vantage the page
+        // itself renders from, so the section the opener lands on is the section the page shows.
+        const spaceId = get().activeSpaceId;
+        const space = get().spaces.find((x) => x.id === spaceId);
+        if (!space) return;
+        if (tab) get().setProfilePageTab(space.profileId, tab);
+        await get().openDestinationPage("profile-page");
+      },
+      setProfilePageTab(profileId, tab) { set({ profilePageTab: { ...get().profilePageTab, [profileId]: tab } }); },
       async refreshSettingsPrefs() {
         const [rawDisabled, rawMode] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY),
@@ -1903,6 +1973,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshCheckpoints(environmentId, sessionId) {
         const list = await api.listCheckpoints(environmentId, sessionId);
         set({ checkpoints: { ...get().checkpoints, [environmentId]: list } });
+      },
+      async refreshShips(spaceId) {
+        const { ships } = await api.listShips(spaceId);
+        set({ ships: { ...get().ships, [spaceId]: ships } });
       },
       async captureCheckpoint(environmentId, sessionId) {
         await api.captureCheckpoint(environmentId, sessionId);

@@ -472,6 +472,11 @@ button.panel-title:hover { background: var(--rl-hover); }
    14px 16px padding, 85% max — and, copying Ara exactly, ragged-left (text-align: right). */
 .msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: right;
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Attached-file chips inside the user bubble (Plan 14 W5) — an attachment-only message still shows
+   WHAT it carried. Flex so the pre-wrap bubble's whitespace rules don't mangle the chip row. */
+.msg-user-files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-top: 2px; }
+.msg-user-file { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--r-ctl);
+  border: 1px solid var(--rl-line); font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }
 /* Ara refresh §4: assistant prose is plain — 15px/1.6, no card. */
 .msg-assistant { max-width: 72ch; font-size: 15px; line-height: 1.6; }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
@@ -1096,6 +1101,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The two kinds of prose here: a NOTE is a disclosure the panel exists to make (always visible, dim,
    set off by a left tick); a HINT is auxiliary fine print (faint). */
 .settings-note { margin: 0; padding: 6px 10px; border-left: 2px solid var(--rl-line-strong); font-size: 11.5px; line-height: 1.5; color: var(--rl-text-dim); }
+/* Browser origins (Plan 14 W4): the add form is one inline row inside the field. */
+.origin-add { display: flex; gap: 8px; }
+.origin-add input { flex: 1; }
 .settings-note code { font: 10.5px var(--font-mono); }
 .settings-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); }
 .settings-hint[data-tone="danger"] { color: var(--rl-danger); }
@@ -1157,6 +1165,19 @@ button.panel-title:hover { background: var(--rl-hover); }
 .page-row-dim { flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: auto; font-size: 11.5px; color: var(--rl-text-faint); }
 .page-row-dim + .page-row-dim { margin-left: 10px; }
 .page-row .cp-kind { flex: none; }
+/* A ship row (Plan 14 W1) is a RECORD, not a door: no hover invitation, no pointer — only its PR
+   link is interactive. The kind badge keeps cp-kind's metrics so the two treatments align. */
+.ship-row { cursor: default; }
+.ship-row:hover { background: none; }
+.ship-kind { display: inline-flex; align-items: center; gap: 4px; }
+.ship-sha { font-size: 11px; }
+.ship-row a { display: inline-flex; align-items: center; gap: 3px; color: var(--rl-accent); text-decoration: none; }
+.ship-row a:hover { text-decoration: underline; }
+/* The profile page's space chips (Plan 14 W2): the profile's spaces as jump targets, under the head. */
+.profile-spaces { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
+.profile-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font-size: 12px;
+  border: 1px solid var(--rl-line-strong); border-radius: 999px; background: none; color: var(--rl-text-dim); cursor: pointer; }
+.profile-chip:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* The sidebar header's whole title row is the page's front door. */
 .space-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; margin: -2px -4px;
   border: none; border-radius: var(--r-chip); background: none; color: inherit; font: inherit; cursor: pointer; }

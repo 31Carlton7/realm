@@ -24,6 +24,7 @@ import type { NotificationsService } from "../notifications/service";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
 import type { GitWriteService } from "../workspace/git-write";
+import type { ShipsStore } from "../store/ships";
 import type { PortAllocator } from "../workspace/ports";
 import { NotFoundError, RpcError } from "../store/rows";
 
@@ -33,7 +34,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -53,11 +54,28 @@ export function registerMethods(d: Deps): void {
   reg("workspace.stage", async (p) => { await d.gitWrite.stage(p.cwd, p.paths); changed(p.cwd); return { ok: true as const }; });
   reg("workspace.unstage", async (p) => { await d.gitWrite.unstage(p.cwd, p.paths); changed(p.cwd); return { ok: true as const }; });
   reg("workspace.ship", async (p) => {
-    const result = await d.gitWrite.ship(p);
+    // Ship-log attribution (Plan 14 W1): the pane NAMES its environment; the row records that checkout
+    // and that checkout's space, never a path-guess (a path can be registered in two spaces). The named
+    // environment must actually be the checkout being shipped — a mismatch would file the row under a
+    // different tree than the one the commit landed in, so it is refused, not silently mis-logged.
+    let log: { environmentId: string; spaceId: string } | null = null;
+    if (p.environmentId !== null) {
+      const env = d.environments.get(p.environmentId);
+      if (!env) throw new NotFoundError("environment", p.environmentId);
+      if (env.path !== p.cwd) throw new RpcError("ENVIRONMENT_MISMATCH", `environment ${p.environmentId} is at ${env.path}, not ${p.cwd}`);
+      log = { environmentId: env.id, spaceId: env.spaceId };
+    }
+    const result = await d.gitWrite.ship({ ...p, log });
     // Broadcast even when a step reported a problem: a commit that succeeded before a push that was
     // rejected still moved the tree, and the pane must show that.
     changed(p.cwd);
     return result;
+  });
+  // The durable ship log (Plan 14 W1). Space-checked like every per-space listing: a typo'd id should
+  // say so, not answer an empty page for a space that is not there.
+  reg("ships.list", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.ships.list(p);
   });
 
   reg("profiles.list", () => d.profiles.list());

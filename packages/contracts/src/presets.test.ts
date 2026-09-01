@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, acpBuildMode, acpPlanMode, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has at least 8 colors and icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(8); });
@@ -117,5 +117,40 @@ describe("SELECTABLE_AGENT_KINDS", () => {
     expect(SELECTABLE_AGENT_KINDS).not.toContain("fake");       // scripted dev adapter
     expect(AGENT_META["acp:gemini"]).toBeDefined();
     expect(AGENT_META.fake).toBeDefined();
+  });
+});
+
+describe("acpPlanMode / acpBuildMode (Plan 14 W3)", () => {
+  // The real cursor-agent 2026.07.25 handshake, captured live 2026-09-01.
+  const CURSOR: AcpSessionMode[] = [
+    { id: "agent", name: "Agent", description: "Full agent capabilities with tool access" },
+    { id: "plan", name: "Plan", description: "Read-only mode for planning and designing before implementation" },
+    { id: "ask", name: "Ask", description: "Q&A mode - no edits or command execution" },
+  ];
+  it("finds Cursor's plan mode by the agent's own id", () => {
+    expect(acpPlanMode(CURSOR)?.id).toBe("plan");
+    expect(acpPlanMode(CURSOR)?.description).toContain("Read-only");
+  });
+  it("matches on id, never on a name that merely sounds like Plan", () => {
+    // The lie the per-session capability exists to end: a mode Realm HOPES means plan-only.
+    expect(acpPlanMode([{ id: "design", name: "Plan" }, { id: "agent", name: "Agent" }])).toBeNull();
+  });
+  it("answers null for no modes at all", () => {
+    expect(acpPlanMode([])).toBeNull();
+    expect(acpPlanMode(null)).toBeNull();
+    expect(acpPlanMode(undefined)).toBeNull();
+  });
+  it("maps Build onto the agent's `agent` mode when it has one", () => {
+    expect(acpBuildMode(CURSOR, null)?.id).toBe("agent");
+    // …even when the session booted elsewhere: `agent` is the mode Build claims to be.
+    expect(acpBuildMode(CURSOR, "ask")?.id).toBe("agent");
+  });
+  it("falls back to the boot mode, but never to the plan mode itself", () => {
+    const noAgent: AcpSessionMode[] = [{ id: "chat", name: "Chat" }, { id: "plan", name: "Plan" }];
+    expect(acpBuildMode(noAgent, "chat")?.id).toBe("chat");
+    // Booted in plan with no `agent` id: leaving Plan has nowhere honest to go.
+    expect(acpBuildMode(noAgent, "plan")).toBeNull();
+    expect(acpBuildMode(noAgent, null)).toBeNull();
+    expect(acpBuildMode(null, "agent")).toBeNull();
   });
 });

@@ -1,7 +1,9 @@
-import type { SessionEvent } from "@realm/contracts";
+import type { AcpSessionMode, SessionEvent } from "@realm/contracts";
 
 export type Block =
-  | { kind: "user"; text: string; ts: number }
+  /** `attachments` present only when the message carried any — an attachment-only message (Plan 14
+   *  W5) still renders a bubble naming its files rather than an empty one. */
+  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; ts: number }
   | { kind: "assistant"; messageId: string; text: string; streaming: boolean; ts: number }
   | { kind: "thinking"; messageId: string; text: string; ts: number }
   | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; result: { content: string; isError: boolean } | null; ts: number }
@@ -14,7 +16,9 @@ export type Transcript = {
   /** Open permission requests, oldest first (an agent may ask for several tools at once). */
   pendingPermissions: PendingPermission[];
   usage: Usage;
-  init: { model: string; tools: string[]; providerSessionId: string } | null;
+  /** `availableModes`: the agent's OWN session modes as the init event carried them (Plan 14 W3) —
+   *  undefined when the agent named none. Per-session ground truth for the ACP Build/Plan chip. */
+  init: { model: string; tools: string[]; providerSessionId: string; availableModes?: AcpSessionMode[] } | null;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -31,7 +35,7 @@ const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for
 export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
   const blocks = t.blocks.slice(); const last = blocks.at(-1);
   switch (e.type) {
-    case "user_message": blocks.push({ kind: "user", text: e.payload.text, ts: e.ts }); return { ...t, blocks };
+    case "user_message": blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ts: e.ts }); return { ...t, blocks };
     case "assistant_delta": {
       if (last?.kind === "assistant" && last.messageId === e.payload.messageId && last.streaming) blocks[blocks.length - 1] = { ...last, text: last.text + e.payload.delta };
       else blocks.push({ kind: "assistant", messageId: e.payload.messageId, text: e.payload.delta, streaming: true, ts: e.ts });
@@ -61,7 +65,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
     }
     case "error": blocks.push({ kind: "error", message: e.payload.message, ts: e.ts }); return { ...t, blocks };
     case "usage": return { ...t, usage: e.payload };
-    case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId } };
+    case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId, ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}) } };
     case "status": return t;
   }
 }

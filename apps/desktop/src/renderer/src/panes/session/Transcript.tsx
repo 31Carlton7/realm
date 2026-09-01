@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { SessionStatus } from "@realm/contracts";
+import { basenameOf, isImageMime, type SessionStatus } from "@realm/contracts";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { PermissionCard } from "./PermissionCard";
@@ -72,7 +72,24 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
               steps={it.steps.map((s) => ({ ...s, enter: isEntering(s.key) }))} />;
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
-            case "user": return <div key={key} className="msg-user-row" data-enter={enter || undefined}><div className="msg-user">{b.text}</div></div>;
+            case "user": return (
+              // Attachments render as their own line of file chips (Plan 14 W5): an attachment-only
+              // message has no text at all, and an empty bubble would look like a send that lost its
+              // words rather than one that carried files.
+              <div key={key} className="msg-user-row" data-enter={enter || undefined}>
+                <div className="msg-user">
+                  {b.text}
+                  {b.attachments && (
+                    <span className="msg-user-files" aria-label="Attached files">
+                      {b.attachments.map((a) => (
+                        <span key={a.path} className="msg-user-file" title={a.path}>
+                          <Icon name={isImageMime(a.mime) ? "image" : "artifact"} size={11} /> {basenameOf(a.path)}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </div>
+              </div>);
             case "assistant": return <Markdown key={key} className="msg-assistant" text={b.text} streaming={b.streaming} enter={enter} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} />;

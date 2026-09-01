@@ -361,3 +361,141 @@ describe("compareUrl", () => {
       .toBe("https://github.com/acme/widgets/compare/main...feat/a%23b?expand=1");
   });
 });
+
+/**
+ * The durable ship log (Plan 14 W1). The recorder is the seam the RPC layer wires to ShipsStore; here
+ * it is an array, so every assertion is about WHAT `ship` decided to record and WHEN — the storage
+ * rules (per-space listing, cursors) have their own suite in store/ships.test.ts.
+ */
+describe("ship — the durable log", () => {
+  const LOG = { environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FA0" };
+  function logSvc(gh?: string) {
+    const entries: import("./git-write").ShipLogEntry[] = [];
+    const service = new GitWriteService({ ghCommand: gh ?? join(tmpdir(), "realm-no-such-gh"), shipLog: (e) => entries.push(e) });
+    return { service, entries };
+  }
+
+  it("logs a committed-and-pushed ship with its sha, subject, branch and pushed state", async () => {
+    const repo = makeRepo(); const bare = attachRemote(repo);
+    const { service, entries } = logSvc();
+    try {
+      writeFileSync(join(repo, "a.txt"), "A\n"); git(repo, "add", "-A");
+      const r = await service.ship({ cwd: repo, commit: true, message: "Add a thing\n\nwhy", push: true, setUpstream: true, openPr: false, log: LOG });
+      expect(r.push.state).toBe("pushed");
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toEqual({ ...LOG, branch: "main", sha: git(repo, "rev-parse", "HEAD").trim(),
+        subject: "Add a thing", prUrl: null, pushState: "pushed" });
+    } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+  });
+
+  it("a commit whose push was rejected logs with pushState rejected — never pushed (the named mutant)", async () => {
+    const repo = makeRepo(); const bare = attachRemote(repo);
+    const other = mkdtempSync(join(tmpdir(), "realm-other-"));
+    const { service, entries } = logSvc();
+    try {
+      git(repo, "push", "-u", "origin", "main");
+      execFileSync("git", [...IDENT, "clone", "-q", bare, other]);
+      writeFileSync(join(other, "theirs.txt"), "theirs\n");
+      execFileSync("git", [...IDENT, "add", "-A"], { cwd: other });
+      execFileSync("git", [...IDENT, "commit", "-qm", "theirs"], { cwd: other });
+      execFileSync("git", [...IDENT, "push", "-q"], { cwd: other });
+
+      writeFileSync(join(repo, "mine.txt"), "mine\n"); git(repo, "add", "-A");
+      const r = await service.ship({ cwd: repo, commit: true, message: "mine", push: true, setUpstream: false, openPr: false, log: LOG });
+      expect(r.push.state).toBe("rejected");
+      // The commit HAPPENED, so the ship logs — with the push leg's real outcome on the row.
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ subject: "mine", pushState: "rejected" });
+      expect(entries[0]!.pushState).not.toBe("pushed");
+    } finally { for (const d of [repo, bare, other]) rmSync(d, { recursive: true, force: true }); }
+  });
+
+  it("a commit whose branch has no upstream still logs, with pushState no-upstream", async () => {
+    const repo = makeRepo(); const bare = attachRemote(repo);
+    const { service, entries } = logSvc();
+    try {
+      writeFileSync(join(repo, "a.txt"), "A\n"); git(repo, "add", "-A");
+      await service.ship({ cwd: repo, commit: true, message: "m", push: true, setUpstream: false, openPr: false, log: LOG });
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ pushState: "no-upstream", branch: "main" });
+    } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+  });
+
+  it("a commit-only ship logs with pushState skipped", async () => {
+    const repo = makeRepo();
+    const { service, entries } = logSvc();
+    try {
+      writeFileSync(join(repo, "a.txt"), "A\n"); git(repo, "add", "-A");
+      await service.ship({ cwd: repo, commit: true, message: "local only", push: false, setUpstream: false, openPr: false, log: LOG });
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ subject: "local only", pushState: "skipped", prUrl: null });
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it("the push-only retry logs the commit it sent, read off HEAD", async () => {
+    const repo = makeRepo(); const bare = attachRemote(repo);
+    const { service, entries } = logSvc();
+    try {
+      writeFileSync(join(repo, "a.txt"), "A\n"); git(repo, "add", "-A");
+      // First ship: no upstream — logs its own row. The RETRY (commit: false) is the flow under test.
+      await service.ship({ cwd: repo, commit: true, message: "Retry me", push: true, setUpstream: false, openPr: false, log: LOG });
+      await service.ship({ cwd: repo, commit: false, message: "", push: true, setUpstream: true, openPr: false, log: LOG });
+      expect(entries).toHaveLength(2);
+      expect(entries[1]).toEqual({ ...LOG, branch: "main", sha: git(repo, "rev-parse", "HEAD").trim(),
+        subject: "Retry me", prUrl: null, pushState: "pushed" });
+    } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+  });
+
+  it("records the PR URL when the PR leg produced one", async () => {
+    const repo = makeRepo(); const bare = attachGitHubLookalike(repo);
+    const gh = stubGh(`case "$1 $2" in
+  "pr view") exit 1 ;;
+  "pr create") echo "https://github.com/acme/widgets/pull/7"; exit 0 ;;
+esac
+exit 1`);
+    const { service, entries } = logSvc(gh);
+    try {
+      writeFileSync(join(repo, "a.txt"), "A\n"); git(repo, "add", "-A");
+      await service.ship({ cwd: repo, commit: true, message: "m", push: true, setUpstream: true, openPr: true, log: LOG });
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ pushState: "pushed", prUrl: "https://github.com/acme/widgets/pull/7" });
+    } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+  });
+
+  it("logs nothing when nothing durable happened — no commit, no push", async () => {
+    const repo = makeRepo();
+    const { service, entries } = logSvc();
+    try {
+      // Nothing staged, push not asked for: the ship is a no-op and the log must say nothing.
+      await service.ship({ cwd: repo, commit: true, message: "empty", push: false, setUpstream: false, openPr: false, log: LOG });
+      // A push that answers up-to-date moved nothing either.
+      const bare = attachRemote(repo);
+      try {
+        git(repo, "push", "-u", "origin", "main");
+        await service.ship({ cwd: repo, commit: false, message: "", push: true, setUpstream: false, openPr: false, log: LOG });
+      } finally { rmSync(bare, { recursive: true, force: true }); }
+      expect(entries).toEqual([]);
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it("logs nothing without attribution — an environment-less ship ships exactly as before", async () => {
+    const repo = makeRepo(); const bare = attachRemote(repo);
+    const { service, entries } = logSvc();
+    try {
+      writeFileSync(join(repo, "a.txt"), "A\n"); git(repo, "add", "-A");
+      const r = await service.ship({ cwd: repo, commit: true, message: "m", push: true, setUpstream: true, openPr: false });
+      expect(r.push.state).toBe("pushed");
+      expect(entries).toEqual([]);
+    } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+  });
+
+  it("a recorder that throws never changes the ship's own outcome", async () => {
+    const repo = makeRepo();
+    const service = new GitWriteService({ ghCommand: join(tmpdir(), "realm-no-such-gh"), shipLog: () => { throw new Error("db locked"); } });
+    try {
+      writeFileSync(join(repo, "a.txt"), "A\n"); git(repo, "add", "-A");
+      const r = await service.ship({ cwd: repo, commit: true, message: "m", push: false, setUpstream: false, openPr: false, log: LOG });
+      expect(r.commit.state).toBe("committed");
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+});

@@ -1,4 +1,4 @@
-import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, isImageMime, type AgentKind, type Environment, type GitInfo, type McpServer, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, acpPlanMode, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, isImageMime, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -207,7 +207,21 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, connectors, 
  *  ⌘/Ctrl+Enter sends; Enter inserts a newline. The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections }: {
+/**
+ * What Plan MEANS for this agent — the chip title's honesty clause (Plan 14 W3). Claude and Codex have
+ * Realm-transmitted plan semantics; an ACP agent's Plan is its OWN mode, described in its own words
+ * where it offered any.
+ */
+function planMeaning(kind: AgentKind, acpPlan: AcpSessionMode | null): string {
+  if (acpPlan) {
+    const label = AGENT_META[kind].label;
+    return acpPlan.description ? `Plan is ${label}'s own ${acpPlan.name} mode: ${acpPlan.description}` : `Plan is ${label}'s own ${acpPlan.name} mode`;
+  }
+  if (kind === "codex") return "Plan runs the turn read-only under an untrusted approval policy — the agent proposes, but does not edit";
+  return "Plan means the agent researches and proposes, but does not edit";
+}
+
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -224,6 +238,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   onPickModel: (kind: AgentKind, modelId: string | null) => void;
   /** Build ⇄ Plan. The store parks and restores the permission mode around the trip. */
   onMode: (mode: SessionMode) => void;
+  /** ACP sessions only (Plan 14 W3): the agent's OWN modes as the session's init event carried them —
+   *  null until the handshake has been seen, [] when it named none. What decides whether Build/Plan
+   *  exists HERE, per session; the static AGENT_SUPPORTS_PLAN_MODE table answers for the other kinds. */
+  acpModes?: AcpSessionMode[] | null;
   /** The permission mode Plan is holding for this session, if any — what returning to Build restores. */
   planReturn: string | null;
   /** False once the session has produced an event — see ModelPicker. */
@@ -264,7 +282,15 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // Hidden exactly like the model menu is empty when the agent has no models: an option Realm cannot
   // transmit is worse than no option at all.
   const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[kind];
-  const canPlan = AGENT_SUPPORTS_PLAN_MODE[kind];
+  // Build/Plan (Plan 14 W3): static for the kinds whose adapters act on Realm's plan wire value,
+  // per-SESSION for ACP kinds — their mode ids are agent-defined, so the chip exists exactly when
+  // THIS session's handshake advertised a plan-equivalent. No handshake yet on a session that has
+  // started = the brief materialization window: the chip renders disabled (a static label) rather
+  // than promising a mapping that may not exist. A fresh session shows nothing at all.
+  const isAcpKind = kind.startsWith("acp:");
+  const acpPlan = isAcpKind ? acpPlanMode(acpModes) : null;
+  const canPlan = isAcpKind ? acpPlan !== null : AGENT_SUPPORTS_PLAN_MODE[kind];
+  const acpModesPending = isAcpKind && acpModes === null && !canSwitchAgent && status !== "error" && status !== "ended";
   const inPlan = session.permissionMode === PLAN_PERMISSION_MODE;
   // bypassPermissions must never be a one-click slip (U-M7): selecting it arms an inline confirm chip
   // for 5s while the chip simply stays on the current mode; only the explicit confirm applies it.
@@ -375,7 +401,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     { label: "New worktree…", onSelect: () => onNewWorktree?.() },
   ];
 
-  const send = () => { const t = draft.trim(); if (!t) return; onSend(t); onDraftChange(""); };
+  // Attachment-only messages (Plan 14 W5): a send needs text OR at least one attachment this agent
+  // will actually receive. Attachments whose disposition is `ignored` (non-images on Claude, anything
+  // on the fake agent) can't carry a message by themselves — the adapter would deliver literally
+  // nothing — so they don't unlock the button, and its tooltip says why.
+  const deliverable = attachments.some((a) => attachmentDisposition(kind, a.mime) !== "ignored");
+  const send = () => { const t = draft.trim(); if (!t && !deliverable) return; onSend(t); onDraftChange(""); };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); return; }
@@ -481,8 +512,15 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                     label={permissionLabel(session.permissionMode)} items={permissionItems} />
             )}
             {canPlan && (
-              <ChipMenu ariaLabel="Mode" title={inPlan ? "Mode: Plan — the agent researches and proposes, but does not edit" : "Mode: Build"}
+              <ChipMenu ariaLabel="Mode" title={`Mode: ${inPlan ? "Plan" : "Build"}. ${planMeaning(kind, acpPlan)}`}
                 icon={inPlan ? "plan" : "tool"} label={inPlan ? "Plan" : "Build"} items={modeItems} />
+            )}
+            {/* The materialize-honestly window: the session is live but the agent has not named its
+                modes yet. Disabled (a static label, out of the tab order) rather than absent, so the
+                chip does not pop into a row the user is already aiming at — and rather than enabled,
+                because offering Plan before the agent has said it exists would be a guess. */}
+            {!canPlan && acpModesPending && (
+              <ChipMenu ariaLabel="Mode" title="Waiting for the agent's modes" icon="tool" label="Build" items={[]} />
             )}
             <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
             {confirmBypass && (
@@ -497,12 +535,15 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               agentProbe={agentProbe} onPick={onPickModel} effortItems={effortItems} overflow={overflow} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
-            {/* `sessions.send` requires non-empty text (rpc.ts), so attachments alone cannot be sent.
-                Rather than let the button look broken, it says why. */}
+            {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's
+                text.min(1) for exactly this); ones it would IGNORE cannot — rather than let the
+                button look broken there, it says why. */}
             <button className="composer-send" data-state={running ? "stop" : "send"}
               aria-label={running ? "Stop" : "Send"}
-              title={running ? "Stop (interrupt)" : (!draft.trim() && attachments.length > 0 ? "Add a message to send with these files" : "Send (⌘↵)")}
-              disabled={!running && !draft.trim()}
+              title={running ? "Stop (interrupt)"
+                : !draft.trim() && attachments.length > 0 && !deliverable ? `${AGENT_META[kind].label} ignores these attachments — add a message to send`
+                : "Send (⌘↵)"}
+              disabled={!running && !draft.trim() && !deliverable}
               onClick={() => (running ? onStop() : send())}>
               <Icon name="arrowUp" size={16} className="send-icon" />
               <Icon name="stop" size={13} className="stop-icon" />

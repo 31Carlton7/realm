@@ -97,6 +97,7 @@ function ProfileMemoryRow({ spaceId, profile }: { spaceId: string; profile: Prof
   const refreshProfileMemory = useApp((s) => s.refreshProfileMemory);
   const saveProfileMemoryDoc = useApp((s) => s.saveProfileMemoryDoc);
   const setProfileDocEnabled = useApp((s) => s.setProfileDocEnabled);
+  const openProfilePage = useApp((s) => s.openProfilePage);
   const run = useApp((s) => s.run);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
@@ -124,7 +125,12 @@ function ProfileMemoryRow({ spaceId, profile }: { spaceId: string; profile: Prof
             : `${fmt(profile.doc.length)} characters, injected before this space's own memory.`}
         </span>
       </div>
-      <button type="button" className="btn-quiet scope-move" onClick={toggleEditor}>{editing ? "Close" : "Edit in profile…"}</button>
+      {/* Plan 14 W2: the defining scope has a real page now, so "Edit in profile" JUMPS there
+          (primary); the banner-wearing inline editor below stays as the fallback behind "Edit here…". */}
+      {!editing && (
+        <button type="button" className="btn-quiet scope-move" onClick={() => run(() => openProfilePage("memory"))}>Edit in profile…</button>
+      )}
+      <button type="button" className="btn-quiet scope-move" onClick={toggleEditor}>{editing ? "Close" : "Edit here…"}</button>
       <input type="checkbox" role="switch" className="switch" aria-label={`${name} memory in this space`}
         title={`Defined in ${name} — this switch is this space's override.`}
         checked={profile.enabledHere} onChange={(e) => run(() => setProfileDocEnabled(spaceId, e.target.checked))} />

@@ -1937,6 +1937,37 @@ describe("openDestinationPage", () => {
   });
 });
 
+describe("openProfilePage (Plan 14 W2)", () => {
+  it("creates ONE profile page in the active space with the sentinel refId, and dedups later opens", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot(); // active: s1 (profile p1)
+    await store.getState().openProfilePage();
+    const page = store.getState().items.find((i) => i.kind === "profile-page")!;
+    expect(page).toMatchObject({ spaceId: "s1", title: "Profile", refId: PAGE_REF_IDS["profile-page"] });
+    expect(allItems(store.getState().layout!)).toContain(page.id);
+    await store.getState().openProfilePage();
+    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("profile-page"))).toHaveLength(1);
+    expect(store.getState().items.filter((i) => i.kind === "profile-page")).toHaveLength(1);
+  });
+
+  it("lands on the asked-for section, keyed by the ACTIVE space's profile", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot(); // s1 → p1
+    await store.getState().openProfilePage("memory");
+    expect(store.getState().profilePageTab.p1).toBe("memory");
+    expect(store.getState().profilePageTab.p2).toBeUndefined();
+  });
+
+  it("with no active space (mid-boot) it is a no-op rather than an item with nowhere to live", async () => {
+    const api = fakeApi({ spaces: [] });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openProfilePage();
+    expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
+  });
+});
+
 /** The `mcpServers` guard moved off the retired sheet (Plan 12 W3): `mcpPanelSpaceId` — set by the
  *  Connections panel's mount/unmount — decides whether a `mcp.list` response may land. */
 describe("refreshMcpServers guard (space page era)", () => {

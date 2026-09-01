@@ -230,6 +230,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               if (modelId !== null) await setSessionOptions(id, { model: modelId });
             })}
             onMode={(mode) => run(() => setSessionMode(id, mode))} planReturn={planReturn}
+            // The agent's own modes off THIS session's init event (Plan 14 W3): null = handshake not
+            // seen yet, [] = the agent named none — the difference between "wait" and "no Plan here".
+            acpModes={transcript.init ? transcript.init.availableModes ?? [] : null}
             canSwitchAgent={canSwitchAgent}
             agentProbe={agentProbe}
             mentionSkills={mentionSkills} staleMentions={staleMentions}

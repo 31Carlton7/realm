@@ -1,7 +1,7 @@
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
+import { acpBuildMode, acpPlanMode, PLAN_PERMISSION_MODE, sessionEvent, type AcpSessionMode, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
@@ -237,6 +237,11 @@ export class AcpAdapter implements AgentAdapter {
     let sessionId: string | null = null;
     let imagesAllowed = false;
     let authMethods: unknown[] = [];
+    /** `modes.availableModes` from `session/new`/`session/load`, verbatim (Plan 14 W3). What Plan and
+     *  Build translate through — `session/set_mode` only ever transmits one of THESE ids. */
+    let availableModes: AcpSessionMode[] = [];
+    /** `modes.currentModeId` at boot — `acpBuildMode`'s fallback when the agent has no `agent` id. */
+    let bootModeId: string | null = null;
     /** True only for the duration of `session/load`, whose replay Realm has already persisted. */
     let replaying = false;
     let disposed = false;
@@ -423,13 +428,33 @@ export class AcpAdapter implements AgentAdapter {
             log(`session/set_model ${opts.model} failed (${message(e)}); staying on the agent's default`);
           }
         }
+        // The agent's own modes, captured verbatim (Plan 14 W3). Both installed agents answer
+        // `session/new` with `modes` (Cursor: agent/plan/ask, verified live 2026-09-01); a build that
+        // omits it simply has no Plan here, and the init event carries no claim it does.
+        const modesBag = obj(session.modes);
+        availableModes = (Array.isArray(modesBag.availableModes) ? modesBag.availableModes : [])
+          .map(obj)
+          .filter((m): m is Bag & { id: string; name: string } => typeof m.id === "string" && typeof m.name === "string")
+          .map((m) => ({ id: m.id, name: m.name, ...(typeof m.description === "string" ? { description: m.description } : {}) }));
+        bootModeId = str(modesBag.currentModeId) || null;
         events.push(sessionEvent("init", {
           providerSessionId: id,
           model: pinned ? str(opts.model) : str(obj(session.models).currentModelId) || str(opts.model),
           tools: [],
           cwd: opts.cwd,
+          ...(availableModes.length ? { availableModes } : {}),
         }));
         events.push(sessionEvent("status", { status: "idle" }));
+        // A session persisted in Plan resumes in Plan (the row's permissionMode carries the Realm-side
+        // record of the mode axis; see PLAN_PERMISSION_MODE). Only ever the AGENT'S OWN id, and only
+        // when it advertised one — with no plan-equivalent the session honestly stays in its default
+        // mode and the prompter shows no Plan chip either. Best-effort like setOptions: a refusal is
+        // a log line, not a boot failure.
+        const bootPlan = opts.permissionMode === PLAN_PERMISSION_MODE ? acpPlanMode(availableModes) : null;
+        if (bootPlan && bootPlan.id !== bootModeId) {
+          try { await ask("session/set_mode", { sessionId: id, modeId: bootPlan.id }, INITIALIZE_TIMEOUT_MS); }
+          catch (e) { log(`session/set_mode at boot failed: ${message(e)}`); }
+        }
       } catch (e) {
         if (disposed) return;
         fail(acpBootFailureMessage(e, spec, authMethods));
@@ -439,9 +464,11 @@ export class AcpAdapter implements AgentAdapter {
       }
     })();
 
-    /** `prompt: ContentBlock[]` (§3). Images inline only where the agent accepts them; everything else links. */
+    /** `prompt: ContentBlock[]` (§3). Images inline only where the agent accepts them; everything else
+     *  links. Attachment-only messages (Plan 14 W5): no empty text block is manufactured — every
+     *  attachment yields a block of its own (image or resource_link), so the prompt is never empty. */
     const promptFor = async (m: UserMessage): Promise<Bag[]> => {
-      const blocks: Bag[] = [{ type: "text", text: m.text }];
+      const blocks: Bag[] = m.text ? [{ type: "text", text: m.text }] : [];
       for (const a of m.attachments) {
         // Cursor reports embeddedContext:false, so a `resource` block is never an option — a link it is.
         const link = { type: "resource_link", uri: `file://${a.path}`, name: basename(a.path), mimeType: a.mime };
@@ -493,7 +520,16 @@ export class AcpAdapter implements AgentAdapter {
           try { await rpc!.request(method, params); }
           catch (e) { log(`${method} failed: ${message(e)}`); }
         };
-        if (o.permissionMode !== undefined) await attempt("session/set_mode", { sessionId, modeId: o.permissionMode });
+        if (o.permissionMode !== undefined) {
+          // The mode axis, translated (Plan 14 W3): Realm's plan wire value maps onto the agent's own
+          // plan-equivalent, anything else onto its Build mode. NEVER `o.permissionMode` itself — ACP
+          // mode ids are agent-defined, and `session/set_mode` with a Realm id ("plan" happens to
+          // collide on Cursor today, "acceptEdits" never would) is a foreign-id rejection at best and
+          // an accidental match at worst. No equivalent advertised → nothing is sent at all.
+          const target = o.permissionMode === PLAN_PERMISSION_MODE ? acpPlanMode(availableModes) : acpBuildMode(availableModes, bootModeId);
+          if (target) await attempt("session/set_mode", { sessionId, modeId: target.id });
+          else log(`no advertised mode maps onto ${o.permissionMode === PLAN_PERMISSION_MODE ? "Plan" : "Build"}; session/set_mode not sent`);
+        }
         if (o.model !== undefined) await attempt("session/set_model", { sessionId, modelId: o.model });
       },
       dispose: async () => {

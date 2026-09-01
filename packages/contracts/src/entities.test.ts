@@ -49,6 +49,11 @@ describe("destination-page sentinels (Plan 12 W4)", () => {
     for (const id of Object.values(PAGE_REF_IDS)) expect(IdSchema.safeParse(id).success).toBe(true);
   });
 
+  it("profile-page (Plan 14 W2) took the next free sentinel — …005 — without colliding with an existing one", () => {
+    expect(PAGE_REF_IDS["profile-page"]).toBe("00000000000000000000000005");
+    expect(Object.entries(PAGE_REF_IDS).filter(([k]) => k !== "profile-page").map(([, v]) => v)).not.toContain("00000000000000000000000005");
+  });
+
   it("sentinels are distinct, and unmintable: their timestamp component is the 1970 epoch", () => {
     const ids = Object.values(PAGE_REF_IDS);
     expect(new Set(ids).size).toBe(ids.length);

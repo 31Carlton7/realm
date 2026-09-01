@@ -446,9 +446,13 @@ export class CodexAdapter implements AgentAdapter {
       const files = m.attachments.filter((a) => !a.mime.startsWith("image/"));
       // Codex reads local images off disk, so no base64. Anything else is named in the text and left for the
       // agent to open with its own tools.
-      const text = files.length ? `${m.text}\n\nAttached files:\n${files.map((a) => `- ${a.path}`).join("\n")}` : m.text;
+      const fileList = `Attached files:\n${files.map((a) => `- ${a.path}`).join("\n")}`;
+      // Attachment-only messages (Plan 14 W5): with no text, the file list stands alone (no leading
+      // blank lines), and an images-only send carries just the localImage items — the `UserInput`
+      // union takes any mix, so an empty-string text item is never manufactured to fill space.
+      const text = files.length ? (m.text ? `${m.text}\n\n${fileList}` : fileList) : m.text;
       return [
-        { type: "text", text, text_elements: [] },
+        ...(text ? [{ type: "text", text, text_elements: [] }] : []),
         // A resolved @-mention (W4) rides as Codex's NATIVE skill input item, beside the text — the
         // app-server `UserInput` union has a `skill` variant, which beats munging `$name` into the
         // text. `name` is the frontmatter name (what skills/list reports); `path` is the library

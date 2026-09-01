@@ -101,7 +101,7 @@ function FileRow({ cwd, file }: { cwd: string; file: DiffFile }) {
 
 /** The ship outcome as three sentences and, where there is one, a next action. Every state named in
  *  the contract is handled here; a state with no words would be the silence W3 exists to remove. */
-function ShipReport({ cwd, result }: { cwd: string; result: ShipResult }) {
+function ShipReport({ cwd, environmentId, result }: { cwd: string; environmentId: string; result: ShipResult }) {
   const ship = useApp((s) => s.ship);
   const message = useApp((s) => s.commitMessages[cwd] ?? "");
   const run = useApp((s) => s.run);
@@ -119,7 +119,7 @@ function ShipReport({ cwd, result }: { cwd: string; result: ShipResult }) {
       {push.state === "no-upstream" && (
         <p className="ship-bad">
           {push.reason}{" "}
-          <button type="button" className="btn-quiet" onClick={() => run(() => ship({ cwd, commit: false, message, push: true, setUpstream: true, openPr: true }))}>
+          <button type="button" className="btn-quiet" onClick={() => run(() => ship({ cwd, environmentId, commit: false, message, push: true, setUpstream: true, openPr: true }))}>
             Push and set upstream
           </button>
         </p>
@@ -181,7 +181,7 @@ export function DiffPane({ item }: PaneProps) {
   const canCommit = unstageable.length > 0 && message.trim() !== "";
   const doShip = (openPr: boolean) => {
     if (!canCommit || shipping) return;
-    run(() => ship({ cwd, commit: true, message, push: openPr, setUpstream: false, openPr }));
+    run(() => ship({ cwd, environmentId, commit: true, message, push: openPr, setUpstream: false, openPr }));
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); doShip(true); }
@@ -213,7 +213,7 @@ export function DiffPane({ item }: PaneProps) {
       </div>
 
       <div className="diff-commit">
-        {result && <ShipReport cwd={cwd} result={result} />}
+        {result && <ShipReport cwd={cwd} environmentId={environmentId} result={result} />}
         <textarea className="commit-message" aria-label="Commit message" rows={2} placeholder="Describe the change…"
           value={message} onChange={(e) => setCommitMessage(cwd, e.target.value)} onKeyDown={onKeyDown} />
         <div className="diff-commit-bar">
