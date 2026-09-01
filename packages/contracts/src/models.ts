@@ -27,17 +27,23 @@ export const MODEL_FAVORITES_KEY = "models.favorites";
 /**
  * Fold a model's displayed name to a comparison key.
  *
- * Three normalisations, each earning its place against a real disagreement seen in the wild:
+ * Four normalisations, each earning its place against a real disagreement seen in the wild:
  *
- * 1. **Case and punctuation go — except a dot between digits.** `claude-fable-5.1` (Cursor's ACP
- *    catalog) and `Claude Fable 5.1` (Realm's curated Claude list) are the same model typed two ways.
- *    The dot in a VERSION survives because rule 2 would otherwise reverse it: split into `5` and `1`
- *    and then sorted, `5.1` and `1.5` become the same key, and a picker that folds Fable 5.1 into a
- *    Fable 1.5 row has hidden a model behind a different one.
- * 2. **Tokens sort.** Cursor says `claude-4.5-sonnet`; Anthropic says `Claude Sonnet 4.5`. Sorting
+ * 1. **A version's separator is unified to a dot, and the version stays ONE token.** Cursor's live
+ *    ACP catalog writes Anthropic versions with hyphens and everyone else's with dots — verified
+ *    against cursor-agent 2026.07.25, which reported `claude-haiku-4-5` and `gpt-5.3-codex` in the
+ *    same list — while Anthropic's own CLI says `Claude Haiku 4.5`. Without this, that model gets a
+ *    row per harness, which is the exact duplication this key exists to remove.
+ *
+ *    Keeping it one token is what makes rule 3 safe: split into `4` and `5` and then sorted, `4.5`
+ *    and `5.4` collapse into the same key, and a picker that folds Fable 5.1 into a Fable 1.5 row
+ *    has hidden a model behind a different one.
+ * 2. **Case and remaining punctuation go.** `claude-fable-5.1` and `Claude Fable 5.1` are the same
+ *    model typed two ways.
+ * 3. **Tokens sort.** Cursor says `claude-4.5-sonnet`; Anthropic says `Claude Sonnet 4.5`. Sorting
  *    the tokens makes word order stop mattering, which removes the largest single class of alias
  *    table entries — vendors reorder qualifiers constantly and agree on the words themselves.
- * 3. **`MODEL_ALIASES` gets the last word**, for the residue that no rule can fold.
+ * 4. **`MODEL_ALIASES` gets the last word**, for the residue that no rule can fold.
  *
  * With versions kept whole, sorting can only over-merge names built from the SAME tokens in a
  * different order, and two models whose names are anagrams of each other are two names for one model
@@ -47,6 +53,9 @@ export const MODEL_FAVORITES_KEY = "models.favorites";
  */
 export function canonicalModelKey(label: string): string {
   const tokens = label.toLowerCase()
+    // Lookahead, not a consumed digit: `1-2-3` has to become `1.2.3`, and a consuming match would
+    // skip past the `2` and leave the second separator alone.
+    .replace(/(\d)[-_](?=\d)/g, "$1.")
     .split(/[^a-z0-9.]+/)
     .map((t) => t.replace(/^\.+|\.+$/g, "")) // a dot that bounds a token separated, it never versioned
     .filter(Boolean)

@@ -125,10 +125,14 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
     for (const e of entries) {
       const existing = byKey.get(e.key);
       if (existing) {
-        // A second route to a model already listed. Record the id and move on — the row keeps the
-        // name and the resolved harness the FIRST claimant gave it.
+        // A second route to a model already listed: record the id, keep the resolved harness the
+        // FIRST claimant gave it — but take the better NAME wherever it comes from. Cursor's catalog
+        // labels its models with their bare ids (`claude-fable-5-1`), so a Cursor session that
+        // claimed the model first would otherwise show that id where Claude's own list has a real
+        // name for the very same model.
         existing.harnesses.push(k);
         existing.ids[k] = e.id;
+        if (looksLikeId(existing.label) && !looksLikeId(e.label)) existing.label = e.label;
         continue;
       }
       const row: ModelRow = {
@@ -160,6 +164,18 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
     }
   }
   return rows;
+}
+
+/**
+ * Whether a label is a bare wire id rather than a name someone wrote for humans.
+ *
+ * Lowercase throughout with no spaces is what every raw id looks like (`claude-fable-5-1`,
+ * `gpt-5.3-codex`) and what no vendor's written name looks like — they all capitalise something
+ * ("Claude Fable 5.1", "GPT-5.6", "Composer"). Used only to pick between two labels for the SAME
+ * model, so a false positive costs nothing: the id was going to be shown anyway.
+ */
+function looksLikeId(label: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]*$/.test(label);
 }
 
 /**

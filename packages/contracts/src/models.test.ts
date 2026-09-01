@@ -13,6 +13,32 @@ describe("canonicalModelKey", () => {
     expect(canonicalModelKey("claude-4.5-sonnet")).toBe(canonicalModelKey("Claude Sonnet 4.5"));
   });
 
+  it("folds a hyphenated version onto a dotted one — the live-catalog case", () => {
+    // Labels taken verbatim from cursor-agent 2026.07.25's ACP catalog, which writes Anthropic
+    // versions with hyphens and OpenAI/Google ones with dots IN THE SAME LIST. An earlier fixture
+    // here invented pretty labels for Cursor, and the app shipped a duplicate "Claude Fable 5.1"
+    // row until this was checked against a real probe.
+    expect(canonicalModelKey("claude-fable-5-1")).toBe(canonicalModelKey("Claude Fable 5.1"));
+    expect(canonicalModelKey("claude-haiku-4-5")).toBe(canonicalModelKey("Claude Haiku 4.5"));
+    expect(canonicalModelKey("claude-sonnet-4-5")).toBe(canonicalModelKey("Claude Sonnet 4.5"));
+  });
+
+  it("still tells apart models the live catalog lists separately", () => {
+    // The same probe carried all of these; folding any pair together would hide a real model.
+    const live = ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5",
+      "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4", "gpt-5.4", "gpt-5.4-mini",
+      "gpt-5.4-nano", "gpt-5-mini", "gpt-5.1", "gpt-5.3-codex", "gemini-3.7-flash", "gemini-3-flash",
+      "gemini-3.6-flash", "gemini-3.1-pro", "grok-4.6", "grok-4.5", "kimi-k3", "kimi-k2.7-code"];
+    const keys = live.map(canonicalModelKey);
+    expect(new Set(keys).size).toBe(live.length);
+  });
+
+  it("unifies every separator in a multi-part version", () => {
+    // A consuming regex would fix the first separator and skip the second.
+    expect(canonicalModelKey("model-1-2-3")).toBe(canonicalModelKey("Model 1.2.3"));
+    expect(canonicalModelKey("model-1-2-3")).not.toBe(canonicalModelKey("Model 3.2.1"));
+  });
+
   it("keeps a version dot, so a reversed version is NOT the same model", () => {
     // The regression that made this function tokenise on `[^a-z0-9.]` rather than `[^a-z0-9]`:
     // splitting the dot and then sorting made these two keys identical.

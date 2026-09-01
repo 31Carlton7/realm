@@ -87,10 +87,18 @@ describe("filterRows at catalog scale", () => {
   });
 });
 
-/** Cursor proxies models other harnesses also run — the overlap the model-first list has to collapse. */
+/**
+ * Cursor proxying models other harnesses also run — the overlap the model-first list has to collapse.
+ *
+ * Labels are the RAW IDS cursor-agent actually reports (verified live against 2026.07.25), not the
+ * tidy names its own UI prints. That distinction is the whole test: an earlier fixture here used
+ * pretty labels, every assertion passed, and the shipped app still showed "Claude Fable 5.1" twice
+ * because the real catalog hyphenates the version.
+ */
+const CURSOR_FABLE_ID = "claude-fable-5-1[thinking=true,context=300k,effort=high,fast=false]";
 const cursorWithClaude = [
   { id: "default[]", label: "Auto" },
-  { id: "claude-fable-5.1", label: "Claude Fable 5.1" }, // Claude's own list calls this claude-fable-5-1
+  { id: CURSOR_FABLE_ID, label: "claude-fable-5-1" }, // Claude's own list calls this Claude Fable 5.1
   { id: "gpt-5.5", label: "GPT-5.5" },
 ];
 const missing = (kind: AgentProbe["kind"]): AgentProbe =>
@@ -104,15 +112,28 @@ describe("one row per model, not per (harness, model)", () => {
     expect(fable(rows)).toHaveLength(1); // pre-dedupe this was two rows, one per harness
     expect(fable(rows)[0]).toMatchObject({
       kind: "claude", harnesses: ["claude", "acp:cursor"],
-      ids: { claude: "claude-fable-5-1", "acp:cursor": "claude-fable-5.1" },
+      ids: { claude: "claude-fable-5-1", "acp:cursor": CURSOR_FABLE_ID },
     });
+  });
+
+  it("shows the model's NAME even when the harness that claimed it reports a bare id", () => {
+    // Cursor's catalog labels every model with its wire id, so a Cursor session claims this model
+    // first and would name the row `claude-fable-5-1` — while Claude's own list, merged in a moment
+    // later, has "Claude Fable 5.1" for the very same model. Caught by running the app, not the suite.
+    const rows = modelRows({ kind: "acp:cursor", model: null, canSwitchAgent: true,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    expect(rows.map((r) => r.label)).toContain("Claude Fable 5.1");
+    expect(rows.map((r) => r.label)).not.toContain("claude-fable-5-1");
+    // A model only ONE harness offers keeps whatever that harness called it — there is no better
+    // name available, and inventing one would be a lie about the catalog.
+    expect(rows.map((r) => r.label)).toContain("Auto");
   });
 
   it("routes a merged row through the session's own harness, so picking it switches no agent", () => {
     const rows = modelRows({ kind: "acp:cursor", model: null, canSwitchAgent: true,
       agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
     // Same model, same two harnesses — but this session is on Cursor, so Cursor runs it.
-    expect(fable(rows)[0]).toMatchObject({ kind: "acp:cursor", modelId: "claude-fable-5.1" });
+    expect(fable(rows)[0]).toMatchObject({ kind: "acp:cursor", modelId: CURSOR_FABLE_ID });
   });
 
   it("keeps a model on the session's own harness even when that CLI is signed out", () => {
@@ -136,7 +157,7 @@ describe("one row per model, not per (harness, model)", () => {
     const rows = modelRows({ kind: "codex", model: null, canSwitchAgent: true,
       agentProbe: [missing("claude"), probe("acp:cursor", cursorWithClaude)] });
     // Declaration order still puts claude first, but it can't run anything — Cursor gets the model.
-    expect(fable(rows)[0]).toMatchObject({ kind: "acp:cursor", modelId: "claude-fable-5.1" });
+    expect(fable(rows)[0]).toMatchObject({ kind: "acp:cursor", modelId: CURSOR_FABLE_ID });
   });
 
   it("blocks a merged row once the session has run and its own harness can't reach the model", () => {
@@ -168,7 +189,7 @@ describe("modelIdOn", () => {
 
   it("hands back the id the target harness actually accepts", () => {
     // What the harness chip re-reads when it moves a chosen model onto another route.
-    expect(modelIdOn(fable(rows)[0]!, "acp:cursor")).toBe("claude-fable-5.1");
+    expect(modelIdOn(fable(rows)[0]!, "acp:cursor")).toBe(CURSOR_FABLE_ID);
     expect(modelIdOn(fable(rows)[0]!, "claude")).toBe("claude-fable-5-1");
   });
 
