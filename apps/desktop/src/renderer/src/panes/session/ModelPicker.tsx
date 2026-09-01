@@ -3,8 +3,7 @@ import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
-import type { AgentProbe } from "../../state/store";
-import { filterRows, modelRows, railKinds, sortFavoritesFirst, type ModelRow, type RailFilter } from "./model-rows";
+import { filterRows, railKinds, sortFavoritesFirst, type ModelRow, type RailFilter } from "./model-rows";
 
 /** How many favourites get a ⌘-digit shortcut. Nine because ⌘0 is not a tenth — it is a different
  *  key users read as "zero", and a tenth badge nobody can press is worse than no badge. */
@@ -30,16 +29,14 @@ export type OverflowGroup = { label: string; items: { label: string; checked?: b
  *  chip's suffix and the picker's effort buttons, so the two can never disagree. */
 export const formatEffort = (e: string): string => (e === "xhigh" ? "XHigh" : e.charAt(0).toUpperCase() + e.slice(1));
 
-export function ModelPicker({ kind, model, effort, canSwitchAgent, agentProbe, favorites, onToggleFavorite, onPick, effortItems, overflow }: {
+export function ModelPicker({ kind, model, effort, rows, onToggleFavorite, onPick, effortItems, overflow }: {
   kind: AgentKind;
   model: string | null;
   /** The session's effort level — the chip's gray suffix. `null` (unset) shows nothing at all. */
   effort: string | null;
-  /** False once the session has produced an event — cross-agent rows go unavailable, not invisible. */
-  canSwitchAgent: boolean;
-  agentProbe: AgentProbe[];
-  /** Canonical keys the user has starred (`MODEL_FAVORITES_KEY`). */
-  favorites: string[];
+  /** Built by the Composer rather than here, so the harness chip beside this one resolves a switch
+   *  against the very rows the list is showing — two `modelRows` calls could drift apart. */
+  rows: ModelRow[];
   onToggleFavorite: (key: string) => void;
   onPick: (kind: AgentKind, modelId: string | null) => void;
   /** The effort options, permanently housed in the popover (prompter rework: the standalone effort
@@ -50,7 +47,6 @@ export function ModelPicker({ kind, model, effort, canSwitchAgent, agentProbe, f
 }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const rows = useMemo(() => modelRows({ kind, model, agentProbe, canSwitchAgent, favorites }), [kind, model, agentProbe, canSwitchAgent, favorites]);
   // A model id the current agent does not list (a stale row, or a model retired since) still deserves
   // its name shown rather than being silently replaced by the default label.
   const label = rows.find((r) => r.selected)?.label ?? model ?? DEFAULT_MODEL_LABEL[kind];

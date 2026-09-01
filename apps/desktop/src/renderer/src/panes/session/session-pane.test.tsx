@@ -1330,6 +1330,72 @@ describe("prompter model picker", () => {
       expect(rowNames()).toEqual(["Claude Opus 5"]);
     });
   });
+
+  describe("the harness chip", () => {
+    /** Cursor proxying a model the Claude CLI also runs — the overlap a harness switch has to carry. */
+    const proxyProbe: AgentProbe[] = [
+      { kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null,
+        models: [{ id: "claude-fable-5.1", label: "Claude Fable 5.1" }, { id: "gpt-5.5", label: "GPT-5.5" }] },
+    ];
+    const openHarness = () => fireEvent.click(screen.getByRole("button", { name: "Harness" }));
+
+    it("names the session's own harness and offers the others", async () => {
+      await mountFresh();
+      expect(screen.getByRole("button", { name: "Harness" })).toHaveTextContent("Claude");
+      openHarness();
+      const items = screen.getAllByRole("menuitemcheckbox").map((n) => n.textContent);
+      expect(items[0]).toContain("Claude");
+      expect(items.join(" ")).toContain("Codex");
+      expect(items.join(" ")).toContain("Cursor");
+      expect(screen.getAllByRole("menuitemcheckbox")[0]).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("carries the model across when the target harness offers it", async () => {
+      // The point of splitting the axes: changing WHAT RUNS must not silently change WHAT IT RUNS.
+      // Cursor names this model by a different id, so the switch has to re-map rather than re-send.
+      const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openHarness();
+      fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /Cursor/ }));
+      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
+      expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1"); // Cursor's id, not Claude's
+      expect(api.calls.filter((c) => c.startsWith("setSessionAgent") || c.startsWith("setSessionOptions")))
+        .toEqual(["setSessionAgent:se1=acp:cursor", "setSessionOptions:se1"]); // setAgent clears model, so order matters
+    });
+
+    it("says which model a harness would fall back to before it is picked", async () => {
+      // Worked out in the label rather than reported afterwards — the consequence belongs to the
+      // decision, not to the undo.
+      const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openHarness();
+      const codex = screen.getByRole("menuitemcheckbox", { name: /Codex/ });
+      expect(codex).toHaveTextContent("runs GPT-5.6");
+      expect(screen.getByRole("menuitemcheckbox", { name: /Cursor/ })).not.toHaveTextContent("runs");
+      fireEvent.click(codex);
+      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("codex"));
+      // No model is sent: a claude id means nothing to Codex, and there is no Codex id to put there.
+      expect(store.getState().sessions.se1?.model).toBeNull();
+      expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
+    });
+
+    it("flags a harness whose CLI is missing rather than hiding it", async () => {
+      const { store } = await mountFresh({}, 0,
+        [{ kind: "codex", available: false, version: null, loggedIn: null, reason: "not on PATH", models: null }]);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openHarness();
+      expect(screen.getByRole("menuitemcheckbox", { name: /Codex/ })).toHaveTextContent("not installed");
+    });
+
+    it("becomes a plain label once the session has run", async () => {
+      // sessions.setAgent refuses after the first event; a menu that cannot change anything is worse
+      // than a label, and a disabled button would still take a tab stop.
+      await mountFresh({ lastEventSeq: 3 }, 3);
+      const chip = screen.getByTitle(/agent can only change before its first message/);
+      expect(chip).toHaveTextContent("Claude");
+      expect(screen.queryByRole("button", { name: "Harness" })).toBeNull();
+    });
+  });
 });
 
 
