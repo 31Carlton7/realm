@@ -142,7 +142,10 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
           <textarea className="ip-generate-prompt" placeholder="Describe the icon you want — e.g. “a friendly orange fox”"
             value={prompt} onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitGenerate(); } }} />
-          <button type="button" className="btn primary" disabled={!prompt.trim() || generating} onClick={submitGenerate}>
+          {/* aria-busy separates the two reasons this is disabled — nothing typed yet vs. a
+              generation in flight — for the reader and for the stylesheet, which must not grey the
+              button out from under the press that started the work. */}
+          <button type="button" className="btn primary" aria-busy={generating} disabled={!prompt.trim() || generating} onClick={submitGenerate}>
             {generating ? <><Icon name="spinner" size={13} className="spin" /> Generating…</> : <><Icon name="sparkles" size={13} /> Generate</>}
           </button>
           {genError && <p className="ip-error">{genError}</p>}
@@ -158,7 +161,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
       )}
       {tab === "uploaded" && (
         <div className="ip-generate">
-          <button type="button" className="btn" disabled={uploading} onClick={doUpload}>
+          <button type="button" className="btn" aria-busy={uploading} disabled={uploading} onClick={doUpload}>
             <Icon name="attach" size={13} /> {uploading ? "Uploading…" : "Upload image…"}
           </button>
           <div className="ip-grid">

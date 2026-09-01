@@ -262,3 +262,42 @@ describe("Menu keyboard (U-M10/A-H3)", () => {
     expect(item.querySelector("kbd.menu-kbd")).toHaveTextContent("⌘W");
   });
 });
+
+/**
+ * A surface placed at mount against the height it had at mount goes stale the moment its CONTENT
+ * changes height — which the icon picker does by ~300px every time you switch its tab, walking the
+ * popover off the bottom of the window. `useAnchoredPopover` observes its own box and re-places, so
+ * the flip/clamp decision is retaken rather than frozen. Driven through Menu because that is the
+ * hook's other consumer: if the primitive regresses, both surfaces do.
+ */
+describe("anchored surfaces re-place when their own height changes", () => {
+  const rect = (top: number, height: number, left = 100, width = 50) =>
+    ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it("re-runs placement on its own resize, flipping above once it no longer fits below", () => {
+    let menuH = 100;
+    const fire: (() => void)[] = [];
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: () => void) { fire.push(cb); }
+      observe() {} unobserve() {} disconnect() {}
+    });
+    const orig = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.classList.contains("menu") ? rect(0, menuH, 0, 160) : orig.call(this);
+    });
+    const el = document.createElement("button");
+    el.getBoundingClientRect = () => rect(600, 20, 100); // bottom 620, in a 768-tall window
+    document.body.appendChild(el);
+
+    mount([plain("A")], { anchorRef: { current: el } });
+    expect(screen.getByRole("menu").style.top).toBe("624px"); // 620 + 4: 100px tall still fits below
+
+    // The tab-switch: same surface, three times the content. 624 + 400 runs off the window, and
+    // above (600 - 400 - 4) clears — so a re-placement must move it. Frozen placement stays at 624.
+    menuH = 400;
+    act(() => { for (const cb of fire) cb(); });
+    expect(screen.getByRole("menu").style.top).toBe("196px");
+  });
+});
