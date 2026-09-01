@@ -15,7 +15,11 @@ export class TerminalManager {
   create(opts: { id?: string; cwd: string; cols: number; rows: number; shell?: string; env?: Record<string, string> }): { id: string; shell: string } {
     const id = opts.id ?? newId();
     const shell = opts.shell ?? process.env.SHELL ?? "/bin/zsh";
-    const p = pty.spawn(shell, [], {
+    // Login shell (`-l`): a non-login zsh never reads /etc/zprofile, so path_helper's PATH (and the
+    // user's ~/.zprofile additions) are missing — visible in a packaged app, where the inherited env
+    // is launchd's, not a terminal's. bash/zsh/fish/sh all accept -l; Windows shells do not.
+    const args = process.platform === "win32" ? [] : ["-l"];
+    const p = pty.spawn(shell, args, {
       name: "xterm-256color", cwd: opts.cwd, cols: clamp(opts.cols, 2, MAX_COLS), rows: clamp(opts.rows, 1, MAX_ROWS),
       env: { ...process.env, ...opts.env, TERM_PROGRAM: "Realm" } as Record<string, string>,
     });
