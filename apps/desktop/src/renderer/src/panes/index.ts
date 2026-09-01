@@ -10,3 +10,7 @@ import { BrowserPane } from "./browser/BrowserPane";
 registerPane("browser", BrowserPane);
 import { SpacePage } from "./space/SpacePage";
 registerPane("space-page", SpacePage);
+import { LibraryPage } from "./library/LibraryPage";
+registerPane("library-page", LibraryPage);
+import { ConnectionsPage } from "./connections/ConnectionsPage";
+registerPane("connections-page", ConnectionsPage);

@@ -7,7 +7,7 @@ import {
   SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowDown02Icon, ArrowUp02Icon, Loading03Icon, CheckmarkCircle02Icon, CancelCircleIcon,
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
   Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon,
-  Layout2ColumnIcon, Layout2RowIcon,
+  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -23,8 +23,11 @@ export const icons = {
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
   laptop: LaptopIcon, plug: PlugSocketIcon,
-  // Item-kind keyed (ItemList/PanelBar render `Icon name={item.kind}`): the space page (Plan 12 W3).
+  // Item-kind keyed (ItemList/PanelBar render `Icon name={item.kind}`): the space page (Plan 12 W3)
+  // and the sidebar destinations (W4).
   "space-page": Home01Icon,
+  "library-page": BookOpen01Icon,
+  "connections-page": PlugSocketIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

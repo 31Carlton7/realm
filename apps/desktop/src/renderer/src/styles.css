@@ -1161,3 +1161,16 @@ button.panel-title:hover { background: var(--rl-hover); }
 .space-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; margin: -2px -4px;
   border: none; border-radius: var(--r-chip); background: none; color: inherit; font: inherit; cursor: pointer; }
 .space-title:hover { background: var(--rl-hover); }
+
+/* ——— Plan 12 W4: sidebar destinations + scope groups. The destination rows sit between the New-session
+   block and the space swiper — quiet 32px rows in the item-row idiom (text-dim, hover-brighten). The
+   scope groups are the shared ScopeGroups sections every scoped list renders through. ——— */
+.sb-destinations { flex: none; display: flex; flex-direction: column; padding: 0 16px 6px; }
+.sb-destinations .dest-row { min-height: 32px; width: 100%; border-radius: var(--r-ctl); }
+.sb-destinations .dest-row:hover { color: var(--rl-text-bright); }
+.scope-group { display: flex; flex-direction: column; gap: 4px; }
+.scope-group + .scope-group { margin-top: 12px; }
+.scope-group-label { margin: 0; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
+.scope-move { flex: none; font-size: 11.5px; }
+.scope-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); background: var(--rl-raised); font-size: 12px; }
+.scope-confirm-copy { flex: 1; min-width: 200px; color: var(--rl-text-dim); }

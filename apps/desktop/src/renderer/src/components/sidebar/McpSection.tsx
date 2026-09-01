@@ -1,9 +1,12 @@
 import { MCP_SECRET_STORAGE_NOTE, McpServerNameSchema, mcpSupportNote, type AgentKind, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { useEffect, useState, type FormEvent } from "react";
 import { useApp, type McpTestResult } from "../../state/store";
+import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
 
+/** The hub's PUSHED state, worded honestly: `idle` means the hub has never dialed this server — it
+ *  says nothing about health, so the dot must not imply any was checked (W4's "not checked" rule). */
 const STATUS_LABEL: Record<McpServerStatus, string> = {
-  idle: "Idle", connected: "Connected", error: "Error", circuit_open: "Circuit open",
+  idle: "Not checked yet", connected: "Connected", error: "Error", circuit_open: "Circuit open",
 };
 /** Binding note 1 (W5 review): mid-session token expiry surfaces as failing calls → circuit_open, and
  *  Retry is the one-click fix (it reconnects AND silently refreshes OAuth). The copy has to say both. */
@@ -61,15 +64,17 @@ export function McpSection({ spaceId }: { spaceId: string }) {
         {servers.length === 0
           ? <p className="env-empty">No MCP servers yet — add one to give this space's agents tools.</p>
           : (
-            <ul className="env-list">
-              {servers.map((s) => <McpServerRow key={s.id} spaceId={spaceId} server={s} />)}
-            </ul>
+            // W4: the shared scope grouping — the same "This space" / "From <profile>" / "Everywhere"
+            // sections the Library renders, over the same rows this list always held.
+            <ScopeGroups listClassName="env-list"
+              entries={servers.map((s) => ({ key: s.id, scope: s.scope, row: <McpServerRow key={s.id} spaceId={spaceId} server={s} /> }))} />
           )}
         {adding
           ? <McpServerForm spaceId={spaceId} onDone={() => setAdding(false)} />
           : <div className="form-actions" style={{ justifyContent: "flex-start" }}>
               <button type="button" className="btn-quiet" onClick={() => setAdding(true)}>Add server…</button>
             </div>}
+        <RealmProviders spaceId={spaceId} />
         {agentKinds.length > 0 && (
           <ul className="mcp-agent-notes">
             {agentKinds.map((k) => (
@@ -89,17 +94,65 @@ export function McpSection({ spaceId }: { spaceId: string }) {
   );
 }
 
+/**
+ * Realm-native gateway toolsets (`realm-browser`, `realm-agent`), rendered as rows like the servers
+ * above but honestly different: no status dot (they are in-process — there is no connection to have
+ * checked), no editor, no scope moves (they are code, not config — the same in every profile), just
+ * this space's switch. Default ON, per `mcp.setProviderEnabled`'s rationale.
+ */
+function RealmProviders({ spaceId }: { spaceId: string }) {
+  const providers = useApp((s) => s.mcpProviders);
+  const setMcpProviderEnabled = useApp((s) => s.setMcpProviderEnabled);
+  const run = useApp((s) => s.run);
+  if (providers.length === 0) return null;
+  return (
+    <div className="field">
+      <span>Realm's own tools</span>
+      <p className="settings-hint">Built into Realm and served through the same gateway. On by default — they run under Realm's own permission flow, not as a process you configured. The switch is this space's.</p>
+      <ul className="env-list">
+        {providers.map((p) => (
+          <li key={p.name} className="env-row mcp-row">
+            <div className="env-main">
+              <span className="env-name">{p.name}</span>
+              <span className="env-kind">built-in</span>
+            </div>
+            <div className="env-actions">
+              <label className="mcp-enable">
+                <input type="checkbox" aria-label={`Provider ${p.name} in this space`} checked={p.enabled}
+                  onChange={(e) => run(() => setMcpProviderEnabled(spaceId, p.name, e.target.checked))} />
+                Enabled
+              </label>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer }) {
   const run = useApp((s) => s.run);
   const setMcpEnabled = useApp((s) => s.setMcpEnabled);
   const removeMcpServer = useApp((s) => s.removeMcpServer);
   const retryMcpServer = useApp((s) => s.retryMcpServer);
   const testMcpServer = useApp((s) => s.testMcpServer);
+  const promoteMcpServer = useApp((s) => s.promoteMcpServer);
+  const demoteMcpServer = useApp((s) => s.demoteMcpServer);
+  const profiles = useApp((s) => s.profiles);
+  const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmMove, setConfirmMove] = useState(false);
   const [test, setTest] = useState<McpTestResult | "testing" | null>(null);
 
   const endpoint = server.transport === "stdio" ? [server.command, ...server.args].filter(Boolean).join(" ") : server.url;
+  // Inherited = defined at the profile (§2's contract): toggleable here (the per-space override — the
+  // same setEnabled wire, routed server-side), never editable in place. The editor still opens, but as
+  // "Edit in profile": the SAME McpServerForm, wearing a banner that names the defining scope — mcp.update
+  // edits the one row every profile space shares, and the user must know that before saving.
+  const inherited = server.scope.kind === "profile";
+  const profileId = server.scope.kind === "profile" ? server.scope.profileId : space?.profileId;
+  const profileName = profiles.find((p) => p.id === profileId)?.name ?? "profile";
 
   // W5's live check, kept through the merge: the status dot is the HUB's steady-state opinion, which
   // says nothing useful right after an edit (still `idle`) or once a breaker has tripped. Test dials
@@ -119,9 +172,6 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <span className="status-dot" data-status={server.status} title={STATUS_LABEL[server.status]} aria-label={`Status: ${STATUS_LABEL[server.status]}`} />
         <span className="env-name">{server.name}</span>
         <span className="env-kind">{server.transport}</span>
-        {/* W2 scope marker: an inherited server is defined at the profile — the toggle here is this
-            space's override; editing happens at the defining scope (the grouped UI is W4's). */}
-        {server.scope.kind === "profile" && <span className="env-kind" title="Defined at the profile — inherited by every space of the profile. The toggle is this space's override.">from profile</span>}
         {/* The hub status dot only says whether calls currently succeed — it says nothing about auth,
             so a server needing reauth otherwise looks completely normal until Edit is opened. */}
         {server.authKind === "oauth" && server.oauthStatus === "reconnect_needed" && (
@@ -138,26 +188,46 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
       </div>
       <div className="env-actions">
         <label className="mcp-enable">
+          {/* Always the per-space wire, whatever the scope: for an inherited server the server side
+              flips this space's override, never the defining scope's state (the named W4 mutant). */}
           <input type="checkbox" checked={server.enabled}
+            title={inherited ? `Defined in ${profileName} — this switch is this space's override.` : undefined}
             onChange={(e) => run(() => setMcpEnabled(spaceId, server.id, e.target.checked))} />
           Enabled
         </label>
         <button type="button" className="btn-quiet" onClick={runTest}>Test</button>
-        <button type="button" className="btn-quiet" onClick={() => setEditing((v) => !v)}>{editing ? "Close" : "Edit"}</button>
+        {/* Never a bare "Edit" on an inherited row — in-place editing is the mutant §2 forbids. The
+            affordance jumps to the defining scope's editor: the same form, opened AS the profile's. */}
+        <button type="button" className="btn-quiet" onClick={() => setEditing((v) => !v)}>
+          {editing ? "Close" : inherited ? "Edit in profile" : "Edit"}
+        </button>
+        {!confirmMove && (
+          <button type="button" className="btn-quiet" onClick={() => setConfirmMove(true)}>
+            {inherited ? "Move to this space…" : "Move to profile…"}
+          </button>
+        )}
         {confirmDelete
           ? <>
+              {/* Removal always acts at the defining scope; for an inherited row that reach is named. */}
+              {inherited && <span className="muted">Removes it for every space of {profileName}.</span>}
               <button type="button" className="btn-quiet" onClick={() => setConfirmDelete(false)}>Cancel</button>
               <button type="button" className="btn-quiet danger" onClick={() => run(() => removeMcpServer(server.id))}>Remove</button>
             </>
           : <button type="button" className="btn-quiet" onClick={() => setConfirmDelete(true)}>Remove…</button>}
       </div>
+      {confirmMove && (
+        <MoveScopeConfirm direction={inherited ? "demote" : "promote"} name={server.name} profileName={profileName}
+          onCancel={() => setConfirmMove(false)}
+          onConfirm={() => { setConfirmMove(false); run(() => (inherited ? demoteMcpServer : promoteMcpServer)(spaceId, server.id)); }} />
+      )}
       {server.status === "circuit_open" && (
         <div className="mcp-circuit">
           <span>{CIRCUIT_OPEN_COPY}</span>
           <button type="button" className="btn-quiet" onClick={() => run(() => retryMcpServer(server.id))}>Retry</button>
         </div>
       )}
-      {editing && <McpServerForm spaceId={spaceId} server={server} onDone={() => setEditing(false)} />}
+      {editing && <McpServerForm spaceId={spaceId} server={server} onDone={() => setEditing(false)}
+        scopeNote={inherited ? `Defined in ${profileName}. Changes here apply to every space of ${profileName}.` : undefined} />}
       {server.enabled && <McpToolsPolicy spaceId={spaceId} server={server} />}
     </li>
   );
@@ -215,7 +285,11 @@ const emptyRows: SecretRow[] = [];
 /** Add/edit form: the W2 fields (name, transport, endpoint, secrets) plus auth. `server` present = edit;
  *  absent = a fresh add. Self-contained on purpose — everything the form needs to reason about (dirty
  *  URL, oauth vs key, existing key names) lives in this one component. */
-function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: McpServer; onDone: () => void }) {
+function McpServerForm({ spaceId, server, onDone, scopeNote }: { spaceId: string; server?: McpServer; onDone: () => void;
+  /** Set when this form is the DEFINING scope's editor opened from an inheriting space ("Edit in
+   *  profile"): one sentence naming the scope and the reach of a save. Rendered first — the user must
+   *  read it before any field. */
+  scopeNote?: string }) {
   const run = useApp((s) => s.run);
   const addMcpServer = useApp((s) => s.addMcpServer);
   const updateMcpServer = useApp((s) => s.updateMcpServer);
@@ -267,6 +341,7 @@ function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: 
 
   return (
     <form className="form mcp-form" onSubmit={submit}>
+      {scopeNote && <p className="settings-note scope-note">{scopeNote}</p>}
       <label className="field"><span>Name</span>
         <input aria-label="Server name" value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
