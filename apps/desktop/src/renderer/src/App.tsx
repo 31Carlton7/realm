@@ -6,6 +6,7 @@ import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { PaneHost } from "./components/PaneHost";
+import { GroupBar } from "./components/GroupBar";
 import { Onboarding } from "./components/Onboarding";
 import { StoreContext, createAppStore, useApp } from "./state/store";
 import { liveApi } from "./state/live-api";
@@ -60,8 +61,10 @@ function SheetHost() {
   return null;
 }
 
-/** Full-bleed PaneHost for the active space (no topbar — spec amendment §A1; layout presets live
- *  in the command palette). Exported for the app-shell tests. */
+/** Full-bleed PaneHost for the active space, under the GroupBar — which renders NOTHING unless the
+ *  space has more than one pane group or a pane is focused full-screen, so the no-topbar posture
+ *  (spec amendment §A1) is unchanged for anyone not using groups. Layout presets stay in the command
+ *  palette. Exported for the app-shell tests. */
 export function Main() {
   const layout = useApp((s) => s.layout);
   const items = useApp((s) => s.items);
@@ -75,6 +78,9 @@ export function Main() {
   const openItemAt = useApp((s) => s.openItemAt);
   const resizeSplit = useApp((s) => s.resizeSplit);
   const equalizeSplit = useApp((s) => s.equalizeSplit);
+  const zoomedLeafId = useApp((s) => s.groups?.groups.find((g) => g.id === s.groups!.activeGroupId)?.zoomedLeafId ?? null);
+  const focusPaneFull = useApp((s) => s.focusPaneFull);
+  const unfocusPane = useApp((s) => s.unfocusPane);
   const run = useApp((s) => s.run);
   // First run (W4): no spaces at all — the onboarding sheet, not a sentence pointing at a "+". It is
   // gated on `booted` because an unbooted store also has zero spaces, and on the space COUNT rather than
@@ -84,7 +90,11 @@ export function Main() {
   return (
     <>
       <ErrorBar />
+      <GroupBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
+        zoomedLeafId={zoomedLeafId}
+        onZoom={(leafId) => run(() => focusPaneFull(leafId))}
+        onUnzoom={() => run(() => unfocusPane())}
         onFocus={focusLeaf}
         onClose={(id) => run(() => closeFromLayout(id))}
         // The split button targets its own leaf: focus it synchronously, then split reads the fresh focus.

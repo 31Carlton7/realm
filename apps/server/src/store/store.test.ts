@@ -11,7 +11,7 @@ import { TerminalsStore } from "./terminals";
 import { EnvironmentsStore } from "./environments";
 import { SessionsStore } from "./sessions";
 import { NotFoundError, RpcError } from "./rows";
-import { emptyLayout } from "@realm/contracts";
+import { emptyLayout, type Layout } from "@realm/contracts";
 
 let db: Db; let home: string;
 beforeEach(() => {
@@ -91,6 +91,77 @@ describe("SpacesStore layout robustness", () => {
     expect(spaces.list(p.id)).toHaveLength(1);
     db.prepare("UPDATE spaces SET layout_json = ? WHERE id = ?").run("{not json", sp.id);
     expect(spaces.list(p.id)[0]!.layout).toBeNull();
+  });
+});
+
+describe("SpacesStore pane groups", () => {
+  const mk = () => {
+    const profiles = new ProfilesStore(db); const spaces = new SpacesStore(db, home);
+    const p = profiles.create({ name: "W", icon: "x", color: "#000" });
+    return { spaces, sp: spaces.create({ profileId: p.id, name: "S", icon: "f" }) };
+  };
+  const leaf = (itemId: string | null): Layout => ({ type: "leaf", id: "L1", itemId });
+
+  // Migration v17 does no backfill: a space that predates groups derives its set on READ, so what it
+  // shows must be exactly the arrangement it had — one group, named Main, holding that layout.
+  it("derives a single Main group from a pre-groups layout, with no groups_json written", () => {
+    const { spaces, sp } = mk();
+    db.prepare("UPDATE spaces SET layout_json = ? WHERE id = ?").run(JSON.stringify(leaf("i1")), sp.id);
+    const got = spaces.get(sp.id)!;
+    expect(got.groups!.groups).toHaveLength(1);
+    expect(got.groups!.groups[0]!.name).toBe("Main");
+    expect(got.groups!.groups[0]!.layout).toEqual(leaf("i1"));
+    expect(got.layout).toEqual(leaf("i1")); // the old field keeps its old answer
+    expect((db.prepare("SELECT groups_json FROM spaces WHERE id = ?").get(sp.id) as { groups_json: string | null }).groups_json).toBeNull();
+  });
+
+  // A pure read that returns different data each call would hand two spaces.list() calls two
+  // different ids for the same group — and the renderer seeds its state from exactly that.
+  it("derives the same group id on every read", () => {
+    const { spaces, sp } = mk();
+    expect(spaces.get(sp.id)!.groups).toEqual(spaces.get(sp.id)!.groups);
+    expect(spaces.get(sp.id)!.groups!.activeGroupId).toBe(sp.id);
+  });
+
+  it("setGroups round-trips the whole set and keeps layout_json on the ACTIVE group", () => {
+    const { spaces, sp } = mk();
+    const groups = {
+      groups: [
+        { id: "01ARZ3NDEKTSV4RRFFQ69G5F01", name: "Ship", layout: leaf("i1"), zoomedLeafId: "L1" },
+        { id: "01ARZ3NDEKTSV4RRFFQ69G5F02", name: "Read", layout: leaf("i2"), zoomedLeafId: null },
+      ],
+      activeGroupId: "01ARZ3NDEKTSV4RRFFQ69G5F02",
+    };
+    const saved = spaces.setGroups(sp.id, groups);
+    expect(saved.groups).toEqual(groups);
+    expect(saved.layout).toEqual(leaf("i2")); // derived from the ACTIVE group
+    expect(spaces.get(sp.id)!.groups).toEqual(groups);
+    // The kept-in-step column is what an older build (and spaces.setLayout) would read.
+    const row = db.prepare("SELECT layout_json FROM spaces WHERE id = ?").get(sp.id) as { layout_json: string };
+    expect(JSON.parse(row.layout_json)).toEqual(leaf("i2"));
+  });
+
+  it("setLayout replaces the ACTIVE group's tree and leaves the others alone", () => {
+    const { spaces, sp } = mk();
+    spaces.setGroups(sp.id, {
+      groups: [
+        { id: "01ARZ3NDEKTSV4RRFFQ69G5F01", name: "Ship", layout: leaf("i1"), zoomedLeafId: null },
+        { id: "01ARZ3NDEKTSV4RRFFQ69G5F02", name: "Read", layout: leaf("i2"), zoomedLeafId: null },
+      ],
+      activeGroupId: "01ARZ3NDEKTSV4RRFFQ69G5F01",
+    });
+    const got = spaces.setLayout(sp.id, leaf("i9"));
+    expect(got.groups!.groups.map((g) => g.layout)).toEqual([leaf("i9"), leaf("i2")]);
+    expect(got.layout).toEqual(leaf("i9"));
+  });
+
+  it("degrades corrupt groups_json to the layout-derived default rather than to a broken space", () => {
+    const { spaces, sp } = mk();
+    db.prepare("UPDATE spaces SET layout_json = ?, groups_json = ? WHERE id = ?")
+      .run(JSON.stringify(leaf("i1")), "{not json", sp.id);
+    expect(spaces.get(sp.id)!.groups!.groups[0]!.layout).toEqual(leaf("i1"));
+    db.prepare("UPDATE spaces SET groups_json = ? WHERE id = ?").run(JSON.stringify({ groups: "nope" }), sp.id);
+    expect(spaces.get(sp.id)!.groups!.groups[0]!.layout).toEqual(leaf("i1"));
   });
 });
 

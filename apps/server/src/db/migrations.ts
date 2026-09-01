@@ -314,4 +314,17 @@ export const migrations: string[] = [
     created_at INTEGER NOT NULL);
   CREATE INDEX icon_assets_profile ON icon_assets(profile_id, created_at DESC);
   `,
+  // v17 — pane groups: a space holds several named split arrangements instead of exactly one, with one
+  // of them active (packages/contracts/src/groups.ts).
+  //
+  // No backfill, deliberately. `groups_json` stays NULL for every existing space and the read path
+  // (SpacesStore.toSpace) derives a single "Main" group from the `layout_json` that is already there —
+  // so a space nobody has touched since upgrading keeps its exact arrangement, and the first write of a
+  // group set is what populates the column. A SQL backfill would have had to mint ULIDs and re-encode
+  // every layout blob to gain nothing the read path does not already do.
+  //
+  // `layout_json` is NOT dropped and does not become dead: it keeps holding the ACTIVE group's layout
+  // (setGroups writes both), which is what lets `spaces.setLayout` stay a working layout-only write and
+  // what an older build would still find if this database were opened by one.
+  `ALTER TABLE spaces ADD COLUMN groups_json TEXT;`,
 ];

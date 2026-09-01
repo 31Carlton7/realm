@@ -7,10 +7,13 @@ import { Menu } from "./Menu";
 import { RenameInput } from "./RenameInput";
 
 /** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), ⋯ menu + close.
- *  Split/close stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
+ *  Split/close/focus stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
  *  item-scoped and go straight to the store, like the sidebar's context menu. */
-export function PanelBar({ item, onSplit, onClose }: {
+export function PanelBar({ item, onSplit, onClose, zoomed = false, onZoom, onUnzoom }: {
   item: Item; onSplit: (dir: "row" | "col") => void; onClose: () => void;
+  /** This pane is the one filling the host. Its bar carries the Unfocus control. */
+  zoomed?: boolean;
+  onZoom?: () => void; onUnzoom?: () => void;
 }) {
   const deleteItem = useApp((s) => s.deleteItem);
   const run = useApp((s) => s.run);
@@ -27,6 +30,18 @@ export function PanelBar({ item, onSplit, onClose }: {
   const Actions = paneActions[item.kind];
   const isBrowser = item.kind === "browser";
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
+  /** Focus (fill the host) / Unfocus (back to the split). Always inline while zoomed — with every
+   *  other pane hidden, the ⋯ menu is not where a user looks for the way back out, and a browser
+   *  pane has no ⋯ menu at all (W2.3's no-overlay rule). */
+  const focusBtn = zoomed
+    ? (onUnzoom ? (
+        <button className="icon-btn panel-unfocus" aria-label={`Unfocus ${item.title}`} title="Unfocus (⌘⇧F)"
+          onClick={onUnzoom}><Icon name="unfocusPane" size={14} /></button>
+      ) : null)
+    : (onZoom ? (
+        <button className="icon-btn" aria-label={`Focus ${item.title}`} title="Focus — fill the space (⌘⇧F)"
+          onClick={onZoom}><Icon name="focusPane" size={14} /></button>
+      ) : null);
   return (
     <div className="panel-bar">
       <span className="panel-icon"><Icon name={item.kind} size={14} /></span>
@@ -45,6 +60,7 @@ export function PanelBar({ item, onSplit, onClose }: {
           // rename is the title itself (click to rename), split and delete are toolbar buttons, and
           // delete keeps its two-step confirm (U-H2) in place instead of inside a menu.
           <>
+            {focusBtn}
             <button className="icon-btn" aria-label={`Split ${item.title} right`} title="Split right (⌘\)"
               onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
             <button className="icon-btn" aria-label={`Split ${item.title} down`} title="Split down (⌘⇧\)"
@@ -59,10 +75,13 @@ export function PanelBar({ item, onSplit, onClose }: {
             )}
           </>
         ) : (
+          <>
+          {zoomed && focusBtn}
           <button ref={menuBtn} className="icon-btn" aria-label={`Pane menu for ${item.title}`} aria-haspopup="menu"
             aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen((v) => !v); }}>
             <Icon name="more" size={14} />
           </button>
+          </>
         )}
         <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={14} /></button>
       </span>
@@ -72,6 +91,9 @@ export function PanelBar({ item, onSplit, onClose }: {
           { kind: "separator" },
           { label: "Split right", kbd: "⌘\\", onSelect: () => onSplit("row") },
           { label: "Split down", kbd: "⌘⇧\\", onSelect: () => onSplit("col") },
+          ...(zoomed
+            ? (onUnzoom ? [{ label: "Unfocus pane", kbd: "⌘⇧F", onSelect: onUnzoom }] : [])
+            : (onZoom ? [{ label: "Focus pane", kbd: "⌘⇧F", onSelect: onZoom }] : [])),
           { label: "Close", kbd: "⌘W", onSelect: onClose },
           { kind: "separator" },
           confirmingDelete

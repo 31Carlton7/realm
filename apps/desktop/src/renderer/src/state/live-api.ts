@@ -20,6 +20,7 @@ export const liveApi = (): Api => ({
   deleteSpace: async (id) => { await rpc().call("spaces.delete", { id }); },
   createProject: (spaceId, name, rootPath) => rpc().call("projects.create", { spaceId, name, rootPath }),
   setLayout: (id, layout) => rpc().call("spaces.setLayout", { id, layout }),
+  setGroups: (id, groups) => rpc().call("spaces.setGroups", { id, groups }),
   createTerminal: (spaceId) => rpc().call("terminals.create", { spaceId }),
   createBrowser: (spaceId) => rpc().call("browsers.create", { spaceId }),
   updateItem: (input) => rpc().call("items.update", input),

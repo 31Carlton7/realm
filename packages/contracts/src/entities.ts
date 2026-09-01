@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LayoutSchema } from "./layout";
+import { SpaceGroupsSchema } from "./groups";
 import { IdSchema } from "./ids";
 export { IdSchema } from "./ids";
 
@@ -15,6 +16,12 @@ export type Profile = z.infer<typeof ProfileSchema>;
 export const SpaceSchema = z.object({
   id: IdSchema, profileId: IdSchema, name: z.string().min(1), icon: z.string(), color: HexColorSchema,
   sortOrder: z.number().int(), folderPath: z.string(),
+  /** The space's pane groups — several named split arrangements, one of them active. Nullable only
+   *  for the same reason `layout` is: a space nobody has opened yet has never had one written. */
+  groups: SpaceGroupsSchema.nullable(),
+  /** DERIVED, never stored independently: the active group's layout. Kept on Space so every reader
+   *  that only ever wanted "what is on screen" (the sidebar glyph, the pane host) is unchanged by
+   *  groups existing. Writing it (`spaces.setLayout`) replaces the ACTIVE group's layout. */
   layout: LayoutSchema.nullable(), activeItemId: IdSchema.nullable(), ...Timestamps,
 });
 export type Space = z.infer<typeof SpaceSchema>;

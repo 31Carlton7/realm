@@ -298,6 +298,45 @@ kbd { font: 11px var(--font-mono); }
 .mp-overflow-opt[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .mp-foot { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); font-size: 11px; color: var(--rl-text-faint); }
 
+/* ── Pane groups: the conditional strip above the host (GroupBar.tsx) ──
+   The app has no topbar by design; this appears only when a space has more than one group or a pane
+   is focused full-screen, so a space that uses neither is pixel-identical to before. It carries the
+   window drag the top edge would otherwise lose, with its own controls opted back out. */
+.group-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--rl-hairline); background: var(--rl-panel); -webkit-app-region: drag; }
+.group-bar button, .group-bar input { -webkit-app-region: no-drag; }
+.group-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.group-tabs::-webkit-scrollbar { display: none; }
+.group-tab { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-ctl);
+  font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; }
+.group-tab:hover { background: var(--rl-hover); }
+.group-tab[data-active] { background: var(--rl-active); color: var(--rl-text-bright); }
+/* Drop target while a sidebar row is dragged over the tab (moves that pane into the group). */
+.group-tab[data-drop] { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+.group-tab-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.group-tab-renaming { padding: 2px 4px; }
+.group-tab-renaming .rename { width: 120px; }
+.group-add { color: var(--rl-text-faint); }
+/* Pushed to the far right: the way out of a focus is the one control that must be findable without
+   looking, and the right edge is where it stays put as tabs come and go. */
+.group-unfocus { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border-radius: var(--r-ctl); font-size: 12px; color: var(--rl-text-bright); background: var(--rl-hover); }
+.group-unfocus:hover { background: var(--rl-active); }
+.group-unfocus-hint { color: var(--rl-text-faint); border-left: 1px solid var(--rl-hairline); padding-left: 8px; }
+
+/* Sidebar: one section head per group. The head doubles as a drop target and, when the space has
+   more than one group, as the button that puts that group on screen. */
+.group-head { display: flex; align-items: center; gap: 6px; }
+.group-head[data-active] { color: var(--rl-text-bright); }
+.group-head[data-drop] { outline: 1.5px solid var(--rl-accent); outline-offset: -1px; border-radius: var(--r-ctl); }
+.group-head-name { font: inherit; color: inherit; text-align: left; }
+.group-head-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--rl-text-faint);
+  border: 1px solid var(--rl-hairline); border-radius: 999px; padding: 0 5px; }
+.group-label-renaming { padding: 8px 8px 4px; }
+.group-new { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; padding: 4px 8px; border-radius: var(--r-ctl);
+  font-size: 12px; color: var(--rl-text-faint); }
+.group-new:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
+
 /* ── Main: full-bleed pane host (no topbar; pane headers carry the window drag) ── */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--rl-panel); }
 .panehost { flex: 1; min-height: 0; display: flex; -webkit-app-region: no-drag; }

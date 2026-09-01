@@ -60,8 +60,14 @@ export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }
  *  SPACE group (everything else): no x, no glyph, just click-to-open. Row clicks call openItem either
  *  way, but the store treats an already-open item as "go there" (focus its pane, no layout change);
  *  only SPACE rows actually open into the focused leaf. Moving an open item is drag-only. */
-export function ItemList({ items, variant }: { items: Item[]; variant: "open" | "space" }) {
-  const layout = useApp((s) => s.layout) ?? emptyLayout();
+export function ItemList({ items, variant, layout: groupLayout }: {
+  items: Item[]; variant: "open" | "space";
+  /** The layout the quadrant glyph is drawn against — the owning GROUP's tree, which for a group that
+   *  is not on screen is not the active layout. Defaults to the active one (SPACE rows, tests). */
+  layout?: Layout;
+}) {
+  const activeLayoutValue = useApp((s) => s.layout) ?? emptyLayout();
+  const layout = groupLayout ?? activeLayoutValue;
   const focusedLeafId = useApp((s) => s.focusedLeafId);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const browserDriving = useApp((s) => s.browserDriving);
@@ -73,7 +79,7 @@ export function ItemList({ items, variant }: { items: Item[]; variant: "open" | 
   const { onContextMenu, element } = useItemContextMenu(setRenaming);
   // The active row is the one in the focused leaf, not every open row — with a split, only one pane
   // actually has keyboard/composer focus, and the highlight should say which.
-  const focusedItemId = itemIdOfLeaf(layout, focusedLeafId);
+  const focusedItemId = itemIdOfLeaf(activeLayoutValue, focusedLeafId);
   return (
     <div className="item-list">
       {items.map((it) => (

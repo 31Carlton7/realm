@@ -16,6 +16,7 @@ import {
   Award01Icon, BulbIcon, Key01Icon, LockIcon, Notification01Icon, Mic01Icon, HeadphonesIcon, Video01Icon, DiceIcon, Store01Icon,
   House01Icon, PlaneIcon, Train01Icon, BicycleIcon, Globe02Icon, PaintBucketIcon, Pen01Icon, RulerIcon, PenTool01Icon, StartUp01Icon,
   Bookmark01Icon, BookOpen02Icon, FavouriteIcon, HeartbreakIcon, CameraAiIcon, FireworksIcon, DiceFaces01Icon, GameboyIcon, PentagonIcon, MicroscopeIcon,
+  Maximize01Icon, Minimize01Icon, LayoutTable01Icon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -30,6 +31,8 @@ export const icons = {
   copy: Copy01Icon, plan: Task01Icon, attach: Attachment01Icon, image: Image01Icon, reload: RefreshIcon,
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
+  // Pane focus (zoom one pane to the whole host) and its inverse; `group` is a pane group's tab.
+  focusPane: Maximize01Icon, unfocusPane: Minimize01Icon, group: LayoutTable01Icon,
   laptop: LaptopIcon, plug: PlugSocketIcon,
   // Space icon picker's "Default" section — one entry per SPACE_ICONS name (packages/contracts/src/presets.ts).
   rocket: Rocket01Icon, star: StarIcon, book: Book01Icon, camera: Camera01Icon, musicNote: MusicNote01Icon,

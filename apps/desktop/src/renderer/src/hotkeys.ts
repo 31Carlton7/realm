@@ -80,6 +80,22 @@ const BINDINGS: Binding[] = [
     alwaysPrevent: true,
     run: (s) => { const it = focusedItem(s); if (it) s.run(() => s.closeFromLayout(it.id)); },
   },
+  // ⌘⇧F → focus the focused pane full-screen, or unfocus if it already is. The pane stays in its
+  // group either way — this only changes how much of the space it gets (see groups.ts).
+  {
+    match: (e) => e.key.toLowerCase() === "f" && mod(e, { meta: true, shift: true }),
+    run: (s) => s.run(() => s.toggleFocusPane()),
+  },
+  // ⌘⇧[ / ⌘⇧] → previous / next pane group. A US layout reports "{" and "}" with shift held, so both
+  // the shifted and unshifted keys are accepted, exactly as ⌘⇧\ does above.
+  {
+    match: (e) => (e.key === "]" || e.key === "}") && mod(e, { meta: true, shift: true }),
+    run: (s) => s.run(() => s.stepPaneGroup(1)),
+  },
+  {
+    match: (e) => (e.key === "[" || e.key === "{") && mod(e, { meta: true, shift: true }),
+    run: (s) => s.run(() => s.stepPaneGroup(-1)),
+  },
   // ⌘T → new terminal.
   {
     match: (e) => e.key.toLowerCase() === "t" && mod(e, { meta: true }),

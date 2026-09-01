@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema } from "./entities";
 
 import { LayoutSchema } from "./layout";
+import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
 import { SkillSchema, SkillIdSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
@@ -262,6 +263,10 @@ export const Methods = {
   "spaces.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: HexColorSchema.optional(), profileId: IdSchema.optional(), sortOrder: z.number().int().optional(), activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
   "spaces.reorder": { params: z.object({ ids: z.array(IdSchema) }), result: z.object({ ok: z.literal(true) }) },
   "spaces.setLayout": { params: z.object({ id: IdSchema, layout: LayoutSchema }), result: SpaceSchema },
+  /** The whole group set in one write — group membership, names, the active pointer and each group's
+   *  zoom all move together, and splitting them into per-field methods would let a reload land between
+   *  two halves of one gesture. Supersedes `spaces.setLayout`, which stays for the layout-only path. */
+  "spaces.setGroups": { params: z.object({ id: IdSchema, groups: SpaceGroupsSchema }), result: SpaceSchema },
   "spaces.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   // The icon picker's "Generated"/"Uploaded" library (per-profile, reusable across every space —
