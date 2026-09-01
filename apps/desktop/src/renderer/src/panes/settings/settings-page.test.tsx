@@ -94,6 +94,14 @@ describe("App tab", () => {
     expect(api.calls).toContain("setSetting:ui.theme=dark");
   });
 
+  it("submit key defaults to Enter and can switch to ⌘/Ctrl+Enter, writing ui.submitKey", async () => {
+    const { store, api } = await openApp();
+    expect(screen.getByRole("radio", { name: "Enter" })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: "⌘/Ctrl+Enter" }));
+    await waitFor(() => expect(store.getState().submitKey).toBe("cmdEnter"));
+    expect(api.calls).toContain("setSetting:ui.submitKey=cmdEnter");
+  });
+
   it("notification switches read W5's key: default-on, a stored disable shows OFF, and the copy says disabling stops new rows only", async () => {
     await openApp({ settings: { [NOTIFICATIONS_DISABLED_KEY]: ["mcp_health"] } });
     expect(await screen.findByRole("switch", { name: "Connection trouble" })).not.toBeChecked();
