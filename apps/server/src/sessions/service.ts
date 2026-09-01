@@ -274,6 +274,43 @@ export class SessionService {
   }
 
   /**
+   * Move a session that has not started yet into another space (the sidebar's "Move to space…").
+   * Same authority and same guard as `setAgent`/`setEnvironment`, for the same reason: one persisted
+   * event ties the transcript to the checkout it ran in, and that checkout's disk path is meaningless
+   * once the session claims to live in a different space. Always lands on the destination's PRIMARY
+   * environment — the same fallback `resolveEnvironment` gives a plain `create` with no environment
+   * named — so a moved session ends up wired identically to one created fresh there. `projectId` is
+   * always cleared: projects are space-scoped rows, and the old one names nothing in the destination.
+   * A started session, worktree relocation, and checkpoint carry-over are all out of scope here; this
+   * is deliberately the cheap case only.
+   */
+  moveToSpace(id: string, spaceId: string): Session {
+    const s = this.get(id);
+    if (s.spaceId === spaceId) return s;
+    if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; it can no longer move to another space");
+    if (!this.d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
+    const env = this.d.environments.ensurePrimary(spaceId);
+    // The session's terminal panel, if it was ever opened (openTerminal has no started-guard, so an
+    // unstarted session can still have a live pty): its cwd was rooted in the OLD environment, so it
+    // is torn down rather than left pointing at a tree the session no longer runs in.
+    const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
+    if (term) this.closeTerminalItem(term.refId);
+    this.d.db.exec("BEGIN");
+    let updated: Session;
+    try {
+      updated = this.d.sessions.moveToSpace(id, spaceId, env.id, null);
+      const item = this.d.items.findByRefId(id);
+      if (item) this.d.items.moveToSpace(item.id, spaceId);
+      this.d.db.exec("COMMIT");
+    } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
+    // The origin space drops the item and the destination picks it up, the same two-broadcast shape
+    // `delete`/`create` each use for their own single side of this.
+    this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
+    this.d.rpc.broadcast("items.changed", { spaceId });
+    return updated;
+  }
+
+  /**
    * The session's terminal side panel (W4), created on FIRST call and never before — a session whose
    * panel is never opened must never spawn a pty. Idempotent afterwards: the same trio comes back.
    * A recorded terminal whose pty is gone (it exited, or its cwd vanished at boot) is torn down and

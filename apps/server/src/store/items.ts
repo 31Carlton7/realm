@@ -63,4 +63,14 @@ export class ItemsStore {
     this.db.prepare("DELETE FROM search_index WHERE kind = 'item' AND ref = ?").run(id);
     this.db.prepare("DELETE FROM items WHERE id = ?").run(id);
   }
+  /** Re-home the item in another space, appended after its existing items (same placement rule as
+   *  `create`). The search_index row needs no touch: it carries no space_id, scoping is a query-time
+   *  join, so a moved item's title is still found from either space's search. */
+  moveToSpace(id: string, spaceId: string): Item {
+    const cur = this.get(id); if (!cur) throw new NotFoundError("item", id);
+    if (!this.db.prepare("SELECT 1 FROM spaces WHERE id = ?").get(spaceId)) throw new NotFoundError("space", spaceId);
+    const max = (this.db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM items WHERE space_id = ?").get(spaceId) as { m: number }).m;
+    this.db.prepare("UPDATE items SET space_id = ?, sort_order = ?, updated_at = ? WHERE id = ?").run(spaceId, max + 1, now(), id);
+    return this.get(id)!;
+  }
 }
