@@ -1,7 +1,8 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath,
+  AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
+  type DestinationPageKind,
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
@@ -107,6 +108,11 @@ export type Api = {
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
   /** `skills.setEnabled` — one skill, one SPACE. The store is a per-space disabled set. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `skills.promote` — move a skill's defining scope from space level into `spaceId`'s profile (W2
+   *  RPC, W4 UI). Effective-set neutral at the moment it runs; what changes is reach. */
+  promoteSkill(spaceId: string, id: string): Promise<void>;
+  /** `skills.demote` — pin a profile-scoped skill to `spaceId` alone. */
+  demoteSkill(spaceId: string, id: string): Promise<void>;
   /** `mcp.test` — a live connection attempt from realm-server; resolves reached/failed with a sentence.
    *  The rest of the MCP surface is declared with the gateway methods further down. */
   testMcpServer(id: string): Promise<McpTestResult>;
@@ -171,6 +177,20 @@ export type Api = {
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.promote` / `mcp.demote` — move a server's defining scope (W2 RPCs, W4 UI). */
+  promoteMcpServer(spaceId: string, id: string): Promise<void>;
+  demoteMcpServer(spaceId: string, id: string): Promise<void>;
+  /** `mcp.providers.list` — the gateway's Realm-native toolsets with THIS space's switch state (W4). */
+  listMcpProviders(spaceId: string): Promise<{ name: string; enabled: boolean }[]>;
+  /** `mcp.setProviderEnabled` — providers default ON (Realm's own code); this is the per-space off switch. */
+  setMcpProviderEnabled(spaceId: string, name: string, enabled: boolean): Promise<void>;
+  /** `memory.getProfile` / `memory.setProfile` — the profile doc at its DEFINING scope; a save applies
+   *  to every space of the profile, which is why the editor for it must say so (W4's Library page). */
+  getProfileMemory(profileId: string): Promise<ProfileMemoryDoc>;
+  setProfileMemory(profileId: string, doc: string): Promise<ProfileMemoryDoc>;
+  /** `memory.setProfileDocEnabled` — THIS space's inheritance override for the profile doc, never a
+   *  write to the doc itself. */
+  setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<MemoryState>;
   /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
    *  the list is still a renderable result. */
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
@@ -188,6 +208,20 @@ export type Api = {
 
 /** The two narrowing dimensions Activity's chips apply — `undefined` means "not filtering by this". */
 export type McpCallsFilter = { sessionId?: string; serverId?: string };
+
+/** `memory.getProfile`'s shape: the profile doc at its defining scope — no per-space fields, because
+ *  the defining scope has none (`enabledHere` belongs to `MemoryState.profile`, a space's view). */
+export type ProfileMemoryDoc = { profileId: string; path: string; doc: string };
+
+/** One Realm-native gateway toolset as `mcp.providers.list` reports it for a space (W4). */
+export type McpProvider = { name: string; enabled: boolean };
+
+/** Item titles for the destination pages (W4). Static like the space page's "Overview": the page
+ *  header renders the live copy, so a snapshot in the item row has nothing to go stale against. */
+export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
+  "library-page": "Library",
+  "connections-page": "Connections",
+};
 
 /** What the diff pane sends to `workspace.ship`. `cwd` is the environment's checkout. */
 export type ShipInput = { cwd: string; commit: boolean; message: string; push: boolean; setUpstream: boolean; openPr: boolean };
@@ -388,6 +422,12 @@ export type AppState = {
   /** MCP servers for the space whose Connections tab is currently mounted (W6) — `mcp.list`'s
    *  per-space projection. Empty until `refreshMcpServers` runs; McpSection fetches on mount. */
   mcpServers: McpServer[];
+  /** Realm-native gateway providers for that same mounted space (W4) — fetched alongside
+   *  `mcpServers`, under the same `mcpPanelSpaceId` guard, cleared with them. */
+  mcpProviders: McpProvider[];
+  /** Profile memory docs at their defining scope, by profile id (W4: the Library page's
+   *  "Edit in profile" editor). Absent = never fetched. */
+  profileMemory: Record<string, ProfileMemoryDoc>;
   /** Which space's Connections panel (McpSection) is mounted right now, null when none is. Set
    *  synchronously by `clearMcpServers` on mount/unmount; it is the guard that keeps a slow
    *  `mcp.list` response — or an `mcp.changed` refetch — from clobbering another space's list
@@ -529,6 +569,10 @@ export type AppState = {
   refreshSkills(spaceId: string): Promise<void>;
   /** Toggle one skill for ONE space (the settings panel), then re-read that space's library. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** Move a skill's defining scope into `spaceId`'s profile (W4's "Move to profile"), then re-read. */
+  promoteSkill(spaceId: string, id: string): Promise<void>;
+  /** Pin a profile-scoped skill to `spaceId` alone (W4's "Move to this space"), then re-read. */
+  demoteSkill(spaceId: string, id: string): Promise<void>;
   /** `mcp.test`, resolved to the caller: the result is per-click UI state, not store state. The rest of
    *  the MCP actions live with the gateway slice below (`refreshMcpServers` and friends). */
   testMcpServer(id: string): Promise<McpTestResult>;
@@ -581,6 +625,10 @@ export type AppState = {
   openSpacePage(spaceId: string, tab?: SpacePageTab): Promise<void>;
   /** The page's tab, per space — see `spacePageTab`. */
   setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
+  /** Open (or focus) a sidebar destination page (Plan 12 W4: Library, Connections) in the ACTIVE
+   *  space's layout. One page item per space, deduped by KIND — the refId is the kind's well-known
+   *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from. */
+  openDestinationPage(kind: DestinationPageKind): Promise<void>;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
   /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
@@ -611,6 +659,20 @@ export type AppState = {
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** Move a server's defining scope into `spaceId`'s profile, then re-read (guarded like any refresh). */
+  promoteMcpServer(spaceId: string, id: string): Promise<void>;
+  /** Pin a profile-scoped server to `spaceId` alone, then re-read. */
+  demoteMcpServer(spaceId: string, id: string): Promise<void>;
+  /** Flip one Realm-native provider for ONE space (providers default ON — this is the off switch). */
+  setMcpProviderEnabled(spaceId: string, name: string, enabled: boolean): Promise<void>;
+  /** Fetch one profile's memory doc at its defining scope into `profileMemory` (the Library page's
+   *  "Edit in profile" editor). */
+  refreshProfileMemory(profileId: string): Promise<void>;
+  /** Replace the PROFILE doc — every space of the profile sees the change; callers must have said so.
+   *  Patches every `spaceMemory` snapshot that inherits this doc, so no open panel goes stale. */
+  saveProfileMemoryDoc(profileId: string, doc: string): Promise<void>;
+  /** THIS space's inheritance override for the profile doc — never a write to the doc itself. */
+  setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<void>;
   /** Narrow (or, with `null`, reset) this space's allowlist for one server. */
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
   /** Refresh one server's cached tools. Never throws for a connect failure — that lands in
@@ -934,7 +996,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
       machineName: "", connectors: {},
-      mcpServers: [], mcpToolsError: {},
+      mcpServers: [], mcpProviders: [], mcpToolsError: {},
+      profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
@@ -1458,6 +1521,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSkillEnabled(spaceId, id, enabled);
         await get().refreshSkills(spaceId);
       },
+      async promoteSkill(spaceId, id) {
+        // Same rule as setSkillEnabled: the VANTAGE space id travels verbatim — the server resolves
+        // the profile from it. Passing anything else moves the skill into the wrong profile.
+        await api.promoteSkill(spaceId, id);
+        await get().refreshSkills(spaceId);
+      },
+      async demoteSkill(spaceId, id) {
+        await api.demoteSkill(spaceId, id);
+        await get().refreshSkills(spaceId);
+      },
       testMcpServer: (id) => api.testMcpServer(id),
       async refreshMemory(spaceId) {
         const state = await api.getMemory(spaceId);
@@ -1469,6 +1542,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async setAgentsFile(spaceId, enabled) {
         const state = await api.setAgentsFile(spaceId, enabled);
+        set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async refreshProfileMemory(profileId) {
+        const doc = await api.getProfileMemory(profileId);
+        set({ profileMemory: { ...get().profileMemory, [profileId]: doc } });
+      },
+      async saveProfileMemoryDoc(profileId, doc) {
+        const saved = await api.setProfileMemory(profileId, doc);
+        // Patch every space snapshot that inherits this doc, so an open Memory surface reads what was
+        // just written without waiting for its own refetch.
+        const spaceMemory = Object.fromEntries(Object.entries(get().spaceMemory).map(([sid, m]) =>
+          [sid, m.profile?.profileId === profileId ? { ...m, profile: { ...m.profile, doc: saved.doc } } : m]));
+        set({ profileMemory: { ...get().profileMemory, [profileId]: saved }, spaceMemory });
+      },
+      async setProfileDocEnabled(spaceId, enabled) {
+        // The per-space inheritance override — `memory.setProfileDocEnabled`, keyed by SPACE. The one
+        // thing this must never do is touch the profile doc itself (the named W4 mutant: an inherited
+        // row's toggle writing the defining scope's state).
+        const state = await api.setProfileDocEnabled(spaceId, enabled);
         set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
       },
       async refreshMemorySources(sessionId) {
@@ -1602,6 +1694,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const created = await api.createItem(spaceId, "space-page", "Overview", spaceId);
         await adoptItem(spaceId, created.id, null);
       },
+      async openDestinationPage(kind) {
+        // The page lives in the ACTIVE space's layout — that space is the vantage its scope groups
+        // ("This space" / "From <profile>" / "Everywhere") are computed from. No active space
+        // (mid-boot) → no-op, openSpacePage's guard.
+        const spaceId = get().activeSpaceId;
+        if (!spaceId) return;
+        // One page per space, deduped by KIND (`items` only ever holds the active space's items).
+        // The named W4 mutant: a second click accumulating a second Library pane.
+        const existing = get().items.find((i) => i.kind === kind);
+        if (existing) { await get().openItem(existing.id); return; }
+        // Static title (the page header owns the live copy); refId is the kind's well-known sentinel —
+        // there is no row behind these pages, and identity is really the kind (see PAGE_REF_IDS).
+        const created = await api.createItem(spaceId, kind, DESTINATION_PAGE_TITLES[kind], PAGE_REF_IDS[kind]);
+        await adoptItem(spaceId, created.id, null);
+      },
       setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);
@@ -1679,13 +1786,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (result.path in get().diffs) await get().refreshDiff(result.path);
       },
       async refreshMcpServers(spaceId) {
-        const { servers } = await api.listMcpServers(spaceId);
+        // Providers ride along (W4): the Connections surface renders both, and a provider toggled in
+        // another surface must not survive a refetch here.
+        const [{ servers }, providers] = await Promise.all([api.listMcpServers(spaceId), api.listMcpProviders(spaceId)]);
         // Apply only if this space's panel is STILL the mounted one — a slow response after the user
         // closed the page or switched its space must not clobber what the panel shows now.
         if (get().mcpPanelSpaceId !== spaceId) return;
-        set({ mcpServers: servers });
+        set({ mcpServers: servers, mcpProviders: providers });
       },
-      clearMcpServers(spaceId) { set({ mcpServers: [], mcpToolsError: {}, mcpPanelSpaceId: spaceId }); },
+      clearMcpServers(spaceId) { set({ mcpServers: [], mcpProviders: [], mcpToolsError: {}, mcpPanelSpaceId: spaceId }); },
       async addMcpServer(input) {
         const s = await api.addMcpServer(input);
         // Optimistic: `mcp.changed` will also refetch, but that broadcast round-trip must not be the
@@ -1705,6 +1814,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setMcpEnabled(spaceId, id, enabled) {
         await api.setMcpEnabled(spaceId, id, enabled);
         set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, enabled } : x)) });
+      },
+      // Promote/demote re-read rather than patch: the scope AND the enabled flag can both change
+      // shape server-side (demotion retires overrides), and the refresh guard already protects a
+      // panel that moved on. Same shape for skills below.
+      async promoteMcpServer(spaceId, id) {
+        await api.promoteMcpServer(spaceId, id);
+        await get().refreshMcpServers(spaceId);
+      },
+      async demoteMcpServer(spaceId, id) {
+        await api.demoteMcpServer(spaceId, id);
+        await get().refreshMcpServers(spaceId);
+      },
+      async setMcpProviderEnabled(spaceId, name, enabled) {
+        await api.setMcpProviderEnabled(spaceId, name, enabled);
+        set({ mcpProviders: get().mcpProviders.map((p) => (p.name === name ? { ...p, enabled } : p)) });
       },
       async setMcpAllowedTools(spaceId, id, tools) {
         await api.setMcpAllowedTools(spaceId, id, tools);

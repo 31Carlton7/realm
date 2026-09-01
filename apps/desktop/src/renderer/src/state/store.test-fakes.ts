@@ -95,6 +95,14 @@ export type FakeData = {
   /** The full call log `mcp.calls.list` pages over (W7). Unordered on the way in — the fake sorts and
    *  filters like the real store does, so a test can just append in whatever order it likes. */
   mcpCalls?: McpCall[];
+  /** Realm-native providers `mcp.providers.list` answers with (W4). Flat like `mcpServers`: these
+   *  fakes exercise one space at a time. */
+  mcpProviders?: { name: string; enabled: boolean }[];
+  /** Profile memory docs by profile id (W4's Library page). */
+  profileMemoryDocs?: Record<string, string>;
+  /** Per-space disable override for the inherited profile doc — mirrors the server's polarity
+   *  (absent = inherited ON). */
+  profileDocDisabled?: Record<string, boolean>;
 };
 
 export type FakeApi = Api & {
@@ -153,12 +161,26 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
     mcpCalls: overrides.mcpCalls ?? [],
+    mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true }],
+    profileMemoryDocs: overrides.profileMemoryDocs ?? {},
+    profileDocDisabled: overrides.profileDocDisabled ?? {},
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const mcpWrites: FakeApi["mcpWrites"] = [];
-  const memState = (spaceId: string): MemoryState =>
-    ({ path: `/realm-home/memory/${spaceId}.md`, doc: data.memoryDocs[spaceId] ?? "", agentsFile: data.agentsFiles[spaceId] ?? agentsFileState(), profile: null });
+  const memState = (spaceId: string): MemoryState => {
+    // The inherited profile doc rides along as the real `memory.get` reports it (W2/W4): the space's
+    // own profile, ON unless this space disabled it. Null only when the space is unknown.
+    const profileId = data.spaces.find((s) => s.id === spaceId)?.profileId ?? null;
+    return {
+      path: `/realm-home/memory/${spaceId}.md`, doc: data.memoryDocs[spaceId] ?? "",
+      agentsFile: data.agentsFiles[spaceId] ?? agentsFileState(),
+      profile: profileId === null ? null : {
+        profileId, path: `/realm-home/memory/profile-${profileId}.md`,
+        doc: data.profileMemoryDocs[profileId] ?? "", enabledHere: !data.profileDocDisabled[spaceId],
+      },
+    };
+  };
   const api: FakeApi = {
     calls, disposed, sent, mcpWrites, delays: {}, onCreateTerminal: null, data,
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
@@ -267,6 +289,27 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = rows.findIndex((s) => s.id === id);
       if (i >= 0) rows[i] = { ...rows[i]!, enabled };
     },
+    promoteSkill: async (spaceId, id) => {
+      calls.push(`promoteSkill:${spaceId}:${id}`);
+      // Mirrors the server: the defining scope becomes the VANTAGE space's profile — one scope map,
+      // so the row flips in every space of that profile that lists it.
+      const profileId = findSpace(spaceId).profileId;
+      for (const [sid, rows] of Object.entries(data.skills)) {
+        if (data.spaces.find((s) => s.id === sid)?.profileId !== profileId) continue;
+        const i = rows.findIndex((s) => s.id === id);
+        if (i >= 0) rows[i] = { ...rows[i]!, scope: { kind: "profile", profileId } };
+      }
+    },
+    demoteSkill: async (spaceId, id) => {
+      calls.push(`demoteSkill:${spaceId}:${id}`);
+      // Mirrors the server: pinned to this space; profile siblings stop listing it.
+      for (const [sid, rows] of Object.entries(data.skills)) {
+        const i = rows.findIndex((s) => s.id === id);
+        if (i < 0) continue;
+        if (sid === spaceId) rows[i] = { ...rows[i]!, scope: { kind: "space", spaceId } };
+        else if (rows[i]!.scope.kind === "profile") rows.splice(i, 1);
+      }
+    },
     testMcpServer: async (id) => {
       calls.push(`testMcpServer:${id}`);
       await wait(`testMcpServer:${id}`);
@@ -286,6 +329,22 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       // Mirrors the server: turning ON is refused where the folder is not Realm's; turning OFF is safe.
       if (enabled && !af.writable) throw new Error(af.reason ?? "Realm will not write an AGENTS.md here");
       data.agentsFiles[spaceId] = { ...af, enabled, exists: enabled || (af.exists && !af.managedByRealm), managedByRealm: enabled };
+      return memState(spaceId);
+    },
+    getProfileMemory: async (profileId) => {
+      calls.push(`getProfileMemory:${profileId}`);
+      return { profileId, path: `/realm-home/memory/profile-${profileId}.md`, doc: data.profileMemoryDocs[profileId] ?? "" };
+    },
+    setProfileMemory: async (profileId, doc) => {
+      calls.push(`setProfileMemory:${profileId}:${doc.length}`);
+      if (doc.length > MEMORY_DOC_MAX) throw new Error(`the memory document is capped at ${MEMORY_DOC_MAX} characters`);
+      data.profileMemoryDocs[profileId] = doc;
+      return { profileId, path: `/realm-home/memory/profile-${profileId}.md`, doc };
+    },
+    setProfileDocEnabled: async (spaceId, enabled) => {
+      // The per-space override, exactly as the server keys it — the doc itself is untouched.
+      calls.push(`setProfileDocEnabled:${spaceId}=${enabled}`);
+      data.profileDocDisabled[spaceId] = !enabled;
       return memState(spaceId);
     },
     memorySources: async (sessionId) => {
@@ -455,6 +514,22 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`setMcpEnabled:${spaceId}:${id}=${enabled}`);
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, enabled };
+    },
+    promoteMcpServer: async (spaceId, id) => {
+      calls.push(`promoteMcpServer:${spaceId}:${id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, scope: { kind: "profile", profileId: findSpace(spaceId).profileId } };
+    },
+    demoteMcpServer: async (spaceId, id) => {
+      calls.push(`demoteMcpServer:${spaceId}:${id}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, scope: { kind: "space", spaceId } };
+    },
+    listMcpProviders: async (spaceId) => { calls.push(`listMcpProviders:${spaceId}`); return data.mcpProviders.map((p) => ({ ...p })); },
+    setMcpProviderEnabled: async (spaceId, name, enabled) => {
+      calls.push(`setMcpProviderEnabled:${spaceId}:${name}=${enabled}`);
+      const i = data.mcpProviders.findIndex((p) => p.name === name); if (i < 0) throw new Error(`no provider ${name}`);
+      data.mcpProviders[i] = { ...data.mcpProviders[i]!, enabled };
     },
     mcpToolsList: async (id) => {
       calls.push(`mcpToolsList:${id}`);

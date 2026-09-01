@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, swapSplitChildrenOf, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, firstLeaf, sessionEvent, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { allItems, findLeafOfItem, firstLeaf, sessionEvent, PAGE_REF_IDS, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, item, mcpServer, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
@@ -1897,6 +1897,43 @@ describe("openSpacePage", () => {
     store.getState().setSpacePageTab("s1", "history");
     store.getState().setSpacePageTab("s2", "memory");
     expect(store.getState().spacePageTab).toEqual({ s1: "history", s2: "memory" });
+  });
+});
+
+/** Plan 12 W4: the sidebar destinations — `library-page`/`connections-page` items whose refId is the
+ *  kind's well-known sentinel (PAGE_REF_IDS) and whose spaceId is the vantage the page reads from. */
+describe("openDestinationPage", () => {
+  it("creates ONE Library page in the active space, opens it, and dedups every later open (named mutant: two Library panes)", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot(); // active: s1
+    await store.getState().openDestinationPage("library-page");
+    const page = store.getState().items.find((i) => i.kind === "library-page")!;
+    expect(page).toMatchObject({ spaceId: "s1", title: "Library", refId: PAGE_REF_IDS["library-page"] });
+    expect(allItems(store.getState().layout!)).toContain(page.id);
+    await store.getState().openDestinationPage("library-page");
+    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("library-page"))).toHaveLength(1);
+    expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1);
+  });
+
+  it("Library and Connections are separate pages — opening one never satisfies the other's dedup", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openDestinationPage("library-page");
+    await store.getState().openDestinationPage("connections-page");
+    const kinds = store.getState().items.map((i) => i.kind);
+    expect(kinds.filter((k) => k === "library-page")).toHaveLength(1);
+    expect(kinds.filter((k) => k === "connections-page")).toHaveLength(1);
+    expect(store.getState().items.find((i) => i.kind === "connections-page")).toMatchObject({ title: "Connections", refId: PAGE_REF_IDS["connections-page"] });
+  });
+
+  it("with no active space (mid-boot) it is a no-op rather than an item with nowhere to live", async () => {
+    const api = fakeApi({ spaces: [] });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openDestinationPage("library-page");
+    expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
   });
 });
 
