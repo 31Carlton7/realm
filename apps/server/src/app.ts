@@ -36,6 +36,7 @@ import { CheckpointGit } from "./workspace/checkpoints";
 import { CheckpointService } from "./checkpoints/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
+import { machineName } from "./machine-name";
 
 export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
@@ -206,7 +207,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp));
   registerMethods({
-    rpc, home: opts.home, version: SERVER_VERSION,
+    rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
     profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite: new GitWriteService(), ports, checkpoints,
   });
   sessions.markStaleOnBoot();

@@ -460,7 +460,10 @@ export const Methods = {
    */
   "memory.sources": { params: z.object({ sessionId: IdSchema }), result: MemorySourcesSchema },
 
-  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string() }) },
+  /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
+   *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12
+   *  W1): Realm runs agents on this machine and no other, so there is nothing to select. */
+  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string(), machineName: z.string() }) },
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
 
@@ -511,6 +514,12 @@ export const Methods = {
    *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a
    *  model id from the old kind means nothing to the new one. */
   "sessions.setAgent": { params: z.object({ id: IdSchema, agentKind: AgentKindSchema }), result: SessionSchema },
+  /** Re-point an untouched session at another of its space's environments (the under-strip's workspace
+   *  selector, Plan 12 W1). Server-guarded exactly like `setAgent`: rejected (SESSION_STARTED) once the
+   *  session has any event — a transcript's cwds, checkpoints and terminal all belong to the checkout
+   *  that produced them. Cross-space environments are refused (ENVIRONMENT_WRONG_SPACE). `cwd` follows,
+   *  since it is derived from the environment row on every read. */
+  "sessions.setEnvironment": { params: z.object({ id: IdSchema, environmentId: IdSchema }), result: SessionSchema },
   "sessions.events":  { params: z.object({ id: IdSchema, afterSeq: z.number().int().default(0), limit: z.number().int().default(2000) }), result: z.array(StoredSessionEventSchema) },
   /** Get-or-create the session's terminal side panel (W4), at the session's cwd. Idempotent: the pty is
    *  spawned on the FIRST call and only then — a session whose panel is never opened never has one. */

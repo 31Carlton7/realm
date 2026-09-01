@@ -58,6 +58,18 @@ export class SessionsStore {
         input.agentKind ?? cur.agentKind, now(), input.id);
     return this.get(input.id)!;
   }
+  /** Re-point the session at another environment. Deliberately not part of `update` (whose callers only
+   *  ever patch turn-scoped fields): the column is guarded by SessionService.setEnvironment's no-events
+   *  check, and the wrong-space refusal lives HERE, mirroring `create` — the two write paths for
+   *  `environment_id` must enforce the same invariant or one of them is the leak. */
+  setEnvironment(id: string, environmentId: string): Session {
+    const cur = this.get(id); if (!cur) throw new NotFoundError("session", id);
+    const env = this.db.prepare("SELECT space_id FROM environments WHERE id = ?").get(environmentId) as { space_id: string } | undefined;
+    if (!env) throw new NotFoundError("environment", environmentId);
+    if (env.space_id !== cur.spaceId) throw new RpcError("ENVIRONMENT_WRONG_SPACE", "that environment belongs to another space");
+    this.db.prepare("UPDATE sessions SET environment_id = ?, updated_at = ? WHERE id = ?").run(environmentId, now(), id);
+    return this.get(id)!;
+  }
   /** Point the session at its terminal's item, or clear it. Deliberately not part of `update`: the
    *  column is owned by SessionService.openTerminal, and SQLite clears it on its own (ON DELETE SET
    *  NULL) when the item goes. */

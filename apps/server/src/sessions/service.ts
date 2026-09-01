@@ -224,6 +224,21 @@ export class SessionService {
   }
 
   /**
+   * Re-point a session that has not started yet at another environment (Plan 12 W1 — the under-strip's
+   * workspace selector). Same authority and same guard as `setAgent`, for the same reason: one persisted
+   * event ties the transcript to the checkout it ran in — its cwds, its turn checkpoints, its terminal —
+   * and "moving" it afterwards would leave every one of those pointing at the wrong tree. The store's
+   * `setEnvironment` owns the wrong-space refusal, mirroring `create`; `cwd` needs no touch at all,
+   * because it is read off the environment row on every read.
+   */
+  setEnvironment(id: string, environmentId: string): Session {
+    const s = this.get(id);
+    if (s.environmentId === environmentId) return s;
+    if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; it can no longer move to another checkout");
+    return this.d.sessions.setEnvironment(id, environmentId);
+  }
+
+  /**
    * The session's terminal side panel (W4), created on FIRST call and never before — a session whose
    * panel is never opened must never spawn a pty. Idempotent afterwards: the same trio comes back.
    * A recorded terminal whose pty is gone (it exited, or its cwd vanished at boot) is torn down and
