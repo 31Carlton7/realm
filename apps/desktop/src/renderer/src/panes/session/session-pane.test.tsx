@@ -1274,6 +1274,18 @@ describe("prompter model picker", () => {
       expect(badges.slice(2).every((b) => b === null)).toBe(true); // only favourites are numbered
     });
 
+    it("numbers only the favourites still on screen, so ⌘1 is always the first visible one", async () => {
+      // Numbering off the unfiltered list would leave ⌘1 pointing at a favourite the search has
+      // hidden — pressing it would swap the model to something not on screen.
+      const { store } = await withFavorites([OPUS, HAIKU]);
+      openPicker();
+      fireEvent.change(searchBox(), { target: { value: "haiku" } });
+      expect(rowNames()).toEqual(["Claude Haiku 4.5"]);
+      expect(screen.getByRole("option", { name: /Haiku/ }).querySelector(".mp-kbd")).toHaveTextContent("⌘1");
+      fireEvent.keyDown(searchBox(), { key: "1", metaKey: true });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-haiku-4-5"));
+    });
+
     it("⌘<n> picks the nth favourite", async () => {
       const { store } = await withFavorites([HAIKU, OPUS]);
       openPicker();
@@ -1282,11 +1294,15 @@ describe("prompter model picker", () => {
     });
 
     it("a bare digit still types into the search box", async () => {
-      // The reason the badge is ⌘-prefixed at all: "5" is something people search for.
-      const { store } = await withFavorites([OPUS]);
+      // The reason the badge is ⌘-prefixed at all: "5" is something people search for. Asserted via
+      // the popover staying open, which `pick` closes SYNCHRONOUSLY — checking the session's model
+      // instead would race the RPC and pass against a picker that had already hijacked the key.
+      const { api } = await withFavorites([OPUS]);
       openPicker();
       fireEvent.keyDown(searchBox(), { key: "1" });
-      expect(store.getState().sessions.se1?.model).toBeNull();
+      expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
+      await act(async () => {});
+      expect(api.calls.some((c) => c.startsWith("setSessionOptions"))).toBe(false);
     });
 
     it("⌘<n> past the last favourite does nothing", async () => {
