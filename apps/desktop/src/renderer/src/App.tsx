@@ -128,10 +128,22 @@ export function App() {
         st.run(() => st.refreshCheckpoints(environmentId, sheet.sessionId));
       }
     });
+    // A skill was toggled (or the library edited). Only spaces already holding a library refresh —
+    // the mention picker fetches on session open, so a space nobody is prompting in stays unfetched.
+    const offK = rpc().on("skills.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (st.spaceSkills[spaceId]) st.run(() => st.refreshSkills(spaceId));
+    });
+    // A space's memory document or AGENTS.md changed. Same held-only rule as skills.
+    const offMem = rpc().on("memory.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
+    });
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     // No payload — `mcp.changed` just means "something about some server changed". Only worth a refetch
-    // while the settings sheet is actually open on a space's server list.
+    // while the settings sheet is actually open on a space's server list. (One subscription, not one
+    // per held space: since the merge there is a single MCP settings surface, and it is in this sheet.)
     const offM = rpc().on("mcp.changed", () => {
       const sheet = store.getState().sheet;
       if (sheet?.kind === "space-settings") store.getState().run(() => store.getState().refreshMcpServers(sheet.spaceId));
@@ -152,7 +164,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offP(); offE(); offT(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offP(); offK(); offMem(); offE(); offT(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

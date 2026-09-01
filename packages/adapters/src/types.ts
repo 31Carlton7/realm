@@ -56,7 +56,23 @@ export type StartOptions = {
   onLog?: (line: string) => void;
 };
 
-export type UserMessage = { text: string; attachments: { path: string; mime: string }[] };
+/**
+ * A skill the server resolved from an `@`-mention for THIS message (Plan 8 W4). By the time it is
+ * here it has been re-validated: enabled and valid in the session's space, on an agent whose session
+ * was actually started with the library. Each adapter maps it to its own wire — Claude prepends
+ * `/realm:<name>` (position 0 is the only place the SDK dispatches a slash command), Codex adds a
+ * native `{ type: "skill" }` input item. `text` never contains a literal `@name` for it — the server
+ * already stripped the `@` (see contracts/mentions.ts).
+ *
+ * `name` is the frontmatter name — the identity BOTH agents invoke by (proven live: a plugin skill
+ * whose frontmatter name differs from its directory surfaces as `realm:<frontmatter-name>`, and
+ * Codex's skills/list reports frontmatter names). `id` is the library directory, for display and
+ * validation only. `path` is the skill's `SKILL.md` in Realm's library — the staged trees symlink
+ * back to it, so it is the one path that is true for every session.
+ */
+export type SkillMention = { id: string; name: string; path: string };
+
+export type UserMessage = { text: string; attachments: { path: string; mime: string }[]; skill?: SkillMention };
 export type PermissionDecision = "allow" | "allow_always" | "deny";
 
 export interface AgentHandle {

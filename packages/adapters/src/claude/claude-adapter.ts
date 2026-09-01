@@ -176,7 +176,12 @@ export class ClaudeAdapter implements AgentAdapter {
         if (disposed || input.isClosed) { events.push(sessionEvent("error", { message: "session ended" })); return; }
         running = true;
         events.push(sessionEvent("status", { status: "running" }));
-        const content: Array<Record<string, unknown>> = [{ type: "text", text: m.text }, ...images];
+        // A resolved @-mention (W4) becomes `/realm:<name>` at POSITION 0 — the only place the SDK
+        // dispatches a slash command; mid-text it is literal characters. The rest of the message rides
+        // as the command's argument. `name` is the frontmatter name, which is how the plugin registers
+        // the skill (a prepend built from the directory id would target nothing when the two differ).
+        const text = m.skill ? `/realm:${m.skill.name} ${m.text}` : m.text;
+        const content: Array<Record<string, unknown>> = [{ type: "text", text }, ...images];
         input.push({ type: "user", message: { role: "user", content: content as never }, parent_tool_use_id: null, session_id: "" } as SDKUserMessage);
       },
       respondPermission: resolvePermission,

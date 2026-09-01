@@ -1,5 +1,6 @@
 import { MCP_SECRET_STORAGE_NOTE, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { RpcError } from "../store/rows";
+import { liveCheck, type McpTestResult } from "./live-check";
 import type { SettingsStore } from "../store/settings";
 import type { McpServerInput, McpServerRow, McpServersStore } from "../store/mcp";
 import { readOauthState } from "./oauth";
@@ -148,6 +149,23 @@ export class McpService {
 
   isEnabled(spaceId: string, id: string): boolean {
     return readIds(this.d.settings, enabledKey(spaceId)).includes(id);
+  }
+
+  /**
+   * `mcp.test` — connect to the server right now and report reached/failed. The row's secrets go INTO
+   * the connection (env / headers), exactly as a session start would send them; the result carries a
+   * sentence, never a value. See live-check.ts for why this is honest where definition-time validation
+   * is not.
+   *
+   * Dials the upstream server directly rather than going through the hub, on purpose: `statusOf` below
+   * is the hub's steady-state readout, and this is the probe a user reaches for precisely when that
+   * readout is unhappy. A hub connection that is already `circuit_open` would fail fast and tell them
+   * nothing about the row they just edited.
+   */
+  test(id: string): Promise<McpTestResult> {
+    const row = this.d.servers.get(id);
+    if (!row) throw new RpcError("NOT_FOUND", `mcp server ${id} not found`);
+    return liveCheck(row);
   }
 
   private statusOf(id: string): McpServerStatus {

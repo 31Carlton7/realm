@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useApp } from "../../state/store";
 import { Sheet } from "../Sheet";
 import { McpSection } from "./McpSection";
+import { SkillsPanel } from "../settings/SkillsPanel";
+import { MemoryPanel } from "../settings/MemoryPanel";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -65,7 +67,24 @@ export function EnvironmentList({ spaceId }: { spaceId: string }) {
   );
 }
 
-/** Edit a space: name, icon, color (presets + custom hex), profile; delete with inline confirm. */
+/**
+ * W5's one settings home. Everything Realm can configure is per-space — skills enablement, MCP
+ * opt-ins, the memory document — so the per-space sheet the sidebar already opens IS the settings
+ * surface, grown four tabs, rather than a parallel global settings window whose every control would
+ * still need a space picker.
+ *
+ * Native radios (visually a segmented control), per the onboarding sheet's idiom: arrow keys move
+ * between tabs, one tab stop, checked state for free.
+ */
+const TABS = [
+  { id: "general", label: "General" },
+  { id: "skills", label: "Skills" },
+  { id: "mcp", label: "Connections" },
+  { id: "memory", label: "Memory" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+
+/** Edit a space: general (name, icon, color, profile, checkouts, delete), skills, MCP, memory. */
 export function SpaceSettingsSheet({ spaceId }: { spaceId: string }) {
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const profiles = useApp((s) => s.profiles);
@@ -76,6 +95,7 @@ export function SpaceSettingsSheet({ spaceId }: { spaceId: string }) {
   const [name, setName] = useState(space?.name ?? "");
   const [hex, setHex] = useState(space?.color ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [tab, setTab] = useState<TabId>("general");
   useEffect(() => { if (space) setHex(space.color); }, [space?.color]);
   // The space vanished (deleted elsewhere): nothing to edit.
   useEffect(() => { if (!space) closeSheet(); }, [space, closeSheet]);
@@ -85,8 +105,23 @@ export function SpaceSettingsSheet({ spaceId }: { spaceId: string }) {
   const commitHex = (v: string) => { const h = v.trim().toLowerCase(); setHex(h); if (HEX.test(h) && h !== space.color) run(() => updateSpace({ id: space.id, color: h })); };
 
   return (
-    <Sheet title="Space settings" onClose={closeSheet}>
-      <div className="form">
+    <Sheet title="Space settings" onClose={closeSheet} width={560}>
+      <fieldset className="settings-tabs">
+        <legend className="visually-hidden">Settings section</legend>
+        {TABS.map((t) => (
+          <label key={t.id} className="settings-tab" data-selected={tab === t.id || undefined}>
+            <input type="radio" name="settings-tab" value={t.id} checked={tab === t.id} onChange={() => setTab(t.id)} />
+            {t.label}
+          </label>
+        ))}
+      </fieldset>
+      {tab === "skills" && <SkillsPanel spaceId={space.id} />}
+      {/* Plan 9's gateway-era MCP surface IS this tab. W5 shipped its own `McpPanel` for the same
+          domain, but that predates the gateway: it has no hub status, no OAuth, no circuit breaker and
+          no per-tool policy, and two settings surfaces for one set of servers is how they drift. */}
+      {tab === "mcp" && <McpSection spaceId={space.id} />}
+      {tab === "memory" && <MemoryPanel spaceId={space.id} />}
+      {tab === "general" && <div className="form">
         <label className="field"><span>Name</span>
           <input aria-label="Space name" value={name} onChange={(e) => setName(e.target.value)} onBlur={commitName}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
@@ -114,7 +149,6 @@ export function SpaceSettingsSheet({ spaceId }: { spaceId: string }) {
           </select>
         </label>
         <EnvironmentList spaceId={space.id} />
-        <McpSection spaceId={space.id} />
         <div className="form-actions danger-zone">
           {confirmDelete ? (
             <>
@@ -124,7 +158,7 @@ export function SpaceSettingsSheet({ spaceId }: { spaceId: string }) {
             </>
           ) : <button type="button" className="btn danger" onClick={() => setConfirmDelete(true)}>Delete space…</button>}
         </div>
-      </div>
+      </div>}
     </Sheet>
   );
 }

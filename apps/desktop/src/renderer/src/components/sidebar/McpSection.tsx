@@ -1,6 +1,6 @@
-import { MCP_SECRET_STORAGE_NOTE, mcpSupportNote, type AgentKind, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { MCP_SECRET_STORAGE_NOTE, McpServerNameSchema, mcpSupportNote, type AgentKind, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { useEffect, useState, type FormEvent } from "react";
-import { useApp } from "../../state/store";
+import { useApp, type McpTestResult } from "../../state/store";
 
 const STATUS_LABEL: Record<McpServerStatus, string> = {
   idle: "Idle", connected: "Connected", error: "Error", circuit_open: "Circuit open",
@@ -16,9 +16,9 @@ const isAcpKind = (k: AgentKind) => k.startsWith("acp:");
 type SecretRow = { key: string; value: string };
 
 /**
- * MCP servers, auth and per-space/per-tool policy — rendered inside `SpaceSettingsSheet` below
- * `EnvironmentList`, following its idiom (`useApp`, `run()`, `.field` sections, no new component
- * patterns). This is the first MCP settings UI Realm has ever had (W1–W5 built only the engine).
+ * MCP servers, auth and per-space/per-tool policy — the **Connections** tab of Plan 8 W5's settings
+ * home (`SpaceSettingsSheet`), following the sibling panels' idiom (`useApp`, `run()`, a
+ * `form settings-panel` root wrapping `.field` sections).
  *
  * Every state here has to say something, per the plan's honesty rule: a server with no cached tools
  * names the action that would get it some; a blocked circuit names its own fix; a secret field never
@@ -46,35 +46,41 @@ export function McpSection({ spaceId }: { spaceId: string }) {
   const agentKinds = [...new Set(Object.values(sessions).filter((s) => s.spaceId === spaceId).map((s) => s.agentKind))].sort();
 
   return (
-    <div className="field">
-      <div className="mcp-section-head">
-        <span>MCP servers</span>
-        {/* Opening Activity REPLACES this settings sheet — the app's one sheet slot (ruling 4) — rather
-            than stacking on top of it; that is accepted, not a bug to work around here. */}
-        <button type="button" className="btn-quiet" onClick={() => run(() => openActivity())}>Activity</button>
-      </div>
-      {servers.length === 0
-        ? <p className="env-empty">No MCP servers yet — add one to give this space's agents tools.</p>
-        : (
-          <ul className="env-list">
-            {servers.map((s) => <McpServerRow key={s.id} spaceId={spaceId} server={s} />)}
+    <div className="form settings-panel">
+      <div className="field">
+        <div className="mcp-section-head">
+          <span>MCP servers</span>
+          {/* Opening Activity REPLACES this settings sheet — the app's one sheet slot (ruling 4) — rather
+              than stacking on top of it; that is accepted, not a bug to work around here. */}
+          <button type="button" className="btn-quiet" onClick={() => run(() => openActivity())}>Activity</button>
+        </div>
+        {servers.length === 0
+          ? <p className="env-empty">No MCP servers yet — add one to give this space's agents tools.</p>
+          : (
+            <ul className="env-list">
+              {servers.map((s) => <McpServerRow key={s.id} spaceId={spaceId} server={s} />)}
+            </ul>
+          )}
+        {adding
+          ? <McpServerForm spaceId={spaceId} onDone={() => setAdding(false)} />
+          : <div className="form-actions" style={{ justifyContent: "flex-start" }}>
+              <button type="button" className="btn-quiet" onClick={() => setAdding(true)}>Add server…</button>
+            </div>}
+        {agentKinds.length > 0 && (
+          <ul className="mcp-agent-notes">
+            {agentKinds.map((k) => (
+              <li key={k} className="muted">
+                {mcpSupportNote(k)}
+                {isAcpKind(k) ? " A build without http MCP support gets no tools." : ""}
+              </li>
+            ))}
           </ul>
         )}
-      {adding
-        ? <McpServerForm spaceId={spaceId} onDone={() => setAdding(false)} />
-        : <div className="form-actions" style={{ justifyContent: "flex-start" }}>
-            <button type="button" className="btn-quiet" onClick={() => setAdding(true)}>Add server…</button>
-          </div>}
-      {agentKinds.length > 0 && (
-        <ul className="mcp-agent-notes">
-          {agentKinds.map((k) => (
-            <li key={k} className="muted">
-              {mcpSupportNote(k)}
-              {isAcpKind(k) ? " A build without http MCP support gets no tools." : ""}
-            </li>
-          ))}
-        </ul>
-      )}
+        {/* W5's rule, kept over ours: the storage disclosure is a property of the servers this tab
+            already lists, not only of a form that happens to be open — so it is on screen whenever the
+            tab is, and the copy at each secret field (SecretsFields) is in addition to it, not instead. */}
+        <p className="settings-note">{MCP_SECRET_STORAGE_NOTE}</p>
+      </div>
     </div>
   );
 }
@@ -84,10 +90,24 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
   const setMcpEnabled = useApp((s) => s.setMcpEnabled);
   const removeMcpServer = useApp((s) => s.removeMcpServer);
   const retryMcpServer = useApp((s) => s.retryMcpServer);
+  const testMcpServer = useApp((s) => s.testMcpServer);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [test, setTest] = useState<McpTestResult | "testing" | null>(null);
 
   const endpoint = server.transport === "stdio" ? [server.command, ...server.args].filter(Boolean).join(" ") : server.url;
+
+  // W5's live check, kept through the merge: the status dot is the HUB's steady-state opinion, which
+  // says nothing useful right after an edit (still `idle`) or once a breaker has tripped. Test dials
+  // the upstream server directly and answers "is what I just typed reachable at all". Local state, not
+  // the store — a probe result belongs to the row the user clicked, and is stale the moment they edit.
+  const runTest = () => {
+    setTest("testing");
+    run(async () => {
+      try { setTest(await testMcpServer(server.id)); }
+      catch (e) { setTest({ reached: false, detail: e instanceof Error ? e.message : String(e) }); throw e; }
+    });
+  };
 
   return (
     <li className="env-row mcp-row">
@@ -103,6 +123,11 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
       </div>
       <div className="env-meta">
         <code className="env-path">{endpoint || "(no endpoint set)"}</code>
+        {/* `detail` is built server-side from things that cannot be secrets (see live-check.ts), so it
+            renders verbatim — same rule as the tools error below. */}
+        {test && <span className="mcp-test" data-reached={test !== "testing" && test.reached ? "true" : undefined}>
+          {test === "testing" ? "Testing…" : test.detail}
+        </span>}
       </div>
       <div className="env-actions">
         <label className="mcp-enable">
@@ -110,6 +135,7 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
             onChange={(e) => run(() => setMcpEnabled(spaceId, server.id, e.target.checked))} />
           Enabled
         </label>
+        <button type="button" className="btn-quiet" onClick={runTest}>Test</button>
         <button type="button" className="btn-quiet" onClick={() => setEditing((v) => !v)}>{editing ? "Close" : "Edit"}</button>
         {confirmDelete
           ? <>
@@ -201,10 +227,15 @@ function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: 
   // comparison matches what actually gets sent on submit (untrimmed whitespace must not read as clean).
   const dirtyUrlOrTransport = !!server && isOauthRow && (transport !== server.transport || url.trim() !== server.url);
 
+  // W5's check, kept: the name is what every agent keys the server by on the wire (a TOML bare key for
+  // Codex), so a name the wire would reject has to be refused HERE — the RPC would reject it anyway,
+  // but as a red error banner that never names the field that caused it.
+  const nameOk = McpServerNameSchema.safeParse(name.trim()).success;
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!nameOk) return;
     const secrets = Object.fromEntries(secretRows.filter((r) => r.key.trim()).map((r) => [r.key.trim(), r.value]));
     run(async () => {
       if (server) {
@@ -232,6 +263,7 @@ function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: 
       <label className="field"><span>Name</span>
         <input aria-label="Server name" value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
+      {name.trim().length > 0 && !nameOk && <p className="mcp-error">Letters, digits, underscore or hyphen only.</p>}
       <label className="field"><span>Transport</span>
         <select aria-label="Transport" value={transport} onChange={(e) => setTransport(e.target.value as McpTransport)}>
           <option value="stdio">stdio</option>
@@ -289,7 +321,7 @@ function McpServerForm({ spaceId, server, onDone }: { spaceId: string; server?: 
           </>}
       <div className="form-actions">
         <button type="button" className="btn-quiet" onClick={onDone}>Cancel</button>
-        <button type="submit" className="btn primary">{server ? "Save" : "Add server"}</button>
+        <button type="submit" className="btn primary" disabled={!nameOk}>{server ? "Save" : "Add server"}</button>
       </div>
     </form>
   );

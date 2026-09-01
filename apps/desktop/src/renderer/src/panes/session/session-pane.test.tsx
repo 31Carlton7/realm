@@ -193,26 +193,34 @@ describe("SessionPane", () => {
     expect(store.getState().sessions.se1?.effort).toBeNull(); // the picker set model, not effort
   });
 
-  it("Send is disabled with an empty draft while idle; effort menu sets the effort option", async () => {
+  it("Send is disabled with an empty draft while idle; the picker's Effort section sets the effort option", async () => {
+    // Prompter rework re-pin: the standalone effort chip is retired — effort is edited inside the
+    // model picker (its permanent Effort section) and worn by the chip as a gray suffix. What
+    // carried over from the chip's tests: the edit applies via setSessionOptions with the `effort`
+    // key and touches nothing else, and a null effort shows nothing (no placeholder, no suffix).
     const { store } = await mount("idle", reduceAll([]));
     const send = screen.getByRole("button", { name: "Send" });
     expect(send).toBeDisabled();
     expect(send).toHaveAttribute("data-state", "send");
-    const effort = screen.getByRole("button", { name: "Effort" });
-    expect(effort).toHaveTextContent("Effort"); // placeholder while effort is null
-    fireEvent.click(effort);
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "high" }));
+    expect(screen.queryByRole("button", { name: "Effort" })).toBeNull(); // the chip is gone
+    expect(document.querySelector(".model-chip .chip-effort")).toBeNull(); // null effort = no suffix
+    openPicker();
+    const group = screen.getByRole("group", { name: "Effort" });
+    expect(within(group).getByRole("button", { name: "High" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(within(group).getByRole("button", { name: "High" }));
     await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("high"));
-    expect(store.getState().sessions.se1?.model).toBeNull(); // effort menu set effort, not model
-    expect(effort).toHaveTextContent("high");
+    expect(store.getState().sessions.se1?.model).toBeNull(); // the effort edit set effort, not model
+    expect(store.getState().sessions.se1?.permissionMode).toBe("default"); // …and not permission either
+    expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull(); // picking closes the picker
+    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("High"); // the suffix wears it
   });
 
   it("model chip shows DEFAULT_MODEL_LABEL for the kind while session.model is null, and the chosen model after", async () => {
     const { store } = await mount("idle", reduceAll([]));
     const chip = screen.getByRole("button", { name: "Model" });
     expect(chip).toHaveTextContent("Fake"); // DEFAULT_MODEL_LABEL.fake
-    // Ara refresh §3: the chip is plain text — no brand mark for ANY kind (the mark lives on the
-    // picker's rows), and no "Claude · " prefix on the label.
+    // The chip wears the agent's mark again (prompter rework) — but `fake` has no vendor, so its
+    // glyph is the generic Hugeicons bot, never a brand mark.
     expect(chip.querySelector("[data-brand]")).toBeNull();
     openPicker();
     fireEvent.click(screen.getByRole("option", { name: /Fake agent/ }));
@@ -231,16 +239,15 @@ describe("SessionPane", () => {
     expect(row).toHaveAttribute("aria-selected", "true");
   });
 
-  it("the cwd context chip lives in the control row's left group, truncates with an ellipsis label and carries the full path as its title", async () => {
+  it("the cwd chip is gone from the control row (prompter rework) — the folder is the sidebar's to name", async () => {
     await mount("idle", reduceAll([]));
-    const chip = document.querySelector(".composer-opts .composer-cwd");
-    expect(chip).toHaveAttribute("title", "/tmp"); // the fake session's cwd
-    expect(chip!.querySelector(".chip-label")).not.toBeNull();
+    expect(document.querySelector(".composer-cwd")).toBeNull();
   });
 
-  /** W2: the prompter has to answer "which checkout is this session in?" without a new surface.
-   *  Ara refresh §3 gives that answer its own chip — the "Work locally" slot — in the control row. */
-  describe("the environment chip", () => {
+  /** W2 gave the checkout its own chip (the "Work locally" slot); the prompter rework retires it —
+   *  the diff pane and the sidebar still name the environment, and the row keeps only the branch as
+   *  its way in. Pinned in both shapes so neither chip can quietly return. */
+  describe("the environment chip is retired", () => {
     const envRow: Environment = { id: "env1", spaceId: "s1", path: "/tmp/worktrees/s1/fix-login", branch: "realm/fix-login",
       kind: "worktree", portBlockStart: 41020, createdAt: 0, updatedAt: 0 };
 
@@ -252,26 +259,19 @@ describe("SessionPane", () => {
       const store = createAppStore(api); await store.getState().boot();
       store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
       render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
-      return document.querySelector(".composer-opts .composer-env")!;
     }
 
-    it("says Worktree, and names the path and port block in its title; the cwd chip keeps the basename", async () => {
-      const chip = await mountIn(envRow);
-      expect(chip).toHaveTextContent("Worktree");
-      expect(chip).toHaveAttribute("title", "Worktree · /tmp/worktrees/s1/fix-login\nPorts 41020–41029 reserved");
-      expect(document.querySelector(".composer-cwd .chip-label")).toHaveTextContent("fix-login");
+    it("renders no environment (or cwd) chip for a worktree session", async () => {
+      await mountIn(envRow);
+      expect(document.querySelector(".composer-env")).toBeNull();
+      expect(document.querySelector(".composer-cwd")).toBeNull();
+      expect(screen.queryByText("Worktree")).toBeNull();
     });
 
-    it("says Work locally for a session in the space's own checkout", async () => {
-      const chip = await mountIn(null);
-      expect(chip).toHaveTextContent("Work locally");
-      expect(chip.getAttribute("title")).not.toContain("Worktree");
-    });
-
-    it("does not claim a port block the environment has not got", async () => {
-      const chip = await mountIn({ ...envRow, portBlockStart: null });
-      expect(chip.getAttribute("title")).toContain("Worktree");
-      expect(chip.getAttribute("title")).not.toContain("Ports");
+    it("renders none for a session in the space's own checkout either", async () => {
+      await mountIn(null);
+      expect(document.querySelector(".composer-env")).toBeNull();
+      expect(screen.queryByText("Work locally")).toBeNull();
     });
   });
 
@@ -390,7 +390,10 @@ describe("SessionPane", () => {
     // AcpAdapter never transmits Realm's mode ids, so the picker would silently do nothing for an ACP agent.
     await mountKind("acp:cursor");
     expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Effort" })).toBeInTheDocument(); // the rest of the bar is untouched
+    // The rest of the bar is untouched: the model chip still opens the picker, whose permanent
+    // Effort section exists for every kind (effort's home since the standalone chip retired).
+    openPicker();
+    expect(screen.getByRole("group", { name: "Effort" })).toBeInTheDocument();
   });
 });
 
@@ -527,7 +530,7 @@ describe("composer context row (git chips)", () => {
     expect(document.querySelector(".git-diff .diff-add")).toHaveTextContent("+12");
     expect(document.querySelector(".git-diff .diff-del")).toHaveTextContent("−3");
     expect(document.querySelector(".git-dirty")).toHaveTextContent("4 changed");
-    expect(document.querySelector(".composer-opts .composer-cwd")).toBeInTheDocument(); // cwd chip lives here too
+    expect(document.querySelector(".composer-cwd")).toBeNull(); // the cwd chip is retired, not moved
   });
 
   it("hides the diff chip when both counts are zero and the dirty chip at zero", async () => {
@@ -542,32 +545,59 @@ describe("composer context row (git chips)", () => {
     expect(document.querySelector(".git-branch")).toBeNull();
     expect(document.querySelector(".git-diff")).toBeNull();
     expect(document.querySelector(".git-dirty")).toBeNull();
-    expect(document.querySelector(".composer-opts .composer-cwd")).toBeInTheDocument(); // cwd chip survives
+    expect(document.querySelector(".composer-opts")).not.toBeNull(); // the row itself still renders
   });
 });
 
-describe("control-row reshuffle (Ara refresh §3)", () => {
-  it("the '+' attach button leads the left group; the model chip and send sit in the right group", async () => {
-    await mount("idle", reduceAll([]));
+describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
+  it("left group runs '+' · permission · mode · branch, in that DOM order and nothing else", async () => {
+    // The user's row: attach leads, the Ask/Build chips sit against it, the branch chip trails.
+    // The cwd, environment and effort chips are gone — an extra child here is a regression.
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } },
+      gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } });
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
     const opts = document.querySelector(".composer-opts")!;
-    // The attach affordance IS the row's first control — the paperclip's picker behind a "+" glyph.
-    expect(opts.firstElementChild).toBe(screen.getByRole("button", { name: "Attach files" }));
-    // Context chips follow it, then the option chips — all in the LEFT group.
-    expect(opts.querySelector(".composer-cwd")).not.toBeNull();
-    expect(opts.querySelector(".composer-env")).not.toBeNull();
-    expect(opts.contains(screen.getByRole("button", { name: "Effort" }))).toBe(true);
+    const children = Array.from(opts.children);
+    expect(children[0]).toBe(screen.getByRole("button", { name: "Attach files" }));
+    expect(children[1]).toBe(screen.getByRole("button", { name: "Permission mode" }));
+    expect(children[2]).toBe(screen.getByRole("button", { name: "Mode" }));
+    expect(children[3]).toBe(document.querySelector(".composer-git"));
+    expect(children).toHaveLength(4);
+    expect(screen.queryByRole("button", { name: "Effort" })).toBeNull();
     const actions = document.querySelector(".composer-actions")!;
     expect(actions.contains(screen.getByRole("button", { name: "Model" }))).toBe(true);
     expect(actions.lastElementChild).toBe(screen.getByRole("button", { name: "Send" }));
   });
 
-  it("the model chip is plain text — no brand mark on the chip, brand marks only on the picker's rows", async () => {
-    await mountFresh(); // a real vendor (claude), so a mark WOULD render if the chip still carried one
+  it("the model chip wears the SESSION's vendor mark in brand colour; picker rows are coloured too", async () => {
+    await mountFresh(); // claude
     const chip = screen.getByRole("button", { name: "Model" });
-    expect(chip.querySelector("[data-brand]")).toBeNull();
-    expect(chip.querySelector(".chip-caret")).not.toBeNull(); // `Fable 5 ⌄`
+    const mark = chip.querySelector("[data-brand]")!;
+    expect(mark).toHaveAttribute("data-brand", "claude"); // the session's agent, not a fixed vendor
+    expect(mark.querySelector("path")).toHaveAttribute("fill", "#D97757"); // the coral spark, IN colour
+    expect(chip.querySelector(".chip-caret")).not.toBeNull(); // `⟡ Fable 5 ⌄`
     openPicker();
-    expect(document.querySelectorAll(".mp-row [data-brand]").length).toBeGreaterThan(0);
+    expect(document.querySelector(".mp-row [data-brand='claude'] path")).toHaveAttribute("fill", "#D97757");
+  });
+
+  it("a vendor with no brand colour keeps its mark in ink — no colour is invented", async () => {
+    await mountKindFresh("codex");
+    const mark = screen.getByRole("button", { name: "Model" }).querySelector("[data-brand]")!;
+    expect(mark).toHaveAttribute("data-brand", "openai");
+    expect(mark.querySelector("path")).toHaveAttribute("fill", "currentColor");
+  });
+
+  it("the gray suffix shows the SESSION's effort, capitalised (`xhigh` → XHigh), and hides when unset", async () => {
+    const a = await mountFresh({ effort: "xhigh" });
+    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("XHigh");
+    a.unmount();
+    const b = await mountFresh({ effort: "max" }); // another level renders ITS word, not a fixed one
+    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("Max");
+    b.unmount();
+    await mountFresh();
+    expect(document.querySelector(".model-chip .chip-effort")).toBeNull();
   });
 
   describe("overflow collapse", () => {
@@ -582,19 +612,18 @@ describe("control-row reshuffle (Ara refresh §3)", () => {
       delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
     });
 
-    it("an overflowing row folds effort + permission into the model menu instead of wrapping", async () => {
+    it("an overflowing row folds the permission chip into the model menu instead of wrapping", async () => {
+      // Effort no longer collapses — it LIVES in the menu — so permission is the one chip left
+      // with somewhere to fold to.
       stageWidths(700, 500);
       const { store } = await mountFresh();
-      // The chips are gone from the row…
-      expect(screen.queryByRole("button", { name: "Effort" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
       expect(document.querySelector(".composer-opts")).toHaveAttribute("data-collapsed");
-      // …and live in the model menu as labelled groups, with working handlers.
+      // …and it lives in the model menu as a labelled group, with working handlers.
       openPicker();
-      const effort = screen.getByRole("group", { name: "Effort" });
-      expect(screen.getByRole("group", { name: "Permissions" })).toBeInTheDocument();
-      fireEvent.click(within(effort).getByRole("button", { name: "high" }));
-      await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("high"));
+      const perms = screen.getByRole("group", { name: "Permissions" });
+      fireEvent.click(within(perms).getByRole("button", { name: "Accept edits" }));
+      await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
       expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull(); // picking closes the menu
     });
 
@@ -609,13 +638,13 @@ describe("control-row reshuffle (Ara refresh §3)", () => {
       await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
     });
 
-    it("a row that fits keeps its chips and offers no overflow groups in the model menu", async () => {
+    it("a row that fits keeps the permission chip; the menu carries only its permanent Effort section", async () => {
       stageWidths(400, 500);
       await mountFresh();
-      expect(screen.getByRole("button", { name: "Effort" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Permission mode" })).toBeInTheDocument();
       openPicker();
-      expect(document.querySelector(".mp-overflow")).toBeNull();
+      expect(screen.getByRole("group", { name: "Effort" })).toBeInTheDocument(); // permanent, not overflow
+      expect(screen.queryByRole("group", { name: "Permissions" })).toBeNull();
     });
   });
 });

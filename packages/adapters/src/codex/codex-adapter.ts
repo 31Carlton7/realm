@@ -388,7 +388,15 @@ export class CodexAdapter implements AgentAdapter {
       // Codex reads local images off disk, so no base64. Anything else is named in the text and left for the
       // agent to open with its own tools.
       const text = files.length ? `${m.text}\n\nAttached files:\n${files.map((a) => `- ${a.path}`).join("\n")}` : m.text;
-      return [{ type: "text", text, text_elements: [] }, ...images.map((a) => ({ type: "localImage", path: a.path }))];
+      return [
+        { type: "text", text, text_elements: [] },
+        // A resolved @-mention (W4) rides as Codex's NATIVE skill input item, beside the text — the
+        // app-server `UserInput` union has a `skill` variant, which beats munging `$name` into the
+        // text. `name` is the frontmatter name (what skills/list reports); `path` is the library
+        // SKILL.md the staged extra root symlinks back to.
+        ...(m.skill ? [{ type: "skill", name: m.skill.name, path: m.skill.path }] : []),
+        ...images.map((a) => ({ type: "localImage", path: a.path })),
+      ];
     };
 
     return {

@@ -11,7 +11,10 @@ async function mount(overrides: Parameters<typeof fakeApi>[0] = {}) {
   await store.getState().boot();
   store.getState().openSheet({ kind: "space-settings", spaceId: "s1" });
   render(<StoreContext.Provider value={store}><SpaceSettingsSheet spaceId="s1" /></StoreContext.Provider>);
-  // McpSection fetches on mount (sheet open) — wait for that before asserting on its contents.
+  // Since the W5 merge the sheet is a settings HOME and opens on General; McpSection is the Connections
+  // tab, so it does not mount (and does not fetch) until that tab is selected.
+  fireEvent.click(screen.getByRole("radio", { name: "Connections" }));
+  // McpSection fetches on mount — wait for that before asserting on its contents.
   await waitFor(() => expect(api.calls).toContain("listMcpServers:s1"));
   return { store, api };
 }
@@ -79,7 +82,10 @@ describe("McpSection", () => {
   it("shows the secret storage note on the key form", async () => {
     await mount();
     fireEvent.click(screen.getByRole("button", { name: "Add server…" }));
-    expect(screen.getByText(MCP_SECRET_STORAGE_NOTE)).toBeInTheDocument();
+    // Scoped to the FORM: the tab carries the same note at panel level (W5's always-on disclosure), so
+    // an unscoped query would pass on that one and stop proving the field itself is covered.
+    const form = document.querySelector(".mcp-form") as HTMLElement;
+    expect(within(form).getByText(MCP_SECRET_STORAGE_NOTE)).toBeInTheDocument();
   });
 
   it("editing the URL of an oauth-connected server warns before saving", async () => {
@@ -152,6 +158,29 @@ describe("McpSection", () => {
     const row = (await screen.findByText("srv10")).closest(".mcp-row") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
     expect(within(row).getByText(MCP_SECRET_STORAGE_NOTE)).toBeInTheDocument();
+  });
+
+  // ── folded in from W5's connections panel at the merge, against the surviving surface ──
+
+  it("Test reports the live check's outcome, reached or failed", async () => {
+    const srv = mcpServer("m20", { name: "srv20", enabled: true });
+    const { api } = await mount({ mcpServers: [srv], mcpTest: { m20: { reached: false, detail: "could not start: spawn nope ENOENT" } } });
+    const row = (await screen.findByText("srv20")).closest(".mcp-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Test" }));
+    expect(await within(row).findByText("could not start: spawn nope ENOENT")).toBeInTheDocument();
+    expect(api.calls).toContain("testMcpServer:m20");
+  });
+
+  it("refuses a name the wire would reject, naming the rule rather than failing on save", async () => {
+    const { api } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Add server…" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Server name" }), { target: { value: "my server!" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Command" }), { target: { value: "npx" } });
+    expect(screen.getByText("Letters, digits, underscore or hyphen only.")).toBeInTheDocument();
+    const save = screen.getByRole("button", { name: "Add server" });
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(api.calls.some((c) => c.startsWith("addMcpServer:"))).toBe(false);
   });
 
   it("Disconnect calls mcp.oauth.disconnect", async () => {

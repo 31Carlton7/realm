@@ -164,6 +164,24 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
+  it("a resolved @-mention rides as Codex's NATIVE skill input item beside the text, never instead of it (W4)", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({
+      text: "ECHO use mac to list reminders",
+      attachments: [{ path: "/tmp/shot.png", mime: "image/png" }],
+      // name ≠ id on purpose: Codex knows the skill by its FRONTMATTER name (what skills/list reports),
+      // so an item built from the directory id would name a skill that does not exist.
+      skill: { id: "mac", name: "mac-skill", path: "/lib/skills/mac/SKILL.md" },
+    });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!)).toEqual([
+      { type: "text", text: "ECHO use mac to list reminders", text_elements: [] },
+      { type: "skill", name: "mac-skill", path: "/lib/skills/mac/SKILL.md" },
+      { type: "localImage", path: "/tmp/shot.png" },
+    ]);
+    await handle.dispose();
+  });
+
   it("maps Realm permission modes onto thread/start's approvalPolicy and sandbox", async () => {
     const cases = [
       ["plan", { approvalPolicy: "untrusted", sandbox: "read-only" }],

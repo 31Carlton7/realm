@@ -253,6 +253,39 @@ describe("ClaudeAdapter skills", () => {
   });
 });
 
+describe("@-mention resolution on the Claude wire (W4)", () => {
+  /** Fake query that hands back the FIRST user message the adapter pushes — the wire, verbatim. */
+  function captureFirstMessage() {
+    let resolve!: (m: unknown) => void;
+    const first = new Promise<unknown>((r) => { resolve = r; });
+    const adapter = new ClaudeAdapter({
+      query: (({ prompt }: { prompt: AsyncIterable<unknown> }) => {
+        const gen = (async function* () { for await (const m of prompt) { resolve(m); return; } })();
+        return Object.assign(gen, { interrupt: async () => {}, setPermissionMode: async () => {}, setModel: async () => {} });
+      }) as never,
+    });
+    return { handle: adapter.start({ cwd: "/tmp", mcpServers: [] }), first };
+  }
+  const textOf = (m: unknown) =>
+    ((m as { message: { content: Array<{ type: string; text?: string }> } }).message.content[0]!).text;
+
+  it("prepends /realm:<frontmatter name> at position 0 — the only place the SDK dispatches a command", async () => {
+    const { handle, first } = captureFirstMessage();
+    // name ≠ id on purpose: the plugin registers the skill under its FRONTMATTER name (proven live in
+    // scripts/live-mention-check.ts), so a prepend built from the directory id would invoke nothing.
+    await handle.send({ text: "use mac to list reminders", attachments: [], skill: { id: "mac", name: "mac-skill", path: "/lib/skills/mac/SKILL.md" } });
+    expect(textOf(await first)).toBe("/realm:mac-skill use mac to list reminders");
+    await handle.dispose();
+  });
+
+  it("without a resolved skill the text goes through verbatim — no prepend, and never a literal @name (the server already stripped it)", async () => {
+    const { handle, first } = captureFirstMessage();
+    await handle.send({ text: "plain text, mac not mentioned", attachments: [] });
+    expect(textOf(await first)).toBe("plain text, mac not mentioned");
+    await handle.dispose();
+  });
+});
+
 describe("claudeMcpServers", () => {
   const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };

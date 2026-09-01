@@ -1,6 +1,7 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { MCP_SECRET_STORAGE_NOTE, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type McpCall, type McpServer, type McpTool, type Profile, type Project, type RestorePreview, type Session, type ShipResult, type Space, type StoredSessionEvent, type WorktreeStatus } from "@realm/contracts";
-import type { AddMcpServerInput, AgentProbe, Api, PickedAttachment, UpdateMcpServerInput } from "./store";
+import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Profile, Project, RestorePreview, Session, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
   ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
@@ -11,6 +12,12 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, createdAt: 0, updatedAt: 0, ...extra });
+
+export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
+  ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null, ...extra });
+
+export const agentsFileState = (extra: Partial<AgentsFileState> = {}): AgentsFileState =>
+  ({ enabled: false, path: "/realm-home/spaces/s1/AGENTS.md", exists: false, managedByRealm: false, writable: true, reason: null, ...extra });
 
 export const checkpoint = (id: string, environmentId: string, extra: Partial<Checkpoint> = {}): Checkpoint =>
   ({ id, environmentId, sessionId: null, kind: "turn", label: "a turn", ref: `refs/realm/checkpoints/${environmentId}/${id}`,
@@ -57,6 +64,19 @@ export type FakeData = {
   /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
    *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
   checkpointPreview?: Record<string, RestorePreview>;
+  /** `skills.list` by space id — what the prompter's @-mention picker offers (W4). Toggles via
+   *  `setSkillEnabled` are applied per space on top of these rows, mirroring the disabled-set store. */
+  skills?: Record<string, Skill[]>;
+  /** The library folder `skills.list` reports. */
+  skillsRoot?: string;
+  /** What `mcp.test` answers, by server id. Absent id → reached false, "no test result configured". */
+  mcpTest?: Record<string, McpTestResult>;
+  /** Realm memory documents by space id. */
+  memoryDocs?: Record<string, string>;
+  /** AGENTS.md state by space id (default: a writable primary-folder state, disabled). */
+  agentsFiles?: Record<string, AgentsFileState>;
+  /** `memory.sources` by session id. */
+  memorySources?: Record<string, MemorySources>;
   /** What the next `pickFiles()` answers with; consumed by the call (queue, not a constant). */
   pickFiles?: PickedAttachment[];
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
@@ -80,8 +100,12 @@ export type FakeApi = Api & {
   /** Method-call log, e.g. `listItems:s1`, `setLayout:s1`, `setSetting:ui.theme=dark`. */
   calls: string[];
   disposed: string[];
-  /** Every `sendMessage`, with the attachments that actually went on the wire. */
-  sent: { id: string; text: string; attachments: Attachment[] }[];
+  /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
+   *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
+  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[];
+  /** Every `mcp.add`/`mcp.update` input exactly as sent — what the secrecy tests read: an update that
+   *  should have omitted `env` is caught here, not inferred from state. */
+  mcpWrites: (AddMcpServerInput | UpdateMcpServerInput)[];
   /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
   delays: Record<string, number>;
   onCreateTerminal: (() => void) | null;
@@ -94,7 +118,7 @@ export type FakeApi = Api & {
 export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
-  const sent: { id: string; text: string; attachments: Attachment[] }[] = [];
+  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[] = [];
   const data: Required<FakeData> = {
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p2", "Homework", { color: "#3ddc97" })],
@@ -116,6 +140,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     worktreeStatus: overrides.worktreeStatus ?? {},
     checkpoints: overrides.checkpoints ?? {},
     checkpointPreview: overrides.checkpointPreview ?? {},
+    skills: overrides.skills ?? {},
+    skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
+    mcpTest: overrides.mcpTest ?? {},
+    memoryDocs: overrides.memoryDocs ?? {},
+    agentsFiles: overrides.agentsFiles ?? {},
+    memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
     mcpServers: overrides.mcpServers ?? [],
@@ -125,8 +155,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
+  const mcpWrites: FakeApi["mcpWrites"] = [];
+  const memState = (spaceId: string): MemoryState =>
+    ({ path: `/realm-home/memory/${spaceId}.md`, doc: data.memoryDocs[spaceId] ?? "", agentsFile: data.agentsFiles[spaceId] ?? agentsFileState() });
   const api: FakeApi = {
-    calls, disposed, sent, delays: {}, onCreateTerminal: null, data,
+    calls, disposed, sent, mcpWrites, delays: {}, onCreateTerminal: null, data,
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
     createProfile: async (name) => {
       calls.push(`createProfile:${name}`);
@@ -214,9 +247,44 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`createSession:${input.agentKind}`);
       return { session: s, itemId: it.id };
     },
-    sendMessage: async (id, text, attachments) => {
+    sendMessage: async (id, text, attachments, mentions) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
-      sent.push({ id, text, attachments });
+      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}) });
+    },
+    listSkills: async (spaceId) => { calls.push(`listSkills:${spaceId}`); return { root: data.skillsRoot, skills: [...(data.skills[spaceId] ?? [])] }; },
+    setSkillEnabled: async (spaceId, id, enabled) => {
+      calls.push(`setSkillEnabled:${spaceId}:${id}=${enabled}`);
+      // Applied to THIS space's rows and no other's — the per-space disabled set, as the server keys it.
+      const rows = data.skills[spaceId] ?? [];
+      const i = rows.findIndex((s) => s.id === id);
+      if (i >= 0) rows[i] = { ...rows[i]!, enabled };
+    },
+    testMcpServer: async (id) => {
+      calls.push(`testMcpServer:${id}`);
+      await wait(`testMcpServer:${id}`);
+      return data.mcpTest[id] ?? { reached: false, detail: "no test result configured" };
+    },
+    getMemory: async (spaceId) => { calls.push(`getMemory:${spaceId}`); return memState(spaceId); },
+    setMemory: async (spaceId, doc) => {
+      calls.push(`setMemory:${spaceId}:${doc.length}`);
+      // Mirrors the server: past the cap is refused outright, never truncated.
+      if (doc.length > MEMORY_DOC_MAX) throw new Error(`the memory document is capped at ${MEMORY_DOC_MAX} characters`);
+      data.memoryDocs[spaceId] = doc;
+      return memState(spaceId);
+    },
+    setAgentsFile: async (spaceId, enabled) => {
+      calls.push(`setAgentsFile:${spaceId}=${enabled}`);
+      const af = data.agentsFiles[spaceId] ?? agentsFileState();
+      // Mirrors the server: turning ON is refused where the folder is not Realm's; turning OFF is safe.
+      if (enabled && !af.writable) throw new Error(af.reason ?? "Realm will not write an AGENTS.md here");
+      data.agentsFiles[spaceId] = { ...af, enabled, exists: enabled || (af.exists && !af.managedByRealm), managedByRealm: enabled };
+      return memState(spaceId);
+    },
+    memorySources: async (sessionId) => {
+      calls.push(`memorySources:${sessionId}`);
+      const m = data.memorySources[sessionId];
+      if (!m) throw new Error(`no memory sources for ${sessionId}`);
+      return m;
     },
     interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
     respondPermission: async (id, requestId, decision) => { calls.push(`respondPermission:${id}:${requestId}:${decision}`); },

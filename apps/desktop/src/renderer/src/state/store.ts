@@ -1,8 +1,8 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mimeForPath,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  AGENT_SKILL_SUPPORT, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type Session, type SessionMode, type SessionStatus, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useContext } from "react";
 import type { ThemePref } from "../theme/useTheme";
@@ -36,6 +36,9 @@ export type PermissionDecision = "allow" | "allow_always" | "deny";
  *  Canonical home of this type — PaneHost imports it from here. */
 export type DropEdge = "left" | "right" | "top" | "bottom" | "center";
 export type AgentProbe = MethodResult<"agents.probe">[number];
+/** `mcp.test`'s answer: reached or not, and one sentence saying why. Built server-side from things that
+ *  cannot be secrets (see live-check.ts), so a UI may render `detail` verbatim. */
+export type McpTestResult = { reached: boolean; detail: string };
 /** A `session.event` broadcast: persisted rows carry their seq; ephemeral ones (deltas) have seq -1. */
 export type LiveSessionEvent = StoredSessionEvent & { ephemeral: boolean };
 export type TranscriptEntry = { lastSeq: number; t: Transcript };
@@ -85,7 +88,25 @@ export type Api = {
   listAllSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
-  sendMessage(id: string, text: string, attachments: Attachment[]): Promise<void>;
+  /** `skills.list` for a space: the library folder and every skill in it, valid or not — the mention
+   *  picker (W4) reads the skills, the settings panel (W5) also shows the root and the invalid rows. */
+  listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
+  /** `skills.setEnabled` — one skill, one SPACE. The store is a per-space disabled set. */
+  setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.test` — a live connection attempt from realm-server; resolves reached/failed with a sentence.
+   *  The rest of the MCP surface is declared with the gateway methods further down. */
+  testMcpServer(id: string): Promise<McpTestResult>;
+  /** `memory.get` — this space's Realm memory document and its AGENTS.md state. */
+  getMemory(spaceId: string): Promise<MemoryState>;
+  /** `memory.set` — replaces the document; the server refuses past MEMORY_DOC_MAX rather than truncate. */
+  setMemory(spaceId: string, doc: string): Promise<MemoryState>;
+  /** `memory.setAgentsFile` — the one permitted write outside Realm's home; refused off primary folders. */
+  setAgentsFile(spaceId: string, enabled: boolean): Promise<MemoryState>;
+  /** `memory.sources` — what one session's agent actually loads, on the best authority per agent. */
+  memorySources(sessionId: string): Promise<MemorySources>;
+  /** `mentions` are the skill ids the draft's `@`-tokens were recognised as; the server re-validates
+   *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
+  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[]): Promise<void>;
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
@@ -267,6 +288,21 @@ export type AppState = {
    *  the draft, and a pane remount must not silently drop the file the user just dragged in. Cleared by
    *  a successful send, and with the session's item. */
   pendingAttachments: Record<string, PickedAttachment[]>;
+  /** Skill ids the draft's `@`-tokens have been recognised as, per session (W4). Store-owned like the
+   *  draft itself, and maintained by `setDraft`: an id stays recognised while its token stays in the
+   *  text — which is what lets a skill disabled or DELETED after typing still degrade to plain text at
+   *  send (the server strips the `@`) instead of going out as a literal `@name`. */
+  draftMentions: Record<string, string[]>;
+  /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
+   *  skills-capable session opens and on `skills.changed`. */
+  spaceSkills: Record<string, Skill[]>;
+  /** Where the library lives on disk (`skills.list` root) — the settings panel's "drop a folder here"
+   *  hint. Global, not per-space; "" until the first fetch. */
+  skillsRoot: string;
+  /** `memory.get` by space id — the memory panel's document + AGENTS.md state. */
+  spaceMemory: Record<string, MemoryState>;
+  /** `memory.sources` by session id — fetched when the memory panel asks about a session. */
+  sessionMemorySources: Record<string, MemorySources>;
   /** The permission mode a session was on when it entered Plan, by session id — see `setSessionMode`.
    *  Not persisted: after a restart a session already in Plan returns to `default`, which is the safe
    *  direction to be wrong in. */
@@ -418,6 +454,23 @@ export type AppState = {
    *  offers the command, the user presses Return. Nothing here ever runs an installer. */
   prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
+  /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
+  refreshSkills(spaceId: string): Promise<void>;
+  /** Toggle one skill for ONE space (the settings panel), then re-read that space's library. */
+  setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.test`, resolved to the caller: the result is per-click UI state, not store state. The rest of
+   *  the MCP actions live with the gateway slice below (`refreshMcpServers` and friends). */
+  testMcpServer(id: string): Promise<McpTestResult>;
+  /** Fetch a space's memory document + AGENTS.md state into `spaceMemory`. */
+  refreshMemory(spaceId: string): Promise<void>;
+  /** Replace the memory document. The caller must already be under MEMORY_DOC_MAX — the panel refuses
+   *  to send an over-cap doc rather than let the server truncate or reject it invisibly. */
+  saveMemoryDoc(spaceId: string, doc: string): Promise<void>;
+  /** Turn the managed AGENTS.md on/off. The server refuses outside Realm-created folders; the panel
+   *  never offers the toggle there, so a refusal here is a real race, surfaced via `run`. */
+  setAgentsFile(spaceId: string, enabled: boolean): Promise<void>;
+  /** Fetch what one session's agent actually loads into `sessionMemorySources`. */
+  refreshMemorySources(sessionId: string): Promise<void>;
   /** Attach dropped or pasted Files. A dropped file already has a path; a pasted one does not, and is
    *  written under Realm's home first (see main/attachments.ts). */
   attachFiles(sessionId: string, files: readonly File[]): Promise<void>;
@@ -733,6 +786,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const cwd = get().sessions[sessionId]?.cwd;
       if (cwd) get().run(() => get().refreshGitInfo(cwd));
     };
+    /** The skill ids a session's draft may mention RIGHT NOW: enabled + valid in its space, and only
+     *  for an agent Realm can inject skills into. Empty for a Cursor (or fake) session — which is what
+     *  keeps mentions from ever being offered, or recognised, there (W4). */
+    const mentionableIds = (sessionId: string): string[] => {
+      const s = get().sessions[sessionId];
+      if (!s || AGENT_SKILL_SUPPORT[s.agentKind] !== "injected") return [];
+      return (get().spaceSkills[s.spaceId] ?? []).filter((k) => k.enabled && k.valid).map((k) => k.id);
+    };
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
@@ -747,7 +808,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, planReturn: {}, gitInfo: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -937,7 +998,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
           const { [it.refId]: _at, ...pendingAttachments } = get().pendingAttachments;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, planReturn, sessionSpace, terminalPanel, sessionTerminals });
+          const { [it.refId]: _dm, ...draftMentions } = get().draftMentions; // part of the draft, dropped with it
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, planReturn, sessionSpace, terminalPanel, sessionTerminals });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -1043,6 +1105,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           refreshGitFor(id); // opening a session refreshes its cwd's git context
+          // …and its space's skills library, when the agent can actually take one — what the prompter's
+          // @-mention picker reads. Skipped for Cursor/fake sessions: no picker, no fetch.
+          const opened = get().sessions[id];
+          if (opened && AGENT_SKILL_SUPPORT[opened.agentKind] === "injected") get().run(() => get().refreshSkills(opened.spaceId));
           let { lastSeq, t } = get().transcripts[id] ?? prev;
           for (const e of [...events, ...(loading.get(id) ?? [])]) if (e.seq > lastSeq) { t = reduceTranscript(t, e.event); lastSeq = e.seq; }
           setTranscript(id, { lastSeq, t });
@@ -1094,7 +1160,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
        */
       async sendMessage(id, text) {
         const pending = get().pendingAttachments[id] ?? [];
-        await api.sendMessage(id, text, pending.map(({ path, mime }) => ({ path, mime })));
+        // What travels as `mentions` is a re-scan of the FINAL text against the recognised ids plus
+        // whatever is mentionable now — read synchronously, before the prompter clears the draft (and
+        // with it `draftMentions`) behind this call. The raw text goes as written; the server owns the
+        // rewrite, so the transcript shows the `@` and the wire never does.
+        const mentions = mentionIds(text, new Set([...(get().draftMentions[id] ?? []), ...mentionableIds(id)]));
+        await api.sendMessage(id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions);
         // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
         // chip row would leave the user with no record of what they had attached, and a file dragged in
         // while the request was in flight was never part of this message.
@@ -1169,7 +1240,43 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // startup — otherwise the leading characters get eaten by that output.
         await api.prefillTerminal(terminalId, command);
       },
-      setDraft(sessionId, text) { set({ drafts: { ...get().drafts, [sessionId]: text } }); },
+      setDraft(sessionId, text) {
+        // Re-scan mentions on every edit, against the union of what is mentionable NOW and what was
+        // already recognised: a recognised id survives while its `@token` stays in the text (so a skill
+        // deleted after typing still degrades at send instead of going literal), and drops the moment
+        // the token is edited away. Nothing here is fuzzy — `mentionIds` only ever exact-matches.
+        const prev = get().draftMentions[sessionId] ?? [];
+        const mentions = mentionIds(text, new Set([...mentionableIds(sessionId), ...prev]));
+        set({ drafts: { ...get().drafts, [sessionId]: text }, draftMentions: { ...get().draftMentions, [sessionId]: mentions } });
+      },
+      async refreshSkills(spaceId) {
+        const { root, skills } = await api.listSkills(spaceId);
+        set({ spaceSkills: { ...get().spaceSkills, [spaceId]: skills }, skillsRoot: root });
+      },
+      async setSkillEnabled(spaceId, id, enabled) {
+        // The spaceId travels verbatim: the store is a per-space disabled set, and writing any other
+        // space's key is the named mutant this exists to kill. Re-read rather than patched locally, so
+        // what the panel shows is what the server persisted.
+        await api.setSkillEnabled(spaceId, id, enabled);
+        await get().refreshSkills(spaceId);
+      },
+      testMcpServer: (id) => api.testMcpServer(id),
+      async refreshMemory(spaceId) {
+        const state = await api.getMemory(spaceId);
+        set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async saveMemoryDoc(spaceId, doc) {
+        const state = await api.setMemory(spaceId, doc);
+        set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async setAgentsFile(spaceId, enabled) {
+        const state = await api.setAgentsFile(spaceId, enabled);
+        set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async refreshMemorySources(sessionId) {
+        const sources = await api.memorySources(sessionId);
+        set({ sessionMemorySources: { ...get().sessionMemorySources, [sessionId]: sources } });
+      },
       async attachFiles(sessionId, files) {
         const picked: PickedAttachment[] = [];
         for (const f of files) {

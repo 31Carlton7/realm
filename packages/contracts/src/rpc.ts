@@ -369,6 +369,18 @@ export const Methods = {
   "mcp.remove": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
   "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Actually try the server, now: spawn the stdio command (with its stored env) and wait for an MCP
+   * initialize response, or hit the http/sse URL (with its stored headers) and report the status. Run
+   * from the same server process that spawns sessions, so PATH and environment are the session's —
+   * this is a LIVE check, not the banned definition-time validation. `detail` is one sentence and
+   * never carries a secret value.
+   *
+   * Dials the UPSTREAM server directly, deliberately bypassing the hub: it answers "is this row's
+   * command/URL reachable at all", which is the question a user asks while the hub's own status dot is
+   * already saying `error`. The hub's cached status is the steady-state readout; this is the probe.
+   */
+  "mcp.test": { params: z.object({ id: IdSchema }), result: z.object({ reached: z.boolean(), detail: z.string() }) },
   /** The server's live tool list — triggers the hub's lazy connect (W2+). A connect failure comes back
    *  as `error` naming what went wrong, NOT a thrown RPC error: the list is still a renderable result,
    *  just an empty one with a reason attached. `tools` mirrors `mcp.list`'s cache on success. */
@@ -458,7 +470,10 @@ export const Methods = {
   /** `environmentId` pins the session to an existing checkout (the seam W2 uses to open one in a
    *  worktree). Omitted, the session lands in the project's checkout, or the space's primary. */
   "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().default("default"), title: z.string().optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string().min(1), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ ok: z.literal(true) }) },
+  /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
+   *  server re-validates each against the live library before anything resolves — a raw `@name` never
+   *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string().min(1), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]) }), result: z.object({ ok: z.literal(true) }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]) }), result: z.object({ ok: z.literal(true) }) },
   "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional() }), result: SessionSchema },
