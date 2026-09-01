@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
 import { SpacePage } from "./SpacePage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, checkpoint, item, session, type FakeData } from "../../state/store.test-fakes";
@@ -118,9 +118,11 @@ describe("the space's checkouts", () => {
 
 describe("the page header", () => {
   it("shows the live space name, the session count, and a working New session", async () => {
-    const { store, api } = await mount({ sessions: [session("se1", "s1"), session("se2", "s1"), session("se3", "s2")] });
+    const { store, api } = await mount({ sessions: [session("se1", "s1"), session("se2", "s1")] });
     expect(screen.getByRole("heading", { level: 1, name: "Versed" })).toBeInTheDocument();
-    // s3 belongs to another space: counting it is the cross-space mutant.
+    // A foreign session in the map (the transient state around a space switch): counting it is the
+    // cross-space mutant. The store normally holds only the active space's sessions, so inject it.
+    act(() => store.setState({ sessions: { ...store.getState().sessions, se9: session("se9", "s2") } }));
     expect(screen.getByText("2 sessions")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /New session/ }));
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("createSession:"))).toBe(true));
@@ -137,12 +139,15 @@ describe("the Sessions tab", () => {
     sessions: [
       session("se1", "s1", { title: "Fix login", status: "running", createdAt: 2000 }),
       session("se2", "s1", { title: "Write docs", status: "idle", createdAt: 1000 }),
-      session("se9", "s2", { title: "Someone else's homework", createdAt: 3000 }),
     ],
   };
 
   it("lists only THIS space's sessions, newest first, with their status dots", async () => {
-    await mount(data);
+    const { store } = await mount(data);
+    // A foreign session in the map (the transient state around a space switch) must never render
+    // on this space's page — the named cross-space mutant. Injected because the store normally
+    // scopes `sessions` to the active space.
+    act(() => store.setState({ sessions: { ...store.getState().sessions, se9: session("se9", "s2", { title: "Someone else's homework", createdAt: 3000 }) } }));
     fireEvent.click(screen.getByRole("radio", { name: "Sessions" }));
     const rows = screen.getAllByRole("button", { name: /Fix login|Write docs|homework/ });
     expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Fix login — running", "Write docs — idle"]);
@@ -168,7 +173,7 @@ describe("the History tab", () => {
   ];
 
   it("unions checkpoints across the space's environments, newest first — never another space's", async () => {
-    const { api } = await mount({
+    const { store, api } = await mount({
       environments: { s1: [envs[0]!, envs[1]!], s2: [envs[2]!] },
       checkpoints: {
         envA: [checkpoint("cpA", "envA", { label: "older turn", createdAt: 1000 })],
@@ -176,6 +181,13 @@ describe("the History tab", () => {
         envX: [checkpoint("cpX", "envX", { label: "foreign turn", createdAt: 3000 })],
       },
     });
+    // A foreign environment in the map (the transient state around a space switch): asking for — or
+    // rendering — ITS checkpoints is the named cross-space mutant. Injected because the store
+    // normally scopes `environments` to the active space.
+    act(() => store.setState({
+      environments: { ...store.getState().environments, envX: envs[2]! },
+      checkpoints: { ...store.getState().checkpoints, envX: [checkpoint("cpX", "envX", { label: "foreign turn", createdAt: 3000 })] },
+    }));
     fireEvent.click(screen.getByRole("radio", { name: "History" }));
     await screen.findByText("newer turn");
     const labels = screen.getAllByText(/turn$/).map((el) => el.textContent);
