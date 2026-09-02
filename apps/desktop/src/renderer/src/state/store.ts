@@ -1,12 +1,13 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
+  lectureWrapUpPrompt, localDateStamp,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -103,6 +104,15 @@ export type Api = {
   writeDocument(documentsId: string, path: string, text: string, baseHash: string | null):
     Promise<{ ok: true; hash: string } | { ok: false; currentText: string; currentHash: string }>;
   createDocumentFile(documentsId: string, path: string, kind: DocumentKind, title: string): Promise<{ path: string; hash: string }>;
+  /** Plan 22 (school workflows): previews, guide progress, lectures, the Plynn handoff. */
+  previewInfo(): Promise<{ port: number; token: string }>;
+  openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string }>;
+  readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
+  recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
+  startLecture(spaceId: string, title: string): Promise<StartLectureResult>;
+  listLectures(spaceId: string): Promise<Lecture[]>;
+  plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
+  plynnImport(spaceId: string, files: string[]): Promise<PlynnImportResult>;
   updateItem(input: UpdateItemInput): Promise<Item>;
   /** Deleting a terminal item closes its pty server-side. */
   deleteItem(id: string): Promise<void>;
@@ -412,7 +422,11 @@ export type Sheet =
   /** Realm's log of every proxied MCP call (W7), global across spaces/sessions — see `openActivity`.
    *  Opened from McpSection ("Activity") or the palette ("MCP Activity"); replaces whatever sheet was
    *  open (the one-slot ruling — see the sheet-plumbing note above), including space settings itself. */
-  | { kind: "activity" };
+  | { kind: "activity" }
+  /** Plan 22: start a lecture (title prompt), wrap one up (pick which), import Plynn recordings. */
+  | { kind: "new-lecture" }
+  | { kind: "wrap-up-lecture" }
+  | { kind: "plynn-import" };
 
 export type AppState = {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
@@ -935,6 +949,28 @@ export type AppState = {
   /** Open (or focus) the document workspace for an environment — the `openDiff` gesture, for files.
    *  `environmentId` omitted uses the space's primary checkout, which is the sidebar's "Documents". */
   openDocuments(environmentId?: string | null, targetLeafId?: string | null): Promise<void>;
+  /**
+   * Plan 22. Put one file on screen: the server adds it to the workspace's tab strip (creating the
+   * workspace when needed) and the item comes into the layout. `documents.openRequested` — which
+   * the server broadcasts for this AND for an agent's `docs_open` — is what a mounted pane opens
+   * the tab on; `applyDocumentOpenRequested` is the store's half, and it leaves an item that is
+   * already on screen alone.
+   */
+  openDocumentPath(path: string, environmentId?: string | null): Promise<void>;
+  applyDocumentOpenRequested(p: { spaceId: string; environmentId: string; documentsId: string; itemId: string; path: string }): Promise<void>;
+  /** Start a lecture: a fresh pane group named for today, the dated notes file open in the documents
+   *  pane, and a session beside it to ask things during class. Nothing is sent to the session. */
+  startLecture(title: string): Promise<void>;
+  /** Wrap a lecture up: a new session beside the focused pane, sent the wrap-up prompt. */
+  wrapUpLecture(lecture: Lecture): Promise<void>;
+  listLectures(): Promise<Lecture[]>;
+  /** The preview frame's ingredients and the guide progress bridge (PreviewFrame). Passthroughs. */
+  previewInfo(): Promise<{ port: number; token: string }>;
+  readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
+  recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
+  plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
+  /** Import into the ACTIVE space; the server opens the first imported file, so the pane follows. */
+  plynnImport(files: string[]): Promise<PlynnImportResult>;
   /** Thin pass-throughs to the document RPCs. Panes never hold `api` themselves (it is the store's
    *  test seam), so every server call a document pane makes arrives here. */
   getDocuments(documentsId: string): Promise<DocumentWorkspace>;
@@ -2503,6 +2539,61 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const layout = get().layout;
         if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
         await adoptItem(sid, itemId, targetLeafId);
+      },
+      async openDocumentPath(path, environmentId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const { itemId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
+        const layout = get().layout;
+        if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
+        await adoptItem(sid, itemId, null);
+      },
+      async applyDocumentOpenRequested({ spaceId, itemId }) {
+        if (spaceId !== get().activeSpaceId) return;
+        const layout = get().layout;
+        if (layout && findLeafOfItem(layout, itemId)) return; // already on screen; the pane opens the tab itself
+        await get().refreshItems();
+        await get().openItemBesideQuiet(itemId);
+      },
+      async startLecture(title) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const clean = title.trim();
+        const stamp = localDateStamp(new Date());
+        // The group first, so the lecture pane lands in its empty leaf rather than replacing whatever
+        // the user had focused; a failure after this leaves an empty named group, which is harmless.
+        await get().newPaneGroup(clean ? `${clean} · ${stamp}` : `Lecture · ${stamp}`);
+        const r = await api.startLecture(sid, clean);
+        await adoptItem(sid, r.itemId, null);
+        const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
+        const { session, itemId } = await api.createSession({ spaceId: sid, agentKind, title: `Lecture assistant · ${clean || stamp}` });
+        rememberAgent(agentKind);
+        if (isSpace(sid)) mergeSession(session);
+        await adoptItem(sid, itemId, null, true);
+        await get().openSession(session.id);
+      },
+      async wrapUpLecture(lecture) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const space = get().spaces.find((sp) => sp.id === sid);
+        const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
+        const { session, itemId } = await api.createSession({ spaceId: sid, agentKind, title: `Wrap up · ${lecture.title}` });
+        rememberAgent(agentKind);
+        if (isSpace(sid)) mergeSession(session);
+        await adoptItem(sid, itemId, null, true);
+        await get().openSession(session.id);
+        await get().sendMessage(session.id, lectureWrapUpPrompt(lecture, { course: space?.name ?? "this course" }));
+      },
+      async listLectures() {
+        const sid = get().activeSpaceId; if (!sid) return [];
+        return api.listLectures(sid);
+      },
+      previewInfo: () => api.previewInfo(),
+      readGuideProgress: (documentsId, path) => api.readGuideProgress(documentsId, path),
+      recordGuideAttempt: (documentsId, path, topic, correct, total) => api.recordGuideAttempt(documentsId, path, topic, correct, total),
+      plynnList: () => api.plynnList(),
+      async plynnImport(files) {
+        const sid = get().activeSpaceId; if (!sid) throw new Error("no active space");
+        const r = await api.plynnImport(sid, files);
+        await get().refreshItems();
+        return r;
       },
       getDocuments: (documentsId) => api.getDocuments(documentsId),
       setDocumentTabs: (documentsId, openPaths, activePath) => api.setDocumentTabs(documentsId, openPaths, activePath),

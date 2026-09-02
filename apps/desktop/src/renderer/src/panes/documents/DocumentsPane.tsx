@@ -7,6 +7,7 @@ import type { PaneProps } from "../registry";
 import {
   canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected, type Buffer,
 } from "./buffers";
+import { PreviewFrame } from "./PreviewFrame";
 
 /** How long the editor stays quiet before autosaving. Long enough not to write on every keystroke,
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
@@ -17,7 +18,13 @@ const NEW_KINDS: { kind: DocumentKind; label: string; ext: string }[] = [
   { kind: "sheet", label: "Spreadsheet", ext: "csv" },
   { kind: "slides", label: "Presentation", ext: "slides.md" },
   { kind: "latex", label: "LaTeX", ext: "tex" },
+  // Plan 22: an interactive study guide — self-contained HTML the preview server renders.
+  { kind: "html", label: "Guide", ext: "html" },
 ];
+
+/** A PDF is bytes, not text: no buffer is read for it, and its tab can never be dirty. The frame
+ *  streams it from the preview server instead (Plan 22). */
+const isBinaryKind = (path: string): boolean => documentKindFor(path) === "pdf";
 
 const baseName = (p: string) => p.split("/").pop() ?? p;
 
@@ -82,6 +89,7 @@ export function DocumentsPane({ item }: PaneProps) {
         setActive(row.activePath);
         for (const path of row.openPaths) {
           try {
+            if (isBinaryKind(path)) { setBuffers((prev) => ({ ...prev, [path]: opened(path, "", "") })); continue; }
             const { text, hash } = await readDocument(documentsId, path);
             if (cancelled) return;
             setBuffers((prev) => ({ ...prev, [path]: opened(path, text, hash) }));
@@ -124,13 +132,29 @@ export function DocumentsPane({ item }: PaneProps) {
   const openPath = useCallback(async (path: string) => {
     setPicking(false);
     if (!buffersRef.current[path]) {
-      const { text, hash } = await readDocument(documentsId, path);
-      setBuffers((prev) => ({ ...prev, [path]: opened(path, text, hash) }));
+      if (isBinaryKind(path)) {
+        setBuffers((prev) => ({ ...prev, [path]: opened(path, "", "") }));
+      } else {
+        const { text, hash } = await readDocument(documentsId, path);
+        setBuffers((prev) => ({ ...prev, [path]: opened(path, text, hash) }));
+      }
     }
     setActive(path);
     const paths = [...new Set([...Object.keys(buffersRef.current), path])];
     persistTabs(paths, path);
   }, [readDocument, documentsId, persistTabs]);
+
+  // ---- open requests (Plan 22) -------------------------------------------------------------------
+  // `documents.openPath` ran for this workspace — the user's "open this lecture", or an agent's
+  // `docs_open`. The server already put the path on the persisted strip; a MOUNTED pane has to
+  // open the tab itself, since it only reads the strip at mount.
+  useEffect(() => {
+    const off = rpc().on("documents.openRequested", ({ documentsId: id, path }) => {
+      if (id !== documentsId) return;
+      run(() => openPath(path));
+    });
+    return off;
+  }, [documentsId, openPath, run]);
 
   const closeTab = useCallback((path: string) => {
     setBuffers((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
@@ -208,7 +232,7 @@ export function DocumentsPane({ item }: PaneProps) {
             </div>
           )}
           <Editor
-            buffer={buf} kind={kind} mode={mode}
+            buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
             onSetMode={setMode}
             onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
           />
@@ -249,9 +273,9 @@ function TabStrip({ tabs, active, buffers, onSelect, onClose, onNew, picking }: 
   );
 }
 
-function iconFor(path: string): "artifact" | "documents" | "code" {
+function iconFor(path: string): "artifact" | "documents" | "code" | "browser" {
   const k = documentKindFor(path);
-  return k === "sheet" ? "code" : k === "unsupported" ? "artifact" : "documents";
+  return k === "sheet" ? "code" : k === "html" ? "browser" : k === "unsupported" || k === "pdf" ? "artifact" : "documents";
 }
 
 function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onTakeTheirs: () => void }) {
@@ -268,27 +292,34 @@ function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onT
  * The editor host. W2 adds the rich Markdown editor for `doc` and `slides`; the source view remains for
  * every kind and is the only view for `sheet` and `latex` until W3 and W5 replace it.
  */
-function Editor({ buffer, kind, mode, onChange, onSetMode }: {
-  buffer: Buffer; kind: DocumentKind; mode: "rich" | "source";
+function Editor({ buffer, kind, mode, documentsId, onChange, onSetMode }: {
+  buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; documentsId: string;
   onChange: (text: string) => void; onSetMode: (m: "rich" | "source") => void;
 }) {
-  // Which kinds have a structured view, and what it is. "Rich"/"Grid" is the same toggle either way:
-  // every kind keeps Source as the always-available other half.
-  const structured = kind === "doc" || kind === "slides" ? "rich" : kind === "sheet" ? "grid" : null;
-  const showStructured = structured !== null && mode === "rich";
+  // Which kinds have a structured view, and what it is. "Rich"/"Grid"/"Preview" is the same toggle
+  // either way: every kind keeps Source as the always-available other half — except a PDF, which
+  // has no text to show and is preview-only (Plan 22).
+  const structured = kind === "doc" || kind === "slides" ? "rich" : kind === "sheet" ? "grid" : kind === "html" ? "preview" : kind === "pdf" ? "pdf" : null;
+  const showStructured = structured !== null && (mode === "rich" || structured === "pdf");
+  const label = structured === "grid" ? "Grid" : structured === "preview" ? "Preview" : "Rich";
   return (
     <div className="documents-editor" data-kind={kind}>
       <div className="documents-toolbar">
         <span className="documents-kind muted">{kind}</span>
-        {structured && (
+        {structured && structured !== "pdf" && (
           <span className="documents-modes" role="group" aria-label="Editor mode">
-            <button aria-pressed={mode === "rich"} onClick={() => onSetMode("rich")}>{structured === "grid" ? "Grid" : "Rich"}</button>
+            <button aria-pressed={mode === "rich"} onClick={() => onSetMode("rich")}>{label}</button>
             <button aria-pressed={mode === "source"} onClick={() => onSetMode("source")}>Source</button>
           </span>
         )}
       </div>
       <div className="documents-surface">
-        {showStructured ? (
+        {showStructured && (structured === "preview" || structured === "pdf") ? (
+          // The frame reloads on the DISK hash: while the user edits the source, the preview keeps
+          // showing the last saved version, and the autosave tick (or an agent's write) refreshes it.
+          <PreviewFrame key={buffer.path} documentsId={documentsId} path={buffer.path}
+            kind={structured === "pdf" ? "pdf" : "html"} version={buffer.baseHash} />
+        ) : showStructured ? (
           <Suspense fallback={<div className="pane-placeholder muted">Loading editor…</div>}>
             {/* Keyed by path so switching documents remounts the editor rather than diffing one
                 document's editor state onto another's. */}

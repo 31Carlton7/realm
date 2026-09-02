@@ -171,3 +171,23 @@ export const StartLectureResultSchema = z.object({
   environmentId: IdSchema,
 });
 export type StartLectureResult = z.infer<typeof StartLectureResultSchema>;
+
+/**
+ * The wrap-up pass, as one message to a fresh session (Plan 22 W3). Written here rather than in the
+ * renderer so it is testable and so a future server-side "wrap up on import" can send the same text.
+ *
+ * No `@`-mentions: a literal `@skill` must never reach an agent (see `mentions.ts`), and the skill
+ * may not be enabled in this space. The prompt names the skills in prose and stands on its own
+ * without them.
+ */
+export function lectureWrapUpPrompt(l: { path: string; title: string; date: string | null; hasTranscript: boolean }, o: { course: string }): string {
+  const when = l.date ? ` (${l.date})` : "";
+  return `Wrap up my lecture notes for ${o.course}: "${l.title}"${when}, in the file \`${l.path}\`.
+
+1. Read the file. "## Notes" is what I typed during class, "## Questions" is what I want answered, "## Follow-ups" is what I said I would do.${l.hasTranscript ? ' "## Transcript" is the recording of what was said — treat it as the record and my notes as the emphasis.' : " There is no transcript; work from my notes and the course materials."}
+2. Use docs_search (scope "${LECTURES_DIR}" and "${GUIDES_DIR}", then the whole folder) to connect this lecture to earlier lectures, slide decks and existing guides, and cite them by path.
+3. Rewrite "## Notes" into clean, structured notes: keep my wording where it is mine, add what the lecture covered that I missed, and mark anything you are inferring rather than reading. Answer each question under "## Questions" in place. Keep "## Follow-ups" as a checklist.
+4. Append "## Flashcards" with 8–15 question/answer pairs that cover the lecture's core ideas.
+5. Create or extend the study guide for this topic under \`${GUIDES_DIR}/\` as a single self-contained HTML file following the study-guide skill if it is available: a short orientation, one rg-quiz section per concept with data-topic set, an rg-steps walkthrough for any procedure, math in KaTeX delimiters, and a sources footer naming the lecture file. Then call docs_open on it so I can see it.
+6. Reply with a five-line summary of what changed and what I should review first.`;
+}

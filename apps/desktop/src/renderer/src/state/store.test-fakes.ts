@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { SearchResults } from "@realm/contracts";
 
@@ -92,6 +92,10 @@ export const macRow = (id: string, label: string, group: MacAccessRow["group"], 
 };
 
 export type FakeData = {
+  /** Plan 22: lectures per space, Plynn's meetings folder, and guide progress by `documentsId:path`. */
+  lectures?: Record<string, Lecture[]>;
+  plynn?: { available: boolean; folder: string; meetings: PlynnMeeting[] };
+  guideProgress?: Record<string, GuideProgress>;
   /** Plan 17 W1: document workspace rows, and an in-memory filesystem per workspace. */
   documentWorkspaces?: Record<string, DocumentWorkspace>;
   documentFiles?: Record<string, Record<string, string>>;
@@ -260,6 +264,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    lectures: overrides.lectures ?? {},
+    plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
+    guideProgress: overrides.guideProgress ?? {},
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
@@ -374,6 +381,50 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`writeDocument:${documentsId}:${path}`);
       (data.documentFiles[documentsId] ??= {})[path] = text;
       return { ok: true as const, hash: `h:${text.length}:${text}` };
+    },
+    previewInfo: async () => { calls.push("previewInfo"); return { port: 4321, token: "tok" }; },
+    openDocumentPath: async (spaceId, path, environmentId) => {
+      calls.push(`openDocumentPath:${spaceId}:${path}`);
+      const { documentsId, itemId } = await api.createDocuments(spaceId, environmentId);
+      const ws = data.documentWorkspaces[documentsId]!;
+      const openPaths = ws.openPaths.includes(path) ? ws.openPaths : [...ws.openPaths, path];
+      data.documentWorkspaces[documentsId] = { ...ws, openPaths, activePath: path };
+      return { documentsId, itemId, environmentId: ws.environmentId };
+    },
+    readGuideProgress: async (documentsId, path) => {
+      calls.push(`readGuideProgress:${documentsId}:${path}`);
+      return data.guideProgress[`${documentsId}:${path}`] ?? { version: 1, topics: {} };
+    },
+    recordGuideAttempt: async (documentsId, path, topic, correct, total) => {
+      calls.push(`recordGuideAttempt:${documentsId}:${path}:${topic}:${correct}/${total}`);
+      const key = `${documentsId}:${path}`;
+      const prev = data.guideProgress[key] ?? { version: 1 as const, topics: {} };
+      const t = prev.topics[topic] ?? { attempts: [], best: 0, last: 0 };
+      const score = correct / total;
+      const next: GuideProgress = { version: 1, topics: { ...prev.topics, [topic]: { attempts: [...t.attempts, { at: 1, correct, total }], best: Math.max(t.best, score), last: score } } };
+      data.guideProgress[key] = next;
+      return next;
+    },
+    startLecture: async (spaceId, title) => {
+      calls.push(`startLecture:${spaceId}:${title}`);
+      const path = `lectures/2026-09-02${title ? `-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}` : ""}.md`;
+      (data.documentFiles[`docs-any`] ??= {})[path] = `# ${title || "Lecture"}\n`;
+      const r = await api.openDocumentPath(spaceId, path);
+      (data.documentFiles[r.documentsId] ??= {})[path] = `# ${title || "Lecture"}\n`;
+      (data.lectures[spaceId] ??= []).unshift({ path, title: title || "Lecture 2026-09-02", date: "2026-09-02", hasTranscript: false, sizeBytes: 10 });
+      return { path, ...r };
+    },
+    listLectures: async (spaceId) => { calls.push(`listLectures:${spaceId}`); return data.lectures[spaceId] ?? []; },
+    plynnList: async () => { calls.push("plynnList"); return data.plynn; },
+    plynnImport: async (spaceId, files) => {
+      calls.push(`plynnImport:${spaceId}:${files.length}`);
+      const imported = files.map((file) => ({ file, path: `lectures/imported-${file.split("/").pop()}` }));
+      for (const m of data.plynn.meetings) if (files.includes(m.file)) m.imported = true;
+      if (imported[0]) {
+        const r = await api.openDocumentPath(spaceId, imported[0].path);
+        (data.documentFiles[r.documentsId] ??= {})[imported[0].path] = "# imported\n";
+      }
+      return { imported, skipped: [] };
     },
     createDocumentFile: async (documentsId, path, _kind, title) => {
       calls.push(`createDocumentFile:${documentsId}:${path}`);
