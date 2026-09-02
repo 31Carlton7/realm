@@ -20,6 +20,7 @@ import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
+import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
 import type { NotificationsService } from "../notifications/service";
@@ -39,7 +40,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService; search: SearchService; forks: ForkService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService; search: SearchService; forks: ForkService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
 };
 
@@ -384,6 +385,7 @@ export function registerMethods(d: Deps): void {
     const it = d.items.get(p.id);
     if (it?.kind === "terminal") { d.terminals.close(it.refId); return { ok: true as const }; } // closes pty + row + item, broadcasts
     if (it?.kind === "browser") { d.browsers.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
+    if (it?.kind === "documents") { d.documents.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
     if (it?.kind === "session") { await d.sessions.delete(it.refId); return { ok: true as const }; } // disposes handle + row + item, broadcasts
     d.items.delete(p.id);
     if (it) rpc.broadcast("items.changed", { spaceId: it.spaceId });
@@ -407,6 +409,19 @@ export function registerMethods(d: Deps): void {
   reg("browsers.get", (p) => d.browsers.get(p.browserId));
   reg("browsers.update", (p) => { d.browsers.update(p.browserId, p); return { ok: true as const }; });
   reg("browsers.close", (p) => { d.browsers.close(p.browserId); return { ok: true as const }; });
+
+  // The document workspace (Plan 17 W1). Unlike the browser methods above, these carry file CONTENT:
+  // the server is the only process that reads and writes documents, which is what lets an agent edit
+  // one with its ordinary Write/Edit tools and have the open pane show it.
+  reg("documents.create", (p) => d.documents.open(p));
+  reg("documents.get", (p) => d.documents.get(p.documentsId));
+  reg("documents.setTabs", (p) => d.documents.setTabs(p.documentsId, p.openPaths, p.activePath));
+  reg("documents.close", (p) => { d.documents.close(p.documentsId); return { ok: true as const }; });
+  reg("documents.detach", (p) => { d.documents.detach(p.documentsId); return { ok: true as const }; });
+  reg("documents.list", async (p) => ({ entries: await d.documents.list(p.documentsId, p.dir) }));
+  reg("documents.read", (p) => d.documents.read(p.documentsId, p.path));
+  reg("documents.write", (p) => d.documents.write(p.documentsId, p.path, p.text, p.baseHash));
+  reg("documents.createFile", (p) => d.documents.createFile(p.documentsId, p.path, p.kind, p.title));
 
   // The browser agent host's bridge (Plan 11 W3). `register` is raw `rpc.register` rather than `reg`
   // because it is the one method that needs its caller's socket — the bridge sends that exact client

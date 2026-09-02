@@ -101,6 +101,7 @@ function PaletteBody() {
   const openItem = useApp((s) => s.openItem);
   const newTerminal = useApp((s) => s.newTerminal);
   const newBrowser = useApp((s) => s.newBrowser);
+  const openDocuments = useApp((s) => s.openDocuments);
   const newSession = useApp((s) => s.newSession);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
@@ -204,6 +205,9 @@ function PaletteBody() {
       })),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), <kbd>⌘T</kbd>),
       act("new-browser", "New browser", "browser", () => run(() => newBrowser())),
+      // "Documents", not "New documents": one workspace per environment (the server dedupes), so this
+      // is an open-or-focus, and calling it "New" would promise a second pane it will never create.
+      act("open-documents", "Documents", "documents", () => run(() => openDocuments())),
       // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through
       // newSession — the only difference is whether the agent is named or inherited from last use.
       act("new-session", "New session", "session", () => run(() => newSessionInstant()), <kbd>⌘N</kbd>),
@@ -250,7 +254,7 @@ function PaletteBody() {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, drafts, dispatchDraft,
-      selectSpace, openItem, newTerminal, newBrowser, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
+      selectSpace, openItem, newTerminal, newBrowser, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
       interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, run]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked

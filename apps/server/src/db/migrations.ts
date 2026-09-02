@@ -314,4 +314,26 @@ export const migrations: string[] = [
     created_at INTEGER NOT NULL);
   CREATE INDEX icon_assets_profile ON icon_assets(profile_id, created_at DESC);
   `,
+  // v17 — document workspaces (Plan 17 W1): the persisted half of a `documents` pane, which is its
+  // TAB STRIP and nothing else. Document content is not here and never will be — documents are plain
+  // files in the checkout, which is the decision that lets an agent edit them with its ordinary
+  // Write/Edit tools and lets git, the diff pane and checkpoints see the changes for free.
+  //
+  // `environment_id` (not space_id alone) is what the pane is rooted at, following `diff`'s precedent:
+  // a document workspace is a view of a CHECKOUT, so sessions sharing an environment share documents.
+  // ON DELETE CASCADE from environments matters — removing a worktree must not leave a workspace row
+  // pointing at a directory that no longer exists.
+  //
+  // `open_paths_json` is a JSON array of paths RELATIVE to the environment root; `active_path` is one
+  // of them or NULL. Relative because a worktree that moves keeps its tabs, and because a relative
+  // path is the only shape the RPC layer can range-check for containment.
+  `
+  CREATE TABLE document_workspaces (
+    id TEXT PRIMARY KEY,
+    space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+    open_paths_json TEXT NOT NULL DEFAULT '[]', active_path TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX document_workspaces_env ON document_workspaces(environment_id);
+  `,
 ];

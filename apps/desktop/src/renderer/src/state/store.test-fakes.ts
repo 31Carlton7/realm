@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, DocumentWorkspace, Environment, FileDiff, GitInfo, IconAsset, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { SearchResults } from "@realm/contracts";
 
@@ -56,6 +56,9 @@ export const iconAsset = (id: string, profileId: string, extra: Partial<IconAsse
     prompt: "a circle", createdAt: 0, ...extra });
 
 export type FakeData = {
+  /** Plan 17 W1: document workspace rows, and an in-memory filesystem per workspace. */
+  documentWorkspaces?: Record<string, DocumentWorkspace>;
+  documentFiles?: Record<string, Record<string, string>>;
   profiles?: Profile[]; spaces?: Space[];
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
   /** By space id. `createWorktree` appends one, as the server's createWorktree does. */
@@ -211,6 +214,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true }],
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
+    documentWorkspaces: overrides.documentWorkspaces ?? {},
+    documentFiles: overrides.documentFiles ?? {},
     notifications: overrides.notifications ?? [],
     reviews: overrides.reviews ?? {},
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
@@ -235,6 +240,58 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   };
   const api: FakeApi = {
     calls, disposed, sent, mcpWrites, delays: {}, onCreateTerminal: null, data,
+    // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
+    // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
+    // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
+    createDocuments: async (spaceId) => {
+      calls.push(`createDocuments:${spaceId}`);
+      const existing = (data.items[spaceId] ?? []).find((i) => i.kind === "documents");
+      if (existing) return { documentsId: existing.refId, itemId: existing.id };
+      const documentsId = `docs${++n}`;
+      const it = item(`i${++n}`, spaceId, { kind: "documents", title: "Documents", refId: documentsId });
+      (data.items[spaceId] ??= []).push(it);
+      data.documentWorkspaces[documentsId] = { id: documentsId, spaceId, environmentId: `env-${spaceId}`, openPaths: [], activePath: null, createdAt: 0, updatedAt: 0 };
+      return { documentsId, itemId: it.id };
+    },
+    getDocuments: async (documentsId) => {
+      calls.push(`getDocuments:${documentsId}`);
+      const ws = data.documentWorkspaces[documentsId];
+      if (!ws) throw new Error(`no documents workspace ${documentsId}`);
+      return ws;
+    },
+    setDocumentTabs: async (documentsId, openPaths, activePath) => {
+      calls.push(`setDocumentTabs:${documentsId}`);
+      const ws = data.documentWorkspaces[documentsId];
+      if (!ws) throw new Error(`no documents workspace ${documentsId}`);
+      const paths = [...new Set(openPaths)];
+      const active = activePath !== null && paths.includes(activePath) ? activePath : (paths[0] ?? null);
+      const next = { ...ws, openPaths: paths, activePath: active };
+      data.documentWorkspaces[documentsId] = next;
+      return next;
+    },
+    detachDocuments: async (documentsId) => { calls.push(`detachDocuments:${documentsId}`); },
+    listDocumentEntries: async (documentsId, dir) => {
+      calls.push(`listDocumentEntries:${documentsId}:${dir}`);
+      return Object.keys(data.documentFiles[documentsId] ?? {})
+        .map((path) => ({ path, name: path.split("/").pop() ?? path, isDir: false, size: 0 }));
+    },
+    readDocument: async (documentsId, path) => {
+      calls.push(`readDocument:${documentsId}:${path}`);
+      const text = data.documentFiles[documentsId]?.[path];
+      if (text === undefined) throw new Error(`no such document ${path}`);
+      return { text, hash: `h:${text.length}:${text}` };
+    },
+    writeDocument: async (documentsId, path, text) => {
+      calls.push(`writeDocument:${documentsId}:${path}`);
+      (data.documentFiles[documentsId] ??= {})[path] = text;
+      return { ok: true as const, hash: `h:${text.length}:${text}` };
+    },
+    createDocumentFile: async (documentsId, path, _kind, title) => {
+      calls.push(`createDocumentFile:${documentsId}:${path}`);
+      const text = `# ${title}\n`;
+      (data.documentFiles[documentsId] ??= {})[path] = text;
+      return { path, hash: `h:${text.length}:${text}` };
+    },
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
     createProfile: async (name) => {
       calls.push(`createProfile:${name}`);

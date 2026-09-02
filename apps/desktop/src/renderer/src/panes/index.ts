@@ -8,6 +8,8 @@ import { DiffPane } from "./diff/DiffPane";
 registerPane("diff", DiffPane);
 import { BrowserPane } from "./browser/BrowserPane";
 registerPane("browser", BrowserPane);
+import { DocumentsPane } from "./documents/DocumentsPane";
+registerPane("documents", DocumentsPane);
 import { SpacePage } from "./space/SpacePage";
 registerPane("space-page", SpacePage);
 import { LibraryPage } from "./library/LibraryPage";

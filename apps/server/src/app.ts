@@ -10,6 +10,8 @@ import { SettingsStore } from "./store/settings";
 import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
 import { BrowsersStore } from "./store/browsers";
+import { DocumentsStore } from "./store/documents";
+import { DocumentService } from "./documents/service";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
@@ -136,6 +138,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
   const browsersStore = new BrowsersStore(db);
   const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
+  const documents = new DocumentService({ db, rpc, spaces, items, environments, documents: new DocumentsStore(db) });
   // W2: the one slice of the spaces/profiles world the scoped services (skills, MCP, memory) may see.
   // A seam rather than the store so each service declares exactly the questions it asks.
   const scopeSeam = {
@@ -294,7 +297,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search, forks,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search, forks,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();
@@ -315,6 +318,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       await sessions.closeAll();
       // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
       // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.
+      documents.dispose();
       await mcpGateway.close();
       await mcpHub.close();
       await rpc.close();
