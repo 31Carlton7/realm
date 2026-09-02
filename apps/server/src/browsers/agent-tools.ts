@@ -6,6 +6,7 @@ import {
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
+import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { BrowsersStore } from "../store/browsers";
 import type { McpService } from "../mcp/service";
@@ -389,8 +390,6 @@ async function describeAct(d: Deps, browserId: string, action: BrowserAction): P
 
 /* ---------------------------------- small helpers ---------------------------------- */
 
-const ok = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: false });
-const err = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
 
 function parse<S extends z.ZodTypeAny>(schema: S, raw: unknown): { value: z.infer<S> } | { error: CallToolResult } {
   const r = schema.safeParse(raw);
@@ -428,4 +427,3 @@ function hostOf(url: string | undefined): string {
   try { return new URL(url).host || "the current page"; } catch { return "the current page"; }
 }
 
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

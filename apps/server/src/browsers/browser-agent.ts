@@ -7,6 +7,7 @@ import { AGENT_RUN_TOOL, AGENT_RUN_TOOL_NAME } from "../delegation/agent-run";
 import type { ReviewService } from "../delegation/review";
 import { AGENT_REVIEW_TOOL, AGENT_REVIEW_TOOL_NAME } from "../delegation/review";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
+import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
 import { BROWSER_PROVIDER_NAME } from "./agent-tools";
@@ -339,6 +340,3 @@ function originInList(url: string, list: readonly string[]): boolean {
   });
 }
 
-const ok = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: false });
-const err = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

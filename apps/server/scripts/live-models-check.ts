@@ -20,14 +20,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEvent } from "@realm/contracts";
 import { AcpAdapter, CodexAdapter } from "@realm/adapters";
+import { finish, ok } from "./harness";
 
 const TURN_TIMEOUT_MS = 120_000; // cursor-agent can sit ~60s before its first chunk (see live-agent-check)
 
-let failures = 0;
-const ok = (label: string, cond: boolean, detail = "") => {
-  console.log(`  ${cond ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
-  if (!cond) failures += 1;
-};
 
 async function main() {
   console.log("== codex model/list ==");
@@ -120,8 +116,7 @@ async function main() {
     }
   }
 
-  console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 void main();

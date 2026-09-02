@@ -5,10 +5,8 @@ import { CodexConnection, type ThreadListener } from "./connection";
 import { createCodexMapper } from "./map-codex";
 import { parseCodexModelPage, probeCodex } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { obj, str, type Bag } from "../bag";
 
-type Bag = Record<string, unknown>;
-const obj = (v: unknown): Bag => (v && typeof v === "object" ? (v as Bag) : {});
-const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** Copies ClaudeAdapter: app quit awaits every dispose(), so no dispose may depend on a healthy child. */

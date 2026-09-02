@@ -30,6 +30,7 @@ import { SettingsStore } from "../src/store/settings";
 import { SkillsService } from "../src/skills/service";
 import { MemoryService } from "../src/memory/service";
 import type { Environment } from "@realm/contracts";
+import { finish, ok } from "./harness";
 
 const SPACE = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const nonce = Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -39,11 +40,6 @@ const USER_TOKEN = `USRMEM${nonce}`;
 const REALM_TOKEN = `RLMMEM${nonce}`;
 const TURN_TIMEOUT_MS = 180_000;
 
-let failures = 0;
-const ok = (label: string, cond: boolean, detail = "") => {
-  console.log(`  ${cond ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
-  if (!cond) failures += 1;
-};
 
 /** Runs one turn and returns everything the agent said, plus the init payload. */
 async function oneTurn(handle: AgentHandle, prompt: string): Promise<{ text: string; init: Record<string, unknown> | null }> {
@@ -141,8 +137,7 @@ async function main() {
     rmSync(home, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   }
-  console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((e) => { console.error("driver crashed:", e); process.exit(2); });

@@ -19,6 +19,7 @@ import type { AgentKind, SessionEvent } from "@realm/contracts";
 import { createApp, defaultAdapters } from "../src/app";
 import { ProfilesStore } from "../src/store/profiles";
 import { SpacesStore } from "../src/store/spaces";
+import { finish, ok, sleep } from "./harness";
 
 const KINDS = (process.argv[2] ?? "codex,acp:cursor").split(",").filter(Boolean) as AgentKind[];
 const PROMPT = process.argv[3] ?? "Reply with exactly: REALM OK";
@@ -32,13 +33,6 @@ const PROMPT = process.argv[3] ?? "Reply with exactly: REALM OK";
  */
 const TURN_TIMEOUT_MS = 120_000;
 
-let failures = 0;
-const ok = (label: string, cond: boolean, detail = "") => {
-  console.log(`  ${cond ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
-  if (!cond) failures += 1;
-};
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Poll the persisted event log until the turn that begins at index `from` settles, and return that turn's slice.
@@ -135,8 +129,7 @@ async function main() {
   await app.close();
   rmSync(home, { recursive: true, force: true });
   // `work` is deliberately left on disk: removing it is what turns codex's trust entry into a dead one.
-  console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((e) => { console.error("driver crashed:", e); process.exit(2); });

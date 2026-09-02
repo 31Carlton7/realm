@@ -1,8 +1,6 @@
 import { newId, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { obj, str } from "../bag";
 
-type Bag = Record<string, unknown>;
-const obj = (v: unknown): Bag => (v && typeof v === "object" ? (v as Bag) : {});
-const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /** Text out of an ACP ContentBlock; non-text blocks render as a short marker. */
 function blockText(block: unknown): string {

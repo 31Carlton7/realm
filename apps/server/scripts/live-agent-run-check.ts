@@ -35,13 +35,7 @@ import { createApp, defaultAdapters } from "../src/app";
 import { ProfilesStore } from "../src/store/profiles";
 import { SpacesStore } from "../src/store/spaces";
 import { McpCallLogStore } from "../src/store/mcp";
-
-let failures = 0;
-const ok = (label: string, cond: boolean, detail = "") => {
-  console.log(`  ${cond ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
-  if (!cond) failures += 1;
-};
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { finish, ok, sleep } from "./harness";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-c", "user.email=live@example.com", "-c", "user.name=live", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
@@ -156,8 +150,7 @@ async function main() {
   clearInterval(approver);
   await app.close();
   rmSync(home, { recursive: true, force: true });
-  console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

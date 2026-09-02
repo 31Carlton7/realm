@@ -140,7 +140,8 @@ describe("missingArtifacts — version-matched by shape, not exact name", () => 
   });
 });
 
-// ---------- integration: a real scratch git repo, build + gh stubbed through the exec seam ----------
+// Everything below is integration: a real scratch git repo on disk, with build and gh stubbed
+// through the exec seam.
 
 function realExec(cmd: string, args: string[], opts: { cwd?: string; timeout?: number; stdio?: unknown } = {}) {
   return execFileSync(cmd, args, { encoding: "utf8", cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"] });

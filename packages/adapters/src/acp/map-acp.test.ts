@@ -90,8 +90,6 @@ describe("createAcpMapper", () => {
       { sessionUpdate: "user_message_chunk", content: { type: "text", text: "echo" } },
     ]) expect(m.map(u)).toEqual([]);
   });
-  // ---- run grouping ----------------------------------------------------------------------------------------
-
   it("emits each chunk as its own delta, not the run so far", () => {
     const m = createAcpMapper();
     const a = m.map({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hel" } });
@@ -152,9 +150,6 @@ describe("createAcpMapper", () => {
     m.map({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hi" } });
     expect(types(m.map({ sessionUpdate: "plan", entries: [] }))).toEqual(["assistant_text"]);
   });
-
-  // ---- content blocks --------------------------------------------------------------------------------------
-
   it("renders every ACP content-block variant", () => {
     expect(resultFor({ content: [
       { type: "content", content: { type: "text", text: "plain" } },
@@ -183,9 +178,6 @@ describe("createAcpMapper", () => {
     expect(resultFor({ rawOutput: null })).toBe("");
     expect(resultFor({})).toBe("");
   });
-
-  // ---- sparse-patch merge ----------------------------------------------------------------------------------
-
   it("keeps kind and rawInput when a patch omits them", () => {
     const m = createAcpMapper();
     m.map({ sessionUpdate: "tool_call", toolCallId: "k1", title: "Read", kind: "read", rawInput: { path: "/tmp/x" } });
@@ -217,9 +209,6 @@ describe("createAcpMapper", () => {
     expect(m.map({ sessionUpdate: "tool_call_update", toolCallId: "p1", status: "pending" })).toEqual([]);
     expect(m.map({ sessionUpdate: "tool_call_update", toolCallId: "p1" })).toEqual([]);
   });
-
-  // ---- closeOpenCalls --------------------------------------------------------------------------------------
-
   it("closes only the calls still open, once", () => {
     const m = createAcpMapper();
     m.map({ sessionUpdate: "tool_call", toolCallId: "done1", title: "Done" });
@@ -232,9 +221,6 @@ describe("createAcpMapper", () => {
     // A late patch for a force-closed call must not produce a second result.
     expect(m.map({ sessionUpdate: "tool_call_update", toolCallId: "open1", status: "completed" })).toEqual([]);
   });
-
-  // ---- defensive parsing -----------------------------------------------------------------------------------
-
   it("ignores malformed updates instead of throwing", () => {
     const m = createAcpMapper();
     expect(m.map(null)).toEqual([]);
