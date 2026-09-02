@@ -238,7 +238,7 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
  * nullable rather than having a "user" member: absence IS the ordinary case, and no backfill invents
  * one.
  */
-export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork", "import"]);
+export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork", "import", "run"]);
 export type DispatchKind = z.infer<typeof DispatchKindSchema>;
 export const DispatchedBySchema = z.object({
   /** The delegating session, or null for an origin with no parent agent (`user-dispatch`). */

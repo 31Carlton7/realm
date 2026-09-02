@@ -19,8 +19,14 @@ import { IdSchema } from "./ids";
  *                       acknowledgement (the tree moved under an open confirmation).
  * - `review_done`     — a requested review settled (Plan 13 W3): the reviewer's verdict is on the diff
  *                       pane. Terminal like `session_done` (born acted); `refId` is the ENVIRONMENT.
+ * - `run_blocked`     — a durable run stopped and wants a human (a draft to sign off, a login wall).
+ *                       NON-terminal, so it rides the dedup collapse: one open row per stuck run,
+ *                       resolved by `runs.approve` however the answer arrives. `refId` is the RUN.
+ * - `run_done`        — a durable run reached a terminal state. Terminal like `session_done` (born
+ *                       acted); `refId` is the RUN, so a retried run reuses its unread row rather
+ *                       than double-counting an outcome the user never saw.
  */
-export const NOTIFICATION_CATEGORIES = ["permission", "session_done", "mcp_health", "agent_probe", "worktree_hazard", "review_done"] as const;
+export const NOTIFICATION_CATEGORIES = ["permission", "session_done", "mcp_health", "agent_probe", "worktree_hazard", "review_done", "run_blocked", "run_done"] as const;
 export const NotificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
 export type NotificationCategory = z.infer<typeof NotificationCategorySchema>;
 

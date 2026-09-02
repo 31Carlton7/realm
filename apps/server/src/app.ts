@@ -35,6 +35,8 @@ import { MemoryService } from "./memory/service";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
+import { RunsStore } from "./store/runs";
+import { RunService } from "./runs/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
@@ -55,7 +57,7 @@ import { machineName } from "./machine-name";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /**
@@ -296,6 +298,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let agentRuns: AgentRunService | null = null;
   let reviews: ReviewService | null = null;
   let asks: AskService | null = null;
+  let runs: RunService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -321,15 +324,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
   const sessionEvents = new SessionEventsStore(db);
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications, titleGenerator: opts.titleGenerator,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator,
+    // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
+    // the SAME event off the same hook, so a run settles off exactly the status transition the feed
+    // reports rather than off a poll of its own (runs/service.ts).
+    notifications: {
+      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); },
+      probeResults: (results) => notifications.probeResults(results),
+    },
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
     // (they share the one engine, which owns the registry); the per-child seams try each registry —
     // a session is a child of at most one.
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); },
-      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id),
-      skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? null,
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); },
+      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id),
+      skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
     } });
   sessionService = sessions;
   // The delegation stack (Plan 11 W5 + Plan 13 W1): ONE engine (settle/drain + one-run-per-parent,
@@ -360,6 +370,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     timeouts: opts.ask?.timeouts,
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
+  // Durable runs: a goal that owns a session across attempts and survives restarts. Not on the
+  // delegation engine on purpose — nobody is blocked on a run, so its state is a row and its settle
+  // rides the session-event hook above (runs/service.ts).
+  runs = new RunService({ store: new RunsStore(db), settings, sessions, rpc, environments: envService, skills, notifications,
+    fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind });
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
@@ -383,10 +398,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search, forks, imports,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();
+  // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
+  // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
+  runs.recoverOnBoot();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
@@ -397,9 +415,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   await mcpGateway.listen();
   const port = await rpc.listen(opts.port);
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, gateway: mcpGateway,
     close: async () => {
       search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
+      runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
       terminals.closeAll();
       await sessions.closeAll();
       // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go

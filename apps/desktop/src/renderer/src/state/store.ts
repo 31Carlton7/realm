@@ -6,7 +6,7 @@ import {
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -276,6 +276,19 @@ export type Api = {
   mcpCallsList(params: McpCallsFilter & { before?: { ts: number; id: string }; limit?: number }): Promise<{ calls: McpCall[] }>;
   /** `ships.list` (Plan 14 W1): one page of a space's durable ship log, newest first. */
   listShips(spaceId: string, cursor?: string | null, limit?: number): Promise<{ ships: Ship[]; nextCursor: string | null }>;
+  /** `runs.list` (durable runs): one page of a space's runs, newest first. `states` narrows; an
+   *  empty array means every state. */
+  listRuns(spaceId: string, states?: RunState[], cursor?: string | null, limit?: number): Promise<{ runs: Run[]; nextCursor: string | null }>;
+  /** `runs.create` — queue a durable run. Returns the row plus whether it was newly created (a
+   *  `dedupeKey` collision returns the live run instead of a second one). */
+  createRun(input: { spaceId: string; goal: string; title?: string }): Promise<{ run: Run; created: boolean }>;
+  /** `runs.get` — one run plus its full attempt log. Null when the run is gone. */
+  getRun(id: string): Promise<{ run: Run; attempts: RunAttempt[] } | null>;
+  /** `runs.cancel` / `runs.retry` / `runs.approve` — the three writes the lens offers. Each returns
+   *  the fresh row; the server also broadcasts `runs.changed`, so the reply is belt-and-braces. */
+  cancelRun(id: string): Promise<Run>;
+  retryRun(id: string): Promise<Run>;
+  approveRun(id: string, approved: boolean, note: string | null): Promise<Run>;
   /** `notifications.list` (Plan 12 W5): one page of the global feed, plus the server's unread count —
    *  the ONE source every unread badge renders. */
   listNotifications(cursor: string | null, limit?: number): Promise<{ notifications: Notification[]; nextCursor: string | null; unread: number }>;
@@ -579,6 +592,15 @@ export type AppState = {
   /** `ships.list` first page by space id (Plan 14 W1) — the History tab's other half. Absent = never
    *  asked; the `ships.changed` handler only refreshes spaces already held here. */
   ships: Record<string, Ship[]>;
+  /** `runs.list` first page by space id — the Tasks lens's run half. Absent = never asked, which is
+   *  what keeps `runs.changed` from fetching for a space nobody is looking at. */
+  runs: Record<string, Run[]>;
+  /** Which run the Tasks lens has selected, PER SPACE — the same posture as `spacePageTab`, so two
+   *  space pages open side by side do not fight over one selection. */
+  selectedRunId: Record<string, string | null>;
+  /** The selected run's attempt log, by run id. Fetched on selection (`runs.get`); the list rows
+   *  carry the run itself, so this holds only what a row cannot. */
+  runAttempts: Record<string, RunAttempt[]>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -1019,6 +1041,21 @@ export type AppState = {
   /** Re-fetch one space's ship log (first page — the History tab's glance, not an archive browser);
    *  what the History tab mounts and the `ships.changed` broadcast triggers for held spaces. */
   refreshShips(spaceId: string): Promise<void>;
+  /** Re-fetch one space's runs (first page). What the Tasks tab mounts and what `runs.changed`
+   *  triggers for spaces already held. */
+  refreshRuns(spaceId: string): Promise<void>;
+  /** Queue a durable run in this space and select it, so the lens lands on the thing just made. */
+  createRun(spaceId: string, goal: string, title?: string): Promise<void>;
+  /** Select a run in the Tasks lens and load its attempt log. `null` clears the selection. */
+  selectRun(spaceId: string, runId: string | null): Promise<void>;
+  /** The three run writes. Each applies the returned row AND re-reads the attempt log, because every
+   *  one of them opens or closes an attempt. */
+  cancelRun(id: string): Promise<void>;
+  retryRun(id: string): Promise<void>;
+  approveRun(id: string, approved: boolean, note: string | null): Promise<void>;
+  /** The `runs.changed` handler: folds the fresh row into a held space's list in place (no refetch
+   *  race), and re-reads the attempt log when the changed run is the selected one. */
+  applyRunsChanged(payload: { spaceId: string; run: Run | null }): void;
   /** Move the sheet from its list state into its confirm state, with a freshly read preview. */
   askRestoreCheckpoint(id: string): Promise<void>;
   /** Back to the list, forgetting the preview. */
@@ -1288,6 +1325,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const isSpace = (sid: string) => get().activeSpaceId === sid;
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status } });
+    /** Re-read one run's attempt log. Every run write opens or closes an attempt, so a panel left
+     *  holding the old log would misreport the history it exists to show. */
+    const loadRunAttempts = async (runId: string) => {
+      const detail = await api.getRun(runId);
+      if (detail) set({ runAttempts: { ...get().runAttempts, [runId]: detail.attempts } });
+    };
+    /** Shared tail of cancel/retry/approve: apply the row the call returned, then refresh the log. */
+    const afterRunWrite = async (r: Run) => { get().applyRunsChanged({ spaceId: r.spaceId, run: r }); await loadRunAttempts(r.id); };
     /** Last-used agent: applied to state now, persisted best-effort (a failed write only costs the
      *  memory on the next launch, so it must never fail the creation the user just asked for). */
     const rememberAgent = (agentKind: AgentKind) => {
@@ -1443,7 +1488,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, macAccess: null, macGranting: null, macGrantQueue: [], updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
       machineName: "", connectors: {}, browserAllowlists: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -2721,6 +2766,40 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshShips(spaceId) {
         const { ships } = await api.listShips(spaceId);
         set({ ships: { ...get().ships, [spaceId]: ships } });
+      },
+      async refreshRuns(spaceId) {
+        const { runs } = await api.listRuns(spaceId);
+        set({ runs: { ...get().runs, [spaceId]: runs } });
+      },
+      async createRun(spaceId, goal, title) {
+        const { run: r } = await api.createRun({ spaceId, goal, ...(title ? { title } : {}) });
+        get().applyRunsChanged({ spaceId, run: r });
+        await get().selectRun(spaceId, r.id);
+      },
+      async selectRun(spaceId, runId) {
+        set({ selectedRunId: { ...get().selectedRunId, [spaceId]: runId } });
+        if (!runId) return;
+        const detail = await api.getRun(runId);
+        // A run deleted under the click clears the selection rather than leaving a panel describing
+        // something that is gone.
+        if (!detail) { set({ selectedRunId: { ...get().selectedRunId, [spaceId]: null } }); return; }
+        set({ runAttempts: { ...get().runAttempts, [runId]: detail.attempts } });
+        get().applyRunsChanged({ spaceId: detail.run.spaceId, run: detail.run });
+      },
+      async cancelRun(id) { await afterRunWrite(await api.cancelRun(id)); },
+      async retryRun(id) { await afterRunWrite(await api.retryRun(id)); },
+      async approveRun(id, approved, note) { await afterRunWrite(await api.approveRun(id, approved, note)); },
+      applyRunsChanged({ spaceId, run }) {
+        const held = get().runs[spaceId];
+        // Held-only: a space whose runs nobody has asked for has nothing to go stale. A null `run`
+        // (a bulk change with no single subject) refetches instead of guessing.
+        if (!held) return;
+        if (!run) { void get().run(() => get().refreshRuns(spaceId)); return; }
+        const i = held.findIndex((r) => r.id === run.id);
+        // Newest-first, and a new run is by construction the newest — so an unknown id goes on top
+        // rather than triggering a refetch the broadcast already carried the answer for.
+        set({ runs: { ...get().runs, [spaceId]: i === -1 ? [run, ...held] : held.map((r) => (r.id === run.id ? run : r)) } });
+        if (get().selectedRunId[spaceId] === run.id) void get().run(() => loadRunAttempts(run.id));
       },
       async captureCheckpoint(environmentId, sessionId) {
         await api.captureCheckpoint(environmentId, sessionId);

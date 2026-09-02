@@ -70,6 +70,51 @@ describe("one settle/drain implementation (Plan 13 W1)", () => {
 });
 
 /**
+ * The dispatch recipe is extracted, not forked — the same rule the engine gets, for the same reason.
+ * `agent_run` and durable runs both resolve "an existing environment XOR a fresh worktree, cleaned up
+ * if the session then fails to exist"; two copies is how exactly one of them starts leaking orphan
+ * worktrees the day someone fixes a bug in the other.
+ */
+describe("one dispatch recipe (durable runs)", () => {
+  it.each([
+    ["the mutual-exclusion refusal", "constraints.environmentId and constraints.newWorktree are mutually exclusive"],
+    ["the skills-subset refusal", "must be a subset of this space's enabled skills"],
+  ])("%s is worded in exactly one place", (_what, needle) => {
+    // runs/service.ts re-raises the mutual-exclusion refusal at create time (before any dispatch),
+    // so the words may appear there too — but never a third time, and never in agent-run.
+    const files = filesMentioning(needle);
+    expect(files).not.toContain("delegation/agent-run.ts");
+    expect(files.filter((f) => f !== "runs/service.ts")).toEqual(["delegation/dispatch.ts"]);
+  });
+
+  it("both dispatchers consume the shared resolvers rather than resolving environments themselves", () => {
+    for (const f of ["delegation/agent-run.ts", "runs/service.ts"]) {
+      const text = readFileSync(join(SRC, f), "utf8");
+      expect(text).toMatch(/from "\.\.?\/(delegation\/)?dispatch"/);
+      expect(text).toContain("resolveEnvironment(");
+      // Nobody creates a worktree behind the resolver's back.
+      expect(text).not.toContain("createWorktree(");
+    }
+  });
+});
+
+/**
+ * A durable run's settle must ride the persisted session-event rail, not a poll. A polling loop is a
+ * second source of truth that a restart silently loses — precisely the failure a durable run exists
+ * to not have — and it would also be a fork of the engine's drain by another name.
+ */
+describe("durable runs do not poll", () => {
+  it("the run service has no timer and no drain of its own", () => {
+    const text = readFileSync(join(SRC, "runs/service.ts"), "utf8");
+    expect(text).not.toContain("setTimeout");
+    expect(text).not.toContain("setInterval");
+    expect(text).not.toContain("engine.drain(");
+    // It settles off the SessionService hook the notifications feed uses.
+    expect(text).toContain("handleSessionEvent(");
+  });
+});
+
+/**
  * Plan 13 W3's BAN, enforced structurally: nothing wires review→ship. The review module must be
  * INCAPABLE of committing — it never imports git-write (or any workspace write surface), and no
  * other module reaches git-write off a review result: `workspace/git-write` has exactly two source

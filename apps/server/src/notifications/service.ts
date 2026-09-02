@@ -161,6 +161,29 @@ export class NotificationsService {
       title: input.title, body: input.body, acted: true });
   }
 
+  /** A durable run stopped and wants a person. NON-terminal (born unacted), so it rides the same
+   *  dedup collapse a pending permission does: one open row per stuck run, refreshed rather than
+   *  duplicated if the run blocks again, and resolved by `runBlockResolved` however the answer
+   *  arrives. `refId` is the RUN. */
+  runBlocked(input: { spaceId: string; sessionId: string | null; runId: string; title: string; body: string | null }): void {
+    this.notify({ category: "run_blocked", spaceId: input.spaceId, sessionId: input.sessionId, refId: input.runId,
+      title: input.title, body: input.body, acted: false });
+  }
+
+  /** The run's block was answered (`runs.approve`, either way) — the open row stops reading "needs
+   *  you" for a run that no longer does. */
+  runBlockResolved(runId: string, outcome: string): void {
+    this.resolveOpen("run_blocked", runId, outcome);
+  }
+
+  /** A durable run reached a terminal state. Terminal like `session_done` — born acted; what remains
+   *  is for the user to READ the result, which is the read bit's job. `refId` is the RUN, so a
+   *  retried run reuses its unread row rather than double-counting an outcome nobody saw. */
+  runDone(input: { spaceId: string; sessionId: string | null; runId: string; title: string; body: string | null }): void {
+    this.notify({ category: "run_done", spaceId: input.spaceId, sessionId: input.sessionId, refId: input.runId,
+      title: input.title, body: input.body, acted: true });
+  }
+
   /** The stale-ack refusal hook (EnvironmentService.removeWorktree / CheckpointService.restore): the
    *  tree moved under an open confirmation and the destructive action was refused. Born acted — the
    *  refusal is complete the moment it happens; what remains is for the user to look again. */

@@ -170,6 +170,8 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string 
   agent_probe: { label: "Engine regressions", desc: "A CLI that used to work stops probing available." },
   worktree_hazard: { label: "Worktree hazards", desc: "A removal or restore was refused because the tree changed underneath it." },
   review_done: { label: "Reviews finishing", desc: "A requested review landed its verdict on the diff pane." },
+  run_blocked: { label: "Runs needing you", desc: "An unattended run stopped and asked for a person." },
+  run_done: { label: "Runs finishing", desc: "A durable run reached a final state." },
 };
 
 function AppTab() {
