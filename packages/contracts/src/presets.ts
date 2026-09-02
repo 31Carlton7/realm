@@ -409,15 +409,12 @@ export function acpSessionConfig(session: unknown): AcpSessionConfig {
 export const AGENT_META = {
   claude: { label: "Claude", icon: "claude" }, codex: { label: "Codex", icon: "openai" }, "acp:gemini": { label: "Gemini", icon: "gemini" },
   "acp:cursor": { label: "Cursor", icon: "cursor" },
-  // Hugeicons glyphs, not brand marks: `brandMarks` carries real vendor path data for four vendors and
-  // inventing SVG paths for the rest would render as garbage. Distinct glyphs so the picker rows are
-  // still tellable apart; swap each for its real mark as the path data is added.
-  "acp:opencode": { label: "OpenCode", icon: "code" },
-  "acp:copilot": { label: "GitHub Copilot", icon: "branch" },
-  "acp:goose": { label: "goose", icon: "compass" },
-  "acp:qwen": { label: "Qwen Code", icon: "sparkles" },
-  "acp:grok": { label: "Grok", icon: "zap" },
-  "acp:fx": { label: "fx", icon: "rocket" },
+  "acp:opencode": { label: "OpenCode", icon: "opencode" },
+  "acp:copilot": { label: "GitHub Copilot", icon: "githubCopilot" },
+  "acp:goose": { label: "goose", icon: "goose" },
+  "acp:qwen": { label: "Qwen Code", icon: "qwen" },
+  "acp:grok": { label: "Grok", icon: "grok" },
+  "acp:fx": { label: "fx", icon: "fx" },
   fake: { label: "Fake agent", icon: "bot" },
 } as const satisfies Record<import("./entities").AgentKind, { label: string; icon: string }>;
 

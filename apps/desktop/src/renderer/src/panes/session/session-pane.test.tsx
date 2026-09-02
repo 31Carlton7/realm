@@ -1084,10 +1084,10 @@ describe("prompter model picker", () => {
       // here would put a model the session is not on into the picker.
       "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
-    // `undefined` is the honest answer for the six: `brandMarks` carries real vendor path data for four
-    // vendors, and inventing SVG paths for the rest would render as garbage. They use Hugeicons glyphs.
     expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
-      undefined, undefined, undefined, undefined, undefined, undefined]);
+      "opencode", "githubCopilot", "goose", "qwen", "grok", "fx"]);
+    expect(document.querySelector("[data-brand='qwen']")).toHaveAttribute("viewBox", "0 0 141.38 140");
+    expect(document.querySelector("[data-brand='githubCopilot']")?.querySelectorAll("path")).toHaveLength(3);
   });
 
   it("six rows labelled Default are still told apart — the row carries its agent, not just its model", async () => {

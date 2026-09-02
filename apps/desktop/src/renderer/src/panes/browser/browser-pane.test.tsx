@@ -254,8 +254,9 @@ describe("shouldShowView", () => {
 });
 
 describe("isRealmItemDrag", () => {
-  it("matches only the realm item MIME type", () => {
+  it("matches both pane-producing Realm drag types", () => {
     expect(isRealmItemDrag({ dataTransfer: { types: ["application/x-realm-item"] } as unknown as DataTransfer })).toBe(true);
+    expect(isRealmItemDrag({ dataTransfer: { types: ["application/x-realm-new-session"] } as unknown as DataTransfer })).toBe(true);
     expect(isRealmItemDrag({ dataTransfer: { types: ["Files"] } as unknown as DataTransfer })).toBe(false);
     expect(isRealmItemDrag({ dataTransfer: null })).toBe(false);
   });

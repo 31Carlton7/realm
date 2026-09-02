@@ -30,6 +30,14 @@ describe("SpaceStrip overflow (A-H2)", () => {
   });
 });
 
+describe("SpaceStrip selection", () => {
+  it("uses the active button treatment without rendering a dot below the icon", async () => {
+    const { container } = await mount();
+    expect(screen.getByRole("button", { name: /switch to space Versed/i })).toHaveAttribute("data-active", "true");
+    expect(container.querySelector(".strip-dot")).toBeNull();
+  });
+});
+
 describe("spaceBadge priority (U-H3)", () => {
   const space = { a: "s1", b: "s1", c: "s1", other: "s2" };
   it("waiting_permission beats error beats running; idle/ended never badge; other spaces never leak in", () => {

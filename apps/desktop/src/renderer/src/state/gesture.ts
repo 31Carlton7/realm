@@ -17,17 +17,24 @@ export type SwipePhase = "began" | "changed" | "ended" | "cancelled" | "momentum
  * Two modes:
  *  • **Native phases** (preferred): call `phase()` with the trackpad's phase stream. While fingers are
  *    down the content is simply held wherever it is — no timers, no auto-commit. On lift (`ended`)
- *    we decide: past `commitFraction` of the width, or a fast release velocity → `commit`; otherwise
- *    `settle`. Momentum deltas after a lift are ignored so one gesture moves one page.
+ *    we decide: past `commitFraction` of the width, or a release velocity that would carry it there
+ *    within `projectMs` → `commit`; otherwise `settle`. Momentum deltas after a lift are ignored so
+ *    one gesture moves one page.
  *  • **Timer fallback** (no phase source): the host calls `idle(ts)` after a quiet gap. Distance
  *    or a flick commits live; a quiet gap below the threshold settles.
  *
  * Pure state machine — time is injected, no DOM, no timers.
  */
-export function createDragSwipe(opts: { width: number; commitFraction?: number; flickVelocity?: number; flickMinPx?: number; idleMs?: number; rubber?: number; staleMs?: number }) {
-  const commitPx = () => Math.max(48, opts.width * (opts.commitFraction ?? 0.5));
-  const flickVelocity = opts.flickVelocity ?? 0.9; // px/ms
-  const flickMinPx = opts.flickMinPx ?? 32;
+export function createDragSwipe(opts: { width: number; commitFraction?: number; flickMinPx?: number; idleMs?: number; rubber?: number; staleMs?: number; projectMs?: number }) {
+  // Arc commits well before half a page: a confident third-of-a-width push is already a decision,
+  // and making the user drag to the midpoint is most of what reads as "sluggish" beside it.
+  const commitPx = () => Math.max(40, opts.width * (opts.commitFraction ?? 0.3));
+  // A twitch is never a swipe, however fast — the floor that keeps projection from firing on noise.
+  const flickMinPx = opts.flickMinPx ?? 12;
+  // How far ahead the current speed is projected. This is what replaces a separate "flick" velocity
+  // threshold: position alone can't tell a flick from a nudge, but position + where the fingers are
+  // heading can, on one scale, with no second constant to keep in sync.
+  const projectMs = opts.projectMs ?? 70;
   const idleMs = opts.idleMs ?? 320;
   const rubber = opts.rubber ?? 0.35;
   const staleMs = opts.staleMs ?? 4000;
@@ -45,18 +52,29 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
 
   const reset = () => { acc = 0; shown = 0; locked = false; dragging = false; samples = []; };
 
+  /** Mean px/ms over the last 100ms. The first sample in the window contributes its *timestamp*, not
+   *  its delta: that delta was travelled before the window opened, and counting it against zero
+   *  elapsed time inflated every reading. `now` past the last sample is a pause before the lift,
+   *  which correctly decays the result towards 0. */
   const velocity = (now: number): number => {
     samples = samples.filter((s) => now - s.ts <= 100);
-    if (samples.length === 0) return 0;
+    if (samples.length < 2) return 0;
     const dt = Math.max(1, now - samples[0]!.ts);
-    return samples.reduce((a, s) => a + s.dx, 0) / dt;
+    return samples.slice(1).reduce((a, s) => a + s.dx, 0) / dt;
+  };
+
+  /** Committed if the drag is already past the threshold, or heading there fast enough to arrive. */
+  const past = (now: number): boolean => {
+    if (Math.abs(acc) >= commitPx()) return true;
+    if (Math.abs(acc) < flickMinPx) return false;
+    const v = velocity(now);
+    if (Math.sign(v) !== Math.sign(acc)) return false; // already being pulled back
+    return Math.abs(acc + v * projectMs) >= commitPx();
   };
 
   const decide = (now: number): SwipeUpdate => {
     const wall = (acc > 0 && !lastBounds.canNext) || (acc < 0 && !lastBounds.canPrev);
-    const v = velocity(now);
-    const flick = Math.abs(acc) >= flickMinPx && Math.abs(v) >= flickVelocity && Math.sign(v) === Math.sign(acc);
-    if (!wall && (Math.abs(acc) >= commitPx() || flick)) {
+    if (!wall && past(now)) {
       const dir = acc > 0 ? "next" : "prev";
       acc = 0; shown = 0; samples = []; locked = true; lastCommitDir = dir;
       return { type: "commit", dir };
@@ -88,9 +106,7 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
 
       // Without phases we can't wait for the lift, so commit live on distance/flick.
       if (!hasPhases && !wall) {
-        const v = velocity(ts);
-        const flick = Math.abs(acc) >= flickMinPx && Math.abs(v) >= flickVelocity && Math.sign(v) === Math.sign(acc);
-        if (Math.abs(acc) >= commitPx() || flick) {
+        if (past(ts)) {
           const dir = acc > 0 ? "next" : "prev";
           acc = 0; shown = 0; samples = []; locked = true; lastCommitDir = dir;
           return { type: "commit", dir };

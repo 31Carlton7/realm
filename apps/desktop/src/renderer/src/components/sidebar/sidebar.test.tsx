@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act, within } from "@testing-librar
 import { allItems, type Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, session, space } from "../../state/store.test-fakes";
+import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
 import { leafPositionOf } from "./ItemList";
 
 async function mount(api = fakeApi()) {
@@ -13,6 +13,18 @@ async function mount(api = fakeApi()) {
 }
 
 describe("Arc sidebar", () => {
+  it("hydrates saved custom space icons before the strip renders", async () => {
+    const asset = iconAsset("ia-saved", "p1");
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { icon: `asset:${asset.id}` })],
+      iconAssets: { p1: [asset] },
+    });
+    await mount(api);
+    const button = screen.getByRole("button", { name: "Switch to space Versed" });
+    expect(api.calls).toContain("listIconAssets:p1");
+    expect(button.querySelector("circle")).not.toBeNull();
+  });
+
   it("shows only the active space's items, the space strip with all spaces, and switches on strip click", async () => {
     const { store } = await mount();
     expect(screen.getByRole("heading", { name: /Versed/ })).toBeInTheDocument();
@@ -84,7 +96,43 @@ describe("Arc sidebar", () => {
       const swiper = container.querySelector("[data-swiper]")!;
       fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
       await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
-      expect(track(container).style.transition).toContain("transform 380ms");
+      expect(track(container).style.transition).toContain("transform 300ms");
+    });
+
+    // The page being left empties the instant activeSpaceId flips (selectSpace clears `items` and
+    // refetches), so without a snapshot a commit slides a blank page out and a blank page in.
+    it("a committed swipe keeps the page it is leaving filled in while it slides out", async () => {
+      const { container } = await mount();
+      const page = () => container.querySelector('[data-space-page="s1"]')!.textContent ?? "";
+      const swiper = container.querySelector("[data-swiper]")!;
+      fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
+      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
+      expect(page()).toContain("Terminal");
+      await waitFor(() => expect(page()).not.toContain("Terminal")); // dropped once the slide is over
+    });
+
+    // A 120Hz trackpad delivers several deltas per frame; writing the transform on each one is
+    // recalc work the compositor throws away, and it is what made the drag stutter.
+    it("drag frames are written on the next animation frame, not inline on every wheel event", async () => {
+      const { container } = await mount();
+      fireEvent.wheel(container.querySelector("[data-swiper]")!, { deltaX: 20, deltaY: 0 });
+      expect(track(container).style.transform).toBe("translateX(0%)"); // nothing written yet
+      await act(async () => { await new Promise(requestAnimationFrame); });
+      expect(track(container).style.transform).toContain("20px");
+    });
+
+    it("a swipe that never reaches the threshold eases back to the page it started on", async () => {
+      const { container } = await mount();
+      fireEvent.wheel(container.querySelector("[data-swiper]")!, { deltaX: 20, deltaY: 0 });
+      await waitFor(() => expect(track(container).style.transition).toContain("transform 220ms"));
+      expect(track(container).style.transform).toBe("translateX(0%)"); // settle is shorter than a commit
+    });
+
+    it("an instant switch has nothing to slide, so the page it left empties at once", async () => {
+      const { container } = await mount();
+      fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
+      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
+      expect(container.querySelector('[data-space-page="s1"]')!.textContent).not.toContain("Terminal");
     });
   });
 
@@ -151,6 +199,21 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Claude session (⌘N)"));
     await act(() => store.getState().newSession({ agentKind: "codex" }));
     expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Codex session (⌘N)");
+  });
+
+  it("the New session row is draggable without creating until it is dropped", async () => {
+    const { store, api } = await mount();
+    const button = screen.getByRole("button", { name: "New session" });
+    const row = button.closest(".new-item")!;
+    expect(row).toHaveAttribute("draggable", "true");
+    const setData = vi.fn();
+    fireEvent.dragStart(row, { dataTransfer: { setData, effectAllowed: "", types: [], getData: () => "" } });
+    expect(setData).toHaveBeenCalledWith("application/x-realm-new-session", "new-session");
+    expect(row).toHaveAttribute("data-dragging");
+    expect(api.calls.filter((c) => c.startsWith("createSession"))).toEqual([]);
+    expect(Object.keys(store.getState().sessions)).toHaveLength(0);
+    fireEvent.dragEnd(row);
+    expect(row).not.toHaveAttribute("data-dragging");
   });
 
   it("the space menu opens a session in a fresh worktree, leaving \"+\" as the no-questions path (W2)", async () => {

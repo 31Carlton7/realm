@@ -5,7 +5,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY,
+  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState,
 } from "@realm/contracts";
@@ -806,12 +806,13 @@ export type AppState = {
   openSession(id: string): Promise<void>;
   applySessionEvent(ev: LiveSessionEvent): void;
   applySessionStatus(sessionId: string, status: SessionStatus): void;
-  /** Create a session in the active space, open its item, and open its transcript. */
-  newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null): Promise<void>;
+  /** Create a session in the active space, open its item, and open its transcript. When `edge` is
+   *  supplied with a target leaf, use the same split placement as an existing-item drag. */
+  newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
    *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, adapter-default model
    *  and permission mode. Everything else is changed on the prompter's chips afterwards. */
-  newSessionInstant(targetLeafId?: string | null): Promise<void>;
+  newSessionInstant(targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** Make a fresh `git worktree` and open a session in it (W2), rather than in the space folder.
    *  Fails loudly when the space is not a git repository — there is no worktree to fall back to,
    *  and silently landing in the space folder would be the collision the user asked to avoid. */
@@ -1310,6 +1311,32 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  prune the just-opened item and collapse its splits. Bumped by selectSpace so responses from a
      *  previous activation die even when the same space is re-selected. */
     let itemsFetchSeq = 0;
+    /** Per-profile ordering for icon-library reads and writes. A picker refresh can be in flight when
+     *  generation/upload finishes; without these guards its older snapshot can land last and make an
+     *  `asset:` space icon fall back to a folder until the next refresh. */
+    const iconAssetFetchSeq = new Map<string, number>();
+    const iconAssetMutationSeq = new Map<string, number>();
+    const fetchIconAssets = async (profileId: string) => {
+      const fetchSeq = (iconAssetFetchSeq.get(profileId) ?? 0) + 1;
+      const mutationSeq = iconAssetMutationSeq.get(profileId) ?? 0;
+      iconAssetFetchSeq.set(profileId, fetchSeq);
+      const list = await api.listIconAssets(profileId);
+      if (iconAssetFetchSeq.get(profileId) !== fetchSeq || (iconAssetMutationSeq.get(profileId) ?? 0) !== mutationSeq) return;
+      set({ iconAssets: { ...get().iconAssets, [profileId]: list } });
+    };
+    /** Load only libraries needed by unresolved space icons. Awaiting this before publishing a new
+     *  spaces snapshot prevents a saved custom icon from flashing—or remaining—as the folder fallback. */
+    const hydrateSpaceIcons = async (spaces: Space[]) => {
+      const loadedIds = new Set(Object.values(get().iconAssets).flat().map((asset) => asset.id));
+      const profileIds = new Set(spaces.flatMap((space) => {
+        const ref = parseSpaceIcon(space.icon);
+        return ref.kind === "asset" && !loadedIds.has(ref.id) ? [space.profileId] : [];
+      }));
+      await Promise.allSettled([...profileIds].map(fetchIconAssets));
+    };
+    const markIconAssetMutation = (profileId: string) => {
+      iconAssetMutationSeq.set(profileId, (iconAssetMutationSeq.get(profileId) ?? 0) + 1);
+    };
     /** False from selectSpace until the space's items have loaded and reconciled once. While false,
      *  resizeSplit applies sizes locally but must not persist: react-resizable-panels fires onLayout at
      *  mount with normalized sizes, and that echo is not a user action — persisting it would write the
@@ -1505,11 +1532,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (snap.spaceId !== get().activeSpaceId) return { sheetSnap: null };
       return writeLayout(reconcileLayout(snap.saved, get().items), { sheetSnap: null });
     };
-    const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside = false) => {
+    const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside = false, edge?: DropEdge) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
       if (!isSpace(sid)) return;
       if (seq === itemsFetchSeq) set({ items }); // superseded by a newer fetch? its list is newer — keep it
+      if (edge && targetLeafId) { await get().openItemAt(itemId, targetLeafId, edge); return; }
       if (beside && targetLeafId === null) { await get().openItemBeside(itemId); return; }
       await get().openItem(itemId, targetLeafId);
     };
@@ -1544,9 +1572,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.machineName().catch(() => ""),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
-        set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true,
+        set({ profiles, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true, lastAgentKind: agent.success ? agent.data : null,
           terminalPanel: parseTerminalPanels(panels), machineName });
+        // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
+        // icon can resolve, rather than visibly rendering its folder fallback first.
+        await hydrateSpaceIcons(spaces);
+        set({ spaces });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
@@ -1586,6 +1618,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshSpaces() {
         const spaces = await api.listSpaces();
+        await hydrateSpaceIcons(spaces);
         set({ spaces });
         const active = get().activeSpaceId;
         // The active space vanished (deleted elsewhere): fall back to the first one, if any.
@@ -2092,16 +2125,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // A turn just finished (or died): the working tree likely changed, so refresh git context.
         if (prev !== status && (status === "idle" || status === "error")) refreshGitFor(sessionId);
       },
-      async newSession(input, targetLeafId = null) {
+      async newSession(input, targetLeafId = null, edge) {
         const sid = get().activeSpaceId; if (!sid) return;
         const { session, itemId } = await api.createSession({ ...input, spaceId: sid });
         rememberAgent(input.agentKind);
         if (isSpace(sid)) mergeSession(session);
-        await adoptItem(sid, itemId, targetLeafId);
+        await adoptItem(sid, itemId, targetLeafId, false, edge);
         await get().openSession(session.id);
       },
-      async newSessionInstant(targetLeafId = null) {
-        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, targetLeafId);
+      async newSessionInstant(targetLeafId = null, edge) {
+        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, targetLeafId, edge);
       },
       async newSessionInWorktree(targetLeafId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
@@ -2392,11 +2425,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ sessionMemorySources: { ...get().sessionMemorySources, [sessionId]: sources } });
       },
       async refreshIconAssets(profileId) {
-        const list = await api.listIconAssets(profileId);
-        set({ iconAssets: { ...get().iconAssets, [profileId]: list } });
+        await fetchIconAssets(profileId);
       },
       async generateIcon(profileId, prompt) {
         const asset = await api.generateIconAsset(profileId, prompt);
+        markIconAssetMutation(profileId);
         set({ iconAssets: { ...get().iconAssets, [profileId]: [asset, ...(get().iconAssets[profileId] ?? [])] } });
         return asset;
       },
@@ -2404,11 +2437,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const picked = await api.pickIconImage();
         if (!picked) return null;
         const asset = await api.uploadIconAsset(profileId, picked.path);
+        markIconAssetMutation(profileId);
         set({ iconAssets: { ...get().iconAssets, [profileId]: [asset, ...(get().iconAssets[profileId] ?? [])] } });
         return asset;
       },
       async deleteIconAsset(profileId, id) {
         await api.deleteIconAsset(id);
+        markIconAssetMutation(profileId);
         set({ iconAssets: { ...get().iconAssets, [profileId]: (get().iconAssets[profileId] ?? []).filter((a) => a.id !== id) } });
       },
       async attachFiles(sessionId, files) {

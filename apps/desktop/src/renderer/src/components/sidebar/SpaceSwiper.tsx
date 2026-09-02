@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type DragEvent as ReactDragEvent, type WheelEvent } from "react";
 import { Icon } from "@realm/ui";
-import { allItems, type Item, type PaneGroup } from "@realm/contracts";
-import { useApp } from "../../state/store";
+import { allItems, type Item, type PaneGroup, type SpaceGroups } from "@realm/contracts";
+import { useApp, useAppStore } from "../../state/store";
 import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/gesture";
 import { SpaceHeader } from "./SpaceHeader";
 import { PinnedGrid } from "./PinnedGrid";
@@ -10,7 +10,11 @@ import { GroupRenameInput } from "../RenameInput";
 
 const IDLE_MS = 320;
 const DEBUG = () => { try { return localStorage.getItem("realm.debugSwipe") === "1"; } catch { return false; } };
-const EASE = "transform 380ms cubic-bezier(.2,.85,.2,1)";
+/* Arc's sidebar lands fast and decelerates hard; a long tail reads as "heavy", not "smooth".
+   .32/.72/0/1 is the iOS sheet curve — most of the distance is covered in the first third. */
+const COMMIT_MS = 300;
+const EASE_COMMIT = `transform ${COMMIT_MS}ms cubic-bezier(.32,.72,0,1)`;
+const EASE_SETTLE = "transform 220ms cubic-bezier(.32,.72,0,1)";
 
 /** Map the native helper's (phase, momentum) pair to the tracker's phase vocabulary. */
 export function toSwipePhase(m: { phase: string; momentum: string }): SwipePhase | null {
@@ -28,9 +32,10 @@ export function toSwipePhase(m: { phase: string; momentum: string }): SwipePhase
 
 /** Horizontal track with one page per space. Two-finger drag follows the fingers 1:1 (transform
  *  written straight to the DOM — no React state per wheel event), rubber-bands at the ends, holds
- *  wherever you rest, and on lift either commits (past half a page, or a flick) or eases back.
+ *  wherever you rest, and on lift either commits (past a third of a page, or a flick) or eases back.
  *  Finger lift comes from the native ScrollPhase helper when available; otherwise a quiet-gap timer.
- *  Only the active page subscribes to items — the others render just their header. */
+ *  Only the active page subscribes to items; the page being left keeps a snapshot of its rows for
+ *  the length of the slide, so a commit never animates a blank page out. */
 export function SpaceSwiper() {
   const spaces = useApp((s) => s.spaces);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
@@ -49,11 +54,44 @@ export function SpaceSwiper() {
   const hoverRef = useRef(false);
   const nativeRef = useRef(false); // once the native helper streams, it is the single source (deltas + phases)
 
+  const rafRef = useRef<number | null>(null);
+  const queuedRef = useRef<string | null>(null);
+  const store = useAppStore();
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The page being swiped AWAY from, and the rows it had at the moment of the commit.
+  //
+  // Without this the outgoing page empties the instant activeSpaceId flips — selectSpace clears
+  // `items` synchronously and refills them a round trip later — so a commit slid a blank page out
+  // and a blank page in, and the rows popped in after it landed. Arc slides real content. The
+  // snapshot is render-only: the page is `inert` for the 300ms it is on screen.
+  const [leaving, setLeaving] = useState<{ id: string; items: Item[]; groups: SpaceGroups | null } | null>(null);
+  const freeze = () => {
+    const st = store.getState();
+    if (!st.activeSpaceId) return;
+    setLeaving({ id: st.activeSpaceId, items: st.items, groups: st.groups });
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    leaveTimer.current = setTimeout(() => setLeaving(null), COMMIT_MS + 40);
+  };
+
   const base = (i: number) => `translateX(${-i * 100}%)`;
-  const setTransform = (t: string, ease: boolean) => {
+  const write = (t: string, ease: string | null) => {
     const el = trackRef.current; if (!el) return;
-    el.style.transition = ease ? EASE : "none";
+    el.style.transition = ease ?? "none";
     el.style.transform = t;
+  };
+  const cancelQueued = () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); rafRef.current = null; queuedRef.current = null; };
+  /** Settles and page landings are written now; drag frames are coalesced to one write per frame.
+   *  A 120 Hz trackpad otherwise forces several style recalcs per frame that the compositor throws
+   *  away — the work that made the drag stutter rather than track the fingers. */
+  const setTransform = (t: string, ease: string | null) => { cancelQueued(); write(t, ease); };
+  const queueTransform = (t: string) => {
+    queuedRef.current = t;
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const v = queuedRef.current; queuedRef.current = null;
+      if (v !== null) write(v, null);
+    });
   };
   const tracker = () => (trackerRef.current ??= createDragSwipe({ width: hostRef.current?.clientWidth || 240, idleMs: IDLE_MS }));
 
@@ -65,14 +103,14 @@ export function SpaceSwiper() {
   const apply = (r: SwipeUpdate) => {
     const i = indexRef.current;
     if (DEBUG() && r.type !== "ignore") console.debug("[swipe]", r.type, r.type === "move" ? r.offset.toFixed(1) : r.type === "commit" ? r.dir : "", "idx", i);
-    if (r.type === "move") { fromGesture.current = false; setTransform(`translateX(calc(${-i * 100}% - ${r.offset}px))`, false); }
-    else if (r.type === "settle") setTransform(base(i), true);
-    else if (r.type === "commit") { fromGesture.current = true; run(() => (r.dir === "next" ? nextSpace() : prevSpace())); } // layout effect eases to the new page
+    if (r.type === "move") { fromGesture.current = false; queueTransform(`translateX(calc(${-i * 100}% - ${r.offset}px))`); }
+    else if (r.type === "settle") setTransform(base(i), EASE_SETTLE);
+    else if (r.type === "commit") { fromGesture.current = true; freeze(); run(() => (r.dir === "next" ? nextSpace() : prevSpace())); } // layout effect eases to the new page
   };
 
   // React owns the resting position; gestures only deviate from it transiently.
-  useLayoutEffect(() => { setTransform(base(index), fromGesture.current); fromGesture.current = false; }, [index, spaces.length]);
-  useLayoutEffect(() => () => { if (idleTimer.current) clearTimeout(idleTimer.current); }, []);
+  useLayoutEffect(() => { setTransform(base(index), fromGesture.current ? EASE_COMMIT : null); fromGesture.current = false; }, [index, spaces.length]);
+  useLayoutEffect(() => () => { if (idleTimer.current) clearTimeout(idleTimer.current); if (leaveTimer.current) clearTimeout(leaveTimer.current); cancelQueued(); }, []);
 
   const bounds = () => { const i = indexRef.current; return { canPrev: i > 0, canNext: i < countRef.current - 1 }; };
   const armIdle = (ms: number) => {
@@ -122,7 +160,7 @@ export function SpaceSwiper() {
         {spaces.map((sp) => (
           <div key={sp.id} className="space-page" data-space-page={sp.id} aria-hidden={sp.id !== activeSpaceId || undefined} inert={sp.id !== activeSpaceId || undefined}>
             <SpaceHeader space={sp} />
-            {sp.id === activeSpaceId && <ActiveSpaceBody />}
+            {sp.id === activeSpaceId ? <ActiveSpaceBody /> : leaving?.id === sp.id ? <SpaceBody items={leaving.items} groups={leaving.groups} /> : null}
           </div>
         ))}
       </div>
@@ -143,6 +181,12 @@ const REALM_ITEM_TYPE = "application/x-realm-item";
 const ActiveSpaceBody = memo(function ActiveSpaceBody() {
   const items = useApp((s) => s.items);
   const groups = useApp((s) => s.groups);
+  return <SpaceBody items={items} groups={groups} />;
+});
+
+/** The rows themselves, from whatever items/groups they are handed — the live set for the active
+ *  page, a commit-time snapshot for the page sliding away. */
+const SpaceBody = memo(function SpaceBody({ items, groups }: { items: Item[]; groups: SpaceGroups | null }) {
   const newPaneGroup = useApp((s) => s.newPaneGroup);
   const run = useApp((s) => s.run);
   // Archived rows are split off FIRST, ahead of open/pinned/unopened, and `byId` is built from the

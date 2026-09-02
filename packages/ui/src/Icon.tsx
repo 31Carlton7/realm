@@ -71,19 +71,20 @@ export function Icon({ name, size = 16, className, colored = false }: { name: Ic
   /** Render a brand mark in its vendor's declared colour instead of `currentColor`. Only marks that
    *  declare one change (Claude, Gemini); the rest — and every non-brand glyph — ignore the flag. */
   colored?: boolean }) {
-  // Brand marks are filled 24×24 paths, not strokes, so they cannot ride HugeiconsIcon's stroke
+  // Brand marks are filled paths, not strokes, so they cannot ride HugeiconsIcon's stroke
   // rendering — but they stay inside this one component and this one name map (§7 allows the agent
   // glyph; everything else is still the Hugeicons stroke-standard set).
   if (isBrandName(name)) {
     const mark = brandMarks[name];
     const fill = colored && "color" in mark ? mark.color : "currentColor";
+    const paths: readonly string[] = typeof mark.d === "string" ? [mark.d] : mark.d;
     return (
       // Decorative like the rest of the set: every mark sits beside text that already names the
       // agent, so announcing "Anthropic" again would only add noise. `data-brand` is the test and
       // CSS hook.
-      <svg className={className} data-brand={name} width={size} height={size} viewBox="0 0 24 24"
+      <svg className={className} data-brand={name} width={size} height={size} viewBox={("viewBox" in mark && mark.viewBox) || "0 0 24 24"}
         xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-        <path d={mark.d} fill={fill} fillRule={"evenOdd" in mark ? "evenodd" : undefined} />
+        {paths.map((d, i) => <path key={i} d={d} fill={fill} fillRule={"evenOdd" in mark ? "evenodd" : undefined} />)}
       </svg>
     );
   }

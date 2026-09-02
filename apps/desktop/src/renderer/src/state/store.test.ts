@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, sessionEvent, PAGE_REF_IDS, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
-import { fakeApi, item, mcpServer, session, skillRow, space, type FakeApi } from "./store.test-fakes";
+import { fakeApi, iconAsset, item, mcpServer, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
 const split = (id: string, dir: "row" | "col", children: Layout[]): Layout =>
@@ -77,6 +77,47 @@ describe("app store", () => {
     expect(store.getState().spaces.map((s) => s.id)).toEqual(["s1", "s2"]);
   });
 
+  it.each(["generated", "uploaded"] as const)("an in-flight icon refresh cannot erase a newly %s icon", async (kind) => {
+    const api = fakeApi({ pickIconImage: { path: "/tmp/icon.png", mime: "image/png", name: "icon.png", size: 4 } });
+    const store = createAppStore(api); await store.getState().boot();
+    let release!: () => void;
+    api.listIconAssets = async (profileId) => {
+      api.calls.push(`listIconAssets:${profileId}`);
+      const stale = [...(api.data.iconAssets[profileId] ?? [])];
+      await new Promise<void>((resolve) => { release = resolve; });
+      return stale;
+    };
+
+    const refreshing = store.getState().refreshIconAssets("p1");
+    const asset = kind === "generated"
+      ? await store.getState().generateIcon("p1", "a violet moon")
+      : await store.getState().uploadIconImage("p1");
+    release(); await refreshing;
+
+    expect(asset).not.toBeNull();
+    expect(store.getState().iconAssets.p1?.map((row) => row.id)).toContain(asset!.id);
+  });
+
+  it("an in-flight icon refresh cannot resurrect a deleted icon", async () => {
+    const doomed = iconAsset("ia-doomed", "p1");
+    const api = fakeApi({ iconAssets: { p1: [doomed] } });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ iconAssets: { p1: [doomed] } });
+    let release!: () => void;
+    api.listIconAssets = async (profileId) => {
+      api.calls.push(`listIconAssets:${profileId}`);
+      const stale = [...(api.data.iconAssets[profileId] ?? [])];
+      await new Promise<void>((resolve) => { release = resolve; });
+      return stale;
+    };
+
+    const refreshing = store.getState().refreshIconAssets("p1");
+    await store.getState().deleteIconAsset("p1", doomed.id);
+    release(); await refreshing;
+
+    expect(store.getState().iconAssets.p1).toEqual([]);
+  });
+
   it("deleteSpace of the first (active) space selects the new first; deleting a non-active space keeps selection", async () => {
     const store = createAppStore(api); await store.getState().boot();
     await store.getState().deleteSpace("s2");
@@ -137,6 +178,19 @@ describe("app store", () => {
     await store.getState().refreshSpaces();
     expect(store.getState().activeSpaceId).toBe("s1");
     expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]);
+  });
+
+  it("refreshSpaces hydrates a newly referenced custom icon before publishing the spaces", async () => {
+    const api = fakeApi(); const store = createAppStore(api); await store.getState().boot();
+    const asset = iconAsset("ia-from-peer", "p1");
+    api.data.iconAssets.p1 = [asset];
+    api.data.spaces[0] = { ...api.data.spaces[0]!, icon: `asset:${asset.id}` };
+
+    await store.getState().refreshSpaces();
+
+    expect(api.calls).toContain("listIconAssets:p1");
+    expect(store.getState().spaces[0]?.icon).toBe(`asset:${asset.id}`);
+    expect(store.getState().iconAssets.p1).toEqual([asset]);
   });
 
   it("themePref persists", async () => {

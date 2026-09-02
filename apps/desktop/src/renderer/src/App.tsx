@@ -104,6 +104,7 @@ export function Main() {
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const splitFocused = useApp((s) => s.splitFocused);
   const openItemAt = useApp((s) => s.openItemAt);
+  const newSessionInstant = useApp((s) => s.newSessionInstant);
   const resizeSplit = useApp((s) => s.resizeSplit);
   const equalizeSplit = useApp((s) => s.equalizeSplit);
   const zoomedLeafId = useApp((s) => s.groups?.groups.find((g) => g.id === s.groups!.activeGroupId)?.zoomedLeafId ?? null);
@@ -129,7 +130,8 @@ export function Main() {
         onSplit={(leafId, dir) => { focusLeaf(leafId); run(() => splitFocused(dir)); }}
         onResize={resizeSplit}
         onEqualize={equalizeSplit}
-        onDropItem={(id, leafId, edge) => run(() => openItemAt(id, leafId, edge))} />
+        onDropItem={(id, leafId, edge) => run(() => openItemAt(id, leafId, edge))}
+        onDropNewSession={(leafId, edge) => run(() => newSessionInstant(leafId, edge))} />
     </>
   );
 }

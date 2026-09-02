@@ -45,6 +45,7 @@ function renderHost(over: Partial<PaneHostProps> = {}) {
 }
 
 const REALM_TYPE = "application/x-realm-item";
+const NEW_SESSION_TYPE = "application/x-realm-new-session";
 /** DataTransfer stub — jsdom's DataTransfer isn't constructable, so tests build the plain object the
  *  handlers actually touch: `types` (for the custom-type filter) and `getData` (keyed, so a handler
  *  reading the wrong key gets an obviously-wrong sentinel instead of silently working). */
@@ -55,6 +56,14 @@ function dt(itemId: string, types: string[] = [REALM_TYPE]) {
     setData: () => {},
     effectAllowed: "",
     dropEffect: "",
+  };
+}
+
+function newSessionDt() {
+  return {
+    types: [NEW_SESSION_TYPE],
+    getData: (key: string) => (key === NEW_SESSION_TYPE ? "new-session" : ""),
+    setData: () => {}, effectAllowed: "copy", dropEffect: "copy",
   };
 }
 
@@ -338,6 +347,12 @@ describe("PaneHost drag-to-split overlay", () => {
     });
   });
 
+  it("a new-session drag shows the same pane drop overlays", () => {
+    renderHost();
+    fireDrag(window, "dragstart", newSessionDt());
+    expect(document.querySelectorAll(".drop-overlay")).toHaveLength(2);
+  });
+
   it("ignores an OS file drag — no application/x-realm-item type means no overlay", () => {
     renderHost();
     fireDrag(window, "dragstart", dt("ignored", ["Files"]));
@@ -393,6 +408,17 @@ describe("PaneHost drag-to-split overlay", () => {
     const zone = overlay.querySelector('.drop-zone[data-edge="right"]')!;
     fireDrag(zone, "drop", dt("A"), { clientX: 390, clientY: 150 });
     expect(props.onDropItem).toHaveBeenCalledExactlyOnceWith("A", "L2", "right");
+  });
+
+  it("a new-session drop calls onDropNewSession without calling the item callback", () => {
+    const onDropNewSession = vi.fn();
+    const { props } = renderHost({ onDropNewSession });
+    fireDrag(window, "dragstart", newSessionDt());
+    const overlay = panel("L2").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    fireDrag(overlay, "drop", newSessionDt(), { clientX: 390, clientY: 150 });
+    expect(onDropNewSession).toHaveBeenCalledExactlyOnceWith("L2", "right");
+    expect(props.onDropItem).not.toHaveBeenCalled();
   });
 
   it("a completed drop also clears the drag state (overlay disappears)", () => {
@@ -480,6 +506,27 @@ async function mountMain(focusedLeafId: string) {
 }
 
 describe("App shell", () => {
+  it("dropping New session on a pane edge creates it in a new split", async () => {
+    const { store, api } = await mountMain("L1");
+    fireDrag(window, "dragstart", newSessionDt());
+    const overlay = panel("L2").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    fireDrag(overlay, "drop", newSessionDt(), { clientX: 390, clientY: 150 });
+
+    await waitFor(() => expect(api.calls).toContain("createSession:claude"));
+    await waitFor(() => {
+      const current = store.getState().layout;
+      expect(current?.type).toBe("split");
+      if (current?.type !== "split") throw new Error();
+      expect(current.children).toHaveLength(3);
+    });
+    const layout = store.getState().layout!;
+    expect(layout.type).toBe("split"); if (layout.type !== "split") throw new Error();
+    const created = store.getState().items.find((i) => i.kind === "session")!;
+    expect(layout.children.map((c) => c.type === "leaf" ? c.itemId : null)).toEqual(["A", "B", created.id]);
+    expect(store.getState().focusedLeafId).toBe(layout.children[2]!.id);
+  });
+
   it("PanelBar split targets its own leaf: focusLeaf runs before splitFocused", async () => {
     const { store } = await mountMain("L1");
     // L1 is focused; splitting from L2's PanelBar menu must split L2, not the previously focused leaf.
