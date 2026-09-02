@@ -20,3 +20,4 @@ export * from "./delegation";
 export * from "./search";
 export * from "./import";
 export * from "./models";
+export * from "./documents";

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema } from "./entities";
 
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
@@ -403,6 +403,55 @@ export const Methods = {
   "browsers.close":  { params: z.object({ browserId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   /**
+   * The document workspace (Plan 17 W1). Unlike the browser trio, the SERVER owns the content here —
+   * documents are files on disk, and the server is the only process that reads, writes and watches
+   * them. That is deliberate: it is what lets an agent edit a document with its ordinary Write/Edit
+   * tools and have the change appear in the open pane, with no agent-facing document API at all.
+   *
+   * Every `path` on this surface is RELATIVE to the workspace's environment root and is re-validated
+   * server-side on arrival (`resolveInRoot`); a client cannot reach outside the checkout by sending
+   * an absolute path or a `..` segment.
+   */
+  /** `environmentId` is optional: omitted, the workspace roots at the space's PRIMARY checkout, created
+   *  on demand. That is what lets "Documents" be openable from the sidebar of a space that has never
+   *  run a session — the session-scoped gesture passes the session's environment explicitly. */
+  "documents.create": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema }) },
+  "documents.get":    { params: z.object({ documentsId: IdSchema }), result: DocumentWorkspaceSchema },
+  /** The tab strip, persisted on every change. `activePath` outside `openPaths` is corrected, not
+   *  rejected — a client racing its own close should not be able to strand the pane on a dead tab. */
+  "documents.setTabs": { params: z.object({ documentsId: IdSchema, openPaths: z.array(z.string()), activePath: z.string().nullable() }), result: DocumentWorkspaceSchema },
+  "documents.close":  { params: z.object({ documentsId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** One directory level for the pane's file picker. `dir` is "" for the environment root. */
+  "documents.list":   { params: z.object({ documentsId: IdSchema, dir: z.string().default("") }), result: z.object({ entries: z.array(DocumentEntrySchema) }) },
+  /** `hash` is the content hash the client must send back with its next write — see `documents.write`. */
+  "documents.read":   { params: z.object({ documentsId: IdSchema, path: z.string() }), result: z.object({ text: z.string(), hash: z.string() }) },
+  /**
+   * Save. `baseHash` is the hash the client last read or wrote, and the server refuses the write when
+   * the file on disk no longer matches it — the lost-update guard. `null` means "this file should not
+   * exist yet" (first save of a new document), which fails the same way if something created it first.
+   *
+   * A refusal is `CONFLICT` carrying the current text, so the pane can offer keep-mine / take-theirs /
+   * diff without a second round trip. This is the check that stops an agent's edit and a user's
+   * unsaved paragraph from silently destroying one another.
+   */
+  "documents.write":  {
+    params: z.object({ documentsId: IdSchema, path: z.string(), text: z.string(), baseHash: z.string().nullable() }),
+    // A conflict is a RESULT, not an error: it carries the current text so the pane can render
+    // keep-mine / take-theirs / diff without a second round trip, and errors have nowhere to put a
+    // payload. `ok: false` is the only shape a caller has to branch on.
+    result: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), hash: z.string() }),
+      z.object({ ok: z.literal(false), currentText: z.string(), currentHash: z.string() }),
+    ]),
+  },
+  /** Create a new document from its kind's template and open it. Fails if the path already exists. */
+  "documents.createFile": { params: z.object({ documentsId: IdSchema, path: z.string(), kind: DocumentKindSchema, title: z.string() }), result: z.object({ path: z.string(), hash: z.string() }) },
+  /** Release this workspace's filesystem watches without touching its persisted tabs — what a pane
+   *  calls when it unmounts. Closing a pane is layout-only (Plan 4), so the tab strip must survive it;
+   *  the watches must not, or every pane ever opened keeps a watcher alive for the whole session. */
+  "documents.detach": { params: z.object({ documentsId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /**
    * The browser agent host's side of the main↔server bridge (Plan 11 W3). Electron main — the process
    * that owns the `WebContentsView`s and their `webContents.debugger` — connects to this same RPC
    * socket as a client and `register`s itself as the ONE executor for browser CDP operations. The
@@ -787,6 +836,16 @@ export const Events = {
   /** A ship-log row was written for this space (Plan 14 W1) — clients holding the space's ship list
    *  (the space page History tab) re-fetch; everyone else ignores it. */
   "ships.changed":    z.object({ spaceId: IdSchema }),
+  /**
+   * A document on disk changed underneath the pane (Plan 17 W1) — almost always an agent's Write/Edit,
+   * occasionally the user's own editor or a git operation.
+   *
+   * Keyed by ENVIRONMENT, not by workspace: two panes rooted at the same checkout are both looking at
+   * the same file and both must hear. `hash` is null when the file was deleted. Realm's own saves do
+   * NOT produce this event — the service suppresses echoes of content it already knows about, or the
+   * pane would fight its own autosave.
+   */
+  "documents.fileChanged": z.object({ environmentId: IdSchema, path: z.string(), hash: z.string().nullable() }),
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */

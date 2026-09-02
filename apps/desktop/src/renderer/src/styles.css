@@ -1616,3 +1616,172 @@ button.panel-title:hover { background: var(--rl-hover); }
 .import-actions { align-items: flex-start; }
 .import-result { padding: 8px 10px; border-radius: var(--r-ctl); background: var(--rl-raised); }
 .import-problems { margin-top: 6px; color: var(--rl-warning); }
+/* ── Document panes (Plan 17 W1) ─────────────────────────────────────────────
+   The tab strip is pane-local, not a layout surface: Plan 4 made the sidebar the single navigation
+   surface and one item per leaf, and these tabs stack FILES inside one workspace rather than items. */
+/* flex: 1 because .pane-slot is a flex ROW: without it the pane shrinks to content width and
+   floats in half the panel (caught by the live check's screenshot, invisible to jsdom). */
+.documents-pane { display: flex; flex-direction: column; flex: 1; min-width: 0; height: 100%; min-height: 0; }
+
+.documents-tabs {
+  display: flex; align-items: center; gap: 2px; padding: 4px 6px; overflow-x: auto;
+  border-bottom: 1px solid var(--rl-line); flex: 0 0 auto; scrollbar-width: thin; overflow-y: hidden;
+}
+.documents-tab { display: flex; align-items: center; border-radius: var(--rl-radius-sm); flex: 0 0 auto; }
+.documents-tab[data-active] { background: var(--rl-raised); }
+.documents-tab-label {
+  display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 8px; max-width: 180px;
+  background: none; border: 0; color: var(--rl-text-2); font: inherit; cursor: pointer;
+}
+.documents-tab[data-active] .documents-tab-label { color: var(--rl-text-1); }
+.documents-tab-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.documents-tab-close { padding: 2px; margin-right: 4px; opacity: 0; }
+.documents-tab:hover .documents-tab-close, .documents-tab[data-active] .documents-tab-close { opacity: 0.7; }
+/* Unsaved vs. needs-a-decision are different states and must not look alike: one resolves itself on
+   the autosave tick, the other waits for the user. */
+.documents-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-text-3); flex: 0 0 auto; }
+.documents-dot.conflict { background: var(--rl-warn, #d97706); }
+.documents-new { margin-left: 2px; flex: 0 0 auto; }
+
+.documents-bar {
+  display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-size: 12px;
+  border-bottom: 1px solid var(--rl-line); flex: 0 0 auto;
+}
+.documents-bar.conflict { background: color-mix(in srgb, var(--rl-warn, #d97706) 12%, transparent); }
+.documents-bar.warn { background: color-mix(in srgb, var(--rl-warn, #d97706) 8%, transparent); color: var(--rl-text-2); }
+.documents-bar-action {
+  padding: 2px 8px; border: 1px solid var(--rl-line); border-radius: var(--rl-radius-sm);
+  background: var(--rl-panel); color: var(--rl-text-1); font: inherit; font-size: 11px; cursor: pointer;
+}
+.documents-error { padding: 8px 10px; font-size: 12px; color: var(--rl-danger, #dc2626); }
+
+.documents-editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.documents-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 4px 8px; border-bottom: 1px solid var(--rl-line); flex: 0 0 auto;
+}
+.documents-kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.documents-surface { display: grid; grid-template-columns: 1fr; flex: 1 1 auto; min-height: 0; }
+.documents-surface[data-preview] { grid-template-columns: 1fr 1fr; }
+.documents-source {
+  width: 100%; height: 100%; resize: none; border: 0; outline: none; padding: 12px 14px;
+  background: transparent; color: var(--rl-text-1); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px; line-height: 1.6; tab-size: 2;
+}
+.documents-preview { overflow: auto; padding: 12px 14px; border-left: 1px solid var(--rl-line); }
+
+.documents-status {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 4px 10px; font-size: 11px; border-top: 1px solid var(--rl-line); flex: 0 0 auto;
+}
+.documents-status-state[data-state="dirty"] { color: var(--rl-text-2); }
+.documents-status-state[data-state="conflict"] { color: var(--rl-warn, #d97706); }
+
+.documents-picker {
+  border-bottom: 1px solid var(--rl-line); background: var(--rl-raised);
+  max-height: 45%; overflow: auto; flex: 0 0 auto;
+}
+.documents-picker-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-size: 11px; }
+.documents-picker-new { display: flex; gap: 6px; padding: 0 10px 8px; flex-wrap: wrap; }
+.documents-picker-new input {
+  flex: 1 1 140px; min-width: 120px; padding: 3px 8px; font: inherit; font-size: 12px;
+  border: 1px solid var(--rl-line); border-radius: var(--rl-radius-sm);
+  background: var(--rl-panel); color: var(--rl-text-1);
+}
+.documents-picker-new button {
+  padding: 3px 8px; font: inherit; font-size: 11px; border: 1px solid var(--rl-line);
+  border-radius: var(--rl-radius-sm); background: var(--rl-panel); color: var(--rl-text-1); cursor: pointer;
+}
+.documents-picker-new button:disabled { opacity: 0.45; cursor: default; }
+.documents-picker-list { list-style: none; margin: 0; padding: 0 6px 8px; }
+.documents-picker-list button {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 8px; text-align: left;
+  background: none; border: 0; border-radius: var(--rl-radius-sm); color: var(--rl-text-1);
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.documents-picker-list button:hover:not(:disabled) { background: var(--rl-panel); }
+.documents-picker-list button:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Rich markdown editor (Plan 17 W2) ───────────────────────────────────── */
+.documents-modes { display: inline-flex; border: 1px solid var(--rl-line); border-radius: var(--rl-radius-sm); overflow: hidden; }
+.documents-modes button {
+  padding: 2px 9px; font: inherit; font-size: 11px; border: 0; background: transparent;
+  color: var(--rl-text-2); cursor: pointer;
+}
+.documents-modes button[aria-pressed="true"] { background: var(--rl-raised); color: var(--rl-text-1); }
+
+.documents-rich { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.documents-rich-toolbar {
+  display: flex; align-items: center; gap: 2px; padding: 4px 8px; flex: 0 0 auto;
+  border-bottom: 1px solid var(--rl-line);
+}
+.documents-rich-sep { width: 1px; height: 16px; margin: 0 4px; background: var(--rl-line); }
+.documents-h { font-size: 11px; font-weight: 600; padding: 2px 6px; }
+.documents-rich .tiptap, .documents-rich-surface { outline: none; padding: 14px 18px; overflow: auto; flex: 1 1 auto; min-height: 0; }
+/* Soft line breaks are preserved as real newlines in the model, so they must render as breaks. */
+.documents-rich-surface { white-space: pre-wrap; line-height: 1.65; font-size: 13.5px; }
+.documents-rich-surface > * + * { margin-top: 0.7em; }
+.documents-rich-surface h1 { font-size: 1.55em; font-weight: 650; }
+.documents-rich-surface h2 { font-size: 1.3em; font-weight: 650; }
+.documents-rich-surface h3 { font-size: 1.12em; font-weight: 600; }
+.documents-rich-surface ul, .documents-rich-surface ol { padding-left: 1.4em; }
+.documents-rich-surface li > p { margin: 0; }
+.documents-rich-surface blockquote { border-left: 2px solid var(--rl-line); padding-left: 0.9em; color: var(--rl-text-2); }
+.documents-rich-surface code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: var(--rl-raised); padding: 0.1em 0.3em; border-radius: 3px; }
+.documents-rich-surface pre { background: var(--rl-raised); padding: 10px 12px; border-radius: var(--rl-radius-sm); overflow: auto; }
+.documents-rich-surface pre code { background: none; padding: 0; }
+.documents-rich-surface img { max-width: 100%; border-radius: var(--rl-radius-sm); }
+/* Content the schema cannot represent (tables, HTML, front-matter): shown as its exact source, and
+   preserved byte-for-byte on save rather than edited here. */
+.documents-raw {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre;
+  overflow-x: auto; padding: 8px 10px; border: 1px dashed var(--rl-line);
+  border-radius: var(--rl-radius-sm); color: var(--rl-text-2); background: var(--rl-raised);
+}
+.documents-rich-surface .ProseMirror-selectednode { outline: 2px solid var(--rl-accent, #6b7280); }
+
+/* ── Sheet editor (Plan 17 W3) ───────────────────────────────────────────── */
+.sheet-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.sheet-formula-bar {
+  display: flex; align-items: center; gap: 10px; padding: 4px 10px; flex: 0 0 auto;
+  border-bottom: 1px solid var(--rl-line); font-size: 12px;
+}
+.sheet-cellref { min-width: 40px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--rl-text-2); }
+.sheet-rawvalue { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-addcol {
+  padding: 2px 8px; font: inherit; font-size: 11px; border: 1px solid var(--rl-line);
+  border-radius: var(--rl-radius-sm); background: var(--rl-panel); color: var(--rl-text-1); cursor: pointer;
+}
+.sheet-grid { flex: 1; min-height: 0; }
+.sheet-cell { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; font-size: 12.5px; }
+.sheet-cell[data-formula] { color: var(--rl-accent, #7c8bd9); }
+.sheet-cell[data-error] { color: var(--rl-danger, #dc2626); }
+.sheet-cell-input {
+  width: 100%; height: 100%; border: 0; outline: none; padding: 0 8px; background: transparent;
+  color: var(--rl-text-1); font: inherit; font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* Re-skin the grid onto the flat token set. DESCENDANT selectors, not `.sheet-grid.dsg-container`:
+   the library's className lands on a wrapper, so the compound form matched nothing and the grid
+   rendered light-themed inside the dark app (caught by the live check's screenshot). */
+.sheet-editor .dsg-container {
+  --dsg-border-color: var(--rl-line);
+  --dsg-selection-border-color: var(--rl-accent, #7c8bd9);
+  --dsg-selection-background-color: color-mix(in srgb, var(--rl-accent, #7c8bd9) 8%, transparent);
+  --dsg-header-text-color: var(--rl-text-2);
+  --dsg-header-active-text-color: var(--rl-text-1);
+  --dsg-cell-background-color: var(--rl-panel);
+  --dsg-header-background-color: var(--rl-raised);
+  --dsg-scroll-shadow-color: transparent;
+  background: var(--rl-panel); border: none;
+  color: var(--rl-text-1);
+}
+.sheet-editor .dsg-add-row {
+  background: var(--rl-panel); border: none; border-top: 1px solid var(--rl-line);
+  color: var(--rl-text-2); padding: 6px 10px;
+}
+.sheet-editor .dsg-add-row button, .sheet-editor .dsg-add-row input {
+  background: var(--rl-raised); color: var(--rl-text-1); border: 1px solid var(--rl-line);
+  border-radius: var(--rl-radius-sm); font: inherit; font-size: 11px;
+}
+.sheet-editor .dsg-input { background: transparent; color: var(--rl-text-1); }

@@ -45,7 +45,7 @@ export function SessionMeta({ item }: { item: Item }) {
  *  toggle — uniform icon buttons, no text labels. Open-external is skipped: a session has nothing
  *  to open externally, and dead chrome is worse than none (§7). */
 export function SessionPanelActions({ item }: { item: Item }) {
-  return (<><SessionDiffButton item={item} /><SessionTerminalToggle item={item} /></>);
+  return (<><SessionDiffButton item={item} /><SessionDocumentsButton item={item} /><SessionTerminalToggle item={item} /></>);
 }
 
 /** Opens (or focuses) the diff pane for the session's environment — the same openDiff the prompter's
@@ -65,6 +65,34 @@ function SessionDiffButton({ item }: { item: Item }) {
     <button className="icon-btn" aria-label={`Show changes for ${item.title}`} title="Changes"
       onClick={() => run(() => openDiff(environmentId))}>
       <Icon name="branch" size={14} />
+    </button>
+  );
+}
+
+/**
+ * Opens (or focuses) the document workspace for the session's environment (Plan 17 W1) — the gesture
+ * the user described as "open documents the way we open a terminal for a session".
+ *
+ * It sits next to the diff button and works the same way, because it IS the same shape: a documents
+ * pane is rooted at an ENVIRONMENT, so several sessions sharing a checkout share one workspace and one
+ * tab strip. Unlike the terminal, this is a real layout item rather than an internal drawer — a
+ * document needs the whole pane, and needs to be splittable beside the session that is editing it.
+ */
+function SessionDocumentsButton({ item }: { item: Item }) {
+  const id = item.refId;
+  // Same precondition as the diff button: gated on the environment being loaded, because an action
+  // that could only no-op is dead chrome (Ara refresh §7).
+  const environmentId = useApp((s) => {
+    const e = s.sessions[id]?.environmentId;
+    return e && s.environments[e] ? e : null;
+  });
+  const openDocuments = useApp((s) => s.openDocuments);
+  const run = useApp((s) => s.run);
+  if (!environmentId) return null;
+  return (
+    <button className="icon-btn" aria-label={`Open documents for ${item.title}`} title="Documents"
+      onClick={() => run(() => openDocuments(environmentId))}>
+      <Icon name="documents" size={14} />
     </button>
   );
 }

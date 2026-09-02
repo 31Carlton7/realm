@@ -5,7 +5,7 @@ import {
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY,
-  type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory,
+  type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
@@ -93,6 +93,16 @@ export type Api = {
   createTerminal(spaceId: string): Promise<{ terminalId: string; itemId: string }>;
   /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
   createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
+  /** Plan 17 W1. `environmentId` omitted roots the workspace at the space's primary checkout. */
+  createDocuments(spaceId: string, environmentId?: string): Promise<{ documentsId: string; itemId: string }>;
+  getDocuments(documentsId: string): Promise<DocumentWorkspace>;
+  setDocumentTabs(documentsId: string, openPaths: string[], activePath: string | null): Promise<DocumentWorkspace>;
+  detachDocuments(documentsId: string): Promise<void>;
+  listDocumentEntries(documentsId: string, dir: string): Promise<DocumentEntry[]>;
+  readDocument(documentsId: string, path: string): Promise<{ text: string; hash: string }>;
+  writeDocument(documentsId: string, path: string, text: string, baseHash: string | null):
+    Promise<{ ok: true; hash: string } | { ok: false; currentText: string; currentHash: string }>;
+  createDocumentFile(documentsId: string, path: string, kind: DocumentKind, title: string): Promise<{ path: string; hash: string }>;
   updateItem(input: UpdateItemInput): Promise<Item>;
   /** Deleting a terminal item closes its pty server-side. */
   deleteItem(id: string): Promise<void>;
@@ -900,6 +910,19 @@ export type AppState = {
   /** Open (or focus) the diff pane for an environment. The pane's item has the ENVIRONMENT's id as
    *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
+  /** Open (or focus) the document workspace for an environment — the `openDiff` gesture, for files.
+   *  `environmentId` omitted uses the space's primary checkout, which is the sidebar's "Documents". */
+  openDocuments(environmentId?: string | null, targetLeafId?: string | null): Promise<void>;
+  /** Thin pass-throughs to the document RPCs. Panes never hold `api` themselves (it is the store's
+   *  test seam), so every server call a document pane makes arrives here. */
+  getDocuments(documentsId: string): Promise<DocumentWorkspace>;
+  setDocumentTabs(documentsId: string, openPaths: string[], activePath: string | null): Promise<DocumentWorkspace>;
+  detachDocuments(documentsId: string): Promise<void>;
+  listDocumentEntries(documentsId: string, dir: string): Promise<DocumentEntry[]>;
+  readDocument(documentsId: string, path: string): Promise<{ text: string; hash: string }>;
+  writeDocument(documentsId: string, path: string, text: string, baseHash: string | null):
+    Promise<{ ok: true; hash: string } | { ok: false; currentText: string; currentHash: string }>;
+  createDocumentFile(documentsId: string, path: string, kind: DocumentKind, title: string): Promise<{ path: string; hash: string }>;
   /** "Request review" (Plan 13 W3): spawn the read-only reviewer over this environment. Marks it
    *  `reviewing` until the verdict's `review.changed` lands; the reviewer's pane arrives via the
    *  server's `session.agentOpened`. */
@@ -2424,6 +2447,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
         await adoptItem(sid, created.id, targetLeafId, true);
       },
+      async openDocuments(environmentId = null, targetLeafId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        // No local "is it already open?" check, unlike openDiff: the SERVER enforces one workspace per
+        // environment and returns the existing pair, so this call is idempotent and already answers
+        // the question. Doing it here as well would need the environment id the caller may not have
+        // passed (the primary checkout is resolved server-side) plus a cache of workspace rows to
+        // resolve it against — two new pieces of state to keep honest, for an answer already in hand.
+        const { itemId } = await api.createDocuments(sid, environmentId ?? undefined);
+        const layout = get().layout;
+        if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
+        await adoptItem(sid, itemId, targetLeafId);
+      },
+      getDocuments: (documentsId) => api.getDocuments(documentsId),
+      setDocumentTabs: (documentsId, openPaths, activePath) => api.setDocumentTabs(documentsId, openPaths, activePath),
+      detachDocuments: (documentsId) => api.detachDocuments(documentsId),
+      listDocumentEntries: (documentsId, dir) => api.listDocumentEntries(documentsId, dir),
+      readDocument: (documentsId, path) => api.readDocument(documentsId, path),
+      writeDocument: (documentsId, path, text, baseHash) => api.writeDocument(documentsId, path, text, baseHash),
+      createDocumentFile: (documentsId, path, kind, title) => api.createDocumentFile(documentsId, path, kind, title),
       async requestReview(environmentId) {
         if (get().reviewing[environmentId]) return; // the button is disabled too; the server refuses regardless
         set({ reviewing: { ...get().reviewing, [environmentId]: true } });
