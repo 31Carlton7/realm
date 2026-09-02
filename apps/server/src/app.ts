@@ -12,6 +12,11 @@ import { TerminalService } from "./terminals/service";
 import { BrowsersStore } from "./store/browsers";
 import { DocumentsStore } from "./store/documents";
 import { DocumentService } from "./documents/service";
+import { DocumentPreviewServer } from "./documents/preview";
+import { createDocsAgentProvider } from "./documents/agent-tools";
+import { TextExtractor } from "./documents/text-extract";
+import { LectureService } from "./school/lectures";
+import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
@@ -166,6 +171,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
    *  passes `generateSessionTitle`. */
   titleGenerator?: (text: string) => Promise<string>;
+  /** Plan 22: where Plynn's meeting exports are read from. Tests point this at a fixture; production
+   *  leaves it unset for `~/Library/Application Support/Plynn/Meetings`. */
+  plynnMeetingsDir?: string;
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -204,7 +212,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
   const browsersStore = new BrowsersStore(db);
   const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
-  const documents = new DocumentService({ db, rpc, spaces, items, environments, documents: new DocumentsStore(db) });
+  // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
+  // the service below (a workspace id → its checkout), which is the only thing it needs to know.
+  const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
+  const documents: DocumentService = new DocumentService({ db, rpc, spaces, items, environments, documents: new DocumentsStore(db), preview });
   // W2: the one slice of the spaces/profiles world the scoped services (skills, MCP, memory) may see.
   // A seam rather than the store so each service declares exactly the questions it asks.
   const scopeSeam = {
@@ -370,6 +381,18 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     timeouts: opts.ask?.timeouts,
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
+  // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
+  // One extractor for the process: PDF text is memoized across every session's searches.
+  const extractor = new TextExtractor();
+  mcpGateway.registerProvider(createDocsAgentProvider({
+    mcp, extractor,
+    rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } },
+    listForSpace: (spaceId, dir) => documents.list(documents.open({ spaceId }).documentsId, dir),
+    openPath: (p) => documents.openPath(p),
+    progressForSpace: (spaceId, path) => documents.progressRead(documents.open({ spaceId }).documentsId, path),
+  }));
+  const lectures = new LectureService({ spaces, documents });
+  const plynn = new PlynnService({ spaces, settings, documents, meetingsDir: opts.plynnMeetingsDir });
   // Durable runs: a goal that owns a session across attempts and survives restarts. Not on the
   // delegation engine on purpose — nobody is blocked on a run, so its state is a row and its settle
   // rides the session-event hook above (runs/service.ts).
@@ -398,7 +421,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();
@@ -413,6 +436,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // The gateway must be accepting connections before any session can start (its listener mints the URL
   // every `sessions.create` → send hands an adapter), and well before the RPC socket opens to clients.
   await mcpGateway.listen();
+  await preview.listen();
   const port = await rpc.listen(opts.port);
   return {
     port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, gateway: mcpGateway,
@@ -424,6 +448,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
       // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.
       documents.dispose();
+      await preview.close();
       await mcpGateway.close();
       await mcpHub.close();
       await rpc.close();

@@ -29,6 +29,8 @@ import type { ReviewService } from "../delegation/review";
 import type { SearchService } from "../search/service";
 import type { ForkService } from "../sessions/fork";
 import type { ImportService } from "../import/service";
+import type { LectureService } from "../school/lectures";
+import type { PlynnService } from "../school/plynn";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
 import type { GitWriteService } from "../workspace/git-write";
@@ -42,7 +44,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
 };
 
@@ -439,6 +441,16 @@ export function registerMethods(d: Deps): void {
   reg("documents.read", (p) => d.documents.read(p.documentsId, p.path));
   reg("documents.write", (p) => d.documents.write(p.documentsId, p.path, p.text, p.baseHash));
   reg("documents.createFile", (p) => d.documents.createFile(p.documentsId, p.path, p.kind, p.title));
+  // Plan 22 — school workflows. Previews are a port+token the renderer builds frame URLs from;
+  // openPath is the one "put this file on screen" call both the store and the docs_open tool use.
+  reg("documents.previewInfo", () => d.documents.previewInfo());
+  reg("documents.openPath", (p) => d.documents.openPath(p));
+  reg("documents.progressRead", (p) => d.documents.progressRead(p.documentsId, p.path));
+  reg("documents.progressRecord", (p) => d.documents.progressRecord(p));
+  reg("lectures.start", (p) => d.lectures.start(p));
+  reg("lectures.list", async (p) => ({ lectures: await d.lectures.list(p.spaceId) }));
+  reg("plynn.list", () => d.plynn.list());
+  reg("plynn.import", (p) => d.plynn.import(p));
 
   // The browser agent host's bridge (Plan 11 W3). `register` is raw `rpc.register` rather than `reg`
   // because it is the one method that needs its caller's socket — the bridge sends that exact client

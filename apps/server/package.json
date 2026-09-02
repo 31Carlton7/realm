@@ -18,7 +18,9 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@realm/adapters": "workspace:*",
     "@realm/contracts": "workspace:*",
+    "katex": "^0.16.47",
     "node-pty": "1.2.0-beta.15",
+    "pdfjs-dist": "^5.7.284",
     "ws": "^8.18.0",
     "zod": "^3.24.0"
   },

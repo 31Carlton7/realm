@@ -1,6 +1,10 @@
 import { readdir, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { documentTemplate, newId, type DocumentEntry, type DocumentKind, type DocumentWorkspace } from "@realm/contracts";
+import {
+  documentTemplate, emptyGuideProgress, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
+  type DocumentEntry, type DocumentKind, type DocumentWorkspace, type GuideProgress,
+} from "@realm/contracts";
+import type { DocumentPreviewServer } from "./preview";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { DocumentsStore } from "../store/documents";
@@ -8,7 +12,7 @@ import type { EnvironmentsStore } from "../store/environments";
 import type { ItemsStore } from "../store/items";
 import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
-import { hashText, readDocument, readIfExists, writeDocument, type WriteOutcome } from "./files";
+import { hashText, readDocument, readIfExists, writeAtomic, writeDocument, type WriteOutcome } from "./files";
 import { relInRoot, resolveInRoot } from "./paths";
 import { DocumentWatcher } from "./watcher";
 
@@ -34,8 +38,82 @@ export class DocumentService {
   constructor(private d: {
     db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore;
     environments: EnvironmentsStore; documents: DocumentsStore;
+    /** Plan 22: the loopback listener guides and PDFs are framed from. Optional so the unit tests
+     *  that never preview need not bind a port. */
+    preview?: DocumentPreviewServer;
   }) {
     this.watcher = new DocumentWatcher((abs, hash) => this.onFileChanged(abs, hash));
+  }
+
+  // ---------------------------------------------------------------- Plan 22: previews, opening, progress
+
+  previewInfo(): { port: number; token: string } {
+    if (!this.d.preview) throw new RpcError("UNAVAILABLE", "document previews are not available in this server");
+    return this.d.preview.info();
+  }
+
+  /** The workspace root for the preview server's `rootOf` seam; null for an unknown workspace. */
+  rootOfWorkspace(documentsId: string): string | null {
+    const ws = this.d.documents.get(documentsId);
+    if (!ws) return null;
+    return this.d.environments.get(ws.environmentId)?.path ?? null;
+  }
+
+  /** A space's primary checkout — where lectures/ and guides/ live. Creates the environment row on
+   *  demand, exactly as `open` does. */
+  rootForSpace(spaceId: string): string {
+    if (!this.d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
+    return this.d.environments.ensurePrimary(spaceId).path;
+  }
+
+  /** Let another writer (lectures, the Plynn import) tell the watcher about a file it just wrote.
+   *  `null` means "I do not know the hash; treat the next event as real". */
+  noteWrite(abs: string, hash: string | null): void {
+    if (hash !== null) this.watcher.noteWrite(abs, hash);
+  }
+
+  /**
+   * Surface one file: ensure the workspace over the environment (primary when omitted), put `path`
+   * on its tab strip as the active tab, and broadcast `documents.openRequested`. The file must
+   * exist — opening a tab on nothing would show an empty editor that cannot save (`baseHash` null
+   * + a later creation = conflict), so a missing file is an error here rather than a surprise later.
+   */
+  async openPath(p: { spaceId: string; environmentId?: string; path: string }): Promise<{ documentsId: string; itemId: string; environmentId: string }> {
+    const { documentsId, itemId } = this.open({ spaceId: p.spaceId, environmentId: p.environmentId });
+    const ws = this.get(documentsId);
+    const abs = resolveInRoot(this.rootOf(ws), p.path);
+    let st;
+    try { st = await stat(abs); } catch { throw new RpcError("NOT_FOUND", `no such file: ${p.path}`); }
+    if (!st.isFile()) throw new RpcError("BAD_PATH", `${p.path} is not a file`);
+    const openPaths = ws.openPaths.includes(p.path) ? ws.openPaths : [...ws.openPaths, p.path];
+    await this.setTabs(documentsId, openPaths, p.path);
+    this.d.rpc.broadcast("documents.openRequested", { spaceId: ws.spaceId, environmentId: ws.environmentId, documentsId, itemId, path: p.path });
+    return { documentsId, itemId, environmentId: ws.environmentId };
+  }
+
+  /** A guide's quiz history from its sidecar; a missing or unreadable sidecar is simply empty. */
+  async progressRead(documentsId: string, path: string): Promise<GuideProgress> {
+    const ws = this.get(documentsId);
+    const abs = resolveInRoot(this.rootOf(ws), progressSidecarPath(path));
+    const cur = await readIfExists(abs);
+    if (!cur) return emptyGuideProgress();
+    try {
+      const parsed = GuideProgressSchema.safeParse(JSON.parse(cur.text));
+      return parsed.success ? parsed.data : emptyGuideProgress();
+    } catch { return emptyGuideProgress(); }
+  }
+
+  /** Fold one attempt in and rewrite the sidecar. Last-writer-wins on the sidecar is fine: it is
+   *  derived data with one producer (the pane), never hand-edited. */
+  async progressRecord(p: { documentsId: string; path: string; topic: string; correct: number; total: number }): Promise<GuideProgress> {
+    const ws = this.get(p.documentsId);
+    const abs = resolveInRoot(this.rootOf(ws), progressSidecarPath(p.path));
+    const prev = await this.progressRead(p.documentsId, p.path);
+    const next = recordGuideAttempt(prev, p.topic, { at: Date.now(), correct: Math.min(p.correct, p.total), total: p.total });
+    const text = `${JSON.stringify(next, null, 2)}\n`;
+    await writeAtomic(abs, text);
+    this.watcher.noteWrite(abs, hashText(text));
+    return next;
   }
 
   // ---------------------------------------------------------------- lifecycle

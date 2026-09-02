@@ -12,6 +12,8 @@ import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } fro
 import { ReviewResultSchema } from "./review";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
+import { GuideProgressSchema } from "./documents";
+import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -451,6 +453,34 @@ export const Methods = {
    *  calls when it unmounts. Closing a pane is layout-only (Plan 4), so the tab strip must survive it;
    *  the watches must not, or every pane ever opened keeps a watcher alive for the whole session. */
   "documents.detach": { params: z.object({ documentsId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  // ---- Plan 22 (school workflows): previews, guide progress, lectures, the Plynn handoff ----------
+  /** Where the document preview server listens. The renderer builds `http://127.0.0.1:<port>/p/<token>/
+   *  <documentsId>/<path>` frame URLs from this; the token is minted per server boot and scoped by
+   *  path so a guide's relative assets (`img src="fig.png"`) resolve under the same prefix. */
+  "documents.previewInfo": { params: z.object({}), result: z.object({ port: z.number().int(), token: z.string() }) },
+  /**
+   * Surface ONE file in the documents pane: ensure the workspace over `environmentId` (the primary
+   * checkout when omitted), add `path` to its tab strip as the active tab, and broadcast
+   * `documents.openRequested` so a mounted pane opens the tab and the store brings the item on screen.
+   * The agent-facing `docs_open` tool and the store's own "open this lecture" both come through here.
+   */
+  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema }) },
+  /** A guide's quiz history from its sidecar; empty when there is none. */
+  "documents.progressRead": { params: z.object({ documentsId: IdSchema, path: z.string() }), result: GuideProgressSchema },
+  /** Fold one quiz attempt into the sidecar and return the updated history. */
+  "documents.progressRecord": { params: z.object({ documentsId: IdSchema, path: z.string(), topic: z.string().min(1).max(200), correct: z.number().int().nonnegative(), total: z.number().int().positive() }), result: GuideProgressSchema },
+  /** Create today's lecture file from the template (a numbered suffix if it exists), open it in the
+   *  documents pane, and answer with everything the store needs to arrange the panes. */
+  "lectures.start": { params: z.object({ spaceId: IdSchema, title: z.string().default("") }), result: StartLectureResultSchema },
+  "lectures.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ lectures: z.array(LectureSchema) }) },
+  /** Plynn's meetings folder, newest first. `available` is false when the folder does not exist —
+   *  Plynn not installed, or no meeting recorded yet — which the sheet says instead of showing an
+   *  empty list that looks like a bug. A pure read. */
+  "plynn.list": { params: z.object({}), result: z.object({ available: z.boolean(), folder: z.string(), meetings: z.array(PlynnMeetingSchema) }) },
+  /** Copy the named recordings under `lectures/` in the space's primary checkout, with a front-matter
+   *  header naming the source, and open the first in the documents pane. Plynn's files are untouched. */
+  "plynn.import": { params: z.object({ spaceId: IdSchema, files: z.array(z.string()).min(1).max(100) }), result: PlynnImportResultSchema },
 
   /**
    * The browser agent host's side of the main↔server bridge (Plan 11 W3). Electron main — the process
@@ -905,6 +935,10 @@ export const Events = {
    * pane would fight its own autosave.
    */
   "documents.fileChanged": z.object({ environmentId: IdSchema, path: z.string(), hash: z.string().nullable() }),
+  /** `documents.openPath` ran (Plan 22): a mounted pane over this workspace opens the tab, and the
+   *  store puts the item on screen if the space is active. Carries the item so the store need not
+   *  re-list. */
+  "documents.openRequested": z.object({ spaceId: IdSchema, environmentId: IdSchema, documentsId: IdSchema, itemId: IdSchema, path: z.string() }),
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */

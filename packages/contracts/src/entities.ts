@@ -142,7 +142,13 @@ export type DocumentEntry = z.infer<typeof DocumentEntrySchema>;
  * error case: the picker still lists such a file and the pane shows a clear "not editable here" state
  * rather than opening an empty text buffer over a binary.
  */
-export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "unsupported"]);
+/**
+ * `html` and `pdf` (Plan 22) are PREVIEW kinds, not editors: an `.html` file is an interactive study
+ * guide rendered in a sandboxed frame (with a Source view behind it), a `.pdf` is a problem set or a
+ * slide deck shown read-only beside the session working on it. Neither goes through the Markdown or
+ * sheet models.
+ */
+export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "unsupported"]);
 export type DocumentKind = z.infer<typeof DocumentKindSchema>;
 
 /**

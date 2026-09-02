@@ -22,3 +22,4 @@ export * from "./import";
 export * from "./models";
 export * from "./documents";
 export * from "./runs";
+export * from "./school";

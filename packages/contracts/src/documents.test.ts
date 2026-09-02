@@ -73,3 +73,71 @@ describe("documentTemplate", () => {
 it("caps openable files at 2 MiB", () => {
   expect(DOCUMENT_MAX_BYTES).toBe(2097152);
 });
+
+// ---- Plan 22: preview kinds, guide template, progress sidecar -----------------------------------
+import {
+  documentKindFor as kindFor22, documentTemplate as template22, emptyGuideProgress, guideTemplate, progressSidecarPath,
+  recordGuideAttempt, slugify, weakTopics, GUIDE_PROGRESS_MAX_ATTEMPTS, GuideProgressSchema,
+} from "./documents";
+
+describe("Plan 22 — html and pdf kinds", () => {
+  it("classifies .html/.htm as html and .pdf as pdf, case-insensitively", () => {
+    expect(kindFor22("guides/cache.html")).toBe("html");
+    expect(kindFor22("GUIDE.HTM")).toBe("html");
+    expect(kindFor22("slides/lecture4.PDF")).toBe("pdf");
+    expect(kindFor22("archive.zip")).toBe("unsupported");
+  });
+  it("starts a guide with the runtime's markup and the KaTeX opt-in, escaped", () => {
+    const t = template22("html", 'Caches & "coherence"');
+    expect(t).toContain('<meta name="realm-helpers" content="katex">');
+    expect(t).toContain("<title>Caches &amp; &quot;coherence&quot;</title>");
+    expect(t).toContain('class="rg-quiz" data-topic="caches-coherence"');
+    expect(t).toContain('class="rg-check"');
+    expect(t).not.toContain("guide.js"); // the server injects the runtime; the file stays portable
+    expect(guideTemplate("!!!")).toContain('data-topic="topic"');
+  });
+});
+
+describe("slugify", () => {
+  it("lowercases, strips diacritics, collapses runs, trims hyphens, caps length", () => {
+    expect(slugify("Pipelining & Hazards")).toBe("pipelining-hazards");
+    expect(slugify("  Émile's   café ")).toBe("emile-s-cafe");
+    expect(slugify("---")).toBe("");
+    expect(slugify("a".repeat(100))).toHaveLength(64);
+  });
+});
+
+describe("guide progress", () => {
+  it("hides the sidecar beside the guide", () => {
+    expect(progressSidecarPath("guides/cache.html")).toBe("guides/.cache.html.progress.json");
+    expect(progressSidecarPath("cache.html")).toBe(".cache.html.progress.json");
+  });
+  it("folds attempts, deriving best and last", () => {
+    let p = emptyGuideProgress();
+    p = recordGuideAttempt(p, "caches", { at: 1, correct: 2, total: 4 });
+    p = recordGuideAttempt(p, "caches", { at: 2, correct: 4, total: 4 });
+    p = recordGuideAttempt(p, "caches", { at: 3, correct: 3, total: 4 });
+    expect(p.topics.caches).toMatchObject({ best: 1, last: 0.75 });
+    expect(p.topics.caches!.attempts).toHaveLength(3);
+    expect(GuideProgressSchema.safeParse(p).success).toBe(true);
+  });
+  it("is pure — the input is not mutated", () => {
+    const p = emptyGuideProgress();
+    recordGuideAttempt(p, "t", { at: 1, correct: 1, total: 1 });
+    expect(p.topics).toEqual({});
+  });
+  it("caps the history so a semester of retakes cannot grow the sidecar unbounded", () => {
+    let p = emptyGuideProgress();
+    for (let i = 0; i < GUIDE_PROGRESS_MAX_ATTEMPTS + 10; i++) p = recordGuideAttempt(p, "t", { at: i, correct: 1, total: 2 });
+    expect(p.topics.t!.attempts).toHaveLength(GUIDE_PROGRESS_MAX_ATTEMPTS);
+    expect(p.topics.t!.attempts[0]!.at).toBe(10); // oldest dropped, not newest
+  });
+  it("names weak topics by the LAST attempt, sorted", () => {
+    let p = emptyGuideProgress();
+    p = recordGuideAttempt(p, "z", { at: 1, correct: 1, total: 4 });
+    p = recordGuideAttempt(p, "a", { at: 1, correct: 4, total: 4 });
+    p = recordGuideAttempt(p, "a", { at: 2, correct: 1, total: 4 }); // best is 100%, last is 25%
+    p = recordGuideAttempt(p, "m", { at: 1, correct: 4, total: 5 });
+    expect(weakTopics(p)).toEqual(["a", "z"]);
+  });
+});
