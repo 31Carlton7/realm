@@ -308,6 +308,24 @@ describe("SessionPane", () => {
     });
   });
 
+  it("attributes a question another session delivered, and never attributes the user's own words", async () => {
+    await mount("idle", reduceAll([
+      sessionEvent("user_message", { text: "I typed this", attachments: [] }),
+      sessionEvent("user_message", { text: "an agent asked this", attachments: [], from: { sessionId: "s2", title: "Refactor the parser" } }),
+    ]));
+    const rows = [...document.querySelectorAll(".msg-user-row")];
+    expect(rows).toHaveLength(2);
+    // Kills rendering the attribution always (every user message credited to a session) or never
+    // (another agent's words shown as the user's — a lie by omission the user would act on).
+    expect(rows[0]!.hasAttribute("data-from")).toBe(false);
+    expect(rows[0]!.querySelector(".msg-user-from")).toBeNull();
+    expect(rows[1]!.hasAttribute("data-from")).toBe(true);
+    expect(rows[1]!.querySelector(".msg-user-from")).toHaveTextContent("Asked by Refactor the parser");
+    // The fenced text itself is shown exactly as the peer received it: the user should be able to see
+    // what the agent was actually handed, not a cleaned-up version of it.
+    expect(rows[1]!.querySelector(".msg-user")).toHaveTextContent("an agent asked this");
+  });
+
   it("the Thinking… under-strip shows only while the session is running", async () => {
     const { store } = await mount("running", reduceAll([sessionEvent("user_message", { text: "go", attachments: [] })]));
     expect(document.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");

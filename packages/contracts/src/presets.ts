@@ -193,6 +193,43 @@ export type SessionMode = (typeof SESSION_MODES)[number]["id"];
  * - `fake` — the scripted dev adapter ignores the field entirely, but stays true so the development
  *   prompter shows the same controls as a real one (as it already does for permission modes).
  */
+/**
+ * How a message from ANOTHER session reaches an agent that is mid-turn (Plan 20).
+ *
+ * Read all three real adapters before writing this down, the same discipline as
+ * AGENT_SUPPORTS_PERMISSION_MODES and AGENT_CONVERSATION_REWIND. The two values are NOT degrees of
+ * the same thing:
+ *
+ * - `steer` — the turn is never stopped. Codex alone: `turn/steer {threadId, expectedTurnId, input}`
+ *   is verified in docs/dev/codex-app-server-protocol.md and `CodexAdapter.send` already takes that
+ *   branch whenever a turn is active. Nothing is interrupted, so there is nothing to resume.
+ * - `interrupt` — the turn ENDS and the peer is re-prompted. Claude's `q.interrupt()` is answered by
+ *   the SDK with a `result`, which is irrecoverable: there is no "resume the aborted turn" verb in
+ *   the options object. ACP's `session/cancel` is the same, and there it is also MANDATORY — ACP
+ *   describes `session/prompt` as one request pending for the whole turn, and `AcpAdapter.send`
+ *   fires it unconditionally, so two concurrent prompts on one sessionId is undefined behaviour.
+ *
+ * The peer keeps its own context either way: that context is the PROVIDER's conversation, not
+ * something Realm rebuilds. Realm never synthesises a "here is what you were doing" summary — the
+ * peer's own transcript already says it, and any summary we wrote would be a lossier copy in Realm's
+ * voice. What an interrupt does cost is real and must be reported, not smoothed over: the in-flight
+ * tool call is aborted, and any permission prompt the peer had open is DENIED by the interrupt
+ * (`denyAllPending`), which is why a peer in `waiting_permission` is refused outright.
+ */
+export const AGENT_MIDTURN_DELIVERY = {
+  claude: "interrupt",
+  codex: "steer",
+  // Every ACP kind: one adapter, one answer. `acp:gemini` is supported-but-unexercised, and whether
+  // Cursor and Gemini honour `stopReason: "cancelled"` is still unverified (docs/dev/acp-protocol.md
+  // §6) — if a live check disproves it, the honest fix is a third value here, not a workaround.
+  "acp:cursor": "interrupt", "acp:gemini": "interrupt", "acp:opencode": "interrupt",
+  "acp:copilot": "interrupt", "acp:goose": "interrupt", "acp:qwen": "interrupt",
+  "acp:grok": "interrupt", "acp:fx": "interrupt",
+  // The scripted adapter models the interrupt kinds (its `interrupt` breaks the step loop while the
+  // turn still emits its trailing usage + idle), which is what the behaviour suite needs.
+  fake: "interrupt",
+} as const satisfies Record<import("./entities").AgentKind, "steer" | "interrupt">;
+
 export const AGENT_SUPPORTS_PLAN_MODE = {
   claude: true, codex: true, "acp:cursor": false, "acp:gemini": false,
   // Same per-session answer as Cursor's, and now genuinely load-bearing: opencode reports its modes

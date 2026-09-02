@@ -2,6 +2,20 @@ import { describe, expect, it } from "vitest";
 import { sessionEvent } from "@realm/contracts";
 import { emptyTranscript, reduceAll, reduceTranscript } from "./transcript-model";
 
+describe("a message another session delivered (Plan 20)", () => {
+  it("carries `from` onto the user block, and leaves it undefined for a message the user typed", () => {
+    let t = emptyTranscript();
+    t = reduceTranscript(t, sessionEvent("user_message", { text: "I typed this", attachments: [] }));
+    // Absence is the ordinary case and must stay absent — a block that claimed an author for every
+    // message would attribute the user's own words to a session.
+    expect(t.blocks.at(-1)).not.toHaveProperty("from");
+    t = reduceTranscript(t, sessionEvent("user_message", { text: "an agent asked this", attachments: [], from: { sessionId: "s1", title: "Refactor the parser" } }));
+    // Kills the reducer dropping the field, which silently un-labels every injected message: the pane
+    // would then render another agent's words as something the user typed.
+    expect(t.blocks.at(-1)).toMatchObject({ kind: "user", text: "an agent asked this", from: { sessionId: "s1", title: "Refactor the parser" } });
+  });
+});
+
 describe("transcript model", () => {
   it("builds blocks: user, assistant (deltas then final), tool with result, permission pending→resolved", () => {
     let t = emptyTranscript();

@@ -568,6 +568,11 @@ button.panel-title:hover { background: var(--rl-hover); }
    14px 16px padding, 85% max — and, copying Ara exactly, ragged-left (text-align: right). */
 .msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: right;
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Plan 20: a message another SESSION delivered. An attribution line plus a muted accent ring, so it
+   reads as "an agent asked this" rather than as something the user typed. */
+.msg-user-row[data-from] { flex-direction: column; align-items: flex-end; gap: 3px; }
+.msg-user-row[data-from] .msg-user { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 30%, transparent); }
+.msg-user-from { font-size: 11px; font-weight: 500; color: var(--rl-text-faint); padding-right: 2px; }
 /* Attached-file chips inside the user bubble (Plan 14 W5) — an attachment-only message still shows
    WHAT it carried. Flex so the pre-wrap bubble's whitespace rules don't mangle the chip row. */
 .msg-user-files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-top: 4px; }

@@ -41,6 +41,23 @@ describe("one settle/drain implementation (Plan 13 W1)", () => {
     expect(filesMentioning(needle)).toEqual(["delegation/engine.ts"]);
   });
 
+  it("the interjection wait is the engine's too — ask.ts never grows a poll loop of its own", () => {
+    const text = readFileSync(join(SRC, "delegation/ask.ts"), "utf8");
+    expect(text).toMatch(/from "\.\/engine"/);
+    expect(text).toContain("engine.awaitAnswer(");
+    // The exact fork this file exists to prevent, in its Plan 20 form: a private sleep-and-re-read
+    // inside the ask service, which is how the two waits drift apart.
+    expect(text).not.toContain("setTimeout");
+  });
+
+  it("ask.ts targets an EXISTING session — it can never spawn or place one", () => {
+    const text = readFileSync(join(SRC, "delegation/ask.ts"), "utf8");
+    // Scope creep here turns "ask a peer" into a second, weaker agent_run. A peer is not a child:
+    // the service may not create one, and may not reach for an environment to put one in.
+    expect(text).not.toContain("sessions.create");
+    expect(text).not.toContain("environments");
+  });
+
   it("all three delegation flows consume the ONE engine rather than rolling their own wait", () => {
     for (const tool of ["browsers/browser-agent.ts", "delegation/agent-run.ts", "delegation/review.ts"]) {
       const text = readFileSync(join(SRC, tool), "utf8");

@@ -205,6 +205,42 @@ export class SessionService {
     try { return realpathSync(path); } catch { return path; }
   }
 
+  /**
+   * Deliver a message into a session FROM ANOTHER SESSION (Plan 20), interrupting its turn first when
+   * its agent kind has no mid-turn injection route (`AGENT_MIDTURN_DELIVERY`).
+   *
+   * Deliberately NOT `send`, because `send` does three things that are each wrong here:
+   *
+   *  - `checkpointTurn` would capture a git checkpoint MID-EDIT — the peer may be halfway through
+   *    writing files. That is precisely the race `send`'s own comment awaits to avoid ("a capture
+   *    racing the agent's first write would record a tree that never existed"), and it would put one
+   *    checkpoint per question into the environment's list.
+   *  - `maybeTitleFrom` would rename an untitled peer after the QUESTION rather than its own work.
+   *  - the `user_message` would go out unlabelled, so the peer's pane would show another agent's
+   *    words as something the user typed.
+   *
+   * The `interrupt` below is the HANDLE's, not this class's: `SessionService.interrupt` also fires
+   * `parentInterrupted`, which would cancel the target's OWN delegated run and kill its child. Callers
+   * refuse a target that has a run in flight, so this is belt and braces — but the two must not be
+   * the same call.
+   *
+   * Returns whether an interrupt actually happened, so the caller can say so truthfully rather than
+   * assuming: a session that was not live had no turn to stop.
+   */
+  async deliverInterjection(id: string, msg: { text: string; from: { sessionId: string; title: string } },
+    opts: { interruptFirst: boolean }): Promise<{ interrupted: boolean }> {
+    // Read BEFORE ensureLive: a session whose row says `running` but whose handle died has nothing to
+    // interrupt, and interrupting a handle we just started would abort a turn that never began.
+    const wasLive = this.live.has(id);
+    await this.ensurePorts(id);
+    const handle = this.ensureLive(id);
+    const interrupted = wasLive && opts.interruptFirst;
+    if (interrupted) await handle.interrupt();
+    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
+    await handle.send({ text: msg.text, attachments: [] });
+    return { interrupted };
+  }
+
   async interrupt(id: string): Promise<void> {
     this.get(id);
     // Interrupting a session also cancels its delegated browser-agent run (W5): the child is

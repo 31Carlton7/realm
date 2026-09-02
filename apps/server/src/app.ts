@@ -18,6 +18,7 @@ import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAM
 import { DelegationEngine } from "./delegation/engine";
 import { AgentRunService } from "./delegation/agent-run";
 import { ReviewService } from "./delegation/review";
+import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
@@ -51,7 +52,7 @@ import { machineName } from "./machine-name";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /**
@@ -152,6 +153,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  requester's has no read-only plan mode, or the user clicked) falls back to `agentRun`'s, then
    *  `browserAgent`'s. */
   review?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { budgetMs: number; pollMs: number } };
+  /** Plan 20's interjection: only timeouts, because an ask spawns nothing and so has no kind to fall
+   *  back to. The behaviour suite needs sub-second budgets to exercise the timeout path. */
+  ask?: { timeouts?: { budgetMs: number; pollMs: number } };
   /** Upgrades a session's heuristic first-line title to a short model-written summary in the
    *  background (`SessionService.upgradeTitle`). A real, billed LLM call per session — omitted here
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
@@ -282,6 +286,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let browserAgents: BrowserAgentService | null = null;
   let agentRuns: AgentRunService | null = null;
   let reviews: ReviewService | null = null;
+  let asks: AskService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -313,7 +318,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // a session is a child of at most one.
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); forks?.release(id); },
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); },
       extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id),
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? null,
     } });
@@ -334,7 +339,18 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     otherDelegation: { isChild: (id) => agentRunsFinal.isChild(id) || browserAgentsFinal.isChild(id) },
     fallbackKind: opts.review?.fallbackKind ?? opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.review?.timeouts });
   mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
-  mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews));
+  // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
+  // kind is neither a valid asker nor a valid target, because its own parent is already blocked inside
+  // an MCP call waiting for it. `permissions` is the SAME broker the browser tools gate on — the card
+  // appears on the asker, which is where the blocked call is.
+  const reviewsFinal = reviews;
+  asks = new AskService({
+    sessions, engine: delegationEngine,
+    delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id) },
+    permissions: browserBroker,
+    timeouts: opts.ask?.timeouts,
+  });
+  mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
@@ -367,7 +383,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   await mcpGateway.listen();
   const port = await rpc.listen(opts.port);
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, gateway: mcpGateway,
     close: async () => {
       search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
       terminals.closeAll();
