@@ -9,6 +9,12 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
 - Tests: `pnpm test`  ·  Types: `pnpm typecheck`
 - Data lives in `~/Realm/` (override with `REALM_HOME`).
 
+## Website
+
+`site/` is the marketing site and docs (Next.js, deployed on Vercel with **Root Directory = `site`**).
+It is deliberately outside the pnpm workspace and carries its own lockfile — see `site/README.md` for
+why that matters and how to verify the WebGPU hero shader headlessly.
+
 ## Agent sessions
 - **Claude** sessions run on `@anthropic-ai/claude-agent-sdk`, which drives the `claude` CLI: install it and log in first (`claude auth login`). An expired login shows up as an error in the transcript.
 - Offline / UI work: `REALM_ENABLE_FAKE_AGENT=1 pnpm dev` registers a scripted **Fake agent** (echoes what you send) next to Claude in New → Session….

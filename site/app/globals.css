@@ -1,0 +1,210 @@
+@import "tailwindcss";
+
+/* The palette is Realm's own — the ramps in apps/desktop/src/renderer/src/theme/tokens.css — with one
+   deliberate change: `--color-page` is the exact background the hero shader renders (#0a0b0e), so the
+   WebGPU canvas has no visible edge against the section it sits in. Everything else steps up from
+   there, so the site and the app read as the same product. */
+@theme {
+  --color-page: #0a0b0e;
+  --color-canvas: #0e1014;
+  --color-surface: #14161c;
+  --color-raised: #1a1d24;
+
+  --color-ink: oklch(0.964 0.002 247.839);
+  --color-ink-2: oklch(0.731 0.008 260.731);
+  --color-ink-3: oklch(0.541 0.01 264.484);
+
+  --color-line: oklch(0.28 0.006 258.354);
+  --color-line-strong: oklch(0.356 0.007 264.474);
+
+  --color-accent: oklch(0.68 0.173 253.301);
+  --color-accent-ink: oklch(0.788 0.113 248.33);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+  /* The sticky nav is 4rem; anchored doc headings should not slide under it. */
+  scroll-padding-top: 5.5rem;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@utility display-tight {
+  letter-spacing: -0.038em;
+  line-height: 0.98;
+}
+
+/* The hairline grid that runs behind the page, the way tembo's sections are ruled. Sized to the
+   12rem rhythm the section padding uses so the lines land on content edges, not between them. */
+@utility grid-backdrop {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-line) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-line) 55%, transparent) 1px, transparent 1px);
+  background-size: 6rem 6rem;
+}
+
+/* Docs prose. Written by hand instead of pulling in @tailwindcss/typography: the docs use about a
+   dozen elements, and a plugin whose defaults all need overriding for a dark theme is more config
+   than CSS. Scoped to .doc-prose so it can never leak into the marketing sections. */
+.doc-prose {
+  color: var(--color-ink-2);
+  font-size: 15.5px;
+  line-height: 1.75;
+}
+
+.doc-prose > * + * {
+  margin-top: 1.15rem;
+}
+
+.doc-prose h2 {
+  margin-top: 3rem;
+  color: var(--color-ink);
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.3;
+}
+
+.doc-prose h3 {
+  margin-top: 2.25rem;
+  color: var(--color-ink);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.doc-prose h2 + *,
+.doc-prose h3 + * {
+  margin-top: 0.75rem;
+}
+
+.doc-prose a {
+  color: var(--color-accent-ink);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 150ms;
+}
+
+.doc-prose a:hover {
+  text-decoration-color: var(--color-accent);
+}
+
+.doc-prose strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.doc-prose ul,
+.doc-prose ol {
+  padding-left: 1.15rem;
+}
+
+.doc-prose ul {
+  list-style: disc;
+}
+
+.doc-prose ol {
+  list-style: decimal;
+}
+
+.doc-prose li::marker {
+  color: var(--color-ink-3);
+}
+
+.doc-prose li + li {
+  margin-top: 0.5rem;
+}
+
+/* Inline code. `word-break` matters here — the docs are full of long paths like
+   apps/desktop/src/renderer that would otherwise push the column wider than the viewport on a phone. */
+.doc-prose :not(pre) > code {
+  border: 1px solid var(--color-line);
+  border-radius: 5px;
+  background: var(--color-surface);
+  padding: 0.1rem 0.34rem;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.855em;
+  word-break: break-word;
+}
+
+.doc-prose pre {
+  overflow-x: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-canvas);
+  padding: 1rem 1.15rem;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.75px;
+  line-height: 1.7;
+}
+
+.doc-prose blockquote {
+  border-left: 2px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  padding: 0.85rem 1.15rem;
+  color: var(--color-ink-2);
+}
+
+.doc-prose blockquote > * + * {
+  margin-top: 0.6rem;
+}
+
+.doc-prose hr {
+  margin-top: 2.5rem;
+  border: 0;
+  border-top: 1px solid var(--color-line);
+}
+
+.doc-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.doc-prose th {
+  border-bottom: 1px solid var(--color-line-strong);
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  color: var(--color-ink);
+  text-align: left;
+  font-weight: 500;
+}
+
+.doc-prose td {
+  border-bottom: 1px solid var(--color-line);
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  vertical-align: top;
+}
