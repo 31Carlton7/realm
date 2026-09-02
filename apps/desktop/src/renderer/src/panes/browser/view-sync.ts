@@ -1,3 +1,5 @@
+import { isRealmPaneDrag, REALM_ITEM_TYPE } from "../../components/drag-types";
+
 /**
  * The browser pane's bounds-discipline decisions (Plan 11 W1), kept pure so the research's known tax
  * — native-view bounds trailing the DOM — has its mitigation logic under test rather than smeared
@@ -27,9 +29,9 @@ export function shouldShowView(f: ViewSyncFlags): boolean {
   return f.paneVisible && !f.dragging && f.settled && f.hasUrl;
 }
 
-/** Is this drag one of ours? Pane/sidebar item drags carry the custom MIME type (PaneHost's
- *  REALM_ITEM_TYPE); OS file drags must not blank the browser view. */
-export const REALM_ITEM_TYPE = "application/x-realm-item";
+/** Is this drag one of ours? Existing items and the new-session row carry custom MIME types;
+ *  OS file drags must not blank the browser view. */
+export { REALM_ITEM_TYPE };
 export function isRealmItemDrag(e: { dataTransfer: DataTransfer | null }): boolean {
-  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes(REALM_ITEM_TYPE);
+  return isRealmPaneDrag(e);
 }

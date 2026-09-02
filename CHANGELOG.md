@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-- A space can hold several named **pane groups** — separate split
-  arrangements, one on screen at a time — instead of one layout plus a flat
-  list of everything else. The sidebar lists a section per group, clicking a
-  row for a pane in another group switches to that group rather than pulling
+- A space can hold several named **pane groups** — separate split\
+  arrangements, one on screen at a time — instead of one layout plus a flat\
+  list of everything else. The sidebar lists a section per group, clicking a\
+  row for a pane in another group switches to that group rather than pulling\
   the pane over, and panes move between groups by drag or "Move to group…".
 - Any pane can be **focused** to fill the space while staying in its group:
   nothing is closed, moved or removed, and unfocusing restores the split
@@ -17,6 +17,14 @@
   not using either.
 - Migration v17 adds `spaces.groups_json` with no backfill: a space keeps its
   existing arrangement as a single "Main" group, derived on read.
+- Scrolling anywhere on macOS no longer stutters or stalls. The helper that
+  reads trackpad gesture phases was writing to its pipe from inside the system
+  event tap, so a busy moment blocked event delivery and macOS cut the tap out
+  from under it; it hands the write to its own thread now.
+- Swiping between spaces feels closer to Arc: the page commits at a third of a
+  width instead of half, a quick flick commits on where it is heading rather
+  than only where it got to, the slide is shorter, and the space being left
+  keeps its rows on screen while it slides out instead of blanking first.
 
 ## v0.3.0 — 2026-09-01
 

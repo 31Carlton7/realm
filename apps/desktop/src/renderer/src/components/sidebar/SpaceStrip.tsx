@@ -53,7 +53,6 @@ export function SpaceStrip() {
             onDrop={(e) => { e.preventDefault(); drop(sp.id); }} onDragEnd={() => { setDragId(null); setOverId(null); }}
             onClick={() => run(() => selectSpace(sp.id))}>
             <SpaceIcon icon={sp.icon} size={16} />
-            <span className="strip-dot" aria-hidden />
             {badge && <span className="strip-badge" data-status={badge} role="status" aria-label={`${sp.name}: ${BADGE_LABEL[badge]}`} />}
           </button>
           );

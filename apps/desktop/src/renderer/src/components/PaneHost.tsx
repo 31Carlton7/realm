@@ -4,6 +4,7 @@ import { findLeaf, type Item, type Layout, type LayoutSplit } from "@realm/contr
 import type { DropEdge } from "../state/store";
 import { PanelBar } from "./PanelBar";
 import { PaneFor } from "../panes/registry";
+import { isRealmPaneDrag, REALM_ITEM_TYPE, REALM_NEW_SESSION_TYPE } from "./drag-types";
 
 export type PaneHostProps = {
   layout: Layout; items: Item[]; focusedLeafId: string | null;
@@ -24,15 +25,9 @@ export type PaneHostProps = {
   onEqualize?: (splitId: string) => void;
   /** Task 7 wires the drop-zone UI; the store's openItemAt is already self-drop-safe. */
   onDropItem?: (itemId: string, leafId: string, edge: DropEdge) => void;
+  /** Create a fresh session at the selected drop zone. Unlike an item drag, no session exists until drop. */
+  onDropNewSession?: (leafId: string, edge: DropEdge) => void;
 };
-
-/** The custom MIME type sidebar rows carry (see ItemList.tsx). Filtering on it keeps ordinary OS file
- *  drags (which only ever carry "Files" and friends) from lighting up the drop overlays. */
-const REALM_ITEM_TYPE = "application/x-realm-item";
-
-function isRealmDrag(e: { dataTransfer: DataTransfer | null }): boolean {
-  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes(REALM_ITEM_TYPE);
-}
 
 const EDGES = ["left", "right", "top", "bottom", "center"] as const;
 const EDGE_THRESHOLD = 0.32;
@@ -66,16 +61,24 @@ function zoneAtEvent(e: ReactDragEvent<HTMLElement>): DropEdge {
 }
 
 /** Per-leaf drop-zone overlay. Its `hot` state is local so two panels never highlight together. */
-function DropOverlay({ leafId, onDropItem }: { leafId: string; onDropItem?: (itemId: string, leafId: string, edge: DropEdge) => void }) {
+function DropOverlay({ leafId, onDropItem, onDropNewSession }: {
+  leafId: string;
+  onDropItem?: (itemId: string, leafId: string, edge: DropEdge) => void;
+  onDropNewSession?: (leafId: string, edge: DropEdge) => void;
+}) {
   const [hot, setHot] = useState<DropEdge | null>(null);
   return (
     <div className="drop-overlay"
-      onDragOver={(e) => { if (isRealmDrag(e)) { e.preventDefault(); setHot(zoneAtEvent(e)); } }}
+      onDragOver={(e) => { if (isRealmPaneDrag(e)) { e.preventDefault(); setHot(zoneAtEvent(e)); } }}
       onDragLeave={() => setHot(null)}
       onDrop={(e) => {
         e.preventDefault();
-        const id = e.dataTransfer.getData(REALM_ITEM_TYPE);
-        if (id) onDropItem?.(id, leafId, zoneAtEvent(e));
+        const edge = zoneAtEvent(e);
+        if (Array.from(e.dataTransfer.types).includes(REALM_NEW_SESSION_TYPE)) onDropNewSession?.(leafId, edge);
+        else {
+          const id = e.dataTransfer.getData(REALM_ITEM_TYPE);
+          if (id) onDropItem?.(id, leafId, edge);
+        }
         setHot(null);
       }}>
       {EDGES.map((edge) => (
@@ -92,7 +95,7 @@ export function PaneHost(p: PaneHostProps) {
   // Window-level, not per-panel: a drag can start over the sidebar (a different subtree) and must light
   // up every panel's overlay at once; it ends on dragend (cancelled) or drop (completed) anywhere.
   useEffect(() => {
-    const onDragStart = (e: DragEvent) => { if (isRealmDrag(e)) setDragging(true); };
+    const onDragStart = (e: DragEvent) => { if (isRealmPaneDrag(e)) setDragging(true); };
     const onDragEnd = () => setDragging(false);
     const onDrop = () => setDragging(false);
     window.addEventListener("dragstart", onDragStart);
@@ -127,7 +130,7 @@ export function PaneHost(p: PaneHostProps) {
                 rl-settle animation (styles.css) naturally replay on every swap. */}
             {item && <div key={item.id} className="pane-slot"><PaneFor item={item} visible focused={n.id === p.focusedLeafId} /></div>}
           </div>
-          {dragging && <DropOverlay leafId={n.id} onDropItem={p.onDropItem} />}
+          {dragging && <DropOverlay leafId={n.id} onDropItem={p.onDropItem} onDropNewSession={p.onDropNewSession} />}
         </div>
       );
     }

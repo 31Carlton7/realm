@@ -202,7 +202,7 @@ kbd { font: 11px var(--font-mono); }
 /* The shelf sits left of the x and gives back the 3px gutter the x owns, so the pair reads as one
    cluster rather than two widely spaced buttons. */
 .item-shelf { margin-right: 0; }
-.item[data-dragging] { opacity: .45; }
+.item[data-dragging], .new-item[data-dragging] { opacity: .45; }
 .rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
 /* Ara refresh §5: the row sits at the sidebar's top now, first row under the search field. */
@@ -213,7 +213,10 @@ kbd { font: 11px var(--font-mono); }
 .space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 10px; }
 /* safe center: centered while it fits, but overflow aligns to start instead of clipping the left end
    unreachably (A-H2). The scrollbar is hidden — scrollIntoView keeps the active space visible. */
-.strip-spaces { flex: 1; display: flex; align-items: center; justify-content: safe center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+/* overscroll-behavior: the strip is the innermost horizontal scroller in a window that also swipes
+   between spaces — without it, reaching either end hands the rest of the gesture to the ancestors,
+   which reads as the strip stalling mid-scroll. */
+.strip-spaces { flex: 1; display: flex; align-items: center; justify-content: safe center; gap: 2px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
 .strip-spaces::-webkit-scrollbar { display: none; }
 .strip-side { flex: none; }
 .strip-space { position: relative; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); color: var(--rl-text-dim); flex: none; }
@@ -221,8 +224,6 @@ kbd { font: 11px var(--font-mono); }
 /* Active space (§5): --rl-active fill, no border; the glyph takes the space colour. */
 .strip-space[data-active] { color: var(--rl-space); background: var(--rl-active); }
 .strip-space[data-drag-over] { box-shadow: inset 2px 0 0 var(--rl-accent); }
-.strip-dot { position: absolute; bottom: 2px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; opacity: 0; }
-.strip-space[data-active] .strip-dot { opacity: 1; }
 /* Cross-space agent status (U-H3): waiting > error > running, resolved in spaceBadge. */
 .strip-badge { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--rl-frame); }
 .strip-badge[data-status="running"] { background: var(--rl-success); }
