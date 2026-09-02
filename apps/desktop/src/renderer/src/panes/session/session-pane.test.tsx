@@ -750,17 +750,26 @@ describe("SessionMeta", () => {
     return render(<StoreContext.Provider value={store}><SessionMeta item={item("i9", "s1", { kind: "session", refId: "se1", title: "Sess" })} /></StoreContext.Provider>);
   }
 
-  it("shows the model label, status dot, and cost once costUsd > 0", () => {
+  it("shows the status dot and the cost once costUsd > 0", () => {
     mountMeta({ model: "fake-xl", status: "waiting_permission", costUsd: 0.5, numTurns: 3 });
-    expect(screen.getByText("fake-xl")).toBeInTheDocument();
     expect(screen.getByLabelText("Status: Needs permission")).toHaveAttribute("data-status", "waiting_permission");
-    expect(screen.getByText("$0.50 · 3 turns")).toBeInTheDocument();
+    expect(screen.getByText("$0.50")).toBeInTheDocument();
+  });
+
+  it("shows the cost ALONE — not the model id, and not the turn count", () => {
+    // The header used to lead with the model and trail the cost with turns. The model is named
+    // properly by the prompter's own chip inches below, and printed here as whatever raw id the
+    // harness pinned; the turn count was never the question a header answers.
+    mountMeta({ model: "claude-fable-5-1[thinking=true,context=300k,effort=high]", costUsd: 0.5, numTurns: 3 });
+    expect(screen.queryByText(/claude-fable/)).toBeNull();
+    expect(screen.queryByText(/turn/)).toBeNull();
+    expect(screen.getByText("$0.50")).toBeInTheDocument();
   });
 
   it("renders no cost while costUsd is 0, even after turns", () => {
     mountMeta({ model: "fake-xl", costUsd: 0, numTurns: 3 });
     expect(screen.queryByText(/\$/)).toBeNull();
-    expect(screen.getByText("fake-xl")).toBeInTheDocument(); // the rest of the meta still renders
+    expect(screen.getByLabelText(/^Status:/)).toBeInTheDocument(); // the rest of the meta still renders
   });
 });
 

@@ -26,12 +26,16 @@ const fmtCost = (usd: number) => (usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.t
 export function SessionMeta({ item }: { item: Item }) {
   const id = item.refId;
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
-  const model = useApp((s) => s.sessions[id]?.model ?? s.transcripts[id]?.t.init?.model ?? null);
   const usage = useApp((s) => s.transcripts[id]?.t.usage ?? null);
   return (
     <>
-      {model && <span>{model}</span>}
-      {usage && usage.costUsd > 0 && <span>{fmtCost(usage.costUsd)} · {usage.numTurns} {usage.numTurns === 1 ? "turn" : "turns"}</span>}
+      {/* Cost alone. The model used to lead this line and the turn count trailed the cost, and
+          neither earned the space: the prompter's own chip names the model a few pixels below —
+          and names it properly, where this printed whatever raw id the harness pins (Cursor's
+          run to `claude-fable-5-1[thinking=true,context=300k,effort=high]`) — while the turn
+          count answers a question nobody asked of a header. What is worth glancing at while a
+          session runs is what it is costing. */}
+      {usage && usage.costUsd > 0 && <span>{fmtCost(usage.costUsd)}</span>}
       <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
     </>
   );

@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within, renderHook, act } from "@testing-library/react";
-import type { Item, Layout } from "@realm/contracts";
+import { sessionEvent, type Item, type Layout } from "@realm/contracts";
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
 import { Main } from "../App";
 import { useGlobalHotkeys } from "../hotkeys";
 import { StoreContext, createAppStore, findEmptySiblingOf } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 import { setBrowserBridgesForTests, type BrowserBridges } from "../panes/browser/browser-client";
+import { reduceAll } from "../panes/session/transcript-model";
 
 // Item "A" below is a browser item, and BrowserPane (registered since Plan 11 W1) needs its bridges
 // and a ResizeObserver on mount. These tests are about the HOST — inert fakes are enough.
@@ -221,11 +222,15 @@ describe("PaneHost", () => {
     unmount();
   });
 
-  it("a session item's PanelBar renders the paneMeta content (model + status dot)", () => {
+  it("a session item's PanelBar renders the paneMeta content (cost + status dot)", () => {
     const sessionItem = item("S", "s1", { kind: "session", title: "Agent", refId: "se1" });
     const api = fakeApi({ sessions: [session("se1", "s1", { model: "fake-xl", status: "running" })], items: { s1: [sessionItem] } });
     const store = createAppStore(api);
-    store.setState({ sessions: { se1: session("se1", "s1", { model: "fake-xl" }) }, sessionStatus: { se1: "running" } });
+    store.setState({
+      sessions: { se1: session("se1", "s1", { model: "fake-xl" }) }, sessionStatus: { se1: "running" },
+      // The meta's only text is the running cost (the model moved out — the prompter's chip names it).
+      transcripts: { se1: { lastSeq: 1, t: reduceAll([sessionEvent("usage", { costUsd: 0.5, inputTokens: 1, outputTokens: 1, numTurns: 3 })]) } },
+    });
     render(
       <StoreContext.Provider value={store}>
         <PaneHost layout={{ type: "leaf", id: "L", itemId: "S" }} items={[sessionItem]} focusedLeafId="L"
@@ -234,7 +239,7 @@ describe("PaneHost", () => {
     );
     const meta = document.querySelector<HTMLElement>(".panel-bar .panel-meta");
     expect(meta).not.toBeNull();
-    expect(within(meta!).getByText("fake-xl")).toBeInTheDocument();
+    expect(within(meta!).getByText("$0.50")).toBeInTheDocument();
     expect(meta!.querySelector('.status-dot[data-status="running"]')).toBeInTheDocument();
   });
 
