@@ -214,29 +214,19 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('iframe.documents-frame[data-kind="html"]')`), 15000, "guide frame");
   const frameSrc = await evalIn(c, `document.querySelector('iframe.documents-frame').src`);
   check("guide opens in a sandboxed frame onto the preview server", /^http:\/\/127\.0\.0\.1:\d+\/p\/[^/]+\/[^/]+\/hazards\.html\?v=/.test(frameSrc), { src: frameSrc.replace(/\/p\/[^/]+\//, "/p/<token>/") });
-  // Did the frame actually LOAD (CSP), and did the runtime run inside it? The sandboxed frame is a
-  // separate execution context; find it through the frame tree and evaluate there.
-  await c.send("Runtime.enable");
-  const contexts = [];
-  await new Promise((resolve) => {
-    // Collect contexts created so far by re-enabling: Runtime.enable re-emits executionContextCreated for live contexts.
-    const ws = c;
-    const orig = ws.send;
-    resolve();
-  });
-  const tree = await c.send("Page.getFrameTree");
-  const child = tree.frameTree.childFrames?.find((f) => f.frame.url.includes("/hazards.html"));
-  check("the frame is in the page's frame tree with the preview URL", !!child, { url: child?.frame.url.replace(/\/p\/[^/]+\//, "/p/<token>/") });
-  // Evaluate inside the child frame: create an isolated world there.
-  let inFrame = null;
-  if (child) {
-    const world = await c.send("Page.createIsolatedWorld", { frameId: child.frame.id, worldName: "live" });
-    inFrame = async (expr) => {
-      const r = await c.send("Runtime.evaluate", { expression: expr, contextId: world.executionContextId, awaitPromise: true, returnByValue: true });
-      if (r.exceptionDetails) throw new Error(`frame exception: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
-      return r.result.value;
-    };
-  }
+  // Did the frame actually LOAD (CSP), and did the runtime run inside it? The sandboxed frame has an
+  // opaque origin, so Chromium hosts it OUT OF PROCESS: it is its own CDP target (type "iframe"),
+  // not a child in the page's frame tree. Attach to that target and evaluate there.
+  const frameTarget = await until(async () => (await targets()).find((t) => t.type === "iframe" && t.url.includes("/hazards.html")), 15000, "iframe target");
+  check("the guide frame is a live out-of-process target with the preview URL", !!frameTarget, { url: frameTarget?.url.replace(/\/p\/[^/]+\//, "/p/<token>/") });
+  const fc = cdp(frameTarget.webSocketDebuggerUrl);
+  await fc.ready;
+  await fc.send("Runtime.enable");
+  const inFrame = async (expr) => {
+    const r = await fc.send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true });
+    if (r.exceptionDetails) throw new Error(`frame exception: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
+    return r.result.value;
+  };
   if (inFrame) {
     await until(() => inFrame(`!!document.querySelector('.rg-check') && !!document.querySelector('.rg-progress')`), 15000, "runtime in frame");
     check("the injected runtime ran inside the frame (quiz wired, progress badge present)", true, {
@@ -255,16 +245,26 @@ async function main() {
       await c.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
       await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
     };
+    // Bridge diagnostics: what the PARENT page receives, and whether its source check would pass.
+    await evalIn(c, `window.__msgs = []; window.addEventListener('message', (e) => window.__msgs.push({ data: e.data, sameSource: e.source === document.querySelector('iframe.documents-frame')?.contentWindow, origin: e.origin })); true`);
     await click(optRect);
     await until(() => inFrame(`document.querySelectorAll('.rg-options > li')[1].getAttribute('aria-checked') === 'true'`), 5000, "option picked");
     await click(btnRect);
     await until(() => inFrame(`document.querySelector('.rg-score')?.textContent === '1 / 1 correct'`), 5000, "graded in frame");
     check("Check answers grades inside the frame", true);
-    const sidecar = path.join(spaceRoot, "guides", ".hazards.html.progress.json");
+    await sleep(500);
+    console.log("bridge messages seen by the parent:", JSON.stringify(await evalIn(c, `window.__msgs`)));
+    const sidecar = path.join(spaceRoot, ".hazards.html.progress.json"); // the picker created the guide at the root
     const progress = await until(() => (fs.existsSync(sidecar) ? JSON.parse(fs.readFileSync(sidecar, "utf8")) : null), 10000, "sidecar on disk");
     check("the attempt reached the progress sidecar on the real disk", progress.topics.hazards?.last === 1 && progress.topics.hazards?.attempts.length === 1, progress);
     await until(() => inFrame(`/Best 100%/.test(document.querySelector('.rg-progress')?.textContent ?? '')`), 5000, "badge updated");
     check("the frame's progress badge reflects the recorded attempt", true, { badge: await inFrame(`document.querySelector('.rg-progress').textContent`) });
+    const guideShot = await c.send("Page.captureScreenshot", { format: "png" });
+    const guideShotPath = path.join(os.tmpdir(), "realm-school-live-guide.png");
+    fs.writeFileSync(guideShotPath, Buffer.from(guideShot.data, "base64"));
+    console.log("SCREENSHOT " + guideShotPath);
+    check("no console errors inside the guide frame", fc.events.length === 0, fc.events.slice(0, 5));
+    fc.close();
   }
 
   // 4. A PDF in the space folder opens preview-only.
