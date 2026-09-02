@@ -53,6 +53,15 @@ export type AgentModel = { id: string; label: string };
  *  - **claude** is a curated list that stays hardcoded because no enumeration channel exists — the
  *    Claude Code CLI has no `--list-models`, and the Agent SDK takes a model id on faith. Curation is
  *    the honest option left; keep it in step with the CLI's own picker.
+ *
+ *    "On faith" is the trap: a model id here is only usable if the `claude` binary the Agent SDK
+ *    bundles is new enough to know it. Too old and the API rejects the turn with
+ *    `400 ... Claude Code <version> does not support this model; version <newer> or newer is
+ *    required` — a runtime failure, invisible to typecheck and to any test that does not spend a
+ *    real turn. `claude-fable-5-1` shipped needing 2.1.251 while the pinned SDK still bundled
+ *    2.1.233, so picking it silently fell back to another model. Adding a row here means bumping the
+ *    `@anthropic-ai/claude-agent-sdk` floor in BOTH apps/server and packages/adapters to a version
+ *    whose binary knows the id, and the server's copy is the one a packaged app actually spawns.
  *  - **codex** and **acp:cursor** are empty ON PURPOSE: their real catalogs are enumerated live by the
  *    probe (Codex over app-server `model/list`, Cursor from ACP `session/new`'s `availableModels`), so
  *    a hardcoded list here would only ever be a stale copy that shadows the truth. Empty means the
