@@ -79,7 +79,18 @@ export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 
 export const ItemSchema = z.object({
   id: IdSchema, spaceId: IdSchema, kind: ItemKindSchema, title: z.string(),
-  sortOrder: z.number().int(), pinned: z.boolean(), refId: IdSchema, ...Timestamps,
+  sortOrder: z.number().int(), pinned: z.boolean(),
+  /**
+   * Shelved: the row keeps existing but leaves the space list, the pinned grid and the command
+   * palette, and shows only in the sidebar's "Archived" section (where unarchiving it is one click).
+   *
+   * `pinned`'s exact opposite, and deliberately the same shape — a flag on the ITEM, not on the
+   * session — because the thing being put away is the sidebar row, and `items.list` is the one query
+   * every listing already goes through. Only session rows are offered the gesture today (archiving a
+   * destination page or a session-owned terminal means nothing), but nothing in the column is
+   * session-specific, so widening it is a UI change alone.
+   */
+  archived: z.boolean(), refId: IdSchema, ...Timestamps,
 });
 export type Item = z.infer<typeof ItemSchema>;
 

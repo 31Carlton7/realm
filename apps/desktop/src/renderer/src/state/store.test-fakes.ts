@@ -9,7 +9,7 @@ export const profile = (id: string, name: string, extra: Partial<Profile> = {}):
 export const space = (id: string, profileId: string, name: string, extra: Partial<Space> = {}): Space =>
   ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): Item =>
-  ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
+  ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, archived: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra });
@@ -245,7 +245,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
     listAllItems: async () => {
       calls.push("listAllItems");
-      return Object.values(data.items).flat().slice().sort((a, b) => b.updatedAt - a.updatedAt);
+      // Mirrors the server (ItemsStore.listAll): archived rows are not offered to the palette.
+      return Object.values(data.items).flat().filter((i) => !i.archived).sort((a, b) => b.updatedAt - a.updatedAt);
     },
     search: async (profileId, query) => {
       calls.push(`search:${profileId}:${query}`);

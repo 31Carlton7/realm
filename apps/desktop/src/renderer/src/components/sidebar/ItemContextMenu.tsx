@@ -5,7 +5,8 @@ import { Menu } from "../Menu";
 
 export type ItemMenuState = { item: Item; x: number; y: number } | null;
 
-/** Right-click menu shared by pinned tiles and list rows: Pin/Unpin, Rename (inline, via `onRename`),
+/** Right-click menu shared by pinned tiles and list rows: Pin/Unpin, Archive/Unarchive (sessions only),
+ *  Rename (inline, via `onRename`),
  *  Focus/Unfocus (fill the space with this pane, offered only while it is open), Move to group… (when
  *  the space has more than one), Move to space… (sessions only, only while unstarted), Close
  *  (layout-only, offered only while the item is open), Delete (destructive, always offered). */
@@ -21,6 +22,7 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
   const [movingToGroup, setMovingToGroup] = useState(false);
   const updateItem = useApp((s) => s.updateItem);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
+  const archiveItem = useApp((s) => s.archiveItem);
   const deleteItem = useApp((s) => s.deleteItem);
   const moveSessionToSpace = useApp((s) => s.moveSessionToSpace);
   const groups = useApp((s) => s.groups);
@@ -66,6 +68,13 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
             : [{ label: "No other groups", disabled: true, onSelect: () => {} }])
         : [
             { label: menu.item.pinned ? "Unpin" : "Pin", onSelect: () => run(() => updateItem({ id: menu.item.id, pinned: !menu.item.pinned })) },
+            // Pin's opposite, and offered on the same terms the hover button is: sessions only
+            // (ItemList explains why), whichever section the row was right-clicked in.
+            ...(menu.item.kind === "session"
+              ? [{ label: menu.item.archived ? "Unarchive" : "Archive",
+                   title: menu.item.archived ? "Put it back in the space list" : "Close the pane and shelve the row; nothing is deleted",
+                   onSelect: () => run(() => archiveItem(menu.item.id, !menu.item.archived)) }]
+              : []),
             { label: "Rename", onSelect: () => onRename(menu.item) },
             // The focus gesture the pane bar also carries — offered here because the sidebar row is
             // where you are when you decide a pane deserves the whole space.

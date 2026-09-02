@@ -343,11 +343,20 @@ export const Methods = {
     result: SearchResultsSchema,
   },
 
+  /** The space's items, ARCHIVED ONES INCLUDED — the sidebar's "Archived" section is drawn from this
+   *  same list, and a listing that hid them would leave nothing to unarchive from. Every caller that
+   *  wants only live rows filters on `archived` itself. */
   "items.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ItemSchema) },
-  /** Every item across every space (command palette search); newest-updated first. */
+  /** Every item across every space (the command palette's jump list); newest-updated first. Archived
+   *  rows are excluded — this list's whole job is "what can I jump to", and an archived row answering
+   *  it would defeat the archiving.
+   *
+   *  `search.query` deliberately does NOT filter them: full-text search is what you reach for when
+   *  you are looking for something you put away, so archiving hides rows from the listings and from
+   *  nothing else. */
   "items.listAll": { params: z.object({}), result: z.array(ItemSchema) },
   "items.create": { params: z.object({ spaceId: IdSchema, kind: ItemKindSchema, title: z.string(), refId: IdSchema }), result: ItemSchema },
-  "items.update": { params: z.object({ id: IdSchema, title: z.string().optional(), pinned: z.boolean().optional(), sortOrder: z.number().int().optional() }), result: ItemSchema },
+  "items.update": { params: z.object({ id: IdSchema, title: z.string().optional(), pinned: z.boolean().optional(), archived: z.boolean().optional(), sortOrder: z.number().int().optional() }), result: ItemSchema },
   "items.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   "terminals.create": { params: z.object({ spaceId: IdSchema, cwd: z.string().optional(), cols: z.number().int().default(80), rows: z.number().int().default(24) }), result: z.object({ terminalId: IdSchema, itemId: IdSchema }) },

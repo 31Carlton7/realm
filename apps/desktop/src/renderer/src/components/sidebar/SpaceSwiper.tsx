@@ -145,10 +145,16 @@ const ActiveSpaceBody = memo(function ActiveSpaceBody() {
   const groups = useApp((s) => s.groups);
   const newPaneGroup = useApp((s) => s.newPaneGroup);
   const run = useApp((s) => s.run);
-  const byId = new Map(items.map((i) => [i.id, i]));
+  // Archived rows are split off FIRST, ahead of open/pinned/unopened, and `byId` is built from the
+  // live half alone — so a row still sitting in some group's layout when it is archived (another
+  // window did it; this one has not reconciled yet) is listed on the shelf and nowhere else, never in
+  // two sections at once.
+  const archived = items.filter((i) => i.archived);
+  const live = items.filter((i) => !i.archived);
+  const byId = new Map(live.map((i) => [i.id, i]));
   const paneGroups = groups?.groups ?? [];
   const openSet = new Set(paneGroups.flatMap((g) => allItems(g.layout)));
-  const unopened = items.filter((i) => !openSet.has(i.id));
+  const unopened = live.filter((i) => !openSet.has(i.id));
   const pinned = unopened.filter((i) => i.pinned), rest = unopened.filter((i) => !i.pinned);
   // A lone group keeps the old heading exactly: someone who never makes a second group should not
   // have to learn a new word for the list they already had.
@@ -168,13 +174,38 @@ const ActiveSpaceBody = memo(function ActiveSpaceBody() {
           </button>
         )}
         <div className="group-label">Space</div>
-        {items.length === 0 && <div className="space-empty">Nothing here yet — start one with New session above</div>}
+        {live.length === 0 && <div className="space-empty">Nothing here yet — start one with New session above</div>}
         {pinned.length > 0 && <PinnedGrid items={pinned} />}
         <ItemList items={rest} variant="space" />
+        {archived.length > 0 && <ArchivedSection items={archived} />}
       </div>
     </>
   );
 });
+
+/**
+ * The shelf: archived rows, last in the sidebar and collapsed until asked for. Collapsed is the whole
+ * point — a section that unfolded itself on every render would undo the putting-away — and it is
+ * absent entirely when nothing is archived, the same dead-chrome rule the destinations nav keeps.
+ *
+ * Local `useState`, not store state: it is a disclosure triangle, and one that survived a restart
+ * would be a preference nobody asked for.
+ */
+function ArchivedSection({ items }: { items: Item[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="group-label group-head archived-head">
+        <button className="group-head-name archived-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <span className="archived-caret" data-open={open || undefined} aria-hidden="true"><Icon name="chevronRight" size={11} /></span>
+          <span>Archived</span>
+          <span className="archived-count">{items.length}</span>
+        </button>
+      </div>
+      {open && <ItemList items={items} variant="archived" />}
+    </>
+  );
+}
 
 /** One group's heading and rows. The heading is a drop target: dragging a row onto it moves that pane
  *  into the group, the sidebar twin of dropping onto a tab in the GroupBar. */

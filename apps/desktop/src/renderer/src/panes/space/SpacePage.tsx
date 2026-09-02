@@ -157,7 +157,11 @@ function MemoryTab({ spaceId }: { spaceId: string }) {
 const SESSION_STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
 
 /** The Sessions tab: this space's sessions from the existing store data, newest first; each row opens
- *  the session's pane. Status dots ride the same `sessionStatus` plumbing as the sidebar rows. */
+ *  the session's pane. Status dots ride the same `sessionStatus` plumbing as the sidebar rows.
+ *
+ *  Archived sessions are LISTED here, tagged rather than hidden. This tab is the space's inventory —
+ *  "every session in this space" — and the header count beside it says exactly that; a silent
+ *  omission would make the two disagree. The sidebar is where archiving is meant to be felt. */
 function SessionsTab({ spaceId }: { spaceId: string }) {
   const sessions = useApp((s) => s.sessions);
   const sessionStatus = useApp((s) => s.sessionStatus);
@@ -166,10 +170,11 @@ function SessionsTab({ spaceId }: { spaceId: string }) {
   const openItem = useApp((s) => s.openItem);
   const run = useApp((s) => s.run);
   const here = Object.values(sessions).filter((s) => s.spaceId === spaceId).sort((a, b) => b.createdAt - a.createdAt);
+  // The session's ITEM — the same object the sidebar row opens — matched by refId, never by title or
+  // position. It carries the archived flag, which lives on the item and not on the session.
+  const itemOf = (session: Session) => items.find((i) => i.kind === "session" && i.refId === session.id);
   const open = (session: Session) => {
-    // The row navigates to the session's ITEM — the same object the sidebar row opens — matched by
-    // refId, never by title or position.
-    const it = items.find((i) => i.kind === "session" && i.refId === session.id);
+    const it = itemOf(session);
     if (it) run(() => openItem(it.id));
   };
   if (here.length === 0) return <p className="env-empty">No sessions in this space yet — start one with ⌘N or the button above.</p>;
@@ -178,13 +183,15 @@ function SessionsTab({ spaceId }: { spaceId: string }) {
       {here.map((s) => {
         const status = sessionStatus[s.id];
         const env = s.environmentId ? Object.values(environments).find((e) => e.id === s.environmentId) : undefined;
+        // aria-label replaces the row's contents, so every visible tag has to be spelled back into it.
+        const archived = itemOf(s)?.archived ?? false;
+        const label = [s.title, status && SESSION_STATUS_LABEL[status], archived && "archived"].filter(Boolean).join(" — ");
         return (
           <li key={s.id}>
-            <button type="button" className="page-row"
-              aria-label={status ? `${s.title} — ${SESSION_STATUS_LABEL[status]}` : s.title}
-              onClick={() => open(s)}>
+            <button type="button" className="page-row" aria-label={label} onClick={() => open(s)}>
               <Icon name={AGENT_META[s.agentKind].icon} size={15} colored />
               <span className="page-row-title">{s.title}</span>
+              {archived && <span className="status-pill" data-tone="muted">Archived</span>}
               {env?.branch && <span className="page-row-dim"><Icon name="branch" size={11} /> {env.branch}</span>}
               <span className="page-row-dim">{relativeTime(s.createdAt, Date.now())}</span>
               {status && <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />}

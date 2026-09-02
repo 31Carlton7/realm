@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./database";
 import { migrations } from "./migrations";
+import { ItemsStore } from "../store/items";
 
 /**
  * Checking a migration against a REAL home directory: never copy `realm.db` on its own. `openDatabase`
@@ -547,6 +548,39 @@ describe("migration v16 — the icon asset library", () => {
     db.prepare("INSERT INTO icon_assets (id, profile_id, kind, mime, data_text, prompt, created_at) VALUES ('ia1', 'p1', 'image', 'image/png', 'ZGF0YQ==', NULL, 1)").run();
     db.prepare("DELETE FROM profiles WHERE id = 'p1'").run();
     expect((db.prepare("SELECT COUNT(*) AS n FROM icon_assets").get() as { n: number }).n).toBe(0);
+    db.close();
+  });
+});
+
+describe("migration v18 — archiving (a row put away, not deleted)", () => {
+  /** The v4 fixture plus one ordinary item, inserted raw at the PRE-v18 nine-column shape — the row
+   *  an upgrading home actually holds. `it-term` cannot stand in for it: se1 owns it, so every
+   *  listing filters it out for an unrelated reason. */
+  const migrated = () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    const raw = new DatabaseSync(p);
+    raw.prepare("INSERT INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("it-old", "sp1", "session", "Old chat", 1, 1, "se2", 13, 13);
+    raw.close();
+    return openDatabase(p);
+  };
+
+  it("adds items.archived, 0 for every row it finds — an upgrade shelves nothing", () => {
+    const db = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    const cols = (db.prepare("PRAGMA table_info(items)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain("archived");
+    expect((db.prepare("SELECT COUNT(*) AS n FROM items WHERE archived <> 0").get() as { n: number }).n).toBe(0);
+    db.close();
+  });
+
+  it("the pre-v18 row reads back through the store as a live, still-pinned item", () => {
+    const db = migrated();
+    const items = new ItemsStore(db);
+    // `pinned` proves the backfill did not rewrite the row it was appending a column to.
+    expect(items.list("sp1")).toEqual([expect.objectContaining({ id: "it-old", title: "Old chat", pinned: true, archived: false })]);
+    expect(items.listAll().map((i) => i.id)).toEqual(["it-old"]);
     db.close();
   });
 });

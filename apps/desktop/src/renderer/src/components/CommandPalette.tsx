@@ -186,8 +186,10 @@ function PaletteBody() {
     // Open panes of the active space, in layout order — the quadrant glyph tells duplicates apart (V-F4).
     const open = openIds.map((id) => byId.get(id)).filter((it): it is Item => !!it)
       .map((it) => itemEntry(it, "Open", <ItemGlyph layout={l} itemId={it.id} />));
-    // The active space's remaining items, newest first.
-    const activeRest = items.filter((it) => !openIds.includes(it.id)).sort(byRecency)
+    // The active space's remaining items, newest first. Archived ones are left out — `items` carries
+    // them (the sidebar's Archived section needs them) where `allItems` already does not, so the
+    // filter belongs here to keep both halves of this list answering the same question.
+    const activeRest = items.filter((it) => !openIds.includes(it.id) && !it.archived).sort(byRecency)
       .map((it) => itemEntry(it, spaceName(it.spaceId), <span>{relTime(it.updatedAt)}</span>));
     // Other spaces' items, grouped per space (strip order), newest first within each.
     const others = spaces.filter((sp) => sp.id !== activeSpaceId).flatMap((sp) =>

@@ -7,8 +7,8 @@ export type ToolBlock = Extract<Block, { kind: "tool" }>;
  *  summary line ("18 tools · 5 files · 2 commands · 6m 12s") that expands into its steps.
  *
  *  Runs shorter than this stay inline. §5 says "group consecutive tools" without naming a floor;
- *  two rows behind a summary line costs a click and saves nothing, so the floor is three. */
-export const GROUP_MIN = 3;
+ *  two consecutive calls already read as a run, so only a lone tool call stays inline. */
+export const GROUP_MIN = 2;
 
 /** Tools whose summary is the path they touched, and tools that run a command. Kept here rather than
  *  imported from tool-summary's switch so that widening one does not silently widen the other. */

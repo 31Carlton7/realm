@@ -327,4 +327,12 @@ export const migrations: string[] = [
   // (setGroups writes both), which is what lets `spaces.setLayout` stay a working layout-only write and
   // what an older build would still find if this database were opened by one.
   `ALTER TABLE spaces ADD COLUMN groups_json TEXT;`,
+  // v18 — archiving: a sidebar row can be put away without being deleted. The exact shape `pinned`
+  // already has (INTEGER NOT NULL DEFAULT 0 on `items`), for the exact opposite gesture, so the flag
+  // rides the one query every listing already goes through (`ItemsStore.list`).
+  //
+  // No backfill and no index. DEFAULT 0 means every existing row is live, which is the only honest
+  // reading of a database written before archiving existed; and the filter is always paired with the
+  // `space_id` predicate `items_space` already covers, over a per-space row count in the dozens.
+  `ALTER TABLE items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`,
 ];

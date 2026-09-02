@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
-import type { Layout } from "@realm/contracts";
+import { allItems, type Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, space } from "../../state/store.test-fakes";
@@ -501,7 +501,7 @@ describe("item context menu: \"Move to space…\"", () => {
       items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
       sessions: [session("se1", "s1")],
     }));
-    fireEvent.contextMenu(screen.getByRole("button", { name: /Fix the build/ }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Move to space…" }));
     // The space it's already in never appears as a destination.
     expect(screen.queryByRole("menuitem", { name: "Versed" })).not.toBeInTheDocument();
@@ -516,7 +516,7 @@ describe("item context menu: \"Move to space…\"", () => {
       items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
       sessions: [session("se1", "s1", { lastEventSeq: 3 })],
     }));
-    fireEvent.contextMenu(screen.getByRole("button", { name: /Fix the build/ }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
     expect(screen.queryByRole("menuitem", { name: "Move to space…" })).not.toBeInTheDocument();
   });
 
@@ -572,5 +572,99 @@ describe("sidebar destinations (Plan 12 W4)", () => {
     const nav = screen.getByRole("navigation", { name: "Destinations" });
     fireEvent.click(within(nav).getByRole("button", { name: "Connections" }));
     await waitFor(() => expect(store.getState().items.some((i) => i.kind === "connections-page")).toBe(true));
+  });
+});
+
+/** Plan: archiving. The shelf is the sidebar's own gesture — a session row put away without being
+ *  deleted — so everything it promises is asserted here: who gets the button, where the row goes,
+ *  what happens to its pane, and both ways back. */
+describe("archiving a session", () => {
+  const sessionAndTerminal = (archived = false) => fakeApi({
+    items: { s1: [item("i1", "s1", { title: "Terminal" }),
+                  item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build", archived })] },
+    sessions: [session("se1", "s1")],
+  });
+  const expand = () => fireEvent.click(screen.getByRole("button", { name: "Archived 1" }));
+  const openIds = (store: { getState: () => { layout: Layout | null } }) => {
+    const l = store.getState().layout;
+    return l ? allItems(l) : [];
+  };
+
+  it("the hover button rides session rows and no others", async () => {
+    await mount(sessionAndTerminal());
+    expect(screen.getByRole("button", { name: "Archive Fix the build" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Terminal" }).closest(".item")!.querySelector(".item-shelf")).toBeNull();
+  });
+
+  it("archiving moves the row from Space onto a collapsed shelf, deleting nothing", async () => {
+    const api = sessionAndTerminal();
+    const { store } = await mount(api);
+    fireEvent.click(screen.getByRole("button", { name: "Archive Fix the build" }));
+    await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(true));
+    // Out of the list the sidebar shows by default...
+    expect(screen.queryByRole("button", { name: /^Fix the build/ })).not.toBeInTheDocument();
+    // ...but still an item, and never deleted (the named mutant: archiving that calls deleteItem).
+    expect(api.calls).not.toContain("deleteItem:i2");
+    expect(store.getState().items.map((i) => i.id)).toContain("i2");
+    // The shelf appears counting one, and starts closed — a section that unfolded itself would undo
+    // the putting-away.
+    expect(screen.getByRole("button", { name: "Archived 1" })).toHaveAttribute("aria-expanded", "false");
+    expand();
+    expect(screen.getByRole("button", { name: /^Fix the build/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unarchive Fix the build" })).toBeInTheDocument();
+  });
+
+  it("archiving an OPEN session closes its pane on the way", async () => {
+    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i1" }, { type: "leaf", id: "L2", itemId: "i2" }] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Terminal" }),
+                    item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
+      sessions: [session("se1", "s1")],
+    });
+    const { store } = await mount(api);
+    fireEvent.click(screen.getByRole("button", { name: "Archive Fix the build" }));
+    await waitFor(() => expect(openIds(store)).not.toContain("i2"));
+    expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(true);
+    expect(openIds(store)).toContain("i1"); // the pane beside it is untouched
+  });
+
+  it("the shelf's own button restores the row without opening it", async () => {
+    const { store } = await mount(sessionAndTerminal(true));
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "Unarchive Fix the build" }));
+    await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(false));
+    // Back in the space list, and the now-empty shelf is gone entirely rather than reading "0".
+    expect(screen.getByRole("button", { name: /^Fix the build/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Archived/ })).not.toBeInTheDocument();
+    expect(openIds(store)).not.toContain("i2");
+  });
+
+  it("clicking an archived row takes it off the shelf on the way to opening it", async () => {
+    const { store } = await mount(sessionAndTerminal(true));
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: /^Fix the build/ }));
+    await waitFor(() => expect(openIds(store)).toContain("i2"));
+    // The mutant this kills: opening without restoring, which leaves a pane on screen for a row the
+    // sidebar files under "Archived".
+    expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(false);
+  });
+
+  it("the context menu carries the same gesture, labelled for the row's current state", async () => {
+    const { store } = await mount(sessionAndTerminal());
+    // Not offered for the kinds that have no answer for what archiving would mean.
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
+    expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+    await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(true));
+    expand();
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
+    expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Unarchive" }));
+    await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(false));
   });
 });

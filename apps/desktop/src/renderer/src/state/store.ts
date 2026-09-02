@@ -16,7 +16,7 @@ import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browse
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
-export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
+export type UpdateItemInput = { id: string; title?: string; pinned?: boolean; archived?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string;
   /** Plan 13 W2 (⌘⇧↩): record `dispatchedBy: { kind: "user-dispatch" }` on the row — the Tasks
    *  lens's seam. The only origin a client may claim; the agent origins are server-recorded. */
@@ -624,6 +624,10 @@ export type AppState = {
   /** New browser pane in the active space (opens into the target/focused leaf). */
   newBrowser(targetLeafId?: string | null): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
+  /** Shelve (or restore) a row. Archiving closes the pane first — a hidden row whose pane is still on
+   *  screen is the one state the sidebar could not explain — so this is `updateItem` plus that close,
+   *  in that order; unarchiving only clears the flag and leaves the item unopened in the SPACE group. */
+  archiveItem(itemId: string, archived: boolean): Promise<void>;
   /** Open an item into `leafId` ?? the focused leaf ?? the first leaf, replacing what it held (the
    *  replaced item returns to the SPACE group); focuses that leaf. With no explicit `leafId`, an
    *  already-open item is only focused (click = go there) — layout untouched, nothing persisted. */
@@ -1424,7 +1428,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Prune across every group, not just the one on screen: a deleted item must stop being open
         // in the arrangements the user is not currently looking at too, or switching to one would
         // render a pane for something that no longer exists.
-        const live = new Set(items.map((i) => i.id));
+        //
+        // Archived items are pruned by the same set even though they still exist. `archiveItem` already
+        // closes the pane it can see; this is what carries the close to the groups it cannot — another
+        // window's archive, or one taken while a different group was on screen. `items` itself keeps
+        // them: the sidebar's Archived section is drawn from the full list.
+        const live = new Set(items.filter((i) => !i.archived).map((i) => i.id));
         const groups = reconcileGroups(get().groups ?? groupsFromLayout(get().layout), live);
         const layout = activeLayout(groups);
         layoutHydrated = true;
@@ -1532,6 +1541,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sid = get().activeSpaceId;
         const it = await api.updateItem(input);
         if (sid && isSpace(sid)) set({ items: get().items.map((x) => (x.id === it.id ? it : x)) });
+      },
+      async archiveItem(itemId, archived) {
+        // Close FIRST, then flip the flag — deleteItem's ordering, for deleteItem's reason: a row the
+        // sidebar has hidden whose pane is still on screen is the one state neither surface can
+        // explain, and doing it in this order means a failure in between leaves the item visible
+        // rather than invisible-but-open. Unarchiving touches no layout: the row comes back to the
+        // SPACE group unopened, exactly where closing would have left it.
+        if (archived) await get().closeFromLayout(itemId);
+        await get().updateItem({ id: itemId, archived });
+        // Back/forward must not walk into a shelved pane. Same prune deleteItem owes the trails, for
+        // the same reason — the difference is only that the item still exists to come back to.
+        if (archived) {
+          const live = new Set(get().items.filter((i) => !i.archived).map((i) => i.id));
+          set({ paneHistory: forgetNavItems(get().paneHistory, live) });
+        }
       },
       /** Agent-opened panes arrive BESIDE the user's focused pane, never replacing it. Replacing was a
        *  live-found deadlock: the browser evicted the very session whose permission card the user had to

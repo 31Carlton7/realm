@@ -199,6 +199,26 @@ describe("ItemsStore", () => {
     expect(items.update({ id: a.id, title: "renamed", pinned: true }).pinned).toBe(true);
     expect(items.get(a.id)?.title).toBe("renamed");
   });
+  it("archiving keeps the row in its space's list and takes it out of the cross-space one", () => {
+    const profiles = new ProfilesStore(db); const spaces = new SpacesStore(db, home); const items = new ItemsStore(db);
+    const p = profiles.create({ name: "W", icon: "x", color: "#000" });
+    const sp = spaces.create({ profileId: p.id, name: "S", icon: "f" });
+    const a = items.create({ spaceId: sp.id, kind: "session", title: "shelved", refId: sp.id });
+    const b = items.create({ spaceId: sp.id, kind: "session", title: "live", refId: sp.id });
+    expect(a.archived).toBe(false); // nothing is born archived
+
+    expect(items.update({ id: a.id, archived: true }).archived).toBe(true);
+    // `list` is what the sidebar's Archived section is drawn from, so it must still carry the row —
+    // filtering here would leave the user no way to unarchive.
+    expect(items.list(sp.id).map((x) => [x.title, x.archived])).toEqual([["shelved", true], ["live", false]]);
+    // `listAll` is the palette's jump list, and that is exactly what archiving opts out of.
+    expect(items.listAll().map((x) => x.title)).toEqual([b.title]);
+
+    // An unrelated update must not silently clear the flag — `archived ?? cur.archived`, not `?? false`.
+    expect(items.update({ id: a.id, title: "renamed" }).archived).toBe(true);
+    expect(items.update({ id: a.id, archived: false }).archived).toBe(false);
+    expect(items.listAll().map((x) => x.title).sort()).toEqual(["live", "renamed"]);
+  });
   it("moveToSpace re-homes the item, appended after the destination's existing items", () => {
     const profiles = new ProfilesStore(db); const spaces = new SpacesStore(db, home); const items = new ItemsStore(db);
     const p = profiles.create({ name: "W", icon: "x", color: "#000" });
