@@ -25,6 +25,7 @@ import { CodexConnection } from "@realm/adapters";
 import { openDatabase } from "../src/db/database";
 import { SettingsStore } from "../src/store/settings";
 import { SkillsService } from "../src/skills/service";
+import { finish, ok } from "./harness";
 
 const ENABLED = "realm-probe-enabled";
 const DISABLED = "realm-probe-disabled";
@@ -32,11 +33,6 @@ const SPACE = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 /** Skills of the user's own that the isolation check looks for. Absence of ALL of them is the assertion. */
 const USER_SKILL_HINTS = ["caikins", "frontend-design", "quiet-saas", "refactoring-ui", "skill-creator"];
 
-let failures = 0;
-const ok = (label: string, cond: boolean, detail = "") => {
-  console.log(`  ${cond ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
-  if (!cond) failures += 1;
-};
 
 function library() {
   const home = mkdtempSync(join(tmpdir(), "realm-skills-live-"));
@@ -122,8 +118,7 @@ async function main() {
     rmSync(home, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   }
-  console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((e) => { console.error("driver crashed:", e); process.exit(2); });

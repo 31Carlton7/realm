@@ -7,6 +7,13 @@ export class SettingsStore {
     if (!r) return null;
     try { return JSON.parse(r.value_json) as unknown; } catch { return null; }
   }
+  /** A key holding a list of ids. A missing key, or one whose value is not an array of strings,
+   *  reads as empty — settings rows are user-editable JSON and must not crash a caller. */
+  getIds(key: string): string[] {
+    const v = this.get(key);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  }
+
   /** `undefined` (e.g. an omitted RPC `value`) is stored as null so the row stays valid JSON. */
   set(key: string, value: unknown): void {
     if (value === undefined) value = null;

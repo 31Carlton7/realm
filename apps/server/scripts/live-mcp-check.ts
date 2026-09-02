@@ -37,6 +37,7 @@ import { McpService } from "../src/mcp/service";
 import { McpServersStore } from "../src/store/mcp";
 import { SettingsStore } from "../src/store/settings";
 import { liveWorkspace } from "./live-workspace";
+import { finish, ok, sleep } from "./harness";
 
 const KINDS = (process.argv[2] ?? "claude,codex,acp:cursor").split(",").filter(Boolean) as AgentKind[];
 /** Generous: `cursor-agent acp` takes tens of seconds to do anything at all. The marker lands at session
@@ -46,14 +47,7 @@ const MARKER_TIMEOUT_MS = 120_000;
 const TOKEN = `realm-probe-${Math.random().toString(36).slice(2)}`;
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "marker-mcp-server.mjs");
 
-let failures = 0;
-const ok = (label: string, cond: boolean, detail = "") => {
-  console.log(`  ${cond ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
-  if (!cond) failures += 1;
-};
 const skip = (label: string, detail: string) => console.log(`  SKIP  ${label} — ${detail}`);
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 type Marker = { startedAt: number; args: string[]; token: "match" | "mismatch" | "absent" };
 const readMarker = (path: string): Marker | null => {
   if (!existsSync(path)) return null;
@@ -140,8 +134,7 @@ async function main() {
   rmSync(home, { recursive: true, force: true });
   rmSync(markers, { recursive: true, force: true });
   // `cwd` is left on disk on purpose — see live-workspace.ts.
-  console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((e) => { console.error("driver crashed:", e); process.exit(2); });

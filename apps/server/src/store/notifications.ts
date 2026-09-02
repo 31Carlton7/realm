@@ -1,6 +1,7 @@
 import type { Db } from "../db/database";
 import { newId, type Notification, type NotificationCategory } from "@realm/contracts";
 import { now } from "./rows";
+import { encodeCursor, parseCursor } from "./cursor";
 
 type Row = { id: string; category: NotificationCategory; space_id: string | null; session_id: string | null; ref_id: string | null;
   title: string; body: string | null; created_at: number; read_at: number | null; acted_at: number | null };
@@ -36,7 +37,7 @@ export class NotificationsStore {
       : this.db.prepare("SELECT * FROM notifications ORDER BY created_at DESC, id DESC LIMIT ?").all(input.limit)) as Row[];
     const last = rows.at(-1);
     // A short page IS the end; only a full page might have more behind it.
-    const nextCursor = rows.length === input.limit && last ? `${last.created_at}:${last.id}` : null;
+    const nextCursor = rows.length === input.limit && last ? encodeCursor(last) : null;
     return { notifications: rows.map(toNotification), nextCursor };
   }
 
@@ -115,13 +116,3 @@ export class NotificationsStore {
   }
 }
 
-/** A cursor that does not parse reads as "no cursor" (first page) rather than throwing — it is opaque
- *  client state, and a stale or mangled one should degrade to a fresh listing, not an error. */
-function parseCursor(cursor: string | null): { createdAt: number; id: string } | null {
-  if (!cursor) return null;
-  const i = cursor.indexOf(":");
-  if (i <= 0) return null;
-  const createdAt = Number(cursor.slice(0, i));
-  const id = cursor.slice(i + 1);
-  return Number.isFinite(createdAt) && id ? { createdAt, id } : null;
-}

@@ -1,6 +1,7 @@
 import type { Db } from "../db/database";
 import { newId, type Ship } from "@realm/contracts";
 import { now } from "./rows";
+import { encodeCursor, parseCursor } from "./cursor";
 
 type Row = { id: string; environment_id: string; space_id: string; branch: string | null; sha: string;
   subject: string; pr_url: string | null; push_state: Ship["pushState"]; created_at: number };
@@ -39,18 +40,8 @@ export class ShipsStore {
       : this.db.prepare("SELECT * FROM ships WHERE space_id = ? ORDER BY created_at DESC, id DESC LIMIT ?").all(input.spaceId, input.limit)) as Row[];
     const last = rows.at(-1);
     // A short page IS the end; only a full page might have more behind it.
-    const nextCursor = rows.length === input.limit && last ? `${last.created_at}:${last.id}` : null;
+    const nextCursor = rows.length === input.limit && last ? encodeCursor(last) : null;
     return { ships: rows.map(toShip), nextCursor };
   }
 }
 
-/** A cursor that does not parse reads as "no cursor" (first page) — it is opaque client state, and a
- *  stale or mangled one should degrade to a fresh listing, not an error. */
-function parseCursor(cursor: string | null): { createdAt: number; id: string } | null {
-  if (!cursor) return null;
-  const i = cursor.indexOf(":");
-  if (i <= 0) return null;
-  const createdAt = Number(cursor.slice(0, i));
-  const id = cursor.slice(i + 1);
-  return Number.isFinite(createdAt) && id ? { createdAt, id } : null;
-}

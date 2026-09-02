@@ -3,6 +3,7 @@ import { AGENT_SKILL_SUPPORT, AgentKindSchema, AgentRunConstraintsSchema, type A
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "../browsers/guards";
 import type { ProviderCallContext } from "../mcp/gateway";
+import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import { titleFromMessage, type SessionService } from "../sessions/service";
 import type { SkillsService } from "../skills/service";
@@ -316,7 +317,4 @@ export const AGENT_RUN_TOOL: Tool = {
   },
 };
 
-const ok = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: false });
-const err = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));

@@ -53,10 +53,6 @@ export function bundledSkillsDir(): string | null {
   return packaged && existsSync(packaged) ? packaged : null;
 }
 
-const readIds = (settings: SettingsStore, key: string): string[] => {
-  const v = settings.get(key);
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-};
 
 /**
  * Realm's skills library: what is on disk, which of it each space wants, and the staged directory that
@@ -141,7 +137,7 @@ export class SkillsService {
   installBundled(): string[] {
     const src = this.d.bundledDir === undefined ? bundledSkillsDir() : this.d.bundledDir;
     if (!src) return [];
-    const already = new Set(readIds(this.d.settings, INSTALLED_KEY));
+    const already = new Set(this.d.settings.getIds(INSTALLED_KEY));
     const installed: string[] = [];
     try { mkdirSync(this.root, { recursive: true }); } catch { return []; }
     for (const id of this.dirNames(src)) {
@@ -169,7 +165,7 @@ export class SkillsService {
    * library cannot disagree (`scoping.test.ts` greps the keys to keep it that way).
    */
   list(spaceId: string): { root: string; skills: Skill[] } {
-    const disabled = new Set(readIds(this.d.settings, disabledKey(spaceId)));
+    const disabled = new Set(this.d.settings.getIds(disabledKey(spaceId)));
     const scopes = this.scopeMap();
     const skills = this.dirNames(this.root)
       .filter((id) => this.appliesTo(scopes[id] ?? LEGACY_SPACE_SCOPE, spaceId))
@@ -179,7 +175,7 @@ export class SkillsService {
 
   setEnabled(spaceId: string, id: string, enabled: boolean): void {
     const key = disabledKey(spaceId);
-    const disabled = new Set(readIds(this.d.settings, key));
+    const disabled = new Set(this.d.settings.getIds(key));
     if (enabled) disabled.delete(id); else disabled.add(id);
     this.d.settings.set(key, [...disabled].sort());
   }
