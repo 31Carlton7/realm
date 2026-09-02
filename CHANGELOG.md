@@ -37,6 +37,19 @@
 
 ## Unreleased
 
+- **School workflows** (Plan 22). The Documents pane opens `.html` **study guides** — self-contained
+  interactive pages with quizzes, step-throughs, flashcards and KaTeX math — in a sandboxed frame
+  served by a new loopback preview listener with its own CSP, and `.pdf` files (problem sets, slide
+  decks) preview-only through the same route. Quiz results persist in a hidden sidecar beside the
+  guide. A `realm-docs` gateway provider gives every session `docs_search` (the space folder, PDF
+  text included), `docs_list`, `docs_open` (surface a file in the pane) and `docs_progress`. "New
+  lecture…" starts a dated notes file in its own pane group with a session beside it; "Wrap up a
+  lecture…" sends a fresh session the wrap-up prompt (clean notes, answered questions, flashcards, a
+  guide); "Import recording from Plynn…" copies Plynn's meeting exports under `lectures/`, read-only
+  at the source. Two bundled skills, `study-guide` and `lecture-notes`, teach the markup and the
+  workflow. `node apps/desktop/scripts/school-live.mjs` proves the frame, the runtime, a real click
+  and the sidecar against the built app.
+
 - A space can hold several named **pane groups** — separate split
   arrangements, one on screen at a time — instead of one layout plus a flat
   list of everything else. The sidebar lists a section per group, clicking a

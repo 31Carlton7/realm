@@ -138,6 +138,11 @@ bundled skill by hand:
 ln -s "$PWD/skills/mac" ~/.claude/skills/mac
 ```
 
+- **`study-guide`** / **`lecture-notes`** — the school workflow (Plan 22): how to write a self-contained
+  interactive HTML guide the Documents pane renders (quizzes, step-throughs, flashcards, KaTeX; progress
+  in a sidecar), and how to answer questions during a lecture and wrap one up afterwards. Both lean on
+  the `realm-docs` gateway tools (`docs_search`, `docs_list`, `docs_open`, `docs_progress`), and the
+  palette's *New lecture… / Wrap up a lecture… / Import recording from Plynn…* entries drive the loop.
 - **`mac`** — the [mac-cli](https://macoscli.sh) binary: Calendar, Reminders, Contacts, Mail,
   Messages, Notes, Music, TV, Shortcuts, Finder, and iWork from the shell. Realm spawns agents and
   terminals with its own environment inherited, so `mac` is already on a session's `PATH` whenever

@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { DOCUMENT_MAX_BYTES } from "@realm/contracts";
@@ -60,6 +59,11 @@ export const GUIDE_CSP = [
 /** Locate the vendored KaTeX distribution, or null if the package is not resolvable (a trimmed install). */
 export function defaultKatexDir(): string | null {
   try {
+    // `process.getBuiltinModule` rather than `import { createRequire } from "node:module"`: the
+    // server bundle's banner (tsup.config.ts) already declares that exact import for the CJS deps
+    // it inlines, and a second top-level `createRequire` is a SyntaxError in the built ESM — one
+    // the source-level test suite can never see. Caught by the live check.
+    const { createRequire } = process.getBuiltinModule("node:module") as typeof import("node:module");
     const req = createRequire(import.meta.url);
     return dirname(req.resolve("katex/dist/katex.min.js"));
   } catch {

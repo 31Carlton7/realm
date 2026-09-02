@@ -12,7 +12,12 @@ const envPort = Number(process.env.REALM_PORT);
 const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
 try {
   const home = realmHome();
-  const app = await createApp({ home, port, titleGenerator: generateSessionTitle });
+  const app = await createApp({
+    home, port, titleGenerator: generateSessionTitle,
+    // Plan 22: where Plynn's meeting exports are read from. Unset in production (the app's own
+    // Application Support folder); live checks point it at a fixture so no real recording is read.
+    plynnMeetingsDir: process.env.REALM_PLYNN_MEETINGS_DIR || undefined,
+  });
   // Announce readiness on stdout as a single JSON line; Electron main parses this.
   process.stdout.write(JSON.stringify({ type: "ready", port: app.port, home }) + "\n");
   const shutdown = async () => { await app.close(); process.exit(0); };
