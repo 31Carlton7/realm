@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, sessionEvent, type Environment } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, canonicalModelKey, sessionEvent, type Environment } from "@realm/contracts";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
@@ -768,17 +768,26 @@ describe("SessionMeta", () => {
     return render(<StoreContext.Provider value={store}><SessionMeta item={item("i9", "s1", { kind: "session", refId: "se1", title: "Sess" })} /></StoreContext.Provider>);
   }
 
-  it("shows the model label, status dot, and cost once costUsd > 0", () => {
+  it("shows the status dot and the cost once costUsd > 0", () => {
     mountMeta({ model: "fake-xl", status: "waiting_permission", costUsd: 0.5, numTurns: 3 });
-    expect(screen.getByText("fake-xl")).toBeInTheDocument();
     expect(screen.getByLabelText("Status: Needs permission")).toHaveAttribute("data-status", "waiting_permission");
-    expect(screen.getByText("$0.50 · 3 turns")).toBeInTheDocument();
+    expect(screen.getByText("$0.50")).toBeInTheDocument();
+  });
+
+  it("shows the cost ALONE — not the model id, and not the turn count", () => {
+    // The header used to lead with the model and trail the cost with turns. The model is named
+    // properly by the prompter's own chip inches below, and printed here as whatever raw id the
+    // harness pinned; the turn count was never the question a header answers.
+    mountMeta({ model: "claude-fable-5-1[thinking=true,context=300k,effort=high]", costUsd: 0.5, numTurns: 3 });
+    expect(screen.queryByText(/claude-fable/)).toBeNull();
+    expect(screen.queryByText(/turn/)).toBeNull();
+    expect(screen.getByText("$0.50")).toBeInTheDocument();
   });
 
   it("renders no cost while costUsd is 0, even after turns", () => {
     mountMeta({ model: "fake-xl", costUsd: 0, numTurns: 3 });
     expect(screen.queryByText(/\$/)).toBeNull();
-    expect(screen.getByText("fake-xl")).toBeInTheDocument(); // the rest of the meta still renders
+    expect(screen.getByLabelText(/^Status:/)).toBeInTheDocument(); // the rest of the meta still renders
   });
 });
 
@@ -1243,6 +1252,221 @@ describe("prompter model picker", () => {
       expect(rowNames()).toEqual(["Model 39"]);
       fireEvent.keyDown(search, { key: "Enter" });
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("m-39[x=1]"));
+    });
+  });
+
+  describe("favourites", () => {
+    const OPUS = canonicalModelKey("Claude Opus 5");
+    const HAIKU = canonicalModelKey("Claude Haiku 4.5");
+    const searchBox = () => screen.getByRole("combobox", { name: "Search models" });
+    const starOn = (label: string | RegExp) =>
+      within(screen.getByRole("option", { name: label })).getByRole("button", { name: /Favourite|Unfavourite/ });
+    /** Preloads starred keys the way a previous session would have left them in `settings`. */
+    const withFavorites = async (keys: string[]) => {
+      const r = await mountFresh();
+      await act(async () => { r.store.setState({ modelFavorites: keys }); });
+      return r;
+    };
+
+    it("puts the rail above the search field, led by the favourites tab", () => {
+      // The screenshot's layout, and the reading order it implies: scope first, then narrow.
+      return mountFresh().then(() => {
+        openPicker();
+        const picker = screen.getByRole("dialog", { name: "Model picker" });
+        const kids = [...picker.children].map((n) => n.className);
+        expect(kids[0]).toBe("mp-rail");
+        expect(kids[1]).toBe("mp-search");
+        const tabs = within(screen.getByRole("group", { name: "Filter models" })).getAllByRole("button");
+        expect(tabs[0]).toHaveAccessibleName("Favourites");
+      });
+    });
+
+    it("says how to fill the favourites tab rather than showing an empty list", async () => {
+      await mountFresh();
+      openPicker();
+      fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
+      expect(screen.queryAllByRole("option")).toHaveLength(0);
+      expect(screen.getByText(/star a model to pin it here/i)).toBeInTheDocument();
+    });
+
+    it("starring a row persists a canonical KEY, not a model id", async () => {
+      // A key is what survives the model being reached through a different harness later.
+      const { api, store } = await mountFresh();
+      openPicker();
+      fireEvent.click(starOn(/Claude Opus 5/));
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
+      expect(api.calls.some((c) => c.startsWith("setSetting:models.favorites"))).toBe(true);
+      expect(OPUS).not.toBe("claude-opus-5"); // the id would have been the lazy thing to store
+    });
+
+    it("starring a row does not also pick it", async () => {
+      // The star lives inside the row; without stopPropagation it would switch the session's model
+      // as a side effect of bookmarking it.
+      const { store } = await mountFresh({ model: "claude-fable-5-1" });
+      openPicker();
+      fireEvent.click(starOn(/Claude Opus 5/));
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
+      expect(store.getState().sessions.se1?.model).toBe("claude-fable-5-1");
+      expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument(); // and stays open
+    });
+
+    it("un-starring removes only that key", async () => {
+      const { store } = await withFavorites([OPUS, HAIKU]);
+      openPicker();
+      // aria-pressed is not decoration here: it is the hook the filled-star CSS keys on, so a
+      // starred row that failed to set it would look unstarred with no test noticing.
+      expect(starOn(/Claude Opus 5/)).toHaveAttribute("aria-pressed", "true");
+      expect(starOn(/Claude Sonnet 5/)).toHaveAttribute("aria-pressed", "false");
+      fireEvent.click(starOn(/Claude Opus 5/));
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([HAIKU]));
+    });
+
+    it("floats favourites to the top and numbers them down the page", async () => {
+      await withFavorites([HAIKU, OPUS]); // starred in this order; the badges must not follow it
+      openPicker();
+      expect(rowNames().slice(0, 2)).toEqual(["Claude Opus 5", "Claude Haiku 4.5"]); // list order, not starring order
+      const badges = screen.getAllByRole("option").map((n) => n.querySelector(".mp-kbd")?.textContent ?? null);
+      expect(badges.slice(0, 2)).toEqual(["⌘1", "⌘2"]);
+      expect(badges.slice(2).every((b) => b === null)).toBe(true); // only favourites are numbered
+    });
+
+    it("numbers only the favourites still on screen, so ⌘1 is always the first visible one", async () => {
+      // Numbering off the unfiltered list would leave ⌘1 pointing at a favourite the search has
+      // hidden — pressing it would swap the model to something not on screen.
+      const { store } = await withFavorites([OPUS, HAIKU]);
+      openPicker();
+      fireEvent.change(searchBox(), { target: { value: "haiku" } });
+      expect(rowNames()).toEqual(["Claude Haiku 4.5"]);
+      expect(screen.getByRole("option", { name: /Haiku/ }).querySelector(".mp-kbd")).toHaveTextContent("⌘1");
+      fireEvent.keyDown(searchBox(), { key: "1", metaKey: true });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-haiku-4-5"));
+    });
+
+    it("⌘<n> picks the nth favourite", async () => {
+      const { store } = await withFavorites([HAIKU, OPUS]);
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "2", metaKey: true });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-haiku-4-5")); // ⌘2 = second ROW
+    });
+
+    it("a bare digit still types into the search box", async () => {
+      // The reason the badge is ⌘-prefixed at all: "5" is something people search for. Asserted via
+      // the popover staying open, which `pick` closes SYNCHRONOUSLY — checking the session's model
+      // instead would race the RPC and pass against a picker that had already hijacked the key.
+      const { api } = await withFavorites([OPUS]);
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "1" });
+      expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
+      await act(async () => {});
+      expect(api.calls.some((c) => c.startsWith("setSessionOptions"))).toBe(false);
+    });
+
+    it("⌘<n> past the last favourite does nothing", async () => {
+      const { store } = await withFavorites([OPUS]);
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "4", metaKey: true });
+      expect(store.getState().sessions.se1?.model).toBeNull();
+      expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
+    });
+
+    it("⌥↩ stars the highlighted row, which is the only keyboard path to the star", async () => {
+      const { store } = await mountFresh();
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([canonicalModelKey("Claude Opus 5")]));
+      expect(store.getState().sessions.se1?.model).toBeNull(); // ⌥↩ stars; it does not pick
+    });
+
+    it("keeps the highlight on the row ⌥↩ just starred, after it sorts to the top", async () => {
+      // Starring re-sorts the list under the highlight. Anchored to an index, the highlight would
+      // stay in slot 2 while the starred row moved to slot 0 — so the very next Enter would pick
+      // whichever model slid into that slot, not the one the user was looking at.
+      const { store } = await mountFresh();
+      openPicker();
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, row 3 of the list
+      fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
+      await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
+      expect(rowNames()[0]).toBe("Claude Opus 5"); // it moved
+      const active = document.querySelector(".mp-row[data-active] .mp-row-name")?.textContent;
+      expect(active).toBe("Claude Opus 5"); // and the highlight moved with it
+      fireEvent.keyDown(searchBox(), { key: "Enter" });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
+    });
+
+    it("the favourites tab lists the starred models and nothing else", async () => {
+      await withFavorites([OPUS]);
+      openPicker();
+      fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
+      expect(rowNames()).toEqual(["Claude Opus 5"]);
+    });
+  });
+
+  describe("the harness chip", () => {
+    /** Cursor proxying a model the Claude CLI also runs — the overlap a harness switch has to carry. */
+    const proxyProbe: AgentProbe[] = [
+      { kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null,
+        models: [{ id: "claude-fable-5.1", label: "Claude Fable 5.1" }, { id: "gpt-5.5", label: "GPT-5.5" }] },
+    ];
+    const openHarness = () => fireEvent.click(screen.getByRole("button", { name: "Harness" }));
+
+    it("names the session's own harness and offers the others", async () => {
+      await mountFresh();
+      expect(screen.getByRole("button", { name: "Harness" })).toHaveTextContent("Claude");
+      openHarness();
+      const items = screen.getAllByRole("menuitemcheckbox").map((n) => n.textContent);
+      expect(items[0]).toContain("Claude");
+      expect(items.join(" ")).toContain("Codex");
+      expect(items.join(" ")).toContain("Cursor");
+      expect(screen.getAllByRole("menuitemcheckbox")[0]).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("carries the model across when the target harness offers it", async () => {
+      // The point of splitting the axes: changing WHAT RUNS must not silently change WHAT IT RUNS.
+      // Cursor names this model by a different id, so the switch has to re-map rather than re-send.
+      const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openHarness();
+      fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /Cursor/ }));
+      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
+      expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1"); // Cursor's id, not Claude's
+      expect(api.calls.filter((c) => c.startsWith("setSessionAgent") || c.startsWith("setSessionOptions")))
+        .toEqual(["setSessionAgent:se1=acp:cursor", "setSessionOptions:se1"]); // setAgent clears model, so order matters
+    });
+
+    it("says which model a harness would fall back to before it is picked", async () => {
+      // Worked out in the label rather than reported afterwards — the consequence belongs to the
+      // decision, not to the undo.
+      const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openHarness();
+      const codex = screen.getByRole("menuitemcheckbox", { name: /Codex/ });
+      expect(codex).toHaveTextContent("runs GPT-5.6");
+      expect(screen.getByRole("menuitemcheckbox", { name: /Cursor/ })).not.toHaveTextContent("runs");
+      fireEvent.click(codex);
+      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("codex"));
+      // No model is sent: a claude id means nothing to Codex, and there is no Codex id to put there.
+      expect(store.getState().sessions.se1?.model).toBeNull();
+      expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
+    });
+
+    it("flags a harness whose CLI is missing rather than hiding it", async () => {
+      const { store } = await mountFresh({}, 0,
+        [{ kind: "codex", available: false, version: null, loggedIn: null, reason: "not on PATH", models: null }]);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openHarness();
+      expect(screen.getByRole("menuitemcheckbox", { name: /Codex/ })).toHaveTextContent("not installed");
+    });
+
+    it("becomes a plain label once the session has run", async () => {
+      // sessions.setAgent refuses after the first event; a menu that cannot change anything is worse
+      // than a label, and a disabled button would still take a tab stop.
+      await mountFresh({ lastEventSeq: 3 }, 3);
+      const chip = screen.getByTitle(/agent can only change before its first message/);
+      expect(chip).toHaveTextContent("Claude");
+      expect(screen.queryByRole("button", { name: "Harness" })).toBeNull();
     });
   });
 });

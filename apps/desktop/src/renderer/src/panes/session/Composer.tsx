@@ -1,9 +1,11 @@
-import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, acpPlanMode, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, acpPlanMode, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
+import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
+import { modelIdOn, modelRows } from "./model-rows";
 import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
 import { continueList, highlightSegments, indentList, toggleList, type DraftEdit } from "./draft-format";
@@ -222,7 +224,7 @@ function planMeaning(kind: AgentKind, acpPlan: AcpSessionMode | null): string {
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter" }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, onToggleModelFavorite, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -249,6 +251,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   canSwitchAgent: boolean;
   /** Latest `agents.probe`, for the picker's per-agent availability note. Empty before the first probe. */
   agentProbe: AgentProbe[];
+  /** Canonical model keys the user has starred, and the toggle behind the picker's stars. */
+  modelFavorites: string[];
+  onToggleModelFavorite: (key: string) => void;
   hero: boolean; spaceName: string; onSuggestion: (prompt: string) => void;
   /** What `@` may complete to HERE (W4): the space's enabled, valid skills — and only for an agent
    *  Realm can inject skills into. Empty (the default) means typing `@` opens nothing, which is how a
@@ -487,6 +492,50 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const modeItems: MenuItem[] = SESSION_MODES.map((m) => ({
     label: m.label, checked: (m.id === "plan") === inPlan, onSelect: () => onMode(m.id),
   }));
+
+  // Built HERE rather than inside ModelPicker so the harness chip and the model list are the same
+  // rows: the chip resolves a switch through `modelIdOn`, and two independent `modelRows` calls
+  // could disagree about which harness a model resolved to.
+  const rows = useMemo(
+    () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, favorites: modelFavorites }),
+    [kind, session.model, agentProbe, canSwitchAgent, modelFavorites]);
+  const currentRow = rows.find((r) => r.selected) ?? null;
+  // The session's own kind leads and is never absent, so a `fake` session still names its harness.
+  const harnessKinds: AgentKind[] = [kind, ...SELECTABLE_AGENT_KINDS.filter((k) => k !== kind)];
+  /**
+   * The harness menu — which CLI runs this session, split out from WHICH MODEL it runs.
+   *
+   * Each item carries the consequence of picking it, worked out before the click rather than
+   * reported after: a harness that can run the current model just switches the route and keeps the
+   * model, and one that cannot says which model it would fall back to. That is the whole reason the
+   * item labels are ReactNode — "Cursor · runs Composer" is a different promise from "Cursor", and
+   * the user is entitled to it while deciding.
+   *
+   * Empty once the session has run: `sessions.setAgent` refuses after the first event, and ChipMenu
+   * renders an item-less chip as a plain label with the title explaining why, rather than a disabled
+   * button that still takes a tab stop.
+   */
+  const harnessItems: MenuItem[] = canSwitchAgent ? harnessKinds.map((k) => {
+    const id = currentRow ? modelIdOn(currentRow, k) : undefined;
+    const keeps = id !== undefined; // this harness offers the very model the session is on
+    const note = availabilityNote(agentAvailability(k, agentProbe));
+    return {
+      label: (
+        <>
+          {AGENT_META[k].label}
+          {!keeps && <span className="menu-hint"> runs {DEFAULT_MODEL_LABEL[k]}</span>}
+          {note && <span className="menu-hint"> — {note}</span>}
+        </>
+      ),
+      checked: k === kind,
+      title: keeps
+        ? `Run this session on ${AGENT_META[k].label}, keeping ${currentRow?.label ?? "the current model"}`
+        : `${AGENT_META[k].label} doesn’t offer ${currentRow?.label ?? "this model"} — switching runs ${DEFAULT_MODEL_LABEL[k]} instead`,
+      // Reuses the picker's own handler, so a harness switch is the same ordered pair as a model
+      // pick: setAgent (which clears `model` server-side) and only then the model it must land on.
+      onSelect: () => onPickModel(k, id ?? null),
+    };
+  }) : [];
   const permissionItems = PERMISSION_MODES.map((m) => ({
     label: m.label, checked: session.permissionMode === m.id,
     onSelect: () => {
@@ -604,8 +653,14 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             )}
           </div>
           <div className="composer-actions">
-            <ModelPicker kind={kind} model={session.model} effort={session.effort} canSwitchAgent={canSwitchAgent}
-              agentProbe={agentProbe} onPick={onPickModel} effortItems={effortItems} overflow={overflow} />
+            {/* Harness before model, reading right-to-left from the send button: the chip that says
+                WHAT RUNS sits outside the chip that says WHAT IT RUNS. */}
+            <ChipMenu ariaLabel="Harness" icon={AGENT_META[kind].icon} label={AGENT_META[kind].label} items={harnessItems}
+              title={canSwitchAgent ? `Harness: ${AGENT_META[kind].label}`
+                : `Harness: ${AGENT_META[kind].label} — a session's agent can only change before its first message`} />
+            <ModelPicker kind={kind} model={session.model} effort={session.effort} rows={rows}
+              onToggleFavorite={onToggleModelFavorite}
+              onPick={onPickModel} effortItems={effortItems} overflow={overflow} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's
