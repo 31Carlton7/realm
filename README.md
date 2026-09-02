@@ -32,7 +32,8 @@ why that matters and how to verify the WebGPU hero shader headlessly.
 ## Packaging
 
 - `pnpm dist` — full build + DMG and zip in `apps/desktop/release/` (`pnpm dist:dir` stops at an
-  unpacked `Realm.app` for fast iteration). Under the hood: root `pnpm build`, then
+  unpacked `Realm.app` for fast iteration; `pnpm app:update` runs it and swaps the result into
+  `/Applications/Realm.app`, quitting a running copy first). Under the hood: root `pnpm build`, then
   `apps/desktop/scripts/stage-pack.mjs` stages `.pack-stage/` (a `pnpm deploy` of realm-server with
   its production `node_modules`, the bundled `skills/`, the ScrollPhase helper, the icon), then
   electron-builder (`apps/desktop/electron-builder.yml`) packs it — server and skills as real files
