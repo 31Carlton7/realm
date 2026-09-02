@@ -4,6 +4,7 @@
 // stray ELECTRON_RUN_AS_NODE=1 breaks any Electron-based tool a child might launch.
 delete process.env.ELECTRON_RUN_AS_NODE;
 
+import { generateSessionTitle } from "@realm/adapters";
 import { createApp } from "./app";
 import { realmHome } from "./paths";
 
@@ -11,7 +12,7 @@ const envPort = Number(process.env.REALM_PORT);
 const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
 try {
   const home = realmHome();
-  const app = await createApp({ home, port });
+  const app = await createApp({ home, port, titleGenerator: generateSessionTitle });
   // Announce readiness on stdout as a single JSON line; Electron main parses this.
   process.stdout.write(JSON.stringify({ type: "ready", port: app.port, home }) + "\n");
   const shutdown = async () => { await app.close(); process.exit(0); };

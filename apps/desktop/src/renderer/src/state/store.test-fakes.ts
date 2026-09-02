@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
+import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
 import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { SearchResults } from "@realm/contracts";
@@ -7,9 +7,9 @@ import type { SearchResults } from "@realm/contracts";
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
   ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
 export const space = (id: string, profileId: string, name: string, extra: Partial<Space> = {}): Space =>
-  ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", layout: null, activeItemId: null, createdAt: 0, updatedAt: 0, ...extra });
+  ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): Item =>
-  ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
+  ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, archived: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra });
@@ -285,7 +285,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
     listAllItems: async () => {
       calls.push("listAllItems");
-      return Object.values(data.items).flat().slice().sort((a, b) => b.updatedAt - a.updatedAt);
+      // Mirrors the server (ItemsStore.listAll): archived rows are not offered to the palette.
+      return Object.values(data.items).flat().filter((i) => !i.archived).sort((a, b) => b.updatedAt - a.updatedAt);
     },
     search: async (profileId, query) => {
       calls.push(`search:${profileId}:${query}`);
@@ -322,7 +323,20 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     setLayout: async (sid, layout) => {
       calls.push(`setLayout:${sid}`);
       const i = data.spaces.findIndex((x) => x.id === sid);
-      const s = { ...(i >= 0 ? data.spaces[i]! : findSpace(sid)), layout };
+      const cur = i >= 0 ? data.spaces[i]! : findSpace(sid);
+      const groups = cur.groups ? setActiveLayout(cur.groups, layout) : null;
+      const s = { ...cur, groups, layout };
+      if (i >= 0) data.spaces[i] = s;
+      return s;
+    },
+    // Mirrors the server (apps/server/src/store/spaces.ts): `groups` is stored, `layout` is DERIVED
+    // from the active group — a test that reads the returned space's `layout` gets what the real one
+    // would return, so a store bug that persists the wrong active group shows up here rather than
+    // silently round-tripping.
+    setGroups: async (sid, groups) => {
+      calls.push(`setGroups:${sid}`);
+      const i = data.spaces.findIndex((x) => x.id === sid);
+      const s = { ...(i >= 0 ? data.spaces[i]! : findSpace(sid)), groups, layout: activeLayout(groups) };
       if (i >= 0) data.spaces[i] = s;
       return s;
     },

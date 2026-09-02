@@ -78,6 +78,19 @@ describe("CommandPalette", () => {
     expect(store.getState().paletteOpen).toBe(false);
   });
 
+  it("archived rows are absent from the jump list, in this space and in every other", async () => {
+    // Both halves of the list are covered: the active space's rows come from `items` (which carries
+    // archived rows, for the sidebar's shelf) and the rest from `allItems` (which does not).
+    await mount({ items: {
+      s1: [item("i1", "s1", { title: "Terminal" }),
+           item("i3", "s1", { title: "Shelved here", kind: "session", refId: "se3", archived: true })],
+      s2: [item("i2", "s2", { title: "Shelved elsewhere", kind: "session", refId: "se2", archived: true })],
+    } });
+    expect(screen.queryByRole("option", { name: /Shelved here/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Shelved elsewhere/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Terminal/ })).toBeInTheDocument();
+  });
+
   it("sorts a space's items by updatedAt desc (recency), open items of the active space first with a quadrant glyph", async () => {
     // Insertion order deliberately disagrees with recency (Middle before Newest) so a sort that
     // ignores updatedAt dies here instead of passing by accident.

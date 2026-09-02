@@ -1,21 +1,57 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Db } from "../db/database";
-import { newId, pickSpaceColor, LayoutSchema, type Layout, type Space } from "@realm/contracts";
+import { activeLayout, groupsFromLayout, newId, pickSpaceColor, LayoutSchema, setActiveLayout,
+  SpaceGroupsSchema, type Layout, type Space, type SpaceGroups } from "@realm/contracts";
 import { NotFoundError, now, slugify } from "./rows";
 
 type Row = { id: string; profile_id: string; name: string; icon: string; color: string; sort_order: number; folder_path: string;
-  layout_json: string | null; active_item_id: string | null; created_at: number; updated_at: number };
+  layout_json: string | null; groups_json: string | null; active_item_id: string | null; created_at: number; updated_at: number };
 /** Corrupt or outdated layout JSON degrades to null rather than breaking the whole space. */
 function parseLayout(json: string | null): Layout | null {
   if (!json) return null;
   try { const p = LayoutSchema.safeParse(JSON.parse(json)); return p.success ? p.data : null; } catch { return null; }
 }
-const toSpace = (r: Row): Space => ({
-  id: r.id, profileId: r.profile_id, name: r.name, icon: r.icon, color: r.color, sortOrder: r.sort_order, folderPath: r.folder_path,
-  layout: parseLayout(r.layout_json),
-  activeItemId: r.active_item_id, createdAt: r.created_at, updatedAt: r.updated_at,
-});
+/**
+ * The group set for a row, migrating on read rather than in SQL (see migration v17): `groups_json` when
+ * it parses, otherwise a single "Main" group wrapping whatever `layout_json` holds — which is the shape
+ * every space had before groups existed, and the shape a space still has until something writes groups.
+ * Corrupt group JSON degrades the same way a corrupt layout does: to the layout-derived default rather
+ * than to a broken space.
+ */
+function parseGroups(groupsJson: string | null): SpaceGroups | null {
+  if (!groupsJson) return null;
+  try {
+    const raw: unknown = JSON.parse(groupsJson);
+    // `SpaceGroupsSchema` repairs rather than rejects, which is right for a group list that has real
+    // groups in it but wrong here: a blob with no group list at all would "repair" to one EMPTY group
+    // and silently outrank the arrangement `layout_json` still holds. Corruption at this level is
+    // indistinguishable from unparseable JSON, so it degrades the same way — to the layout.
+    if (typeof raw !== "object" || raw === null || !Array.isArray((raw as { groups?: unknown }).groups)
+      || (raw as { groups: unknown[] }).groups.length === 0) return null;
+    const p = SpaceGroupsSchema.safeParse(raw);
+    return p.success ? p.data : null;
+  } catch { return null; }
+}
+
+const toSpace = (r: Row): Space => {
+  const stored = parseLayout(r.layout_json);
+  const parsed = parseGroups(r.groups_json);
+  // No `groups_json` yet (see migration v17): derive the pre-groups shape — a single "Main" group
+  // holding whatever `layout_json` had. Keyed on the SPACE id so a read is deterministic; a fresh
+  // ULID per read would give two `spaces.list()` calls two different ids for the same group.
+  const groups = parsed ?? groupsFromLayout(stored, r.id);
+  return {
+    id: r.id, profileId: r.profile_id, name: r.name, icon: r.icon, color: r.color, sortOrder: r.sort_order, folderPath: r.folder_path,
+    groups,
+    // Derived from the groups once they exist — the active group IS what is on screen, and two
+    // independently-read sources for that would drift the moment a group switch was persisted. Before
+    // then it keeps its old meaning exactly, including `null` for a space that has never had a layout
+    // written: an empty derived tree is not the same claim as "nothing has ever been arranged here".
+    layout: parsed ? activeLayout(parsed) : stored,
+    activeItemId: r.active_item_id, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+};
 
 export class SpacesStore {
   constructor(private db: Db, private home: string) {}
@@ -58,9 +94,18 @@ export class SpacesStore {
     try { ids.forEach((id, i) => stmt.run(i, now(), id)); this.db.exec("COMMIT"); }
     catch (e) { this.db.exec("ROLLBACK"); throw e; }
   }
+  /** Layout-only write: replaces the ACTIVE group's layout, leaving group membership, names and the
+   *  active pointer alone. The pre-groups method, kept because a resize or a split is exactly that. */
   setLayout(id: string, layout: Layout): Space {
+    const cur = this.get(id); if (!cur) throw new NotFoundError("space", id);
+    return this.setGroups(id, setActiveLayout(cur.groups ?? groupsFromLayout(null, id), layout));
+  }
+  /** The whole group set in one write. `layout_json` is kept in step with the active group's layout so
+   *  it never becomes a stale second answer to "what is on screen" (see migration v17). */
+  setGroups(id: string, groups: SpaceGroups): Space {
     if (!this.get(id)) throw new NotFoundError("space", id);
-    this.db.prepare("UPDATE spaces SET layout_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(layout), now(), id);
+    this.db.prepare("UPDATE spaces SET groups_json = ?, layout_json = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(groups), JSON.stringify(activeLayout(groups)), now(), id);
     return this.get(id)!;
   }
   delete(id: string): void {

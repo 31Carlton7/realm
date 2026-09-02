@@ -1,13 +1,21 @@
 import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
-import type { Item, Layout, LayoutSplit } from "@realm/contracts";
+import { findLeaf, type Item, type Layout, type LayoutSplit } from "@realm/contracts";
 import type { DropEdge } from "../state/store";
 import { PanelBar } from "./PanelBar";
 import { PaneFor } from "../panes/registry";
 
 export type PaneHostProps = {
   layout: Layout; items: Item[]; focusedLeafId: string | null;
+  /** The group's FOCUSED pane (Plan: pane groups). When set — and still present in `layout` — only that
+   *  leaf renders, filling the host. The tree itself is untouched: this is a view state, and clearing
+   *  it puts every pane back exactly where it was. A stale id renders the ordinary split. */
+  zoomedLeafId?: string | null;
   onFocus: (leafId: string) => void;
+  /** Called when the user asks a pane to fill the host (the panel bar's focus button / menu). */
+  onZoom?: (leafId: string) => void;
+  /** Called by the zoomed pane's own "Unfocus" control. */
+  onUnzoom?: () => void;
   /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). */
   onClose: (itemId: string) => void;
   onSplit: (leafId: string, dir: "row" | "col") => void;
@@ -97,7 +105,10 @@ export function PaneHost(p: PaneHostProps) {
     };
   }, []);
 
-  return <div className="panehost">{renderNode(p.layout)}</div>;
+  // A focused pane renders ALONE — not a `display:none` on its siblings, which would keep every other
+  // pane mounted and (for terminals and browser views) fighting for size behind the one on screen.
+  const zoomed = p.zoomedLeafId ? findLeaf(p.layout, p.zoomedLeafId) : null;
+  return <div className="panehost" data-zoomed={zoomed ? true : undefined}>{renderNode(zoomed ?? p.layout)}</div>;
 
   function renderNode(n: Layout): JSX.Element {
     if (n.type === "leaf") {
@@ -105,7 +116,8 @@ export function PaneHost(p: PaneHostProps) {
       return (
         <div className="panel" data-leaf-id={n.id} data-focused={n.id === p.focusedLeafId || undefined}
           data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
-          {item && <PanelBar item={item} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)} />}
+          {item && <PanelBar item={item} leafId={n.id} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
+            zoomed={n.id === p.zoomedLeafId} onZoom={p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={p.onUnzoom} />}
           <div className="panel-body">
             {!item && <div className="pane-placeholder muted">Open something from the sidebar.</div>}
             {/* Keyed by item.id: openItem's primary gesture replaces a leaf's item in place, and this

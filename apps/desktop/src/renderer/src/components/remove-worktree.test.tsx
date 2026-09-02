@@ -93,7 +93,7 @@ describe("RemoveWorktreeSheet", () => {
   it("closes the diff pane for the checkout it just removed", async () => {
     const api = fakeApi({
       environments: { s1: [env] },
-      items: { s1: [{ id: "id1", spaceId: "s1", kind: "diff", title: "Changes", sortOrder: 0, pinned: false, refId: "env1", createdAt: 0, updatedAt: 0 }] },
+      items: { s1: [{ id: "id1", spaceId: "s1", kind: "diff", title: "Changes", sortOrder: 0, pinned: false, archived: false, refId: "env1", createdAt: 0, updatedAt: 0 }] },
       worktreeStatus: { env1: status() },
     });
     const store = createAppStore(api);

@@ -57,23 +57,38 @@ export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }
 
 /** Sidebar item rows. "open" = the OPEN group (items currently in the layout): the row's x closes the item
  *  from the layout only (it stays around, unopened), and the row shows the quadrant glyph. "space" = the
- *  SPACE group (everything else): no x, no glyph, just click-to-open. Row clicks call openItem either
+ *  SPACE group (everything else): no x, no glyph, just click-to-open. "archived" = the shelf: no x, no
+ *  glyph, and the row's click RESTORES before it opens (see below). Row clicks call openItem either
  *  way, but the store treats an already-open item as "go there" (focus its pane, no layout change);
  *  only SPACE rows actually open into the focused leaf. Moving an open item is drag-only. */
-export function ItemList({ items, variant }: { items: Item[]; variant: "open" | "space" }) {
-  const layout = useApp((s) => s.layout) ?? emptyLayout();
+export function ItemList({ items, variant, layout: groupLayout }: {
+  items: Item[]; variant: "open" | "space" | "archived";
+  /** The layout the quadrant glyph is drawn against — the owning GROUP's tree, which for a group that
+   *  is not on screen is not the active layout. Defaults to the active one (SPACE rows, tests). */
+  layout?: Layout;
+}) {
+  const activeLayoutValue = useApp((s) => s.layout) ?? emptyLayout();
+  const layout = groupLayout ?? activeLayoutValue;
   const focusedLeafId = useApp((s) => s.focusedLeafId);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const browserDriving = useApp((s) => s.browserDriving);
   const openItem = useApp((s) => s.openItem);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
+  const archiveItem = useApp((s) => s.archiveItem);
   const run = useApp((s) => s.run);
   const [renaming, setRenaming] = useState<Item | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const { onContextMenu, element } = useItemContextMenu(setRenaming);
   // The active row is the one in the focused leaf, not every open row — with a split, only one pane
   // actually has keyboard/composer focus, and the highlight should say which.
-  const focusedItemId = itemIdOfLeaf(layout, focusedLeafId);
+  const focusedItemId = itemIdOfLeaf(activeLayoutValue, focusedLeafId);
+  // Clicking an archived row takes it OFF the shelf on the way to opening it. Opening one that stayed
+  // archived would put a pane on screen for a row the sidebar only lists under "Archived" — the row
+  // and the pane would then disagree about whether the thing is put away. The hover button is the
+  // gesture for restoring without going there.
+  const activate = (it: Item) => (variant === "archived"
+    ? run(async () => { await archiveItem(it.id, false); await openItem(it.id); })
+    : run(() => openItem(it.id)));
   return (
     <div className="item-list">
       {items.map((it) => (
@@ -89,7 +104,7 @@ export function ItemList({ items, variant }: { items: Item[]; variant: "open" | 
               <button className="item-row"
                 aria-label={it.kind === "session" && sessionStatus[it.refId] ? `${it.title} — ${STATUS_LABEL[sessionStatus[it.refId]!]}`
                   : it.kind === "browser" && browserDriving[it.refId] ? `${it.title} — agent is driving` : it.title}
-                onClick={() => run(() => openItem(it.id))}>
+                onClick={() => activate(it)}>
                 <Icon name={it.kind} size={16} /><span className="item-title">{it.title}</span>
                 {it.kind === "session" && sessionStatus[it.refId] && (
                   <span className="status-dot item-status" data-status={sessionStatus[it.refId]} title={STATUS_LABEL[sessionStatus[it.refId]!]} />
@@ -101,6 +116,17 @@ export function ItemList({ items, variant }: { items: Item[]; variant: "open" | 
                 )}
                 {variant === "open" && <ItemGlyph layout={layout} itemId={it.id} />}
               </button>
+              {/* Sessions alone get the shelf. The gesture is a session's — put a conversation away
+                  when it is done with — and the other kinds have no answer for what archiving means:
+                  a destination page is one per space, a diff is a view of a checkout. The `archived`
+                  column itself is kind-blind, so widening this is a one-line change here. */}
+              {it.kind === "session" && (
+                <button className="item-shelf" aria-label={`${variant === "archived" ? "Unarchive" : "Archive"} ${it.title}`}
+                  title={variant === "archived" ? "Unarchive" : "Archive"}
+                  onClick={() => run(() => archiveItem(it.id, variant !== "archived"))}>
+                  <Icon name={variant === "archived" ? "unarchive" : "archive"} size={13} />
+                </button>
+              )}
               {variant === "open" && (
                 <button className="item-close" aria-label={`Close ${it.title}`} onClick={() => run(() => closeFromLayout(it.id))}><Icon name="close" size={12} /></button>
               )}

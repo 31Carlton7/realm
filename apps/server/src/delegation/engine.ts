@@ -35,9 +35,15 @@ export class DelegationEngine {
     return this.runs.has(parentSessionId);
   }
 
-  /** Register a run. The caller has already checked `hasRun` and refused; this is the write. */
-  begin(parentSessionId: string, childSessionId: string): ActiveRun {
-    const run: ActiveRun = { childSessionId, cancelled: false };
+  /**
+   * Register a run. The caller has already checked `hasRun` and refused; this is the write.
+   *
+   * `interruptOnCancel` defaults TRUE so every delegation call site is byte-unchanged: a delegated
+   * child is ours, and a stop on the parent must not leave a ghost agent running. Plan 20's ask
+   * passes false — the session it targets is a PEER, not a child. See `parentInterrupted`.
+   */
+  begin(parentSessionId: string, targetSessionId: string, opts: { interruptOnCancel?: boolean } = {}): ActiveRun {
+    const run: ActiveRun = { childSessionId: targetSessionId, cancelled: false, interruptOnCancel: opts.interruptOnCancel ?? true };
     this.runs.set(parentSessionId, run);
     return run;
   }
@@ -54,7 +60,78 @@ export class DelegationEngine {
     const run = this.runs.get(sessionId);
     if (!run) return;
     run.cancelled = true;
-    void this.d.sessions.interrupt(run.childSessionId).catch(() => { /* child may be gone already */ });
+    // A delegated CHILD is ours to stop. A PEER being asked a question is not: it was doing its own
+    // work before the question arrived and is still doing it, and stopping it because the ASKER was
+    // stopped would destroy work nobody asked to cancel. Cancelling the wait is the whole action.
+    if (run.interruptOnCancel) void this.d.sessions.interrupt(run.childSessionId).catch(() => { /* child may be gone already */ });
+  }
+
+  /**
+   * Advance past `cursor`, folding the slice into last-status / last-assistant-text. Returns the new
+   * cursor, or `null` when the session is gone (its events threw). `awaitAnswer`'s transcript read.
+   *
+   * Turn boundaries are detected HERE, not by comparing `lastStatus` across polls: a single batch can
+   * hold an entire turn (running → text → idle), so a caller watching only the batch's final status
+   * would never see the `running` at all.
+   */
+  private scan(id: string, cursor: number, acc: TranscriptScan): number | null {
+    let batch: StoredSessionEvent[];
+    try { batch = this.d.sessions.events(id, cursor, 500); } catch { return null; }
+    let last = cursor;
+    for (const stored of batch) {
+      last = stored.seq;
+      const ev = stored.event;
+      if (ev.type === "status") {
+        // A turn STARTS here. Everything buffered before it belongs to the previous turn — for an
+        // interjection that is the work the peer was already doing, which is not a reply to anything.
+        if (ev.payload.status === "running" && acc.lastStatus !== "running") { acc.sawTurnStart = true; acc.finalText = null; }
+        acc.lastStatus = ev.payload.status;
+      }
+      if (ev.type === "assistant_text") acc.finalText = ev.payload.text;
+    }
+    return last;
+  }
+
+  /**
+   * The interjection wait (Plan 20) — `drain`'s sibling, and deliberately NOT `drain`. Three
+   * differences, each a decision rather than an accident:
+   *
+   *   - The settle condition is an ANSWER (a resolved `answer` box, written by the `agent_answer`
+   *     tool), not the peer's turn ending. A peer's turn ending is its own business.
+   *   - A timeout does NOT interrupt the peer. `drain` interrupts because the child is ours; the peer
+   *     is not, and killing a peer's own work for being slow to answer someone else is indefensible.
+   *   - The fallback: a peer that settles to idle with assistant text and never called `agent_answer`
+   *     has still, in the only sense that matters, replied. That text is returned, labelled as such,
+   *     rather than the asker hanging for the full budget.
+   *
+   * Cancelled wins first, for `drain`'s reason: a peer that answers in the same poll window as the
+   * asker's interrupt must report cancelled, because nobody is listening any more.
+   *
+   * **The fallback only counts text from a turn that STARTED after the question.** `drain` needs no
+   * such rule — its child is born for the run, so every event it sees belongs to it. Here the target
+   * was already mid-turn, and the events just after `fromSeq` are the tail of the work it was doing
+   * BEFORE being asked: the interrupt ends that turn, so an `idle` arrives carrying assistant text
+   * that predates the question entirely. Without `sawTurnStart` the very act of interrupting a busy
+   * peer is read as it having answered, and the asker is handed a fragment of the peer's unrelated
+   * work as its "reply". `finalText` is cleared at each turn boundary for the same reason.
+   */
+  async awaitAnswer(input: { targetId: string; fromSeq: number; run: ActiveRun; answer: { text: string | null };
+    deadline: number; pollMs: number }): Promise<SettledAsk> {
+    const { targetId, run, answer, deadline, pollMs } = input;
+    let cursor = input.fromSeq;
+    const acc: TranscriptScan = { lastStatus: null, finalText: null, sawTurnStart: false };
+    for (;;) {
+      const next = this.scan(targetId, cursor, acc);
+      if (next === null) return { outcome: "gone", answer: null, lastStatus: acc.lastStatus };
+      cursor = next;
+      if (run.cancelled) return { outcome: "cancelled", answer: null, lastStatus: acc.lastStatus };
+      if (answer.text !== null) return { outcome: "answered", answer: answer.text, lastStatus: acc.lastStatus };
+      if (acc.sawTurnStart && acc.lastStatus === "idle" && acc.finalText !== null) return { outcome: "replied", answer: acc.finalText, lastStatus: acc.lastStatus };
+      if (acc.lastStatus === "error" || acc.lastStatus === "ended") return { outcome: "failed", answer: null, lastStatus: acc.lastStatus };
+      // No interrupt here, unlike drain's timeout. See the doc comment.
+      if (Date.now() >= deadline) return { outcome: "timeout", answer: null, lastStatus: acc.lastStatus };
+      await sleep(pollMs);
+    }
   }
 
   /**
@@ -94,7 +171,17 @@ export class DelegationEngine {
   }
 }
 
-export type ActiveRun = { childSessionId: string; cancelled: boolean };
+/** `childSessionId` is the TARGET of the wait: a delegated child for the delegation tools, a peer
+ *  session for Plan 20's ask — which is what `interruptOnCancel: false` distinguishes. */
+export type ActiveRun = { childSessionId: string; cancelled: boolean; interruptOnCancel: boolean };
 export type SettledRun = { outcome: "done" | "interrupted" | "timeout" | "failed" | "gone"; finalText: string | null; lastStatus: string | null };
+/** `sawTurnStart` is what makes the prose fallback safe — see `scan`. */
+type TranscriptScan = { lastStatus: string | null; finalText: string | null; sawTurnStart: boolean };
+/** `answered` = the peer called `agent_answer`. `replied` = it settled with prose instead, which the
+ *  asker is told so it can weigh the difference. */
+export type SettledAsk = {
+  outcome: "answered" | "replied" | "cancelled" | "timeout" | "failed" | "gone";
+  answer: string | null; lastStatus: string | null;
+};
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

@@ -103,6 +103,14 @@ export function findLeafOfItem(l: Layout, itemId: string): LayoutLeaf | null {
   return null;
 }
 
+/** The leaf node with this id, or null. The by-id counterpart of `findLeafOfItem` — what the pane
+ *  host renders when one pane is focused full-screen, and what tells a stale zoom from a live one. */
+export function findLeaf(l: Layout, leafId: string): LayoutLeaf | null {
+  if (l.type === "leaf") return l.id === leafId ? l : null;
+  for (const c of l.children) { const f = findLeaf(c, leafId); if (f) return f; }
+  return null;
+}
+
 /** The inverse of findLeafOfItem: the itemId held by the leaf with this id, or null (leaf empty,
  *  leafId missing, or not found). */
 export function itemIdOfLeaf(l: Layout | null, leafId: string | null): string | null {

@@ -6,6 +6,8 @@ import type { AgentRunService } from "../delegation/agent-run";
 import { AGENT_RUN_TOOL, AGENT_RUN_TOOL_NAME } from "../delegation/agent-run";
 import type { ReviewService } from "../delegation/review";
 import { AGENT_REVIEW_TOOL, AGENT_REVIEW_TOOL_NAME } from "../delegation/review";
+import type { AskService } from "../delegation/ask";
+import { AGENT_ANSWER_TOOL, AGENT_ANSWER_TOOL_NAME, AGENT_ASK_TOOL, AGENT_ASK_TOOL_NAME, AGENT_PEERS_TOOL, AGENT_PEERS_TOOL_NAME } from "../delegation/ask";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
@@ -261,28 +263,35 @@ export class BrowserAgentService {
  * switch via `mcp.setProviderEnabled`, same as `realm-browser` (the gateway contract: a provider
  * handles its own enablement).
  */
-export function createRealmAgentProvider(service: BrowserAgentService, mcp: { providerEnabled(spaceId: string, name: string): boolean }, agentRuns?: AgentRunService, reviews?: ReviewService): RealmToolProvider {
+export function createRealmAgentProvider(service: BrowserAgentService, mcp: { providerEnabled(spaceId: string, name: string): boolean }, agentRuns?: AgentRunService, reviews?: ReviewService, asks?: AskService): RealmToolProvider {
   const isDelegatedChild = (sessionId: string): boolean =>
     service.isChild(sessionId) || (agentRuns?.isChild(sessionId) ?? false) || (reviews?.isChild(sessionId) ?? false);
-  const toolNames = (): string => [RUN_TOOL_NAME, ...(agentRuns ? [AGENT_RUN_TOOL_NAME] : []), ...(reviews ? [AGENT_REVIEW_TOOL_NAME] : [])].join(", ");
+  const askTools = asks ? [AGENT_PEERS_TOOL, AGENT_ASK_TOOL, AGENT_ANSWER_TOOL] : [];
+  const toolNames = (): string => [RUN_TOOL_NAME, ...(agentRuns ? [AGENT_RUN_TOOL_NAME] : []), ...(reviews ? [AGENT_REVIEW_TOOL_NAME] : []), ...askTools.map((t) => t.name)].join(", ");
   return {
     name: REALM_AGENT_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME)) return [];
       if (isDelegatedChild(ctx.sessionId)) return [];
-      return [RUN_TOOL, ...(agentRuns ? [AGENT_RUN_TOOL] : []), ...(reviews ? [AGENT_REVIEW_TOOL] : [])];
+      return [RUN_TOOL, ...(agentRuns ? [AGENT_RUN_TOOL] : []), ...(reviews ? [AGENT_REVIEW_TOOL] : []), ...askTools];
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME))
         return err(`the ${REALM_AGENT_PROVIDER_NAME} tools are disabled for this space — mcp.setProviderEnabled turns them back on.`);
       // The provider's own belt across ALL delegation tools: a delegated child (of any kind) is
       // refused here, before each tool's run() re-checks its own registry — depth-1, twice over.
-      if (isDelegatedChild(ctx.sessionId) && (tool === RUN_TOOL_NAME || tool === AGENT_RUN_TOOL_NAME || tool === AGENT_REVIEW_TOOL_NAME))
+      // agent_answer is on this list DELIBERATELY: a delegated child can never be asked, so it can
+      // never hold a valid requestId, and leaving it callable would be a surface with no legitimate use.
+      if (isDelegatedChild(ctx.sessionId) && (tool === RUN_TOOL_NAME || tool === AGENT_RUN_TOOL_NAME || tool === AGENT_REVIEW_TOOL_NAME
+        || tool === AGENT_ASK_TOOL_NAME || tool === AGENT_ANSWER_TOOL_NAME || tool === AGENT_PEERS_TOOL_NAME))
         return err("refused: a delegated agent may not delegate further — delegation is depth-1 only.");
       try {
         if (tool === RUN_TOOL_NAME) return await service.run(ctx, args);
         if (tool === AGENT_RUN_TOOL_NAME && agentRuns) return await agentRuns.run(ctx, args);
         if (tool === AGENT_REVIEW_TOOL_NAME && reviews) return await reviews.runTool(ctx, args);
+        if (tool === AGENT_PEERS_TOOL_NAME && asks) return asks.peers(ctx);
+        if (tool === AGENT_ASK_TOOL_NAME && asks) return await asks.ask(ctx, args);
+        if (tool === AGENT_ANSWER_TOOL_NAME && asks) return asks.answer(ctx, args);
         return err(`unknown tool "${tool}" — this provider has: ${toolNames()}`);
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));

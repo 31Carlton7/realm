@@ -16,6 +16,14 @@ const probe: AgentProbe[] = [
   { kind: "codex", available: true, version: "0.48.0", loggedIn: false, reason: "not logged in — run `codex login`" },
   { kind: "acp:cursor", available: false, version: null, loggedIn: null, reason: "spawn cursor-agent ENOENT" },
   { kind: "acp:gemini", available: false, version: null, loggedIn: null, reason: "spawn gemini ENOENT" },
+  // Plan 18's ACP agents. opencode is the one actually installed on a dev machine, so it is the row
+  // that proves an installed-and-ready ACP agent renders no how-to-fix noise.
+  { kind: "acp:opencode", available: true, version: "1.18.13", loggedIn: null, reason: "unknown until a session starts" },
+  { kind: "acp:copilot", available: false, version: null, loggedIn: null, reason: "spawn copilot ENOENT" },
+  { kind: "acp:goose", available: false, version: null, loggedIn: null, reason: "spawn goose ENOENT" },
+  { kind: "acp:qwen", available: false, version: null, loggedIn: null, reason: "spawn qwen ENOENT" },
+  { kind: "acp:grok", available: false, version: null, loggedIn: null, reason: "spawn grok ENOENT" },
+  { kind: "acp:fx", available: false, version: null, loggedIn: null, reason: "spawn fx ENOENT" },
 ];
 
 async function mount(overrides: FakeData = {}) {
@@ -59,11 +67,42 @@ describe("Engines tab", () => {
     expect(within(cursor).getByText(AGENT_CLI_COMMANDS["acp:cursor"].install!)).toBeInTheDocument();
   });
 
-  it("Gemini appears with its honest dead-end note rather than being hidden", async () => {
+  it("Gemini is offered again, ONCE, with the auth routes that still work named", async () => {
     await mount();
-    const gemini = await screen.findByRole("listitem", { name: /Gemini: Not installed/ });
-    expect(within(gemini).getByText(/Not offered for new sessions/)).toBeInTheDocument();
-    expect(within(gemini).getByText(/free personal tier/)).toBeInTheDocument();
+    // Plan 18: measured against gemini-cli 0.56.0, only oauth-personal is dead — an API key, Vertex,
+    // or a gateway all still open a session. So it is no longer withheld, and the note must name the
+    // live routes rather than only the dead one.
+    const rows = await screen.findAllByRole("listitem", { name: /Gemini: Not installed/ });
+    // Kills the regression this change actually caused: ENGINE_ORDER used to append Gemini by hand
+    // AND derive from SELECTABLE_AGENT_KINDS, so re-offering it rendered the row twice.
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0]!).queryByText(/Not offered for new sessions/)).toBeNull();
+    // Gemini has NO login command, so the hint is the only thing that can tell the user what to do.
+    // Kills the regression re-offering it caused: the hint used to hang off `!offered`, so an offered
+    // Gemini would have shown "Not installed" and nothing else.
+    expect(within(rows[0]!).getByText(/free personal tier/)).toBeInTheDocument();
+    expect(within(rows[0]!).getByText(/Vertex AI credentials/)).toBeInTheDocument();
+  });
+
+  it("a ready agent carries no how-to-fix sentence — the hint is for blocked rows only", async () => {
+    await mount();
+    // opencode probes installed. Kills a mutation that drops the `isBlocked` guard and prints the
+    // login hint on every row, which would tell a working agent to go and sign in.
+    const ok = await screen.findByRole("listitem", { name: /OpenCode: Installed/ });
+    expect(within(ok).queryByText(/opencode auth login/)).toBeNull();
+  });
+
+  it("lists every ACP agent Plan 18 added, each with its own install command", async () => {
+    await mount();
+    // opencode is deliberately absent: the fixture has it INSTALLED, so it correctly shows no install
+    // command. That case is covered by its own test above.
+    for (const [kind, name] of [["acp:copilot", "GitHub Copilot"], ["acp:goose", "goose"],
+                                ["acp:qwen", "Qwen Code"], ["acp:grok", "Grok"], ["acp:fx", "fx"]] as const) {
+      const row = await screen.findByRole("listitem", { name: new RegExp(`^${name}: `) });
+      // Kills a copy-paste mutation that gives two agents the same install line — the failure mode
+      // where the card tells you to install the wrong CLI.
+      expect(within(row).getByText(AGENT_CLI_COMMANDS[kind].install!)).toBeInTheDocument();
+    }
   });
 
   it("copying an install command puts the command on the clipboard VERBATIM — no trailing newline (doctrine)", async () => {
@@ -144,7 +183,13 @@ describe("App tab", () => {
   it("per-agent honesty: the control names who obeys it and who ignores it (AGENT_SUPPORTS_PERMISSION_MODES)", async () => {
     await openApp();
     expect(await screen.findByText(/Applies to new Claude, Codex sessions/)).toBeInTheDocument();
-    expect(screen.getByText(/Cursor sessions ignore it/)).toBeInTheDocument();
+    // Every ACP kind ignores the permission axis (agent-defined mode ids, nothing honest to map onto),
+    // so the sentence names all of them rather than trailing off after the first.
+    const ignored = screen.getByText(/sessions ignore it/);
+    for (const label of ["Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx"]) {
+      expect(ignored.textContent).toContain(label);
+    }
+    expect(ignored.textContent).not.toContain("Claude,  Codex");
   });
 
   it("junk under either key degrades safely: unknown categories dropped, an unlisted mode renders as Ask", async () => {

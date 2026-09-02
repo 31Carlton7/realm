@@ -32,6 +32,33 @@ async function boot() {
 }
 
 describe("rpc methods", () => {
+  it("spaces.setGroups round-trips the whole set; setLayout still writes just the active group", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    // A brand-new space already reports one derived "Main" group (no groups_json is written until now).
+    expect(space.groups.groups).toHaveLength(1);
+    expect(space.groups.groups[0].name).toBe("Main");
+    const groups = {
+      groups: [
+        { id: "01ARZ3NDEKTSV4RRFFQ69G5F01", name: "Ship", layout: { type: "leaf", id: "L1", itemId: null }, zoomedLeafId: "L1" },
+        { id: "01ARZ3NDEKTSV4RRFFQ69G5F02", name: "Read", layout: { type: "leaf", id: "L2", itemId: null }, zoomedLeafId: null },
+      ],
+      activeGroupId: "01ARZ3NDEKTSV4RRFFQ69G5F02",
+    };
+    const saved = (await c.call("spaces.setGroups", { id: space.id, groups })).result;
+    expect(saved.groups).toEqual(groups);
+    expect(saved.layout).toEqual({ type: "leaf", id: "L2", itemId: null }); // the ACTIVE group's tree
+    expect((await c.call("spaces.list", {})).result[0].groups).toEqual(groups);
+    // setLayout is now "replace the active group's tree" — the other group, and every name, survive.
+    const after = (await c.call("spaces.setLayout", { id: space.id, layout: { type: "leaf", id: "L9", itemId: null } })).result;
+    expect(after.groups.groups.map((g: { name: string }) => g.name)).toEqual(["Ship", "Read"]);
+    expect(after.groups.groups[1].layout).toEqual({ type: "leaf", id: "L9", itemId: null });
+    expect(after.groups.groups[0].zoomedLeafId).toBe("L1"); // the untouched group kept its focus
+    await waitFor(() => c.events.some((x) => x.event === "spaces.changed"));
+    c.close();
+  });
+
   it("full flow: profile → space → item → layout, with change events", async () => {
     const { home, c } = await boot();
     const prof = (await c.call("profiles.create", { name: "Work" })).result;

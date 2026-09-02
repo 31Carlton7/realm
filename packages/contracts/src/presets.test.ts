@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has at least 8 colors and a lot more icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(50); });
@@ -129,12 +129,29 @@ describe("SELECTABLE_AGENT_KINDS", () => {
     }
     expect(new Set(SELECTABLE_AGENT_KINDS).size).toBe(SELECTABLE_AGENT_KINDS.length);
   });
-  it("deliberately withholds the dead-end and dev-only kinds while keeping them registered", () => {
-    // Both still have metadata (existing sessions keep working); neither is offered as a new choice.
-    expect(SELECTABLE_AGENT_KINDS).not.toContain("acp:gemini"); // free personal tier discontinued
-    expect(SELECTABLE_AGENT_KINDS).not.toContain("fake");       // scripted dev adapter
-    expect(AGENT_META["acp:gemini"]).toBeDefined();
+  it("withholds the dev-only kind while keeping it registered, and offers Gemini again", () => {
+    // `fake` stays withheld and still has metadata: it is the scripted dev adapter, and an existing
+    // fake session must keep working.
+    expect(SELECTABLE_AGENT_KINDS).not.toContain("fake");
     expect(AGENT_META.fake).toBeDefined();
+    // Gemini WAS withheld as a dead end. Measured 2026-09-01 against gemini-cli 0.56.0: only the free
+    // personal tier is dead; an API key, Vertex AI, and a custom gateway all still open a session. So
+    // withholding it is no longer the honest call — offering it with the live routes named is.
+    expect(SELECTABLE_AGENT_KINDS).toContain("acp:gemini");
+    expect(AGENT_LOGIN_HINTS["acp:gemini"]).toMatch(/Vertex AI/);
+  });
+
+  it("offers every ACP agent whose handshake was verified, and each is on the generic ACP adapter", () => {
+    // Kills a mutation that adds a kind to AgentKindSchema and its tables but forgets the picker —
+    // the agent would be registered, probed, and unreachable.
+    for (const k of ["acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx"] as const) {
+      expect(SELECTABLE_AGENT_KINDS, k).toContain(k);
+      expect(AGENT_META[k].label).toBeTruthy();
+      // The `acp:` prefix is a promise about the protocol, not a naming habit: it means the kind rides
+      // the generic AcpAdapter, so its permission/plan/skills/memory answers must match Cursor's.
+      expect(AGENT_SUPPORTS_PERMISSION_MODES[k], k).toBe(false);
+      expect(AGENT_SUPPORTS_PLAN_MODE[k], k).toBe(false);
+    }
   });
 });
 
@@ -170,5 +187,124 @@ describe("acpPlanMode / acpBuildMode (Plan 14 W3)", () => {
     expect(acpBuildMode(noAgent, "plan")).toBeNull();
     expect(acpBuildMode(noAgent, null)).toBeNull();
     expect(acpBuildMode(null, "agent")).toBeNull();
+  });
+});
+
+/**
+ * Payloads captured from real `session/new` answers on 2026-09-01 (Plan 18 §2). These are fixtures of
+ * observed wire traffic, not of what the spec says — which is the whole point: the spec's `modes` field
+ * is deprecated and agents have already split three ways.
+ */
+/** opencode 1.18.13 — `configOptions` ONLY. No `modes`, no `models`. */
+const OPENCODE_SESSION = {
+  sessionId: "ses_abc",
+  configOptions: [
+    { id: "model", category: "model", type: "select", currentValue: "opencode/big-pickle",
+      options: [{ value: "opencode/big-pickle", name: "Big Pickle" }, { value: "anthropic/claude-opus-5", name: "Claude Opus 5" }] },
+    { id: "mode", category: "mode", type: "select", currentValue: "build",
+      options: [{ value: "build" }, { value: "plan" }] },
+  ],
+};
+/** cursor-agent 2026.07.25 — the deprecated shape only. */
+const CURSOR_SESSION = {
+  sessionId: "ses_cur",
+  modes: { currentModeId: "agent", availableModes: [
+    { id: "agent", name: "Agent" }, { id: "plan", name: "Plan", description: "Read-only mode" }, { id: "ask", name: "Ask" }] },
+  models: { currentModelId: "default[]", availableModels: [
+    { modelId: "default[]", name: "Auto" }, { modelId: "composer-2.5[fast=true]", name: "Composer Fast" }] },
+};
+
+describe("acpWellKnownMode — bare id or ACP spec URI, never a name (Plan 18 §2)", () => {
+  it("matches the bare id and the spec URI form, and nothing else", () => {
+    expect(acpWellKnownMode("plan", "plan")).toBe(true);
+    expect(acpWellKnownMode("https://agentclientprotocol.com/protocol/session-modes#plan", "plan")).toBe(true);
+    expect(acpWellKnownMode("agent", "agent")).toBe(true);
+    expect(acpWellKnownMode("https://agentclientprotocol.com/protocol/session-modes#agent", "agent")).toBe(true);
+    // Kills a `.endsWith("plan")` or `.includes("plan")` mutation, which would match a mode named by a
+    // hostile or merely careless agent — the fuzzy matching acpPlanMode's doc comment refuses.
+    expect(acpWellKnownMode("planning", "plan")).toBe(false);
+    expect(acpWellKnownMode("https://evil.example.com/#plan", "plan")).toBe(false);
+    expect(acpWellKnownMode("plan", "agent")).toBe(false);
+  });
+
+  it("lets acpPlanMode and acpBuildMode see URI-shaped ids", () => {
+    const uri = (m: string) => `https://agentclientprotocol.com/protocol/session-modes#${m}`;
+    const copilot = [{ id: uri("agent"), name: "Agent" }, { id: uri("plan"), name: "Plan" }];
+    // Kills reverting the helpers to `m.id === "plan"`, which gives Copilot no Plan chip at all.
+    expect(acpPlanMode(copilot)?.id).toBe(uri("plan"));
+    expect(acpBuildMode(copilot, null)?.id).toBe(uri("agent"));
+    // ...and a boot mode that IS the URI-shaped plan must not be offered as Build.
+    expect(acpBuildMode([{ id: uri("plan"), name: "Plan" }], uri("plan"))).toBeNull();
+  });
+});
+
+describe("parseAcpConfigOptions", () => {
+  it("drops entries with no string id rather than repairing them", () => {
+    // A config option Realm cannot address is one it must not offer — a repaired id would be written
+    // back to the agent and silently rejected.
+    const rows = parseAcpConfigOptions([{ category: "mode" }, { id: "", category: "mode" }, { id: "mode", category: "mode" }, "junk", null]);
+    expect(rows.map((r) => r.id)).toEqual(["mode"]);
+  });
+
+  it("accepts an option as a bare string or an object, and falls back to the value for a missing name", () => {
+    const [row] = parseAcpConfigOptions([{ id: "mode", category: "mode", options: ["build", { value: "plan", name: "Plan" }, { name: "no value" }] }]);
+    // opencode emits `{"value":"build"}` with no name; the label must be the value, never invented.
+    expect(row!.options).toEqual([
+      { value: "build", name: null, description: null },
+      { value: "plan", name: "Plan", description: null },
+    ]);
+  });
+});
+
+describe("acpSessionConfig — configOptions wins, with the write channel carried alongside", () => {
+  it("reads opencode's configOptions-only answer, which the deprecated fields would miss entirely", () => {
+    const cfg = acpSessionConfig(OPENCODE_SESSION);
+    // Kills reverting to reading `session.modes`/`session.models`: opencode would get an empty mode
+    // list (no Plan chip) and an empty model list (one dead picker row), silently.
+    expect(cfg.modes.map((m) => m.id)).toEqual(["build", "plan"]);
+    expect(cfg.currentModeId).toBe("build");
+    expect(cfg.models.map((m) => m.id)).toEqual(["opencode/big-pickle", "anthropic/claude-opus-5"]);
+    expect(cfg.currentModelId).toBe("opencode/big-pickle");
+    // The seam: non-null means the write is session/set_config_option with THIS id.
+    expect(cfg.modeConfigId).toBe("mode");
+    expect(cfg.modelConfigId).toBe("model");
+    expect(acpPlanMode(cfg.modes)?.id).toBe("plan");
+  });
+
+  it("falls back to the deprecated shape for an agent that only speaks it, and reports NO config id", () => {
+    const cfg = acpSessionConfig(CURSOR_SESSION);
+    expect(cfg.modes.map((m) => m.id)).toEqual(["agent", "plan", "ask"]);
+    expect(cfg.currentModeId).toBe("agent");
+    expect(cfg.models.map((m) => m.id)).toEqual(["default[]", "composer-2.5[fast=true]"]);
+    expect(cfg.models[0]!.label).toBe("Auto");
+    // Kills a mutation that returns a config id unconditionally — Cursor would then be written to via
+    // session/set_config_option, which it does not implement, and every mode switch would silently fail.
+    expect(cfg.modeConfigId).toBeNull();
+    expect(cfg.modelConfigId).toBeNull();
+  });
+
+  it("prefers configOptions when an agent dual-emits both (Copilot)", () => {
+    const both = { ...CURSOR_SESSION, configOptions: OPENCODE_SESSION.configOptions };
+    const cfg = acpSessionConfig(both);
+    // The spec says clients SHOULD use configOptions when present. Kills a fallback-first mutation,
+    // which would read one channel and write on the other.
+    expect(cfg.modes.map((m) => m.id)).toEqual(["build", "plan"]);
+    expect(cfg.modeConfigId).toBe("mode");
+  });
+
+  it("survives a session answer with neither shape, and one that is not an object at all", () => {
+    for (const bad of [{ sessionId: "x" }, null, undefined, "nope", 42, []]) {
+      const cfg = acpSessionConfig(bad);
+      expect(cfg.modes).toEqual([]);
+      expect(cfg.models).toEqual([]);
+      expect(cfg.modeConfigId).toBeNull();
+      expect(cfg.currentModeId).toBeNull();
+    }
+  });
+
+  it("skips a config option whose category is neither mode nor model", () => {
+    const cfg = acpSessionConfig({ configOptions: [{ id: "verbosity", category: "output", options: [{ value: "terse" }] }] });
+    expect(cfg.modes).toEqual([]);
+    expect(cfg.models).toEqual([]);
   });
 });

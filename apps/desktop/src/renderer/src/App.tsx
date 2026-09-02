@@ -1,11 +1,13 @@
 import { useEffect, useMemo } from "react";
 import { Sidebar } from "./components/sidebar/Sidebar";
+import { SidebarToggle } from "./components/sidebar/SidebarToggle";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { PaneHost } from "./components/PaneHost";
+import { GroupBar } from "./components/GroupBar";
 import { Onboarding } from "./components/Onboarding";
 import { StoreContext, createAppStore, useApp } from "./state/store";
 import { liveApi } from "./state/live-api";
@@ -14,6 +16,28 @@ import { emptyLayout } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
 import { useGlobalHotkeys } from "./hotkeys";
 import "./panes";
+
+/**
+ * The sidebar column and the content beside it — or, collapsed, a top rail and the content below it.
+ *
+ * The two states are one flex container that changes axis (`.app[data-sidebar-collapsed]` goes
+ * column), not two layouts. Collapsed, the rail exists for exactly two reasons: it holds the toggle,
+ * and it keeps the macOS traffic lights off the first pane's panel bar — with the 280px sidebar gone
+ * there is nothing else between them and pane chrome, and they would land on top of a pane title.
+ * That is why collapsing buys back 280px of width at the cost of 38px of height rather than being
+ * free: the alternative is lights sitting on someone's content.
+ *
+ * Lives under the store provider so it can read `sidebarCollapsed`. Exported for the shell tests.
+ */
+export function AppShell() {
+  const collapsed = useApp((s) => s.sidebarCollapsed);
+  return (
+    <div className="app" data-sidebar-collapsed={collapsed || undefined}>
+      {collapsed ? <div className="sb-rail"><SidebarToggle /></div> : <Sidebar />}
+      <main className="main"><Main /></main>
+    </div>
+  );
+}
 
 /** Writes the active space's palette to :root; lives under the store provider so it can read state. */
 function ThemeBridge() {
@@ -60,8 +84,10 @@ function SheetHost() {
   return null;
 }
 
-/** Full-bleed PaneHost for the active space (no topbar — spec amendment §A1; layout presets live
- *  in the command palette). Exported for the app-shell tests. */
+/** Full-bleed PaneHost for the active space, under the GroupBar — which renders NOTHING unless the
+ *  space has more than one pane group or a pane is focused full-screen, so the no-topbar posture
+ *  (spec amendment §A1) is unchanged for anyone not using groups. Layout presets stay in the command
+ *  palette. Exported for the app-shell tests. */
 export function Main() {
   const layout = useApp((s) => s.layout);
   const items = useApp((s) => s.items);
@@ -75,6 +101,9 @@ export function Main() {
   const openItemAt = useApp((s) => s.openItemAt);
   const resizeSplit = useApp((s) => s.resizeSplit);
   const equalizeSplit = useApp((s) => s.equalizeSplit);
+  const zoomedLeafId = useApp((s) => s.groups?.groups.find((g) => g.id === s.groups!.activeGroupId)?.zoomedLeafId ?? null);
+  const focusPaneFull = useApp((s) => s.focusPaneFull);
+  const unfocusPane = useApp((s) => s.unfocusPane);
   const run = useApp((s) => s.run);
   // First run (W4): no spaces at all — the onboarding sheet, not a sentence pointing at a "+". It is
   // gated on `booted` because an unbooted store also has zero spaces, and on the space COUNT rather than
@@ -84,7 +113,11 @@ export function Main() {
   return (
     <>
       <ErrorBar />
+      <GroupBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
+        zoomedLeafId={zoomedLeafId}
+        onZoom={(leafId) => run(() => focusPaneFull(leafId))}
+        onUnzoom={() => run(() => unfocusPane())}
         onFocus={focusLeaf}
         onClose={(id) => run(() => closeFromLayout(id))}
         // The split button targets its own leaf: focus it synchronously, then split reads the fresh focus.
@@ -209,7 +242,7 @@ export function App() {
   return (
     <StoreContext.Provider value={store}>
       <ThemeBridge />
-      <div className="app"><Sidebar /><main className="main"><Main /></main></div>
+      <AppShell />
       <ConnectionBanner />
       <SheetHost />
       <CommandPalette />

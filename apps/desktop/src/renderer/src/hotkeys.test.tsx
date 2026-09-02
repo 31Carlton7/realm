@@ -295,6 +295,39 @@ describe("useGlobalHotkeys", () => {
     });
   });
 
+  describe("⌘B — the sidebar", () => {
+    it("toggles collapsed, then back, and persists each flip", async () => {
+      const { api, store } = await mount();
+      expect(store.getState().sidebarCollapsed).toBe(false);
+      key({ key: "b", metaKey: true });
+      await waitFor(() => expect(store.getState().sidebarCollapsed).toBe(true));
+      expect(api.calls).toContain("setSetting:ui.sidebarCollapsed=true");
+      key({ key: "b", metaKey: true });
+      await waitFor(() => expect(store.getState().sidebarCollapsed).toBe(false));
+      expect(api.calls).toContain("setSetting:ui.sidebarCollapsed=false");
+    });
+
+    it("does not fire from an editable target, so ⌘B still bolds in the composer", async () => {
+      // The one binding decision worth a test: adding `inInputs: true` here would silently break
+      // bold in the rich composer, and nothing else in the suite would notice.
+      const { store } = await mount();
+      const input = document.createElement("textarea");
+      document.body.appendChild(input);
+      key({ key: "b", metaKey: true }, input);
+      await tick();
+      expect(store.getState().sidebarCollapsed).toBe(false);
+      input.remove();
+    });
+
+    it("is inert while the palette owns the keyboard", async () => {
+      const { store } = await mount();
+      act(() => store.getState().setPaletteOpen(true));
+      key({ key: "b", metaKey: true });
+      await tick();
+      expect(store.getState().sidebarCollapsed).toBe(false);
+    });
+  });
+
   describe("⌘J — the focused session's terminal drawer (W4)", () => {
     const focusedSession = async () => {
       const it9 = item("i9", "s1", { kind: "session", refId: "se1" });

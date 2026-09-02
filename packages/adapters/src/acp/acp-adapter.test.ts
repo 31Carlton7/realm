@@ -696,6 +696,60 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
+  it("reads modes and models from configOptions when that is all the agent reports (Plan 18 §2)", async () => {
+    // The opencode shape. Kills reverting the adapter to `session.modes`/`session.models`: the init
+    // event would carry NO availableModes, so the prompter shows no Plan chip and never says why.
+    const { handle, evs } = await booted({}, { env: { FAKE_ACP_CONFIGOPTIONS: "1" } });
+    expect(of(evs, "init")[0]!.payload.availableModes).toEqual([
+      { id: "agent", name: "agent" },
+      { id: "plan", name: "plan" },
+      { id: "ask", name: "ask" },
+    ]);
+    // The option carried no `name`, so the label is the value verbatim — never invented.
+    expect(of(evs, "init")[0]!.payload.model).toBe("fake-model-1");
+    await handle.dispose();
+  });
+
+  it("writes the mode through session/set_config_option — not set_mode — when the read came from configOptions", async () => {
+    const { handle, evs } = await booted({}, { env: { FAKE_ACP_CONFIGOPTIONS: "1" } });
+    await handle.setOptions({ permissionMode: "plan" });
+    await handle.setOptions({ permissionMode: "default" });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: Record<string, unknown> }[] };
+    expect(journal.calls.filter((c) => c.method === "session/set_config_option").map((c) => [c.params.configId, c.params.value]))
+      .toEqual([["mode", "plan"], ["mode", "agent"]]);
+    // The fixture ACCEPTS set_mode too, so this asserts the adapter chose the right channel rather
+    // than that the wrong one happened to fail. Reading configOptions and writing set_mode is a
+    // silent no-op on a real agent that has moved.
+    expect(journal.calls.filter((c) => c.method === "session/set_mode")).toEqual([]);
+    await handle.dispose();
+  });
+
+  it("keeps writing set_mode / set_model for an agent that only reports the deprecated shape", async () => {
+    // The other half of the seam: Cursor does not implement set_config_option, so sending it there
+    // would break every mode switch. The fixture accepts both, so again this asserts a choice.
+    const { handle, evs } = await booted({ model: "fake-model-2" }, { env: { FAKE_ACP_SET_MODEL_OK: "1" } });
+    await handle.setOptions({ permissionMode: "plan" });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string }[] };
+    expect(journal.calls.some((c) => c.method === "session/set_mode")).toBe(true);
+    expect(journal.calls.some((c) => c.method === "session/set_model")).toBe(true);
+    expect(journal.calls.filter((c) => c.method === "session/set_config_option")).toEqual([]);
+    await handle.dispose();
+  });
+
+  it("pins a boot model through set_config_option under configOptions", async () => {
+    const { handle, evs } = await booted({ model: "fake-model-2" }, { env: { FAKE_ACP_CONFIGOPTIONS: "1" } });
+    // set_model answers -32601 by default in this fixture; under configOptions the adapter must never
+    // reach for it, so `init.model` reports the PINNED id rather than falling back to the default.
+    expect(of(evs, "init")[0]!.payload.model).toBe("fake-model-2");
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: Record<string, unknown> }[] };
+    expect(journal.calls.find((c) => c.method === "session/set_config_option")!.params)
+      .toMatchObject({ configId: "model", value: "fake-model-2" });
+    await handle.dispose();
+  });
+
   it("re-enters Plan at boot — with the agent's own id — when the session's row says plan", async () => {
     const { handle, evs } = await booted({ permissionMode: "plan" });
     await turn(handle, evs, "REVEAL");

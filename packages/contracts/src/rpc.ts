@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema } from "./entities";
 
 import { LayoutSchema } from "./layout";
+import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
 import { SkillSchema, SkillIdSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
@@ -263,6 +264,10 @@ export const Methods = {
   "spaces.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: HexColorSchema.optional(), profileId: IdSchema.optional(), sortOrder: z.number().int().optional(), activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
   "spaces.reorder": { params: z.object({ ids: z.array(IdSchema) }), result: z.object({ ok: z.literal(true) }) },
   "spaces.setLayout": { params: z.object({ id: IdSchema, layout: LayoutSchema }), result: SpaceSchema },
+  /** The whole group set in one write — group membership, names, the active pointer and each group's
+   *  zoom all move together, and splitting them into per-field methods would let a reload land between
+   *  two halves of one gesture. Supersedes `spaces.setLayout`, which stays for the layout-only path. */
+  "spaces.setGroups": { params: z.object({ id: IdSchema, groups: SpaceGroupsSchema }), result: SpaceSchema },
   "spaces.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   // The icon picker's "Generated"/"Uploaded" library (per-profile, reusable across every space —
@@ -364,11 +369,20 @@ export const Methods = {
     result: ImportResultSchema,
   },
 
+  /** The space's items, ARCHIVED ONES INCLUDED — the sidebar's "Archived" section is drawn from this
+   *  same list, and a listing that hid them would leave nothing to unarchive from. Every caller that
+   *  wants only live rows filters on `archived` itself. */
   "items.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ItemSchema) },
-  /** Every item across every space (command palette search); newest-updated first. */
+  /** Every item across every space (the command palette's jump list); newest-updated first. Archived
+   *  rows are excluded — this list's whole job is "what can I jump to", and an archived row answering
+   *  it would defeat the archiving.
+   *
+   *  `search.query` deliberately does NOT filter them: full-text search is what you reach for when
+   *  you are looking for something you put away, so archiving hides rows from the listings and from
+   *  nothing else. */
   "items.listAll": { params: z.object({}), result: z.array(ItemSchema) },
   "items.create": { params: z.object({ spaceId: IdSchema, kind: ItemKindSchema, title: z.string(), refId: IdSchema }), result: ItemSchema },
-  "items.update": { params: z.object({ id: IdSchema, title: z.string().optional(), pinned: z.boolean().optional(), sortOrder: z.number().int().optional() }), result: ItemSchema },
+  "items.update": { params: z.object({ id: IdSchema, title: z.string().optional(), pinned: z.boolean().optional(), archived: z.boolean().optional(), sortOrder: z.number().int().optional() }), result: ItemSchema },
   "items.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   "terminals.create": { params: z.object({ spaceId: IdSchema, cwd: z.string().optional(), cols: z.number().int().default(80), rows: z.number().int().default(24) }), result: z.object({ terminalId: IdSchema, itemId: IdSchema }) },

@@ -122,11 +122,11 @@ describe("app store", () => {
     const store = createAppStore(api); await store.getState().boot();
     await store.getState().newTerminal(); await store.getState().applyPreset("two-col");
     const splitId = store.getState().layout!.id;
-    const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+    const before = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
     store.getState().resizeSplit(splitId, [10, 90]); // schedules a persist
     await store.getState().deleteSpace("s1");
     await new Promise((r) => setTimeout(r, PERSIST_DEBOUNCE_MS + 50));
-    expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before);
+    expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(before);
     expect(store.getState().activeSpaceId).toBe("s2");
   });
 
@@ -165,7 +165,7 @@ describe("app store", () => {
     await store.getState().newTerminal();
     const s = store.getState();
     expect(s.items).toHaveLength(2);
-    expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
+    expect(api.calls.some((c) => c.startsWith("setGroups:s1"))).toBe(true);
     const created = s.items.find((i) => i.id !== "i1")!.id;
     expect(allItems(s.layout!)).toEqual([created]); // opened once; i1 stays unopened
     expect(s.focusedLeafId).toBe(findLeafOfItem(s.layout!, created)!.id);
@@ -197,14 +197,14 @@ describe("app store", () => {
     await store.getState().openItem("i1");
     await store.getState().splitFocused("row");
     await store.getState().newTerminal(); // a second pane, so this delete is not a close-to-empty
-    const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+    const before = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
     await store.getState().deleteItem("i1");
     expect(store.getState().items.map((i) => i.id)).not.toContain("i1");
     expect(allItems(store.getState().layout!)).not.toContain("i1");
     expect(api.calls).toContain("deleteItem:i1");
     expect(api.disposed).toEqual(["i1"]);
     // deleteItem delegates the layout write entirely to closeFromLayout — exactly one persist, not two.
-    expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before + 1);
+    expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(before + 1);
   });
 
   it("closeFromLayout removes the item from the layout only — no server delete, no dispose, item kept", async () => {
@@ -214,13 +214,13 @@ describe("app store", () => {
     await store.getState().splitFocused("row");
     await store.getState().newTerminal(); // a second pane, so this close is not a close-to-empty
     expect(allItems(store.getState().layout!)).toContain("i1");
-    const persists = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+    const persists = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
     await store.getState().closeFromLayout("i1");
     expect(allItems(store.getState().layout!)).not.toContain("i1");
     expect(store.getState().items.map((i) => i.id)).toContain("i1"); // back in the SPACE group
     expect(api.calls.filter((c) => c.startsWith("deleteItem"))).toEqual([]);
     expect(api.disposed).toEqual([]);
-    expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(persists + 1); // the close itself persisted
+    expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(persists + 1); // the close itself persisted
   });
 
   describe("agent-opened panes arrive beside, never replacing (live-found deadlock)", () => {
@@ -568,7 +568,7 @@ describe("app store", () => {
       store.getState().resizeSplit("sp", [33.33, 66.67]); // the mount echo
       await booting;
       await new Promise((r) => setTimeout(r, PERSIST_DEBOUNCE_MS + 50));
-      expect(api.calls.filter((c) => c.startsWith("setLayout"))).toEqual([]); // no action → no write
+      expect(api.calls.filter((c) => c.startsWith("setGroups"))).toEqual([]); // no action → no write
       const l = store.getState().layout!; if (l.type !== "split") throw new Error("expected split");
       expect(l.sizes).toEqual([33.33, 66.67]); // echo still applied locally
     });
@@ -582,7 +582,7 @@ describe("app store", () => {
       await store.getState().boot();
       store.getState().resizeSplit("sp", [25, 75]);
       await new Promise((r) => setTimeout(r, PERSIST_DEBOUNCE_MS + 50));
-      expect(api.calls.filter((c) => c.startsWith("setLayout:s1"))).toHaveLength(1);
+      expect(api.calls.filter((c) => c.startsWith("setGroups:s1"))).toHaveLength(1);
     });
   });
 
@@ -593,18 +593,18 @@ describe("app store", () => {
       await store.getState().newTerminal();
       await store.getState().applyPreset("two-col");
       const splitId = store.getState().layout!.id;
-      const before = api.calls.filter((c) => c.startsWith("setLayout")).length;
+      const before = api.calls.filter((c) => c.startsWith("setGroups")).length;
       vi.useFakeTimers();
       store.getState().resizeSplit(splitId, [50, 50]); // initial onLayout with unchanged sizes → no-op
-      expect(api.calls.filter((c) => c.startsWith("setLayout")).length).toBe(before);
+      expect(api.calls.filter((c) => c.startsWith("setGroups")).length).toBe(before);
       store.getState().resizeSplit(splitId, [40, 60]);
       store.getState().resizeSplit(splitId, [30, 70]);
       store.getState().resizeSplit(splitId, [20, 80]);
       const l = store.getState().layout!; if (l.type !== "split") throw new Error();
       expect(l.sizes).toEqual([20, 80]);
-      expect(api.calls.filter((c) => c.startsWith("setLayout")).length).toBe(before); // not yet
+      expect(api.calls.filter((c) => c.startsWith("setGroups")).length).toBe(before); // not yet
       await vi.advanceTimersByTimeAsync(PERSIST_DEBOUNCE_MS + 10);
-      expect(api.calls.filter((c) => c.startsWith("setLayout")).length).toBe(before + 1);
+      expect(api.calls.filter((c) => c.startsWith("setGroups")).length).toBe(before + 1);
     });
 
     it("a pending debounced persist is flushed before switching space", async () => {
@@ -613,10 +613,10 @@ describe("app store", () => {
       await store.getState().newTerminal();
       await store.getState().applyPreset("two-col");
       const splitId = store.getState().layout!.id;
-      const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      const before = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
       store.getState().resizeSplit(splitId, [10, 90]);
       await store.getState().selectSpace("s2");
-      expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before + 1);
+      expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(before + 1);
     });
 
     it("flushPersist writes a pending debounced persist immediately (pagehide seam, A-M4) and no-ops when idle", async () => {
@@ -625,7 +625,7 @@ describe("app store", () => {
       await store.getState().newTerminal();
       await store.getState().applyPreset("two-col");
       const splitId = store.getState().layout!.id;
-      const count = () => api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      const count = () => api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
       const before = count();
       await store.getState().flushPersist(); // nothing pending → no write
       expect(count()).toBe(before);
@@ -651,12 +651,12 @@ describe("app store", () => {
       const store = await twoCol();
       const splitId = store.getState().layout!.id;
       store.getState().resizeSplit(splitId, [80, 20]);
-      const before = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      const before = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
       store.getState().equalizeSplit(splitId);
       const l = store.getState().layout!; if (l.type !== "split") throw new Error();
       expect(l.sizes).toEqual([50, 50]);
       await store.getState().flushPersist();
-      expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(before + 1);
+      expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(before + 1);
     });
 
     it("is a genuine no-op on an unmodified split: same layout object, nothing persisted", async () => {
@@ -664,11 +664,11 @@ describe("app store", () => {
       const splitId = store.getState().layout!.id;
       await store.getState().flushPersist();
       const before = store.getState().layout!;
-      const writes = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      const writes = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
       store.getState().equalizeSplit(splitId);
       expect(store.getState().layout).toBe(before); // byte-identical
       await store.getState().flushPersist();
-      expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(writes);
+      expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(writes);
     });
 
     it("an unknown split id changes nothing", async () => {
@@ -793,7 +793,7 @@ describe("app store", () => {
       const createdItemId = s.items.find((i) => i.refId === created.id)!.id;
       expect(allItems(s.layout!)).toContain(createdItemId);
       expect(s.focusedLeafId).toBe(findLeafOfItem(s.layout!, createdItemId)!.id);
-      expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
+      expect(api.calls.some((c) => c.startsWith("setGroups:s1"))).toBe(true);
       expect(s.transcripts[created.id]).toEqual({ lastSeq: 0, t: expect.objectContaining({ blocks: [] }) });
     });
 
@@ -1342,7 +1342,7 @@ describe("app store", () => {
       await store.getState().openItem("i2");
       expect(findLeafOfItem(store.getState().layout!, "i2")!.id).toBe(fresh);
       expect(allItems(store.getState().layout!)).toEqual(["i1", "i2"]);
-      expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
+      expect(api.calls.some((c) => c.startsWith("setGroups:s1"))).toBe(true);
     });
 
     it("openItem on an already-open item focuses its pane instead of moving it (sidebar/palette click)", async () => {
@@ -1354,12 +1354,12 @@ describe("app store", () => {
       const layoutBefore = store.getState().layout!;
       const i1Leaf = findLeafOfItem(layoutBefore, "i1")!.id;
       expect(store.getState().focusedLeafId).not.toBe(i1Leaf);
-      const persists = api.calls.filter((c) => c.startsWith("setLayout")).length;
+      const persists = api.calls.filter((c) => c.startsWith("setGroups")).length;
       await store.getState().openItem("i1"); // OPEN row / palette: "go there", not "move it here"
       const s = store.getState();
       expect(s.focusedLeafId).toBe(i1Leaf);
       expect(s.layout).toBe(layoutBefore); // same reference: no layout change
-      expect(api.calls.filter((c) => c.startsWith("setLayout")).length).toBe(persists); // no persist
+      expect(api.calls.filter((c) => c.startsWith("setGroups")).length).toBe(persists); // no persist
     });
 
     it("openItemAt center still moves an already-open item to the target leaf (drag keeps move semantics)", async () => {
@@ -1406,7 +1406,7 @@ describe("app store", () => {
         expect(l.children.map((c) => (c.type === "leaf" ? c.itemId : null)))
           .toEqual(droppedFirst ? ["i2", "i1"] : ["i1", "i2"]);
         expect(store.getState().focusedLeafId).toBe(findLeafOfItem(l, "i2")!.id);
-        expect(api.calls.some((c) => c.startsWith("setLayout:s1"))).toBe(true);
+        expect(api.calls.some((c) => c.startsWith("setGroups:s1"))).toBe(true);
       });
     }
 
@@ -1497,14 +1497,14 @@ describe("app store", () => {
       await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right"); // row[i1, i2]
       const before = store.getState().layout!;
       const focusBefore = store.getState().focusedLeafId;
-      const persists = api.calls.filter((c) => c.startsWith("setLayout:s1")).length;
+      const persists = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
       const i1Leaf = findLeafOfItem(before, "i1")!.id;
       for (const edge of ["left", "center", "right", "top", "bottom"] as const) {
         await store.getState().openItemAt("i1", i1Leaf, edge);
       }
       expect(store.getState().layout).toBe(before); // byte-identical: the very same object, untouched
       expect(store.getState().focusedLeafId).toBe(focusBefore);
-      expect(api.calls.filter((c) => c.startsWith("setLayout:s1")).length).toBe(persists); // nothing persisted
+      expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(persists); // nothing persisted
     });
 
     it("focusLeaf sets focusedLeafId", async () => {
@@ -1816,6 +1816,17 @@ describe("diff panes", () => {
     // A second "show changes" focuses the pane that exists; it does not accumulate panes.
     expect(a.calls.filter((c) => c.startsWith("createItem:"))).toEqual(created);
     expect(store.getState().items.filter((i) => i.kind === "diff").map((i) => i.id)).toEqual([itemId]);
+  });
+
+  it("splits beside the focused pane instead of evicting it — the session must stay reachable", async () => {
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openItem("i1"); // session occupies the only leaf, focused
+    await store.getState().openDiff("env1");
+    const open = allItems(store.getState().layout!);
+    expect(open).toContain("i1"); // the session was NOT evicted — there must be a way back
+    expect(open).toContain(store.getState().items.find((i) => i.kind === "diff")!.id);
   });
 
   it("refreshes gitInfo alongside the diff, so the prompter's chips cannot disagree with the pane", async () => {

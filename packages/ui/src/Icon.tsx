@@ -16,6 +16,7 @@ import {
   Award01Icon, BulbIcon, Key01Icon, LockIcon, Notification01Icon, Mic01Icon, HeadphonesIcon, Video01Icon, DiceIcon, Store01Icon,
   House01Icon, PlaneIcon, Train01Icon, BicycleIcon, Globe02Icon, PaintBucketIcon, Pen01Icon, RulerIcon, PenTool01Icon, StartUp01Icon,
   Bookmark01Icon, BookOpen02Icon, FavouriteIcon, HeartbreakIcon, CameraAiIcon, FireworksIcon, DiceFaces01Icon, GameboyIcon, PentagonIcon, MicroscopeIcon,
+  Maximize01Icon, Minimize01Icon, LayoutTable01Icon, SidebarLeft01Icon, Archive02Icon, ArchiveArrowUpIcon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -23,6 +24,7 @@ export const icons = {
   add: Add01Icon, close: Cancel01Icon, folder: Folder01Icon, briefcase: Briefcase01Icon, cap: MortarboardIcon,
   home: Home01Icon, user: UserIcon, terminal: ComputerTerminal01Icon, browser: GlobeIcon, simulator: SmartPhone01Icon,
   artifact: File01Icon, context: BrainIcon, layout: LayoutGridIcon, settings: Settings01Icon, more: MoreHorizontalIcon,
+  sidebar: SidebarLeft01Icon,
   session: ChatIcon, search: Search01Icon, pin: PinIcon, unpin: PinOffIcon, chevronLeft: ArrowLeft01Icon, chevronRight: ArrowRight01Icon,
   check: Tick01Icon, trash: Delete02Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
   send: SentIcon, stop: StopIcon, sparkles: SparklesIcon, chevronDown: ArrowDown01Icon, arrowDown: ArrowDown02Icon, arrowUp: ArrowUp02Icon, spinner: Loading03Icon,
@@ -30,7 +32,12 @@ export const icons = {
   copy: Copy01Icon, plan: Task01Icon, attach: Attachment01Icon, image: Image01Icon, reload: RefreshIcon,
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
+  // Pane focus (zoom one pane to the whole host) and its inverse; `group` is a pane group's tab.
+  focusPane: Maximize01Icon, unfocusPane: Minimize01Icon, group: LayoutTable01Icon,
   laptop: LaptopIcon, plug: PlugSocketIcon, download: Download04Icon,
+  // Shelve a sidebar row / take it back off the shelf. The pair is directional on purpose — the same
+  // box, with the restore glyph lifting out of it — so the hover button reads as a toggle.
+  archive: Archive02Icon, unarchive: ArchiveArrowUpIcon,
   // Space icon picker's "Default" section — one entry per SPACE_ICONS name (packages/contracts/src/presets.ts).
   rocket: Rocket01Icon, star: StarIcon, book: Book01Icon, camera: Camera01Icon, musicNote: MusicNote01Icon,
   shield: Shield01Icon, flag: Flag01Icon, coffee: Coffee01Icon, target: Target01Icon, compass: Compass01Icon,

@@ -1,7 +1,16 @@
 import { z } from "zod";
 
 const P = {
-  user_message: z.object({ text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })) }),
+  /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
+   *  Absent means the user typed it, and absence is the ordinary case — the same polarity
+   *  `dispatchedBy` uses. Optional so every row ever written still parses; no migration, no backfill.
+   *  The pane reads it to label the bubble: rendering another agent's words as the user's would be a
+   *  lie by omission, and the user would believe they had typed it. */
+  user_message: z.object({
+    text: z.string(),
+    attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
+    from: z.object({ sessionId: z.string(), title: z.string() }).optional(),
+  }),
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   assistant_delta: z.object({ messageId: z.string(), delta: z.string() }),
   thinking: z.object({ messageId: z.string(), text: z.string() }),

@@ -117,6 +117,40 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
+  it("upgrades the heuristic title to the configured titleGenerator's summary once it resolves", async () => {
+    const home = mkdtempSync(join(tmpdir(), "realm-"));
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) }, titleGenerator: async (text) => `Summary of: ${text}` });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+    const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    // The generator here resolves on the same tick, so the heuristic title (set synchronously in
+    // `maybeTitleFrom`, before the generator is even awaited) may already be overwritten by the
+    // time this call round-trips — asserted directly in the synchronous-titling test above instead.
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.title === "Summary of: go");
+    expect((await c.call("items.list", { spaceId: sp.id })).result.find((i: Any) => i.id === itemId).title).toBe("Summary of: go");
+    c.close();
+  });
+
+  it("never clobbers a title a rename already moved past by the time the generator resolves", async () => {
+    const home = mkdtempSync(join(tmpdir(), "realm-"));
+    let resolveTitle!: (v: string) => void;
+    const slow = new Promise<string>((res) => { resolveTitle = res; });
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) }, titleGenerator: () => slow });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+    const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await c.call("items.update", { id: itemId, title: "Renamed by hand" });
+    resolveTitle("Summary of: go"); // arrives after the manual rename; must lose
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await c.call("sessions.get", { id: session.id })).result.title).toBe(titleFromMessage("go"));
+    expect((await c.call("items.list", { spaceId: sp.id })).result.find((i: Any) => i.id === itemId).title).toBe("Renamed by hand");
+    c.close();
+  });
+
   it("agents.probe lists registered adapters; a throwing probe reports unavailable with the reason", async () => {
     const { c } = await boot();
     expect((await c.call("agents.probe", {})).result).toEqual([{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]);

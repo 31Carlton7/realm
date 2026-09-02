@@ -23,5 +23,29 @@ export const SUGGESTIONS: Record<AgentKind, { title: string; description: string
   "acp:gemini": [
     { title: "Summarize this repo", description: "Purpose, stack, and layout", prompt: "Summarize this repository: purpose, stack, and layout." },
   ],
+  "acp:opencode": [
+    { title: "Explain code", description: "What this codebase does, and where", prompt: "Explain what this codebase does and where its core logic lives." },
+    { title: "Fix a bug", description: "Find and fix the most likely bug", prompt: "Find the most likely bug in this codebase and fix it." },
+  ],
+  "acp:copilot": [
+    { title: "Review my changes", description: "Bugs and style in uncommitted work", prompt: "Review my uncommitted changes for bugs and style issues." },
+    { title: "Write tests", description: "Cover what is not covered yet", prompt: "Find the least-covered part of this code and write tests for it." },
+  ],
+  "acp:goose": [
+    { title: "Explain code", description: "What this codebase does, and where", prompt: "Explain what this codebase does and where its core logic lives." },
+    { title: "Run the tests", description: "Run the suite and summarize failures", prompt: "Run the test suite and summarize any failures." },
+  ],
+  "acp:qwen": [
+    { title: "Summarize this repo", description: "Purpose, stack, and layout", prompt: "Summarize this repository: purpose, stack, and layout." },
+    { title: "Refactor something", description: "Find the highest-value refactor", prompt: "Suggest the highest-value refactor in this codebase and carry it out." },
+  ],
+  "acp:grok": [
+    { title: "Explain code", description: "What this codebase does, and where", prompt: "Explain what this codebase does and where its core logic lives." },
+    { title: "Build a feature", description: "Plan first, then write the code", prompt: "I want to add a new feature. Let's plan it before writing code." },
+  ],
+  "acp:fx": [
+    { title: "Summarize this repo", description: "Purpose, stack, and layout", prompt: "Summarize this repository: purpose, stack, and layout." },
+    { title: "Fix a bug", description: "Find and fix the most likely bug", prompt: "Find the most likely bug in this codebase and fix it." },
+  ],
   fake: [{ title: "Say hello", description: "A quick round trip through the fake agent", prompt: "Hello!" }],
 };

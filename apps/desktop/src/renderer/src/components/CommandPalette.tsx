@@ -112,6 +112,11 @@ function PaletteBody() {
   const interruptSession = useApp((s) => s.interruptSession);
   const jumpToPermission = useApp((s) => s.jumpToPermission);
   const applyPreset = useApp((s) => s.applyPreset);
+  const groups = useApp((s) => s.groups);
+  const zoomedLeaf = useApp((s) => s.groups?.groups.find((g) => g.id === s.groups!.activeGroupId)?.zoomedLeafId ?? null);
+  const activatePaneGroup = useApp((s) => s.activatePaneGroup);
+  const newPaneGroup = useApp((s) => s.newPaneGroup);
+  const toggleFocusPane = useApp((s) => s.toggleFocusPane);
   const setThemePref = useApp((s) => s.setThemePref);
   const openSheet = useApp((s) => s.openSheet);
   const openSpacePage = useApp((s) => s.openSpacePage);
@@ -181,8 +186,10 @@ function PaletteBody() {
     // Open panes of the active space, in layout order — the quadrant glyph tells duplicates apart (V-F4).
     const open = openIds.map((id) => byId.get(id)).filter((it): it is Item => !!it)
       .map((it) => itemEntry(it, "Open", <ItemGlyph layout={l} itemId={it.id} />));
-    // The active space's remaining items, newest first.
-    const activeRest = items.filter((it) => !openIds.includes(it.id)).sort(byRecency)
+    // The active space's remaining items, newest first. Archived ones are left out — `items` carries
+    // them (the sidebar's Archived section needs them) where `allItems` already does not, so the
+    // filter belongs here to keep both halves of this list answering the same question.
+    const activeRest = items.filter((it) => !openIds.includes(it.id) && !it.archived).sort(byRecency)
       .map((it) => itemEntry(it, spaceName(it.spaceId), <span>{relTime(it.updatedAt)}</span>));
     // Other spaces' items, grouped per space (strip order), newest first within each.
     const others = spaces.filter((sp) => sp.id !== activeSpaceId).flatMap((sp) =>
@@ -202,6 +209,13 @@ function PaletteBody() {
         id: `act:space-${sp.id}`, label: `Switch to ${sp.name}`, icon: <SpaceIcon icon={sp.icon} size={15} />,
         run: () => run(() => selectSpace(sp.id)), section: "Actions", hint: sp.id === activeSpaceId ? "current" : undefined,
       })),
+      // Pane groups sit right beside the space switches: they are the same gesture one level in —
+      // "put a different arrangement on screen" — and the reason the feature exists is cheap switching.
+      // Only offered once there is more than one, like the GroupBar itself.
+      ...((groups?.groups.length ?? 0) > 1 ? groups!.groups.map((g): Entry =>
+        act(`group-${g.id}`, `Group: ${g.name}`, "group", () => run(() => activatePaneGroup(g.id)),
+          g.id === groups!.activeGroupId ? "current" : undefined)) : []),
+      ...(activeSpaceId ? [act("new-group", "New pane group", "group", () => run(() => newPaneGroup()))] : []),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), <kbd>⌘T</kbd>),
       act("new-browser", "New browser", "browser", () => run(() => newBrowser())),
       // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through
@@ -237,6 +251,10 @@ function PaletteBody() {
       act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), <kbd>⌘⇧\</kbd>),
       ...(focusedItem ? [
         act("close-pane", "Close pane", "close", () => run(() => closeFromLayout(focusedItem.id)), <kbd>⌘W</kbd>),
+        // The pane keeps its place in the group either way — this only changes how much room it gets.
+        zoomedLeaf
+          ? act("unfocus-pane", "Unfocus pane", "unfocusPane", () => run(() => toggleFocusPane()), <kbd>⌘⇧F</kbd>)
+          : act("focus-pane", `Focus “${focusedItem.title}”`, "focusPane", () => run(() => toggleFocusPane()), <kbd>⌘⇧F</kbd>),
         act("rename", `Rename “${focusedItem.title}”`, "edit", () => requestRename(focusedItem.id)),
       ] : []),
       ...(focusedRunning ? [act("interrupt", "Interrupt running session", "stop", () => run(() => interruptSession(focusedSession!)), <kbd>esc</kbd>)] : []),
@@ -251,7 +269,8 @@ function PaletteBody() {
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, drafts, dispatchDraft,
       selectSpace, openItem, newTerminal, newBrowser, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
-      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, run]);
+      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, run,
+      groups, zoomedLeaf, activatePaneGroup, newPaneGroup, toggleFocusPane]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked
   // by match score (ties keep the sectioned order, so recency still breaks ties).

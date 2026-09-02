@@ -18,6 +18,7 @@ import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAM
 import { DelegationEngine } from "./delegation/engine";
 import { AgentRunService } from "./delegation/agent-run";
 import { ReviewService } from "./delegation/review";
+import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
@@ -52,7 +53,7 @@ import { machineName } from "./machine-name";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /**
@@ -78,7 +79,61 @@ export function defaultAdapters(): AdapterRegistry {
       bin: process.env.REALM_GEMINI_BIN ?? "gemini",
       args: ["--acp"],
       label: "Gemini",
-      loginHint: "Gemini's free personal tier was discontinued — configure a Gemini API key or Vertex AI credentials.",
+      // Measured 2026-09-01 (gemini-cli 0.56.0): `initialize` advertises oauth-personal, gemini-api-key,
+      // vertex-ai and a custom AI gateway. Only the first is dead — `session/new` under it fails
+      // IneligibleTierError — so the hint names the three that work.
+      loginHint: "Gemini's free personal tier was discontinued — sign in with a Gemini API key, Vertex AI credentials, or a custom AI gateway.",
+    }),
+    // ── Plan 18: agents that speak ACP natively ────────────────────────────────────────────────
+    // Every `args` below was confirmed by a live `initialize` on 2026-09-01. None sets `modelCatalog`:
+    // opencode and Copilot report their catalogs through `configOptions` (which the probe now reads
+    // via acpSessionConfig, so a catalog arrives without the flag), and Grok puts its models in
+    // `initialize._meta.modelState` — a place `session/new` never carries, so a probe-time session
+    // spawn would cost a real round trip to learn nothing.
+    "acp:opencode": new AcpAdapter({
+      kind: "acp:opencode",
+      bin: process.env.REALM_OPENCODE_BIN ?? "opencode",
+      args: ["acp"],
+      label: "OpenCode",
+      loginHint: "Run `opencode auth login`.",
+    }),
+    "acp:copilot": new AcpAdapter({
+      kind: "acp:copilot",
+      bin: process.env.REALM_COPILOT_BIN ?? "copilot",
+      args: ["--acp"],
+      label: "GitHub Copilot",
+      loginHint: "Run `copilot login`.",
+    }),
+    "acp:goose": new AcpAdapter({
+      kind: "acp:goose",
+      bin: process.env.REALM_GOOSE_BIN ?? "goose",
+      args: ["acp"],
+      label: "goose",
+      loginHint: "Run `goose configure` to pick a provider and set its API key.",
+    }),
+    "acp:qwen": new AcpAdapter({
+      kind: "acp:qwen",
+      bin: process.env.REALM_QWEN_BIN ?? "qwen",
+      args: ["--acp"],
+      label: "Qwen Code",
+      loginHint: "Run `qwen` once to sign in with your Qwen account, or set OPENAI_API_KEY.",
+    }),
+    "acp:grok": new AcpAdapter({
+      kind: "acp:grok",
+      bin: process.env.REALM_GROK_BIN ?? "grok",
+      args: ["agent", "stdio"],
+      label: "Grok",
+      loginHint: "Run `grok login` (browser sign-in, needs SuperGrok or X Premium), or set XAI_API_KEY.",
+    }),
+    "acp:fx": new AcpAdapter({
+      kind: "acp:fx",
+      bin: process.env.REALM_FX_BIN ?? "fx",
+      args: ["acp"],
+      label: "fx",
+      // fx gates `initialize` ITSELF on being signed in (measured: -32600 with this exact text), so a
+      // signed-out fx fails on the boot branch with no `authMethods` to list. This hint is the only
+      // thing that tells the user what to run.
+      loginHint: "Run `fx login` to sign in with Vercel, `fx setup` for an AI Gateway API key, or set AI_GATEWAY_API_KEY.",
     }),
   };
   if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ script: [], delayMs: 15 });
@@ -99,6 +154,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  requester's has no read-only plan mode, or the user clicked) falls back to `agentRun`'s, then
    *  `browserAgent`'s. */
   review?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { budgetMs: number; pollMs: number } };
+  /** Plan 20's interjection: only timeouts, because an ask spawns nothing and so has no kind to fall
+   *  back to. The behaviour suite needs sub-second budgets to exercise the timeout path. */
+  ask?: { timeouts?: { budgetMs: number; pollMs: number } };
+  /** Upgrades a session's heuristic first-line title to a short model-written summary in the
+   *  background (`SessionService.upgradeTitle`). A real, billed LLM call per session — omitted here
+   *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
+   *  passes `generateSessionTitle`. */
+  titleGenerator?: (text: string) => Promise<string>;
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -224,6 +287,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let browserAgents: BrowserAgentService | null = null;
   let agentRuns: AgentRunService | null = null;
   let reviews: ReviewService | null = null;
+  let asks: AskService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -249,13 +313,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
   const sessionEvents = new SessionEventsStore(db);
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications, titleGenerator: opts.titleGenerator,
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
     // (they share the one engine, which owns the registry); the per-child seams try each registry —
     // a session is a child of at most one.
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); forks?.release(id); },
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); },
       extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id),
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? null,
     } });
@@ -276,7 +340,18 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     otherDelegation: { isChild: (id) => agentRunsFinal.isChild(id) || browserAgentsFinal.isChild(id) },
     fallbackKind: opts.review?.fallbackKind ?? opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.review?.timeouts });
   mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
-  mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews));
+  // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
+  // kind is neither a valid asker nor a valid target, because its own parent is already blocked inside
+  // an MCP call waiting for it. `permissions` is the SAME broker the browser tools gate on — the card
+  // appears on the asker, which is where the blocked call is.
+  const reviewsFinal = reviews;
+  asks = new AskService({
+    sessions, engine: delegationEngine,
+    delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id) },
+    permissions: browserBroker,
+    timeouts: opts.ask?.timeouts,
+  });
+  mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
@@ -314,7 +389,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   await mcpGateway.listen();
   const port = await rpc.listen(opts.port);
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, gateway: mcpGateway,
     close: async () => {
       search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
       terminals.closeAll();

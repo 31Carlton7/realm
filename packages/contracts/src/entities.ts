@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LayoutSchema } from "./layout";
+import { SpaceGroupsSchema } from "./groups";
 import { IdSchema } from "./ids";
 export { IdSchema } from "./ids";
 
@@ -15,6 +16,12 @@ export type Profile = z.infer<typeof ProfileSchema>;
 export const SpaceSchema = z.object({
   id: IdSchema, profileId: IdSchema, name: z.string().min(1), icon: z.string(), color: HexColorSchema,
   sortOrder: z.number().int(), folderPath: z.string(),
+  /** The space's pane groups — several named split arrangements, one of them active. Nullable only
+   *  for the same reason `layout` is: a space nobody has opened yet has never had one written. */
+  groups: SpaceGroupsSchema.nullable(),
+  /** DERIVED, never stored independently: the active group's layout. Kept on Space so every reader
+   *  that only ever wanted "what is on screen" (the sidebar glyph, the pane host) is unchanged by
+   *  groups existing. Writing it (`spaces.setLayout`) replaces the ACTIVE group's layout. */
   layout: LayoutSchema.nullable(), activeItemId: IdSchema.nullable(), ...Timestamps,
 });
 export type Space = z.infer<typeof SpaceSchema>;
@@ -72,7 +79,18 @@ export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 
 export const ItemSchema = z.object({
   id: IdSchema, spaceId: IdSchema, kind: ItemKindSchema, title: z.string(),
-  sortOrder: z.number().int(), pinned: z.boolean(), refId: IdSchema, ...Timestamps,
+  sortOrder: z.number().int(), pinned: z.boolean(),
+  /**
+   * Shelved: the row keeps existing but leaves the space list, the pinned grid and the command
+   * palette, and shows only in the sidebar's "Archived" section (where unarchiving it is one click).
+   *
+   * `pinned`'s exact opposite, and deliberately the same shape — a flag on the ITEM, not on the
+   * session — because the thing being put away is the sidebar row, and `items.list` is the one query
+   * every listing already goes through. Only session rows are offered the gesture today (archiving a
+   * destination page or a session-owned terminal means nothing), but nothing in the column is
+   * session-specific, so widening it is a UI change alone.
+   */
+  archived: z.boolean(), refId: IdSchema, ...Timestamps,
 });
 export type Item = z.infer<typeof ItemSchema>;
 
@@ -151,7 +169,20 @@ export const CheckpointSchema = z.object({
 });
 export type Checkpoint = z.infer<typeof CheckpointSchema>;
 
-export const AgentKindSchema = z.enum(["claude", "codex", "acp:gemini", "acp:cursor", "fake"]);
+/**
+ * Every agent Realm can run. `acp:*` members all ride the ONE generic `AcpAdapter` — the prefix is a
+ * promise about the protocol, not just a naming habit, and a kind without it needs its own adapter.
+ *
+ * Widening only: a new member is a compile error in each of the exhaustive `Record<AgentKind, …>`
+ * tables (13 of them) and nothing else. `agent_kind TEXT NOT NULL` carries no CHECK constraint and the
+ * read path never re-parses, so no persisted row can start failing.
+ */
+export const AgentKindSchema = z.enum([
+  "claude", "codex", "acp:gemini", "acp:cursor",
+  // Plan 18: every one of these answered a live ACP `initialize` on 2026-09-01 (see the plan's table).
+  "acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx",
+  "fake",
+]);
 export type AgentKind = z.infer<typeof AgentKindSchema>;
 
 /**

@@ -308,6 +308,24 @@ describe("SessionPane", () => {
     });
   });
 
+  it("attributes a question another session delivered, and never attributes the user's own words", async () => {
+    await mount("idle", reduceAll([
+      sessionEvent("user_message", { text: "I typed this", attachments: [] }),
+      sessionEvent("user_message", { text: "an agent asked this", attachments: [], from: { sessionId: "s2", title: "Refactor the parser" } }),
+    ]));
+    const rows = [...document.querySelectorAll(".msg-user-row")];
+    expect(rows).toHaveLength(2);
+    // Kills rendering the attribution always (every user message credited to a session) or never
+    // (another agent's words shown as the user's — a lie by omission the user would act on).
+    expect(rows[0]!.hasAttribute("data-from")).toBe(false);
+    expect(rows[0]!.querySelector(".msg-user-from")).toBeNull();
+    expect(rows[1]!.hasAttribute("data-from")).toBe(true);
+    expect(rows[1]!.querySelector(".msg-user-from")).toHaveTextContent("Asked by Refactor the parser");
+    // The fenced text itself is shown exactly as the peer received it: the user should be able to see
+    // what the agent was actually handed, not a cleaned-up version of it.
+    expect(rows[1]!.querySelector(".msg-user")).toHaveTextContent("an agent asked this");
+  });
+
   it("the Thinking… under-strip shows only while the session is running", async () => {
     const { store } = await mount("running", reduceAll([sessionEvent("user_message", { text: "go", attachments: [] })]));
     expect(document.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");
@@ -1051,9 +1069,30 @@ describe("prompter model picker", () => {
   it("lists every agent's models, current agent first, each carrying its provider's brand mark", async () => {
     await mountKindFresh("codex");
     openPicker();
-    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "Composer"]);
+    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
+      // Then the rest of SELECTABLE_AGENT_KINDS, in its order. The six Plan 18 agents each contribute
+      // one "Default" row: their real catalogs are enumerated live by the probe, and naming a guess
+      // here would put a model the session is not on into the picker.
+      "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
-    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor"]);
+    // `undefined` is the honest answer for the six: `brandMarks` carries real vendor path data for four
+    // vendors, and inventing SVG paths for the rest would render as garbage. They use Hugeicons glyphs.
+    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
+      undefined, undefined, undefined, undefined, undefined, undefined]);
+  });
+
+  it("six rows labelled Default are still told apart — the row carries its agent, not just its model", async () => {
+    // The named mutant: DEFAULT_MODEL_LABEL giving every Plan 18 agent the same string is only safe
+    // because the row's accessible name includes the agent. Drop `mp-row-provider` and the picker
+    // becomes six identical options.
+    await mountKindFresh("codex");
+    openPicker();
+    const defaults = screen.getAllByRole("option").filter((n) => n.querySelector(".mp-row-name")!.textContent === "Default");
+    expect(defaults).toHaveLength(6);
+    const names = defaults.map((n) => n.textContent);
+    expect(new Set(names).size).toBe(6);
+    expect(names.join("|")).toContain("OpenCode");
+    expect(names.join("|")).toContain("Qwen Code");
   });
 
   it("never hides a session's own kind, even one that is not offered fresh", async () => {
@@ -1061,7 +1100,8 @@ describe("prompter model picker", () => {
     // see itself would show a list with nothing selected.
     await mountFresh({ agentKind: "fake" });
     openPicker();
-    expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6", "Composer"]);
+    expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
+      "GPT-5.6", "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
     expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -1171,7 +1211,10 @@ describe("prompter model picker", () => {
       // Cursor first (session's own kind): default row, then the catalog verbatim; Claude's static
       // list and Codex's default row are untouched by Cursor's probe models.
       expect(rowNames()).toEqual(["Composer", "Auto", "composer-2.5", "gpt-5.3-codex",
-        "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6"]);
+        "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6",
+        // Every other offered kind still contributes exactly its default row: one agent's probe
+        // catalog must not leak onto another's rows.
+        "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
       expect(screen.getByRole("option", { name: /Composer/ })).toHaveAttribute("aria-selected", "true");
       expect(screen.getByRole("option", { name: /Auto/ })).toHaveAttribute("aria-selected", "false");
     });
@@ -1229,7 +1272,7 @@ describe("the session's terminal drawer (W4)", () => {
     store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } }, ...(panel ? { terminalPanel: { se1: panel } } : {}) });
     const r = render(
       <StoreContext.Provider value={store}>
-        <PanelBar item={sessionItem} onSplit={() => {}} onClose={() => {}} />
+        <PanelBar item={sessionItem} leafId="l1" onSplit={() => {}} onClose={() => {}} />
         <SessionPane item={sessionItem} visible />
       </StoreContext.Provider>,
     );
@@ -1284,7 +1327,7 @@ describe("the session's terminal drawer (W4)", () => {
   it("a terminal item's header has no such toggle — only sessions own one", () => {
     const api = fakeApi();
     const store = createAppStore(api);
-    render(<StoreContext.Provider value={store}><PanelBar item={item("i1", "s1", { kind: "terminal", title: "zsh" })} onSplit={() => {}} onClose={() => {}} /></StoreContext.Provider>);
+    render(<StoreContext.Provider value={store}><PanelBar item={item("i1", "s1", { kind: "terminal", title: "zsh" })} leafId="l1" onSplit={() => {}} onClose={() => {}} /></StoreContext.Provider>);
     expect(screen.queryByRole("button", { name: /terminal for zsh/ })).toBeNull();
   });
 });
@@ -1305,7 +1348,7 @@ describe("the CLI-missing install card (W4)", () => {
     store.setState({ sessionStatus: { se1: status }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
     const r = render(
       <StoreContext.Provider value={store}>
-        <PanelBar item={sessionItem} onSplit={() => {}} onClose={() => {}} />
+        <PanelBar item={sessionItem} leafId="l1" onSplit={() => {}} onClose={() => {}} />
         <SessionPane item={sessionItem} visible />
       </StoreContext.Provider>,
     );

@@ -70,7 +70,12 @@ export type AgentModel = { id: string; label: string };
  */
 export const AGENT_MODELS = {
   claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
-  codex: [], "acp:gemini": [], "acp:cursor": [], fake: [{ id: "fake", label: "Fake" }],
+  codex: [], "acp:gemini": [], "acp:cursor": [],
+  // Plan 18's ACP agents: empty for the same reason as Cursor's — the catalog is enumerated live by
+  // the probe (through `configOptions` now, see acpSessionConfig), so a hardcoded list would only ever
+  // be a stale copy that shadows the truth. opencode alone reported 50 models on 2026-09-01.
+  "acp:opencode": [], "acp:copilot": [], "acp:goose": [], "acp:qwen": [], "acp:grok": [], "acp:fx": [],
+  fake: [{ id: "fake", label: "Fake" }],
 } as const satisfies Record<import("./entities").AgentKind, readonly AgentModel[]>;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 /**
@@ -81,11 +86,21 @@ export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
  * `fake` is the scripted dev adapter. Callers that must show a session's *current* kind prepend it when
  * it is missing here rather than hiding the agent the session actually runs.
  */
-export const SELECTABLE_AGENT_KINDS = ["claude", "codex", "acp:cursor"] as const satisfies ReadonlyArray<import("./entities").AgentKind>;
+export const SELECTABLE_AGENT_KINDS = [
+  "claude", "codex", "acp:cursor", "acp:gemini",
+  "acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx",
+] as const satisfies ReadonlyArray<import("./entities").AgentKind>;
 /** Frontier default model label per kind — what the prompter's model chip shows while `session.model`
  *  is null (the adapter's own default). Display-only: never transmitted as a model id. */
 export const DEFAULT_MODEL_LABEL = {
-  claude: "Fable 5.1", codex: "GPT-5.6", "acp:cursor": "Composer", "acp:gemini": "Gemini", fake: "Fake",
+  claude: "Fable 5.1", codex: "GPT-5.6", "acp:cursor": "Composer", "acp:gemini": "Gemini",
+  // "Default" rather than a model name, because for these we do not know one before the handshake:
+  // Cursor's default IS "Composer", but opencode's is whatever the user configured (measured:
+  // `opencode/big-pickle` on this machine, which is a local config value, not a constant). Naming a
+  // guess here would put a model the session is not on into the prompter's chip.
+  "acp:opencode": "Default", "acp:copilot": "Default", "acp:goose": "Default",
+  "acp:qwen": "Default", "acp:grok": "Default", "acp:fx": "Default",
+  fake: "Fake",
 } as const satisfies Record<import("./entities").AgentKind, string>;
 /**
  * Agent kinds whose permission model Realm can actually control.
@@ -101,7 +116,12 @@ export const DEFAULT_MODEL_LABEL = {
  * so there is still nothing honest to map Ask/Accept edits/Full access onto.
  */
 export const AGENT_SUPPORTS_PERMISSION_MODES = {
-  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false, fake: true,
+  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false,
+  // Every ACP agent, for the reason above: mode ids are agent-defined, so there is nothing honest to
+  // map Ask / Accept edits / Full access onto. One adapter, one answer.
+  "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
 /**
@@ -125,7 +145,10 @@ export const AGENT_SUPPORTS_PERMISSION_MODES = {
  * reads this table for the sentence it returns, so there is one place to change.
  */
 export const AGENT_CONVERSATION_REWIND = {
-  claude: false, codex: false, "acp:cursor": false, "acp:gemini": false, fake: false,
+  claude: false, codex: false, "acp:cursor": false, "acp:gemini": false,
+  "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  fake: false,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
 /**
@@ -179,8 +202,53 @@ export type SessionMode = (typeof SESSION_MODES)[number]["id"];
  * - `fake` — the scripted dev adapter ignores the field entirely, but stays true so the development
  *   prompter shows the same controls as a real one (as it already does for permission modes).
  */
+/**
+ * How a message from ANOTHER session reaches an agent that is mid-turn (Plan 20).
+ *
+ * Read all three real adapters before writing this down, the same discipline as
+ * AGENT_SUPPORTS_PERMISSION_MODES and AGENT_CONVERSATION_REWIND. The two values are NOT degrees of
+ * the same thing:
+ *
+ * - `steer` — the turn is never stopped. Codex alone: `turn/steer {threadId, expectedTurnId, input}`
+ *   is verified in docs/dev/codex-app-server-protocol.md and `CodexAdapter.send` already takes that
+ *   branch whenever a turn is active. Nothing is interrupted, so there is nothing to resume.
+ * - `interrupt` — the turn ENDS and the peer is re-prompted. Claude's `q.interrupt()` is answered by
+ *   the SDK with a `result`, which is irrecoverable: there is no "resume the aborted turn" verb in
+ *   the options object. ACP's `session/cancel` is the same, and there it is also MANDATORY — ACP
+ *   describes `session/prompt` as one request pending for the whole turn, and `AcpAdapter.send`
+ *   fires it unconditionally, so two concurrent prompts on one sessionId is undefined behaviour.
+ *
+ * The peer keeps its own context either way: that context is the PROVIDER's conversation, not
+ * something Realm rebuilds. Realm never synthesises a "here is what you were doing" summary — the
+ * peer's own transcript already says it, and any summary we wrote would be a lossier copy in Realm's
+ * voice. What an interrupt does cost is real and must be reported, not smoothed over: the in-flight
+ * tool call is aborted, and any permission prompt the peer had open is DENIED by the interrupt
+ * (`denyAllPending`), which is why a peer in `waiting_permission` is refused outright.
+ */
+export const AGENT_MIDTURN_DELIVERY = {
+  claude: "interrupt",
+  codex: "steer",
+  // Every ACP kind: one adapter, one answer. `acp:gemini` is supported-but-unexercised, and whether
+  // Cursor and Gemini honour `stopReason: "cancelled"` is still unverified (docs/dev/acp-protocol.md
+  // §6) — if a live check disproves it, the honest fix is a third value here, not a workaround.
+  "acp:cursor": "interrupt", "acp:gemini": "interrupt", "acp:opencode": "interrupt",
+  "acp:copilot": "interrupt", "acp:goose": "interrupt", "acp:qwen": "interrupt",
+  "acp:grok": "interrupt", "acp:fx": "interrupt",
+  // The scripted adapter models the interrupt kinds (its `interrupt` breaks the step loop while the
+  // turn still emits its trailing usage + idle), which is what the behaviour suite needs.
+  fake: "interrupt",
+} as const satisfies Record<import("./entities").AgentKind, "steer" | "interrupt">;
+
 export const AGENT_SUPPORTS_PLAN_MODE = {
-  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false, fake: true,
+  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false,
+  // Same per-session answer as Cursor's, and now genuinely load-bearing: opencode reports its modes
+  // through `configOptions`, so whether it has a Plan equivalent depends on the user's own agent
+  // config. Measured on this machine it does NOT (its modes are custom agents named "Sisyphus",
+  // "Prometheus - Plan Builder", …) — and "Plan Builder" is exactly the name a fuzzy match would
+  // wrongly accept. The chip appears only when acpPlanMode finds a well-known id.
+  "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
 /** One advertised ACP session mode, as `session/new`'s `modes.availableModes` carries it. */
@@ -189,14 +257,15 @@ export type AcpSessionMode = { id: string; name: string; description?: string };
 /**
  * The advertised mode Realm treats as Plan-equivalent, or null when the agent offers none.
  *
- * Matched on the AGENT'S OWN id being literally `"plan"` — verified live against cursor-agent
- * 2026.07.25 (`agent`/`plan`/`ask`, with `plan` described as "Read-only mode for planning and
- * designing before implementation"). Deliberately no fuzzy name matching: a mode Realm merely hopes
- * means Plan is exactly the lie the per-session capability exists to end. What `session/set_mode`
- * transmits is the matched mode's own id, never Realm's.
+ * Matched on the AGENT'S OWN id being the well-known `"plan"` — either bare (verified live against
+ * cursor-agent 2026.07.25: `agent`/`plan`/`ask`, with `plan` described as "Read-only mode for planning
+ * and designing before implementation") or in ACP's spec-URI form, which GitHub Copilot uses.
+ * Deliberately no fuzzy NAME matching: a mode Realm merely hopes means Plan is exactly the lie the
+ * per-session capability exists to end. What the write transmits is the matched mode's own id,
+ * never Realm's.
  */
 export function acpPlanMode(modes: readonly AcpSessionMode[] | null | undefined): AcpSessionMode | null {
-  return modes?.find((m) => m.id === "plan") ?? null;
+  return modes?.find((m) => acpWellKnownMode(m.id, "plan")) ?? null;
 }
 
 /**
@@ -206,10 +275,128 @@ export function acpPlanMode(modes: readonly AcpSessionMode[] | null | undefined)
  */
 export function acpBuildMode(modes: readonly AcpSessionMode[] | null | undefined, bootModeId: string | null): AcpSessionMode | null {
   if (!modes) return null;
-  const agent = modes.find((m) => m.id === "agent");
+  const agent = modes.find((m) => acpWellKnownMode(m.id, "agent"));
   if (agent) return agent;
   const boot = modes.find((m) => m.id === bootModeId);
-  return boot && boot.id !== "plan" ? boot : null;
+  return boot && !acpWellKnownMode(boot.id, "plan") ? boot : null;
+}
+
+/**
+ * ACP's own well-known session-mode identifiers. Agents may report a mode by its spec URI instead of
+ * a bare id — GitHub Copilot does, e.g. `https://agentclientprotocol.com/protocol/session-modes#plan`.
+ *
+ * Matching these is NOT the fuzzy name matching `acpPlanMode` refuses. A spec URI is an identifier the
+ * protocol defines and the agent chose deliberately; a mode merely *named* "Planning" is a guess. The
+ * line is "did the agent name a well-known id", not "does the label look right".
+ */
+const ACP_MODE_URI_PREFIX = "https://agentclientprotocol.com/protocol/session-modes#";
+/** True when `id` is the bare well-known id or its spec URI form. */
+export function acpWellKnownMode(id: string, wellKnown: "plan" | "agent"): boolean {
+  return id === wellKnown || id === `${ACP_MODE_URI_PREFIX}${wellKnown}`;
+}
+
+/**
+ * One entry of ACP's `configOptions` — the replacement for `modes` and `models`.
+ *
+ * The spec is explicit: "If an Agent provides `configOptions`, Clients SHOULD use them instead of the
+ * `modes` field. Modes will be removed in a future version of the protocol."
+ * (agentclientprotocol.com/protocol/session-config-options). Writes go through
+ * `session/set_config_option {sessionId, configId, value}`, NOT `session/set_mode`/`session/set_model`.
+ */
+export type AcpConfigOption = {
+  id: string;
+  /** `"mode"` and `"model"` are the two Realm consumes; anything else is carried and ignored. */
+  category: string | null;
+  currentValue: string | null;
+  options: { value: string; name: string | null; description: string | null }[];
+};
+
+/**
+ * Everything Realm reads off an ACP `session/new` answer, from whichever shape the agent speaks.
+ *
+ * `modeConfigId`/`modelConfigId` are the seam: non-null means the value came from `configOptions` and
+ * the write is `session/set_config_option` with that id; null means the legacy `modes`/`models` shape
+ * and the write is `session/set_mode`/`session/set_model`. Reading from one channel and writing on the
+ * other is the failure this field exists to make impossible.
+ */
+export type AcpSessionConfig = {
+  modes: AcpSessionMode[];
+  currentModeId: string | null;
+  modeConfigId: string | null;
+  models: AgentModel[];
+  currentModelId: string | null;
+  modelConfigId: string | null;
+};
+
+const asObj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+const asStr = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+
+/** Parses `configOptions` off a `session/new`/`session/load` answer. Entries missing a string `id` are
+ *  dropped rather than repaired — a config option Realm cannot address is one it must not offer. */
+export function parseAcpConfigOptions(raw: unknown): AcpConfigOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AcpConfigOption[] = [];
+  for (const entry of raw) {
+    const o = asObj(entry);
+    const id = asStr(o.id);
+    if (!id) continue;
+    const opts = Array.isArray(o.options) ? o.options : [];
+    out.push({
+      id,
+      category: asStr(o.category),
+      currentValue: asStr(o.currentValue),
+      // An option may be a bare string or `{value, name?, description?}`. opencode emits `{"value":"build"}`
+      // with no name at all, so the label falls back to the value — an ugly true label over a pretty guess.
+      options: opts.map((raw) => {
+        if (typeof raw === "string") return { value: raw, name: null, description: null };
+        const oo = asObj(raw);
+        const value = asStr(oo.value);
+        return value ? { value, name: asStr(oo.name), description: asStr(oo.description) } : null;
+      }).filter((v): v is { value: string; name: string | null; description: string | null } => v !== null),
+    });
+  }
+  return out;
+}
+
+/**
+ * Normalizes a `session/new` answer into the one shape the adapter uses, preferring `configOptions`
+ * over `modes`/`models` per the spec.
+ *
+ * Measured 2026-09-01: opencode answers with `configOptions` ONLY (a `model` and a `mode` option, no
+ * top-level `modes` or `models`), so an adapter reading only the legacy fields gives it no Plan chip
+ * and no model picker — silently, which is the worst way to be wrong. Cursor answers with `modes` only.
+ * Copilot answers with both. All three work off this one function.
+ */
+export function acpSessionConfig(session: unknown): AcpSessionConfig {
+  const s = asObj(session);
+  const cfg = parseAcpConfigOptions(s.configOptions);
+  const modeOpt = cfg.find((o) => o.category === "mode");
+  const modelOpt = cfg.find((o) => o.category === "model");
+
+  const legacyModes = asObj(s.modes);
+  const legacyModeRows = (Array.isArray(legacyModes.availableModes) ? legacyModes.availableModes : [])
+    .map(asObj)
+    .filter((m): m is Record<string, unknown> & { id: string; name: string } => typeof m.id === "string" && typeof m.name === "string")
+    .map((m) => ({ id: m.id, name: m.name, ...(typeof m.description === "string" ? { description: m.description } : {}) }));
+
+  const legacyModels = asObj(s.models);
+  const legacyModelRows: AgentModel[] = [];
+  for (const raw of Array.isArray(legacyModels.availableModels) ? legacyModels.availableModels : []) {
+    const m = asObj(raw);
+    const id = asStr(m.modelId);
+    if (id) legacyModelRows.push({ id, label: asStr(m.name) ?? id });
+  }
+
+  return {
+    modes: modeOpt
+      ? modeOpt.options.map((o) => ({ id: o.value, name: o.name ?? o.value, ...(o.description ? { description: o.description } : {}) }))
+      : legacyModeRows,
+    currentModeId: modeOpt ? modeOpt.currentValue : asStr(legacyModes.currentModeId),
+    modeConfigId: modeOpt ? modeOpt.id : null,
+    models: modelOpt ? modelOpt.options.map((o) => ({ id: o.value, label: o.name ?? o.value })) : legacyModelRows,
+    currentModelId: modelOpt ? modelOpt.currentValue : asStr(legacyModels.currentModelId),
+    modelConfigId: modelOpt ? modelOpt.id : null,
+  };
 }
 
 /**
@@ -221,7 +408,17 @@ export function acpBuildMode(modes: readonly AcpSessionMode[] | null | undefined
  */
 export const AGENT_META = {
   claude: { label: "Claude", icon: "claude" }, codex: { label: "Codex", icon: "openai" }, "acp:gemini": { label: "Gemini", icon: "gemini" },
-  "acp:cursor": { label: "Cursor", icon: "cursor" }, fake: { label: "Fake agent", icon: "bot" },
+  "acp:cursor": { label: "Cursor", icon: "cursor" },
+  // Hugeicons glyphs, not brand marks: `brandMarks` carries real vendor path data for four vendors and
+  // inventing SVG paths for the rest would render as garbage. Distinct glyphs so the picker rows are
+  // still tellable apart; swap each for its real mark as the path data is added.
+  "acp:opencode": { label: "OpenCode", icon: "code" },
+  "acp:copilot": { label: "GitHub Copilot", icon: "branch" },
+  "acp:goose": { label: "goose", icon: "compass" },
+  "acp:qwen": { label: "Qwen Code", icon: "sparkles" },
+  "acp:grok": { label: "Grok", icon: "zap" },
+  "acp:fx": { label: "fx", icon: "rocket" },
+  fake: { label: "Fake agent", icon: "bot" },
 } as const satisfies Record<import("./entities").AgentKind, { label: string; icon: string }>;
 
 /**
@@ -239,6 +436,14 @@ export const AGENT_CLI_COMMANDS = {
   codex: { install: "npm install -g @openai/codex", login: "codex login" },
   "acp:cursor": { install: "curl https://cursor.com/install -fsS | bash", login: "cursor-agent login" },
   "acp:gemini": { install: "npm install -g @google/gemini-cli", login: null },
+  "acp:opencode": { install: "npm install -g opencode-ai", login: "opencode auth login" },
+  "acp:copilot": { install: "npm install -g @github/copilot", login: "copilot login" },
+  "acp:goose": { install: "brew install block-goose-cli", login: "goose configure" },
+  "acp:qwen": { install: "npm install -g @qwen-code/qwen-code", login: "qwen" },
+  "acp:grok": { install: "npm install -g @xai-official/grok", login: "grok login" },
+  // fx installs by shell script and gates its ACP handshake on being signed in — `fx login` is the
+  // Vercel OAuth route, `fx setup` the API-key one. One command per slot, so `login` names the former.
+  "acp:fx": { install: "curl -fsSL https://fx.sh/setup.sh | bash", login: "fx login" },
   fake: { install: null, login: null },
 } as const satisfies Record<import("./entities").AgentKind, { install: string | null; login: string | null }>;
 
@@ -247,6 +452,17 @@ export const AGENT_LOGIN_HINTS = {
   claude: "Uses your `claude` login — run `claude auth login` if sessions fail to authenticate.",
   codex: "Uses your `codex` login — run `codex login` if sessions fail to authenticate.",
   "acp:cursor": "Uses your Cursor login — run `cursor-agent login` if sessions fail to authenticate.",
-  "acp:gemini": "Google discontinued the free personal tier for the Gemini CLI; sessions need a Gemini API key or Vertex AI credentials.",
+  // Measured 2026-09-01 against gemini-cli 0.56.0: `initialize` succeeds and advertises four auth
+  // methods; only `oauth-personal` is dead (session/new fails IneligibleTierError). The other three
+  // work, so the kind is offered again with the live routes named instead of the dead one.
+  "acp:gemini": "Google discontinued the Gemini CLI's free personal tier — sign in with a Gemini API key, Vertex AI credentials, or a custom AI gateway.",
+  "acp:opencode": "Uses your OpenCode login — run `opencode auth login` if sessions fail to authenticate.",
+  "acp:copilot": "Uses your GitHub Copilot login — run `copilot login` if sessions fail to authenticate.",
+  "acp:goose": "Run `goose configure` to pick a provider and set its API key; goose has no login of its own.",
+  "acp:qwen": "Run `qwen` once to sign in with your Qwen account, or set OPENAI_API_KEY.",
+  "acp:grok": "Run `grok login` (browser sign-in, needs SuperGrok or X Premium), or set XAI_API_KEY.",
+  // fx refuses `initialize` itself when signed out, so its failure lands on the boot branch with an
+  // empty auth-method list; this hint is the only thing that tells the user what to do.
+  "acp:fx": "Run `fx login` to sign in with Vercel, `fx setup` for an AI Gateway API key, or set AI_GATEWAY_API_KEY.",
   fake: "Scripted offline agent used for development.",
 } as const satisfies Record<import("./entities").AgentKind, string>;

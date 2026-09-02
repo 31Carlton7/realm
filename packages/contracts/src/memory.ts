@@ -102,6 +102,12 @@ export const AGENT_MEMORY_CHANNEL = {
   codex: "developerInstructions",
   "acp:cursor": "none",
   "acp:gemini": "none",
+  "acp:opencode": "none",
+  "acp:copilot": "none",
+  "acp:goose": "none",
+  "acp:qwen": "none",
+  "acp:grok": "none",
+  "acp:fx": "none",
   fake: "none",
 } as const satisfies Record<AgentKind, MemoryChannel>;
 

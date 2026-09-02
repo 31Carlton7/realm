@@ -74,7 +74,7 @@
   --rl-warning: var(--orange);                   /* BUI --orange */
   /* terminals stay dark in both modes, one step below BUI's dark --page (cool-tinted,
      oklch(.17 .004 264) ≈ #0e0f11). Hex literal: xterm parses it once at hub creation. */
-  --rl-terminal-bg: #0e0f11;
+  --rl-terminal-bg: #1c1d1f; /* the session pane's dark ground (BUI dark --canvas), so the drawer no longer reads as a darker well */
   /* floating surfaces compose `var(--rl-edge), var(--rl-shadow)` — together they equal BUI's
      --shadow-overlay: the hairline ring half and the layered-shadow half, split so the few
      places using --rl-edge alone still get the BUI hairline ring. Light override below. */
@@ -121,7 +121,23 @@ kbd { font: 11px var(--font-mono); }
 .sidebar { width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
   background: color-mix(in srgb, var(--page) 82%, transparent); border-right: 1px solid var(--rl-hairline); -webkit-app-region: drag; }
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
-.sb-top { padding: 40px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
+/* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
+   sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
+   the 48px of head room the sidebar had before, so nothing below it moves. */
+.sb-head { flex: none; height: 40px; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px 0 16px; }
+.sb-top { padding: 0 16px 8px; display: flex; flex-direction: column; gap: 8px; }
+/* Collapsed: the app stacks, so the rail spans the window above the content. padding-left clears the
+   traffic lights (main sets them at x:12 and they run ~52px wide), which puts the toggle immediately
+   right of them — the same vertical band it occupies inside .sb-head, so collapsing reads as the
+   button moving rather than as one control being swapped for another. */
+.app[data-sidebar-collapsed] { flex-direction: column; }
+.sb-rail { flex: none; height: 38px; display: flex; align-items: center; padding-left: 76px;
+  background: color-mix(in srgb, var(--page) 82%, transparent); -webkit-app-region: drag; }
+.sb-rail button { -webkit-app-region: no-drag; }
+/* ink-3 → ink-2 on hover, matching .search: the glyph itself IS the state, no fill change. */
+.sb-toggle { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  border-radius: var(--r-ctl); color: var(--rl-text-faint); }
+.sb-toggle:hover { color: var(--rl-text-bright); background: var(--field); }
 /* Plan 9 W3 — BUI SidebarNav's chat-search field: field fill behind a hairline ring, 13/500,
    ink-3 → ink-2 as the pointer arrives (the fill itself does not change; the field IS the state). */
 .search { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border-radius: var(--r-ctl);
@@ -144,9 +160,11 @@ kbd { font: 11px var(--font-mono); }
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
 .icon-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-ctl); color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-/* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way. */
-.icon-btn, .item-close { position: relative; }
-.icon-btn::after, .item-close::after { content: ""; position: absolute; inset: -6px; }
+/* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way.
+   .tool-copy joins the list — its 20px box sits alone at its row's right edge, so the overhang
+   never crosses another interactive element. */
+.icon-btn, .item-close, .item-shelf, .tool-copy { position: relative; }
+.icon-btn::after, .item-close::after, .item-shelf::after, .tool-copy::after { content: ""; position: absolute; inset: -6px; }
 
 /* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
 .group-label { font-size: 12.5px; font-weight: 500; color: var(--rl-text-faint); padding: 12px 8px 4px; }
@@ -176,9 +194,14 @@ kbd { font: 11px var(--font-mono); }
 /* Glyph cells are neutral; the focused pane's row lifts them to ink (accent = ink now, V-C1 kept). */
 .item-glyph span[data-on] { background: var(--rl-text-dim); }
 .item[data-active] .item-glyph span[data-on] { background: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
-.item-close { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
-.item:hover .item-close { opacity: 1; } .item-close:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.item-close:focus-visible { opacity: 1; } /* the hover-only x must also appear for keyboard focus (A-M8) */
+.item-close, .item-shelf { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
+.item:hover .item-close, .item:hover .item-shelf { opacity: 1; }
+.item-close:hover, .item-shelf:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* the hover-only x and archive box must also appear for keyboard focus (A-M8) */
+.item-close:focus-visible, .item-shelf:focus-visible { opacity: 1; }
+/* The shelf sits left of the x and gives back the 3px gutter the x owns, so the pair reads as one
+   cluster rather than two widely spaced buttons. */
+.item-shelf { margin-right: 0; }
 .item[data-dragging] { opacity: .45; }
 .rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
@@ -211,7 +234,7 @@ kbd { font: 11px var(--font-mono); }
    would otherwise run off the bottom edge with no way to reach its last items. */
 .menu { z-index: 100; min-width: 160px; max-height: min(60vh, calc(100vh - 24px)); overflow-y: auto; padding: 4px; display: flex; flex-direction: column;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
-.menu [role="menuitem"], .menu [role="menuitemcheckbox"] { flex: none; text-align: left; padding: 6px 10px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px; }
+.menu [role="menuitem"], .menu [role="menuitemcheckbox"] { flex: none; text-align: left; padding: 7px 11px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px; }
 .menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--hover); }
 /* Roving focus moves programmatically, which browsers don't always mark :focus-visible — use :focus. */
 .menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--hover); outline: none; }
@@ -269,8 +292,11 @@ kbd { font: 11px var(--font-mono); }
 .icon-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); animation: rl-menu-in 140ms var(--ease-out-strong); }
 .ip-tabs { display: flex; border-bottom: 1px solid var(--rl-hairline); }
-.ip-tab { flex: 1; padding: 8px 6px; font-size: 12px; color: var(--rl-text-dim); border-bottom: 2px solid transparent; }
-.ip-tab:hover { color: var(--rl-text-bright); }
+/* Radius on the top corners only: the tab meets the header's bottom hairline flush, so rounding
+   all four would float the selected underline off its own tab. */
+.ip-tab { flex: 1; padding: 9px 8px; font-size: 12px; color: var(--rl-text-dim); border-bottom: 2px solid transparent;
+  border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
+.ip-tab:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
 .ip-tab[aria-selected="true"] { color: var(--rl-text-bright); border-bottom-color: var(--rl-accent); }
 .ip-search { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
 .ip-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
@@ -298,6 +324,53 @@ kbd { font: 11px var(--font-mono); }
 .mp-overflow-opt[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .mp-foot { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); font-size: 11px; color: var(--rl-text-faint); }
 
+/* ── Pane groups: the conditional strip above the host (GroupBar.tsx) ──
+   The app has no topbar by design; this appears only when a space has more than one group or a pane
+   is focused full-screen, so a space that uses neither is pixel-identical to before. It carries the
+   window drag the top edge would otherwise lose, with its own controls opted back out. */
+.group-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--rl-hairline); background: var(--rl-panel); -webkit-app-region: drag; }
+.group-bar button, .group-bar input { -webkit-app-region: no-drag; }
+.group-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.group-tabs::-webkit-scrollbar { display: none; }
+.group-tab { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--r-ctl);
+  font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; }
+.group-tab:hover { background: var(--rl-hover); }
+.group-tab[data-active] { background: var(--rl-active); color: var(--rl-text-bright); }
+/* Drop target while a sidebar row is dragged over the tab (moves that pane into the group). */
+.group-tab[data-drop] { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+.group-tab-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.group-tab-renaming { padding: 2px 4px; }
+.group-tab-renaming .rename { width: 120px; }
+.group-add { color: var(--rl-text-faint); }
+/* Pushed to the far right: the way out of a focus is the one control that must be findable without
+   looking, and the right edge is where it stays put as tabs come and go. */
+.group-unfocus { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border-radius: var(--r-ctl); font-size: 12px; color: var(--rl-text-bright); background: var(--rl-hover); }
+.group-unfocus:hover { background: var(--rl-active); }
+.group-unfocus-hint { color: var(--rl-text-faint); border-left: 1px solid var(--rl-hairline); padding-left: 8px; }
+
+/* Sidebar: one section head per group. The head doubles as a drop target and, when the space has
+   more than one group, as the button that puts that group on screen. */
+.group-head { display: flex; align-items: center; gap: 6px; }
+.group-head[data-active] { color: var(--rl-text-bright); }
+.group-head[data-drop] { outline: 1.5px solid var(--rl-accent); outline-offset: -1px; border-radius: var(--r-ctl); }
+.group-head-name { font: inherit; color: inherit; text-align: left; }
+.group-head-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--rl-text-faint);
+  border: 1px solid var(--rl-hairline); border-radius: 999px; padding: 0 5px; }
+.group-label-renaming { padding: 8px 8px 4px; }
+/* The shelf's heading: a disclosure triangle wearing the group heading's own type, so it reads as a
+   sibling of "Space" rather than a control bolted under it. */
+.archived-head { padding-top: 14px; }
+.archived-toggle { display: flex; align-items: center; gap: 6px; }
+.archived-toggle:hover { color: var(--rl-text-dim); }
+.archived-caret { display: grid; place-items: center; transition: transform 140ms var(--ease-out-strong); }
+.archived-caret[data-open] { transform: rotate(90deg); }
+.archived-count { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.group-new { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; padding: 4px 8px; border-radius: var(--r-ctl);
+  font-size: 12px; color: var(--rl-text-faint); }
+.group-new:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
+
 /* ── Main: full-bleed pane host (no topbar; pane headers carry the window drag) ── */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--rl-panel); }
 .panehost { flex: 1; min-height: 0; display: flex; -webkit-app-region: no-drag; }
@@ -318,6 +391,11 @@ kbd { font: 11px var(--font-mono); }
 /* A focused EMPTY leaf has no header to underline — the pane itself takes an accent top rule. */
 .panel[data-focused][data-empty] { box-shadow: inset 0 2px 0 var(--rl-accent); }
 .panel-icon { color: var(--rl-text-dim); display: grid; place-items: center; }
+/* The pane's own back/forward. Tight pair, hairline-separated from the title so the arrows read as
+   chrome belonging to the pane rather than as two more of the actions clustered on the right. */
+.panel-nav { flex: none; display: flex; align-items: center; gap: 0; margin-left: -8px; }
+.panel-nav .icon-btn:disabled { opacity: .3; cursor: default; }
+.panel-nav .icon-btn:disabled:hover { background: none; }
 .panel-title { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* Click-to-rename affordance (spec §A2): the title is a quiet button. */
 button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); }
@@ -350,7 +428,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .drop-zone[data-edge="bottom"] { inset: auto 6px 6px 6px; height: 32%; }
 .drop-zone[data-edge="center"] { inset: 34%; }
 
-.terminal-pane { position: relative; flex: 1; min-width: 0; min-height: 0; padding: 10px 12px; background: var(--rl-terminal-bg); display: flex; color-scheme: dark; /* its interior is always dark, in both app modes — keeps xterm's own scrollbar dark too */ }
+.terminal-pane { position: relative; flex: 1; min-width: 0; min-height: 0; padding: 12px 14px; background: var(--rl-terminal-bg); display: flex; color-scheme: dark; /* its interior is always dark, in both app modes — keeps xterm's own scrollbar dark too */ }
 .terminal-pane .xterm { height: 100%; }
 .terminal-host { flex: 1; min-width: 0; min-height: 0; height: 100%; }
 /* Empty-terminal hint (V-F3): floats centered until the first output, then fades out. Fixed light
@@ -404,9 +482,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0,0,0,.45); }
 .sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; border-radius: var(--r-float); background: var(--surface); color: var(--rl-text-bright);
   box-shadow: var(--shadow-overlay); outline: none; }
-.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 6px; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 6px; }
 .sheet-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
-.sheet-body { padding: 8px 16px 16px; }
+.sheet-body { padding: 8px 18px 18px; }
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; color: var(--rl-text-dim); }
@@ -508,6 +586,11 @@ button.panel-title:hover { background: var(--rl-hover); }
    14px 16px padding, 85% max — and, copying Ara exactly, ragged-left (text-align: right). */
 .msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: right;
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Plan 20: a message another SESSION delivered. An attribution line plus a muted accent ring, so it
+   reads as "an agent asked this" rather than as something the user typed. */
+.msg-user-row[data-from] { flex-direction: column; align-items: flex-end; gap: 3px; }
+.msg-user-row[data-from] .msg-user { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 30%, transparent); }
+.msg-user-from { font-size: 11px; font-weight: 500; color: var(--rl-text-faint); padding-right: 2px; }
 /* Attached-file chips inside the user bubble (Plan 14 W5) — an attachment-only message still shows
    WHAT it carried. Flex so the pre-wrap bubble's whitespace rules don't mangle the chip row. */
 .msg-user-files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-top: 4px; }
@@ -516,7 +599,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
 .msg-assistant.md { line-height: 1.6; }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
-.md p { margin: 0 0 8px; } .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
+.md p { margin: 0 0 8px; text-wrap: pretty; } .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
 /* Tailwind v4 preflight strips list markers app-wide; markdown lists must keep theirs. */
 .md ul { list-style: disc; } .md ol { list-style: decimal; }
 /* Heading scale per audit T2: h1 17/650 tightened, h2 15/650, h3 13/600 differentiated by colour. */
@@ -537,7 +620,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
 .md table { border-collapse: collapse; margin: 6px 0 8px; } .md th, .md td { border: 1px solid var(--rl-line); padding: 4px 8px; }
 .md-scroll { overflow-x: auto; } /* renderMarkdown wraps every table (A-M1) */
-.md img { max-width: 100%; }
+/* A 1px low-alpha outline keeps an image's edge legible on any surface it lands on. Pure white in
+   dark mode / pure black in light — a tinted neutral would pick up the ground and read as dirt. */
+.md img { max-width: 100%; border-radius: var(--r-chip); outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+:root[data-mode="light"] .md img { outline-color: rgba(0, 0, 0, 0.1); }
 /* Plan 9 W2 — BUI StreamText's caret: a 2px ink bar, SOLID while streaming (BUI's .is-streaming
    kills the blink; the caret only exists while the delta stream is live, so it never blinks at
    all). The old pulsing accent ▍ glyph is gone. The text itself is never re-revealed: deltas pace
@@ -620,7 +706,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-card[data-state="ok"] .tool-status { color: var(--ink-3); } /* BUI: the settled check is muted, not green */
 .tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
 .tool-card[data-state="running"] .tool-status { color: var(--ink-2); } /* §3: nothing running-related uses accent */
-.tool-body { border-top: 1px solid var(--rl-hairline); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;
+.tool-body { border-top: 1px solid var(--rl-hairline); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity 120ms ease; }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ (§6 icon swap): both glyphs stacked in one grid cell, cross-fading with scale + blur. */
@@ -641,7 +727,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    hairline-topped footer. The behaviour underneath is Realm's, verbatim: numbered options with kbd
    chips, ↑↓/bare-digit keys, the Enter-on-Deny guard, Esc→deny. The amber wash stays gone; colour
    survives as the 6px dot and the "Waiting" pill. */
-.permission-card { border-radius: var(--r-panel); padding: 12px; background: var(--surface); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 8px; }
+.permission-card { border-radius: var(--r-panel); padding: 14px; background: var(--surface); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 8px; }
 .permission-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 550; color: var(--ink); }
 .permission-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-warning); flex: none; animation: rl-pulse 0.9s ease-in-out infinite; }
 .permission-head .status-pill { margin-left: auto; font-weight: 400; }
@@ -669,7 +755,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* Footer (ApprovalCard's primitive-card-footer): hairline-topped, bleeding to the card edge —
    navigation hints left, accent Submit pill right. */
-.permission-footer { display: flex; align-items: center; gap: 10px; margin: 4px -12px -12px; padding: 8px 12px; border-top: 1px solid var(--line); }
+.permission-footer { display: flex; align-items: center; gap: 10px; margin: 4px -14px -14px; padding: 8px 14px; border-top: 1px solid var(--line); }
 .permission-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
 .permission-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 10px; }
 .permission-submit { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
@@ -679,10 +765,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    question itself is the heading rather than "Allow <Tool>?", and the options are the agent's own
    labels rather than Allow/Deny. Rows are taller than a permission's because each may carry a
    description line, and they are separated by hairlines (the reference's list rhythm). */
-.question-card { border-radius: var(--r-panel); padding: 14px; background: var(--surface); box-shadow: var(--shadow-card);
+.question-card { border-radius: var(--r-panel); padding: 16px; background: var(--surface); box-shadow: var(--shadow-card);
   display: flex; flex-direction: column; gap: 10px; }
 .question-head { display: flex; align-items: flex-start; gap: 10px; }
-.question-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 550; line-height: 1.4; color: var(--ink); }
+.question-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 550; line-height: 1.4; color: var(--ink); text-wrap: balance; }
 .question-pager { display: flex; align-items: center; gap: 2px; flex: none; font-size: 11px; color: var(--rl-text-faint); }
 .question-pager .icon-btn:disabled { opacity: .35; }
 .question-close { flex: none; }
@@ -712,7 +798,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   box-shadow: var(--shadow-hairline); font-size: 13px; color: var(--ink); }
 .question-other-submit { flex: none; font-size: 12px; padding: 4px 12px; }
 
-.question-footer { display: flex; align-items: center; gap: 10px; margin: 2px -14px -14px; padding: 8px 14px; border-top: 1px solid var(--line); }
+.question-footer { display: flex; align-items: center; gap: 10px; margin: 2px -16px -16px; padding: 8px 16px; border-top: 1px solid var(--line); }
 .question-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
 .question-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 10px; }
 .question-continue { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
@@ -758,7 +844,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The card (Plan 9 W3 — BUI PromptBar): a surface field on shadow-card (the hairline ring is part
    of the stack), --r-float, borderless. Focus is BUI's border-brighten — the ring steps to
    line-strong — replacing the old 30% accent glow (PromptBar's focus-within:border-line-strong). */
-.composer { width: 100%; border-radius: var(--r-float); background: var(--surface);
+/* Squircle prompter: `corner-shape: squircle` turns the corners into a continuous superellipse
+   curve (Chromium 139+; a no-op on the current runtime, where the bumped radius alone already
+   reads softer). The radius steps past --r-float because a squircle at the same radius reads
+   visually smaller than a circular corner. */
+.composer { width: 100%; border-radius: calc(var(--r-float) + 4px); corner-shape: squircle; background: var(--surface);
   box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
   box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
@@ -775,7 +865,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   font-size: 11.5px; color: var(--ink-2); background: var(--field); box-shadow: var(--shadow-hairline);
   max-width: 220px; min-width: 0; white-space: nowrap; vertical-align: middle; }
 .attach-art { position: relative; display: grid; place-items: center; width: 28px; height: 28px; flex: none;
-  border-radius: calc(var(--r-ctl) - 2px); background: var(--inset); color: var(--rl-text-faint); overflow: hidden; }
+  border-radius: calc(var(--r-ctl) - 3px); /* concentric: chip radius minus the chip's 3px pad */ background: var(--inset); color: var(--rl-text-faint); overflow: hidden; }
 .attach-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
 .attach-chip .attach-glyph { flex: none; color: var(--rl-text-faint); }
 /* The type badge rides the bottom of the well; over a photo it needs its own scrim to stay legible. */
@@ -879,7 +969,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    card declares none. The hint is a label, not a scrim: pointer-events off, so the drop still lands. */
 .composer[data-dropping] { box-shadow: 0 0 0 2px var(--rl-accent), var(--shadow-card); }
 .composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
-  border-radius: var(--r-float); background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
+  border-radius: calc(var(--r-float) + 4px); corner-shape: squircle; background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
   font-size: 12px; font-weight: 550; color: var(--rl-text-bright); }
 /* Send↔stop morph (§6; Ara refresh §2 sizes it up to 32px): accent circle; both icons in the DOM,
    cross-fading 160ms with opacity + scale .25→1 + 4px blur. data-state picks which one is up.
@@ -915,8 +1005,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* ── Install card (§5 floating card) — what stands in for the prompter when the CLI can't run ── */
 /* It rides the prompter's own rails (.composer-dock), so hero vs docked positioning is already right. */
-.install-card { width: 100%; border-radius: var(--r-float); background: var(--rl-raised);
-  box-shadow: var(--rl-edge), var(--rl-shadow); padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 1; }
+.install-card { width: 100%; border-radius: calc(var(--r-float) + 4px); corner-shape: squircle; background: var(--rl-raised);
+  box-shadow: var(--rl-edge), var(--rl-shadow); padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 1; }
 .install-head { display: flex; align-items: center; gap: 8px; }
 .install-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--rl-text-bright); }
 /* Colour = state (§2.4): amber for a signed-out CLI that is present, neutral for one that is simply absent. */
@@ -1005,7 +1095,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
    never `all`, never geometry. */
-.item-row, .item-close, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy,
+.item-row, .item-close, .item-shelf, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy,
 .strip-space, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
   transition: background-color 100ms ease, color 100ms ease;
@@ -1231,7 +1321,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Tabs are native radios in segmented-control clothing (the onboarding idiom: arrows move, one tab
    stop, checked state for free). Selected ≠ outlined — §2.7's translucent fill + bright text. */
 .settings-tabs { display: flex; gap: 2px; margin: 0 0 12px; padding: 2px; border: none; border-radius: var(--r-ctl); background: var(--rl-hover); }
-.settings-tab { flex: 1; text-align: center; padding: 4px 8px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); cursor: pointer; }
+.settings-tab { flex: 1; text-align: center; padding: 5px 10px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); cursor: pointer; }
 .settings-tab:hover { color: var(--rl-text-bright); }
 .settings-tab[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: 550; }
 .settings-tab input { position: absolute; opacity: 0; pointer-events: none; }
@@ -1348,16 +1438,41 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ——— Plan 12 W5: the Notifications page. Quiet feed rows on the page pattern; unread is a dot and a
    brighter title, never a wash. The inline permission card is the session pane's own component. ——— */
 .notifications-page-pane .page-head { align-items: flex-start; }
+/* The feed is SCANNED, not read: it takes the whole pane instead of the ~720px reading column the
+   other destination pages cap themselves at (there is no `.page-content` here at all), and spends
+   the width on a second column. A size container, so the two columns answer to the PANE's width and
+   not the window's — this page is as likely to be half of a split as it is to be the whole screen. */
+.notifications-page-pane { container-type: inline-size; }
+.notif-split { gap: 0; }
+.notif-list { flex: 1 1 380px; min-width: 0; max-width: 480px; overflow-y: auto; padding-right: 16px; }
+.notif-detail { flex: 2 1 0; min-width: 0; overflow-y: auto; padding-left: 20px; border-left: 1px solid var(--rl-hairline); }
+.notif-detail-empty { font-size: 13px; padding: 12px 0; }
+.notif-detail-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.notif-detail-head { display: flex; align-items: center; gap: 8px; width: 100%; }
+.notif-detail-kind { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
+.notif-detail-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--rl-text-bright); overflow-wrap: anywhere; text-wrap: balance; }
+.notif-detail-body { margin: 0; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.notif-detail-card .notif-inline-card { width: 100%; }
+/* Too narrow for two columns: stack them and let the whole body scroll as one, rather than pinching
+   the list and the detail into two unreadable gutters. */
+@container (max-width: 640px) {
+  .notif-split { flex-direction: column; overflow-y: auto; }
+  .notif-list, .notif-detail { flex: none; max-width: none; overflow: visible; padding-right: 0; padding-left: 0; }
+  .notif-detail { border-left: none; border-top: 1px solid var(--rl-hairline); padding-top: 14px; margin-top: 6px; }
+}
 .notif-mark-all { margin-left: auto; flex: none; }
 .notif-empty { font-size: 13px; padding: 12px 0; }
 .notif-day { display: flex; flex-direction: column; margin-bottom: 18px; }
 .notif-day-label { margin: 0 0 4px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
-.notif-row { display: flex; gap: 10px; padding: 10px 4px; color: var(--rl-text-dim); }
-.notif-row + .notif-row { border-top: 1px solid var(--rl-hairline); }
+.notif-row { display: flex; gap: 10px; width: 100%; padding: 10px 8px; text-align: left; color: var(--rl-text-dim);
+  background: none; border: none; border-radius: var(--r-ctl); font: inherit; cursor: pointer; }
+.notif-row:hover { background: var(--rl-hover); }
+.notif-row[data-selected] { background: var(--rl-active); }
+.notif-row[data-selected] .notif-title { color: var(--rl-text-bright); }
 .notif-row[data-unread] { color: var(--rl-text); }
-.notif-glyph { flex: none; display: inline-flex; margin-top: 1px; color: var(--rl-text-faint); }
+.notif-glyph { flex: none; display: inline-flex; align-items: flex-start; margin-top: 1px; color: var(--rl-text-faint); }
 .notif-row[data-unread] .notif-glyph { color: inherit; }
-.notif-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.notif-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; text-align: left; }
 .notif-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .notif-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); align-self: center; }
 .notif-title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

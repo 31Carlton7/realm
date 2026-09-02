@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./database";
 import { migrations } from "./migrations";
+import { ItemsStore } from "../store/items";
 
 /**
  * Checking a migration against a REAL home directory: never copy `realm.db` on its own. `openDatabase`
@@ -352,12 +353,13 @@ function v8McpFixture(path: string): { serverId: string } {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V8_MCP_SERVERS);
   // The fixture is deliberately minimal — only the tables LATER migrations touch. v14 ALTERs
-  // sessions and v15 reads items/session_events and writes settings, so stubs of those must exist
+  // sessions and v15 reads items/session_events and writes settings and v17 alters spaces, so stubs of those must exist
   // for the v9..v15 replay to run; their real v1/v3 shapes are exercised by the v4/v5 fixtures above.
   db.exec("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY)");
   db.exec("CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '')");
   db.exec("CREATE TABLE IF NOT EXISTS session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT)");
   db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL)");
+  db.exec("CREATE TABLE IF NOT EXISTS spaces (id TEXT PRIMARY KEY, layout_json TEXT)");
   for (const v of [1, 2, 3, 4, 5, 6, 7, 8]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run("srv1", "airtable", "stdio", "/usr/bin/node", '["/abs/s.mjs"]', "", '{"AIRTABLE_API_KEY":"pat-x"}', 1, 1);
@@ -479,6 +481,52 @@ describe("migration v15 — the search index (Plan 16 W1)", () => {
   });
 });
 
+describe("migration v17 — pane groups", () => {
+  /** A v4 home carrying a real layout on one space and none on another. */
+  const migrated = () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    const pre = new DatabaseSync(p);
+    pre.prepare("UPDATE spaces SET layout_json = ? WHERE id = 'sp1'")
+      .run(JSON.stringify({ type: "leaf", id: "L1", itemId: "it-term" }));
+    pre.close();
+    return openDatabase(p);
+  };
+
+  it("adds groups_json to spaces, NULL for every existing space — nothing is backfilled", () => {
+    const db = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    const cols = (db.prepare("PRAGMA table_info(spaces)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain("groups_json");
+    const rows = db.prepare("SELECT id, groups_json FROM spaces").all() as { id: string; groups_json: string | null }[];
+    expect(rows.every((r) => r.groups_json === null)).toBe(true);
+    db.close();
+  });
+
+  // The migration's whole contract: it must be INVISIBLE. A space's arrangement is what the read path
+  // derives from the layout it already had (SpacesStore.toSpace), so the column staying NULL is not a
+  // gap — it is the point.
+  it("leaves layout_json exactly as it was, so a space keeps the arrangement it had", () => {
+    const db = migrated();
+    const row = db.prepare("SELECT layout_json FROM spaces WHERE id = 'sp1'").get() as { layout_json: string };
+    expect(JSON.parse(row.layout_json)).toEqual({ type: "leaf", id: "L1", itemId: "it-term" });
+    expect((db.prepare("SELECT layout_json FROM spaces WHERE id = 'sp2'").get() as { layout_json: string | null }).layout_json).toBeNull();
+    db.close();
+  });
+
+  it("is idempotent: reopening the same home does not re-run the ALTER", () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    const first = openDatabase(p);
+    first.prepare("UPDATE spaces SET groups_json = ? WHERE id = 'sp1'").run('{"groups":[]}');
+    first.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT groups_json FROM spaces WHERE id = 'sp1'").get() as { groups_json: string }).groups_json).toBe('{"groups":[]}');
+    expect((again.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    again.close();
+  });
+});
+
 describe("migration v16 — the icon asset library", () => {
   it("adds icon_assets to a pre-v16 (v4-forward) home, scoped to a profile", () => {
     const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
@@ -500,6 +548,39 @@ describe("migration v16 — the icon asset library", () => {
     db.prepare("INSERT INTO icon_assets (id, profile_id, kind, mime, data_text, prompt, created_at) VALUES ('ia1', 'p1', 'image', 'image/png', 'ZGF0YQ==', NULL, 1)").run();
     db.prepare("DELETE FROM profiles WHERE id = 'p1'").run();
     expect((db.prepare("SELECT COUNT(*) AS n FROM icon_assets").get() as { n: number }).n).toBe(0);
+    db.close();
+  });
+});
+
+describe("migration v18 — archiving (a row put away, not deleted)", () => {
+  /** The v4 fixture plus one ordinary item, inserted raw at the PRE-v18 nine-column shape — the row
+   *  an upgrading home actually holds. `it-term` cannot stand in for it: se1 owns it, so every
+   *  listing filters it out for an unrelated reason. */
+  const migrated = () => {
+    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    v4Fixture(p);
+    const raw = new DatabaseSync(p);
+    raw.prepare("INSERT INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("it-old", "sp1", "session", "Old chat", 1, 1, "se2", 13, 13);
+    raw.close();
+    return openDatabase(p);
+  };
+
+  it("adds items.archived, 0 for every row it finds — an upgrade shelves nothing", () => {
+    const db = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    const cols = (db.prepare("PRAGMA table_info(items)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain("archived");
+    expect((db.prepare("SELECT COUNT(*) AS n FROM items WHERE archived <> 0").get() as { n: number }).n).toBe(0);
+    db.close();
+  });
+
+  it("the pre-v18 row reads back through the store as a live, still-pinned item", () => {
+    const db = migrated();
+    const items = new ItemsStore(db);
+    // `pinned` proves the backfill did not rewrite the row it was appending a column to.
+    expect(items.list("sp1")).toEqual([expect.objectContaining({ id: "it-old", title: "Old chat", pinned: true, archived: false })]);
+    expect(items.listAll().map((i) => i.id)).toEqual(["it-old"]);
     db.close();
   });
 });

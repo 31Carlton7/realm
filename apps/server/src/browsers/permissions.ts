@@ -81,7 +81,7 @@ export class BrowserPermissionBroker {
    * browser_act may always act in this session"); `title` is the human-readable line the ApprovalCard
    * shows; `input` is echoed onto the event so the card can show what the agent asked for.
    */
-  async gate(sessionId: string, toolKey: string, title: string, input: Record<string, unknown>): Promise<GateResult> {
+  async gate(sessionId: string, toolKey: string, title: string, input: Record<string, unknown>, toolName: string = toolKey): Promise<GateResult> {
     const mode = this.d.permissionMode(sessionId);
     if (mode === "bypassPermissions") return { allowed: true };
     if (mode === "plan") return { allowed: false, reason: "this session is in Plan (read-only) mode — mutating browser tools are refused; switch modes to act on pages" };
@@ -97,7 +97,11 @@ export class BrowserPermissionBroker {
       }, PROMPT_TIMEOUT_MS);
       this.pending.set(requestId, { sessionId, toolKey, resolve, timer });
       // Emitted AFTER the pending entry exists: a same-tick respondPermission must find it.
-      this.d.emit(sessionId, sessionEvent("permission_request", { requestId, toolName: toolKey, input, title, suggestions: [] }));
+      // `toolName` is what the card SHOWS; `toolKey` is what `allow_always` remembers. They differ when
+      // the grant must be narrower than the tool — Plan 20's ask keys on `agent_ask:<targetId>` so
+      // approving one peer does not license interrupting every session in the space, while the card
+      // still reads `agent_ask` rather than a bare ULID.
+      this.d.emit(sessionId, sessionEvent("permission_request", { requestId, toolName, input, title, suggestions: [] }));
       this.d.emit(sessionId, sessionEvent("status", { status: "waiting_permission" }));
     });
     return decision === "deny"

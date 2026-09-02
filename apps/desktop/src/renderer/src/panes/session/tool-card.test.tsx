@@ -58,27 +58,27 @@ const say = (text: string): Block => ({ kind: "assistant", messageId: text, text
 
 describe("tool-run grouping (§5: group consecutive tools under a collapsed summary line)", () => {
   it(`leaves a run shorter than ${GROUP_MIN} inline`, () => {
-    const blocks = [tool("t1", "Read", { file_path: "/a" }), tool("t2", "Read", { file_path: "/b" })];
-    expect(groupTranscript(blocks).map((i) => i.kind)).toEqual(["block", "block"]);
+    const blocks = [tool("t1", "Read", { file_path: "/a" })];
+    expect(groupTranscript(blocks).map((i) => i.kind)).toEqual(["block"]);
   });
 
   it(`folds a run of ${GROUP_MIN} or more into one group, keeping each card's ungrouped key`, () => {
-    const blocks = [tool("t1", "Read", {}), tool("t2", "Read", {}), tool("t3", "Read", {})];
+    const blocks = [tool("t1", "Read", {}), tool("t2", "Read", {})];
     const items = groupTranscript(blocks);
     expect(items).toHaveLength(1);
     expect(items[0]!.kind).toBe("group");
-    expect(items[0]!.kind === "group" && items[0]!.steps.map((s) => s.key)).toEqual(["tool:t1", "tool:t2", "tool:t3"]);
+    expect(items[0]!.kind === "group" && items[0]!.steps.map((s) => s.key)).toEqual(["tool:t1", "tool:t2"]);
     expect(items[0]!.key).toBe("group:tool:t1");
   });
 
-  it("a non-tool block breaks the run: three tools split 2 + prose + 3 group into two blocks, prose, one group", () => {
+  it("a non-tool block breaks the run: a lone tool + prose + 3 tools yields a block, prose, one group", () => {
     const items = groupTranscript([
-      tool("t1", "Read", {}), tool("t2", "Read", {}),
+      tool("t1", "Read", {}),
       say("thinking out loud"),
       tool("t3", "Read", {}), tool("t4", "Read", {}), tool("t5", "Read", {}),
     ]);
-    expect(items.map((i) => i.kind)).toEqual(["block", "block", "block", "group"]);
-    expect(items[3]!.kind === "group" && items[3]!.steps).toHaveLength(3);
+    expect(items.map((i) => i.kind)).toEqual(["block", "block", "group"]);
+    expect(items[2]!.kind === "group" && items[2]!.steps).toHaveLength(3);
   });
 
   it("non-tool blocks keep the positional keys the transcript renders them under", () => {

@@ -99,6 +99,7 @@ export function registerMethods(d: Deps): void {
   reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.reorder", (p) => { d.spaces.reorder(p.ids); rpc.broadcast("spaces.changed", {}); return { ok: true as const }; });
   reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.setGroups", (p) => { const r = d.spaces.setGroups(p.id, p.groups); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.delete", async (p) => {
     if (d.spaces.get(p.id)) { d.terminals.closeAllInSpace(p.id); await d.sessions.deleteAllInSpace(p.id); }
     d.spaces.delete(p.id);

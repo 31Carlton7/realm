@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AGENT_SKILL_SUPPORT, AgentRunConstraintsSchema, type AgentKind, type Environment } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, AgentKindSchema, AgentRunConstraintsSchema, type AgentKind, type Environment } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "../browsers/guards";
 import type { ProviderCallContext } from "../mcp/gateway";
@@ -300,7 +300,7 @@ export const AGENT_RUN_TOOL: Tool = {
       constraints: {
         type: "object",
         properties: {
-          agentKind: { type: "string", enum: ["claude", "codex", "acp:gemini", "acp:cursor", "fake"], description: "Agent for the child. Omitted: the caller's own kind (with a claude fallback when that kind cannot take Realm's skills)." },
+          agentKind: { type: "string", enum: [...AgentKindSchema.options], description: "Agent for the child. Omitted: the caller's own kind (with a claude fallback when that kind cannot take Realm's skills)." },
           environmentId: { type: "string", description: "Run in this EXISTING environment of the caller's space. Mutually exclusive with newWorktree." },
           newWorktree: { type: ["boolean", "string"], description: "Create a fresh git worktree for the child: true titles it from the goal, a string titles it verbatim. Mutually exclusive with environmentId." },
           permissionMode: { type: "string", enum: ["plan", "default", "acceptEdits", "bypassPermissions"], description: "Requested mode; granted = min(parent's, requested). bypassPermissions is NEVER granted (degrades to default)." },

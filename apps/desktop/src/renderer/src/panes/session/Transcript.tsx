@@ -78,7 +78,12 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
               // Attachments render as their own line of file chips (Plan 14 W5): an attachment-only
               // message has no text at all, and an empty bubble would look like a send that lost its
               // words rather than one that carried files.
-              <div key={key} className="msg-user-row" data-enter={enter || undefined}>
+              <div key={key} className="msg-user-row" data-enter={enter || undefined} data-from={b.from ? "" : undefined}>
+                {/* A question another session asked is NOT the user's words. Rendering it as a plain
+                    user bubble would have the user believing they typed it — a lie by omission — so
+                    the bubble is attributed and styled apart. The fenced text itself is left exactly
+                    as the peer received it: the user should see what the agent was actually handed. */}
+                {b.from && <span className="msg-user-from">Asked by {b.from.title}</span>}
                 <div className="msg-user">
                   {b.text}
                   {b.attachments && (

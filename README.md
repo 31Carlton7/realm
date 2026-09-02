@@ -17,6 +17,15 @@ why that matters and how to verify the WebGPU hero shader headlessly.
 
 ## Agent sessions
 - **Claude** sessions run on `@anthropic-ai/claude-agent-sdk`, which drives the `claude` CLI: install it and log in first (`claude auth login`). An expired login shows up as an error in the transcript.
+- **ACP agents** — Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok and fx all speak the
+  Agent Client Protocol, so they share one generic adapter (`packages/adapters/src/acp/`) and adding another
+  is an `AcpAgentSpec` entry in `apps/server/src/app.ts`. Install and sign in to each out of band; Settings →
+  Engines probes what is on the machine and shows the exact install or login command for what is not.
+  Realm never calls ACP's `authenticate` itself.
+  - Note that ACP has **deprecated `modes`/`models` in favour of `configOptions`**, and agents have split:
+    Cursor still answers with the old shape, OpenCode answers with only the new one, Copilot sends both.
+    `acpSessionConfig` (in `@realm/contracts`) normalizes both and carries the id to write back through —
+    reading one channel and writing on the other is a silent no-op.
 - Offline / UI work: `REALM_ENABLE_FAKE_AGENT=1 pnpm dev` registers a scripted **Fake agent** (echoes what you send) next to Claude in New → Session….
 - **MCP gateway** — third-party MCP servers are configured in a space's settings, not per-agent: every session gets one Realm gateway endpoint, and credentials or OAuth tokens never reach the agent CLI. Every proxied tool call shows up in the Activity view (space settings → Activity, or "MCP Activity" in the command palette).
 

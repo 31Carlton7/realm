@@ -80,10 +80,45 @@ const BINDINGS: Binding[] = [
     alwaysPrevent: true,
     run: (s) => { const it = focusedItem(s); if (it) s.run(() => s.closeFromLayout(it.id)); },
   },
+  // ⌘⇧F → focus the focused pane full-screen, or unfocus if it already is. The pane stays in its
+  // group either way — this only changes how much of the space it gets (see groups.ts).
+  {
+    match: (e) => e.key.toLowerCase() === "f" && mod(e, { meta: true, shift: true }),
+    run: (s) => s.run(() => s.toggleFocusPane()),
+  },
+  // ⌘⇧[ / ⌘⇧] → previous / next pane group. A US layout reports "{" and "}" with shift held, so both
+  // the shifted and unshifted keys are accepted, exactly as ⌘⇧\ does above.
+  {
+    match: (e) => (e.key === "]" || e.key === "}") && mod(e, { meta: true, shift: true }),
+    run: (s) => s.run(() => s.stepPaneGroup(1)),
+  },
+  {
+    match: (e) => (e.key === "[" || e.key === "{") && mod(e, { meta: true, shift: true }),
+    run: (s) => s.run(() => s.stepPaneGroup(-1)),
+  },
+  // ⌘[ / ⌘] → back / forward along the FOCUSED pane's own trail. Deliberately the same bracket pair
+  // as group stepping one shift away: both are "move along a sequence", and the unshifted (smaller)
+  // gesture is the smaller move — within one pane rather than between arrangements.
+  {
+    match: (e) => e.key === "[" && mod(e, { meta: true }),
+    run: (s) => { const l = s.focusedLeafId; if (l) s.run(() => s.stepPaneNav(l, -1)); },
+  },
+  {
+    match: (e) => e.key === "]" && mod(e, { meta: true }),
+    run: (s) => { const l = s.focusedLeafId; if (l) s.run(() => s.stepPaneNav(l, 1)); },
+  },
   // ⌘T → new terminal.
   {
     match: (e) => e.key.toLowerCase() === "t" && mod(e, { meta: true }),
     run: (s) => s.run(() => s.newTerminal()),
+  },
+  // ⌘B → collapse/restore the sidebar. No `inInputs`: ⌘B is bold in every rich text field on the
+  // platform, and the composer is a rich editor — a global steal would break bolding in the one
+  // place the hand most often is. The toggle button itself is always on screen in both states, so
+  // the guard costs nothing but a click.
+  {
+    match: (e) => e.key.toLowerCase() === "b" && mod(e, { meta: true }),
+    run: (s) => s.run(() => s.toggleSidebar()),
   },
   // ⌘N → new session, immediately (W3): no sheet, no questions — last-used agent, straight to the
   // hero prompter, which carries every choice.

@@ -2,8 +2,8 @@ import type { Db } from "../db/database";
 import { newId, type Item, type ItemKind } from "@realm/contracts";
 import { NotFoundError, now } from "./rows";
 
-type Row = { id: string; space_id: string; kind: ItemKind; title: string; sort_order: number; pinned: number; ref_id: string; created_at: number; updated_at: number };
-const toItem = (r: Row): Item => ({ id: r.id, spaceId: r.space_id, kind: r.kind, title: r.title, sortOrder: r.sort_order, pinned: r.pinned === 1, refId: r.ref_id, createdAt: r.created_at, updatedAt: r.updated_at });
+type Row = { id: string; space_id: string; kind: ItemKind; title: string; sort_order: number; pinned: number; archived: number; ref_id: string; created_at: number; updated_at: number };
+const toItem = (r: Row): Item => ({ id: r.id, spaceId: r.space_id, kind: r.kind, title: r.title, sortOrder: r.sort_order, pinned: r.pinned === 1, archived: r.archived === 1, refId: r.ref_id, createdAt: r.created_at, updatedAt: r.updated_at });
 
 /**
  * A session's terminal panel is an item like any other — it needs a row so the terminal trio (row +
@@ -17,12 +17,15 @@ const NOT_SESSION_OWNED = "id NOT IN (SELECT terminal_item_id FROM sessions WHER
 
 export class ItemsStore {
   constructor(private db: Db) {}
+  /** Archived rows are INCLUDED and carry the flag: the sidebar draws its "Archived" section from
+   *  this same list, so a filter here would leave the user no way back. */
   list(spaceId: string): Item[] {
     return (this.db.prepare(`SELECT * FROM items WHERE space_id = ? AND ${NOT_SESSION_OWNED} ORDER BY pinned DESC, sort_order, created_at`).all(spaceId) as Row[]).map(toItem);
   }
-  /** Every item across every space, newest-updated first (command palette search). */
+  /** Every item across every space, newest-updated first (command palette search) — archived ones
+   *  excluded, because "what can I jump to" is the one question archiving is an answer to. */
   listAll(): Item[] {
-    return (this.db.prepare(`SELECT * FROM items WHERE ${NOT_SESSION_OWNED} ORDER BY updated_at DESC, created_at DESC`).all() as Row[]).map(toItem);
+    return (this.db.prepare(`SELECT * FROM items WHERE archived = 0 AND ${NOT_SESSION_OWNED} ORDER BY updated_at DESC, created_at DESC`).all() as Row[]).map(toItem);
   }
   /** Unfiltered: every item in the space, session-owned terminals included (space teardown). */
   listIncludingHidden(spaceId: string): Item[] {
@@ -47,10 +50,10 @@ export class ItemsStore {
     this.db.prepare("INSERT INTO search_index (text, kind, ref, seq) VALUES (?, 'item', ?, NULL)").run(input.title, id);
     return this.get(id)!;
   }
-  update(input: { id: string; title?: string; pinned?: boolean; sortOrder?: number }): Item {
+  update(input: { id: string; title?: string; pinned?: boolean; archived?: boolean; sortOrder?: number }): Item {
     const cur = this.get(input.id); if (!cur) throw new NotFoundError("item", input.id);
-    this.db.prepare("UPDATE items SET title = ?, pinned = ?, sort_order = ?, updated_at = ? WHERE id = ?")
-      .run(input.title ?? cur.title, (input.pinned ?? cur.pinned) ? 1 : 0, input.sortOrder ?? cur.sortOrder, now(), input.id);
+    this.db.prepare("UPDATE items SET title = ?, pinned = ?, archived = ?, sort_order = ?, updated_at = ? WHERE id = ?")
+      .run(input.title ?? cur.title, (input.pinned ?? cur.pinned) ? 1 : 0, (input.archived ?? cur.archived) ? 1 : 0, input.sortOrder ?? cur.sortOrder, now(), input.id);
     // A rename must move the index row, or search keeps finding the old name and never the new one.
     if (input.title !== undefined && input.title !== cur.title) {
       this.db.prepare("DELETE FROM search_index WHERE kind = 'item' AND ref = ?").run(input.id);

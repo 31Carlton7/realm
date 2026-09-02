@@ -1,10 +1,12 @@
-import { memo, useEffect, useLayoutEffect, useRef, type WheelEvent } from "react";
-import { allItems, emptyLayout, type Item } from "@realm/contracts";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type DragEvent as ReactDragEvent, type WheelEvent } from "react";
+import { Icon } from "@realm/ui";
+import { allItems, type Item, type PaneGroup } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/gesture";
 import { SpaceHeader } from "./SpaceHeader";
 import { PinnedGrid } from "./PinnedGrid";
 import { ItemList } from "./ItemList";
+import { GroupRenameInput } from "../RenameInput";
 
 const IDLE_MS = 320;
 const DEBUG = () => { try { return localStorage.getItem("realm.debugSwipe") === "1"; } catch { return false; } };
@@ -128,30 +130,115 @@ export function SpaceSwiper() {
   );
 }
 
+const REALM_ITEM_TYPE = "application/x-realm-item";
+
+/**
+ * One sidebar section per PANE GROUP, then SPACE for everything open in no group at all.
+ *
+ * This is where the old single "Open" list went. The list was never wrong, only flat: a space had one
+ * arrangement, so "open" was unambiguous. With groups the same rows still say "these are open", but
+ * now also WHERE — and clicking a row in a group that is not on screen switches to it (openItem's
+ * "go there"), which is the cheap arrangement-switching the whole feature exists for.
+ */
 const ActiveSpaceBody = memo(function ActiveSpaceBody() {
   const items = useApp((s) => s.items);
-  const layout = useApp((s) => s.layout) ?? emptyLayout();
-  const openIds = allItems(layout);
-  const openSet = new Set(openIds);
-  const byId = new Map(items.map((i) => [i.id, i]));
-  // OPEN follows the layout's open order (allItems is depth-first), not the items array's order.
-  const open = openIds.map((id) => byId.get(id)).filter((i): i is Item => !!i);
-  const unopened = items.filter((i) => !openSet.has(i.id));
+  const groups = useApp((s) => s.groups);
+  const newPaneGroup = useApp((s) => s.newPaneGroup);
+  const run = useApp((s) => s.run);
+  // Archived rows are split off FIRST, ahead of open/pinned/unopened, and `byId` is built from the
+  // live half alone — so a row still sitting in some group's layout when it is archived (another
+  // window did it; this one has not reconciled yet) is listed on the shelf and nowhere else, never in
+  // two sections at once.
+  const archived = items.filter((i) => i.archived);
+  const live = items.filter((i) => !i.archived);
+  const byId = new Map(live.map((i) => [i.id, i]));
+  const paneGroups = groups?.groups ?? [];
+  const openSet = new Set(paneGroups.flatMap((g) => allItems(g.layout)));
+  const unopened = live.filter((i) => !openSet.has(i.id));
   const pinned = unopened.filter((i) => i.pinned), rest = unopened.filter((i) => !i.pinned);
+  // A lone group keeps the old heading exactly: someone who never makes a second group should not
+  // have to learn a new word for the list they already had.
+  const soleGroup = paneGroups.length < 2;
   return (
     <>
       <div className="space-body">
-        {open.length > 0 && (
-          <>
-            <div className="group-label">Open</div>
-            <ItemList items={open} variant="open" />
-          </>
+        {paneGroups.map((g) => {
+          // Follows the group's own open order (allItems is depth-first), not the items array's.
+          const open = allItems(g.layout).map((id) => byId.get(id)).filter((i): i is Item => !!i);
+          if (soleGroup && open.length === 0) return null;
+          return <GroupSection key={g.id} group={g} items={open} active={g.id === groups!.activeGroupId} sole={soleGroup} />;
+        })}
+        {groups && (
+          <button className="group-new" onClick={() => run(() => newPaneGroup())}>
+            <Icon name="add" size={12} /><span>New group</span>
+          </button>
         )}
         <div className="group-label">Space</div>
-        {items.length === 0 && <div className="space-empty">Nothing here yet — start one with New session above</div>}
+        {live.length === 0 && <div className="space-empty">Nothing here yet — start one with New session above</div>}
         {pinned.length > 0 && <PinnedGrid items={pinned} />}
         <ItemList items={rest} variant="space" />
+        {archived.length > 0 && <ArchivedSection items={archived} />}
       </div>
     </>
   );
 });
+
+/**
+ * The shelf: archived rows, last in the sidebar and collapsed until asked for. Collapsed is the whole
+ * point — a section that unfolded itself on every render would undo the putting-away — and it is
+ * absent entirely when nothing is archived, the same dead-chrome rule the destinations nav keeps.
+ *
+ * Local `useState`, not store state: it is a disclosure triangle, and one that survived a restart
+ * would be a preference nobody asked for.
+ */
+function ArchivedSection({ items }: { items: Item[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="group-label group-head archived-head">
+        <button className="group-head-name archived-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <span className="archived-caret" data-open={open || undefined} aria-hidden="true"><Icon name="chevronRight" size={11} /></span>
+          <span>Archived</span>
+          <span className="archived-count">{items.length}</span>
+        </button>
+      </div>
+      {open && <ItemList items={items} variant="archived" />}
+    </>
+  );
+}
+
+/** One group's heading and rows. The heading is a drop target: dragging a row onto it moves that pane
+ *  into the group, the sidebar twin of dropping onto a tab in the GroupBar. */
+function GroupSection({ group, items, active, sole }: { group: PaneGroup; items: Item[]; active: boolean; sole: boolean }) {
+  const renamingGroupId = useApp((s) => s.renamingGroupId);
+  const requestGroupRename = useApp((s) => s.requestGroupRename);
+  const activatePaneGroup = useApp((s) => s.activatePaneGroup);
+  const moveItemToPaneGroup = useApp((s) => s.moveItemToPaneGroup);
+  const run = useApp((s) => s.run);
+  const [hot, setHot] = useState(false);
+  if (group.id === renamingGroupId) {
+    return <div className="group-label group-label-renaming"><GroupRenameInput group={group} onDone={() => requestGroupRename(null)} /></div>;
+  }
+  return (
+    <>
+      <div className="group-label group-head" data-active={active || undefined} data-drop={hot || undefined}
+        onDragOver={(e: ReactDragEvent) => {
+          if (!Array.from(e.dataTransfer.types).includes(REALM_ITEM_TYPE)) return;
+          e.preventDefault(); setHot(true);
+        }}
+        onDragLeave={() => setHot(false)}
+        onDrop={(e: ReactDragEvent) => {
+          e.preventDefault(); setHot(false);
+          const id = e.dataTransfer.getData(REALM_ITEM_TYPE);
+          if (id) run(() => moveItemToPaneGroup(id, group.id));
+        }}>
+        {sole ? <span>Open</span> : (
+          <button className="group-head-name" aria-label={`Show ${group.name}`} aria-current={active || undefined}
+            onClick={() => run(() => activatePaneGroup(group.id))}>{group.name}</button>
+        )}
+        {group.zoomedLeafId && <span className="group-head-badge" title="A pane in this group is focused">focused</span>}
+      </div>
+      <ItemList items={items} variant="open" layout={group.layout} />
+    </>
+  );
+}

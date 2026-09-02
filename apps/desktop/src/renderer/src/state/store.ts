@@ -1,10 +1,12 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
+  activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
+  canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
-  type DestinationPageKind, type NotificationCategory,
-  type AgentKind, type Attachment, type Checkpoint, type ImportApplyParams, type ImportScan, type ImportResult, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -14,7 +16,7 @@ import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browse
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
-export type UpdateItemInput = { id: string; title?: string; pinned?: boolean };
+export type UpdateItemInput = { id: string; title?: string; pinned?: boolean; archived?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string;
   /** Plan 13 W2 (⌘⇧↩): record `dispatchedBy: { kind: "user-dispatch" }` on the row — the Tasks
    *  lens's seam. The only origin a client may claim; the agent origins are server-recorded. */
@@ -84,6 +86,10 @@ export type Api = {
   deleteSpace(id: string): Promise<void>;
   createProject(spaceId: string, name: string, rootPath: string): Promise<Project>;
   setLayout(spaceId: string, layout: Layout): Promise<Space>;
+  /** `spaces.setGroups` — the whole group set (membership, names, active pointer, per-group zoom) in
+   *  one write. Every layout persist goes through this now; `setLayout` survives only for the fakes
+   *  and for callers that genuinely mean "just the active group's tree". */
+  setGroups(spaceId: string, groups: SpaceGroups): Promise<Space>;
   createTerminal(spaceId: string): Promise<{ terminalId: string; itemId: string }>;
   /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
   createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
@@ -323,6 +329,9 @@ export const SETTING_THEME = "ui.theme";
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
 const SETTING_SUBMIT_KEY = "ui.submitKey";
+/** Whether the sidebar is collapsed to the top rail. Persisted so a collapsed window stays
+ *  collapsed across launches — the whole point of collapsing is reclaiming the 280px for good. */
+const SETTING_SIDEBAR_COLLAPSED = "ui.sidebarCollapsed";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 export const EVENTS_PAGE = 1000;
@@ -388,7 +397,17 @@ export type AppState = {
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
   submitKey: SubmitKey;
-  items: Item[]; layout: Layout | null;
+  /** Sidebar hidden, its toggle moved to the top rail. The toggle is rendered in BOTH states —
+   *  a collapse with no way back is a trap — which is why this is one boolean and not a mode. */
+  sidebarCollapsed: boolean;
+  items: Item[];
+  /** The active space's pane groups — several named split arrangements, exactly one of them active.
+   *  Null only before a space is selected. This is the source of truth; `layout` mirrors it. */
+  groups: SpaceGroups | null;
+  /** The ACTIVE group's layout, mirrored out of `groups` on every write (see `writeGroups`). Kept as
+   *  its own field so every reader that only ever wanted "what is on screen" — the pane host, the
+   *  sidebar glyph, `focusIn`, the hotkeys — is untouched by groups existing. Never set alone. */
+  layout: Layout | null;
   /** Items across every space (palette search); refreshed when the palette opens. */
   allItems: Item[];
   /** Agent of the last session created or switched to, persisted across launches; null until one exists
@@ -396,9 +415,21 @@ export type AppState = {
   lastAgentKind: AgentKind | null;
   /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
   renamingItemId: string | null;
+  /** Arms the inline rename of a pane group's tab and sidebar header (group menu → header seam) —
+   *  the same idiom as `renamingItemId`, for the one piece of a space's structure that is not an Item. */
+  renamingGroupId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
    *  layout no longer contains it. */
   focusedLeafId: string | null;
+  /** Per-pane back/forward trails, keyed by leaf id (see `PaneHistory`). Written in exactly one place —
+   *  `writeGroups`, which reconciles it against the layout on every structural write — plus the two
+   *  explicit actions (`navigateInPane`, `stepPaneNav`) and the item prune in `refreshItems`. */
+  paneHistory: PaneHistory;
+  /** The notifications page's selected row, or null for the bare list. USER-level, not per space and
+   *  not per item: the feed is one global thing, so the page's vantage into it is too — opening
+   *  Notifications from any space lands on the row you were reading. Panes record moves into their own
+   *  leaf's trail, so Back retraces them; the selection itself has no other home. */
+  notificationsSelectedId: string | null;
   projects: Project[];
   /** The active space's environments, by id — what tells the prompter a session is in a worktree.
    *  Sparse by design: a space that has never run anything has none until one is created. */
@@ -600,6 +631,8 @@ export type AppState = {
   reorderSpaces(ids: string[]): Promise<void>;
   setThemePref(pref: ThemePref): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
+  /** Flip the sidebar between full column and top rail, and persist it. */
+  toggleSidebar(): Promise<void>;
   setSubmitKey(v: SubmitKey): Promise<void>;
   refreshSpaces(): Promise<void>;
   refreshItems(): Promise<void>;
@@ -617,6 +650,10 @@ export type AppState = {
   /** New browser pane in the active space (opens into the target/focused leaf). */
   newBrowser(targetLeafId?: string | null): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
+  /** Shelve (or restore) a row. Archiving closes the pane first — a hidden row whose pane is still on
+   *  screen is the one state the sidebar could not explain — so this is `updateItem` plus that close,
+   *  in that order; unarchiving only clears the flag and leaves the item unopened in the SPACE group. */
+  archiveItem(itemId: string, archived: boolean): Promise<void>;
   /** Open an item into `leafId` ?? the focused leaf ?? the first leaf, replacing what it held (the
    *  replaced item returns to the SPACE group); focuses that leaf. With no explicit `leafId`, an
    *  already-open item is only focused (click = go there) — layout untouched, nothing persisted. */
@@ -639,6 +676,18 @@ export type AppState = {
    *  landing on the near side. */
   openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
   focusLeaf(leafId: string): void;
+
+  // ——— Per-pane back/forward (the PanelBar arrows) ———
+  /** Record a move WITHIN a pane — a notification selected, a page tab switched — on the trail of the
+   *  leaf currently showing `itemId`. Item swaps record themselves (see writeGroups); this is for the
+   *  second coordinate a pane navigates on, which no layout write can see. A no-op when the item is
+   *  not on screen: there is no pane, so there is no trail to write to. */
+  navigateInPane(itemId: string, view: string | null): void;
+  /** Step one pane `delta` stops along its own trail (`-1` back, `+1` forward) and put it back exactly
+   *  as it stood — item AND in-pane view. No-op at either end. */
+  stepPaneNav(leafId: string, delta: number): Promise<void>;
+  /** Is there a stop `delta` steps from where `leafId` stands? What greys the arrows out. */
+  canPaneNav(leafId: string | null, delta: number): boolean;
   /** Move pane focus to the structural neighbor in that direction (see neighborLeafId); no-op without one. */
   focusNeighbor(dir: FocusDir): void;
   applyPreset(name: PresetName): Promise<void>;
@@ -649,6 +698,32 @@ export type AppState = {
   /** Double-click-a-divider: give every child of one split the same share again. No-op (nothing set,
    *  nothing persisted) when the split was never dragged off its equal shares. */
   equalizeSplit(splitId: string): void;
+
+  // ——— Pane groups (several named split arrangements per space, one on screen) ———
+  /** The group currently on screen, or null before a space is selected. */
+  activePaneGroup(): PaneGroup | null;
+  /** The active group's zoomed leaf, or null when the group is showing its full split. */
+  zoomedLeafId(): string | null;
+  /** Add an empty group and switch to it. */
+  newPaneGroup(name?: string): Promise<void>;
+  /** Rename a group; a blank name is ignored. */
+  renamePaneGroup(groupId: string, name: string): Promise<void>;
+  /** Remove a group. Its panes are NOT deleted — they return to the SPACE list, exactly as closing
+   *  each one would have done. Refused for the last remaining group. */
+  removePaneGroup(groupId: string): Promise<void>;
+  /** Put a group on screen. Pane focus moves to a leaf of that group's layout. */
+  activatePaneGroup(groupId: string): Promise<void>;
+  /** The group `delta` steps along, clamped at the ends — ⌘⇧] / ⌘⇧[ and the group bar's arrows. */
+  stepPaneGroup(delta: number): Promise<void>;
+  /** Move an item into `groupId` (opening it there), out of whatever group held it before. */
+  moveItemToPaneGroup(itemId: string, groupId: string): Promise<void>;
+  /** Focus a pane: `leafId` fills the whole pane host while the rest of the group stays exactly as it
+   *  is — nothing is closed, moved, or removed from the group, and `unfocusPane` puts it all back. */
+  focusPaneFull(leafId: string): Promise<void>;
+  /** Clear the active group's focus, restoring the split. No-op when nothing is focused. */
+  unfocusPane(): Promise<void>;
+  /** Focus `leafId` (default: the focused leaf) unless it already is, in which case unfocus. */
+  toggleFocusPane(leafId?: string | null): Promise<void>;
   /** Flush a pending debounced layout persist immediately — wired to `pagehide` (A-M4): a resize inside
    *  the debounce window of quitting would otherwise never reach the server. No-op when nothing is pending. */
   flushPersist(): Promise<void>;
@@ -685,6 +760,8 @@ export type AppState = {
   newSessionInWorktree(targetLeafId?: string | null): Promise<void>;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
+  /** Arm (or clear, with null) the inline rename of a pane group. */
+  requestGroupRename(groupId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
   /** ⌘⇧↩ "dispatch" (Plan 13 W2): ONE gesture = create a session that inherits the composer's whole
    *  setup (agent, model, effort, permission mode, and the environment the under-strip currently
@@ -877,6 +954,10 @@ export type AppState = {
   /** The row's jump affordance: land on the notification's session (switching space if needed) and
    *  mark it read — it has, by definition, been seen. */
   openNotificationTarget(n: Notification): Promise<void>;
+  /** Select a feed row into the page's detail column (null = back to the bare list). Records the move
+   *  on the trail of the pane showing `pageItemId`, so the arrows retrace it, and marks the row read —
+   *  opening a notification is the definition of having seen it. */
+  selectNotification(pageItemId: string, id: string | null): Promise<void>;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
   /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
@@ -1065,6 +1146,22 @@ function seedLayout(layout: Layout | null): Layout | null {
   return p.success ? p.data : null;
 }
 
+/**
+ * The group set to activate a space with. Same version-skew posture as `seedLayout`: a server that
+ * predates groups sends `groups: undefined` and only a `layout`, which becomes the single "Main" group
+ * — the identical arrangement the user last saw, just addressed as a group. Corrupt group JSON falls
+ * back the same way rather than blanking the space.
+ */
+export function seedGroups(space: { id?: string; groups?: SpaceGroups | null; layout?: Layout | null } | undefined): SpaceGroups {
+  if (space?.groups) {
+    const p = SpaceGroupsSchema.safeParse(space.groups);
+    if (p.success) return p.data;
+  }
+  // Same deterministic default id the server derives (spaces.ts): re-selecting a space that has never
+  // persisted groups must land on the same group id, not mint a new one each visit.
+  return groupsFromLayout(seedLayout(space?.layout ?? null), space?.id);
+}
+
 function findSplitSizes(l: Layout, splitId: string): number[] | null {
   if (l.type === "leaf") return null;
   if (l.id === splitId) return l.sizes;
@@ -1097,14 +1194,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     let layoutHydrated = false;
     const persist = async () => {
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
-      const { activeSpaceId, layout, sheetSnap } = get();
-      if (!activeSpaceId || !layout) return;
+      const { activeSpaceId, groups, sheetSnap } = get();
+      if (!activeSpaceId || !groups) return;
       // While W2.4's sheet-snap is active the on-screen layout is temporary by definition; what
       // persists is the layout the user actually built (restored on close anyway — a crash or
-      // space switch mid-sheet must not cement the snap).
-      const persistable = sheetSnap && sheetSnap.spaceId === activeSpaceId ? sheetSnap.saved : layout;
-      const saved = await api.setLayout(activeSpaceId, persistable);
-      // Keep the cached Space current so a later selectSpace seeds from the newest layout.
+      // space switch mid-sheet must not cement the snap). Only the ACTIVE group is ever snapped, so
+      // substituting the saved tree back into it leaves every other group's arrangement alone.
+      const persistable = sheetSnap && sheetSnap.spaceId === activeSpaceId ? setActiveLayout(groups, sheetSnap.saved) : groups;
+      const saved = await api.setGroups(activeSpaceId, persistable);
+      // Keep the cached Space current so a later selectSpace seeds from the newest groups.
       set({ spaces: get().spaces.map((x) => (x.id === saved.id ? saved : x)) });
     };
     const schedulePersist = () => {
@@ -1172,10 +1270,63 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: next } });
       if (refused.length > 0) set({ error: `Too large to attach — the limit is ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}: ${refused.join(", ")}` });
     };
+    /**
+     * Put a history entry's IN-PANE view back — the half of a stop that no layout write can restore.
+     *
+     * Each kind owns the meaning of its own `view` string, and each one is written back to the very
+     * state the pane already reads, so a step Back is indistinguishable from having clicked there:
+     * the notifications page's selected row, the space/profile pages' tab. A kind with no in-pane
+     * view (a session, a terminal) has nothing to restore and falls through — its `view` is always
+     * null. Junk can't reach here: every view string is one this app minted via `navigateInPane`.
+     */
+    const applyNavView = (entry: NavEntry) => {
+      const item = get().items.find((i) => i.id === entry.itemId);
+      if (!item) return;
+      if (item.kind === "notifications-page") { set({ notificationsSelectedId: entry.view }); return; }
+      if (item.kind === "space-page") {
+        // The space page's refId IS its space id — the key `spacePageTab` is already stored under.
+        get().setSpacePageTab(item.refId, (entry.view ?? "general") as SpacePageTab);
+        return;
+      }
+      if (item.kind === "profile-page") {
+        // The profile is derived live from the vantage space, exactly as the page itself derives it.
+        const profileId = get().spaces.find((sp) => sp.id === item.spaceId)?.profileId;
+        if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "skills") as ProfilePageTab);
+      }
+    };
     /** Focus keeps its leaf while the layout still has it; otherwise it resets to the first leaf. */
     const focusIn = (layout: Layout) => {
       const f = get().focusedLeafId;
       return f && hasLeafIn(layout, f) ? f : firstLeaf(layout).id;
+    };
+    /** The ONE way `groups` is written: `layout` is re-mirrored off the active group in the same set,
+     *  so the two fields can never be observed disagreeing — not even for one render. */
+    /** Also THE recording site for per-pane history: every structural change — open, split, drop,
+     *  preset, group switch — ends here, so reconciling once covers all of them (see reconcileNav).
+     *  `extra` still wins, which is what lets `stepPaneNav` seat its own cursor: the reconcile that
+     *  runs first then sees the stepped entry already current and records nothing. */
+    const writeGroups = (groups: SpaceGroups, extra: Partial<AppState> = {}): Partial<AppState> =>
+      ({ groups, layout: activeLayout(groups), paneHistory: reconcileNav(get().paneHistory, groups), ...extra });
+    /** The ONE way the active group's layout is written — every split/open/close/resize goes through
+     *  here rather than `set({ layout })`, which would leave `groups` holding the pre-edit tree. */
+    const writeLayout = (layout: Layout, extra: Partial<AppState> = {}): Partial<AppState> => {
+      const gs = get().groups ?? groupsFromLayout(null);
+      return writeGroups(setActiveLayout(gs, layout), extra);
+    };
+    /** Cross-group uniqueness, applied BEFORE any active-group op that opens `itemId`: the layout ops
+     *  only ever see one tree, so without this an item open in another group would end up claimed by
+     *  two arrangements at once. Returns the group set to build the op on top of. */
+    const detached = (itemId: string): SpaceGroups => {
+      const gs = get().groups ?? groupsFromLayout(null);
+      const next = detachItemFrom(gs, itemId, gs.activeGroupId);
+      if (next !== gs) set(writeGroups(next));
+      return next;
+    };
+    /** Apply a group-set edit and persist it, unless nothing actually changed. */
+    const commitGroups = async (next: SpaceGroups) => {
+      if (next === get().groups) return;
+      set(writeGroups(next, { focusedLeafId: focusIn(activeLayout(next)) }));
+      await persist();
     };
     /** Adopt a freshly created item: refresh items, then open it into targetLeafId ?? the focused leaf.
      *  (A concurrent items.changed refresh can't have opened it — reconcile is prune-only.) Takes an
@@ -1211,7 +1362,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const browserIds = new Set(get().items.filter((i) => i.kind === "browser").map((i) => i.id));
       const snapped = snapBrowserLeaves(layout, browserIds);
       if (snapped === layout) return {};
-      return { sheetSnap: { saved: layout, spaceId: get().activeSpaceId }, layout: snapped };
+      return writeLayout(snapped, { sheetSnap: { saved: layout, spaceId: get().activeSpaceId } });
     };
     /** W2.4, exit side: restore EXACTLY the pre-snap layout — keyed to the sheet actually closing
      *  in the STORE (closeSheet / palette takeover / confirm flows), never to a Sheet component
@@ -1221,20 +1372,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const snap = get().sheetSnap;
       if (!snap) return {};
       if (snap.spaceId !== get().activeSpaceId) return { sheetSnap: null };
-      return { sheetSnap: null, layout: reconcileLayout(snap.saved, get().items) };
+      return writeLayout(reconcileLayout(snap.saved, get().items), { sheetSnap: null });
     };
-    const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null) => {
+    const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside = false) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
       if (!isSpace(sid)) return;
       if (seq === itemsFetchSeq) set({ items }); // superseded by a newer fetch? its list is newer — keep it
+      if (beside && targetLeafId === null) { await get().openItemBeside(itemId); return; }
       await get().openItem(itemId, targetLeafId);
     };
 
     return {
       booted: false,
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, submitKey: "enter", items: [], layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
-      allItems: [], lastAgentKind: null, renamingItemId: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
+      allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
@@ -1247,14 +1399,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null,
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, swipeInvert, submitKey, lastAgent, panels, machineName] = await Promise.all([
-          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_LAST_AGENT),
+        const [profiles, spaces, saved, theme, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, machineName] = await Promise.all([
+          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_TERMINAL_PANEL),
           // A label, not a dependency: a failure here must not take boot down with it — the strip
           // simply shows no machine name.
@@ -1262,7 +1414,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, spaces, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true,
-          submitKey: isSubmitKey(submitKey) ? submitKey : "enter", lastAgentKind: agent.success ? agent.data : null,
+          submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true, lastAgentKind: agent.success ? agent.data : null,
           terminalPanel: parseTerminalPanels(panels), machineName });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
@@ -1284,9 +1436,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Diffs and patches go with the space: they are keyed by checkout path, and every pane that
         // could show one belongs to the space being left. Keeping them would mean a diff pane opening
         // on stale hunks from before the switch.
-        set({ activeSpaceId: id, layout: seedLayout(space?.layout ?? null), focusedLeafId: null, items: [], projects: [], environments: {}, sessions: {}, error: null,
+        set(writeGroups(seedGroups(space), { activeSpaceId: id, focusedLeafId: null, items: [], projects: [], environments: {}, sessions: {}, error: null,
           sheetSnap: null, // a snap belongs to the layout being left; that layout persisted UNsnapped
-          diffs: {}, diffLoading: {}, patches: {} });
+          diffs: {}, diffLoading: {}, patches: {} }));
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
         await Promise.all([get().refreshProjects(), get().refreshEnvironments(), get().refreshItems(), get().refreshSessions()]);
         // Space activation refreshes git context for the focused pane's session, if any.
@@ -1309,7 +1461,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (active && !spaces.some((s) => s.id === active)) {
           const first = spaces[0];
           if (first) await get().selectSpace(first.id);
-          else set({ activeSpaceId: null, items: [], layout: null, focusedLeafId: null, projects: [] });
+          else set({ activeSpaceId: null, items: [], groups: null, layout: null, focusedLeafId: null, projects: [] });
         }
       },
       async refreshItems() {
@@ -1317,9 +1469,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const seq = ++itemsFetchSeq;
         const items = await api.listItems(sid);
         if (!isSpace(sid) || seq !== itemsFetchSeq) return; // space changed, or a newer fetch owns the truth
-        const layout = reconcileLayout(get().layout, items);
+        // Prune across every group, not just the one on screen: a deleted item must stop being open
+        // in the arrangements the user is not currently looking at too, or switching to one would
+        // render a pane for something that no longer exists.
+        //
+        // Archived items are pruned by the same set even though they still exist. `archiveItem` already
+        // closes the pane it can see; this is what carries the close to the groups it cannot — another
+        // window's archive, or one taken while a different group was on screen. `items` itself keeps
+        // them: the sidebar's Archived section is drawn from the full list.
+        const live = new Set(items.filter((i) => !i.archived).map((i) => i.id));
+        const groups = reconcileGroups(get().groups ?? groupsFromLayout(get().layout), live);
+        const layout = activeLayout(groups);
         layoutHydrated = true;
-        set({ items, layout, focusedLeafId: focusIn(layout) });
+        // The same prune has to reach the back/forward trails, or Back would offer to return a pane to
+        // an item deleted here or in another window. Applied BEFORE writeGroups' reconcile so the
+        // layout's own occupants are re-seeded on top of the pruned trails, never the other way round.
+        set({ paneHistory: forgetNavItems(get().paneHistory, live) });
+        set(writeGroups(groups, { items, focusedLeafId: focusIn(layout) }));
       },
       async refreshAllItems() {
         set({ allItems: await api.listAllItems() });
@@ -1367,7 +1533,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (get().activeSpaceId !== id) return;
         if (neighbor && get().spaces.some((s) => s.id === neighbor.id)) await get().selectSpace(neighbor.id);
         else if (get().spaces[0]) await get().selectSpace(get().spaces[0]!.id);
-        else set({ activeSpaceId: null, items: [], layout: null, focusedLeafId: null, projects: [] });
+        else set({ activeSpaceId: null, items: [], groups: null, layout: null, focusedLeafId: null, projects: [] });
       },
       async reorderSpaces(ids) {
         const prev = get().spaces;
@@ -1385,6 +1551,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setSwipeInvert(v) {
         set({ swipeInvert: v });
         await api.setSetting(SETTING_SWIPE_INVERT, v);
+      },
+      async toggleSidebar() {
+        const next = !get().sidebarCollapsed;
+        set({ sidebarCollapsed: next });
+        await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
       },
       async setSubmitKey(v) {
         set({ submitKey: v });
@@ -1415,24 +1586,44 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const it = await api.updateItem(input);
         if (sid && isSpace(sid)) set({ items: get().items.map((x) => (x.id === it.id ? it : x)) });
       },
+      async archiveItem(itemId, archived) {
+        // Close FIRST, then flip the flag — deleteItem's ordering, for deleteItem's reason: a row the
+        // sidebar has hidden whose pane is still on screen is the one state neither surface can
+        // explain, and doing it in this order means a failure in between leaves the item visible
+        // rather than invisible-but-open. Unarchiving touches no layout: the row comes back to the
+        // SPACE group unopened, exactly where closing would have left it.
+        if (archived) await get().closeFromLayout(itemId);
+        await get().updateItem({ id: itemId, archived });
+        // Back/forward must not walk into a shelved pane. Same prune deleteItem owes the trails, for
+        // the same reason — the difference is only that the item still exists to come back to.
+        if (archived) {
+          const live = new Set(get().items.filter((i) => !i.archived).map((i) => i.id));
+          set({ paneHistory: forgetNavItems(get().paneHistory, live) });
+        }
+      },
       /** Agent-opened panes arrive BESIDE the user's focused pane, never replacing it. Replacing was a
        *  live-found deadlock: the browser evicted the very session whose permission card the user had to
        *  answer — and eviction destroys an agent's browser view mid-task (close is final for browsers).
        *  If the focused leaf is empty, filling it is fine; otherwise split right and open there. */
       async openItemBeside(itemId) {
+        detached(itemId); // the pane may be open in another group; it moves here rather than duplicating
         const current = get().layout ?? emptyLayout();
         const focused = get().focusedLeafId;
         const occupant = focused ? itemIdOfLeaf(current, focused) : null;
         if (focused && occupant !== null && occupant !== itemId && !findLeafOfItem(current, itemId)) {
           const layout = splitLeaf(current, focused, "row", itemId);
           const leaf = findLeafOfItem(layout, itemId);
-          set({ layout, focusedLeafId: leaf?.id ?? get().focusedLeafId });
+          set(writeLayout(layout, { focusedLeafId: leaf?.id ?? get().focusedLeafId }));
           await persist();
           return;
         }
         await get().openItem(itemId);
       },
       async openItemBesideQuiet(itemId) {
+        // Already open in ANOTHER group: leave it there. Yanking a pane out of an arrangement the user
+        // is not looking at is a bigger surprise than the focus steal this variant exists to avoid.
+        const gs = get().groups;
+        if (gs && groupOfItem(gs, itemId) && groupOfItem(gs, itemId)!.id !== gs.activeGroupId) return;
         const current = get().layout ?? emptyLayout();
         // Already visible: leave it — and the focus — entirely alone. openItem's "go there" focus
         // move is exactly the steal this variant exists to not perform.
@@ -1443,33 +1634,52 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // openItemBeside's split, minus its focus move: the pane appears at the side while
           // focusedLeafId — and with it the composer the user is typing in — stays put.
           const layout = splitLeaf(current, focused, "row", itemId);
-          set({ layout });
+          set(writeLayout(layout));
           await persist();
           return;
         }
         // The focused leaf is empty (or nothing is focused): fill in place, focus untouched.
         const layout = layoutOpen(current, focused, itemId);
-        set({ layout });
+        set(writeLayout(layout));
         await persist();
       },
       async openItem(itemId, leafId = null) {
-        const current = get().layout ?? emptyLayout();
-        // Activation without an explicit target (sidebar OPEN row, palette, pinned grid) of an item
-        // that is already open means "go there": focus its pane, touch nothing, persist nothing.
-        // Move semantics belong to gestures that name a leaf — drag-to-center via openItemAt.
+        // Activation without an explicit target (sidebar row, palette, pinned grid) of an item that is
+        // already open means "go there": focus its pane, touch nothing, persist nothing. When the pane
+        // lives in ANOTHER group, "go there" means going to that group — switching the arrangement and
+        // focusing the pane, still without moving anything. That is the cheap switch the whole feature
+        // is for: a click on any row takes you to it, wherever it is.
         if (leafId === null) {
-          const open = findLeafOfItem(current, itemId);
-          if (open) { set({ focusedLeafId: open.id }); return; }
-        }
+          const gs = get().groups;
+          const holder = gs ? groupOfItem(gs, itemId) : null;
+          if (holder) {
+            const leaf = findLeafOfItem(holder.layout, itemId)!;
+            if (holder.id !== gs!.activeGroupId) {
+              set(writeGroups(groupsSetActive(gs!, holder.id), { focusedLeafId: leaf.id }));
+              await persist();
+            } else set({ focusedLeafId: leaf.id });
+            return;
+          }
+        } else detached(itemId); // an explicit target moves the pane INTO the active group
+        const current = get().layout ?? emptyLayout();
         const target = leafId ?? get().focusedLeafId;
         const layout = layoutOpen(current, target, itemId);
         const leaf = findLeafOfItem(layout, itemId);
-        set({ layout, focusedLeafId: leaf?.id ?? null });
+        set(writeLayout(layout, { focusedLeafId: leaf?.id ?? null }));
         await persist();
       },
       async closeFromLayout(itemId) {
+        // The pane may be open in a group other than the one on screen (the sidebar lists every
+        // group's rows): close it where it actually is, and leave the active arrangement alone.
+        const gs = get().groups;
+        const holder = gs ? groupOfItem(gs, itemId) : null;
+        if (gs && holder && holder.id !== gs.activeGroupId) {
+          set(writeGroups(detachItemFrom(gs, itemId, gs.activeGroupId)));
+          await persist();
+          return;
+        }
         const layout = layoutClose(get().layout ?? emptyLayout(), itemId);
-        set({ layout, focusedLeafId: focusIn(layout) });
+        set(writeLayout(layout, { focusedLeafId: focusIn(layout) }));
         await persist();
         // Closing the last pane lands in a fresh prompter, never the empty-state placeholder.
         // Deliberately scoped to this path: reconcileLayout also empties the layout while pruning
@@ -1481,7 +1691,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // The old destructive close, minus the layout removal handled above.
         const it = get().items.find((i) => i.id === itemId);
         await api.deleteItem(itemId); // server closes the pty for terminal items
-        set({ items: get().items.filter((i) => i.id !== itemId) });
+        const items = get().items.filter((i) => i.id !== itemId);
+        // This path prunes `items` itself rather than going through refreshItems, so it owes the
+        // back/forward trails the same prune: an item deleted here must leave no way back to it.
+        set({ items, paneHistory: forgetNavItems(get().paneHistory, new Set(items.map((i) => i.id))) });
         if (it?.kind === "terminal") api.disposeTerminal(it.refId);
         if (it?.kind === "browser") {
           // The ticker and driving dot die with the browser — a reused id must start blank.
@@ -1509,7 +1722,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const target = focusIn(l);
         const layout = splitLeaf(l, target, dir, null);
         const fresh = findEmptySiblingOf(layout, target);
-        set({ layout, focusedLeafId: fresh ?? target });
+        set(writeLayout(layout, { focusedLeafId: fresh ?? target }));
         await persist();
       },
       async openItemAt(itemId, leafId, edge) {
@@ -1517,13 +1730,33 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // (pruning that very leaf) and teleport it to the far side; replacing is a no-op anyway.
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.id === leafId) return;
         if (edge === "center") return get().openItem(itemId, leafId);
+        detached(itemId); // dropped from another group: it moves here rather than being open twice
         const dir = edge === "left" || edge === "right" ? "row" : "col";
         const layout = splitLeaf(get().layout ?? emptyLayout(), leafId, dir, itemId, edge === "left" || edge === "top");
         const leaf = findLeafOfItem(layout, itemId);
-        set({ layout, focusedLeafId: leaf?.id ?? null });
+        set(writeLayout(layout, { focusedLeafId: leaf?.id ?? null }));
         await persist();
       },
       focusLeaf(leafId) { set({ focusedLeafId: leafId }); },
+      navigateInPane(itemId, view) {
+        const leaf = findLeafOfItem(get().layout ?? emptyLayout(), itemId);
+        if (!leaf) return;
+        set({ paneHistory: pushNav(get().paneHistory, leaf.id, { itemId, view }) });
+      },
+      canPaneNav(leafId, delta) { return canNav(get().paneHistory, leafId, delta); },
+      async stepPaneNav(leafId, delta) {
+        const stepped = stepNav(get().paneHistory, leafId, delta);
+        if (stepped === get().paneHistory) return; // nowhere to go — no layout write, nothing persisted
+        const entry = navEntry(stepped, leafId)!;
+        // Seat the cursor FIRST: writeGroups reconciles against whatever `paneHistory` holds, and with
+        // the cursor already on `entry` it sees the leaf's new occupant as the stop it is standing on
+        // and records nothing. Without this the step would push a duplicate and Back would stall.
+        set({ paneHistory: stepped });
+        const layout = layoutOpen(get().layout ?? emptyLayout(), leafId, entry.itemId);
+        set(writeLayout(layout, { focusedLeafId: leafId }));
+        applyNavView(entry);
+        await persist();
+      },
       focusNeighbor(dir) {
         const { layout, focusedLeafId } = get();
         if (!layout || !focusedLeafId) return;
@@ -1531,24 +1764,86 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (next) set({ focusedLeafId: next });
       },
       async applyPreset(name) {
-        const layout = gridPreset(name, get().items.map((i) => i.id));
-        set({ layout, focusedLeafId: firstLeaf(layout).id });
+        // A preset lays out the items of the ACTIVE group, not every item in the space: the other
+        // groups' arrangements are not the user's business when they pick a grid for this one.
+        const gs = get().groups;
+        const mine = gs ? allItems(activeLayout(gs)) : allItems(get().layout ?? emptyLayout());
+        const layout = gridPreset(name, mine);
+        set(writeLayout(layout, { focusedLeafId: firstLeaf(layout).id }));
         await persist();
       },
       resizeSplit(splitId, sizes) {
         const l = get().layout; if (!l) return;
         const current = findSplitSizes(l, splitId);
         if (!current || sameSizes(current, sizes)) return;
-        set({ layout: updateSizes(l, splitId, sizes) });
+        set(writeLayout(updateSizes(l, splitId, sizes)));
         if (layoutHydrated) schedulePersist(); // pre-hydration resizes are mount echoes, not user actions
       },
       equalizeSplit(splitId) {
         const l = get().layout; if (!l) return;
         const next = layoutEqualize(l, splitId);
         if (next === l) return; // already equal, or no such split — a double-click that changes nothing
-        set({ layout: next });
+        set(writeLayout(next));
         schedulePersist();
       },
+
+      // ——— Pane groups ———
+      activePaneGroup() { const gs = get().groups; return gs ? activeGroup(gs) : null; },
+      zoomedLeafId() { const gs = get().groups; return gs ? activeGroup(gs).zoomedLeafId : null; },
+      async newPaneGroup(name) {
+        const gs = get().groups; if (!gs) return;
+        // The new group is empty and active, so focus lands on its one empty leaf — the same state a
+        // space with nothing open has, which is exactly what an empty arrangement should feel like.
+        await commitGroups(groupsAdd(gs, name));
+      },
+      async renamePaneGroup(groupId, name) {
+        const gs = get().groups; if (!gs) return;
+        await commitGroups(groupsRename(gs, groupId, name));
+      },
+      async removePaneGroup(groupId) {
+        const gs = get().groups; if (!gs) return;
+        await commitGroups(groupsRemove(gs, groupId));
+      },
+      async activatePaneGroup(groupId) {
+        const gs = get().groups; if (!gs) return;
+        await commitGroups(groupsSetActive(gs, groupId));
+      },
+      async stepPaneGroup(delta) {
+        const gs = get().groups; if (!gs) return;
+        const next = groupAtOffset(gs, delta);
+        if (next) await commitGroups(groupsSetActive(gs, next.id));
+      },
+      async moveItemToPaneGroup(itemId, groupId) {
+        const gs = get().groups; if (!gs) return;
+        await commitGroups(groupsMoveItem(gs, itemId, groupId));
+      },
+      /** Focus/unfocus never touch the layout — see groups.ts. They still persist: a focused pane that
+       *  came back split after a restart would read as the app forgetting, not as a transient view. */
+      async focusPaneFull(leafId) {
+        const gs = get().groups; if (!gs) return;
+        const next = groupsZoom(gs, leafId);
+        if (next === gs) return;
+        // Focus follows the zoom: the pane filling the screen is the one the keyboard should be in.
+        set(writeGroups(next, { focusedLeafId: leafId }));
+        await persist();
+      },
+      async unfocusPane() {
+        const gs = get().groups; if (!gs) return;
+        const next = groupsUnzoom(gs);
+        if (next === gs) return;
+        set(writeGroups(next));
+        await persist();
+      },
+      async toggleFocusPane(leafId = null) {
+        const gs = get().groups; if (!gs) return;
+        const target = leafId ?? get().focusedLeafId;
+        if (!target) return;
+        const next = groupsToggleZoom(gs, target);
+        if (next === gs) return;
+        set(writeGroups(next, { focusedLeafId: activeGroup(next).zoomedLeafId ? target : get().focusedLeafId }));
+        await persist();
+      },
+
       flushPersist: () => flushPersist(),
       applyConnectionState(state) {
         const prev = get().connectionState;
@@ -1686,6 +1981,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id }, targetLeafId);
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
+      requestGroupRename(groupId) { set({ renamingGroupId: groupId }); },
       /**
        * The one path attachments travel. The prompter never passes them in — it cannot forget to, and
        * cannot pass a chip the user already removed, because the list is read here from the same state
@@ -2073,10 +2369,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // One diff pane per environment: a second "show changes" on the same checkout goes to the
         // pane that already exists rather than accumulating identical panes.
         const existing = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
-        if (existing) { await get().openItem(existing.id, targetLeafId); return; }
+        // Same eviction bug openItemBeside exists to fix, just triggered by the user instead of an
+        // agent: replacing the focused leaf in place stranded the session with no way back. Split
+        // beside it instead — unless the caller named an explicit target leaf.
+        if (existing) {
+          if (targetLeafId === null) { await get().openItemBeside(existing.id); return; }
+          await get().openItem(existing.id, targetLeafId);
+          return;
+        }
         const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
         const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
-        await adoptItem(sid, created.id, targetLeafId);
+        await adoptItem(sid, created.id, targetLeafId, true);
       },
       async requestReview(environmentId) {
         if (get().reviewing[environmentId]) return; // the button is disabled too; the server refuses regardless
@@ -2265,6 +2568,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           if (item) await get().openItem(item.id);
         }
         if (n.readAt === null) await get().markNotificationsRead([n.id]);
+      },
+      async selectNotification(pageItemId, id) {
+        set({ notificationsSelectedId: id });
+        get().navigateInPane(pageItemId, id);
+        // Read state is stamped by OPENING a row, not by the arrows: `stepPaneNav` only re-seats the
+        // selection, so retracing the trail re-shows rows without touching read state (they were read
+        // the first time through) and can never spend a markRead on a row the user is walking past.
+        const n = id ? get().notifications.find((x) => x.id === id) : null;
+        if (n && n.readAt === null) await get().markNotificationsRead([n.id]);
       },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);
