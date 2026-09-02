@@ -295,7 +295,4 @@ export const AGENT_RUN_TOOL: Tool = {
   },
 };
 
-const ok = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: false });
-const err = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const message = errorMessage;

@@ -12,6 +12,7 @@ const CATEGORY_ICON: Record<NotificationCategory, string> = {
 
 const CATEGORY_LABEL: Record<NotificationCategory, string> = {
   permission: "Permission request", session_done: "Session", mcp_health: "MCP server", agent_probe: "Agent", worktree_hazard: "Worktree", review_done: "Review",
+  run_blocked: "Run needs you", run_done: "Run",
 };
 
 /** Today / Yesterday / a date — the feed's day-group headers. */

@@ -5,7 +5,7 @@ import { MATCH_MAX_HOPS, matchSpace, type MatchWorld } from "./match";
 const T = { createdAt: 0, updatedAt: 0 };
 const space = (id: string, name: string, folderPath: string, profileId = "P1"): Space => ({
   id, profileId, name, icon: "folder", color: "#000000", sortOrder: 0, folderPath,
-  layout: null, activeItemId: null, ...T,
+  layout: null, groups: null, activeItemId: null, ...T,
 });
 const env = (id: string, spaceId: string, path: string): Environment => ({
   id, spaceId, path, branch: null, kind: "checkout", portBlockStart: null, ...T,

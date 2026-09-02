@@ -356,6 +356,7 @@ export const migrations: string[] = [
     open_paths_json TEXT NOT NULL DEFAULT '[]', active_path TEXT,
     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
   CREATE INDEX document_workspaces_env ON document_workspaces(environment_id);
+  `,
   // v20 — durable runs: a goal that owns a session across attempts and survives restarts
   // (packages/contracts/src/runs.ts). The supervisor `DelegationEngine` deliberately is not — its
   // registry is in memory because a blocked MCP tool call cannot outlive the process. A run has

@@ -178,7 +178,10 @@ describe("one row per model, not per (harness, model)", () => {
     const rows = modelRows({ kind: "codex", model: null, canSwitchAgent: true,
       agentProbe: [probe("codex", [{ id: "gpt-5.6", label: "GPT-5.6" }]), probe("acp:cursor", cursorWithClaude)] });
     const defaults = rows.filter((r) => r.key.startsWith("default:"));
-    expect(defaults.map((r) => [r.kind, r.label])).toEqual([["codex", DEFAULT_MODEL_LABEL.codex], ["acp:cursor", DEFAULT_MODEL_LABEL["acp:cursor"]]]);
+    // Only the two harnesses under test: every other selectable ACP agent also earns a default row,
+    // and the point here is that these two stay distinct rather than collapsing into one.
+    const pair = defaults.filter((r) => r.kind === "codex" || r.kind === "acp:cursor");
+    expect(pair.map((r) => [r.kind, r.label])).toEqual([["codex", DEFAULT_MODEL_LABEL.codex], ["acp:cursor", DEFAULT_MODEL_LABEL["acp:cursor"]]]);
     expect(defaults.every((r) => r.harnesses.length === 1)).toBe(true);
   });
 });
