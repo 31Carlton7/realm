@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { SearchResults } from "@realm/contracts";
 
@@ -77,6 +77,7 @@ export type FakeData = {
   environments?: Record<string, Environment[]>;
   settings?: Record<string, unknown>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
+  importScan?: ImportScan; importResult?: ImportResult;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -175,6 +176,9 @@ export type FakeApi = Api & {
   /** Every `mcp.add`/`mcp.update` input exactly as sent — what the secrecy tests read: an update that
    *  should have omitted `env` is caught here, not inferred from state. */
   mcpWrites: (AddMcpServerInput | UpdateMcpServerInput)[];
+  /** Every `import.apply` selection exactly as sent — what the Import panel's tests read, so a
+   *  filtered-out or re-pointed row is caught on the wire rather than inferred from state. */
+  importApplied: ImportApplyParams[];
   /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
   delays: Record<string, number>;
   onCreateTerminal: (() => void) | null;
@@ -218,6 +222,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
+    importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
       { id: "filesAndFolders", label: "Files & Folders", state: "unknown", detail: "Can't be checked until used — macOS only reveals these grants by asking." },
       { id: "automation", label: "Automation", state: "unknown", detail: "Can't be checked until used — grants are per-app-pair." },
@@ -253,6 +259,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const mcpWrites: FakeApi["mcpWrites"] = [];
+  const importApplied: FakeApi["importApplied"] = [];
   const memState = (spaceId: string): MemoryState => {
     // The inherited profile doc rides along as the real `memory.get` reports it (W2/W4): the space's
     // own profile, ON unless this space disabled it. Null only when the space is unknown.
@@ -267,7 +274,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     };
   };
   const api: FakeApi = {
-    calls, disposed, sent, mcpWrites, delays: {}, onCreateTerminal: null, data,
+    calls, disposed, sent, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
     createProfile: async (name) => {
       calls.push(`createProfile:${name}`);
@@ -556,6 +563,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");
       return data.agentProbe;
+    },
+    importScan: async () => { calls.push("importScan"); await wait("importScan"); return data.importScan; },
+    importApply: async (selection) => {
+      calls.push(`importApply:${(selection.sessions ?? []).length}|${(selection.memories ?? []).length}|${(selection.skills ?? []).length}`);
+      importApplied.push(selection);
+      await wait("importApply");
+      return data.importResult;
     },
     gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },
     diff: async (cwd) => { calls.push(`diff:${cwd}`); await wait(`diff:${cwd}`); return data.diffs[cwd] ?? null; },

@@ -4,7 +4,7 @@ import {
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES,
   type DestinationPageKind, type NotificationCategory,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type ImportApplyParams, type ImportScan, type ImportResult, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -168,6 +168,12 @@ export type Api = {
   prefillTerminal(terminalId: string, command: string): Promise<void>;
   /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
   probeAgents(force: boolean): Promise<AgentProbe[]>;
+  /** `import.scan` — everything the agent CLIs have on disk, matched to spaces. A pure read: it
+   *  creates nothing, so it is safe to call on mount and on every "Re-scan" click. */
+  importScan(): Promise<ImportScan>;
+  /** `import.apply` — the only writer. Takes the targets the USER settled on in the preview, which
+   *  is why the panel passes them back explicitly instead of letting the server re-match. */
+  importApply(selection: ImportApplyParams): Promise<ImportResult>;
   /** The macOS Permissions tab's rows (Plan 12 W6) — main-process IPC, not RPC. Honest by
    *  construction: the probe behind it never triggers a TCC prompt (see main/tcc.ts). */
   tccProbe(): Promise<TccRow[]>;
@@ -717,6 +723,13 @@ export type AppState = {
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
+  /** Scan the agent CLIs' stores. Returns the answer rather than storing it: a scan is hundreds of
+   *  candidates the Import panel holds while the user edits targets, and parking that in the global
+   *  store would keep it alive for every pane that never opens the panel. */
+  importScan(): Promise<ImportScan>;
+  /** Apply a selection, then refresh the surfaces it may have changed (spaces, items and the skills
+   *  library all move under an import) so the sidebar reflects it without a reconnect. */
+  importApply(selection: ImportApplyParams): Promise<ImportResult>;
   /** Remember the agent a fresh session should use (onboarding's default-agent pick). Same setting the
    *  prompter's agent chip writes, so the two never disagree. */
   setDefaultAgent(kind: AgentKind): Promise<void>;
@@ -1830,6 +1843,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         for (const it of get().items) {
           if (it.kind === "browser") void host.setAllowlist(it.refId, allowlist);
         }
+      },
+      importScan() { return api.importScan(); },
+      async importApply(selection) {
+        const result = await api.importApply(selection);
+        // An import can create spaces, sessions and items, and can add library skills that reach
+        // every space. The server broadcasts all of that, but a refresh here makes the panel's own
+        // "done" state and the sidebar agree in the same tick rather than one event-loop later.
+        await get().refreshSpaces();
+        await get().refreshItems();
+        return result;
       },
       async probeAgents(force = false) {
         // Mount-storm guard: a split of four session panes asks four times in the same tick. The server

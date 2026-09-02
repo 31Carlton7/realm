@@ -44,6 +44,7 @@ import { CheckpointGit } from "./workspace/checkpoints";
 import { CheckpointService } from "./checkpoints/service";
 import { SearchService } from "./search/service";
 import { ForkService } from "./sessions/fork";
+import { ImportService } from "./import/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 import { machineName } from "./machine-name";
@@ -287,6 +288,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   forks = new ForkService({ checkpoints: new CheckpointsStore(db), environments, envService, worktrees,
     sessionsStore, events: sessionEvents, settings, git: checkpointGit, rpc,
     createSession: (input) => sessions.create(input) });
+  // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
+  // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or
+  // under Realm's home. `roots` is left at its default here and overridden only by tests.
+  const imports = new ImportService({ home: opts.home, db, rpc, spaces, profiles, projects, environments,
+    sessions: sessionsStore, events: sessionEvents, items, settings, memory });
   const ships = new ShipsStore(db);
   const gitWrite = new GitWriteService({ shipLog: (entry) => {
     ships.record(entry);
@@ -294,7 +300,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search, forks,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search, forks, imports,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();

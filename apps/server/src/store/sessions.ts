@@ -35,6 +35,15 @@ export class SessionsStore {
   get(id: string): Session | null {
     const r = this.db.prepare(`${SELECT} WHERE s.id = ?`).get(id) as Row | undefined; return r ? toSession(r) : null;
   }
+  /** Every provider session id Realm holds — the import's dedup key (`ImportService`). One set
+   *  rather than a query per candidate: the question is asked of ~1100 transcripts per scan, and the
+   *  column is small enough that reading it whole is cheaper than the round trips. Sessions with no
+   *  provider id yet (created, never started) contribute nothing, which is right: they are not a
+   *  record of any CLI conversation. */
+  providerSessionIds(): Set<string> {
+    const rows = this.db.prepare("SELECT provider_session_id AS id FROM sessions WHERE provider_session_id IS NOT NULL").all() as { id: string }[];
+    return new Set(rows.map((r) => r.id));
+  }
   create(input: { spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null; permissionMode: string; environmentId: string; title: string; dispatchedBy?: DispatchedBy | null }): Session {
     if (!this.db.prepare("SELECT 1 FROM spaces WHERE id = ?").get(input.spaceId)) throw new NotFoundError("space", input.spaceId);
     const env = this.db.prepare("SELECT space_id FROM environments WHERE id = ?").get(input.environmentId) as { space_id: string } | undefined;

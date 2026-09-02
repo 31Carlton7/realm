@@ -8,17 +8,19 @@ import { agentAvailability } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import type { ThemePref } from "../../theme/useTheme";
+import { ImportPanel } from "../../components/settings/ImportPanel";
 
-type SettingsTab = "engines" | "app" | "permissions";
+type SettingsTab = "engines" | "app" | "import" | "permissions";
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: "engines", label: "Engines" }, { id: "app", label: "App" }, { id: "permissions", label: "Permissions" },
+  { id: "engines", label: "Engines" }, { id: "app", label: "App" }, { id: "import", label: "Import" }, { id: "permissions", label: "Permissions" },
 ];
 
 /**
  * The Settings page (Plan 12 W6, Universe screenshot 5) — a `settings-page` destination on W4's
- * sentinel convention, reached from the bottom-left gear and the palette. Three tabs down the
+ * sentinel convention, reached from the bottom-left gear and the palette. Four tabs down the
  * `.page-rail`: Engines (the agent probe, rendered), App (theme, notification switches, the default
- * permission mode for new sessions), Permissions (macOS TCC, honest states only).
+ * permission mode for new sessions), Import (transcripts, memory and skills out of the agent CLIs'
+ * own stores), Permissions (macOS TCC, honest states only).
  *
  * The pane's `item` goes unused like the Notifications page's: nothing here has a per-space vantage —
  * engines, app preferences and TCC grants are facts about the machine and the app, not a space.
@@ -38,7 +40,7 @@ export function SettingsPage(_props: PaneProps) {
         <span className="page-glyph"><Icon name="settings-page" size={20} /></span>
         <div className="page-title">
           <h1>Settings</h1>
-          <span className="page-sub">Engines, app preferences, and what macOS lets Realm do.</span>
+          <span className="page-sub">Engines, app preferences, importing from the agent CLIs, and what macOS lets Realm do.</span>
         </div>
       </header>
       <div className="page-body">
@@ -54,6 +56,7 @@ export function SettingsPage(_props: PaneProps) {
         <div className="page-content">
           {tab === "engines" && <EnginesTab />}
           {tab === "app" && <AppTab />}
+          {tab === "import" && <ImportPanel />}
           {tab === "permissions" && <PermissionsTab />}
         </div>
       </div>

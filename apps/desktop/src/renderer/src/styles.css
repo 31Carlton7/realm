@@ -1407,3 +1407,37 @@ button.panel-title:hover { background: var(--rl-hover); }
 .scope-move { flex: none; font-size: 11.5px; }
 .scope-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); background: var(--rl-raised); font-size: 12px; }
 .scope-confirm-copy { flex: 1; min-width: 200px; color: var(--rl-text-dim); }
+
+/* Settings → Import (the agent-CLI import preview). Rows are dense on purpose: the panel routinely
+   lists several hundred candidates, and a comfortable row height would make the list unreviewable. */
+.import-panel { gap: 16px; }
+.import-sources { gap: 4px; }
+.import-source-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 0; font-size: 12px; }
+.import-source-row strong { font-size: 12px; font-weight: 550; color: var(--rl-text-bright); text-transform: capitalize; }
+.import-source-row .env-path { flex: 1; min-width: 120px; color: var(--rl-text-faint); }
+.import-source-note { flex-basis: 100%; padding-left: 22px; }
+
+.import-group { border: 1px solid var(--rl-line); border-radius: var(--r-ctl); background: var(--rl-raised); }
+.import-group + .import-group { margin-top: 6px; }
+.import-group > summary { display: flex; align-items: center; gap: 10px; padding: 7px 10px; cursor: pointer; font-size: 12px; }
+.import-group > summary::-webkit-details-marker { display: none; }
+.import-group > summary strong { flex: none; font-weight: 550; color: var(--rl-text-bright); }
+.import-group > summary .muted { flex: 1; min-width: 0; }
+.import-group > summary:hover { background: var(--rl-hover); }
+.import-group .import-rows { padding: 0 10px 8px 10px; }
+
+.import-rows { gap: 1px; }
+.import-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; min-width: 0; }
+.import-row[data-off] { opacity: .45; }
+.import-row-check { display: flex; flex: none; align-items: center; }
+.import-row-title { flex: 1 1 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.import-row-meta { flex: none; font-size: 11px; white-space: nowrap; }
+.import-row-desc { flex: 1 1 30%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+/* The match rule that fired. Quiet, but present on every row: a wrong destination should be
+   traceable to the rule that chose it, not just noticed. */
+.import-row-why { flex: none; width: 88px; text-align: right; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+.import-target { flex: none; max-width: 190px; height: 24px; padding: 0 8px; border-radius: var(--r-ctl);
+  border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); font-size: 11.5px; }
+.import-actions { align-items: flex-start; }
+.import-result { padding: 8px 10px; border-radius: var(--r-ctl); background: var(--rl-raised); }
+.import-problems { margin-top: 6px; color: var(--rl-warning); }

@@ -9,6 +9,7 @@ import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory
 import { NotificationSchema } from "./notifications";
 import { ReviewResultSchema } from "./review";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
+import { ImportResultSchema, ImportScanSchema } from "./import";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -336,6 +337,31 @@ export const Methods = {
   "search.query": {
     params: z.object({ profileId: IdSchema, query: z.string().min(1).max(SEARCH_QUERY_MAX), limit: z.number().int().min(1).max(SEARCH_GROUP_LIMIT_MAX).default(SEARCH_GROUP_LIMIT) }),
     result: SearchResultsSchema,
+  },
+
+  /**
+   * Import from the agent CLIs' own stores (`packages/contracts/src/import.ts`).
+   *
+   * `scan` WRITES NOTHING — it opens the CLIs' files read-only, matches what it finds to spaces, and
+   * answers. It takes no parameters on purpose: what to include is the user's decision in the
+   * preview, not a filter baked into the call, and a scan that silently omitted rows could not be
+   * argued with. Filtering flags (`fromRealm`, `scratch`, `imported`) ride on every candidate so the
+   * client can default them off and still show what it hid.
+   *
+   * `apply` is the only writer, and only for the keys it is handed. A key not produced by a scan
+   * resolves to nothing and comes back `skipped` — this is not a "read any path on this machine"
+   * call. Space targets are the CLIENT's, taken verbatim: the matcher does not get to overrule what
+   * the user re-pointed. `profileId` with a null `spaceId` means "the catch-all space of that
+   * profile", created here if it does not exist yet — the one write a scan deliberately would not do.
+   */
+  "import.scan":  { params: z.object({}), result: ImportScanSchema },
+  "import.apply": {
+    params: z.object({
+      sessions: z.array(z.object({ key: z.string(), spaceId: IdSchema.nullable().default(null), profileId: IdSchema.nullable().default(null) })).default([]),
+      memories: z.array(z.object({ key: z.string(), spaceId: IdSchema.nullable().default(null), profileId: IdSchema.nullable().default(null) })).default([]),
+      skills: z.array(SkillIdSchema).default([]),
+    }),
+    result: ImportResultSchema,
   },
 
   "items.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ItemSchema) },

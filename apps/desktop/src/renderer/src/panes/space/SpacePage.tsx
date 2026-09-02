@@ -204,6 +204,7 @@ const ORIGIN_META: Record<DispatchKind, { icon: string; label: string }> = {
   browser_agent_run: { icon: "browser", label: "Browser agent" },
   review: { icon: "diff", label: "Reviewer" },
   fork: { icon: "branch", label: "Forked from a checkpoint" },
+  import: { icon: "download", label: "Imported from an agent CLI" },
 };
 
 /**
