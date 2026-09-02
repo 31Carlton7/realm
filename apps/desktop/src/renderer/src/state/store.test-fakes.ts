@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { SearchResults } from "@realm/contracts";
 
@@ -16,7 +16,18 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
-    scope: { kind: "space", spaceId: null }, ...extra });
+    scope: { kind: "space", spaceId: null },
+    origin: { kind: "library", key: "library", label: "Realm library", root: "/realm-home/skills" }, ...extra });
+
+/** A skill found OUTSIDE Realm's library — the discovery case. Off by default, exactly as the server
+ *  lists it, so a test that forgets to enable one is testing the real default. */
+export const externalSkillRow = (id: string, origin: Partial<Skill["origin"]> = {}, extra: Partial<Skill> = {}): Skill =>
+  skillRow(id, {
+    enabled: false,
+    path: `/home/.agents/skills/${id}/SKILL.md`,
+    origin: { kind: "user", key: "agents", label: "~/.agents/skills", root: "/home/.agents/skills", ...origin },
+    ...extra,
+  });
 
 export const agentsFileState = (extra: Partial<AgentsFileState> = {}): AgentsFileState =>
   ({ enabled: false, path: "/realm-home/spaces/s1/AGENTS.md", exists: false, managedByRealm: false, writable: true, reason: null, ...extra });
@@ -104,6 +115,9 @@ export type FakeData = {
   skills?: Record<string, Skill[]>;
   /** The library folder `skills.list` reports. */
   skillsRoot?: string;
+  /** What `skills.sources` answers, by space id. Absent → the library alone, which is what a machine
+   *  with no other agent directories on it really does report. */
+  skillSources?: Record<string, SkillSource[]>;
   /** What `mcp.test` answers, by server id. Absent id → reached false, "no test result configured". */
   mcpTest?: Record<string, McpTestResult>;
   /** Realm memory documents by space id. */
@@ -216,6 +230,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     checkpointPreview: overrides.checkpointPreview ?? {},
     skills: overrides.skills ?? {},
     skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
+    skillSources: overrides.skillSources ?? {},
     mcpTest: overrides.mcpTest ?? {},
     memoryDocs: overrides.memoryDocs ?? {},
     agentsFiles: overrides.agentsFiles ?? {},
@@ -429,6 +444,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { session: sess, itemId: it.id, environment: env };
     },
     listSkills: async (spaceId) => { calls.push(`listSkills:${spaceId}`); return { root: data.skillsRoot, skills: [...(data.skills[spaceId] ?? [])] }; },
+    listSkillSources: async (spaceId) => {
+      calls.push(`listSkillSources:${spaceId}`);
+      const configured = data.skillSources[spaceId];
+      if (configured) return { sources: [...configured] };
+      return { sources: [{ kind: "library" as const, key: "library", label: "Realm library", path: data.skillsRoot,
+        count: (data.skills[spaceId] ?? []).length, removable: false }] };
+    },
+    addSkillScanRoot: async (path) => { calls.push(`addSkillScanRoot:${path}`); },
+    removeSkillScanRoot: async (path) => { calls.push(`removeSkillScanRoot:${path}`); },
     setSkillEnabled: async (spaceId, id, enabled) => {
       calls.push(`setSkillEnabled:${spaceId}:${id}=${enabled}`);
       // Applied to THIS space's rows and no other's — the per-space disabled set, as the server keys it.

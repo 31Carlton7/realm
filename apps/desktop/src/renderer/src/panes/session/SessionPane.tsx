@@ -166,6 +166,13 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
   );
+  // The "+ → Skills" picker's source: the same space list, unfiltered by enabled — the picker's whole
+  // job is to show what is NOT on yet. Still gated on the agent, because a Cursor session cannot be
+  // handed a skills directory at all and a picker there would promise something that never arrives.
+  const allSkills = useMemo(
+    () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList : NO_SKILLS),
+    [agentKind, spaceSkillList],
+  );
   const draftMentionIds = useApp((s) => s.draftMentions[id] ?? NO_MENTIONS);
   // Recognised mentions whose skill has since been disabled/deleted — the draft still carries the
   // token, so the prompter warns that it will go as plain text.
@@ -185,6 +192,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const refreshConnectors = useApp((s) => s.refreshConnectors);
   const pickAndLinkProject = useApp((s) => s.pickAndLinkProject);
   const openSpacePage = useApp((s) => s.openSpacePage);
+  const setSkillEnabled = useApp((s) => s.setSkillEnabled);
   const spaceEnvironments = useMemo(
     () => Object.values(environments).filter((e) => session && e.spaceId === session.spaceId),
     [environments, session],
@@ -265,7 +273,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             agentProbe={agentProbe}
             modelFavorites={modelFavorites}
             onToggleModelFavorite={(key) => run(() => toggleModelFavorite(key))}
-            mentionSkills={mentionSkills} staleMentions={staleMentions}
+            mentionSkills={mentionSkills} allSkills={allSkills} staleMentions={staleMentions}
+            onToggleSkill={(skillId, enabled) => run(() => setSkillEnabled(session.spaceId, skillId, enabled))}
+            onManageSkills={() => run(() => openSpacePage(session.spaceId, "skills"))}
             machineName={machineName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
             onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}

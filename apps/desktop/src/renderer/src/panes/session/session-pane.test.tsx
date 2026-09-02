@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, canonicalModelKey, sessionEvent, type Environment } from "@realm/contracts";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
-import { fakeApi, item, mcpServer, session, skillRow } from "../../state/store.test-fakes";
+import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
@@ -2027,24 +2027,50 @@ describe("the '+' menu (Plan 12 W1)", () => {
     await waitFor(() => expect(api.data.projects.s1?.map((p) => p.rootPath)).toEqual(["/tmp/picked-repo"]));
   });
 
-  it("Skills primes the @-mention picker: inserts @ at the caret and the existing picker opens", async () => {
-    const { store } = await mountPlus();
+  it("Skills opens the picker, which lists skills this space has NOT enabled — the whole point of it", async () => {
+    // The old behaviour primed the @-mention popover, which can only ever offer what is already ON.
+    // A machine with a hundred installed skills and two enabled would show two; the named mutant is
+    // reverting to a source that filters by `enabled`.
+    await mountPlus({ skills: { s1: [skillRow("mac"), externalSkillRow("agents.apple-design")] } });
     openPlus();
     fireEvent.click(screen.getByRole("menuitem", { name: "Skills" }));
-    expect(store.getState().drafts.se1).toBe("@");
-    await waitFor(() => expect(screen.getByRole("listbox", { name: "Skills" })).toBeInTheDocument());
-    // The one picker: both library skills offered, exactly as typing @ would.
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([expect.stringContaining("mac"), expect.stringContaining("web")]);
+    const picker = await screen.findByRole("dialog", { name: "Skills" });
+    expect(within(picker).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      expect.stringContaining("mac"), expect.stringContaining("agents.apple-design"),
+    ]);
+    // Grouped by where each came from, so "why is this here" is answered on the row.
+    expect(within(picker).getByText("Realm library")).toBeInTheDocument();
+    expect(within(picker).getByText("~/.agents/skills")).toBeInTheDocument();
   });
 
-  it("Skills leads with a space when the caret sits on a word — @ glued to text is an email, not a mention", async () => {
+  it("the picker's search filters across id, name and description", async () => {
+    await mountPlus({ skills: { s1: [skillRow("mac"), externalSkillRow("agents.apple-design")] } });
+    openPlus();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills" }));
+    const picker = await screen.findByRole("dialog", { name: "Skills" });
+    fireEvent.change(within(picker).getByRole("combobox", { name: "Search skills" }), { target: { value: "apple" } });
+    expect(within(picker).getAllByRole("option").map((o) => o.textContent)).toEqual([expect.stringContaining("agents.apple-design")]);
+  });
+
+  it("picking a skill that is OFF turns it on for the space, then mentions it — a mention of a disabled skill resolves to nothing", async () => {
+    const { api, store } = await mountPlus({ skills: { s1: [externalSkillRow("agents.apple-design")] } });
+    openPlus();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills" }));
+    const picker = await screen.findByRole("dialog", { name: "Skills" });
+    fireEvent.click(within(picker).getByRole("option", { name: /apple-design/ }));
+    await waitFor(() => expect(api.calls).toContain("setSkillEnabled:s1:agents.apple-design=true"));
+    expect(store.getState().drafts.se1).toBe("@agents.apple-design ");
+  });
+
+  it("the mention it inserts leads with a space on a word — @ glued to text is an email, not a mention", async () => {
     const { store } = await mountPlus();
     const box = screen.getByRole("textbox", { name: /message/i });
     fireEvent.change(box, { target: { value: "use" } });
     openPlus();
     fireEvent.click(screen.getByRole("menuitem", { name: "Skills" }));
-    expect(store.getState().drafts.se1).toBe("use @");
-    await waitFor(() => expect(screen.getByRole("listbox", { name: "Skills" })).toBeInTheDocument());
+    const picker = await screen.findByRole("dialog", { name: "Skills" });
+    fireEvent.click(within(picker).getByRole("option", { name: /mac/ }));
+    expect(store.getState().drafts.se1).toBe("use @mac ");
   });
 
   it("hides Skills for an agent Realm cannot inject skills into — no affordance that silently does nothing", async () => {

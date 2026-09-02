@@ -4,7 +4,7 @@ import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, 
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
-import { SkillSchema, SkillIdSchema } from "./skills";
+import { SkillSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
@@ -440,6 +440,22 @@ export const Methods = {
   /** The inverse: pin a profile-scoped skill to `spaceId` alone (must be a space of its profile).
    *  This space's enable state is preserved; sibling spaces stop seeing it. */
   "skills.demote": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * The directories this space's scan reads, with what each contributed — Realm's library, the agent
+   * directories found on this machine, each installed Claude plugin, the space folder's own, and any
+   * the user added. `count` is from the same scan that answered `skills.list`, so the panel and the
+   * list cannot disagree about where a skill came from.
+   */
+  "skills.sources": {
+    params: z.object({ spaceId: IdSchema }),
+    result: z.object({ sources: z.array(SkillSourceSchema) }),
+  },
+  /** Add a directory to scan for skills. Absolute paths only, and it must exist — a relative path
+   *  would resolve against the server's cwd, which is not a directory the user picked. */
+  "skills.addScanRoot": { params: z.object({ path: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /** Stop scanning a user-added directory. Nothing on disk is touched, and the enabled entries of the
+   *  skills under it are kept, so re-adding it restores exactly what was on. */
+  "skills.removeScanRoot": { params: z.object({ path: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * Every MCP server Realm knows about, each carrying this space's own enabled flag.

@@ -6,7 +6,7 @@ import {
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -132,6 +132,11 @@ export type Api = {
   /** `skills.list` for a space: the library folder and every skill in it, valid or not — the mention
    *  picker (W4) reads the skills, the settings panel (W5) also shows the root and the invalid rows. */
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
+  /** `skills.sources` — the directories the scan reads for this space, and what each contributed. */
+  listSkillSources(spaceId: string): Promise<{ sources: SkillSource[] }>;
+  /** `skills.addScanRoot` / `skills.removeScanRoot` — the user's own extra directories. Machine-global. */
+  addSkillScanRoot(path: string): Promise<void>;
+  removeSkillScanRoot(path: string): Promise<void>;
   /** `skills.setEnabled` — one skill, one SPACE. The store is a per-space disabled set. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
   /** `skills.promote` — move a skill's defining scope from space level into `spaceId`'s profile (W2
@@ -514,6 +519,8 @@ export type AppState = {
   /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
    *  skills-capable session opens and on `skills.changed`. */
   spaceSkills: Record<string, Skill[]>;
+  /** Per-space scan sources, for the skills panel's "where these come from" section. */
+  spaceSkillSources: Record<string, SkillSource[]>;
   /** Where the library lives on disk (`skills.list` root) — the settings panel's "drop a folder here"
    *  hint. Global, not per-space; "" until the first fetch. */
   skillsRoot: string;
@@ -821,6 +828,15 @@ export type AppState = {
   setDraft(sessionId: string, text: string): void;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
+  /** Fetch the scan sources into `spaceSkillSources`. Separate from `refreshSkills` because the panel
+   *  wants it and the composer never does — a session open should not pay for it. */
+  refreshSkillSources(spaceId: string): Promise<void>;
+  /** Add/remove a user scan directory, then re-read this space's list and sources. */
+  addSkillScanRoot(spaceId: string, path: string): Promise<void>;
+  removeSkillScanRoot(spaceId: string, path: string): Promise<void>;
+  /** The native folder picker, then `addSkillScanRoot` — the same two-step `pickAndLinkProject` uses,
+   *  so the panel never has to reach past the store for a dialog. */
+  pickAndAddSkillScanRoot(spaceId: string): Promise<void>;
   /** Toggle one skill for ONE space (the settings panel), then re-read that space's library. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
   /** Move a skill's defining scope into `spaceId`'s profile (W4's "Move to profile"), then re-read. */
@@ -1401,7 +1417,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, macAccess: null, macGranting: null, macGrantQueue: [], updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [],
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, macAccess: null, macGranting: null, macGrantQueue: [], updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -2201,6 +2217,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshSkills(spaceId) {
         const { root, skills } = await api.listSkills(spaceId);
         set({ spaceSkills: { ...get().spaceSkills, [spaceId]: skills }, skillsRoot: root });
+      },
+      async refreshSkillSources(spaceId) {
+        const { sources } = await api.listSkillSources(spaceId);
+        set({ spaceSkillSources: { ...get().spaceSkillSources, [spaceId]: sources } });
+      },
+      async addSkillScanRoot(spaceId, path) {
+        await api.addSkillScanRoot(path);
+        await Promise.all([get().refreshSkills(spaceId), get().refreshSkillSources(spaceId)]);
+      },
+      async removeSkillScanRoot(spaceId, path) {
+        await api.removeSkillScanRoot(path);
+        await Promise.all([get().refreshSkills(spaceId), get().refreshSkillSources(spaceId)]);
+      },
+      async pickAndAddSkillScanRoot(spaceId) {
+        const path = await api.pickFolder();
+        if (path) await get().addSkillScanRoot(spaceId, path);
       },
       async setSkillEnabled(spaceId, id, enabled) {
         // The spaceId travels verbatim: the store is a per-space disabled set, and writing any other

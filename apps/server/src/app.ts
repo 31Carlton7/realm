@@ -208,7 +208,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     allSpaceIds: (): string[] => spaces.listAll().map((sp) => sp.id),
   };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
-  const skills = new SkillsService({ home: opts.home, settings, scopes: scopeSeam });
+  const skills = new SkillsService({
+    home: opts.home, settings, scopes: scopeSeam,
+    // The space's own folder, for its project-level skill directories. A space whose folder is gone
+    // reads as project-less rather than failing the scan — the rest of the roots are still valid.
+    spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },
+  });
   const installed = skills.installBundled();
   if (installed.length) console.error(`[skills] installed bundled skill(s): ${installed.join(", ")}`);
   const mcpServersStore = new McpServersStore(db);
