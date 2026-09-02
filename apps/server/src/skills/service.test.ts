@@ -42,7 +42,8 @@ describe("SkillsService.list", () => {
     skill(service.root, "mac");
     expect(service.list(SPACE).skills).toEqual([
       { id: "mac", name: "mac", description: "does mac.", path: join(service.root, "mac", "SKILL.md"), enabled: true, valid: true, reason: null,
-        scope: { kind: "space", spaceId: null } },
+        scope: { kind: "space", spaceId: null },
+        origin: { kind: "library", key: "library", label: "Realm library", root: service.root } },
     ]);
   });
 
@@ -312,5 +313,122 @@ describe("scoping (W2) — profile vs space defining scope", () => {
     expect(staged(svc.injectionFor(A2, "claude")!)).toEqual(["mac"]);
     expect(svc.wouldInject(B1, "claude")).toBe(false);
     expect(svc.injectionFor(B1, "claude")).toBeNull();
+  });
+});
+
+/**
+ * Discovery: skills the user installed for other agents, listed here without a byte written into their
+ * folders. The whole feature turns on the two polarities below being opposite — a library skill is on
+ * until switched off, an installed one is off until switched on — so each is pinned from both sides.
+ */
+describe("SkillsService discovery", () => {
+  const agentsDir = () => join(home, ".agents", "skills");
+
+  it("lists skills from the user's agent directories alongside the library, qualified by root", () => {
+    skill(service.root, "mac");
+    skill(agentsDir(), "apple-design");
+    expect(ids()).toEqual(["mac", "agents.apple-design"]);
+    const found = byId("agents.apple-design");
+    expect(found.origin).toEqual({ kind: "user", key: "agents", label: "~/.agents/skills", root: agentsDir() });
+    expect(found.description).toBe("does apple-design.");
+  });
+
+  it("leaves a discovered skill OFF until it is switched on; a library skill is ON until switched off", () => {
+    skill(service.root, "mac");
+    skill(agentsDir(), "apple-design");
+    // The named mutant is one shared polarity. Default-on for discovery would put every skill the user
+    // ever installed for another tool into every agent's context, unasked.
+    expect(byId("mac").enabled).toBe(true);
+    expect(byId("agents.apple-design").enabled).toBe(false);
+    service.setEnabled(SPACE, "agents.apple-design", true);
+    service.setEnabled(SPACE, "mac", false);
+    expect(byId("agents.apple-design").enabled).toBe(true);
+    expect(byId("mac").enabled).toBe(false);
+  });
+
+  it("keeps the two polarities in separate keys, so neither can flip the other", () => {
+    skill(service.root, "mac");
+    skill(agentsDir(), "apple-design");
+    service.setEnabled(SPACE, "agents.apple-design", true);
+    expect(settings.get(`skills.external:${SPACE}`)).toEqual(["agents.apple-design"]);
+    expect(settings.get(`skills.disabled:${SPACE}`) ?? []).toEqual([]);
+    service.setEnabled(SPACE, "mac", false);
+    expect(settings.get(`skills.disabled:${SPACE}`)).toEqual(["mac"]);
+    expect(settings.get(`skills.external:${SPACE}`)).toEqual(["agents.apple-design"]);
+  });
+
+  it("enables per SPACE, never globally", () => {
+    skill(agentsDir(), "apple-design");
+    service.setEnabled("spc_a", "agents.apple-design", true);
+    expect(byId("agents.apple-design", "spc_a").enabled).toBe(true);
+    expect(byId("agents.apple-design", "spc_b").enabled).toBe(false);
+  });
+
+  it("routes a toggle for a skill that is not on disk right now by its prefix, so the preference survives", () => {
+    skill(agentsDir(), "apple-design");
+    service.setEnabled(SPACE, "agents.apple-design", true);
+    rmSync(join(agentsDir(), "apple-design"), { recursive: true, force: true });
+    expect(ids()).toEqual([]);
+    // Put it back: still on. The mutant is routing an unknown id to the library's disabled-set, which
+    // would silently drop the preference on the floor.
+    skill(agentsDir(), "apple-design");
+    expect(byId("agents.apple-design").enabled).toBe(true);
+  });
+
+  it("stages an enabled discovered skill by symlink, writing nothing into the directory it came from", () => {
+    skill(agentsDir(), "apple-design");
+    service.setEnabled(SPACE, "agents.apple-design", true);
+    const injection = service.injectionFor(SPACE, "claude");
+    expect(injection).not.toBeNull();
+    // The staged name is the qualified id, and it resolves back to the user's own untouched directory.
+    expect(readdirSync(injection!.root)).toEqual(["agents.apple-design"]);
+    expect(realpathSync(join(injection!.root, "agents.apple-design"))).toBe(realpathSync(join(agentsDir(), "apple-design")));
+    // Nothing was added to the source folder — no marker, no copy, no plugin manifest.
+    expect(readdirSync(join(agentsDir(), "apple-design"))).toEqual(["SKILL.md"]);
+  });
+
+  it("does not stage a discovered skill that was never switched on", () => {
+    skill(agentsDir(), "apple-design");
+    expect(service.injectionFor(SPACE, "claude")).toBeNull();
+  });
+
+  it("reports every root it read, with what each contributed", () => {
+    skill(service.root, "mac");
+    skill(agentsDir(), "apple-design");
+    const sources = service.sources(SPACE);
+    expect(sources.map((s) => [s.key, s.count])).toEqual([["library", 1], ["agents", 1]]);
+    // Only a user-added folder is the user's to remove; the rest are facts about the machine.
+    expect(sources.every((s) => !s.removable)).toBe(true);
+  });
+
+  it("adds and removes a scan folder, and refuses one that is relative or absent", () => {
+    const extra = join(home, "elsewhere");
+    skill(extra, "custom");
+    service.addScanRoot(extra);
+    expect(ids()).toEqual(["elsewhere.custom"]);
+    expect(service.sources(SPACE).find((s) => s.key === "elsewhere")?.removable).toBe(true);
+    service.removeScanRoot(extra);
+    expect(ids()).toEqual([]);
+    expect(() => service.addScanRoot("relative/path")).toThrow(RpcError);
+    expect(() => service.addScanRoot(join(home, "nope"))).toThrow(RpcError);
+  });
+
+  it("re-reads a SKILL.md that changed on disk, and does not re-parse one that did not", () => {
+    // The memo is keyed on the file's own mtime and size, so an edit in Finder is visible at once —
+    // the property the library has always had and the reason the class refused a broader cache.
+    skill(agentsDir(), "note");
+    expect(byId("agents.note").description).toBe("does note.");
+    writeFileSync(join(agentsDir(), "note", "SKILL.md"), `---
+name: note
+description: rewritten.
+---
+`);
+    expect(byId("agents.note").description).toBe("rewritten.");
+  });
+
+  it("sees a skill dropped into a folder between two calls — enumeration is never memoized", () => {
+    expect(ids()).toEqual([]);
+    skill(agentsDir(), "fresh");
+    expect(ids()).toEqual(["agents.fresh"]);
   });
 });

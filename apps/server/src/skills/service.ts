@@ -1,7 +1,8 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENT_SKILL_SUPPORT, ItemScopeSchema, LEGACY_SPACE_SCOPE, SkillIdSchema, type AgentKind, type ItemScope, type Skill } from "@realm/contracts";
+import { scan, scanRoots as buildScanRoots, tildify, type Discovered, type ScanRoot } from "./discovery";
 import type { SkillsInjection } from "@realm/adapters";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
@@ -17,6 +18,21 @@ const stageRoot = (home: string): string => join(home, ".cache", "skills");
 /** Per-space disabled ids. Storing the *disabled* set rather than the enabled one is what makes a skill
  *  the user drops into the folder work immediately instead of being invisible until they find a toggle. */
 const disabledKey = (spaceId: string): string => `skills.disabled:${spaceId}`;
+
+/**
+ * Per-space ENABLED ids, for skills discovered outside `~/Realm/skills`.
+ *
+ * The opposite polarity to `disabledKey`, and deliberately so. A skill the user drops into Realm's own
+ * folder is a skill they chose, so default-on is right there. The directories Realm now also reads hold
+ * 134 skills on this machine that the user installed for other tools and at other times; default-on
+ * there would not be a library, it would be every agent in every space started with 134 descriptions it
+ * never asked for. Opt-in is the only polarity that scales with someone else's folder.
+ */
+const externalEnabledKey = (spaceId: string): string => `skills.external:${spaceId}`;
+
+/** User-added directories to scan, absolute paths, global (not per-space): the question "where do I
+ *  keep skills" is about the machine, not about one space. */
+const SCAN_ROOTS_KEY = "skills.scanRoots";
 /** Bundled ids already installed once. Install-once, not sync: a bundled skill the user deletes stays
  *  deleted, and a bundled skill the user edits is never overwritten from under them. */
 const INSTALLED_KEY = "skills.bundledInstalled";
@@ -72,8 +88,58 @@ export class SkillsService {
     /** W2: space → profile, for scope resolution. Optional like `McpService.scopes`: unwired, every
      *  space reads as profile-less, profile-scoped skills apply nowhere, pre-scoping skills everywhere. */
     scopes?: { profileIdOf(spaceId: string): string | null };
+    /** The space's own folder, for project-level skill roots (`<folder>/.claude/skills` and friends).
+     *  Optional on the same terms as `scopes`: unwired, no space contributes project roots and the
+     *  scan is the user- and plugin-level one. Never a reason to fail a list. */
+    spaces?: { folderPathOf(spaceId: string): string | null };
   }) {
     this.root = skillsRoot(d.home);
+  }
+
+  /**
+   * Parsed `SKILL.md` metadata, keyed by path and validated by the file's own mtime and size.
+   *
+   * The expensive half of a list is READING a hundred `SKILL.md` files, not enumerating the ten
+   * directories they sit in — and `SearchService.skills` calls `list` once per space in a loop. So the
+   * enumeration is redone every single call (which is what keeps a folder dropped into Finder visible
+   * immediately, the property the library has always had) and only the parse is memoized, against a
+   * stamp that changes whenever the file does.
+   *
+   * This is the narrow version of the cache the original comment on this class refused: it cannot be
+   * wrong about which skills exist, only about the contents of a file that has not been touched.
+   */
+  private parsed = new Map<string, { mtimeMs: number; size: number; meta: ParsedMeta }>();
+
+  /** Drop the memo. Called whenever Realm changes what a scan would find. */
+  invalidate(): void { this.parsed.clear(); }
+
+  /** Every skill directory visible to this space, deduped by realpath. Enumerated fresh each call. */
+  private discover(spaceId: string | null): { entries: Discovered[]; roots: ScanRoot[] } {
+    const projectDir = spaceId ? this.d.spaces?.folderPathOf(spaceId) ?? null : null;
+    const roots = buildScanRoots({ home: this.d.home, libraryRoot: this.root, projectDir, extraRoots: this.scanRoots() });
+    return { entries: scan(roots), roots };
+  }
+
+  /** The user's extra scan directories, absolute paths only, in the order they were added. */
+  scanRoots(): string[] {
+    return readIds(this.d.settings, SCAN_ROOTS_KEY);
+  }
+
+  /** Add a directory to scan. Idempotent, and it refuses a relative path — that would resolve against
+   *  the server's cwd, which is not a directory the user picked or can see. */
+  addScanRoot(path: string): void {
+    if (!isAbsolute(path)) throw new RpcError("BAD_REQUEST", "a scan directory must be an absolute path");
+    if (!existsSync(path)) throw new RpcError("NOT_FOUND", `no directory at ${path}`);
+    const current = this.scanRoots();
+    if (!current.includes(path)) this.d.settings.set(SCAN_ROOTS_KEY, [...current, path]);
+    this.invalidate();
+  }
+
+  /** Remove a scan directory. The skills under it vanish from every list; their enabled entries are
+   *  left alone, so re-adding the directory restores exactly what was on. */
+  removeScanRoot(path: string): void {
+    this.d.settings.set(SCAN_ROOTS_KEY, this.scanRoots().filter((p) => p !== path));
+    this.invalidate();
   }
 
   /** The stored scope map, entries validated individually — one corrupt entry costs that entry its
@@ -112,7 +178,7 @@ export class SkillsService {
     const scope = this.scopeOf(id);
     if (scope.kind === "profile") throw new RpcError("SCOPE_MISMATCH", `skill "${id}" is already profile-scoped`);
     if (!this.appliesTo(scope, spaceId)) throw new RpcError("SCOPE_MISMATCH", `skill "${id}" is not defined in this space`);
-    if (!this.dirNames(this.root).includes(id)) throw new RpcError("NOT_FOUND", `skill "${id}" is not in the library`);
+    if (!this.discover(spaceId).entries.some((e) => e.id === id)) throw new RpcError("NOT_FOUND", `skill "${id}" is not in this space's skills`);
     const profileId = this.d.scopes?.profileIdOf(spaceId) ?? null;
     if (!profileId) throw new RpcError("SCOPE_MISMATCH", `space ${spaceId} has no profile to promote into`);
     this.setScope(id, { kind: "profile", profileId });
@@ -155,6 +221,7 @@ export class SkillsService {
       catch (e) { console.error(`[skills] could not install bundled skill ${id}: ${e instanceof Error ? e.message : String(e)}`); }
     }
     this.d.settings.set(INSTALLED_KEY, [...already].sort());
+    this.invalidate(); // a freshly copied skill must not wait out the memo before it can be listed
     return installed;
   }
 
@@ -170,18 +237,60 @@ export class SkillsService {
    */
   list(spaceId: string): { root: string; skills: Skill[] } {
     const disabled = new Set(readIds(this.d.settings, disabledKey(spaceId)));
+    const external = new Set(readIds(this.d.settings, externalEnabledKey(spaceId)));
     const scopes = this.scopeMap();
-    const skills = this.dirNames(this.root)
-      .filter((id) => this.appliesTo(scopes[id] ?? LEGACY_SPACE_SCOPE, spaceId))
-      .map((id) => this.read(id, !disabled.has(id), scopes[id] ?? LEGACY_SPACE_SCOPE));
+    const skills = this.discover(spaceId).entries
+      .filter((e) => this.appliesTo(scopes[e.id] ?? LEGACY_SPACE_SCOPE, spaceId))
+      // The two polarities meet here and nowhere else: library skills are on unless disabled, everything
+      // discovered elsewhere is off unless enabled. See `externalEnabledKey` for why they differ.
+      .map((e) => this.read(e, e.origin.kind === "library" ? !disabled.has(e.id) : external.has(e.id), scopes[e.id] ?? LEGACY_SPACE_SCOPE));
     return { root: this.root, skills };
   }
 
+  /**
+   * Every root this space scans, for the panel that lets the user see and edit them. `count` is what
+   * the last scan actually found under each — a root that contributes nothing is far more useful shown
+   * with a zero than omitted, because "I added that directory and nothing appeared" is the question.
+   */
+  sources(spaceId: string): Array<{ kind: ScanRoot["kind"]; key: string; label: string; path: string; count: number; removable: boolean }> {
+    const { entries, roots } = this.discover(spaceId);
+    const counts = new Map<string, number>();
+    for (const e of entries) counts.set(e.origin.key, (counts.get(e.origin.key) ?? 0) + 1);
+    return roots.map((r) => ({
+      kind: r.kind, key: r.key, label: r.label, path: r.path,
+      count: counts.get(r.key) ?? 0,
+      // Only what the user added by hand can be taken away by hand. The library and the agent
+      // directories are facts about the machine; a "remove" on them would be a lie about what Realm reads.
+      removable: r.kind === "extra",
+    }));
+  }
+
+  /**
+   * Flip one skill for one space. Which of the two keys it writes follows the skill's ORIGIN, not the
+   * caller — the caller only ever says on or off, and "on" means the opposite stored fact for a library
+   * skill (absent from the disabled-set) than for an installed one (present in the enabled-set).
+   *
+   * An id the current scan cannot place is still accepted, as it always has been: a skill can be
+   * removed from disk and put back, and the preference has to survive that. It is routed by its
+   * prefix instead — `agents.foo` against a live `agents` root is external, anything else is the
+   * library — so a missing skill's toggle lands in the same key it will be read from when it returns.
+   */
   setEnabled(spaceId: string, id: string, enabled: boolean): void {
-    const key = disabledKey(spaceId);
-    const disabled = new Set(readIds(this.d.settings, key));
-    if (enabled) disabled.delete(id); else disabled.add(id);
-    this.d.settings.set(key, [...disabled].sort());
+    const found = this.discover(spaceId).entries.find((e) => e.id === id);
+    const isLibrary = found
+      ? found.origin.kind === "library"
+      : !this.discover(spaceId).roots.some((r) => r.kind !== "library" && id.startsWith(`${r.key}.`));
+    if (isLibrary) {
+      const key = disabledKey(spaceId);
+      const disabled = new Set(readIds(this.d.settings, key));
+      if (enabled) disabled.delete(id); else disabled.add(id);
+      this.d.settings.set(key, [...disabled].sort());
+    } else {
+      const key = externalEnabledKey(spaceId);
+      const on = new Set(readIds(this.d.settings, key));
+      if (enabled) on.add(id); else on.delete(id);
+      this.d.settings.set(key, [...on].sort());
+    }
   }
 
   /**
@@ -257,20 +366,42 @@ export class SkillsService {
   }
 
   /** One directory. Every failure below produces a listed-but-invalid skill, never an exception. */
-  private read(id: string, enabled: boolean, scope: ItemScope): Skill {
-    const path = join(this.root, id, "SKILL.md");
-    const invalid = (reason: string): Skill => ({ id, name: id, description: "", path, enabled, valid: false, reason, scope });
-    let text: string;
-    try { text = readFileSync(path, "utf8"); }
-    catch { return invalid("no SKILL.md in this directory"); }
-    const fm = parseFrontmatter(text);
-    if (!fm) return invalid("SKILL.md has no `---` frontmatter block");
-    const name = fm.name?.trim() ?? "";
-    const description = fm.description?.trim() ?? "";
-    if (!name) return invalid("frontmatter has no `name`");
-    // Every agent decides whether to invoke a skill from its description alone, so one without a
-    // description is not a skill that works badly — it is a skill that never runs.
-    if (!description) return invalid("frontmatter has no `description`");
-    return { id, name, description, path, enabled, valid: true, reason: null, scope };
+  private read(e: Discovered, enabled: boolean, scope: ItemScope): Skill {
+    const path = join(e.dir, "SKILL.md");
+    const meta = this.meta(path, e.dirName);
+    return { id: e.id, ...meta, path, enabled, scope, origin: e.origin };
   }
+
+  /** `SKILL.md`'s frontmatter, from the memo when the file has not changed since it was last parsed. */
+  private meta(path: string, dirName: string): ParsedMeta {
+    let stamp: { mtimeMs: number; size: number };
+    try { const st = statSync(path); stamp = { mtimeMs: st.mtimeMs, size: st.size }; }
+    catch { this.parsed.delete(path); return invalidMeta(dirName, "no SKILL.md in this directory"); }
+    const hit = this.parsed.get(path);
+    if (hit && hit.mtimeMs === stamp.mtimeMs && hit.size === stamp.size) return hit.meta;
+    const meta = parseMeta(path, dirName);
+    this.parsed.set(path, { ...stamp, meta });
+    return meta;
+  }
+}
+
+/** The part of a `Skill` that comes out of the file itself — everything else is per-space or per-scan. */
+type ParsedMeta = Pick<Skill, "name" | "description" | "valid" | "reason">;
+
+const invalidMeta = (dirName: string, reason: string): ParsedMeta =>
+  ({ name: dirName, description: "", valid: false, reason });
+
+function parseMeta(path: string, dirName: string): ParsedMeta {
+  let text: string;
+  try { text = readFileSync(path, "utf8"); }
+  catch { return invalidMeta(dirName, "no SKILL.md in this directory"); }
+  const fm = parseFrontmatter(text);
+  if (!fm) return invalidMeta(dirName, "SKILL.md has no `---` frontmatter block");
+  const name = fm.name?.trim() ?? "";
+  const description = fm.description?.trim() ?? "";
+  if (!name) return invalidMeta(dirName, "frontmatter has no `name`");
+  // Every agent decides whether to invoke a skill from its description alone, so one without a
+  // description is not a skill that works badly — it is a skill that never runs.
+  if (!description) return invalidMeta(dirName, "frontmatter has no `description`");
+  return { name, description, valid: true, reason: null };
 }

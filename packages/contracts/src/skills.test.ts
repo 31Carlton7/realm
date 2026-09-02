@@ -26,8 +26,11 @@ describe("skillSupportNote", () => {
   });
 
   it("says out loud that an unsupported agent will not see the library", () => {
-    expect(skillSupportNote("acp:cursor")).toMatch(/will not see this library/);
-    expect(skillSupportNote("claude")).toMatch(/your own installed skills are left out/);
+    expect(skillSupportNote("acp:cursor")).toMatch(/will not see these skills/);
+    // The injected note has to keep saying the set is CLOSED ("and only those") — that is the
+    // isolation disclosure. What discovery changed is that the user's own skills can now be inside it.
+    expect(skillSupportNote("claude")).toMatch(/and only those/);
+    expect(skillSupportNote("claude")).toMatch(/your own installed directories/);
   });
 });
 
@@ -44,9 +47,12 @@ describe("SkillIdSchema", () => {
 describe("SkillSchema", () => {
   it("round-trips a listed skill and requires a reason slot even when valid", () => {
     const s = { id: "mac", name: "mac", description: "d", path: "/x/mac/SKILL.md", enabled: true, valid: true, reason: null,
-      scope: { kind: "space" as const, spaceId: null } };
+      scope: { kind: "space" as const, spaceId: null },
+      origin: { kind: "library" as const, key: "library", label: "Realm library", root: "/x" } };
     expect(SkillSchema.parse(s)).toEqual(s);
     expect(SkillSchema.safeParse({ ...s, reason: undefined }).success).toBe(false);
+    // Origin is not optional: a row with no origin could not be grouped, and every caller now asks.
+    expect(SkillSchema.safeParse({ ...s, origin: undefined }).success).toBe(false);
   });
 });
 

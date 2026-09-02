@@ -141,6 +141,14 @@ export function registerMethods(d: Deps): void {
     skillsScopeChanged();
     return { ok: true as const };
   });
+  reg("skills.sources", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return { sources: d.skills.sources(p.spaceId) };
+  });
+  // Scan roots are machine-global, so adding or dropping one changes what EVERY space can list —
+  // the same "tell them all" rule promote/demote already follows, for the same reason.
+  reg("skills.addScanRoot", (p) => { d.skills.addScanRoot(p.path); skillsScopeChanged(); return { ok: true as const }; });
+  reg("skills.removeScanRoot", (p) => { d.skills.removeScanRoot(p.path); skillsScopeChanged(); return { ok: true as const }; });
 
   // Every one of these checks the space exists first, for the same reason the skills pair does: the
   // enable set is keyed by space id, so a typo would silently read and write preferences for a space

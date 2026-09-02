@@ -1,9 +1,10 @@
 import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, acpPlanMode, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
+import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
 import { continueList, highlightSegments, indentList, toggleList, type DraftEdit } from "./draft-format";
@@ -128,25 +129,34 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
 /**
  * The "+" menu (Plan 12 W1): the plus stops being a bare file-picker trigger and becomes the row's
  * add-anything menu — files (⌘U, bound in hotkeys.ts; the label here is purely visual), a folder,
- * skills (priming the @-mention picker — never a second picker), and the space's connectors.
+ * skills, and the space's connectors.
+ *
+ * Skills opens the `SkillPicker` (W-discovery) rather than priming the `@`-mention popover as it first
+ * did. Priming could only ever offer skills that were ALREADY on, which on a machine with a hundred
+ * installed made the one menu item named "Skills" the one place that could not show them.
  *
  * The Connectors "submenu" is the same Menu swapped in place (`keepOpen` + a keyed remount so the
  * upward placement re-measures for the new height) — the two-step idiom the menu machinery already
  * carries, not a hover-submenu invented for one item. No Plugins item: Realm has no plugin system,
  * and the plan refuses menu parity over honesty.
  */
-function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, connectors, onOpened, onManageConnections }: {
+function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, connectors, onOpened, onManageConnections, btnRef }: {
   onAttachPick: () => void; onAddFolder: () => void;
-  /** Prime the @-mention picker. Offered only when `canSkills` — an item that would silently do
-   *  nothing (a Cursor session, an empty library) is never grown. */
+  /** Open the skill picker. Offered only when `canSkills` — an item that would silently do nothing
+   *  (a Cursor session, a machine with no skills anywhere) is never grown. */
   onSkills: () => void; canSkills: boolean;
   /** The space's servers, or null when the cache has never been fetched (rendered as loading). */
   connectors: McpServer[] | null;
   /** Fired on open — the store re-reads its cache (a row read, never a probe). */
   onOpened: () => void;
   onManageConnections: () => void;
+  /** The plus button itself, so the Composer can anchor the skill picker on it. Shared rather than
+   *  wrapped: the control row's left group is asserted by DOM order, and a wrapper element would be a
+   *  new child of it. */
+  btnRef?: RefObject<HTMLButtonElement | null>;
 }) {
-  const btn = useRef<HTMLButtonElement>(null);
+  const ownBtn = useRef<HTMLButtonElement>(null);
+  const btn = btnRef ?? ownBtn;
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"root" | "connectors">("root");
   const enabled = (connectors ?? []).filter((s) => s.enabled);
@@ -222,7 +232,7 @@ function planMeaning(kind: AgentKind, acpPlan: AcpSessionMode | null): string {
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter" }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -254,6 +264,13 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  Realm can inject skills into. Empty (the default) means typing `@` opens nothing, which is how a
    *  Cursor session never grows an affordance that would silently do nothing. */
   mentionSkills?: Skill[];
+  /** Every skill visible to this space — enabled or not — for the "+ → Skills" picker. `mentionSkills`
+   *  stays the ENABLED subset, because that is what an `@` in the draft can actually resolve to. */
+  allSkills?: Skill[];
+  /** Turn a skill on or off for this space, from the picker. */
+  onToggleSkill?: (id: string, enabled: boolean) => void;
+  /** Open the space's skills settings (scan folders, per-agent notes). */
+  onManageSkills?: () => void;
   /** Recognised mentions still in the draft whose skill has since been disabled or deleted — shown in
    *  the warning tone, because at send they degrade to plain text (the `@` stripped) and do not invoke. */
   staleMentions?: string[];
@@ -365,6 +382,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // restores the mention with it.
   const [caret, setCaret] = useState(0);
   const [mentionActive, setMentionActive] = useState(0);
+  // The "+ → Skills" picker. Anchored on the plus itself, so it opens over the button the user pressed.
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const plusRef = useRef<HTMLButtonElement>(null);
   /** Token start Esc was pressed on: that token stays closed until it is left or retyped. */
   const [mentionDismissed, setMentionDismissed] = useState<number | null>(null);
   /** Where the selection belongs after a pick or a list edit rewrites the draft; applied once the new
@@ -404,13 +424,16 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** The "+" menu's Skills item: prime the @-mention picker — insert `@` at the caret (led by a space
    *  when it would otherwise glue onto a word, a shape mentionQueryAt refuses as an email) and put the
    *  caret after it; the existing picker takes over. Deliberately not a second picker. */
-  const primeSkills = () => {
+  /** Insert `@<id>` at the caret, the same shape `pickMention` leaves behind — so a skill added from
+   *  the picker and one completed by typing `@` produce byte-identical drafts. */
+  const insertMention = (id: string) => {
     const pos = Math.min(caret, draft.length);
-    const insert = (pos > 0 && !/\s/.test(draft[pos - 1]!) ? " " : "") + "@";
+    const lead = pos > 0 && !/\s/.test(draft[pos - 1]!) ? " " : "";
+    const trail = /^\s/.test(draft.slice(pos)) ? "" : " ";
+    const insert = `${lead}@${id}${trail}`;
     onDraftChange(draft.slice(0, pos) + insert + draft.slice(pos));
     // the [draft] layout effect focuses the textarea here
     pendingSel.current = { start: pos + insert.length, end: pos + insert.length };
-    setMentionActive(0);
   };
 
   // ── Under-strip (Plan 12 W1): machine label + workspace selector ───────
@@ -561,15 +584,22 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             onPick={pickMention} onHover={setMentionActive}
             onClose={() => setMentionDismissed(mentionToken.start)} />
         )}
+        {skillPickerOpen && (
+          <SkillPicker skills={allSkills} anchorRef={plusRef}
+            onToggle={(sk, enabled) => onToggleSkill?.(sk.id, enabled)}
+            onMention={(sk) => insertMention(sk.id)}
+            onManage={() => onManageSkills?.()}
+            onClose={() => setSkillPickerOpen(false)} />
+        )}
         {dragDepth > 0 && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
         <div className="composer-bar">
           <div className="composer-opts" ref={optsRef} data-collapsed={collapsed || undefined}>
             {/* The "+" opens the add menu now (Plan 12 W1) — its Add files… reaches the SAME picker
                 through the same handler the bare attach button used to call directly. */}
             <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()}
-              onSkills={primeSkills} canSkills={mentionSkills.length > 0}
+              onSkills={() => setSkillPickerOpen(true)} canSkills={allSkills.length > 0}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
-              onManageConnections={() => onManageConnections?.()} />
+              onManageConnections={() => onManageConnections?.()} btnRef={plusRef} />
             {/* Left group order (prompter rework): "+" · permission · mode · branch. The permission
                 and mode chips sit against the attach button; the git chip trails them. */}
             {/* In Plan the permission mode is not in effect — Claude's `plan` replaces it outright and

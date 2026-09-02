@@ -232,6 +232,46 @@ kbd { font: 11px var(--font-mono); }
 .mention-row-id { flex: none; font-family: var(--font-mono); font-size: 12px; font-weight: 550; color: var(--rl-text-bright); }
 .mention-row-desc { flex: 1; min-width: 0; font-size: 11.5px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ── Skill picker ("+" → Skills): search over every skill on the machine ──
+   Same popover shell as the model picker (surface, radius, raised shadow, hairline-under-search): the
+   two are the same gesture on the same row, and a second visual idiom for it would be noise. What it
+   adds is a group header per source directory and a switch per row, because unlike a model a skill has
+   an on/off that persists past this message. */
+
+.skill-picker { z-index: 100; width: min(420px, 88vw); display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
+.skill-picker-search { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
+.skill-picker-search-glyph { flex: none; }
+.skill-picker-input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
+.skill-picker-input::placeholder { color: var(--rl-text-faint); }
+.skill-picker-count { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.skill-picker-list { flex: 1; min-height: 0; max-height: min(46vh, 340px); overflow-y: auto; padding: 6px; }
+.skill-picker-group + .skill-picker-group { margin-top: 6px; }
+.skill-picker-group-label { padding: 5px 8px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--rl-text-faint); }
+.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
+  transition: background-color 100ms ease; }
+.skill-picker-row[data-active] { background: var(--hover); }
+.skill-picker-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.skill-picker-row-id { font-family: var(--font-mono); font-size: 12px; font-weight: 550; color: var(--rl-text-bright);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-picker-row-desc { font-size: 11.5px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-picker-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
+.skill-picker-manage { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); text-align: left;
+  font-size: 12px; color: var(--rl-text-dim); transition: color 100ms ease; }
+.skill-picker-manage:hover { color: var(--rl-text-bright); }
+
+/* ── Skills settings: search/filter bar and the per-source groups ── */
+.skills-filter { display: flex; align-items: center; gap: 8px; padding: 6px 9px; margin-bottom: 6px;
+  border: 1px solid var(--rl-line); border-radius: var(--r-ctl); background: var(--rl-panel); color: var(--rl-text-faint); }
+.skills-filter-glyph { flex: none; }
+.skills-filter-input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
+.skills-filter-input::placeholder { color: var(--rl-text-faint); }
+.skills-filter-toggle { flex: none; display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--rl-text-dim); cursor: pointer; }
+.skills-origin-group { margin-top: 10px; }
+.skills-origin-label { padding: 0 0 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--rl-text-faint); }
+
 /* ── Model picker (prompter): search + provider rail + (agent, model) rows ── */
 .model-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
