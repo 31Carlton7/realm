@@ -173,6 +173,15 @@ export type Api = {
   tccProbe(): Promise<TccRow[]>;
   /** Deep-link one permission row's System Settings pane. Takes the ROW id; main owns the URLs. */
   openTccPane(pane: string): Promise<void>;
+  /** `mac doctor` through main — the prompt-free audit behind the "Apps on this Mac" rows. */
+  macAccessStatus(): Promise<MacAccessStatus>;
+  /** Raise ONE capability's macOS prompt and resolve the re-read audit. Unlike every other Api
+   *  method this one is expected to sit pending: the child blocks in the consent dialog until the
+   *  user clicks. Takes a CAPABILITY id; main owns the command. */
+  macAccessGrant(id: string): Promise<MacAccessStatus>;
+  macAccessOpenSettings(id: string): Promise<void>;
+  /** Select Realm's .app in Finder — the start of the drag into Full Disk Access. */
+  macAccessRevealApp(): Promise<void>;
   /** The Updates row's state (Plan 15 W1) — main-process IPC. The gate lives in main (updater.ts):
    *  a gated build answers `disabled` with its reason, and `checkUpdates` on such a build returns
    *  that same state rather than pretending to check. */
@@ -434,6 +443,17 @@ export type AppState = {
   /** The Permissions tab's TCC rows, exactly as main's prompt-free probe reported them; null until
    *  the tab first probes. Never synthesised client-side — a row with no probe basis says so. */
   tccRows: TccRow[] | null;
+  /** The `mac` CLI's access, exactly as `mac doctor` reported it through main; null until the
+   *  Permissions tab first asks. Never synthesised client-side: an audit that could not run comes
+   *  back with every row `unknown`, which is what "we don't know" looks like. */
+  macAccess: MacAccessStatus | null;
+  /** The capability whose macOS dialog is up right now (a "Grant all" run walks these one at a
+   *  time), or null. Drives the row spinner AND the interlock that stops a second prompt racing the
+   *  first — macOS shows one consent dialog at a time, and two in flight lose an answer. */
+  macGranting: string | null;
+  /** The ids a "Grant all" run still has to reach, so the page can say "3 of 11" honestly rather
+   *  than showing an unattributed spinner. Empty when no run is in flight. */
+  macGrantQueue: string[];
   /** The Updates row's state (Plan 15 W1), exactly as main's gated updater reported it; null until
    *  the App tab first asks. A disabled state renders its reason — never a dead button. */
   updateStatus: UpdateStatus | null;
@@ -811,6 +831,17 @@ export type AppState = {
   refreshTcc(): Promise<void>;
   /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
   openTccPane(pane: string): Promise<void>;
+  /** Re-run `mac doctor` into `macAccess`. Prompt-free, so the tab may call it freely. */
+  refreshMacAccess(): Promise<void>;
+  /** Raise ONE capability's prompt. A no-op while another prompt is up (macOS shows one dialog at
+   *  a time) and on any row that cannot be prompted — the page never asks for what cannot be asked. */
+  grantMacAccess(id: string): Promise<void>;
+  /** Walk every promptable row in order, one dialog at a time. Granted, denied and prompt-less rows
+   *  are skipped — asking there is impossible or guaranteed to fail — and the page names what was
+   *  left for System Settings rather than letting a short run read as full coverage. */
+  grantAllMacAccess(): Promise<void>;
+  openMacAccessPane(id: string): Promise<void>;
+  revealRealmApp(): Promise<void>;
   /** Fetch the Updates row's current state from main's gated updater into `updateStatus`. */
   refreshUpdateStatus(): Promise<void>;
   /** Run a real update check (or receive the disabled state unchanged — main's gate decides).
@@ -1194,7 +1225,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, macAccess: null, macGranting: null, macGrantQueue: [], updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -2118,6 +2149,37 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
       async openTccPane(pane) { await api.openTccPane(pane); },
+
+      async refreshMacAccess() { set({ macAccess: await api.macAccessStatus() }); },
+      async grantMacAccess(id) {
+        // The interlock: macOS puts up one consent dialog at a time, so a second grant fired while
+        // the first is pending would either queue invisibly or lose the user's answer.
+        if (get().macGranting !== null) return;
+        // Only rows that CAN be prompted — a denied row's dialog will never appear (denials are
+        // sticky), and Full Disk Access has no dialog at all.
+        if (!get().macAccess?.rows.find((r) => r.id === id)?.canPrompt) return;
+        set({ macGranting: id });
+        try { set({ macAccess: await api.macAccessGrant(id) }); }
+        finally { set({ macGranting: null }); }
+      },
+      async grantAllMacAccess() {
+        if (get().macGranting !== null || get().macGrantQueue.length > 0) return;
+        // The plan is computed ONCE, from the audit as it stands: each grant re-reads the whole
+        // audit, and recomputing from that would let a row that answers "denied" be retried forever.
+        const queue = (get().macAccess?.rows ?? []).filter((r) => r.canPrompt).map((r) => r.id);
+        set({ macGrantQueue: queue });
+        try {
+          for (const id of queue) {
+            set({ macGranting: id });
+            // One failed prompt must not abandon the rest of the walk — the next capability is
+            // still worth asking about, and the re-read audit will show what actually happened.
+            try { set({ macAccess: await api.macAccessGrant(id) }); } catch { /* recorded in the audit */ }
+            set({ macGranting: null });
+          }
+        } finally { set({ macGranting: null, macGrantQueue: [] }); }
+      },
+      async openMacAccessPane(id) { await api.macAccessOpenSettings(id); },
+      async revealRealmApp() { await api.macAccessRevealApp(); },
       async refreshUpdateStatus() { set({ updateStatus: await api.updateStatus() }); },
       async checkForUpdates() {
         const held = get().updateStatus;

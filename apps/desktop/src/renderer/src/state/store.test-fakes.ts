@@ -55,6 +55,21 @@ export const iconAsset = (id: string, profileId: string, extra: Partial<IconAsse
   ({ id, profileId, kind: "generated", mime: "image/svg+xml", dataText: `<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="20"/></svg>`,
     prompt: "a circle", createdAt: 0, ...extra });
 
+/** One "Apps on this Mac" row, with the derived flags set the way main/mac-access.ts sets them:
+ *  Full Disk Access never has a command, a granted row has nothing left to offer, and a DENIED row
+ *  offers System Settings but NOT a prompt — denials are sticky, so a Grant button there could not
+ *  work. Tests that assert on those flags are asserting on this rule. */
+export const macRow = (id: string, label: string, group: MacAccessRow["group"], state: MacAccessState): MacAccessRow => {
+  const hasCommand = group !== "disk";
+  return {
+    id, label, group, state, detail: `${label}: ${state}`,
+    grantCommand: hasCommand ? `mac ${label.toLowerCase()} list --json` : null,
+    canPrompt: hasCommand && state !== "granted" && state !== "denied",
+    needsSettings: state !== "granted" && (!hasCommand || state === "denied" || state === "writeOnly"),
+    launchesApp: group === "automation",
+  };
+};
+
 export type FakeData = {
   profiles?: Profile[]; spaces?: Space[];
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
@@ -104,6 +119,13 @@ export type FakeData = {
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
   tccRows?: TccRow[];
+  /** What `mac doctor` answers through main (the "Apps on this Mac" rows). Defaults to a machine
+   *  mid-setup: Calendar granted, Mail never asked, Reminders denied, Full Disk denied. */
+  macAccess?: MacAccessStatus;
+  /** How the user "answers" each capability's macOS dialog during a grant, by id. Anything not
+   *  named here is answered Allow — the fake's default is the happy path, and a test that cares
+   *  about a refusal says so. */
+  macGrantAnswers?: Record<string, "granted" | "denied">;
   /** What main's gated updater reports (Plan 15 W1). Defaults to today's shipped truth: a packaged
    *  local build is unsigned, so the row is disabled as "unsigned". Mutate between calls to script
    *  an enabled build's states. */
@@ -203,6 +225,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       { id: "accessibility", label: "Accessibility", state: "granted", detail: "macOS reports Realm as a trusted accessibility client." },
       { id: "fullDisk", label: "Full Disk Access", state: "denied", detail: "macOS refused Realm a file only Full Disk Access unlocks." },
     ],
+    macAccess: overrides.macAccess ?? {
+      cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },
+      host: { name: "Realm", bundlePath: "/Applications/Realm.app", packaged: true },
+      rows: [
+        macRow("calendar", "Calendar", "data", "granted"),
+        macRow("reminders", "Reminders", "data", "denied"),
+        macRow("automation:Mail", "Mail", "automation", "notRequested"),
+        macRow("fullDiskAccess", "Full Disk Access", "disk", "denied"),
+      ],
+    },
+    macGrantAnswers: overrides.macGrantAnswers ?? {},
     updateStatus: overrides.updateStatus ?? { version: "0.0.1", state: { kind: "disabled", reason: "unsigned" } },
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
@@ -498,6 +531,19 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     prefillTerminal: async (terminalId, command) => { calls.push(`prefillTerminal:${terminalId}=${command}`); },
     tccProbe: async () => { calls.push("tccProbe"); return [...data.tccRows]; },
     openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
+    macAccessStatus: async () => { calls.push("macAccessStatus"); return structuredClone(data.macAccess); },
+    /** Models the real thing: the prompt goes up, the user answers, and the WHOLE audit is re-read —
+     *  so what the store receives is the row's post-answer shape, never a client-side guess. */
+    macAccessGrant: async (id) => {
+      calls.push(`macAccessGrant:${id}`);
+      await wait(`macAccessGrant:${id}`);
+      const answer = data.macGrantAnswers[id] ?? "granted";
+      const rows = data.macAccess.rows.map((r) => (r.id === id ? macRow(r.id, r.label, r.group, answer) : r));
+      data.macAccess = { ...data.macAccess, rows };
+      return structuredClone(data.macAccess);
+    },
+    macAccessOpenSettings: async (id) => { calls.push(`macAccessOpenSettings:${id}`); },
+    macAccessRevealApp: async () => { calls.push("macAccessRevealApp"); },
     updateStatus: async () => { calls.push("updateStatus"); return { ...data.updateStatus }; },
     // Mirrors main's gate: a disabled updater answers its state unchanged — the fake never checks.
     checkUpdates: async () => {

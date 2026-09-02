@@ -1389,6 +1389,15 @@ button.panel-title:hover { background: var(--rl-hover); }
   font-size: 11px; background: var(--rl-hover); color: var(--rl-text-dim); }
 .tcc-state[data-state="granted"] { color: var(--rl-success); }
 .tcc-state[data-state="denied"] { color: var(--rl-warning); }
+/* "Apps on this Mac" (the grantable half of the Permissions tab). A row can carry two or three
+   actions — ask, open Settings, reveal the app — so they stack rather than fight for one line. */
+.mac-access-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 2px; }
+.mac-access-group { margin-top: 12px; }
+.mac-group-hint { margin-top: 2px; }
+.mac-row-actions { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 1px; }
+.mac-row-actions .btn-quiet { white-space: nowrap; }
+/* The command Realm is about to run, shown before it runs. */
+.mac-grant-cmd code { font: 10.5px var(--font-mono); color: var(--rl-text-bright); }
 .settings-page-pane .settings-tabs { max-width: 340px; }
 .settings-page-pane .bypass-confirm { align-self: flex-start; margin-top: 6px; text-align: left; }
 
