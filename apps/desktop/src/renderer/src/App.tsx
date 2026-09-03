@@ -6,6 +6,7 @@ import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
+import { SpaceOverview, useSpacesHotkey } from "./components/sidebar/SpaceOverview";
 import { PaneHost } from "./components/PaneHost";
 import { GroupBar } from "./components/GroupBar";
 import { Onboarding } from "./components/Onboarding";
@@ -134,6 +135,7 @@ export function Main() {
 export function App() {
   const store = useMemo(() => createAppStore(liveApi()), []);
   usePaletteHotkey(store);
+  useSpacesHotkey(store);
   useGlobalHotkeys(store);
   useEffect(() => {
     const s = store.getState();
@@ -255,6 +257,7 @@ export function App() {
       <ConnectionBanner />
       <SheetHost />
       <CommandPalette />
+      <SpaceOverview />
     </StoreContext.Provider>
   );
 }

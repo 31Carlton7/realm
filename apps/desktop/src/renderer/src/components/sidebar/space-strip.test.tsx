@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { SpaceStrip } from "./SpaceStrip";
 import { StoreContext, createAppStore, spaceBadge } from "../../state/store";
-import { fakeApi, session } from "../../state/store.test-fakes";
+import { fakeApi, session, space } from "../../state/store.test-fakes";
 
 async function mount(api = fakeApi()) {
   const store = createAppStore(api);
@@ -79,39 +79,61 @@ describe("SpaceStrip badges (U-H3)", () => {
   });
 });
 
-describe("SpaceStrip settings gear (U-M9, retargeted by W6)", () => {
-  const settingsItem = (store: { getState(): { items: { kind: string; id: string }[] } }) =>
-    store.getState().items.find((i) => i.kind === "settings-page");
-
-  it("opens the SETTINGS page, not the space page — the gear was overloaded (W3's interim wiring)", async () => {
-    const { store } = await mount();
-    expect(store.getState().activeSpaceId).toBe("s1");
-    const gear = screen.getByRole("button", { name: "Settings" });
-    expect(gear).toBeEnabled();
-    fireEvent.click(gear);
-    await waitFor(() => expect(settingsItem(store)).toBeDefined());
-    // The page is IN the layout, not merely created; it is a pane, never a sheet; and the SPACE page
-    // did not open — that one keeps its own entry points (header, palette "Open space").
-    expect(JSON.stringify(store.getState().layout)).toContain(settingsItem(store)!.id);
-    expect(store.getState().sheet).toBeNull();
-    expect(store.getState().items.find((i) => i.kind === "space-page")).toBeUndefined();
+describe("SpaceStrip profile scoping", () => {
+  const twoProfiles = () => fakeApi({
+    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Thesis")],
+    items: { s1: [], s2: [], s3: [] },
   });
 
-  it("lands the page in the ACTIVE space's layout, and is disabled with no space at all", async () => {
-    const { store, api } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
-    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await waitFor(() => expect(settingsItem(store)).toBeDefined());
-    // The item row lives in s2 — the space that was active under the click.
-    expect((api.data.items.s2 ?? []).some((i) => i.kind === "settings-page")).toBe(true);
-    expect((api.data.items.s1 ?? []).some((i) => i.kind === "settings-page")).toBe(false);
+  it("shows only the ACTIVE profile's spaces, and follows the active space across a profile change", async () => {
+    const { store } = await mount(twoProfiles());
+    expect(screen.getByRole("button", { name: /switch to space Versed/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /switch to space Homework/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /switch to space Thesis/i })).toBeNull();
+    await act(async () => { await store.getState().selectSpace("s3"); });
+    expect(screen.getByRole("button", { name: /switch to space Thesis/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /switch to space Versed/i })).toBeNull();
+  });
 
-    const empty = await mount(fakeApi({ spaces: [], items: {} }));
-    expect(empty.store.getState().activeSpaceId).toBeNull();
-    const gears = screen.getAllByRole("button", { name: "Settings" });
-    expect(gears.at(-1)).toBeDisabled();
-    fireEvent.click(gears.at(-1)!);
-    expect(empty.store.getState().items).toEqual([]);
+  it("the chip names the active profile and switches to another profile's remembered space", async () => {
+    const { store } = await mount(twoProfiles());
+    expect(screen.getByRole("button", { name: "Profile: Work" })).toBeInTheDocument();
+    // Go to School and back, so p1 has a remembered space that is NOT its first.
+    await act(async () => { await store.getState().selectSpace("s2"); });
+    await act(async () => { await store.getState().selectSpace("s3"); });
+    expect(screen.getByRole("button", { name: "Profile: School" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Profile: School" }));
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /Work/ }));
+    // Where it left off (s2), not p1's first space — the named mutant is falling back to spaces[0].
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+  });
+
+  it("a profile with no spaces is listed but not selectable — there would be nothing to land on", async () => {
+    const { store } = await mount(); // p2 "School" is empty in the default fixture
+    fireEvent.click(screen.getByRole("button", { name: "Profile: Work" }));
+    const school = await screen.findByRole("menuitemcheckbox", { name: /School \(empty\)/ });
+    expect(school).toBeDisabled();
+    fireEvent.click(school);
+    expect(store.getState().activeSpaceId).toBe("s1");
+  });
+
+  it("a drag reorders WITHIN the profile and leaves every other profile's order untouched", async () => {
+    const api = twoProfiles();
+    const { store } = await mount(api);
+    const versed = screen.getByRole("button", { name: /switch to space Versed/i });
+    const homework = screen.getByRole("button", { name: /switch to space Homework/i });
+    const dt = { effectAllowed: "", setData: () => {}, getData: () => "s1" };
+    fireEvent.dragStart(versed, { dataTransfer: dt });
+    fireEvent.dragOver(homework, { dataTransfer: dt });
+    fireEvent.drop(homework, { dataTransfer: dt });
+    // s3 keeps its slot: the named mutant is concatenating the profile's spaces onto the front of
+    // the list, which silently resequences every other profile.
+    await waitFor(() => expect(store.getState().spaces.map((sp) => sp.id)).toEqual(["s2", "s1", "s3"]));
+    expect(api.calls.filter((c) => c.startsWith("reorderSpaces:")).at(-1)).toBe("reorderSpaces:s2,s1,s3");
+  });
+
+  it("the gear is gone from the strip — Settings is a destination row now", async () => {
+    await mount();
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
   });
 });

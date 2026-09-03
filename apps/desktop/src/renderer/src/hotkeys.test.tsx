@@ -69,6 +69,25 @@ describe("useGlobalHotkeys", () => {
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s1"));
   });
 
+  it("⌘1…⌘9 number the ACTIVE PROFILE's spaces, so the digits match the strip on screen", async () => {
+    // s1, s2 in Work; s3 in School. Indexing the whole home would make ⌘3 reach into another profile
+    // and would renumber Work's spaces every time School gained one.
+    const { store } = await mount({
+      spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Thesis")],
+      items: { s1: [], s2: [], s3: [] },
+    });
+    key({ key: "3", metaKey: true });
+    await tick();
+    expect(store.getState().activeSpaceId).toBe("s1"); // Work has no third space
+    key({ key: "2", metaKey: true });
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    // Inside School, ⌘1 is School's only space — not the home's first.
+    await act(async () => { await store.getState().selectSpace("s3"); });
+    key({ key: "1", metaKey: true });
+    await tick();
+    expect(store.getState().activeSpaceId).toBe("s3");
+  });
+
   it("⌃Tab / ⌃⇧Tab cycle spaces forward and back", async () => {
     const { store } = await mount();
     key({ key: "Tab", ctrlKey: true });

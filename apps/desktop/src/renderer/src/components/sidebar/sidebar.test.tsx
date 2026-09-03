@@ -574,13 +574,19 @@ describe("item context menu: \"Move to space…\"", () => {
     expect(store.getState().sessions.se1?.spaceId).toBe("s2");
   });
 
-  it("is hidden once the session has run — the server-side guard's client-visible proxy", async () => {
-    await mount(fakeApi({
+  it("is offered for a session that has RUN too — the server carries its checkout across", async () => {
+    const { store, api } = await mount(fakeApi({
       items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
       sessions: [session("se1", "s1", { lastEventSeq: 3 })],
     }));
     fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
-    expect(screen.queryByRole("menuitem", { name: "Move to space…" })).not.toBeInTheDocument();
+    const entry = screen.getByRole("menuitem", { name: "Move to space…" });
+    // The wording is what `lastEventSeq` decides now, not whether the entry exists at all.
+    expect(entry).toHaveAttribute("title", expect.stringContaining("checkout along"));
+    fireEvent.click(entry);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Homework" }));
+    await waitFor(() => expect(api.calls).toContain("moveSessionToSpace:se1=s2"));
+    expect(store.getState().sessions.se1?.spaceId).toBe("s2");
   });
 
   it("is absent for non-session items", async () => {
@@ -606,13 +612,17 @@ describe("browser driving dot (Plan 11 W4)", () => {
 });
 
 describe("sidebar destinations (Plan 12 W4)", () => {
-  it("Library, Connections and Notifications sit between the New-session block and the space section (W5 filled the seam)", async () => {
+  it("Library, Connections, Notifications and Settings sit between the New-session block and the space section (W5 filled the seam)", async () => {
     await mount();
     const nav = screen.getByRole("navigation", { name: "Destinations" });
     expect(within(nav).getByRole("button", { name: "Library" })).toBeInTheDocument();
     expect(within(nav).getByRole("button", { name: "Connections" })).toBeInTheDocument();
     expect(within(nav).getByRole("button", { name: /Notifications/ })).toBeInTheDocument();
-    expect(within(nav).getAllByRole("button")).toHaveLength(3);
+    // Settings joined the nav when the space strip's left slot became the profile chip: it is an
+    // app-level page like its three neighbours, and it was the one thing in a spaces rail that
+    // wasn't a space.
+    expect(within(nav).getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    expect(within(nav).getAllByRole("button")).toHaveLength(4);
     // No unread pill at zero — a permanent 0 would be the dead chrome this nav bans.
     expect(within(nav).queryByLabelText(/unread/)).toBeNull();
     // Placement: the nav follows the sb-top block (search + New session) and precedes the swiper.
@@ -628,6 +638,23 @@ describe("sidebar destinations (Plan 12 W4)", () => {
     fireEvent.click(within(nav).getByRole("button", { name: "Library" }));
     await waitFor(() => expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1));
     expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("library-page"))).toHaveLength(1);
+  });
+
+  // Moved off the space strip's left slot, which is the profile chip now. Same contract it had there:
+  // the SETTINGS page, not the space page, in the ACTIVE space's layout, as a pane and never a sheet.
+  it("clicking Settings opens the settings-page item in the ACTIVE space's layout — not the space page, never a sheet", async () => {
+    const { store, api } = await mount();
+    await act(async () => { await store.getState().selectSpace("s2"); });
+    const nav = screen.getByRole("navigation", { name: "Destinations" });
+    fireEvent.click(within(nav).getByRole("button", { name: "Settings" }));
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "settings-page")).toBe(true));
+    const page = store.getState().items.find((i) => i.kind === "settings-page")!;
+    expect(JSON.stringify(store.getState().layout)).toContain(page.id);
+    expect(store.getState().sheet).toBeNull();
+    expect(store.getState().items.find((i) => i.kind === "space-page")).toBeUndefined();
+    // The row landed in s2 — the space that was active under the click.
+    expect((api.data.items.s2 ?? []).some((i) => i.kind === "settings-page")).toBe(true);
+    expect((api.data.items.s1 ?? []).some((i) => i.kind === "settings-page")).toBe(false);
   });
 
   it("clicking Connections opens the connections-page item", async () => {

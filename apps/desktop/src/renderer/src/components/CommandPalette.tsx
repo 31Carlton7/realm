@@ -120,6 +120,7 @@ function PaletteBody() {
   const setThemePref = useApp((s) => s.setThemePref);
   const openSheet = useApp((s) => s.openSheet);
   const openSpacePage = useApp((s) => s.openSpacePage);
+  const setSpacesOpen = useApp((s) => s.setSpacesOpen);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
   const openProfilePage = useApp((s) => s.openProfilePage);
   const openActivity = useApp((s) => s.openActivity);
@@ -202,6 +203,9 @@ function PaletteBody() {
     const actions: Entry[] = [
       // A pending permission anywhere leads the actions — it is the hottest thing in the app (U-H4).
       ...(anyWaiting ? [act("respond-permission", "Respond to pending permission", "alert", () => run(() => jumpToPermission()))] : []),
+      // The overview (⌘⇧Space). Ahead of the per-space switches below because it is the one entry that
+      // stays useful at any number of spaces — the switches are a list that grows with the home.
+      act("all-spaces", "All spaces", "layout", () => setSpacesOpen(true), <kbd>⌘⇧Space</kbd>),
       // Built directly rather than via `act()`: a space's icon can be an emoji or a saved asset
       // (`parseSpaceIcon`), not just a Hugeicons name, so it needs `SpaceIcon`'s resolver — the same
       // reason the `item:` entries above bypass `act()` for `ItemGlyph`.
@@ -269,7 +273,7 @@ function PaletteBody() {
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, drafts, dispatchDraft,
       selectSpace, openItem, newTerminal, newBrowser, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
-      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, run,
+      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
       groups, zoomedLeaf, activatePaneGroup, newPaneGroup, toggleFocusPane]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked

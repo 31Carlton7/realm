@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type DragEvent as ReactDragEvent, type WheelEvent } from "react";
 import { Icon } from "@realm/ui";
 import { allItems, type Item, type PaneGroup, type SpaceGroups } from "@realm/contracts";
-import { useApp, useAppStore } from "../../state/store";
+import { useApp, useAppStore, useProfileSpaces } from "../../state/store";
 import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/gesture";
 import { SpaceHeader } from "./SpaceHeader";
 import { PinnedGrid } from "./PinnedGrid";
@@ -37,7 +37,10 @@ export function toSwipePhase(m: { phase: string; momentum: string }): SwipePhase
  *  Only the active page subscribes to items; the page being left keeps a snapshot of its rows for
  *  the length of the slide, so a commit never animates a blank page out. */
 export function SpaceSwiper() {
-  const spaces = useApp((s) => s.spaces);
+  // The ACTIVE PROFILE's spaces, not every space in the home (see SpaceStrip): a swipe is a bounded
+  // move inside one profile, and crossing profiles is the profile chip's job. Twelve spaces meant a
+  // twelve-page track where the gesture could never tell you how far it had left to go.
+  const spaces = useProfileSpaces();
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const nextSpace = useApp((s) => s.nextSpace);
   const prevSpace = useApp((s) => s.prevSpace);

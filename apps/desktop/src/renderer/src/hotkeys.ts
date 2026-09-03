@@ -13,6 +13,7 @@ import type { AppState, FocusDir } from "./state/store";
  *
  * ⌘K is deliberately NOT here: it must toggle while the palette is open and while its own input has
  * focus — both of which this guard forbids — so it stays in usePaletteHotkey with its sheet-only guard.
+ * ⌘⇧Space (the space overview) is out for exactly the same reason — see useSpacesHotkey.
  *
  * ⌘W and Electron: with no application menu of our own, Electron installs its default menu, whose
  * File → Close Window carries the ⌘W accelerator. Menu accelerators fire in the main process before
@@ -59,10 +60,12 @@ const BINDINGS: Binding[] = [
     match: (e) => (e.key === "\\" || e.key === "|") && e.metaKey && !e.ctrlKey && !e.altKey,
     run: (s, e) => s.run(() => s.splitFocused(e.shiftKey ? "col" : "row")),
   },
-  // ⌘1…⌘9 → nth space.
+  // ⌘1…⌘9 → nth space OF THE ACTIVE PROFILE. Indexing the whole home made the binding both
+  // incomplete (spaces 10+ were unreachable) and unstable (a drag in one profile resequenced every
+  // other one's numbers); within a profile the nine slots match the strip you are looking at.
   {
     match: (e) => e.key >= "1" && e.key <= "9" && mod(e, { meta: true }),
-    run: (s, e) => { const sp = s.spaces[Number(e.key) - 1]; if (sp) s.run(() => s.selectSpace(sp.id)); },
+    run: (s, e) => { const sp = s.profileSpaces()[Number(e.key) - 1]; if (sp) s.run(() => s.selectSpace(sp.id)); },
   },
   // ⌃Tab / ⌃⇧Tab → next / previous space.
   {
@@ -174,7 +177,7 @@ export function useGlobalHotkeys(store: StoreApi<AppState>) {
       const s = store.getState();
       const b = BINDINGS.find((x) => x.match(e));
       if (!b) return;
-      if (s.sheet || s.paletteOpen) { if (b.alwaysPrevent) e.preventDefault(); return; }
+      if (s.sheet || s.paletteOpen || s.spacesOpen) { if (b.alwaysPrevent) e.preventDefault(); return; }
       if (isEditableTarget(e.target) && !b.inInputs) { if (b.alwaysPrevent) e.preventDefault(); return; }
       e.preventDefault();
       b.run(s, e);
