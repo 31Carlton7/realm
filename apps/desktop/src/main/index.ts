@@ -1,11 +1,11 @@
-import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, isImageMime, mimeForPath, newId, type BrowserCredential } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startServer } from "./server-process";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
-import { describeFiles, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
+import { compressIconIfNeeded, describeFiles, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
 import { BlockedDownloads, DownloadGovernor, retryBlockedDownload } from "./downloads";
 import type { BrowserPaneHost, ViewRect } from "./browser-host";
@@ -14,10 +14,15 @@ import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
+import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
 let realmHome: string | null = null;
+/** The Realm window, for the things that need it OUTSIDE the renderer's own IPC: whether it is
+ *  focused (the desktop-notification gate) and where a toast click sends its row id. Null before
+ *  the first window and after the last one closes. */
+let mainWindow: BrowserWindow | null = null;
 /** The window's browser-pane views (Plan 11 W1). Set in createWindow; null before/after. */
 let browserHost: BrowserPaneHost | null = null;
 /** The full pane surface (W3): CDP access + identity for the agent executor. Same lifetime. */
@@ -100,6 +105,7 @@ async function createWindow(info: { port: number; home: string }) {
   });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
+  mainWindow = win;
   // Native trackpad phases for the space swiper (macOS; optional helper).
   const phases = startScrollPhaseStream(win);
   const pane = createBrowserPane(win); // destroys its views on win "closed" itself
@@ -143,7 +149,7 @@ async function createWindow(info: { port: number; home: string }) {
       console.error(`[browser-agent] download blocked (${reason})${id ? ` (browser ${id})` : ""}: ${url}`);
     },
   });
-  win.on("closed", () => { phases.stop(); browserHost = null; browserPane = null; agentHost = null; });
+  win.on("closed", () => { phases.stop(); mainWindow = null; browserHost = null; browserPane = null; agentHost = null; });
 }
 
 // Browser pane (Plan 11 W1): the renderer drives the native WebContentsViews over this surface.
@@ -264,11 +270,17 @@ ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
 });
 
 /** The icon picker's "Uploaded" tab: a single image, filtered at the OS dialog level (`iconAssets.upload`
- *  re-checks mime/size server-side — a dialog filter is a convenience, never the validation boundary). */
+ *  re-checks mime/size server-side — a dialog filter is a convenience, never the validation boundary).
+ *  A raster pick over 10KB is downscaled here before the renderer ever sees its path, so what actually
+ *  reaches `iconAssets.upload` — and the SQLite `icon_assets.data_text` column, forever, as base64 — is
+ *  the compressed copy. `realmHome` is null only in the sliver before the server announces itself, and
+ *  the icon picker isn't reachable that early; compression is best-effort regardless. */
 ipcMain.handle("pick-icon-image", async (): Promise<PickedFile | null> => {
   const r = await dialog.showOpenDialog({ properties: ["openFile"], filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }] });
   if (r.canceled || r.filePaths.length === 0) return null;
-  return (await describeFiles(r.filePaths))[0] ?? null;
+  const picked = (await describeFiles(r.filePaths))[0] ?? null;
+  if (!picked || !realmHome) return picked;
+  try { return await compressIconIfNeeded(realmHome, picked); } catch { return picked; }
 });
 
 // Settings page, Permissions tab (Plan 12 W6). Every decision — which rows exist, what state each
@@ -288,16 +300,63 @@ ipcMain.handle("tcc:open-settings", (_e, pane: unknown) => {
 
 // Settings→App "Updates" row (Plan 15 W1). The gate (dev never; packaged only when signed AND the
 // feed is live — see updater.ts's doc comment) lives in main: the renderer can only ever render what
-// this instance reports, and a disabled updater never loads electron-updater at all. The dynamic
-// import keeps the module out of dev entirely.
-const updater = new RealmUpdater({
+// this instance reports, and a disabled updater never loads electron-updater at all. A signed build
+// checks once on launch; download completion gets an explicit restart choice rather than surprising
+// the user by terminating active terminals or agent runs.
+let updater: RealmUpdater;
+updater = new RealmUpdater({
   version: app.getVersion(),
   decision: updaterDecision({ packaged: app.isPackaged, signed: __REALM_SIGNED_BUILD__, feedLive: UPDATE_FEED_LIVE }),
   load: async () => (await import("electron-updater")).autoUpdater,
+  onDownloaded: (version) => {
+    void dialog.showMessageBox({
+      type: "info",
+      title: "Realm update ready",
+      message: `Realm v${version} is ready to install.`,
+      detail: "Restart now to finish the update, or keep working and install it later from Settings → App.",
+      buttons: ["Restart and update", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => { if (response === 0) updater.install(); });
+  },
 });
 ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
 ipcMain.handle("updates:install", () => { updater.install(); });
+
+/**
+ * Desktop notifications (the feed's last hop). The DECISIONS live in notify.ts — this is only the
+ * Electron wiring. Two things are worth reading here:
+ *
+ *   - `windowFocused` is main's own `isFocused()`, not something the renderer claims. The renderer
+ *     asks for a toast for every row the server surfaces; whether the user is already looking is a
+ *     fact about the window, and main is the one holding it.
+ *   - A click hands the ROW ID back to the renderer and nothing else. Main knows nothing about
+ *     spaces, panes or read state — `openNotificationTarget` in the store owns all of that, and this
+ *     path reuses it rather than growing a second jump implementation in the wrong process.
+ *
+ * In dev these post as "Electron" (the toast's title is the running app's bundle identity, and an
+ * unsigned dev binary has Electron's); a packaged Realm.app posts as Realm.
+ */
+const desktopNotifier = new DesktopNotifier({
+  supported: () => Notification.isSupported(),
+  windowFocused: () => mainWindow?.isFocused() ?? false,
+  create: (o) => new Notification(o),
+  focusWindow: () => {
+    const win = mainWindow;
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    // macOS: activating the app is separate from focusing the window, and a click that raised the
+    // window behind whatever the user was in would be worse than not raising it at all.
+    if (process.platform === "darwin") app.focus({ steal: true });
+  },
+  activate: (id) => { mainWindow?.webContents.send("realm:notification-activate", id); },
+  setBadge: (count) => { app.setBadgeCount(count); },
+});
+ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
+ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Number(count)); });
 
 /** Attachment thumbnails. An attached image can only ever be NAMED in the renderer unless the pixels
  *  get there somehow: the renderer has no filesystem access (contextIsolation), and the page's CSP is
@@ -344,6 +403,10 @@ app.whenReady().then(async () => {
     // restarts the app is bounded too.
     void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});
     await createWindow(info);
+    // Disabled builds return their existing state without loading electron-updater. Signed packaged
+    // builds check the public feed and download in the background; failures remain visible in
+    // Settings without blocking startup.
+    void updater.check();
     // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
     // that does not exist fail honestly inside the executor; the bridge just relays.
     agentBridge = startBrowserAgentBridge({

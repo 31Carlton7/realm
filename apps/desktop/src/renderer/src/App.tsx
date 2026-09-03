@@ -205,6 +205,13 @@ export function App() {
     // The feed (Plan 12 W5): every change carries the server's unread count for the sidebar pill, and
     // a surfaced row for the focused-pane auto-read — see applyNotificationsChanged.
     const offN = rpc().on("notifications.changed", (p) => store.getState().applyNotificationsChanged(p));
+    // A clicked OS toast, arriving from main as a bare row id (main/notify.ts). Optional-chained like
+    // onScrollPhase: a renderer running outside the Electron preload (tests, a browser) simply never
+    // hears one. Main has already raised the window; the store owns landing on the row.
+    const offDN = window.realm?.notify?.onActivate((id) => {
+      const st = store.getState();
+      st.run(() => st.activateDesktopNotification(id));
+    });
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
@@ -235,7 +242,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offSh(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offR(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offSh(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offDN?.(); offR(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

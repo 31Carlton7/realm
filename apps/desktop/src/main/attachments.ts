@@ -1,7 +1,8 @@
 import { basename, join } from "node:path";
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import { mimeForPath } from "@realm/contracts";
+import { nativeImage } from "electron";
+import { isImageMime, mimeForPath } from "@realm/contracts";
 
 /** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
@@ -69,6 +70,36 @@ export async function saveTempAttachment(home: string, name: string, mime: strin
   await writeFile(path, bytes);
   // The browser already knows a clipboard item's type; fall back to the extension only when it does not.
   return { path, mime: mime || mimeForPath(safe), name: safe, size: bytes.byteLength };
+}
+
+/** Icon assets never render past 20px in the UI (`SpaceIcon.tsx`), so anything beyond a few times that,
+ *  at retina scale, is wasted bytes sitting in the icon_assets table forever. */
+const ICON_COMPRESS_THRESHOLD_BYTES = 10 * 1024;
+const ICON_MAX_DIM = 128;
+
+/** Downscale a raster icon upload once it clears `ICON_COMPRESS_THRESHOLD_BYTES`. SVGs are vector and
+ *  already tiny, so they're left alone. Re-encodes through `nativeImage` rather than pulling in an
+ *  image library — the same approach `attachment-thumbnail` already uses in `index.ts`. Falls back to
+ *  the original file whenever the re-encode can't beat it (a failed decode, or a file that was already
+ *  small for its dimensions), so the caller never has to know compression was attempted. */
+export async function compressIconIfNeeded(home: string, file: PickedFile): Promise<PickedFile> {
+  if (file.size <= ICON_COMPRESS_THRESHOLD_BYTES || !isImageMime(file.mime) || file.mime === "image/svg+xml") return file;
+  const img = nativeImage.createFromPath(file.path);
+  if (img.isEmpty()) return file;
+  const { width, height } = img.getSize();
+  const scale = Math.min(1, ICON_MAX_DIM / Math.max(width, height, 1));
+  const resized = scale < 1 ? img.resize({ width: Math.round(width * scale), height: Math.round(height * scale) }) : img;
+  const jpeg = file.mime === "image/jpeg";
+  const buf = jpeg ? resized.toJPEG(80) : resized.toPNG();
+  if (buf.byteLength === 0 || buf.byteLength >= file.size) return file;
+
+  const dir = tempAttachmentDir(home);
+  await mkdir(dir, { recursive: true });
+  void sweepTempAttachments(dir).catch(() => {});
+  const mime = jpeg ? "image/jpeg" : "image/png";
+  const path = join(dir, `${randomBytes(6).toString("hex")}-icon.${jpeg ? "jpg" : "png"}`);
+  await writeFile(path, buf);
+  return { path, mime, name: file.name, size: buf.byteLength };
 }
 
 /** Describe files chosen in the native picker. A path that cannot be stat'd is dropped rather than

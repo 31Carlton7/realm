@@ -54,3 +54,14 @@ export type Notification = z.infer<typeof NotificationSchema>;
  * The settings UI for these toggles is W6's; the service honors the key already.
  */
 export const NOTIFICATIONS_DISABLED_KEY = "notifications.disabledCategories";
+
+/**
+ * Settings key for the desktop (OS) notification switch — the feed's last hop. Boolean, default-ON
+ * when absent, the same polarity the category set uses.
+ *
+ * It gates the OS surface ONLY: with it off the feed still fills, the sidebar pill still counts, and
+ * every category toggle still means what it meant. What stops is the toast and the dock badge — the
+ * two things that can interrupt a user who is not looking at Realm. Rows the categories already
+ * suppressed never reach here at all, so this is a narrowing of that set, never a widening.
+ */
+export const NOTIFICATIONS_DESKTOP_KEY = "notifications.desktop";
