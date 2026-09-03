@@ -27,12 +27,16 @@ const fmtCost = (usd: number) => (usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.t
 export function SessionMeta({ item }: { item: Item }) {
   const id = item.refId;
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
-  const model = useApp((s) => s.sessions[id]?.model ?? s.transcripts[id]?.t.init?.model ?? null);
   const usage = useApp((s) => s.transcripts[id]?.t.usage ?? null);
   return (
     <>
-      {model && <span>{model}</span>}
-      {usage && usage.costUsd > 0 && <span>{fmtCost(usage.costUsd)} · {usage.numTurns} {usage.numTurns === 1 ? "turn" : "turns"}</span>}
+      {/* Cost alone. The model used to lead this line and the turn count trailed the cost, and
+          neither earned the space: the prompter's own chip names the model a few pixels below —
+          and names it properly, where this printed whatever raw id the harness pins (Cursor's
+          run to `claude-fable-5-1[thinking=true,context=300k,effort=high]`) — while the turn
+          count answers a question nobody asked of a header. What is worth glancing at while a
+          session runs is what it is costing. */}
+      {usage && usage.costUsd > 0 && <span>{fmtCost(usage.costUsd)}</span>}
       <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
     </>
   );
@@ -42,7 +46,7 @@ export function SessionMeta({ item }: { item: Item }) {
  *  toggle — uniform icon buttons, no text labels. Open-external is skipped: a session has nothing
  *  to open externally, and dead chrome is worse than none (§7). */
 export function SessionPanelActions({ item }: { item: Item }) {
-  return (<><SessionDiffButton item={item} /><SessionTerminalToggle item={item} /></>);
+  return (<><SessionDiffButton item={item} /><SessionDocumentsButton item={item} /><SessionTerminalToggle item={item} /></>);
 }
 
 /** Opens (or focuses) the diff pane for the session's environment — the same openDiff the prompter's
@@ -62,6 +66,34 @@ function SessionDiffButton({ item }: { item: Item }) {
     <button className="icon-btn" aria-label={`Show changes for ${item.title}`} title="Changes"
       onClick={() => run(() => openDiff(environmentId))}>
       <Icon name="branch" size={14} />
+    </button>
+  );
+}
+
+/**
+ * Opens (or focuses) the document workspace for the session's environment (Plan 17 W1) — the gesture
+ * the user described as "open documents the way we open a terminal for a session".
+ *
+ * It sits next to the diff button and works the same way, because it IS the same shape: a documents
+ * pane is rooted at an ENVIRONMENT, so several sessions sharing a checkout share one workspace and one
+ * tab strip. Unlike the terminal, this is a real layout item rather than an internal drawer — a
+ * document needs the whole pane, and needs to be splittable beside the session that is editing it.
+ */
+function SessionDocumentsButton({ item }: { item: Item }) {
+  const id = item.refId;
+  // Same precondition as the diff button: gated on the environment being loaded, because an action
+  // that could only no-op is dead chrome (Ara refresh §7).
+  const environmentId = useApp((s) => {
+    const e = s.sessions[id]?.environmentId;
+    return e && s.environments[e] ? e : null;
+  });
+  const openDocuments = useApp((s) => s.openDocuments);
+  const run = useApp((s) => s.run);
+  if (!environmentId) return null;
+  return (
+    <button className="icon-btn" aria-label={`Open documents for ${item.title}`} title="Documents"
+      onClick={() => run(() => openDocuments(environmentId))}>
+      <Icon name="documents" size={14} />
     </button>
   );
 }
@@ -163,6 +195,13 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
   );
+  // The "+ → Skills" picker's source: the same space list, unfiltered by enabled — the picker's whole
+  // job is to show what is NOT on yet. Still gated on the agent, because a Cursor session cannot be
+  // handed a skills directory at all and a picker there would promise something that never arrives.
+  const allSkills = useMemo(
+    () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList : NO_SKILLS),
+    [agentKind, spaceSkillList],
+  );
   const draftMentionIds = useApp((s) => s.draftMentions[id] ?? NO_MENTIONS);
   // Recognised mentions whose skill has since been disabled/deleted — the draft still carries the
   // token, so the prompter warns that it will go as plain text.
@@ -182,6 +221,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const refreshConnectors = useApp((s) => s.refreshConnectors);
   const pickAndLinkProject = useApp((s) => s.pickAndLinkProject);
   const openSpacePage = useApp((s) => s.openSpacePage);
+  const setSkillEnabled = useApp((s) => s.setSkillEnabled);
   const spaceEnvironments = useMemo(
     () => Object.values(environments).filter((e) => session && e.spaceId === session.spaceId),
     [environments, session],
@@ -196,6 +236,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const panelOpen = useApp((s) => s.terminalPanel[id]?.open ?? false);
   const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
+  const modelFavorites = useApp((s) => s.modelFavorites);
+  const refreshModelFavorites = useApp((s) => s.refreshModelFavorites);
+  const toggleModelFavorite = useApp((s) => s.toggleModelFavorite);
   const prefillTerminal = useApp((s) => s.prefillTerminal);
   const openDiff = useApp((s) => s.openDiff);
   const submitKey = useApp((s) => s.submitKey);
@@ -206,6 +249,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // Cheap by construction: the store dedups concurrent calls and the server holds a TTL cache, so a
   // four-pane split (or a tab-back) costs one round trip, not a process spawn per agent.
   useEffect(() => { run(() => probeAgents()); }, [id, probeAgents, run]);
+  // One settings read, alongside the probe. Favourites only ever change through this app's own
+  // toggle (which writes through and updates the store), so there is nothing to poll for.
+  useEffect(() => { run(() => refreshModelFavorites()); }, [refreshModelFavorites, run]);
 
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
   const space = spaces.find((s) => s.id === session.spaceId);
@@ -260,7 +306,11 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             acpModes={transcript.init ? transcript.init.availableModes ?? [] : null}
             canSwitchAgent={canSwitchAgent}
             agentProbe={agentProbe}
-            mentionSkills={mentionSkills} staleMentions={staleMentions}
+            modelFavorites={modelFavorites}
+            onToggleModelFavorite={(key) => run(() => toggleModelFavorite(key))}
+            mentionSkills={mentionSkills} allSkills={allSkills} staleMentions={staleMentions}
+            onToggleSkill={(skillId, enabled) => run(() => setSkillEnabled(session.spaceId, skillId, enabled))}
+            onManageSkills={() => run(() => openSpacePage(session.spaceId, "skills"))}
             machineName={machineName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
             onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}

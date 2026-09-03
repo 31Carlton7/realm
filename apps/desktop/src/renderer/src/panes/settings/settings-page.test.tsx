@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, notification, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, macRow, notification, type FakeData } from "../../state/store.test-fakes";
 import type { AgentProbe } from "../../state/store";
 
 /** The pane as PaneHost mounts it: kind is the identity, refId the sentinel. */
@@ -284,9 +284,17 @@ describe("App tab → Updates row (Plan 15 W1)", () => {
   });
 });
 
+/** A `mac doctor` audit with nothing in it — used where a test is about the OTHER section and the
+ *  mac rows would only add noise (both sections render a "Full Disk Access" row). */
+const emptyMacAccess: MacAccessStatus = {
+  cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },
+  host: { name: "Realm", bundlePath: "/Applications/Realm.app", packaged: true },
+  rows: [],
+};
+
 describe("Permissions tab (macOS TCC)", () => {
   const openPermissions = async (overrides: FakeData = {}) => {
-    const mounted = await mount(overrides);
+    const mounted = await mount({ macAccess: emptyMacAccess, ...overrides });
     fireEvent.click(screen.getByRole("radio", { name: "Permissions" }));
     return mounted;
   };
@@ -301,8 +309,8 @@ describe("Permissions tab (macOS TCC)", () => {
     expect(screen.getByRole("listitem", { name: "Screen Recording: Not granted" })).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Accessibility: Granted" })).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Full Disk Access: Not granted" })).toBeInTheDocument();
-    // One green check on the page: the single granted row. Nothing else may borrow it.
-    expect(document.querySelectorAll('.tcc-state[data-state="granted"]')).toHaveLength(1);
+    // One green check in THIS section: the single granted row. Nothing else may borrow it.
+    expect(document.querySelectorAll('.realm-access-field .tcc-state[data-state="granted"]')).toHaveLength(1);
   });
 
   it("every row deep-links its own System Settings pane by ROW ID — never a URL from the renderer", async () => {
@@ -316,9 +324,9 @@ describe("Permissions tab (macOS TCC)", () => {
   it("a probe that reports everything denied still renders — an honest wall of 'not granted', no invented grants", async () => {
     await openPermissions({ tccRows: [
       { id: "fullDisk", label: "Full Disk Access", state: "denied", detail: "macOS refused the probe file." },
-    ] });
+    ], macAccess: emptyMacAccess });
     expect(await screen.findByRole("listitem", { name: "Full Disk Access: Not granted" })).toBeInTheDocument();
-    expect(document.querySelectorAll('.tcc-state[data-state="granted"]')).toHaveLength(0);
+    expect(document.querySelectorAll('.realm-access-field .tcc-state[data-state="granted"]')).toHaveLength(0);
   });
 
   it("does not glue a v onto a version that already names its product (codex-cli 0.146.0)", () => {
@@ -418,5 +426,137 @@ describe("Sign-ins tab", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
     await waitFor(() => expect(api.calls).toContain("credentialRemove:cred-1"));
     await screen.findByText("No saved sign-ins yet.");
+  });
+});
+
+describe("Permissions tab — Apps on this Mac (the grantable half)", () => {
+  const openPermissions = async (overrides: FakeData = {}) => {
+    const mounted = await mount(overrides);
+    fireEvent.click(screen.getByRole("radio", { name: "Permissions" }));
+    return mounted;
+  };
+  const macRowFor = (name: string) => screen.getByRole("listitem", { name });
+
+  it("renders mac doctor's five states as five different words — Add-only is never dressed as Granted", async () => {
+    const { api } = await openPermissions({ macAccess: {
+      cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },
+      host: { name: "Realm", bundlePath: "/Applications/Realm.app", packaged: true },
+      rows: [
+        macRow("calendar", "Calendar", "data", "writeOnly"),
+        macRow("reminders", "Reminders", "data", "granted"),
+        macRow("contacts", "Contacts", "data", "denied"),
+        macRow("automation:Mail", "Mail", "automation", "notRequested"),
+        macRow("automation:Notes", "Notes", "automation", "unknown"),
+      ],
+    } });
+    await waitFor(() => expect(api.calls).toContain("macAccessStatus"));
+    expect(await screen.findByRole("listitem", { name: "Calendar: Add-only" })).toBeInTheDocument();
+    expect(macRowFor("Reminders: Granted")).toBeInTheDocument();
+    expect(macRowFor("Contacts: Refused")).toBeInTheDocument();
+    expect(macRowFor("Mail: Not asked yet")).toBeInTheDocument();
+    expect(macRowFor("Notes: Unknown")).toBeInTheDocument();
+    // Exactly one green check: the granted row. writeOnly is a HALF grant and must not borrow it.
+    expect(document.querySelectorAll('.mac-access-field .tcc-state[data-state="granted"]')).toHaveLength(1);
+  });
+
+  it("a REFUSED row offers System Settings but never a prompt — denials are sticky, so an Ask button there could not work", async () => {
+    await openPermissions();
+    const denied = await screen.findByRole("listitem", { name: "Reminders: Refused" });
+    expect(within(denied).queryByRole("button", { name: "Ask macOS" })).toBeNull();
+    expect(within(denied).getByRole("button", { name: "Open System Settings" })).toBeInTheDocument();
+  });
+
+  it("a GRANTED row offers nothing at all — there is nothing left to ask and nothing left to fix", async () => {
+    await openPermissions();
+    const granted = await screen.findByRole("listitem", { name: "Calendar: Granted" });
+    expect(within(granted).queryAllByRole("button")).toEqual([]);
+  });
+
+  it("Full Disk Access offers the drag, not a dialog macOS does not have", async () => {
+    const { api } = await openPermissions();
+    const fda = await screen.findByRole("listitem", { name: "Full Disk Access: Refused" });
+    expect(within(fda).queryByRole("button", { name: "Ask macOS" })).toBeNull();
+    fireEvent.click(within(fda).getByRole("button", { name: "Show app in Finder" }));
+    await waitFor(() => expect(api.calls).toContain("macAccessRevealApp"));
+    fireEvent.click(within(fda).getByRole("button", { name: "Open System Settings" }));
+    await waitFor(() => expect(api.calls).toContain("macAccessOpenSettings:fullDiskAccess"));
+  });
+
+  it("shows the exact command before running it, and says which ones open an app", async () => {
+    await openPermissions();
+    const mail = await screen.findByRole("listitem", { name: "Mail: Not asked yet" });
+    expect(mail.textContent).toContain("mac mail list --json");
+    expect(mail.textContent).toContain("which opens Mail");
+  });
+
+  it("“Ask for all” walks ONLY the promptable rows, one dialog at a time, and each answer lands", async () => {
+    const { api } = await openPermissions({ macAccess: {
+      cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },
+      host: { name: "Realm", bundlePath: "/Applications/Realm.app", packaged: true },
+      rows: [
+        macRow("calendar", "Calendar", "data", "granted"),        // nothing to ask
+        macRow("reminders", "Reminders", "data", "denied"),        // asking cannot work
+        macRow("contacts", "Contacts", "data", "notRequested"),    // ask
+        macRow("automation:Mail", "Mail", "automation", "unknown"),// ask
+        macRow("fullDiskAccess", "Full Disk Access", "disk", "denied"), // no dialog exists
+      ],
+    } });
+    fireEvent.click(await screen.findByRole("button", { name: "Ask for all 2" }));
+    await waitFor(() => expect(screen.getByRole("listitem", { name: "Contacts: Granted" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("listitem", { name: "Mail: Granted" })).toBeInTheDocument());
+    // The named mutant: a walk that also re-asks the granted/denied/prompt-less rows.
+    expect(api.calls.filter((c) => c.startsWith("macAccessGrant:"))).toEqual(["macAccessGrant:contacts", "macAccessGrant:automation:Mail"]);
+  });
+
+  it("names what the walk will NOT have fixed, so a short run can't read as full coverage", async () => {
+    await openPermissions();
+    const field = document.querySelector(".mac-access-field")!;
+    await waitFor(() => expect(field.textContent).toContain("1 of 4 granted"));
+    expect(field.textContent).toContain("Reminders, Full Disk Access can't be asked for at all and stay for System Settings.");
+  });
+
+  it("a refusal mid-walk does not abandon the rest of it", async () => {
+    const { api } = await openPermissions({
+      macAccess: {
+        cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },
+        host: { name: "Realm", bundlePath: "/Applications/Realm.app", packaged: true },
+        rows: [macRow("contacts", "Contacts", "data", "notRequested"), macRow("automation:Mail", "Mail", "automation", "notRequested")],
+      },
+      macGrantAnswers: { contacts: "denied" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Ask for all 2" }));
+    await waitFor(() => expect(screen.getByRole("listitem", { name: "Mail: Granted" })).toBeInTheDocument());
+    expect(screen.getByRole("listitem", { name: "Contacts: Refused" })).toBeInTheDocument();
+    expect(api.calls).toContain("macAccessGrant:automation:Mail");
+  });
+
+  it("only one macOS dialog at a time: a second Ask while one is pending is dropped, not queued behind it", async () => {
+    const { api } = await openPermissions();
+    api.delays["macAccessGrant:automation:Mail"] = 50;
+    const mail = await screen.findByRole("listitem", { name: "Mail: Not asked yet" });
+    const ask = within(mail).getByRole("button", { name: "Ask macOS" });
+    fireEvent.click(ask);
+    // While the dialog is up the row says so, and every Ask button on the page is disabled.
+    expect(await screen.findByRole("button", { name: "Waiting for macOS…" })).toBeDisabled();
+    fireEvent.click(ask);
+    await waitFor(() => expect(screen.getByRole("listitem", { name: "Mail: Granted" })).toBeInTheDocument());
+    expect(api.calls.filter((c) => c === "macAccessGrant:automation:Mail")).toHaveLength(1);
+  });
+
+  it("warns that a dev build's grants land on the wrong app — the caveat that would otherwise cost an afternoon", async () => {
+    await openPermissions({ macAccess: {
+      cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },
+      host: { name: "Electron", bundlePath: "/repo/node_modules/electron/dist/Electron.app", packaged: false },
+      rows: [macRow("calendar", "Calendar", "data", "notRequested")],
+    } });
+    expect((await screen.findByText(/development build/)).textContent).toContain("Electron");
+    expect(screen.getByText(/development build/).textContent).toContain("won't carry into the packaged Realm.app");
+  });
+
+  it("no mac CLI means no permissions to offer — and it says where it looked instead of showing empty rows", async () => {
+    await openPermissions({ macAccess: { cli: { present: false, searched: ["/opt/homebrew/bin", "/usr/local/bin"] }, host: { name: "Realm", bundlePath: "/Applications/Realm.app", packaged: true }, rows: [] } });
+    const field = document.querySelector(".mac-access-field")!;
+    await waitFor(() => expect(field.textContent).toContain("/opt/homebrew/bin"));
+    expect(screen.queryByRole("button", { name: /Ask for all/ })).toBeNull();
   });
 });

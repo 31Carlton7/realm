@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["scripts", "src"],
+  // live-dispatch-check drives the REAL renderer store, so it needs apps/desktop's web tsconfig
+  // (jsx, the renderer's global .d.ts) — type-checking it here would report those globals missing.
+  "exclude": ["scripts/live-dispatch-check.ts"]
+}

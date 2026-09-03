@@ -172,13 +172,14 @@ describe("mcp over rpc", () => {
 
   it("mcp.providers.list names the gateway's registered providers with THIS space's switch state (W4)", async () => {
     const { c, work, school } = await boot();
-    // The real app registers both built-in providers; every space lists them, default ON.
+    // The real app registers the three built-in providers (realm-docs since Plan 22); every space lists
+    // them, default ON.
     const before = (await c.call("mcp.providers.list", { spaceId: work.id })).result.providers;
-    expect(before).toEqual([{ name: "realm-browser", enabled: true }, { name: "realm-agent", enabled: true }]);
+    expect(before).toEqual([{ name: "realm-browser", enabled: true }, { name: "realm-agent", enabled: true }, { name: "realm-docs", enabled: true }]);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-browser", enabled: false });
     // The disable is per-space: Work reads OFF, School still reads ON.
     expect((await c.call("mcp.providers.list", { spaceId: work.id })).result.providers).toEqual(
-      [{ name: "realm-browser", enabled: false }, { name: "realm-agent", enabled: true }]);
+      [{ name: "realm-browser", enabled: false }, { name: "realm-agent", enabled: true }, { name: "realm-docs", enabled: true }]);
     expect((await c.call("mcp.providers.list", { spaceId: school.id })).result.providers[0]).toEqual({ name: "realm-browser", enabled: true });
     // Same ghost-space refusal as every other per-space mcp method.
     expect((await c.call("mcp.providers.list", { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAZ" })).error?.code).toBe("NOT_FOUND");

@@ -74,8 +74,8 @@ history additionally needs Full Disk Access.
 Three facts that determine how you should handle a denial:
 
 1. **The grant belongs to the calling application, not to `mac`.** TCC attributes the request to the
-   app that owns the process tree — the terminal emulator, or the app hosting the session. A grant
-   made in one terminal does **not** carry into another app's shell. The same binary can work in one
+   app that owns the process tree — here that is Realm, for every session it hosts. A grant made in
+   one terminal does **not** carry into another app's shell. The same binary can work in one
    session and be denied in the next.
 2. **A denial is sticky and silent.** Once denied, re-running does not re-prompt. Retrying is
    guaranteed to fail. Nothing you can do from the shell fixes it.
@@ -98,12 +98,19 @@ to misread:
 - **`unknown`** usually means an Automation target that has never been launched. Open the app once,
   re-run `mac doctor`.
 
-**On exit 2, stop and tell the user.** Do not retry, do not fall back to `osascript` (it hits the
-same gate). Run `mac doctor --json`, quote the failing capability's `fix`, and name the toggle:
-System Settings → Privacy & Security → **Calendars / Reminders / Contacts / Automation / Full Disk
-Access** → enable the entry for the app running this session. `notRequested` is different and worth
-saying out loud: the first real command will raise a macOS dialog the user has to click, so a
-command may appear to hang while it waits for them.
+**On exit 2, stop and tell the user — and send them to the one place that fixes it.** Do not retry,
+and do not fall back to `osascript` (it hits the same gate).
+
+> Realm's **Settings → Permissions → Apps on this Mac** lists every one of these capabilities with
+> its live `mac doctor` state, and grants them: "Ask for all" walks the ones macOS can still be
+> asked about and raises each dialog in turn, and the ones with no dialog (anything already refused,
+> plus Full Disk Access) get a direct link to their System Settings pane. Point the user there
+> rather than dictating a click-path — one trip fixes every capability at once, and the grant lands
+> on Realm, so it holds for every future session instead of just this one.
+
+Name the failing capability and quote its `fix` from `mac doctor --json` so they know what they are
+approving. `notRequested` is different and worth saying out loud: the first real command will raise
+a macOS dialog the user has to click, so a command may appear to hang while it waits for them.
 
 ## Gotchas worth knowing before you run
 

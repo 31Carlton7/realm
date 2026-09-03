@@ -1,0 +1,28 @@
+{
+  "name": "realm-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3100",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "shader:render": "node --experimental-strip-types scripts/render-shader.ts"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "vgpu": "0.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "^22.13.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@webgpu/types": "^0.1.69",
+    "tailwindcss": "4.3.3",
+    "typescript": "^5.9.0"
+  }
+}

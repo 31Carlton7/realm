@@ -2,6 +2,8 @@ import { useEffect, useMemo } from "react";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { SidebarToggle } from "./components/sidebar/SidebarToggle";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
+import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
+import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
@@ -82,6 +84,9 @@ function SheetHost() {
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;
+  if (sheet.kind === "new-lecture") return <NewLectureSheet />;
+  if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
+  if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
   return null;
 }
 
@@ -161,6 +166,9 @@ export function App() {
       const st = store.getState();
       if (st.ships[spaceId]) st.run(() => st.refreshShips(spaceId));
     });
+    // A durable run moved (created, dispatched, blocked, settled). Held-only like ships: the payload
+    // carries the fresh row, so a Tasks lens already showing the space applies it without a refetch.
+    const offRun = rpc().on("runs.changed", (p) => store.getState().applyRunsChanged(p));
     // A checkpoint was taken, restored or pruned. Only re-listed when the sheet is actually showing
     // that environment: this fires on every turn, and a store holding a list nobody is looking at is
     // work for nothing.
@@ -193,6 +201,10 @@ export function App() {
     // child is a real session, and the point of it being one is that the user watches its whole
     // trace, so it comes into the layout the moment it exists. Other spaces gain the sidebar item
     // via items.changed as usual.
+    // A file was surfaced in the documents pane (Plan 22) — by the user, or by an agent's `docs_open`.
+    // Same idiom as the browser and session openings: into the layout if this is the active space,
+    // and quietly, so a guide an agent just wrote appears beside the session without stealing focus.
+    const offDO = rpc().on("documents.openRequested", (p) => { const st = store.getState(); st.run(() => st.applyDocumentOpenRequested(p)); });
     const offSA = rpc().on("session.agentOpened", ({ spaceId, itemId }) => {
       const st = store.getState();
       if (spaceId === st.activeSpaceId) st.run(async () => { await st.refreshItems(); await st.openItemBeside(itemId); });
@@ -244,7 +256,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offSh(); offP(); offK(); offMem(); offB(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offDN?.(); offR(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offSh(); offRun(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offDN?.(); offR(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

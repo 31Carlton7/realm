@@ -7,10 +7,8 @@ import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../
 import { createAcpMapper } from "./map-acp";
 import { fetchAcpModels, probeAcp } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { obj, str, type Bag } from "../bag";
 
-type Bag = Record<string, unknown>;
-const obj = (v: unknown): Bag => (v && typeof v === "object" ? (v as Bag) : {});
-const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 

@@ -30,6 +30,7 @@ import { ClaudeAdapter, CodexAdapter, type AgentHandle, type SkillMention } from
 import { openDatabase } from "../src/db/database";
 import { SettingsStore } from "../src/store/settings";
 import { SkillsService } from "../src/skills/service";
+import { finish, ok } from "./harness";
 
 const SPACE = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 /** Directory id and frontmatter name diverge — see the header. */
@@ -41,11 +42,6 @@ const MARKER = `MENTIONPROOF${nonce}`;
 const PROMPT = "Reply with the single word READY and nothing else.";
 const TURN_TIMEOUT_MS = 180_000;
 
-let failures = 0;
-const ok = (label: string, cond: boolean, detail = "") => {
-  console.log(`  ${cond ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
-  if (!cond) failures += 1;
-};
 
 /** Runs one turn and returns everything the agent said. */
 async function oneTurn(handle: AgentHandle, prompt: string, skill?: SkillMention): Promise<string> {
@@ -133,8 +129,7 @@ async function main() {
     rmSync(home, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   }
-  console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((e) => { console.error("driver crashed:", e); process.exit(2); });

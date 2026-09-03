@@ -3,6 +3,7 @@ import { AGENT_SUPPORTS_PLAN_MODE, PLAN_PERMISSION_MODE, reviewResultKey, type A
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "../browsers/guards";
 import type { ProviderCallContext } from "../mcp/gateway";
+import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
 import { NotFoundError, RpcError } from "../store/rows";
@@ -304,7 +305,4 @@ export const AGENT_REVIEW_TOOL: Tool = {
   },
 };
 
-const ok = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: false });
-const err = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const firstLine = (s: string): string => clip(s.trim().split("\n").find((l) => l.trim())?.trim() ?? "", 200);

@@ -3,7 +3,14 @@
 <!-- Hardened-runtime entitlements for signed builds (Plan 15 W3; unused while unsigned).
      The standard Electron set: JIT + unsigned executable memory for V8, and library validation
      off because the server child loads node-pty's prebuilds from Resources/. Revisit (tighten)
-     once a real signed build has been exercised end to end — see docs/dev/signing.md. -->
+     once a real signed build has been exercised end to end — see docs/dev/signing.md.
+
+     `automation.apple-events` is what lets a hardened-runtime app send Apple Events at all: without
+     it macOS answers errAEEventNotPermitted (-1743) and NO consent dialog is ever offered, so
+     Settings → Permissions could raise a prompt that could never appear. The `mac` CLI is its own
+     ad-hoc-signed binary and so does not need this entitlement to send its own events — but it runs
+     inside Realm's process tree, TCC attributes the grant to Realm, and anything Realm itself sends
+     (now or later) does need it. Cheap to hold, and the failure it prevents is silent. -->
 <plist version="1.0">
   <dict>
     <key>com.apple.security.cs.allow-jit</key>
@@ -11,6 +18,8 @@
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
     <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.automation.apple-events</key>
     <true/>
   </dict>
 </plist>

@@ -21,12 +21,17 @@ import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
+import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
 import type { NotificationsService } from "../notifications/service";
+import type { RunService } from "../runs/service";
 import type { ReviewService } from "../delegation/review";
 import type { SearchService } from "../search/service";
 import type { ForkService } from "../sessions/fork";
+import type { ImportService } from "../import/service";
+import type { LectureService } from "../school/lectures";
+import type { PlynnService } from "../school/plynn";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
 import type { GitWriteService } from "../workspace/git-write";
@@ -40,7 +45,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; reviews: ReviewService; search: SearchService; forks: ForkService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
 };
 
@@ -143,6 +148,14 @@ export function registerMethods(d: Deps): void {
     skillsScopeChanged();
     return { ok: true as const };
   });
+  reg("skills.sources", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return { sources: d.skills.sources(p.spaceId) };
+  });
+  // Scan roots are machine-global, so adding or dropping one changes what EVERY space can list —
+  // the same "tell them all" rule promote/demote already follows, for the same reason.
+  reg("skills.addScanRoot", (p) => { d.skills.addScanRoot(p.path); skillsScopeChanged(); return { ok: true as const }; });
+  reg("skills.removeScanRoot", (p) => { d.skills.removeScanRoot(p.path); skillsScopeChanged(); return { ok: true as const }; });
 
   // Every one of these checks the space exists first, for the same reason the skills pair does: the
   // enable set is keyed by space id, so a typo would silently read and write preferences for a space
@@ -378,6 +391,12 @@ export function registerMethods(d: Deps): void {
   // and the service itself checks the profile exists (a typo'd id should say so, not answer empty).
   reg("search.query", (p) => d.search.query(p.profileId, p.query, p.limit));
 
+  // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
+  // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and
+  // broadcasts its own items/spaces/memory/skills changes once at the end rather than per row.
+  reg("import.scan", () => d.imports.scan());
+  reg("import.apply", (p) => d.imports.apply(p));
+
   reg("items.list", (p) => d.items.list(p.spaceId));
   reg("items.listAll", () => d.items.listAll());
   reg("items.create", (p) => { const r = d.items.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
@@ -386,6 +405,7 @@ export function registerMethods(d: Deps): void {
     const it = d.items.get(p.id);
     if (it?.kind === "terminal") { d.terminals.close(it.refId); return { ok: true as const }; } // closes pty + row + item, broadcasts
     if (it?.kind === "browser") { d.browsers.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
+    if (it?.kind === "documents") { d.documents.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
     if (it?.kind === "session") { await d.sessions.delete(it.refId); return { ok: true as const }; } // disposes handle + row + item, broadcasts
     d.items.delete(p.id);
     if (it) rpc.broadcast("items.changed", { spaceId: it.spaceId });
@@ -411,6 +431,30 @@ export function registerMethods(d: Deps): void {
   reg("browsers.close", (p) => { d.browsers.close(p.browserId); return { ok: true as const }; });
   reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, p.spaceId) }));
 
+  // The document workspace (Plan 17 W1). Unlike the browser methods above, these carry file CONTENT:
+  // the server is the only process that reads and writes documents, which is what lets an agent edit
+  // one with its ordinary Write/Edit tools and have the open pane show it.
+  reg("documents.create", (p) => d.documents.open(p));
+  reg("documents.get", (p) => d.documents.get(p.documentsId));
+  reg("documents.setTabs", (p) => d.documents.setTabs(p.documentsId, p.openPaths, p.activePath));
+  reg("documents.close", (p) => { d.documents.close(p.documentsId); return { ok: true as const }; });
+  reg("documents.detach", (p) => { d.documents.detach(p.documentsId); return { ok: true as const }; });
+  reg("documents.list", async (p) => ({ entries: await d.documents.list(p.documentsId, p.dir) }));
+  reg("documents.read", (p) => d.documents.read(p.documentsId, p.path));
+  reg("documents.write", (p) => d.documents.write(p.documentsId, p.path, p.text, p.baseHash));
+  reg("documents.createFile", (p) => d.documents.createFile(p.documentsId, p.path, p.kind, p.title));
+  reg("documents.renameFile", (p) => d.documents.renameFile(p.documentsId, p.from, p.to));
+  // Plan 22 — school workflows. Previews are a port+token the renderer builds frame URLs from;
+  // openPath is the one "put this file on screen" call both the store and the docs_open tool use.
+  reg("documents.previewInfo", () => d.documents.previewInfo());
+  reg("documents.openPath", (p) => d.documents.openPath(p));
+  reg("documents.progressRead", (p) => d.documents.progressRead(p.documentsId, p.path));
+  reg("documents.progressRecord", (p) => d.documents.progressRecord(p));
+  reg("lectures.start", (p) => d.lectures.start(p));
+  reg("lectures.list", async (p) => ({ lectures: await d.lectures.list(p.spaceId) }));
+  reg("plynn.list", () => d.plynn.list());
+  reg("plynn.import", (p) => d.plynn.import(p));
+
   // The browser agent host's bridge (Plan 11 W3). `register` is raw `rpc.register` rather than `reg`
   // because it is the one method that needs its caller's socket — the bridge sends that exact client
   // its `browserHost.op` events from then on.
@@ -430,6 +474,15 @@ export function registerMethods(d: Deps): void {
   // The feed (Plan 12 W5). Reads and read-marking only: rows are written by the producers' hooks
   // (sessions, hub, refusal sites), never over RPC. Both answers carry the server-computed unread
   // count, the sidebar pill's one source; the service broadcasts `notifications.changed` itself.
+  // Durable runs. `create` returns as soon as the row exists — dispatch and every later transition
+  // reach the client as `runs.changed`, so no handler here waits on an agent.
+  reg("runs.list", (p) => d.runs.list(p));
+  reg("runs.get", (p) => d.runs.get(p.id));
+  reg("runs.create", (p) => d.runs.create({ spaceId: p.spaceId, goal: p.goal, title: p.title, constraints: p.constraints, dedupeKey: p.dedupeKey, maxAttempts: p.maxAttempts, deadlineAt: p.deadlineAt }));
+  reg("runs.cancel", (p) => d.runs.cancel(p.id));
+  reg("runs.retry", (p) => d.runs.retry(p.id));
+  reg("runs.approve", (p) => d.runs.approve(p.id, p.approved, p.note));
+
   reg("notifications.list", (p) => d.notifications.list(p));
   reg("notifications.markRead", (p) => d.notifications.markRead(p));
 

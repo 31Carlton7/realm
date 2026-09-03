@@ -47,10 +47,8 @@
   --ink-2: oklch(0.731 0.008 260.731);
   --ink-3: oklch(0.541 0.01 264.484);
 
-  /* borders — solid and crisp, not alpha */
-  --line: oklch(0.308 0.006 258.354);
-  --line-strong: oklch(0.356 0.007 264.474);
-  --line-soft: oklch(0.278 0.006 258.354);
+  /* borders — the ramp itself now comes from the TEMBO ALIGNMENT block at the
+   * foot of this file, which redraws it as alpha overlays. */
   --grid-line: color-mix(in srgb, var(--line) 78%, transparent);
   --field: oklch(0.293 0.006 271.223);
   --stripe: oklch(1 0 0 / 0.055);
@@ -77,17 +75,8 @@
 
   /* shadows — hairline ring + layered stacks. Elevation rings go to a subtle *light* hairline in
    * dark mode: the ring paints over the surface behind the element, so a low-alpha white edge
-   * dissolves into the shadow as one continuous stroke, graduated by how far the surface floats. */
-  --shadow-hairline: 0 0 0 1px var(--line);
-  --shadow-btn: 0 0 0 1px oklch(1 0 0 / 0.1), 0 1px 2px oklch(0 0 0 / 0.3);
-  --shadow-card:
-    0 0 0 1px oklch(1 0 0 / 0.11), 0 1px 2px oklch(0 0 0 / 0.2),
-    0 2px 6px oklch(0 0 0 / 0.2);
-  --shadow-raised:
-    0 0 0 1px oklch(1 0 0 / 0.13), 0 2px 10px oklch(0 0 0 / 0.22);
-  --shadow-overlay:
-    0 0 0 1px oklch(1 0 0 / 0.15), 0 8px 28px oklch(0 0 0 / 0.34);
-  --shadow-inset-field: inset 0 1px 2px oklch(0 0 0 / 0.4);
+   * dissolves into the shadow as one continuous stroke, graduated by how far the surface floats.
+   * The stacks themselves are restated in the TEMBO ALIGNMENT block at the foot of this file. */
 }
 
 /* BUI's light-first `:root` values — Realm's secondary mode. */
@@ -106,9 +95,6 @@
   --ink-2: oklch(0.506 0.01 264.477);
   --ink-3: oklch(0.695 0.009 264.505);
 
-  --line: oklch(0.946 0.003 264.542);
-  --line-strong: oklch(0.912 0.005 258.326);
-  --line-soft: oklch(0.966 0.002 264.542);
   --field: oklch(0.961 0.001 286.375);
   --stripe: oklch(0.405 0 0 / 0.075);
   --stripe-bg: oklch(0.97 0 0);
@@ -129,13 +115,7 @@
   --tooltip-muted: oklch(0.731 0.008 260.731);
   --tooltip-border: oklch(0.356 0.007 264.474);
 
-  /* light rings are the solid hairline; stacks come from shadow-plugin/unprefixed. */
-  --shadow-hairline: 0 0 0 1px var(--line);
-  --shadow-btn: 0 0 0 1px var(--line-strong), var(--shadow-xs);
-  --shadow-card: 0 0 0 1px var(--line), var(--shadow-sm);
-  --shadow-raised: 0 0 0 1px var(--line), var(--shadow-md);
-  --shadow-overlay: 0 0 0 1px var(--line), var(--shadow-lg);
-  --shadow-inset-field: inset 0 1px 2px oklch(0 0 0 / 0.12);
+  /* Light-mode shadow stacks are restated in the TEMBO ALIGNMENT block below. */
 }
 
 @theme inline {
@@ -174,11 +154,8 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
 
-  /* radii — chips 6, controls 8, cards 10, windows 14, pills 999 */
-  --radius-chip: 6px;
-  --radius-control: 8px;
-  --radius-card: 10px;
-  --radius-window: 14px;
+  /* radii and the type scale live in the TEMBO ALIGNMENT block at the foot of
+     this file, which is the one place either ladder is written. */
 
   /* easing — strong curves; built-ins are too weak */
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
@@ -196,7 +173,10 @@ html {
 
 body {
   font-feature-settings: "cv11", "ss01";
-  letter-spacing: -0.01em;
+  /* Tracking is a function of SIZE, not of the document: tembo ships -.1px at
+   * 14/16px and -.2px below that. One em-relative value cannot do both — at
+   * 11px, -0.01em is -0.11px where the smaller text wants nearly twice that. */
+  letter-spacing: -0.1px;
 }
 
 /* headings balance; descriptions avoid orphans */
@@ -274,4 +254,144 @@ a {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ══ TEMBO ALIGNMENT ══════════════════════════════════════════════════════════
+ * Values read token-for-token off tembo.io's shipped stylesheet.
+ *
+ * BUI got Realm's colour close already, so nothing here repaints the app. What
+ * tembo does better is the *edges*, and that is all this block changes:
+ *
+ * - Hairlines are ALPHA OVERLAYS at half a pixel. A border drawn as a solid grey
+ *   is painted for one ground and looks wrong on every other; drawn as 8% white
+ *   it dissolves into whatever it happens to sit on — which for Realm matters,
+ *   because the same `--line` runs across the vibrant sidebar, the opaque panel
+ *   and the floating composer.
+ * - Type carries its own tracking PER SIZE. One global letter-spacing is always
+ *   wrong at one end of the scale: 11px wants -.2px, 16px wants -.1px.
+ * - Shadows separate the RING from the LIFT, and the lift is several soft layers
+ *   rather than one hard drop — the difference between "has a shadow" and "is
+ *   floating".
+ * - The weight ladder sits lower (450 where most systems use 500), which is what
+ *   keeps dense UI text from reading as bolded.
+ */
+
+:root {
+  /* Tembo's neutral overlay ramps — one alpha ladder per direction, and the
+   * source every border and ink step below is derived from. */
+  --overlay-lighten-50: #ffffff05;   --overlay-darken-50: #00000005;
+  --overlay-lighten-100: #ffffff0a;  --overlay-darken-100: #0000000a;
+  --overlay-lighten-200: #ffffff0f;  --overlay-darken-200: #0000000f;
+  --overlay-lighten-300: #ffffff14;  --overlay-darken-300: #00000014;
+  --overlay-lighten-400: #ffffff1f;  --overlay-darken-400: #0000001f;
+  --overlay-lighten-500: #ffffff29;  --overlay-darken-500: #00000029;
+  --overlay-lighten-600: #ffffff33;  --overlay-darken-600: #00000033;
+  --overlay-lighten-700: #ffffff3d;  --overlay-darken-700: #0000003d;
+  --overlay-lighten-800: #ffffff52;  --overlay-darken-800: #00000052;
+  --overlay-lighten-900: #ffffff66;  --overlay-darken-900: #00000066;
+  --overlay-lighten-1000: #ffffff80; --overlay-darken-1000: #00000080;
+  --overlay-lighten-1100: #ffffff99; --overlay-darken-1100: #00000099;
+  --overlay-lighten-1200: #ffffffb8; --overlay-darken-1200: #000000b8;
+  --overlay-lighten-1300: #ffffffcc; --overlay-darken-1300: #000000cc;
+  --overlay-lighten-1400: #ffffffeb; --overlay-darken-1400: #000000eb;
+
+  /* A hairline is one DEVICE pixel, not one CSS pixel. On the retina displays
+   * Realm runs on, a 1px border is two device pixels — twice the line the design
+   * wants, and the most visible single difference between this app and the
+   * references it gets measured against. */
+  --hairline-w: 0.5px;
+
+  /* Dark is Realm's primary mode, so the border ramp lightens. */
+  --line: var(--overlay-lighten-300);
+  --line-strong: var(--overlay-lighten-400);
+  --line-soft: var(--overlay-lighten-200);
+
+  /* Motion, tembo's four steps. `--dur-press` is deliberately shorter than
+   * `--dur-fast`: a press has to resolve inside the gesture that caused it. */
+  --dur-press: 0.14s;
+  --dur-fast: 0.15s;
+  --dur-base: 0.2s;
+  --dur-slow: 0.3s;
+  /* Drawers and sheets travel on their own curve — a long flat tail, so a panel
+   * arrives rather than snaps. (The out-strong / in-out-strong pair above
+   * already matches tembo's `--ease-out` / `--ease-in-out` exactly.) */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Shadow stacks: a RING plus a LIFT, the lift graduated across several soft
+   * layers. Dark-mode rings lighten — a light edge over a dark ground reads as
+   * the lit top face of a raised surface; light-mode rings darken. */
+  --shadow-bevel: inset 0 1px 0.5px #ffffff14;
+  --shadow-glass-inset: inset 0 0 1.5px 0 #ffffff29;
+  --shadow-pill: 0 2px 9px 0 #00000052;
+  --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-lighten-400), 0 1px 2px #00000052;
+  --shadow-card:
+    0 0 0 var(--hairline-w) var(--overlay-lighten-400),
+    0 1px 2px #00000033, 0 2px 6px #00000033;
+  --shadow-raised:
+    0 0 0 var(--hairline-w) var(--overlay-lighten-500),
+    0 8px 16px #00000038, 0 24px 117px #0000003d;
+  --shadow-overlay:
+    0 0 0 var(--hairline-w) var(--overlay-lighten-500),
+    0 4.4px 2.2px -4.4px #00000047, 0 19px 10px #00000029, 0 20px 64px #00000059;
+  --shadow-hairline: 0 0 0 var(--hairline-w) var(--line);
+  --shadow-inset-field: inset 0 1px 2px #00000066;
+}
+
+:root[data-mode="light"] {
+  --line: var(--overlay-darken-200);
+  --line-strong: var(--overlay-darken-300);
+  --line-soft: var(--overlay-darken-100);
+
+  --shadow-bevel: inset 0 1px 0.5px #00000026;
+  --shadow-pill: 0 2px 9px 0 #0000000f;
+  --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-300), 0 1px 2px #03071214;
+  --shadow-card: 0 0 0 var(--hairline-w) #03071214, 0 2px 4px 0 #0307120a;
+  --shadow-raised: 0 0 0 var(--hairline-w) #03071214, 0 8px 16px 0 #0307120a, 0 24px 117px 0 #1c284024;
+  --shadow-overlay:
+    0 0 0 var(--hairline-w) #0000000d,
+    0 4.4px 2.2px -4.4px #0000001a, 0 19px 10px 0 #00000008, 0 20px 64px 0 #0000000d;
+  --shadow-hairline: 0 0 0 var(--hairline-w) var(--line);
+  --shadow-inset-field: inset 0 1px 2px #0000001f;
+}
+
+/* `static`, not a bare `@theme`: Tailwind drops any theme variable no generated
+ * utility happens to reference, and Realm reads these from hand-written CSS, not
+ * from utility classes. Without it, half of the scale below is documentation that
+ * never reaches the browser — `var(--radius-card)` would resolve to nothing. */
+@theme static {
+  /* Type: every step carries its own line-height AND tracking. Tembo's scale
+   * verbatim — including the title ramp, which is one weight (560) and one
+   * tracking (-1.5%) across four sizes, so a heading never needs hand-tuning. */
+  --text-xs: 11px;
+  --text-xs--line-height: 14px;
+  --text-xs--letter-spacing: -0.2px;
+  --text-sm: 13px;
+  --text-sm--line-height: 16px;
+  --text-sm--letter-spacing: -0.2px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-base--letter-spacing: -0.1px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-lg--letter-spacing: -0.1px;
+
+  --text-title-xs: 18px;
+  --text-title-sm: 20px;
+  --text-title-base: 24px;
+  --text-title-lg: 28px;
+  --text-title--letter-spacing: -1.5%;
+
+  /* 450 for "medium", not 500: at 13px on a dark ground 500 already reads as
+   * emphasis, and a UI where every label is emphasised has no emphasis left. */
+  --font-weight-medium: 450;
+  --font-weight-title: 560;
+  --font-weight-semibold: 600;
+
+  /* Radii — tembo's ladder. Cards and windows are rounder than BUI's 10 / 14. */
+  --radius-sm: 2px;
+  --radius-chip: 6px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-window: 16px;
+  --radius-pill: 999px;
 }

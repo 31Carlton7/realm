@@ -7,7 +7,7 @@ import {
   SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowDown02Icon, ArrowUp02Icon, CheckmarkCircle02Icon, CancelCircleIcon,
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
   Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon,
-  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon,
+  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon, Download04Icon,
   // Space icon picker's "Default" section (SPACE_ICONS, packages/contracts/src/presets.ts) — every
   // name there must have a matching key below.
   Rocket01Icon, StarIcon, Book01Icon, Camera01Icon, MusicNote01Icon, Shield01Icon, Flag01Icon, Coffee01Icon, Target01Icon, Compass01Icon,
@@ -23,7 +23,7 @@ import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 export const icons = {
   add: Add01Icon, close: Cancel01Icon, folder: Folder01Icon, briefcase: Briefcase01Icon, cap: MortarboardIcon,
   home: Home01Icon, user: UserIcon, terminal: ComputerTerminal01Icon, browser: GlobeIcon, simulator: SmartPhone01Icon,
-  artifact: File01Icon, context: BrainIcon, layout: LayoutGridIcon, settings: Settings01Icon, more: MoreHorizontalIcon,
+  artifact: File01Icon, documents: File01Icon, context: BrainIcon, layout: LayoutGridIcon, settings: Settings01Icon, more: MoreHorizontalIcon,
   sidebar: SidebarLeft01Icon,
   session: ChatIcon, search: Search01Icon, pin: PinIcon, unpin: PinOffIcon, chevronLeft: ArrowLeft01Icon, chevronRight: ArrowRight01Icon,
   check: Tick01Icon, trash: Delete02Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
@@ -34,7 +34,10 @@ export const icons = {
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
   // Pane focus (zoom one pane to the whole host) and its inverse; `group` is a pane group's tab.
   focusPane: Maximize01Icon, unfocusPane: Minimize01Icon, group: LayoutTable01Icon,
-  laptop: LaptopIcon, plug: PlugSocketIcon,
+  // Same glyph as `group`, under the name a spreadsheet is actually looking for — a document's
+  // icon should not have to borrow the pane system's vocabulary to find a table.
+  table: LayoutTable01Icon,
+  laptop: LaptopIcon, plug: PlugSocketIcon, download: Download04Icon,
   // Shelve a sidebar row / take it back off the shelf. The pair is directional on purpose — the same
   // box, with the restore glyph lifting out of it — so the hover button reads as a toggle.
   archive: Archive02Icon, unarchive: ArchiveArrowUpIcon,

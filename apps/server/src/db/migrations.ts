@@ -335,4 +335,73 @@ export const migrations: string[] = [
   // reading of a database written before archiving existed; and the filter is always paired with the
   // `space_id` predicate `items_space` already covers, over a per-space row count in the dozens.
   `ALTER TABLE items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`,
+  // v19 — document workspaces (Plan 17 W1): the persisted half of a `documents` pane, which is its
+  // TAB STRIP and nothing else. Document content is not here and never will be — documents are plain
+  // files in the checkout, which is the decision that lets an agent edit them with its ordinary
+  // Write/Edit tools and lets git, the diff pane and checkpoints see the changes for free.
+  //
+  // `environment_id` (not space_id alone) is what the pane is rooted at, following `diff`'s precedent:
+  // a document workspace is a view of a CHECKOUT, so sessions sharing an environment share documents.
+  // ON DELETE CASCADE from environments matters — removing a worktree must not leave a workspace row
+  // pointing at a directory that no longer exists.
+  //
+  // `open_paths_json` is a JSON array of paths RELATIVE to the environment root; `active_path` is one
+  // of them or NULL. Relative because a worktree that moves keeps its tabs, and because a relative
+  // path is the only shape the RPC layer can range-check for containment.
+  `
+  CREATE TABLE document_workspaces (
+    id TEXT PRIMARY KEY,
+    space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+    open_paths_json TEXT NOT NULL DEFAULT '[]', active_path TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX document_workspaces_env ON document_workspaces(environment_id);
+  `,
+  // v20 — durable runs: a goal that owns a session across attempts and survives restarts
+  // (packages/contracts/src/runs.ts). The supervisor `DelegationEngine` deliberately is not — its
+  // registry is in memory because a blocked MCP tool call cannot outlive the process. A run has
+  // nobody blocked on it, so it is a row.
+  //
+  // `session_id` carries NO foreign key, on purpose: the same log posture v14's
+  // `dispatched_by_session_id` and the notifications feed already take — "run X produced session Y"
+  // stays a true and useful statement after Y is deleted, and an ON DELETE SET NULL here would erase
+  // the one pointer from a finished run to the transcript that IS its work.
+  //
+  // `environment_id` DOES carry one (no ON DELETE clause, i.e. RESTRICT): an environment is a
+  // directory on disk, and a run still pointing at one is a reason not to silently drop the row.
+  //
+  // `runs_dedupe` is the load-bearing line. Scoped to the three LIVE states (RUN_LIVE_STATES —
+  // runs.test.ts pins that the two lists agree), so a trigger that fires every fifteen minutes can
+  // call `runs.create` naively: at most one live run exists per key, enforced by the database rather
+  // than by whoever writes next (v5's `environments_one_primary` posture). Terminal runs fall out of
+  // the index, which is what lets tomorrow's run of the same recurring thing exist at all.
+  //
+  // No `lease_until` column, deliberately. A lease earns its keep with a second writer or a wedged
+  // service loop; realm-server is one process, so at boot EVERY `running` row is by definition
+  // unsupervised and `RunService.recoverOnBoot` reconciles it against the session's real status.
+  // Migrations are append-only: a lease is one ALTER away the day a second writer exists.
+  `
+  CREATE TABLE runs (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    title TEXT NOT NULL, goal TEXT NOT NULL, agent_kind TEXT NOT NULL,
+    environment_id TEXT REFERENCES environments(id),
+    constraints_json TEXT, dedupe_key TEXT,
+    state TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 1,
+    session_id TEXT, deadline_at INTEGER, result_text TEXT, error TEXT,
+    created_at INTEGER NOT NULL, started_at INTEGER, settled_at INTEGER, updated_at INTEGER NOT NULL);
+  -- Every listing is "this space, newest first"; id DESC is the same-millisecond tiebreak the
+  -- notifications and ships feeds use, so keyset pagination can never skip or repeat a row.
+  CREATE INDEX runs_space ON runs(space_id, created_at DESC, id DESC);
+  -- At most one LIVE run per key per space. See the comment above — this is the whole point.
+  CREATE UNIQUE INDEX runs_dedupe ON runs(space_id, dedupe_key)
+    WHERE dedupe_key IS NOT NULL AND state IN ('queued', 'running', 'blocked');
+  -- Boot recovery's one scan, and the only query that reads across spaces.
+  CREATE INDEX runs_live ON runs(state) WHERE state IN ('queued', 'running', 'blocked');
+
+  CREATE TABLE run_attempts (
+    id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    n INTEGER NOT NULL, session_id TEXT, outcome TEXT NOT NULL, detail TEXT,
+    started_at INTEGER NOT NULL, settled_at INTEGER);
+  CREATE UNIQUE INDEX run_attempts_run_n ON run_attempts(run_id, n);
+  `,
 ];

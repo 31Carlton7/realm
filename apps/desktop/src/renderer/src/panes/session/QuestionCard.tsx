@@ -29,13 +29,10 @@ export function parseQuestions(toolName: string, input: Record<string, unknown>)
   return out;
 }
 
-/** The free-text escape hatch the tool's own schema promises ("There should be no 'Other' option, that
- *  will be provided automatically") — so the card, not the model, has to supply it. */
-const OTHER = "__other__";
-
 /** A question the agent asked, rendered as the choice it actually is: the question, its options as a
- *  numbered list, and a free-text row — one question at a time, with `n of m` paging when the agent
- *  asked several.
+ *  numbered list, and a free-text row — the escape hatch the tool's own schema promises ("There should
+ *  be no 'Other' option, that will be provided automatically"), so the card, not the model, supplies it.
+ *  One question at a time, with `n of m` paging when the agent asked several.
  *
  *  Keyboard: 1–9 pick an option outright, ↑/↓ move, Enter takes the highlighted row, Esc skips the whole
  *  request (a deny — the agent asked and got no answer, which is different from any answer it offered).

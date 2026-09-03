@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { SearchResults } from "@realm/contracts";
 
@@ -16,7 +16,18 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
-    scope: { kind: "space", spaceId: null }, ...extra });
+    scope: { kind: "space", spaceId: null },
+    origin: { kind: "library", key: "library", label: "Realm library", root: "/realm-home/skills" }, ...extra });
+
+/** A skill found OUTSIDE Realm's library — the discovery case. Off by default, exactly as the server
+ *  lists it, so a test that forgets to enable one is testing the real default. */
+export const externalSkillRow = (id: string, origin: Partial<Skill["origin"]> = {}, extra: Partial<Skill> = {}): Skill =>
+  skillRow(id, {
+    enabled: false,
+    path: `/home/.agents/skills/${id}/SKILL.md`,
+    origin: { kind: "user", key: "agents", label: "~/.agents/skills", root: "/home/.agents/skills", ...origin },
+    ...extra,
+  });
 
 export const agentsFileState = (extra: Partial<AgentsFileState> = {}): AgentsFileState =>
   ({ enabled: false, path: "/realm-home/spaces/s1/AGENTS.md", exists: false, managedByRealm: false, writable: true, reason: null, ...extra });
@@ -46,6 +57,16 @@ export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}):
   ({ id, environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId, branch: "main", sha: `sha-${id}`,
     subject: `shipped ${id}`, prUrl: null, pushState: "pushed", createdAt: 0, ...extra });
 
+/** A durable run. Defaults to a queued run with no attempts yet. */
+export const runRow = (id: string, spaceId: string, extra: Partial<Run> = {}): Run =>
+  ({ id, spaceId, title: `Run ${id}`, goal: `do ${id}`, agentKind: "claude", environmentId: null,
+    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null,
+    deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
+
+/** One attempt of a run. */
+export const runAttempt = (id: string, runId: string, n: number, extra: Partial<RunAttempt> = {}): RunAttempt =>
+  ({ id, runId, n, sessionId: null, outcome: "succeeded", detail: null, startedAt: 0, settledAt: 0, ...extra });
+
 /** A feed row (W5). Defaults to an unread, already-acted session_done; ids must sort as ULIDs do. */
 export const notification = (id: string, extra: Partial<Notification> = {}): Notification =>
   ({ id, category: "session_done", spaceId: "s1", sessionId: null, refId: null, title: "a session",
@@ -55,13 +76,36 @@ export const iconAsset = (id: string, profileId: string, extra: Partial<IconAsse
   ({ id, profileId, kind: "generated", mime: "image/svg+xml", dataText: `<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="20"/></svg>`,
     prompt: "a circle", createdAt: 0, ...extra });
 
+/** One "Apps on this Mac" row, with the derived flags set the way main/mac-access.ts sets them:
+ *  Full Disk Access never has a command, a granted row has nothing left to offer, and a DENIED row
+ *  offers System Settings but NOT a prompt — denials are sticky, so a Grant button there could not
+ *  work. Tests that assert on those flags are asserting on this rule. */
+export const macRow = (id: string, label: string, group: MacAccessRow["group"], state: MacAccessState): MacAccessRow => {
+  const hasCommand = group !== "disk";
+  return {
+    id, label, group, state, detail: `${label}: ${state}`,
+    grantCommand: hasCommand ? `mac ${label.toLowerCase()} list --json` : null,
+    canPrompt: hasCommand && state !== "granted" && state !== "denied",
+    needsSettings: state !== "granted" && (!hasCommand || state === "denied" || state === "writeOnly"),
+    launchesApp: group === "automation",
+  };
+};
+
 export type FakeData = {
+  /** Plan 22: lectures per space, Plynn's meetings folder, and guide progress by `documentsId:path`. */
+  lectures?: Record<string, Lecture[]>;
+  plynn?: { available: boolean; folder: string; meetings: PlynnMeeting[] };
+  guideProgress?: Record<string, GuideProgress>;
+  /** Plan 17 W1: document workspace rows, and an in-memory filesystem per workspace. */
+  documentWorkspaces?: Record<string, DocumentWorkspace>;
+  documentFiles?: Record<string, Record<string, string>>;
   profiles?: Profile[]; spaces?: Space[];
   items?: Record<string, Item[]>; projects?: Record<string, Project[]>;
   /** By space id. `createWorktree` appends one, as the server's createWorktree does. */
   environments?: Record<string, Environment[]>;
   settings?: Record<string, unknown>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
+  importScan?: ImportScan; importResult?: ImportResult;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -80,6 +124,11 @@ export type FakeData = {
   /** `ships.list` by space id (Plan 14 W1). Unordered on the way in — the fake sorts newest-first
    *  like the real store. */
   ships?: Record<string, Ship[]>;
+  /** `runs.list` by space id. Unordered on the way in — the fake sorts newest-first like the server. */
+  runs?: Record<string, Run[]>;
+  /** `runs.get`'s attempt log by run id. A run with no entry reports an empty log, which is what a
+   *  never-dispatched run genuinely has. */
+  runAttempts?: Record<string, RunAttempt[]>;
   /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
    *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
   checkpointPreview?: Record<string, RestorePreview>;
@@ -88,6 +137,9 @@ export type FakeData = {
   skills?: Record<string, Skill[]>;
   /** The library folder `skills.list` reports. */
   skillsRoot?: string;
+  /** What `skills.sources` answers, by space id. Absent → the library alone, which is what a machine
+   *  with no other agent directories on it really does report. */
+  skillSources?: Record<string, SkillSource[]>;
   /** What `mcp.test` answers, by server id. Absent id → reached false, "no test result configured". */
   mcpTest?: Record<string, McpTestResult>;
   /** Realm memory documents by space id. */
@@ -113,6 +165,13 @@ export type FakeData = {
   /** Whether main would say the Realm window is focused, i.e. whether a requested toast is actually
    *  posted. Defaults to false (Realm in the background) — the state a toast exists for. */
   windowFocused?: boolean;
+  /** What `mac doctor` answers through main (the "Apps on this Mac" rows). Defaults to a machine
+   *  mid-setup: Calendar granted, Mail never asked, Reminders denied, Full Disk denied. */
+  macAccess?: MacAccessStatus;
+  /** How the user "answers" each capability's macOS dialog during a grant, by id. Anything not
+   *  named here is answered Allow — the fake's default is the happy path, and a test that cares
+   *  about a refusal says so. */
+  macGrantAnswers?: Record<string, "granted" | "denied">;
   /** What main's gated updater reports (Plan 15 W1). Defaults to today's shipped truth: a packaged
    *  local build is unsigned, so the row is disabled as "unsigned". Mutate between calls to script
    *  an enabled build's states. */
@@ -162,6 +221,9 @@ export type FakeApi = Api & {
   /** Every `mcp.add`/`mcp.update` input exactly as sent — what the secrecy tests read: an update that
    *  should have omitted `env` is caught here, not inferred from state. */
   mcpWrites: (AddMcpServerInput | UpdateMcpServerInput)[];
+  /** Every `import.apply` selection exactly as sent — what the Import panel's tests read, so a
+   *  filtered-out or re-pointed row is caught on the wire rather than inferred from state. */
+  importApplied: ImportApplyParams[];
   /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
   delays: Record<string, number>;
   onCreateTerminal: (() => void) | null;
@@ -201,9 +263,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     worktreeStatus: overrides.worktreeStatus ?? {},
     checkpoints: overrides.checkpoints ?? {},
     ships: overrides.ships ?? {},
+    // COPIED, not aliased: `mutateRun` writes rows in place (like the server's own row update), and
+    // sharing the caller's array would let one test's cancel leak into the next test's fixture — a
+    // module-level `const data: FakeData` is the normal way these suites are written.
+    runs: Object.fromEntries(Object.entries(overrides.runs ?? {}).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
+    runAttempts: overrides.runAttempts ?? {},
     checkpointPreview: overrides.checkpointPreview ?? {},
     skills: overrides.skills ?? {},
     skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
+    skillSources: overrides.skillSources ?? {},
     mcpTest: overrides.mcpTest ?? {},
     memoryDocs: overrides.memoryDocs ?? {},
     agentsFiles: overrides.agentsFiles ?? {},
@@ -212,6 +280,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
     credentials: overrides.credentials ?? [],
     credentialStatus: overrides.credentialStatus ?? { available: true, canPromptTouchID: true, presenceTtlMs: 0 },
+    lectures: overrides.lectures ?? {},
+    plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
+    guideProgress: overrides.guideProgress ?? {},
+    importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
+    importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
       { id: "filesAndFolders", label: "Files & Folders", state: "unknown", detail: "Can't be checked until used — macOS only reveals these grants by asking." },
       { id: "automation", label: "Automation", state: "unknown", detail: "Can't be checked until used — grants are per-app-pair." },
@@ -222,6 +295,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     shownNotifications: overrides.shownNotifications ?? [],
     badgeCount: overrides.badgeCount ?? 0,
     windowFocused: overrides.windowFocused ?? false,
+    macAccess: overrides.macAccess ?? {
+      cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },
+      host: { name: "Realm", bundlePath: "/Applications/Realm.app", packaged: true },
+      rows: [
+        macRow("calendar", "Calendar", "data", "granted"),
+        macRow("reminders", "Reminders", "data", "denied"),
+        macRow("automation:Mail", "Mail", "automation", "notRequested"),
+        macRow("fullDiskAccess", "Full Disk Access", "disk", "denied"),
+      ],
+    },
+    macGrantAnswers: overrides.macGrantAnswers ?? {},
     updateStatus: overrides.updateStatus ?? { version: "0.0.1", state: { kind: "disabled", reason: "unsigned" } },
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
@@ -230,6 +314,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true }],
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
+    documentWorkspaces: overrides.documentWorkspaces ?? {},
+    documentFiles: overrides.documentFiles ?? {},
     notifications: overrides.notifications ?? [],
     reviews: overrides.reviews ?? {},
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
@@ -238,7 +324,22 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   };
   let n = 100;
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
+  const findRun = (id: string) => {
+    const r = Object.values(data.runs).flat().find((x) => x.id === id);
+    if (!r) throw new Error(`no run ${id}`);
+    return r;
+  };
+  /** Apply a write to the stored run IN PLACE, like the server's own row update — a fake that
+   *  returned a fresh object while leaving the list stale would let a test pass on a stale read. */
+  const mutateRun = (id: string, patch: Partial<Run>): Run => {
+    const list = data.runs[findRun(id).spaceId]!;
+    const i = list.findIndex((r) => r.id === id);
+    const next = { ...list[i]!, ...patch, updatedAt: (list[i]!.updatedAt ?? 0) + 1 };
+    list[i] = next;
+    return next;
+  };
   const mcpWrites: FakeApi["mcpWrites"] = [];
+  const importApplied: FakeApi["importApplied"] = [];
   const memState = (spaceId: string): MemoryState => {
     // The inherited profile doc rides along as the real `memory.get` reports it (W2/W4): the space's
     // own profile, ON unless this space disabled it. Null only when the space is unknown.
@@ -253,7 +354,115 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     };
   };
   const api: FakeApi = {
-    calls, disposed, sent, mcpWrites, delays: {}, onCreateTerminal: null, data,
+    calls, disposed, sent, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
+    // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
+    // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
+    // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
+    createDocuments: async (spaceId) => {
+      calls.push(`createDocuments:${spaceId}`);
+      const existing = (data.items[spaceId] ?? []).find((i) => i.kind === "documents");
+      if (existing) return { documentsId: existing.refId, itemId: existing.id };
+      const documentsId = `docs${++n}`;
+      const it = item(`i${++n}`, spaceId, { kind: "documents", title: "Documents", refId: documentsId });
+      (data.items[spaceId] ??= []).push(it);
+      data.documentWorkspaces[documentsId] = { id: documentsId, spaceId, environmentId: `env-${spaceId}`, openPaths: [], activePath: null, createdAt: 0, updatedAt: 0 };
+      return { documentsId, itemId: it.id };
+    },
+    getDocuments: async (documentsId) => {
+      calls.push(`getDocuments:${documentsId}`);
+      const ws = data.documentWorkspaces[documentsId];
+      if (!ws) throw new Error(`no documents workspace ${documentsId}`);
+      return ws;
+    },
+    setDocumentTabs: async (documentsId, openPaths, activePath) => {
+      calls.push(`setDocumentTabs:${documentsId}`);
+      const ws = data.documentWorkspaces[documentsId];
+      if (!ws) throw new Error(`no documents workspace ${documentsId}`);
+      const paths = [...new Set(openPaths)];
+      const active = activePath !== null && paths.includes(activePath) ? activePath : (paths[0] ?? null);
+      const next = { ...ws, openPaths: paths, activePath: active };
+      data.documentWorkspaces[documentsId] = next;
+      return next;
+    },
+    detachDocuments: async (documentsId) => { calls.push(`detachDocuments:${documentsId}`); },
+    listDocumentEntries: async (documentsId, dir) => {
+      calls.push(`listDocumentEntries:${documentsId}:${dir}`);
+      return Object.keys(data.documentFiles[documentsId] ?? {})
+        .map((path) => ({ path, name: path.split("/").pop() ?? path, isDir: false, size: 0 }));
+    },
+    readDocument: async (documentsId, path) => {
+      calls.push(`readDocument:${documentsId}:${path}`);
+      const text = data.documentFiles[documentsId]?.[path];
+      if (text === undefined) throw new Error(`no such document ${path}`);
+      return { text, hash: `h:${text.length}:${text}` };
+    },
+    writeDocument: async (documentsId, path, text) => {
+      calls.push(`writeDocument:${documentsId}:${path}`);
+      (data.documentFiles[documentsId] ??= {})[path] = text;
+      return { ok: true as const, hash: `h:${text.length}:${text}` };
+    },
+    previewInfo: async () => { calls.push("previewInfo"); return { port: 4321, token: "tok" }; },
+    openDocumentPath: async (spaceId, path, environmentId) => {
+      calls.push(`openDocumentPath:${spaceId}:${path}`);
+      const { documentsId, itemId } = await api.createDocuments(spaceId, environmentId);
+      const ws = data.documentWorkspaces[documentsId]!;
+      const openPaths = ws.openPaths.includes(path) ? ws.openPaths : [...ws.openPaths, path];
+      data.documentWorkspaces[documentsId] = { ...ws, openPaths, activePath: path };
+      return { documentsId, itemId, environmentId: ws.environmentId };
+    },
+    readGuideProgress: async (documentsId, path) => {
+      calls.push(`readGuideProgress:${documentsId}:${path}`);
+      return data.guideProgress[`${documentsId}:${path}`] ?? { version: 1, topics: {} };
+    },
+    recordGuideAttempt: async (documentsId, path, topic, correct, total) => {
+      calls.push(`recordGuideAttempt:${documentsId}:${path}:${topic}:${correct}/${total}`);
+      const key = `${documentsId}:${path}`;
+      const prev = data.guideProgress[key] ?? { version: 1 as const, topics: {} };
+      const t = prev.topics[topic] ?? { attempts: [], best: 0, last: 0 };
+      const score = correct / total;
+      const next: GuideProgress = { version: 1, topics: { ...prev.topics, [topic]: { attempts: [...t.attempts, { at: 1, correct, total }], best: Math.max(t.best, score), last: score } } };
+      data.guideProgress[key] = next;
+      return next;
+    },
+    startLecture: async (spaceId, title) => {
+      calls.push(`startLecture:${spaceId}:${title}`);
+      const path = `lectures/2026-09-02${title ? `-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}` : ""}.md`;
+      (data.documentFiles[`docs-any`] ??= {})[path] = `# ${title || "Lecture"}\n`;
+      const r = await api.openDocumentPath(spaceId, path);
+      (data.documentFiles[r.documentsId] ??= {})[path] = `# ${title || "Lecture"}\n`;
+      (data.lectures[spaceId] ??= []).unshift({ path, title: title || "Lecture 2026-09-02", date: "2026-09-02", hasTranscript: false, sizeBytes: 10 });
+      return { path, ...r };
+    },
+    listLectures: async (spaceId) => { calls.push(`listLectures:${spaceId}`); return data.lectures[spaceId] ?? []; },
+    plynnList: async () => { calls.push("plynnList"); return data.plynn; },
+    plynnImport: async (spaceId, files) => {
+      calls.push(`plynnImport:${spaceId}:${files.length}`);
+      const imported = files.map((file) => ({ file, path: `lectures/imported-${file.split("/").pop()}` }));
+      for (const m of data.plynn.meetings) if (files.includes(m.file)) m.imported = true;
+      if (imported[0]) {
+        const r = await api.openDocumentPath(spaceId, imported[0].path);
+        (data.documentFiles[r.documentsId] ??= {})[imported[0].path] = "# imported\n";
+      }
+      return { imported, skipped: [] };
+    },
+    createDocumentFile: async (documentsId, path, _kind, title) => {
+      calls.push(`createDocumentFile:${documentsId}:${path}`);
+      const text = `# ${title}\n`;
+      (data.documentFiles[documentsId] ??= {})[path] = text;
+      return { path, hash: `h:${text.length}:${text}` };
+    },
+    renameDocumentFile: async (documentsId, from, to) => {
+      calls.push(`renameDocumentFile:${documentsId}:${from}:${to}`);
+      const files = (data.documentFiles[documentsId] ??= {});
+      if (to !== from && files[to] !== undefined) throw new Error(`${to} already exists`);
+      if (files[from] !== undefined) { files[to] = files[from]!; delete files[from]; }
+      const ws = data.documentWorkspaces[documentsId];
+      if (ws) {
+        ws.openPaths = ws.openPaths.map((p) => (p === from ? to : p));
+        if (ws.activePath === from) ws.activePath = to;
+      }
+      return { path: to };
+    },
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
     createProfile: async (name) => {
       calls.push(`createProfile:${name}`);
@@ -408,6 +617,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { session: sess, itemId: it.id, environment: env };
     },
     listSkills: async (spaceId) => { calls.push(`listSkills:${spaceId}`); return { root: data.skillsRoot, skills: [...(data.skills[spaceId] ?? [])] }; },
+    listSkillSources: async (spaceId) => {
+      calls.push(`listSkillSources:${spaceId}`);
+      const configured = data.skillSources[spaceId];
+      if (configured) return { sources: [...configured] };
+      return { sources: [{ kind: "library" as const, key: "library", label: "Realm library", path: data.skillsRoot,
+        count: (data.skills[spaceId] ?? []).length, removable: false }] };
+    },
+    addSkillScanRoot: async (path) => { calls.push(`addSkillScanRoot:${path}`); },
+    removeSkillScanRoot: async (path) => { calls.push(`removeSkillScanRoot:${path}`); },
     setSkillEnabled: async (spaceId, id, enabled) => {
       calls.push(`setSkillEnabled:${spaceId}:${id}=${enabled}`);
       // Applied to THIS space's rows and no other's — the per-space disabled set, as the server keys it.
@@ -550,6 +768,19 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     credentialSetPresenceTtl: async (ms) => { calls.push(`credentialSetPresenceTtl:${ms}`); data.credentialStatus.presenceTtlMs = ms; return ms; },
     openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
+    macAccessStatus: async () => { calls.push("macAccessStatus"); return structuredClone(data.macAccess); },
+    /** Models the real thing: the prompt goes up, the user answers, and the WHOLE audit is re-read —
+     *  so what the store receives is the row's post-answer shape, never a client-side guess. */
+    macAccessGrant: async (id) => {
+      calls.push(`macAccessGrant:${id}`);
+      await wait(`macAccessGrant:${id}`);
+      const answer = data.macGrantAnswers[id] ?? "granted";
+      const rows = data.macAccess.rows.map((r) => (r.id === id ? macRow(r.id, r.label, r.group, answer) : r));
+      data.macAccess = { ...data.macAccess, rows };
+      return structuredClone(data.macAccess);
+    },
+    macAccessOpenSettings: async (id) => { calls.push(`macAccessOpenSettings:${id}`); },
+    macAccessRevealApp: async () => { calls.push("macAccessRevealApp"); },
     updateStatus: async () => { calls.push("updateStatus"); return { ...data.updateStatus }; },
     // Mirrors main's gate: a disabled updater answers its state unchanged — the fake never checks.
     checkUpdates: async () => {
@@ -571,6 +802,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");
       return data.agentProbe;
+    },
+    importScan: async () => { calls.push("importScan"); await wait("importScan"); return data.importScan; },
+    importApply: async (selection) => {
+      calls.push(`importApply:${(selection.sessions ?? []).length}|${(selection.memories ?? []).length}|${(selection.skills ?? []).length}`);
+      importApplied.push(selection);
+      await wait("importApply");
+      return data.importResult;
     },
     gitInfo: async (cwd) => { calls.push(`gitInfo:${cwd}`); await wait(`gitInfo:${cwd}`); return data.gitInfo[cwd] ?? null; },
     diff: async (cwd) => { calls.push(`diff:${cwd}`); await wait(`diff:${cwd}`); return data.diffs[cwd] ?? null; },
@@ -620,6 +858,42 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       const page = rows.slice(0, cap);
       return { ships: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
+    },
+    listRuns: async (spaceId, states, cursor = null, limit) => {
+      calls.push(`listRuns:${spaceId}`);
+      const cap = limit ?? 100;
+      let rows = [...(data.runs[spaceId] ?? [])]
+        .filter((r) => !states || states.length === 0 || states.includes(r.state))
+        .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      if (cursor) {
+        const [ts, id] = [Number(cursor.slice(0, cursor.indexOf(":"))), cursor.slice(cursor.indexOf(":") + 1)];
+        rows = rows.filter((r) => r.createdAt < ts || (r.createdAt === ts && r.id < id));
+      }
+      const page = rows.slice(0, cap);
+      return { runs: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
+    },
+    createRun: async ({ spaceId, goal, title }) => {
+      calls.push(`createRun:${spaceId}|${goal}`);
+      const r = runRow(`run${++n}`, spaceId, { goal, title: title ?? goal.slice(0, 40), createdAt: Date.now() });
+      (data.runs[spaceId] ??= []).unshift(r);
+      return { run: r, created: true };
+    },
+    getRun: async (id) => {
+      calls.push(`getRun:${id}`);
+      const found = Object.values(data.runs).flat().find((r) => r.id === id);
+      return found ? { run: found, attempts: [...(data.runAttempts[id] ?? [])] } : null;
+    },
+    cancelRun: async (id) => { calls.push(`cancelRun:${id}`); return mutateRun(id, { state: "cancelled", error: "cancelled", settledAt: 1 }); },
+    retryRun: async (id) => {
+      calls.push(`retryRun:${id}`);
+      const before = findRun(id);
+      return mutateRun(id, { state: "queued", error: null, settledAt: null, maxAttempts: Math.max(before.maxAttempts, before.attempt + 1) });
+    },
+    approveRun: async (id, approved, note) => {
+      calls.push(`approveRun:${id}|${approved}|${note ?? ""}`);
+      return approved
+        ? mutateRun(id, { state: "queued", error: null, settledAt: null })
+        : mutateRun(id, { state: "cancelled", error: note ? `declined: ${note}` : "declined by the user", settledAt: 1 });
     },
     listCheckpoints: async (environmentId, sessionId) => {
       calls.push(`listCheckpoints:${environmentId}|${sessionId ?? "*"}`);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { SkillsPanel } from "./SkillsPanel";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, skillRow, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, skillRow, externalSkillRow, type FakeData } from "../../state/store.test-fakes";
 
 async function mount(overrides: FakeData = {}) {
   const api = fakeApi({
@@ -33,11 +33,14 @@ describe("the skills panel", () => {
     expect(screen.getByRole("switch", { name: "Skill mac in this space" })).toBeChecked();
   });
 
-  it("says, beside the toggles, that enabling a skill isolates Claude from the user's own skills", async () => {
-    // Mandatory disclosure #1 (W1 carry-forward): settingSources: [] costs the user their installed
-    // skills for this space's Claude sessions, and CLAUDE.md is re-injected to compensate.
+  it("says, beside the toggles, that enabling a skill isolates Claude from the user's own settings", async () => {
+    // Mandatory disclosure #1 (W1 carry-forward): `settingSources: []` still closes the set for this
+    // space's Claude sessions, and CLAUDE.md is still re-injected to compensate. What discovery changed
+    // is the REMEDY, not the disclosure — the user's installed skills are now in the list above, so the
+    // note has to send them there rather than just reporting a loss.
     await mount();
-    expect(screen.getByText(/isolates this space's Claude sessions from your own installed skills/)).toBeInTheDocument();
+    expect(screen.getByText(/isolates this space's Claude sessions from your own settings files/)).toBeInTheDocument();
+    expect(screen.getByText(/switched on above/)).toBeInTheDocument();
     expect(screen.getByText(/re-injected by Realm to compensate/)).toBeInTheDocument();
   });
 
@@ -55,7 +58,11 @@ describe("the skills panel", () => {
   it("shows the library folder so the user knows where skills come from", async () => {
     await mount();
     expect(screen.getAllByText("/realm-home/skills").length).toBeGreaterThan(0);
-    expect(screen.getByText(/New skills are on by default/)).toBeInTheDocument();
+    // Both polarities, said in one line: the library is opt-OUT and every discovered folder is opt-IN.
+    // Stating only one of them is the mutant — it is the difference between "drop it in and it works"
+    // and "a hundred installed skills just joined every prompt".
+    expect(screen.getByText(/on by default/)).toBeInTheDocument();
+    expect(screen.getByText(/off until you switch them on/)).toBeInTheDocument();
   });
 
   it("disabling writes THIS space's set — the other space keeps the skill on", async () => {
@@ -84,7 +91,58 @@ describe("the skills panel", () => {
     await store.getState().boot();
     render(<StoreContext.Provider value={store}><SkillsPanel spaceId="s1" /></StoreContext.Provider>);
     await screen.findByText(/No skills yet/);
-    expect(screen.getByText("/realm-home/skills")).toBeInTheDocument();
+    // Twice over, and both on purpose: the empty-state line tells the user where to PUT a skill, and
+    // the sources list below tells them the folder was actually read and held nothing. A source that
+    // found nothing is listed with its zero rather than dropped — "I added that folder and nothing
+    // appeared" is the question this section exists to answer, and hiding the row answers it with
+    // silence.
+    expect(screen.getAllByText("/realm-home/skills").length).toBe(2);
+    expect(screen.getByText(/0 skills/)).toBeInTheDocument();
+  });
+
+  it("lists every folder the scan reads, and offers Remove on the user's own alone", async () => {
+    // Realm's library and the agent directories are facts about the machine — a Remove on them would
+    // claim Realm could stop them existing. Only a folder the user added by hand can be taken away.
+    const api = fakeApi({ skills: { s1: [skillRow("mac")] }, skillSources: { s1: [
+      { kind: "library", key: "library", label: "Realm library", path: "/realm-home/skills", count: 1, removable: false },
+      { kind: "user", key: "agents", label: "~/.agents/skills", path: "/home/.agents/skills", count: 27, removable: false },
+      { kind: "extra", key: "mine", label: "~/mine", path: "/home/mine", count: 3, removable: true },
+    ] } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><SkillsPanel spaceId="s1" /></StoreContext.Provider>);
+    expect(await screen.findByText("~/.agents/skills")).toBeInTheDocument();
+    expect(screen.getByText(/27 skills/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(api.calls).toContain("removeSkillScanRoot:/home/mine"));
+  });
+
+  it("groups skills found outside the library by the folder they came from", async () => {
+    const api = fakeApi({ skills: { s1: [skillRow("mac"), externalSkillRow("agents.apple-design")] } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><SkillsPanel spaceId="s1" /></StoreContext.Provider>);
+    // The library keeps its SCOPE grouping (scope is Realm's concept, and only library skills are
+    // Realm's to move); everything else groups by origin, which is the question the user has about it.
+    expect(await screen.findByRole("region", { name: "Everywhere" })).toBeInTheDocument();
+    expect(screen.getByText("~/.agents/skills")).toBeInTheDocument();
+    // Off by default, and the switch says so — the polarity that keeps a hundred installed skills
+    // out of every prompt until they are asked for.
+    expect(screen.getByRole("switch", { name: "Skill agents.apple-design in this space" })).not.toBeChecked();
+  });
+
+  it("the search box filters the list and the count reports what is ON", async () => {
+    const api = fakeApi({ skills: { s1: [skillRow("mac"), externalSkillRow("agents.apple-design")] } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><SkillsPanel spaceId="s1" /></StoreContext.Provider>);
+    await screen.findByText("mac");
+    fireEvent.change(screen.getByRole("textbox", { name: "Search skills" }), { target: { value: "apple" } });
+    expect(screen.queryByText("mac")).toBeNull();
+    expect(screen.getByRole("switch", { name: "Skill agents.apple-design in this space" })).toBeInTheDocument();
+    // One of the two is enabled (the library row); the discovered one is not.
+    expect(screen.getByText(/On only \(1\)/)).toBeInTheDocument();
   });
 });
 

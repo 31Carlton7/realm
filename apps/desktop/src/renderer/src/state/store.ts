@@ -1,12 +1,13 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
+  lectureWrapUpPrompt, localDateStamp,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, parseSpaceIcon,
-  type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory,
-  type AgentKind, type Attachment, type BrowserCredential, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon,
+  type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
+  type AgentKind, type Attachment, type BrowserCredential, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -98,6 +99,26 @@ export type Api = {
   createTerminal(spaceId: string): Promise<{ terminalId: string; itemId: string }>;
   /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
   createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
+  /** Plan 17 W1. `environmentId` omitted roots the workspace at the space's primary checkout. */
+  createDocuments(spaceId: string, environmentId?: string): Promise<{ documentsId: string; itemId: string }>;
+  getDocuments(documentsId: string): Promise<DocumentWorkspace>;
+  setDocumentTabs(documentsId: string, openPaths: string[], activePath: string | null): Promise<DocumentWorkspace>;
+  detachDocuments(documentsId: string): Promise<void>;
+  listDocumentEntries(documentsId: string, dir: string): Promise<DocumentEntry[]>;
+  readDocument(documentsId: string, path: string): Promise<{ text: string; hash: string }>;
+  writeDocument(documentsId: string, path: string, text: string, baseHash: string | null):
+    Promise<{ ok: true; hash: string } | { ok: false; currentText: string; currentHash: string }>;
+  createDocumentFile(documentsId: string, path: string, kind: DocumentKind, title: string): Promise<{ path: string; hash: string }>;
+  renameDocumentFile(documentsId: string, from: string, to: string): Promise<{ path: string }>;
+  /** Plan 22 (school workflows): previews, guide progress, lectures, the Plynn handoff. */
+  previewInfo(): Promise<{ port: number; token: string }>;
+  openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string }>;
+  readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
+  recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
+  startLecture(spaceId: string, title: string): Promise<StartLectureResult>;
+  listLectures(spaceId: string): Promise<Lecture[]>;
+  plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
+  plynnImport(spaceId: string, files: string[]): Promise<PlynnImportResult>;
   updateItem(input: UpdateItemInput): Promise<Item>;
   /** Deleting a terminal item closes its pty server-side. */
   deleteItem(id: string): Promise<void>;
@@ -137,6 +158,11 @@ export type Api = {
   /** `skills.list` for a space: the library folder and every skill in it, valid or not — the mention
    *  picker (W4) reads the skills, the settings panel (W5) also shows the root and the invalid rows. */
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
+  /** `skills.sources` — the directories the scan reads for this space, and what each contributed. */
+  listSkillSources(spaceId: string): Promise<{ sources: SkillSource[] }>;
+  /** `skills.addScanRoot` / `skills.removeScanRoot` — the user's own extra directories. Machine-global. */
+  addSkillScanRoot(path: string): Promise<void>;
+  removeSkillScanRoot(path: string): Promise<void>;
   /** `skills.setEnabled` — one skill, one SPACE. The store is a per-space disabled set. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
   /** `skills.promote` — move a skill's defining scope from space level into `spaceId`'s profile (W2
@@ -179,6 +205,12 @@ export type Api = {
   prefillTerminal(terminalId: string, command: string): Promise<void>;
   /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
   probeAgents(force: boolean): Promise<AgentProbe[]>;
+  /** `import.scan` — everything the agent CLIs have on disk, matched to spaces. A pure read: it
+   *  creates nothing, so it is safe to call on mount and on every "Re-scan" click. */
+  importScan(): Promise<ImportScan>;
+  /** `import.apply` — the only writer. Takes the targets the USER settled on in the preview, which
+   *  is why the panel passes them back explicitly instead of letting the server re-match. */
+  importApply(selection: ImportApplyParams): Promise<ImportResult>;
   /** The macOS Permissions tab's rows (Plan 12 W6) — main-process IPC, not RPC. Honest by
    *  construction: the probe behind it never triggers a TCC prompt (see main/tcc.ts). */
   tccProbe(): Promise<TccRow[]>;
@@ -194,6 +226,15 @@ export type Api = {
   credentialSetPresenceTtl(ms: number): Promise<number>;
   /** Deep-link one permission row's System Settings pane. Takes the ROW id; main owns the URLs. */
   openTccPane(pane: string): Promise<void>;
+  /** `mac doctor` through main — the prompt-free audit behind the "Apps on this Mac" rows. */
+  macAccessStatus(): Promise<MacAccessStatus>;
+  /** Raise ONE capability's macOS prompt and resolve the re-read audit. Unlike every other Api
+   *  method this one is expected to sit pending: the child blocks in the consent dialog until the
+   *  user clicks. Takes a CAPABILITY id; main owns the command. */
+  macAccessGrant(id: string): Promise<MacAccessStatus>;
+  macAccessOpenSettings(id: string): Promise<void>;
+  /** Select Realm's .app in Finder — the start of the drag into Full Disk Access. */
+  macAccessRevealApp(): Promise<void>;
   /** The Updates row's state (Plan 15 W1) — main-process IPC. The gate lives in main (updater.ts):
    *  a gated build answers `disabled` with its reason, and `checkUpdates` on such a build returns
    *  that same state rather than pretending to check. */
@@ -266,6 +307,19 @@ export type Api = {
   mcpCallsList(params: McpCallsFilter & { before?: { ts: number; id: string }; limit?: number }): Promise<{ calls: McpCall[] }>;
   /** `ships.list` (Plan 14 W1): one page of a space's durable ship log, newest first. */
   listShips(spaceId: string, cursor?: string | null, limit?: number): Promise<{ ships: Ship[]; nextCursor: string | null }>;
+  /** `runs.list` (durable runs): one page of a space's runs, newest first. `states` narrows; an
+   *  empty array means every state. */
+  listRuns(spaceId: string, states?: RunState[], cursor?: string | null, limit?: number): Promise<{ runs: Run[]; nextCursor: string | null }>;
+  /** `runs.create` — queue a durable run. Returns the row plus whether it was newly created (a
+   *  `dedupeKey` collision returns the live run instead of a second one). */
+  createRun(input: { spaceId: string; goal: string; title?: string }): Promise<{ run: Run; created: boolean }>;
+  /** `runs.get` — one run plus its full attempt log. Null when the run is gone. */
+  getRun(id: string): Promise<{ run: Run; attempts: RunAttempt[] } | null>;
+  /** `runs.cancel` / `runs.retry` / `runs.approve` — the three writes the lens offers. Each returns
+   *  the fresh row; the server also broadcasts `runs.changed`, so the reply is belt-and-braces. */
+  cancelRun(id: string): Promise<Run>;
+  retryRun(id: string): Promise<Run>;
+  approveRun(id: string, approved: boolean, note: string | null): Promise<Run>;
   /** `notifications.list` (Plan 12 W5): one page of the global feed, plus the server's unread count —
    *  the ONE source every unread badge renders. */
   listNotifications(cursor: string | null, limit?: number): Promise<{ notifications: Notification[]; nextCursor: string | null; unread: number }>;
@@ -389,7 +443,11 @@ export type Sheet =
   /** Realm's log of every proxied MCP call (W7), global across spaces/sessions — see `openActivity`.
    *  Opened from McpSection ("Activity") or the palette ("MCP Activity"); replaces whatever sheet was
    *  open (the one-slot ruling — see the sheet-plumbing note above), including space settings itself. */
-  | { kind: "activity" };
+  | { kind: "activity" }
+  /** Plan 22: start a lecture (title prompt), wrap one up (pick which), import Plynn recordings. */
+  | { kind: "new-lecture" }
+  | { kind: "wrap-up-lecture" }
+  | { kind: "plynn-import" };
 
 export type AppState = {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
@@ -494,12 +552,28 @@ export type AppState = {
    *  (`DEFAULT_PERMISSION_MODE_KEY`). Null until the page first loads them — the page fetches on
    *  mount, and a null renders as loading rather than as every-toggle-on lies. */
   settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string } | null;
+  /** Canonical model keys the user has starred (`MODEL_FAVORITES_KEY`), for the model picker's
+   *  favourites tab, its favourites-first ordering and its 1…9 shortcuts. Empty rather than null
+   *  before it loads: unlike the settings page, an unstarred picker is a perfectly honest picker,
+   *  so there is nothing to hold back while the read is in flight. */
+  modelFavorites: string[];
   /** The Permissions tab's TCC rows, exactly as main's prompt-free probe reported them; null until
    *  the tab first probes. Never synthesised client-side — a row with no probe basis says so. */
   tccRows: TccRow[] | null;
   /** Enrolled sign-ins; null until first load. Metadata only — see `credentialList`. */
   credentials: BrowserCredential[] | null;
   credentialStatus: CredentialStatus | null;
+  /** The `mac` CLI's access, exactly as `mac doctor` reported it through main; null until the
+   *  Permissions tab first asks. Never synthesised client-side: an audit that could not run comes
+   *  back with every row `unknown`, which is what "we don't know" looks like. */
+  macAccess: MacAccessStatus | null;
+  /** The capability whose macOS dialog is up right now (a "Grant all" run walks these one at a
+   *  time), or null. Drives the row spinner AND the interlock that stops a second prompt racing the
+   *  first — macOS shows one consent dialog at a time, and two in flight lose an answer. */
+  macGranting: string | null;
+  /** The ids a "Grant all" run still has to reach, so the page can say "3 of 11" honestly rather
+   *  than showing an unattributed spinner. Empty when no run is in flight. */
+  macGrantQueue: string[];
   /** The Updates row's state (Plan 15 W1), exactly as main's gated updater reported it; null until
    *  the App tab first asks. A disabled state renders its reason — never a dead button. */
   updateStatus: UpdateStatus | null;
@@ -518,6 +592,8 @@ export type AppState = {
   /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
    *  skills-capable session opens and on `skills.changed`. */
   spaceSkills: Record<string, Skill[]>;
+  /** Per-space scan sources, for the skills panel's "where these come from" section. */
+  spaceSkillSources: Record<string, SkillSource[]>;
   /** Where the library lives on disk (`skills.list` root) — the settings panel's "drop a folder here"
    *  hint. Global, not per-space; "" until the first fetch. */
   skillsRoot: string;
@@ -566,6 +642,15 @@ export type AppState = {
   /** `ships.list` first page by space id (Plan 14 W1) — the History tab's other half. Absent = never
    *  asked; the `ships.changed` handler only refreshes spaces already held here. */
   ships: Record<string, Ship[]>;
+  /** `runs.list` first page by space id — the Tasks lens's run half. Absent = never asked, which is
+   *  what keeps `runs.changed` from fetching for a space nobody is looking at. */
+  runs: Record<string, Run[]>;
+  /** Which run the Tasks lens has selected, PER SPACE — the same posture as `spacePageTab`, so two
+   *  space pages open side by side do not fight over one selection. */
+  selectedRunId: Record<string, string | null>;
+  /** The selected run's attempt log, by run id. Fetched on selection (`runs.get`); the list rows
+   *  carry the run itself, so this holds only what a row cannot. */
+  runAttempts: Record<string, RunAttempt[]>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -823,6 +908,13 @@ export type AppState = {
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
+  /** Scan the agent CLIs' stores. Returns the answer rather than storing it: a scan is hundreds of
+   *  candidates the Import panel holds while the user edits targets, and parking that in the global
+   *  store would keep it alive for every pane that never opens the panel. */
+  importScan(): Promise<ImportScan>;
+  /** Apply a selection, then refresh the surfaces it may have changed (spaces, items and the skills
+   *  library all move under an import) so the sidebar reflects it without a reconnect. */
+  importApply(selection: ImportApplyParams): Promise<ImportResult>;
   /** Remember the agent a fresh session should use (onboarding's default-agent pick). Same setting the
    *  prompter's agent chip writes, so the two never disagree. */
   setDefaultAgent(kind: AgentKind): Promise<void>;
@@ -832,6 +924,15 @@ export type AppState = {
   setDraft(sessionId: string, text: string): void;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
+  /** Fetch the scan sources into `spaceSkillSources`. Separate from `refreshSkills` because the panel
+   *  wants it and the composer never does — a session open should not pay for it. */
+  refreshSkillSources(spaceId: string): Promise<void>;
+  /** Add/remove a user scan directory, then re-read this space's list and sources. */
+  addSkillScanRoot(spaceId: string, path: string): Promise<void>;
+  removeSkillScanRoot(spaceId: string, path: string): Promise<void>;
+  /** The native folder picker, then `addSkillScanRoot` — the same two-step `pickAndLinkProject` uses,
+   *  so the panel never has to reach past the store for a dialog. */
+  pickAndAddSkillScanRoot(spaceId: string): Promise<void>;
   /** Toggle one skill for ONE space (the settings panel), then re-read that space's library. */
   setSkillEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
   /** Move a skill's defining scope into `spaceId`'s profile (W4's "Move to profile"), then re-read. */
@@ -895,6 +996,42 @@ export type AppState = {
   /** Open (or focus) the diff pane for an environment. The pane's item has the ENVIRONMENT's id as
    *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
+  /** Open (or focus) the document workspace for an environment — the `openDiff` gesture, for files.
+   *  `environmentId` omitted uses the space's primary checkout, which is the sidebar's "Documents". */
+  openDocuments(environmentId?: string | null, targetLeafId?: string | null): Promise<void>;
+  /**
+   * Plan 22. Put one file on screen: the server adds it to the workspace's tab strip (creating the
+   * workspace when needed) and the item comes into the layout. `documents.openRequested` — which
+   * the server broadcasts for this AND for an agent's `docs_open` — is what a mounted pane opens
+   * the tab on; `applyDocumentOpenRequested` is the store's half, and it leaves an item that is
+   * already on screen alone.
+   */
+  openDocumentPath(path: string, environmentId?: string | null): Promise<void>;
+  applyDocumentOpenRequested(p: { spaceId: string; environmentId: string; documentsId: string; itemId: string; path: string }): Promise<void>;
+  /** Start a lecture: a fresh pane group named for today, the dated notes file open in the documents
+   *  pane, and a session beside it to ask things during class. Nothing is sent to the session. */
+  startLecture(title: string): Promise<void>;
+  /** Wrap a lecture up: a new session beside the focused pane, sent the wrap-up prompt. */
+  wrapUpLecture(lecture: Lecture): Promise<void>;
+  listLectures(): Promise<Lecture[]>;
+  /** The preview frame's ingredients and the guide progress bridge (PreviewFrame). Passthroughs. */
+  previewInfo(): Promise<{ port: number; token: string }>;
+  readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
+  recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
+  plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
+  /** Import into the ACTIVE space; the server opens the first imported file, so the pane follows. */
+  plynnImport(files: string[]): Promise<PlynnImportResult>;
+  /** Thin pass-throughs to the document RPCs. Panes never hold `api` themselves (it is the store's
+   *  test seam), so every server call a document pane makes arrives here. */
+  getDocuments(documentsId: string): Promise<DocumentWorkspace>;
+  setDocumentTabs(documentsId: string, openPaths: string[], activePath: string | null): Promise<DocumentWorkspace>;
+  detachDocuments(documentsId: string): Promise<void>;
+  listDocumentEntries(documentsId: string, dir: string): Promise<DocumentEntry[]>;
+  readDocument(documentsId: string, path: string): Promise<{ text: string; hash: string }>;
+  writeDocument(documentsId: string, path: string, text: string, baseHash: string | null):
+    Promise<{ ok: true; hash: string } | { ok: false; currentText: string; currentHash: string }>;
+  createDocumentFile(documentsId: string, path: string, kind: DocumentKind, title: string): Promise<{ path: string; hash: string }>;
+  renameDocumentFile(documentsId: string, from: string, to: string): Promise<{ path: string }>;
   /** "Request review" (Plan 13 W3): spawn the read-only reviewer over this environment. Marks it
    *  `reviewing` until the verdict's `review.changed` lands; the reviewer's pane arrives via the
    *  server's `session.agentOpened`. */
@@ -926,6 +1063,12 @@ export type AppState = {
    *  an unknown category, a mode PERMISSION_MODES doesn't name — is dropped/defaulted here, once,
    *  so the page never renders a state the server would not honor. */
   refreshSettingsPrefs(): Promise<void>;
+  /** Read `MODEL_FAVORITES_KEY` into `modelFavorites`. Junk in the row — a non-array, a non-string
+   *  element — is dropped here rather than surviving into the picker's ordering. */
+  refreshModelFavorites(): Promise<void>;
+  /** Star or un-star ONE model by canonical key, persisting the whole list. Recomputed from the held
+   *  list so a double-click can't write a duplicate, and so only THIS key ever moves. */
+  toggleModelFavorite(key: string): Promise<void>;
   /** Flip ONE category's off switch and persist the whole disabled set under
    *  `NOTIFICATIONS_DISABLED_KEY`. Disabling stops NEW rows only — the service's contract. */
   setNotificationCategoryEnabled(category: NotificationCategory, enabled: boolean): Promise<void>;
@@ -942,6 +1085,17 @@ export type AppState = {
   setCredentialPresenceTtl(ms: number): Promise<void>;
   /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
   openTccPane(pane: string): Promise<void>;
+  /** Re-run `mac doctor` into `macAccess`. Prompt-free, so the tab may call it freely. */
+  refreshMacAccess(): Promise<void>;
+  /** Raise ONE capability's prompt. A no-op while another prompt is up (macOS shows one dialog at
+   *  a time) and on any row that cannot be prompted — the page never asks for what cannot be asked. */
+  grantMacAccess(id: string): Promise<void>;
+  /** Walk every promptable row in order, one dialog at a time. Granted, denied and prompt-less rows
+   *  are skipped — asking there is impossible or guaranteed to fail — and the page names what was
+   *  left for System Settings rather than letting a short run read as full coverage. */
+  grantAllMacAccess(): Promise<void>;
+  openMacAccessPane(id: string): Promise<void>;
+  revealRealmApp(): Promise<void>;
   /** Fetch the Updates row's current state from main's gated updater into `updateStatus`. */
   refreshUpdateStatus(): Promise<void>;
   /** Run a real update check (or receive the disabled state unchanged — main's gate decides).
@@ -985,6 +1139,21 @@ export type AppState = {
   /** Re-fetch one space's ship log (first page — the History tab's glance, not an archive browser);
    *  what the History tab mounts and the `ships.changed` broadcast triggers for held spaces. */
   refreshShips(spaceId: string): Promise<void>;
+  /** Re-fetch one space's runs (first page). What the Tasks tab mounts and what `runs.changed`
+   *  triggers for spaces already held. */
+  refreshRuns(spaceId: string): Promise<void>;
+  /** Queue a durable run in this space and select it, so the lens lands on the thing just made. */
+  createRun(spaceId: string, goal: string, title?: string): Promise<void>;
+  /** Select a run in the Tasks lens and load its attempt log. `null` clears the selection. */
+  selectRun(spaceId: string, runId: string | null): Promise<void>;
+  /** The three run writes. Each applies the returned row AND re-reads the attempt log, because every
+   *  one of them opens or closes an attempt. */
+  cancelRun(id: string): Promise<void>;
+  retryRun(id: string): Promise<void>;
+  approveRun(id: string, approved: boolean, note: string | null): Promise<void>;
+  /** The `runs.changed` handler: folds the fresh row into a held space's list in place (no refetch
+   *  race), and re-reads the attempt log when the changed run is the selected one. */
+  applyRunsChanged(payload: { spaceId: string; run: Run | null }): void;
   /** Move the sheet from its list state into its confirm state, with a freshly read preview. */
   askRestoreCheckpoint(id: string): Promise<void>;
   /** Back to the list, forgetting the preview. */
@@ -1289,6 +1458,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const isSpace = (sid: string) => get().activeSpaceId === sid;
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status } });
+    /** Re-read one run's attempt log. Every run write opens or closes an attempt, so a panel left
+     *  holding the old log would misreport the history it exists to show. */
+    const loadRunAttempts = async (runId: string) => {
+      const detail = await api.getRun(runId);
+      if (detail) set({ runAttempts: { ...get().runAttempts, [runId]: detail.attempts } });
+    };
+    /** Shared tail of cancel/retry/approve: apply the row the call returned, then refresh the log. */
+    const afterRunWrite = async (r: Run) => { get().applyRunsChanged({ spaceId: r.spaceId, run: r }); await loadRunAttempts(r.id); };
     /** Last-used agent: applied to state now, persisted best-effort (a failed write only costs the
      *  memory on the next launch, so it must never fail the creation the user just asked for). */
     const rememberAgent = (agentKind: AgentKind) => {
@@ -1442,10 +1619,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
       machineName: "", connectors: {}, browserAllowlists: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -2222,6 +2399,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           if (it.kind === "browser") void host.setAllowlist(it.refId, allowlist);
         }
       },
+      importScan() { return api.importScan(); },
+      async importApply(selection) {
+        const result = await api.importApply(selection);
+        // An import can create spaces, sessions and items, and can add library skills that reach
+        // every space. The server broadcasts all of that, but a refresh here makes the panel's own
+        // "done" state and the sidebar agree in the same tick rather than one event-loop later.
+        await get().refreshSpaces();
+        await get().refreshItems();
+        return result;
+      },
       async probeAgents(force = false) {
         // Mount-storm guard: a split of four session panes asks four times in the same tick. The server
         // holds the TTL cache (probe-cache.ts); this only collapses the round trips.
@@ -2262,6 +2449,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshSkills(spaceId) {
         const { root, skills } = await api.listSkills(spaceId);
         set({ spaceSkills: { ...get().spaceSkills, [spaceId]: skills }, skillsRoot: root });
+      },
+      async refreshSkillSources(spaceId) {
+        const { sources } = await api.listSkillSources(spaceId);
+        set({ spaceSkillSources: { ...get().spaceSkillSources, [spaceId]: sources } });
+      },
+      async addSkillScanRoot(spaceId, path) {
+        await api.addSkillScanRoot(path);
+        await Promise.all([get().refreshSkills(spaceId), get().refreshSkillSources(spaceId)]);
+      },
+      async removeSkillScanRoot(spaceId, path) {
+        await api.removeSkillScanRoot(path);
+        await Promise.all([get().refreshSkills(spaceId), get().refreshSkillSources(spaceId)]);
+      },
+      async pickAndAddSkillScanRoot(spaceId) {
+        const path = await api.pickFolder();
+        if (path) await get().addSkillScanRoot(spaceId, path);
       },
       async setSkillEnabled(spaceId, id, enabled) {
         // The spaceId travels verbatim: the store is a per-space disabled set, and writing any other
@@ -2455,6 +2658,81 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
         await adoptItem(sid, created.id, targetLeafId, true);
       },
+      async openDocuments(environmentId = null, targetLeafId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        // No local "is it already open?" check, unlike openDiff: the SERVER enforces one workspace per
+        // environment and returns the existing pair, so this call is idempotent and already answers
+        // the question. Doing it here as well would need the environment id the caller may not have
+        // passed (the primary checkout is resolved server-side) plus a cache of workspace rows to
+        // resolve it against — two new pieces of state to keep honest, for an answer already in hand.
+        const { itemId } = await api.createDocuments(sid, environmentId ?? undefined);
+        const layout = get().layout;
+        if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
+        await adoptItem(sid, itemId, targetLeafId);
+      },
+      async openDocumentPath(path, environmentId = null) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const { itemId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
+        const layout = get().layout;
+        if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
+        await adoptItem(sid, itemId, null);
+      },
+      async applyDocumentOpenRequested({ spaceId, itemId }) {
+        if (spaceId !== get().activeSpaceId) return;
+        const layout = get().layout;
+        if (layout && findLeafOfItem(layout, itemId)) return; // already on screen; the pane opens the tab itself
+        await get().refreshItems();
+        await get().openItemBesideQuiet(itemId);
+      },
+      async startLecture(title) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const clean = title.trim();
+        const stamp = localDateStamp(new Date());
+        // The group first, so the lecture pane lands in its empty leaf rather than replacing whatever
+        // the user had focused; a failure after this leaves an empty named group, which is harmless.
+        await get().newPaneGroup(clean ? `${clean} · ${stamp}` : `Lecture · ${stamp}`);
+        const r = await api.startLecture(sid, clean);
+        await adoptItem(sid, r.itemId, null);
+        const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
+        const { session, itemId } = await api.createSession({ spaceId: sid, agentKind, title: `Lecture assistant · ${clean || stamp}` });
+        rememberAgent(agentKind);
+        if (isSpace(sid)) mergeSession(session);
+        await adoptItem(sid, itemId, null, true);
+        await get().openSession(session.id);
+      },
+      async wrapUpLecture(lecture) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const space = get().spaces.find((sp) => sp.id === sid);
+        const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
+        const { session, itemId } = await api.createSession({ spaceId: sid, agentKind, title: `Wrap up · ${lecture.title}` });
+        rememberAgent(agentKind);
+        if (isSpace(sid)) mergeSession(session);
+        await adoptItem(sid, itemId, null, true);
+        await get().openSession(session.id);
+        await get().sendMessage(session.id, lectureWrapUpPrompt(lecture, { course: space?.name ?? "this course" }));
+      },
+      async listLectures() {
+        const sid = get().activeSpaceId; if (!sid) return [];
+        return api.listLectures(sid);
+      },
+      previewInfo: () => api.previewInfo(),
+      readGuideProgress: (documentsId, path) => api.readGuideProgress(documentsId, path),
+      recordGuideAttempt: (documentsId, path, topic, correct, total) => api.recordGuideAttempt(documentsId, path, topic, correct, total),
+      plynnList: () => api.plynnList(),
+      async plynnImport(files) {
+        const sid = get().activeSpaceId; if (!sid) throw new Error("no active space");
+        const r = await api.plynnImport(sid, files);
+        await get().refreshItems();
+        return r;
+      },
+      getDocuments: (documentsId) => api.getDocuments(documentsId),
+      setDocumentTabs: (documentsId, openPaths, activePath) => api.setDocumentTabs(documentsId, openPaths, activePath),
+      detachDocuments: (documentsId) => api.detachDocuments(documentsId),
+      listDocumentEntries: (documentsId, dir) => api.listDocumentEntries(documentsId, dir),
+      readDocument: (documentsId, path) => api.readDocument(documentsId, path),
+      writeDocument: (documentsId, path, text, baseHash) => api.writeDocument(documentsId, path, text, baseHash),
+      createDocumentFile: (documentsId, path, kind, title) => api.createDocumentFile(documentsId, path, kind, title),
+      renameDocumentFile: (documentsId, from, to) => api.renameDocumentFile(documentsId, from, to),
       async requestReview(environmentId) {
         if (get().reviewing[environmentId]) return; // the button is disabled too; the server refuses regardless
         set({ reviewing: { ...get().reviewing, [environmentId]: true } });
@@ -2532,6 +2810,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
         set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, desktopNotifications: rawDesktop !== false });
       },
+      async refreshModelFavorites() {
+        const raw = await api.getSetting(MODEL_FAVORITES_KEY);
+        set({ modelFavorites: (Array.isArray(raw) ? raw : []).filter((k): k is string => typeof k === "string") });
+      },
+      async toggleModelFavorite(key) {
+        const held = get().modelFavorites;
+        // Appended rather than inserted: the favourites list is the SHORTCUT order (1…9), so a newly
+        // starred model must not renumber the ones the user has already learned.
+        const modelFavorites = held.includes(key) ? held.filter((k) => k !== key) : [...held, key];
+        await api.setSetting(MODEL_FAVORITES_KEY, modelFavorites);
+        set({ modelFavorites });
+      },
       async setNotificationCategoryEnabled(category, enabled) {
         const prefs = get().settingsPrefs; if (!prefs) return; // toggles only exist once prefs loaded
         // Recomputed from the held set so a double-toggle can't write a duplicate, and — the named
@@ -2558,6 +2848,37 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async removeCredential(id) { await api.credentialRemove(id); await get().refreshCredentials(); },
       async setCredentialPresenceTtl(ms) { await api.credentialSetPresenceTtl(ms); await get().refreshCredentials(); },
       async openTccPane(pane) { await api.openTccPane(pane); },
+
+      async refreshMacAccess() { set({ macAccess: await api.macAccessStatus() }); },
+      async grantMacAccess(id) {
+        // The interlock: macOS puts up one consent dialog at a time, so a second grant fired while
+        // the first is pending would either queue invisibly or lose the user's answer.
+        if (get().macGranting !== null) return;
+        // Only rows that CAN be prompted — a denied row's dialog will never appear (denials are
+        // sticky), and Full Disk Access has no dialog at all.
+        if (!get().macAccess?.rows.find((r) => r.id === id)?.canPrompt) return;
+        set({ macGranting: id });
+        try { set({ macAccess: await api.macAccessGrant(id) }); }
+        finally { set({ macGranting: null }); }
+      },
+      async grantAllMacAccess() {
+        if (get().macGranting !== null || get().macGrantQueue.length > 0) return;
+        // The plan is computed ONCE, from the audit as it stands: each grant re-reads the whole
+        // audit, and recomputing from that would let a row that answers "denied" be retried forever.
+        const queue = (get().macAccess?.rows ?? []).filter((r) => r.canPrompt).map((r) => r.id);
+        set({ macGrantQueue: queue });
+        try {
+          for (const id of queue) {
+            set({ macGranting: id });
+            // One failed prompt must not abandon the rest of the walk — the next capability is
+            // still worth asking about, and the re-read audit will show what actually happened.
+            try { set({ macAccess: await api.macAccessGrant(id) }); } catch { /* recorded in the audit */ }
+            set({ macGranting: null });
+          }
+        } finally { set({ macGranting: null, macGrantQueue: [] }); }
+      },
+      async openMacAccessPane(id) { await api.macAccessOpenSettings(id); },
+      async revealRealmApp() { await api.macAccessRevealApp(); },
       async refreshUpdateStatus() { set({ updateStatus: await api.updateStatus() }); },
       async checkForUpdates() {
         const held = get().updateStatus;
@@ -2704,6 +3025,40 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshShips(spaceId) {
         const { ships } = await api.listShips(spaceId);
         set({ ships: { ...get().ships, [spaceId]: ships } });
+      },
+      async refreshRuns(spaceId) {
+        const { runs } = await api.listRuns(spaceId);
+        set({ runs: { ...get().runs, [spaceId]: runs } });
+      },
+      async createRun(spaceId, goal, title) {
+        const { run: r } = await api.createRun({ spaceId, goal, ...(title ? { title } : {}) });
+        get().applyRunsChanged({ spaceId, run: r });
+        await get().selectRun(spaceId, r.id);
+      },
+      async selectRun(spaceId, runId) {
+        set({ selectedRunId: { ...get().selectedRunId, [spaceId]: runId } });
+        if (!runId) return;
+        const detail = await api.getRun(runId);
+        // A run deleted under the click clears the selection rather than leaving a panel describing
+        // something that is gone.
+        if (!detail) { set({ selectedRunId: { ...get().selectedRunId, [spaceId]: null } }); return; }
+        set({ runAttempts: { ...get().runAttempts, [runId]: detail.attempts } });
+        get().applyRunsChanged({ spaceId: detail.run.spaceId, run: detail.run });
+      },
+      async cancelRun(id) { await afterRunWrite(await api.cancelRun(id)); },
+      async retryRun(id) { await afterRunWrite(await api.retryRun(id)); },
+      async approveRun(id, approved, note) { await afterRunWrite(await api.approveRun(id, approved, note)); },
+      applyRunsChanged({ spaceId, run }) {
+        const held = get().runs[spaceId];
+        // Held-only: a space whose runs nobody has asked for has nothing to go stale. A null `run`
+        // (a bulk change with no single subject) refetches instead of guessing.
+        if (!held) return;
+        if (!run) { void get().run(() => get().refreshRuns(spaceId)); return; }
+        const i = held.findIndex((r) => r.id === run.id);
+        // Newest-first, and a new run is by construction the newest — so an unknown id goes on top
+        // rather than triggering a refetch the broadcast already carried the answer for.
+        set({ runs: { ...get().runs, [spaceId]: i === -1 ? [run, ...held] : held.map((r) => (r.id === run.id ? run : r)) } });
+        if (get().selectedRunId[spaceId] === run.id) void get().run(() => loadRunAttempts(run.id));
       },
       async captureCheckpoint(environmentId, sessionId) {
         await api.captureCheckpoint(environmentId, sessionId);

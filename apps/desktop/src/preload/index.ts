@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult } from "@realm/contracts";
 import type { TccRow } from "../main/tcc";
+import type { MacAccessStatus } from "../main/mac-access";
 import type { UpdateStatus } from "../main/updater";
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
 const port = arg("realm-port");
@@ -36,6 +37,18 @@ contextBridge.exposeInMainWorld("realm", {
   permissions: {
     probe: (): Promise<TccRow[]> => ipcRenderer.invoke("tcc:probe"),
     openSettings: (pane: string): Promise<void> => ipcRenderer.invoke("tcc:open-settings", pane),
+  },
+  /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` is a `mac doctor` read —
+   *  documented never to prompt. `grant` DOES prompt, on purpose: it runs the one read-only command
+   *  that raises that capability's macOS dialog and resolves the re-read audit once the user answers,
+   *  so it may sit pending for as long as the dialog is up. Both take a CAPABILITY id, never a
+   *  command or a URL — main validates it against mac-access.ts's closed table. */
+  macAccess: {
+    status: (): Promise<MacAccessStatus> => ipcRenderer.invoke("mac:status"),
+    grant: (id: string): Promise<MacAccessStatus> => ipcRenderer.invoke("mac:grant", id),
+    openSettings: (id: string): Promise<void> => ipcRenderer.invoke("mac:open-settings", id),
+    /** Select the .app in Finder — Full Disk Access has no prompt, only a list to drag it into. */
+    revealApp: (): Promise<void> => ipcRenderer.invoke("mac:reveal-app"),
   },
   /** Settings→App "Updates" row (Plan 15 W1). The gate lives in main (updater.ts): `check` on a
    *  gated build answers the same honest disabled state `status` does — never a fake spinner. */

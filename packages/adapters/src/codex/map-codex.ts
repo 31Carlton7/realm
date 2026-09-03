@@ -1,8 +1,6 @@
 import { sessionEvent, type SessionEvent } from "@realm/contracts";
+import { obj, str, type Bag } from "../bag";
 
-type Bag = Record<string, unknown>;
-const obj = (v: unknown): Bag => (v && typeof v === "object" ? (v as Bag) : {});
-const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
 
 /** Item types Realm renders as a tool card, and the tool name it shows. */

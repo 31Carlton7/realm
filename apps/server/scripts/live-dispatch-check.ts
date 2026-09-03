@@ -29,13 +29,7 @@ import { createApp, defaultAdapters } from "../src/app";
 import { ProfilesStore } from "../src/store/profiles";
 import { SpacesStore } from "../src/store/spaces";
 import { createAppStore, type Api } from "../../desktop/src/renderer/src/state/store";
-
-let failures = 0;
-const ok = (label: string, cond: boolean, detail = "") => {
-  console.log(`  ${cond ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
-  if (!cond) failures += 1;
-};
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { finish, ok, sleep } from "./harness";
 
 /** A ws JSON-RPC client shaped like the renderer's — enough Api for boot + dispatch. */
 async function wsApi(port: number): Promise<{ api: Api; close(): void }> {
@@ -137,8 +131,7 @@ async function main() {
   close();
   await app.close();
   rmSync(home, { recursive: true, force: true });
-  console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

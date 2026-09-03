@@ -4,12 +4,20 @@ import { ItemScopeSchema } from "./scoping";
 import type { AgentKind } from "./entities";
 
 /**
- * A skill's identity is its **directory name** under `~/Realm/skills`, not its frontmatter `name`.
+ * A skill's identity is its **directory name**, not its frontmatter `name`.
  *
  * The directory is the only thing that is unique by construction and the only thing that survives a
  * `SKILL.md` Realm cannot parse — and an unparseable skill still has to be listable, or the user has no
  * way to find out why it is missing. Frontmatter `name` is carried alongside for display, and a skill is
  * only handed to an agent when it has one.
+ *
+ * Once Realm looks outside its own library the directory name stops being unique on its own — this Mac
+ * has `find-skills` in three agent directories and `nextjs` in two installed plugins — so a skill from
+ * any origin but `library` is identified by `<rootKey>.<dirName>` (`agents.apple-design`,
+ * `figma.figma-use`). Library ids are left BARE, unprefixed and unchanged, which is what keeps every
+ * stored disabled-set, scope entry and `@mention` written before discovery still resolving after it.
+ * The `.` separator is already inside this charset and inside `mentions.ts`'s, so a qualified id stays
+ * typeable as `@agents.apple-design` and stays legal as a staged directory name.
  */
 export const SkillIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "skill id must be a plain directory name");
 
@@ -19,6 +27,60 @@ export const SkillIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "s
  * `valid: false` entries are listed on purpose: they are what the user sees instead of silence when a
  * `SKILL.md` is malformed. They are never staged for an agent, whatever `enabled` says.
  */
+/**
+ * Where a skill was found. Realm's own library is one origin among several as of W-discovery: the
+ * library is still the only place Realm ever WRITES, but it is no longer the only place it LOOKS.
+ *
+ * - `library` — `~/Realm/skills`, Realm-owned, the only writable origin.
+ * - `user`    — a per-user agent directory (`~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills`,
+ *               `~/.cursor/skills`). Read-only to Realm, always.
+ * - `plugin`  — a Claude plugin's `skills/` dir, resolved from `~/.claude/plugins/installed_plugins.json`
+ *               so a stale cached version is never shown as installed.
+ * - `project` — the session folder's own `.claude|.agents|.codex|.cursor/skills`.
+ * - `extra`   — a directory the user added by hand (`skills.scanRoots`).
+ *
+ * Every origin outside `library` is scanned, symlinked and never touched: Realm reads these trees and
+ * writes nothing into them, which is the same promise `SkillsInjection` already makes about `~/.claude`.
+ */
+export const SKILL_ORIGIN_KINDS = ["library", "user", "plugin", "project", "extra"] as const;
+export const SkillOriginKindSchema = z.enum(SKILL_ORIGIN_KINDS);
+export type SkillOriginKind = z.infer<typeof SkillOriginKindSchema>;
+
+export const SkillOriginSchema = z.object({
+  kind: SkillOriginKindSchema,
+  /** Stable key of the ROOT this skill came from, and the `<key>.` prefix of every non-library id.
+   *  Unique across a scan by construction (see `assignRootKeys`), so `key + "." + dirName` is unique. */
+  key: z.string(),
+  /** One short human label for a group header: "Realm library", "~/.agents/skills", "figma plugin". */
+  label: z.string(),
+  /** Absolute path of the directory that was scanned. */
+  root: z.string(),
+});
+export type SkillOrigin = z.infer<typeof SkillOriginSchema>;
+
+/**
+ * One directory the scan reads, as `skills.sources` reports it — the answer to "why is this skill here"
+ * and "what else is Realm looking at".
+ *
+ * `count` is from the same scan that answered `skills.list`, so a source and the rows it produced can
+ * never disagree. A source with `count: 0` is still listed: "I added that directory and nothing showed
+ * up" is precisely the question this panel exists to answer, and omitting it answers nothing.
+ */
+export const SkillSourceSchema = z.object({
+  kind: SkillOriginKindSchema,
+  key: z.string(),
+  label: z.string(),
+  path: z.string(),
+  count: z.number().int(),
+  /** Only a user-added (`extra`) directory can be removed. The library and the agent directories are
+   *  facts about the machine — a remove button on them would claim Realm could stop them existing. */
+  removable: z.boolean(),
+});
+export type SkillSource = z.infer<typeof SkillSourceSchema>;
+
+/** The library origin, which every pre-discovery skill has and which alone allows writes. */
+export const LIBRARY_ORIGIN = (root: string): SkillOrigin => ({ kind: "library", key: "library", label: "Realm library", root });
+
 export const SkillSchema = z.object({
   id: SkillIdSchema,
   /** Frontmatter `name`; falls back to the directory name when the file could not be parsed. */
@@ -38,6 +100,8 @@ export const SkillSchema = z.object({
   valid: z.boolean(),
   /** Why it is invalid, in one sentence. Null when valid. */
   reason: z.string().nullable(),
+  /** Where it was found. `kind: "library"` is Realm's own folder; everything else is read-only. */
+  origin: SkillOriginSchema,
 });
 export type Skill = z.infer<typeof SkillSchema>;
 
@@ -82,6 +146,6 @@ export const AGENT_SKILL_SUPPORT = {
 export function skillSupportNote(kind: AgentKind): string {
   const label = AGENT_META[kind].label;
   return AGENT_SKILL_SUPPORT[kind] === "injected"
-    ? `${label} gets this space's enabled skills, and only those — your own installed skills are left out.`
-    : `${label} cannot be given a skills directory, so it will not see this library.`;
+    ? `${label} gets this space's enabled skills, and only those — including any you switch on from your own installed directories.`
+    : `${label} cannot be given a skills directory, so it will not see these skills.`;
 }

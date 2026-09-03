@@ -1,15 +1,19 @@
 import { z } from "zod";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema } from "./entities";
 
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
-import { SkillSchema, SkillIdSchema } from "./skills";
+import { SkillSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
+import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
+import { ImportResultSchema, ImportScanSchema } from "./import";
+import { GuideProgressSchema } from "./documents";
+import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -343,6 +347,31 @@ export const Methods = {
     result: SearchResultsSchema,
   },
 
+  /**
+   * Import from the agent CLIs' own stores (`packages/contracts/src/import.ts`).
+   *
+   * `scan` WRITES NOTHING — it opens the CLIs' files read-only, matches what it finds to spaces, and
+   * answers. It takes no parameters on purpose: what to include is the user's decision in the
+   * preview, not a filter baked into the call, and a scan that silently omitted rows could not be
+   * argued with. Filtering flags (`fromRealm`, `scratch`, `imported`) ride on every candidate so the
+   * client can default them off and still show what it hid.
+   *
+   * `apply` is the only writer, and only for the keys it is handed. A key not produced by a scan
+   * resolves to nothing and comes back `skipped` — this is not a "read any path on this machine"
+   * call. Space targets are the CLIENT's, taken verbatim: the matcher does not get to overrule what
+   * the user re-pointed. `profileId` with a null `spaceId` means "the catch-all space of that
+   * profile", created here if it does not exist yet — the one write a scan deliberately would not do.
+   */
+  "import.scan":  { params: z.object({}), result: ImportScanSchema },
+  "import.apply": {
+    params: z.object({
+      sessions: z.array(z.object({ key: z.string(), spaceId: IdSchema.nullable().default(null), profileId: IdSchema.nullable().default(null) })).default([]),
+      memories: z.array(z.object({ key: z.string(), spaceId: IdSchema.nullable().default(null), profileId: IdSchema.nullable().default(null) })).default([]),
+      skills: z.array(SkillIdSchema).default([]),
+    }),
+    result: ImportResultSchema,
+  },
+
   /** The space's items, ARCHIVED ONES INCLUDED — the sidebar's "Archived" section is drawn from this
    *  same list, and a listing that hid them would leave nothing to unarchive from. Every caller that
    *  wants only live rows filters on `archived` itself. */
@@ -386,6 +415,95 @@ export const Methods = {
   "browsers.downloadDir": { params: z.object({ spaceId: IdSchema }), result: z.object({ dir: z.string().nullable() }) },
 
   /**
+   * The document workspace (Plan 17 W1). Unlike the browser trio, the SERVER owns the content here —
+   * documents are files on disk, and the server is the only process that reads, writes and watches
+   * them. That is deliberate: it is what lets an agent edit a document with its ordinary Write/Edit
+   * tools and have the change appear in the open pane, with no agent-facing document API at all.
+   *
+   * Every `path` on this surface is RELATIVE to the workspace's environment root and is re-validated
+   * server-side on arrival (`resolveInRoot`); a client cannot reach outside the checkout by sending
+   * an absolute path or a `..` segment.
+   */
+  /** `environmentId` is optional: omitted, the workspace roots at the space's PRIMARY checkout, created
+   *  on demand. That is what lets "Documents" be openable from the sidebar of a space that has never
+   *  run a session — the session-scoped gesture passes the session's environment explicitly. */
+  "documents.create": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema }) },
+  "documents.get":    { params: z.object({ documentsId: IdSchema }), result: DocumentWorkspaceSchema },
+  /** The tab strip, persisted on every change. `activePath` outside `openPaths` is corrected, not
+   *  rejected — a client racing its own close should not be able to strand the pane on a dead tab. */
+  "documents.setTabs": { params: z.object({ documentsId: IdSchema, openPaths: z.array(z.string()), activePath: z.string().nullable() }), result: DocumentWorkspaceSchema },
+  "documents.close":  { params: z.object({ documentsId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** One directory level for the pane's file picker. `dir` is "" for the environment root. */
+  "documents.list":   { params: z.object({ documentsId: IdSchema, dir: z.string().default("") }), result: z.object({ entries: z.array(DocumentEntrySchema) }) },
+  /** `hash` is the content hash the client must send back with its next write — see `documents.write`. */
+  "documents.read":   { params: z.object({ documentsId: IdSchema, path: z.string() }), result: z.object({ text: z.string(), hash: z.string() }) },
+  /**
+   * Save. `baseHash` is the hash the client last read or wrote, and the server refuses the write when
+   * the file on disk no longer matches it — the lost-update guard. `null` means "this file should not
+   * exist yet" (first save of a new document), which fails the same way if something created it first.
+   *
+   * A refusal is `CONFLICT` carrying the current text, so the pane can offer keep-mine / take-theirs /
+   * diff without a second round trip. This is the check that stops an agent's edit and a user's
+   * unsaved paragraph from silently destroying one another.
+   */
+  "documents.write":  {
+    params: z.object({ documentsId: IdSchema, path: z.string(), text: z.string(), baseHash: z.string().nullable() }),
+    // A conflict is a RESULT, not an error: it carries the current text so the pane can render
+    // keep-mine / take-theirs / diff without a second round trip, and errors have nowhere to put a
+    // payload. `ok: false` is the only shape a caller has to branch on.
+    result: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), hash: z.string() }),
+      z.object({ ok: z.literal(false), currentText: z.string(), currentHash: z.string() }),
+    ]),
+  },
+  /** Create a new document from its kind's template and open it. Fails if the path already exists. */
+  "documents.createFile": { params: z.object({ documentsId: IdSchema, path: z.string(), kind: DocumentKindSchema, title: z.string() }), result: z.object({ path: z.string(), hash: z.string() }) },
+  /**
+   * Rename a document on disk, carrying its tab with it.
+   *
+   * This is what lets a document be CREATED before it is named: a new file lands as "Untitled
+   * document" and the title is edited afterwards, in place, the way every document app works — rather
+   * than the pane demanding a name up front for a file the user has not seen yet.
+   *
+   * Server-side rather than a write-then-delete in the renderer, for the same reason `write` is: the
+   * server owns the watches, and a rename observed as "one file vanished, another appeared" would
+   * close the open tab before the new one existed. Refuses to overwrite an existing file.
+   */
+  "documents.renameFile": { params: z.object({ documentsId: IdSchema, from: z.string(), to: z.string() }), result: z.object({ path: z.string() }) },
+  /** Release this workspace's filesystem watches without touching its persisted tabs — what a pane
+   *  calls when it unmounts. Closing a pane is layout-only (Plan 4), so the tab strip must survive it;
+   *  the watches must not, or every pane ever opened keeps a watcher alive for the whole session. */
+  "documents.detach": { params: z.object({ documentsId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  // ---- Plan 22 (school workflows): previews, guide progress, lectures, the Plynn handoff ----------
+  /** Where the document preview server listens. The renderer builds `http://127.0.0.1:<port>/p/<token>/
+   *  <documentsId>/<path>` frame URLs from this; the token is minted per server boot and scoped by
+   *  path so a guide's relative assets (`img src="fig.png"`) resolve under the same prefix. */
+  "documents.previewInfo": { params: z.object({}), result: z.object({ port: z.number().int(), token: z.string() }) },
+  /**
+   * Surface ONE file in the documents pane: ensure the workspace over `environmentId` (the primary
+   * checkout when omitted), add `path` to its tab strip as the active tab, and broadcast
+   * `documents.openRequested` so a mounted pane opens the tab and the store brings the item on screen.
+   * The agent-facing `docs_open` tool and the store's own "open this lecture" both come through here.
+   */
+  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema }) },
+  /** A guide's quiz history from its sidecar; empty when there is none. */
+  "documents.progressRead": { params: z.object({ documentsId: IdSchema, path: z.string() }), result: GuideProgressSchema },
+  /** Fold one quiz attempt into the sidecar and return the updated history. */
+  "documents.progressRecord": { params: z.object({ documentsId: IdSchema, path: z.string(), topic: z.string().min(1).max(200), correct: z.number().int().nonnegative(), total: z.number().int().positive() }), result: GuideProgressSchema },
+  /** Create today's lecture file from the template (a numbered suffix if it exists), open it in the
+   *  documents pane, and answer with everything the store needs to arrange the panes. */
+  "lectures.start": { params: z.object({ spaceId: IdSchema, title: z.string().default("") }), result: StartLectureResultSchema },
+  "lectures.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ lectures: z.array(LectureSchema) }) },
+  /** Plynn's meetings folder, newest first. `available` is false when the folder does not exist —
+   *  Plynn not installed, or no meeting recorded yet — which the sheet says instead of showing an
+   *  empty list that looks like a bug. A pure read. */
+  "plynn.list": { params: z.object({}), result: z.object({ available: z.boolean(), folder: z.string(), meetings: z.array(PlynnMeetingSchema) }) },
+  /** Copy the named recordings under `lectures/` in the space's primary checkout, with a front-matter
+   *  header naming the source, and open the first in the documents pane. Plynn's files are untouched. */
+  "plynn.import": { params: z.object({ spaceId: IdSchema, files: z.array(z.string()).min(1).max(100) }), result: PlynnImportResultSchema },
+
+  /**
    * The browser agent host's side of the main↔server bridge (Plan 11 W3). Electron main — the process
    * that owns the `WebContentsView`s and their `webContents.debugger` — connects to this same RPC
    * socket as a client and `register`s itself as the ONE executor for browser CDP operations. The
@@ -423,6 +541,22 @@ export const Methods = {
   /** The inverse: pin a profile-scoped skill to `spaceId` alone (must be a space of its profile).
    *  This space's enable state is preserved; sibling spaces stop seeing it. */
   "skills.demote": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * The directories this space's scan reads, with what each contributed — Realm's library, the agent
+   * directories found on this machine, each installed Claude plugin, the space folder's own, and any
+   * the user added. `count` is from the same scan that answered `skills.list`, so the panel and the
+   * list cannot disagree about where a skill came from.
+   */
+  "skills.sources": {
+    params: z.object({ spaceId: IdSchema }),
+    result: z.object({ sources: z.array(SkillSourceSchema) }),
+  },
+  /** Add a directory to scan for skills. Absolute paths only, and it must exist — a relative path
+   *  would resolve against the server's cwd, which is not a directory the user picked. */
+  "skills.addScanRoot": { params: z.object({ path: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /** Stop scanning a user-added directory. Nothing on disk is touched, and the enabled entries of the
+   *  skills under it are kept, so re-adding it restores exactly what was on. */
+  "skills.removeScanRoot": { params: z.object({ path: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * Every MCP server Realm knows about, each carrying this space's own enabled flag.
@@ -618,6 +752,64 @@ export const Methods = {
   },
 
   /**
+   * Durable runs — a goal that owns a session across attempts and survives restarts. One space at a
+   * time, newest first; cursor pagination exactly as `ships.list` / `notifications.list`. `states`
+   * narrows to a subset (the Tasks lens asks for the three live states); an empty array means all.
+   */
+  "runs.list": {
+    params: z.object({ spaceId: IdSchema, states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
+    result: z.object({ runs: z.array(RunSchema), nextCursor: z.string().nullable() }),
+  },
+  /** One run plus its full attempt log, oldest attempt first. Null result = no such run (a run the
+   *  caller holds can be deleted with its space under the click). */
+  "runs.get": {
+    params: z.object({ id: IdSchema }),
+    result: z.object({ run: RunSchema, attempts: z.array(RunAttemptSchema) }).nullable(),
+  },
+  /**
+   * Create a run and queue it. The call RETURNS as soon as the row exists — dispatch happens in the
+   * background and every later transition arrives as `runs.changed`.
+   *
+   * **`dedupeKey` makes this idempotent, deliberately.** When the key already names a LIVE run of
+   * this space, the existing run is returned unchanged rather than throwing: the caller is a poller
+   * that cannot know whether it already fired, and making it distinguish "created" from "already
+   * there" is exactly the bookkeeping the key exists to remove. `created` says which happened, for
+   * callers that do care.
+   */
+  "runs.create": {
+    params: z.object({
+      spaceId: IdSchema,
+      goal: z.string().min(1).max(8000),
+      /** Omitted: derived from the goal's first words, like every other Realm title. */
+      title: z.string().min(1).max(80).optional(),
+      constraints: RunConstraintsSchema.nullable().default(null),
+      dedupeKey: z.string().min(1).max(200).nullable().default(null),
+      maxAttempts: z.number().int().min(1).max(10).default(1),
+      /** Wall-clock deadline (epoch ms). Absolute, not a duration: a run outlives the process that
+       *  started it, and a relative budget does not survive that. */
+      deadlineAt: z.number().int().nullable().default(null),
+    }),
+    result: z.object({ run: RunSchema, created: z.boolean() }),
+  },
+  /** Cancel a live run: its current session is interrupted, the open attempt is closed `cancelled`,
+   *  and the run goes terminal. A run that is ALREADY terminal is returned untouched — cancelling a
+   *  finished run is a no-op, not an error (two windows can click it). */
+  "runs.cancel": { params: z.object({ id: IdSchema }), result: RunSchema },
+  /** Put a terminal run back on the queue for another attempt. The attempt COUNTER is preserved and
+   *  `maxAttempts` is raised to fit if needed — an explicit human retry is not what the automatic
+   *  attempt budget is there to stop. Refuses a run that is still live. */
+  "runs.retry": { params: z.object({ id: IdSchema }), result: RunSchema },
+  /**
+   * Answer a `blocked` run: `approved: true` queues another attempt carrying `note` to the agent,
+   * `approved: false` cancels it. THE HUMAN GATE — the one transition out of `blocked`, and the
+   * reason unattended automation stops at a draft. Refuses a run that is not blocked.
+   */
+  "runs.approve": {
+    params: z.object({ id: IdSchema, approved: z.boolean(), note: z.string().max(4000).nullable().default(null) }),
+    result: RunSchema,
+  },
+
+  /**
    * The durable notifications feed (Plan 12 W5), newest first. GLOBAL — one feed across every space,
    * matching the sidebar row it feeds (the row sits above the space section). `cursor` is the previous
    * page's `nextCursor`, opaque to clients; `unread` is the whole feed's unread count and the ONE
@@ -754,6 +946,20 @@ export const Events = {
   /** A ship-log row was written for this space (Plan 14 W1) — clients holding the space's ship list
    *  (the space page History tab) re-fetch; everyone else ignores it. */
   "ships.changed":    z.object({ spaceId: IdSchema }),
+  /**
+   * A document on disk changed underneath the pane (Plan 17 W1) — almost always an agent's Write/Edit,
+   * occasionally the user's own editor or a git operation.
+   *
+   * Keyed by ENVIRONMENT, not by workspace: two panes rooted at the same checkout are both looking at
+   * the same file and both must hear. `hash` is null when the file was deleted. Realm's own saves do
+   * NOT produce this event — the service suppresses echoes of content it already knows about, or the
+   * pane would fight its own autosave.
+   */
+  "documents.fileChanged": z.object({ environmentId: IdSchema, path: z.string(), hash: z.string().nullable() }),
+  /** `documents.openPath` ran (Plan 22): a mounted pane over this workspace opens the tab, and the
+   *  store puts the item on screen if the space is active. Carries the item so the store need not
+   *  re-list. */
+  "documents.openRequested": z.object({ spaceId: IdSchema, environmentId: IdSchema, documentsId: IdSchema, itemId: IdSchema, path: z.string() }),
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
@@ -778,6 +984,10 @@ export const Events = {
    *  (auto-reading a `session_done` for the pane the user is looking at) without a refetch race; null
    *  when the change was a markRead or a resolution, where a held list refetches instead. */
   "notifications.changed": z.object({ notification: NotificationSchema.nullable(), unread: z.number().int() }),
+  /** A run's row changed (created, dispatched, settled, approved). Carries the fresh row so a Tasks
+   *  lens applies it directly — the `notifications.changed` posture, no refetch race. `run` is null
+   *  only for a bulk change with no single subject, where a held list refetches instead. */
+  "runs.changed": z.object({ spaceId: IdSchema, run: RunSchema.nullable() }),
   /** An environment's persisted review verdict changed (Plan 13 W3): a review settled (`review` is
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */

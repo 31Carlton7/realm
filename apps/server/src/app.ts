@@ -10,6 +10,13 @@ import { SettingsStore } from "./store/settings";
 import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
 import { BrowsersStore } from "./store/browsers";
+import { DocumentsStore } from "./store/documents";
+import { DocumentService } from "./documents/service";
+import { DocumentPreviewServer } from "./documents/preview";
+import { createDocsAgentProvider } from "./documents/agent-tools";
+import { TextExtractor } from "./documents/text-extract";
+import { LectureService } from "./school/lectures";
+import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
@@ -33,6 +40,8 @@ import { MemoryService } from "./memory/service";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
+import { RunsStore } from "./store/runs";
+import { RunService } from "./runs/service";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
@@ -45,6 +54,7 @@ import { CheckpointGit } from "./workspace/checkpoints";
 import { CheckpointService } from "./checkpoints/service";
 import { SearchService } from "./search/service";
 import { ForkService } from "./sessions/fork";
+import { ImportService } from "./import/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 import { machineName } from "./machine-name";
@@ -52,7 +62,7 @@ import { machineName } from "./machine-name";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /**
@@ -161,6 +171,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
    *  passes `generateSessionTitle`. */
   titleGenerator?: (text: string) => Promise<string>;
+  /** Plan 22: where Plynn's meeting exports are read from. Tests point this at a fixture; production
+   *  leaves it unset for `~/Library/Application Support/Plynn/Meetings`. */
+  plynnMeetingsDir?: string;
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -199,6 +212,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
   const browsersStore = new BrowsersStore(db);
   const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
+  // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
+  // the service below (a workspace id → its checkout), which is the only thing it needs to know.
+  const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
+  const documents: DocumentService = new DocumentService({ db, rpc, spaces, items, environments, documents: new DocumentsStore(db), preview });
   // W2: the one slice of the spaces/profiles world the scoped services (skills, MCP, memory) may see.
   // A seam rather than the store so each service declares exactly the questions it asks.
   const scopeSeam = {
@@ -207,7 +224,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     allSpaceIds: (): string[] => spaces.listAll().map((sp) => sp.id),
   };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
-  const skills = new SkillsService({ home: opts.home, settings, scopes: scopeSeam });
+  const skills = new SkillsService({
+    home: opts.home, settings, scopes: scopeSeam,
+    // The space's own folder, for its project-level skill directories. A space whose folder is gone
+    // reads as project-less rather than failing the scan — the rest of the roots are still valid.
+    spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },
+  });
   const installed = skills.installBundled();
   if (installed.length) console.error(`[skills] installed bundled skill(s): ${installed.join(", ")}`);
   const mcpServersStore = new McpServersStore(db);
@@ -287,6 +309,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let agentRuns: AgentRunService | null = null;
   let reviews: ReviewService | null = null;
   let asks: AskService | null = null;
+  let runs: RunService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -312,15 +335,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
   const sessionEvents = new SessionEventsStore(db);
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, notifications, titleGenerator: opts.titleGenerator,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator,
+    // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
+    // the SAME event off the same hook, so a run settles off exactly the status transition the feed
+    // reports rather than off a poll of its own (runs/service.ts).
+    notifications: {
+      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); },
+      probeResults: (results) => notifications.probeResults(results),
+    },
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
     // (they share the one engine, which owns the registry); the per-child seams try each registry —
     // a session is a child of at most one.
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); },
-      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id),
-      skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? null,
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); },
+      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id),
+      skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
     } });
   sessionService = sessions;
   // The delegation stack (Plan 11 W5 + Plan 13 W1): ONE engine (settle/drain + one-run-per-parent,
@@ -351,6 +381,23 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     timeouts: opts.ask?.timeouts,
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
+  // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
+  // One extractor for the process: PDF text is memoized across every session's searches.
+  const extractor = new TextExtractor();
+  mcpGateway.registerProvider(createDocsAgentProvider({
+    mcp, extractor,
+    rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } },
+    listForSpace: (spaceId, dir) => documents.list(documents.open({ spaceId }).documentsId, dir),
+    openPath: (p) => documents.openPath(p),
+    progressForSpace: (spaceId, path) => documents.progressRead(documents.open({ spaceId }).documentsId, path),
+  }));
+  const lectures = new LectureService({ spaces, documents });
+  const plynn = new PlynnService({ spaces, settings, documents, meetingsDir: opts.plynnMeetingsDir });
+  // Durable runs: a goal that owns a session across attempts and survives restarts. Not on the
+  // delegation engine on purpose — nobody is blocked on a run, so its state is a row and its settle
+  // rides the session-event hook above (runs/service.ts).
+  runs = new RunService({ store: new RunsStore(db), settings, sessions, rpc, environments: envService, skills, notifications,
+    fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind });
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
@@ -362,6 +409,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   forks = new ForkService({ checkpoints: new CheckpointsStore(db), environments, envService, worktrees,
     sessionsStore, events: sessionEvents, settings, git: checkpointGit, rpc,
     createSession: (input) => sessions.create(input) });
+  // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
+  // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or
+  // under Realm's home. `roots` is left at its default here and overridden only by tests.
+  const imports = new ImportService({ home: opts.home, db, rpc, spaces, profiles, projects, environments,
+    sessions: sessionsStore, events: sessionEvents, items, settings, memory });
   const ships = new ShipsStore(db);
   const gitWrite = new GitWriteService({ shipLog: (entry) => {
     ships.record(entry);
@@ -369,10 +421,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, reviews, search, forks,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();
+  // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
+  // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
+  runs.recoverOnBoot();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
@@ -381,15 +436,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // The gateway must be accepting connections before any session can start (its listener mints the URL
   // every `sessions.create` → send hands an adapter), and well before the RPC socket opens to clients.
   await mcpGateway.listen();
+  await preview.listen();
   const port = await rpc.listen(opts.port);
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, gateway: mcpGateway,
     close: async () => {
       search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
+      runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
       terminals.closeAll();
       await sessions.closeAll();
       // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
       // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.
+      documents.dispose();
+      await preview.close();
       await mcpGateway.close();
       await mcpHub.close();
       await rpc.close();

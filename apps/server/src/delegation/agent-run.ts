@@ -2,7 +2,9 @@ import { z } from "zod";
 import { AGENT_SKILL_SUPPORT, AgentKindSchema, AgentRunConstraintsSchema, type AgentKind, type Environment } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "../browsers/guards";
+import { cleanupWorktree, errorMessage, resolveAgentKind, resolveEnvironment, resolveSkillSubset, type EnvironmentDeps } from "./dispatch";
 import type { ProviderCallContext } from "../mcp/gateway";
+import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import { titleFromMessage, type SessionService } from "../sessions/service";
 import type { SkillsService } from "../skills/service";
@@ -77,11 +79,7 @@ export class AgentRunService {
     rpc: Pick<RpcServer, "broadcast">;
     /** The shared settle/drain + run registry — the SAME instance `BrowserAgentService` uses. */
     engine: DelegationEngine;
-    environments: {
-      get(id: string): Environment;
-      createWorktree(input: { spaceId: string; title: string | null; from: string | null }): Promise<Environment>;
-      removeWorktree(id: string, acknowledge: null): Promise<void>;
-    };
+    environments: EnvironmentDeps;
     skills: Pick<SkillsService, "list" | "discardStage">;
     /** The OTHER delegation registry (browser-agent children) — the depth-1 refusal must cover a
      *  browser child that somehow names this tool, not only agent_run's own children. */
@@ -173,42 +171,25 @@ export class AgentRunService {
     const permissionMode = requested === undefined ? parentCap : rank(requested) < rank(parentCap) ? requested : parentCap;
 
     // The child keeps the caller's agent kind when that kind can take Realm's skills injection
-    // (same rule as the browser agent); a `constraints.agentKind` overrides.
-    const agentKind = constraints?.agentKind
-      ?? (AGENT_SKILL_SUPPORT[parent.agentKind] === "injected" ? parent.agentKind : (this.d.fallbackKind ?? "claude"));
+    // (same rule as the browser agent); a `constraints.agentKind` overrides. Shared recipe — see
+    // dispatch.ts for why these three resolutions are extracted rather than inlined here.
+    const agentKind = resolveAgentKind(constraints?.agentKind, parent.agentKind, this.d.fallbackKind);
 
-    // Skills narrowing: a SUBSET of the space's enabled-and-valid skills, refused loudly otherwise —
-    // an id this space never enabled must fail the call, not silently stage nothing.
-    let skillIds: string[] | null = null;
-    if (constraints?.skills) {
-      const enabled = new Set(this.d.skills.list(ctx.spaceId).skills.filter((s) => s.enabled && s.valid).map((s) => s.id));
-      const unknown = constraints.skills.filter((id) => !enabled.has(id));
-      if (unknown.length > 0) {
-        return err(`refused: constraints.skills must be a subset of this space's enabled skills — not enabled here: ${unknown.join(", ")}.`);
-      }
-      skillIds = [...new Set(constraints.skills)];
-    }
+    const skills = resolveSkillSubset(ctx.spaceId, constraints?.skills, this.d.skills);
+    if (!skills.ok) return err(skills.message);
+    const skillIds = skills.value;
 
-    // Where the child runs: an existing environment (same-space, checked here so the refusal names
-    // the real reason, and again in SessionsStore.create — two write-path guards, one invariant), a
-    // fresh Plan 7 worktree, or (neither) the space's primary via sessions.create's default.
-    if (constraints?.environmentId !== undefined && constraints?.newWorktree !== undefined && constraints.newWorktree !== false) {
-      return err("refused: constraints.environmentId and constraints.newWorktree are mutually exclusive — name an existing environment OR ask for a fresh worktree.");
-    }
-    let environmentId: string | null = null;
-    let createdWorktree: Environment | null = null;
-    if (constraints?.environmentId) {
-      let env: Environment;
-      try { env = this.d.environments.get(constraints.environmentId); }
-      catch { return err(`environment ${constraints.environmentId} does not exist.`); }
-      if (env.spaceId !== ctx.spaceId) return err("refused: that environment belongs to another space — a delegated agent runs only in its caller's own space.");
-      environmentId = env.id;
-    } else if (constraints?.newWorktree !== undefined && constraints.newWorktree !== false) {
-      const title = typeof constraints.newWorktree === "string" ? constraints.newWorktree : (titleFromMessage(goal) || null);
-      try { createdWorktree = await this.d.environments.createWorktree({ spaceId: ctx.spaceId, title, from: null }); }
-      catch (e) { return err(`could not create a worktree for the delegated agent: ${message(e)}`); }
-      environmentId = createdWorktree.id;
-    }
+    // Where the child runs: an existing environment (same-space, checked in the shared resolver so
+    // the refusal names the real reason, and again in SessionsStore.create — two write-path guards,
+    // one invariant), a fresh Plan 7 worktree, or (neither) the space's primary.
+    const env = await resolveEnvironment(
+      ctx.spaceId,
+      { environmentId: constraints?.environmentId, newWorktree: constraints?.newWorktree, worktreeTitle: titleFromMessage(goal) || null },
+      this.d.environments,
+      { what: "the delegated agent", ownership: "a delegated agent runs only in its caller's own space" },
+    );
+    if (!env.ok) return err(env.message);
+    const { environmentId, created: createdWorktree } = env.value;
 
     let created;
     try {
@@ -218,9 +199,7 @@ export class AgentRunService {
         dispatchedBy: { sessionId: ctx.sessionId, kind: "agent_run" },
       });
     } catch (e) {
-      // A worktree made for a session that then failed to exist would be an orphan environment; a
-      // fresh worktree is clean, so removal succeeds. Best effort — the UI can remove it too.
-      if (createdWorktree) { try { await this.d.environments.removeWorktree(createdWorktree.id, null); } catch { /* visible in the UI */ } }
+      await cleanupWorktree(createdWorktree, this.d.environments);
       return err(`could not create the delegated session: ${message(e)}`);
     }
     const childId = created.session.id;
@@ -316,7 +295,4 @@ export const AGENT_RUN_TOOL: Tool = {
   },
 };
 
-const ok = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: false });
-const err = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const message = errorMessage;

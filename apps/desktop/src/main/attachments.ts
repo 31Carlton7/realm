@@ -1,5 +1,6 @@
 import { basename, join } from "node:path";
-import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { nativeImage } from "electron";
 import { isImageMime, mimeForPath } from "@realm/contracts";
@@ -100,6 +101,56 @@ export async function compressIconIfNeeded(home: string, file: PickedFile): Prom
   const path = join(dir, `${randomBytes(6).toString("hex")}-icon.${jpeg ? "jpg" : "png"}`);
   await writeFile(path, buf);
   return { path, mime, name: file.name, size: buf.byteLength };
+}
+
+/**
+ * How long QuickLook gets to render one thumbnail.
+ *
+ * This is load-bearing, not belt-and-braces: handed a file no generator claims, `qlmanage` does not
+ * fail — it waits, indefinitely. Three seconds is several times what a cold render of a real PDF
+ * costs (~0.5s measured) and short enough that a file nobody can preview does not hold a process for
+ * the length of a conversation. The caller degrades to the file glyph on expiry and caches that, so
+ * the ceiling is paid at most once per path.
+ */
+export const QUICKLOOK_TIMEOUT_MS = 3_000;
+
+/**
+ * A rendered preview of any file macOS can preview — the first page of a PDF, a frame of a movie, a
+ * slide of a Keynote — as a PNG data URL, or `null` when there is nothing to show.
+ *
+ * `nativeImage` decodes image formats and nothing else, which left every non-image attachment
+ * showing the same generic glyph. QuickLook is the same machinery Finder's icons and the space bar
+ * use, so what the tile shows is what the user already recognises the file by.
+ *
+ * `qlmanage` writes `<basename>.png` into an output DIRECTORY it does not let you name, so each call
+ * gets a scratch directory of its own — two thumbnails of two different `report.pdf`s must not race
+ * for one filename. The directory is removed on every path out, including failure.
+ */
+export async function quickLookThumbnail(home: string, path: string, sizePx: number): Promise<string | null> {
+  if (process.platform !== "darwin") return null; // qlmanage is macOS's; elsewhere the glyph stands
+  // A path that has since moved is the single commonest miss, and `qlmanage` answers it by hanging
+  // rather than by failing — so it never gets asked. One stat is far cheaper than one timeout.
+  try { if (!(await stat(path)).isFile()) return null; } catch { return null; }
+  const dir = join(home, "tmp", "thumbs", randomBytes(8).toString("hex"));
+  try {
+    await mkdir(dir, { recursive: true });
+    await new Promise<void>((resolve, reject) => {
+      // execFile, never a shell: `path` is user data and a filename with a space, a quote or a `;`
+      // in it is ordinary, not an attack — but through a shell it would be both.
+      execFile("/usr/bin/qlmanage", ["-t", "-s", String(sizePx), "-o", dir, path],
+        { timeout: QUICKLOOK_TIMEOUT_MS }, (err) => (err ? reject(err) : resolve()));
+    });
+    // qlmanage reports success on stdout even when it produced nothing (a type with no generator),
+    // so the directory listing — not the exit code — is what says whether there is a thumbnail.
+    const [name] = (await readdir(dir)).filter((n) => n.endsWith(".png"));
+    if (!name) return null;
+    const png = await readFile(join(dir, name));
+    return png.byteLength === 0 ? null : `data:image/png;base64,${png.toString("base64")}`;
+  } catch {
+    return null; // an unpreviewable file is not an error the prompter should hear about
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 /** Describe files chosen in the native picker. A path that cannot be stat'd is dropped rather than

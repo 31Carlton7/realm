@@ -50,8 +50,11 @@ export type Project = z.infer<typeof ProjectSchema>;
 /** `diff` (Plan 7 W3) is the one kind whose `refId` is not a session or terminal — it is an
  *  ENVIRONMENT id: a diff is a view of a checkout, and several sessions may share one.
  *  `space-page` (Plan 12 W3) follows that precedent: its `refId` is the SPACE id itself — the pane is
- *  the space's own page (General/Memory/Skills/Connections/Sessions/History), one per space. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page"]);
+ *  the space's own page (General/Memory/Skills/Connections/Sessions/History), one per space.
+ *  `documents` (Plan 17 W1) takes the `diff` route for the same reason: a document workspace is a view
+ *  of a CHECKOUT, so several sessions sharing an environment share its documents. Its `refId` is a
+ *  `document_workspaces` row id, and that row carries the environment. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -104,6 +107,49 @@ export const BrowserSchema = z.object({
   id: IdSchema, spaceId: IdSchema, url: z.string(), title: z.string(), ...Timestamps,
 });
 export type Browser = z.infer<typeof BrowserSchema>;
+
+/**
+ * A document workspace's persisted half (Plan 17 W1) — the tab strip, so a restart reopens what was
+ * open. Modelled on `BrowserSchema`: the row carries only what a restart needs, and everything live
+ * (buffer text, dirty state, undo history, cursor) belongs to the renderer and dies with the pane.
+ *
+ * `openPaths` are RELATIVE to the environment's root, never absolute. Three reasons, in order of how
+ * badly each bites: a worktree that moves on disk keeps its tabs; the DB never accrues absolute paths
+ * carrying the user's home directory; and a relative path is the only shape that can be range-checked
+ * for containment when it comes back in over RPC (see `resolveInRoot`) — an absolute path arriving
+ * from a client is indistinguishable from an escape attempt.
+ *
+ * `activePath` must be a member of `openPaths` or null, enforced server-side rather than trusted from
+ * the client: a stale active tab renders as an empty pane with no obvious way back.
+ */
+export const DocumentWorkspaceSchema = z.object({
+  id: IdSchema, spaceId: IdSchema, environmentId: IdSchema,
+  openPaths: z.array(z.string()), activePath: z.string().nullable(), ...Timestamps,
+});
+export type DocumentWorkspace = z.infer<typeof DocumentWorkspaceSchema>;
+
+/** What `documents.list` returns for the pane's file picker: one entry per child of a directory. */
+export const DocumentEntrySchema = z.object({
+  /** Relative to the environment root, `/`-separated — the same shape `openPaths` uses. */
+  path: z.string(), name: z.string(), isDir: z.boolean(),
+  /** Bytes; 0 for directories. The picker greys out files past the editable ceiling. */
+  size: z.number().int(),
+});
+export type DocumentEntry = z.infer<typeof DocumentEntrySchema>;
+
+/**
+ * The four editors' file types, decided by extension (Plan 17). `unsupported` is a real member, not an
+ * error case: the picker still lists such a file and the pane shows a clear "not editable here" state
+ * rather than opening an empty text buffer over a binary.
+ */
+/**
+ * `html` and `pdf` (Plan 22) are PREVIEW kinds, not editors: an `.html` file is an interactive study
+ * guide rendered in a sandboxed frame (with a Source view behind it), a `.pdf` is a problem set or a
+ * slide deck shown read-only beside the session working on it. Neither goes through the Markdown or
+ * sheet models.
+ */
+export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "unsupported"]);
+export type DocumentKind = z.infer<typeof DocumentKindSchema>;
 
 /**
  * Where work happens, split out of Session (Plan 7 W1) so that several sessions can share one checkout
@@ -192,12 +238,13 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
  * `review` is W3's reviewer recipe (the diff pane's "Request review" or the `agent_review` tool —
  * `sessionId` is the requesting session for the tool path, null for the user's click); `fork` is
  * Plan 16 W3's "Fork from here" — `sessionId` is the ANCESTOR session the fork carried context from,
- * which that fork leaves byte-untouched. A session the
- * user created normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is
+ * which that fork leaves byte-untouched; `import` is a transcript carried in from an agent CLI's own
+ * store (`ImportService`), whose `sessionId` is null because nothing dispatched it — it already
+ * existed. A session the user created normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is
  * nullable rather than having a "user" member: absence IS the ordinary case, and no backfill invents
  * one.
  */
-export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork"]);
+export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork", "import", "run"]);
 export type DispatchKind = z.infer<typeof DispatchKindSchema>;
 export const DispatchedBySchema = z.object({
   /** The delegating session, or null for an origin with no parent agent (`user-dispatch`). */

@@ -1,6 +1,6 @@
-import { AGENT_META, SELECTABLE_AGENT_KINDS, skillSupportNote, type Skill } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, skillSupportNote, type Skill, type SkillSource } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../../state/store";
 import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
 
@@ -20,31 +20,98 @@ import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
  */
 export function SkillsPanel({ spaceId }: { spaceId: string }) {
   const skills = useApp((s) => s.spaceSkills[spaceId]);
+  const sources = useApp((s) => s.spaceSkillSources[spaceId]);
   const root = useApp((s) => s.skillsRoot);
   const refreshSkills = useApp((s) => s.refreshSkills);
+  const refreshSkillSources = useApp((s) => s.refreshSkillSources);
   const run = useApp((s) => s.run);
-  useEffect(() => { run(() => refreshSkills(spaceId)); }, [spaceId, refreshSkills, run]);
+  const [query, setQuery] = useState("");
+  const [onlyEnabled, setOnlyEnabled] = useState(false);
+  useEffect(() => { run(() => refreshSkills(spaceId)); run(() => refreshSkillSources(spaceId)); },
+    [spaceId, refreshSkills, refreshSkillSources, run]);
+
+  const all = skills ?? [];
+  // Filtering happens over the WHOLE list before it is split by origin, so a search never has to be
+  // repeated per section and an empty section simply does not render.
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return all.filter((sk) => {
+      if (onlyEnabled && !sk.enabled) return false;
+      if (!q) return true;
+      return sk.id.toLowerCase().includes(q) || sk.name.toLowerCase().includes(q) || sk.description.toLowerCase().includes(q);
+    });
+  }, [all, query, onlyEnabled]);
+
+  // Realm's own library keeps the scope grouping it has always had — scope is a Realm concept and only
+  // library skills are Realm's to move. Everything discovered elsewhere groups by the directory it came
+  // from, which is the question the user actually has about it.
+  const library = shown.filter((sk) => sk.origin.kind === "library");
+  const external = useMemo(() => {
+    const groups = new Map<string, { label: string; skills: Skill[] }>();
+    for (const sk of shown) {
+      if (sk.origin.kind === "library") continue;
+      const g = groups.get(sk.origin.key) ?? { label: sk.origin.label, skills: [] };
+      g.skills.push(sk);
+      groups.set(sk.origin.key, g);
+    }
+    return [...groups.values()];
+  }, [shown]);
+
+  const enabledCount = all.filter((sk) => sk.enabled && sk.valid).length;
 
   return (
     <div className="form settings-panel">
-      {/* Disclosure #1 — beside the toggles, always visible, whether or not anything is enabled yet. */}
+      {/* Disclosure #1, restated for discovery: isolation is still real, but it is no longer a loss of
+          your own skills — they are in the list above it, and switching one on brings it along. */}
       <p className="settings-note">
-        Enabling any skill here isolates this space's Claude sessions from your own installed skills —
-        they run with Realm's library only. Your <code>CLAUDE.md</code> files are re-injected by Realm to compensate.
+        Enabling any skill isolates this space's Claude sessions from your own settings files — they run
+        with the skills switched on here and nothing else, so anything you want out of your installed
+        folders has to be switched on above. Your <code>CLAUDE.md</code> files are re-injected by Realm
+        to compensate.
       </p>
       <div className="field">
         <span>Skills in this space</span>
-        {!skills ? <p className="env-empty">Loading…</p> : skills.length === 0 ? (
+        {!skills ? <p className="env-empty">Loading…</p> : all.length === 0 ? (
           <p className="env-empty">No skills yet. Drop a folder containing a SKILL.md into <code className="env-path">{root}</code>.</p>
         ) : (
-          // W4: the shared scope grouping — "This space" / "From <profile>" / "Everywhere" — over the
-          // same rows this list always held.
-          <ScopeGroups entries={skills.map((sk) => ({ key: sk.id, scope: sk.scope, row: <SkillRow key={sk.id} spaceId={spaceId} skill={sk} /> }))} />
+          <>
+            <div className="skills-filter">
+              <Icon name="search" size={13} className="skills-filter-glyph" />
+              <input type="text" className="skills-filter-input" placeholder={`Search ${all.length} skills…`}
+                aria-label="Search skills" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <label className="skills-filter-toggle">
+                <input type="checkbox" checked={onlyEnabled} onChange={(e) => setOnlyEnabled(e.target.checked)} />
+                On only ({enabledCount})
+              </label>
+            </div>
+            {shown.length === 0 ? (
+              <p className="env-empty">Nothing matches.</p>
+            ) : (
+              <>
+                {library.length > 0 && (
+                  // W4: the shared scope grouping — "This space" / "From <profile>" / "Everywhere".
+                  <ScopeGroups entries={library.map((sk) => ({ key: sk.id, scope: sk.scope, row: <SkillRow key={sk.id} spaceId={spaceId} skill={sk} /> }))} />
+                )}
+                {external.map((g) => (
+                  <div key={g.label} className="skills-origin-group">
+                    <div className="skills-origin-label">{g.label}</div>
+                    <ul className="settings-list">
+                      {g.skills.map((sk) => <SkillRow key={sk.id} spaceId={spaceId} skill={sk} />)}
+                    </ul>
+                  </div>
+                ))}
+              </>
+            )}
+          </>
         )}
-        {skills && skills.length > 0 && (
-          <p className="settings-hint">New skills are on by default. Library: <code className="env-path">{root}</code></p>
+        {skills && all.length > 0 && (
+          <p className="settings-hint">
+            Skills in Realm's own library are on by default; skills found in your installed folders are
+            off until you switch them on. Library: <code className="env-path">{root}</code>
+          </p>
         )}
       </div>
+      <SourcesField spaceId={spaceId} sources={sources} />
       <div className="field">
         <span>What each agent does with this library</span>
         <ul className="settings-list">
@@ -60,6 +127,50 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
           ))}
         </ul>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Where the list came from: every directory this space's scan reads, with what each contributed.
+ *
+ * This is the panel's answer to "is Realm actually seeing my skills". A source that found nothing is
+ * still listed with a zero — "I added that folder and nothing appeared" is the exact question, and
+ * hiding the empty row answers it with silence. Only user-added folders get a Remove: Realm's library,
+ * the agent directories and the installed plugins are facts about the machine, and a button claiming to
+ * remove one would be claiming Realm could stop it existing.
+ */
+function SourcesField({ spaceId, sources }: { spaceId: string; sources: SkillSource[] | undefined }) {
+  const pickAndAddSkillScanRoot = useApp((s) => s.pickAndAddSkillScanRoot);
+  const removeSkillScanRoot = useApp((s) => s.removeSkillScanRoot);
+  const run = useApp((s) => s.run);
+
+  return (
+    <div className="field">
+      <span>Where Realm looks for skills</span>
+      {!sources ? <p className="env-empty">Loading…</p> : (
+        <ul className="settings-list">
+          {sources.map((src) => (
+            <li key={src.key} className="settings-row">
+              <div className="settings-row-main">
+                <span className="settings-row-name">{src.label}</span>
+                <span className="settings-row-desc">
+                  <code className="env-path">{src.path}</code> · {src.count} {src.count === 1 ? "skill" : "skills"}
+                </span>
+              </div>
+              {src.removable && (
+                <button type="button" className="btn-quiet" onClick={() => run(() => removeSkillScanRoot(spaceId, src.path))}>
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" className="btn-quiet" onClick={() => run(() => pickAndAddSkillScanRoot(spaceId))}>Add a folder…</button>
+      <p className="settings-hint">
+        Realm only ever reads these folders — nothing is copied, moved or written back into them.
+      </p>
     </div>
   );
 }

@@ -9,6 +9,12 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
 - Tests: `pnpm test`  ·  Types: `pnpm typecheck`
 - Data lives in `~/Realm/` (override with `REALM_HOME`).
 
+## Website
+
+`site/` is the marketing site and docs (Next.js, deployed on Vercel with **Root Directory = `site`**).
+It is deliberately outside the pnpm workspace and carries its own lockfile — see `site/README.md` for
+why that matters and how to verify the WebGPU hero shader headlessly.
+
 ## Agent sessions
 - **Claude** sessions run on `@anthropic-ai/claude-agent-sdk`, which drives the `claude` CLI: install it and log in first (`claude auth login`). An expired login shows up as an error in the transcript.
 - **ACP agents** — Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok and fx all speak the
@@ -53,7 +59,8 @@ An agent driving a browser pane can sign you in to a site without ever seeing th
 ## Packaging
 
 - `pnpm dist` — full build + DMG and zip in `apps/desktop/release/` (`pnpm dist:dir` stops at an
-  unpacked `Realm.app` for fast iteration). Under the hood: root `pnpm build`, then
+  unpacked `Realm.app` for fast iteration; `pnpm app:update` runs it and swaps the result into
+  `/Applications/Realm.app`, quitting a running copy first). Under the hood: root `pnpm build`, then
   `apps/desktop/scripts/stage-pack.mjs` stages `.pack-stage/` (a `pnpm deploy` of realm-server with
   its production `node_modules`, the bundled `skills/`, the ScrollPhase helper, the icon), then
   electron-builder (`apps/desktop/electron-builder.yml`) packs it — server and skills as real files
@@ -101,6 +108,50 @@ An agent driving a browser pane can sign you in to a site without ever seeing th
   unsigned builds: macOS cannot apply an unsigned Squirrel update. Configure signing and
   notarization as described in `docs/dev/signing.md`; `pnpm app:update` handles local unsigned builds.
 
+## Importing from the agent CLIs
+
+Settings → **Import** brings what Claude Code, Codex and Cursor already have on disk into Realm:
+transcripts, the Claude memory tool's per-project fact folders, and user-level skills.
+
+- **The agents' directories are read-only.** `~/.claude`, `~/.codex`, `~/.cursor`, `~/.agents` and
+  `~/.gemini` are copied *from* — never written, moved or cleaned up. Everything the import produces
+  lands in Realm's database or under `~/Realm/`.
+- **`import.scan` writes nothing.** It opens files, matches candidates to spaces and answers; no
+  space, session or environment is created by looking. Only `import.apply` writes, and only for the
+  keys it is handed — so the preview you approve is the work that happens.
+- **Space matching is most-specific-location-wins** (`apps/server/src/import/match.ts`): walking the
+  cwd and its parent, asking in turn for an environment, a project root, a space folder, and a
+  directory named after a space. The walk is bounded (`MATCH_MAX_HOPS`) because one broadly-registered
+  ancestor would otherwise capture every session on the machine. Anything unmatched falls to a
+  profile's `Imported` space, and every row shows the rule that placed it so a wrong guess is visible.
+- **Imported sessions keep their provider id** when the recorded cwd still exists, so sending a
+  message resumes the real CLI conversation. Where the directory is gone the link is left off and the
+  session imports as searchable history. Re-target rows in the preview: `sessions.moveToSpace` refuses
+  once a session has events, and an imported session has a transcript from the moment it exists.
+- **Memory is not flattened into the space doc.** Fact files are copied to
+  `~/Realm/memory/imported/<spaceId>/<project>/` and the index goes into the space's memory document
+  between `<!-- realm:imported-memory -->` markers (replaced on re-import, never duplicated). The
+  largest folder here was 712k characters against a 100k doc cap; inlining would have dropped most of
+  it and called that an import.
+- **Skills are copied, never symlinked or overwritten**, and land unscoped — visible in every space,
+  the honest translation of "installed for my user".
+
+One transcript is not one file. Codex rewrites a whole thread into a new rollout file every time it
+is resumed — on one machine here, 241 files were 71 conversations, with 158 of them replays of a
+single Stora thread. The scan keeps the fullest copy of each and counts the rest, so the panel offers
+conversations rather than files.
+
+Two scripts, from `apps/server`:
+
+- `tsx scripts/live-import-check.ts` — prints what an import would do against this machine's real CLI
+  directories, reading a `VACUUM INTO` copy of the database so it can reason over your actual spaces
+  without being able to write to them.
+- `tsx scripts/undo-import.ts --all-imported --sweep-environments` — takes an import back out. Only
+  rows whose dispatch origin is `import` are touched, and the agents' own directories are never read
+  or written. Worth knowing about before a big import: an imported session cannot be re-targeted
+  afterwards, and the environment rows an import leaves behind will out-match everything on the next
+  run if they are not swept with it.
+
 ## Skills
 
 `skills/` holds skills Realm ships, one folder per skill, laid out exactly like the library at
@@ -112,6 +163,11 @@ bundled skill by hand:
 ln -s "$PWD/skills/mac" ~/.claude/skills/mac
 ```
 
+- **`study-guide`** / **`lecture-notes`** — the school workflow (Plan 22): how to write a self-contained
+  interactive HTML guide the Documents pane renders (quizzes, step-throughs, flashcards, KaTeX; progress
+  in a sidecar), and how to answer questions during a lecture and wrap one up afterwards. Both lean on
+  the `realm-docs` gateway tools (`docs_search`, `docs_list`, `docs_open`, `docs_progress`), and the
+  palette's *New lecture… / Wrap up a lecture… / Import recording from Plynn…* entries drive the loop.
 - **`mac`** — the [mac-cli](https://macoscli.sh) binary: Calendar, Reminders, Contacts, Mail,
   Messages, Notes, Music, TV, Shortcuts, Finder, and iWork from the shell. Realm spawns agents and
   terminals with its own environment inherited, so `mac` is already on a session's `PATH` whenever

@@ -34,10 +34,6 @@ const allowedToolsKey = (spaceId: string, serverId: string): string => `mcp.allo
  *  default ON; see `providerEnabled`. */
 const providersDisabledKey = (spaceId: string): string => `mcp.providersDisabled:${spaceId}`;
 
-const readIds = (settings: SettingsStore, key: string): string[] => {
-  const v = settings.get(key);
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-};
 
 /** What `mcp.add` / `mcp.update` accept, before the transport decides which half of it is meaningful. */
 export type McpServerFields = {
@@ -124,8 +120,8 @@ export class McpService {
    * two polarities differ). Ordered as `servers.list()` orders rows, so every consumer agrees on order.
    */
   effectiveServerIds(spaceId: string): string[] {
-    const enabled = new Set(readIds(this.d.settings, enabledKey(spaceId)));
-    const overridden = new Set(readIds(this.d.settings, profileDisabledKey(spaceId)));
+    const enabled = new Set(this.d.settings.getIds(enabledKey(spaceId)));
+    const overridden = new Set(this.d.settings.getIds(profileDisabledKey(spaceId)));
     return this.d.servers.list()
       .filter((r) => this.appliesTo(r.scope, spaceId) && (r.scope.kind === "profile" ? !overridden.has(r.id) : enabled.has(r.id)))
       .map((r) => r.id);
@@ -176,7 +172,7 @@ export class McpService {
     this.d.servers.delete(id);
     for (const spaceId of spaceIds) {
       for (const key of [enabledKey(spaceId), profileDisabledKey(spaceId)]) {
-        const ids = readIds(this.d.settings, key);
+        const ids = this.d.settings.getIds(key);
         if (ids.includes(id)) this.d.settings.set(key, ids.filter((x) => x !== id));
       }
     }
@@ -208,7 +204,7 @@ export class McpService {
     const row = this.d.servers.get(id);
     const inherited = row?.scope.kind === "profile";
     const key = inherited ? profileDisabledKey(spaceId) : enabledKey(spaceId);
-    const ids = new Set(readIds(this.d.settings, key));
+    const ids = new Set(this.d.settings.getIds(key));
     // Inherited rows store the disable set (default ON), space rows the enable set (default OFF).
     if (enabled === !inherited) ids.add(id); else ids.delete(id);
     this.d.settings.set(key, [...ids].sort());
@@ -250,7 +246,7 @@ export class McpService {
     if (!profileId) throw new RpcError("SCOPE_MISMATCH", `space ${spaceId} has no profile to promote into`);
     const profileSpaces = new Set(this.d.scopes!.spaceIdsOf(profileId));
     for (const s of this.d.scopes!.allSpaceIds()) {
-      const wasOn = readIds(this.d.settings, enabledKey(s)).includes(id);
+      const wasOn = this.d.settings.getIds(enabledKey(s)).includes(id);
       this.retire(enabledKey(s), id);
       if (profileSpaces.has(s) && !wasOn) this.addTo(profileDisabledKey(s), id);
     }
@@ -276,11 +272,11 @@ export class McpService {
   }
 
   private addTo(key: string, id: string): void {
-    const ids = new Set(readIds(this.d.settings, key)); ids.add(id);
+    const ids = new Set(this.d.settings.getIds(key)); ids.add(id);
     this.d.settings.set(key, [...ids].sort());
   }
   private retire(key: string, id: string): void {
-    const ids = readIds(this.d.settings, key);
+    const ids = this.d.settings.getIds(key);
     if (ids.includes(id)) this.d.settings.set(key, ids.filter((x) => x !== id));
   }
 
@@ -292,12 +288,12 @@ export class McpService {
    * and the per-space switch exists to turn it off).
    */
   providerEnabled(spaceId: string, name: string): boolean {
-    return !readIds(this.d.settings, providersDisabledKey(spaceId)).includes(name);
+    return !this.d.settings.getIds(providersDisabledKey(spaceId)).includes(name);
   }
 
   setProviderEnabled(spaceId: string, name: string, enabled: boolean): void {
     const key = providersDisabledKey(spaceId);
-    const names = new Set(readIds(this.d.settings, key));
+    const names = new Set(this.d.settings.getIds(key));
     if (enabled) names.delete(name); else names.add(name);
     this.d.settings.set(key, [...names].sort());
   }

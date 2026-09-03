@@ -255,12 +255,62 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     ] as const) expect(root, token).toContain(`${token}: ${source}`);
   });
 
-  it("the radius scale is BUI's: chip 6, control 8, card 10 (rows + panels), window 14", () => {
+  it("the radius scale is tembo's: tick 2, chip 6, control 8, card 12 (rows + panels), window 16", () => {
     const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
-    for (const decl of ["--r-chip: 6px", "--r-ctl: 8px", "--r-row: 10px", "--r-panel: 10px", "--r-float: 14px"])
+    for (const decl of ["--r-sm: 2px", "--r-chip: 6px", "--r-ctl: 8px", "--r-row: 12px", "--r-panel: 12px", "--r-float: 16px"])
       expect(root, decl).toContain(decl);
     // No component may dodge the scale with a hardcoded control-ish radius (ticks/dots/pills excepted).
     expect(css).not.toMatch(/border-radius:\s*(?:4|6|8|10|12|14|16)px/);
+  });
+
+  it("the weight ladder is four named rungs on tembo's values — no bare weight survives in a component rule", () => {
+    const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
+    // 450/500/560/600. The old 500/550/600/650 spread had two rungs nobody could tell apart.
+    expect(root).toContain("--fw-medium: 450");
+    expect(root).toContain("--fw-label: 500");
+    expect(root).toContain("--fw-title: 560");
+    expect(root).toContain("--fw-strong: 600");
+    // Everything but the @font-face ranges and the two deliberate 400s goes through the ladder.
+    const bare = [...css.matchAll(/font-weight:\s*(\d+)\s*;/g)].map((m) => m[1]);
+    expect(bare.filter((w) => w !== "400")).toEqual([]);
+  });
+
+  it("hairlines are half-pixel alpha overlays — one device pixel on retina, and no ground they are painted for", () => {
+    expect(tokens).toContain("--hairline-w: 0.5px");
+    expect(tokens).toMatch(/--shadow-hairline: 0 0 0 var\(--hairline-w\) var\(--line\)/);
+    // The border ramp is derived from the overlay ladder, not from a solid grey.
+    expect(tokens).toMatch(/--line: var\(--overlay-lighten-300\)/);
+    expect(tokens).toMatch(/:root\[data-mode="light"\] \{[^}]*--line: var\(--overlay-darken-200\)/);
+  });
+
+  it("type carries per-size tracking and explicit line heights, not one em-relative value for the whole document", () => {
+    expect(tokens).toMatch(/body \{[^}]*letter-spacing: -0\.1px/);
+    expect(tokens).not.toMatch(/letter-spacing: -0\.01em/);
+    for (const decl of ["--text-xs--letter-spacing: -0.2px", "--text-sm--letter-spacing: -0.2px", "--text-base--line-height: 20px"])
+      expect(tokens, decl).toContain(decl);
+    // The body line box is the 20px the scale asks for, not 1.5×.
+    expect(bodiesFor("html, body, #root".split(", ")[0]!).join(" ")).toContain("font: 14px/20px var(--font-ui)");
+  });
+
+  it("every custom property the stylesheet reads is one it (or tokens.css) actually defines", () => {
+    // The failure this catches is silent and total. `color: var(--rl-text-2)` where `--rl-text-2` was
+    // never defined is INVALID AT COMPUTED-VALUE TIME: the declaration does not fall back to the
+    // previous rule, it resolves to `inherit` — and `border-radius: var(--rl-radius-sm)` resolves to
+    // zero. That is exactly how the documents pane came to render flat text on square corners inside
+    // a rounded, ramped app, with nothing anywhere reporting an error.
+    const defined = new Set([
+      ...[...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]!),
+      ...[...tokens.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]!),
+      // Defined elsewhere, legitimately: Tailwind's own theme (`@import "tailwindcss"`), the
+      // shadow-plugin scale, react-datasheet-grid's stylesheet, and the stagger index the
+      // suggestion chips set inline in TSX.
+      "--shadow-xs", "--shadow-sm", "--shadow-md", "--shadow-lg", "--shadow-xl", "--shadow-2xl", "--i",
+      // The spinner's pose table (Spinner.tsx): nine poses × per-dot x/y/opacity plus the stage
+      // scale, computed from the globe's geometry and set inline so one keyframe can walk them.
+      "--orb-k", ...Array.from({ length: 9 }, (_, i) => [`--g${i}x`, `--g${i}y`, `--g${i}o`]).flat(),
+    ]);
+    const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
+    expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
   });
 
   it("the sidebar keeps its vibrancy: BUI --page at 82%, one mode-agnostic rule", () => {
@@ -348,11 +398,34 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(focus).not.toContain("--rl-accent");
   });
 
-  it("attachment chips are the field-fill chip: field ground behind a hairline ring, 11.5 ink-2", () => {
-    const chip = bodiesFor(".attach-chip").join(" ");
-    expect(chip).toContain("background: var(--field)");
-    expect(chip).toContain("box-shadow: var(--shadow-hairline)");
-    expect(chip).toContain("font-size: 11.5px");
+  it("an attachment is a SQUARE on the field fill behind a hairline ring — no name, no label column", () => {
+    const tile = bodiesFor(".attach-tile").join(" ");
+    // Square, and the same square in both directions: a chip that grows with its filename is the
+    // thing this replaced.
+    expect(tile).toContain("width: 44px");
+    expect(tile).toContain("height: 44px");
+    const art = bodiesFor(".attach-art").join(" ");
+    expect(art).toContain("background: var(--field)");
+    expect(art).toContain("box-shadow: var(--shadow-hairline)");
+    // The well clips the picture; the TILE must not, or it would clip its own hover tip off.
+    expect(art).toContain("overflow: hidden");
+    expect(tile).not.toContain("overflow: hidden");
+  });
+
+  it("the file's name lives in a hover tip that fades in — not in an OS `title`, which cannot show the size or the folder", () => {
+    const tip = bodiesFor(".attach-tip").join(" ");
+    expect(tip).toContain("opacity: 0");
+    expect(tip).toContain("pointer-events: none");
+    expect(tip).toContain("transition: opacity var(--dur-fast) var(--ease-out-strong)");
+    expect(bodiesFor(".attach-tile:hover .attach-tip, .attach-tile:focus-within .attach-tip".split(", ")[0]!).join(" ")).toContain("opacity: 1");
+  });
+
+  it("sent attachments stack ABOVE the bubble, in a column that keeps the transcript's right edge", () => {
+    const row = bodiesFor(".msg-user-row").join(" ");
+    expect(row).toContain("flex-direction: column");
+    expect(row).toContain("align-items: flex-end");
+    // Not inside the bubble: the tiles are a list of their own, and the bubble is a sibling.
+    expect(bodiesFor(".msg-user-files").join(" ")).toContain("list-style: none");
   });
 
   it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's line-strong disabled fill", () => {
@@ -506,6 +579,28 @@ describe("row and control layout", () => {
     expect(bodiesFor(".page-row > svg").join(" ")).toContain("flex: none");
   });
 
+  it("a page pane can shrink to its slot — otherwise it is painted over by the pane beside it", () => {
+    // A pane is a flex ITEM, and a flex item's default `min-width: auto` floors it at its content's
+    // min-content width. Without this, a page whose content did not fit grew PAST its slot and the
+    // neighbouring pane painted over the overflow — `elementFromPoint` in the covered strip returned
+    // the neighbour, so the buttons there could not be clicked. Found by driving the real app with
+    // three panes open (Sessions overflowed by 179px, the Tasks lens by 247px). jsdom has no layout,
+    // so this line is the only thing in the suite that can notice it going away.
+    expect(bodiesFor(".page").join(" ")).toContain("min-width: 0");
+  });
+
+  it("the Tasks lens wraps rather than clipping: both columns shrink, neither is fixed-width", () => {
+    // The same failure one level down. A fixed-width detail panel beside a flexing list overflowed
+    // `.page-content` in any split layout; `flex: 1 1 <basis>` on both lets the panel drop under the
+    // list instead. A `flex: none` or bare `width` on the panel is the regression.
+    const detail = bodiesFor(".task-detail").join(" ");
+    expect(detail).toContain("flex: 1 1");
+    expect(detail).toContain("min-width: 0");
+    expect(detail).not.toContain("flex: none");
+    expect(bodiesFor(".task-lens").join(" ")).toContain("flex-wrap: wrap");
+    expect(bodiesFor(".task-lens-list").join(" ")).toContain("flex: 1 1");
+  });
+
   it("a busy control keeps its fill — only a nothing-to-do control is greyed out", () => {
     // `.btn.primary:disabled` is written for "there is nothing to commit"; applied to "Generating…"
     // it erased the button under the press that started the work.
@@ -635,8 +730,11 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
   });
 
   it("syntax colour is the ink ramp plus four hues — a transcript is prose with code in it", () => {
+    // `color:` only. A .hljs rule may also reach for the weight ladder (a title is 560, strong is
+    // 600) and those are not hues — folding them in would make this assert the ladder twice and
+    // fail the moment a rung is used where a bare weight used to be.
     const hues = new Set(RULES.filter((r) => r.selectors.some((s) => s.startsWith(".hljs")))
-      .flatMap((r) => [...r.body.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]!)));
+      .flatMap((r) => [...r.body.matchAll(/(?:^|[;{]|\s)color:\s*var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]!)));
     expect([...hues].sort()).toEqual(["--accent", "--green", "--ink", "--ink-2", "--ink-3", "--orange", "--red"]);
   });
 

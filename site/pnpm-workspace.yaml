@@ -1,0 +1,15 @@
+# Makes `site/` its own pnpm workspace root.
+#
+# Without this file pnpm searches upward, finds the monorepo's pnpm-workspace.yaml, and installs all
+# six workspace projects instead of this one — dragging in Electron, node-pty, and the private
+# Hugeicons Pro registry that a Vercel build has no token for. The site is deliberately not a member
+# of that workspace (the root globs are `apps/*` and `packages/*`); this file is what makes pnpm
+# agree, so `pnpm install` here resolves against site/pnpm-lock.yaml and nothing else.
+packages: []
+
+# Built without approval on a fresh install; both are transitive native deps of `vgpu` that only the
+# Dawn-backed Node entrypoint uses. The site renders in the browser, so a deploy never needs them —
+# see scripts/render-shader.ts for the scratch project that does.
+ignoredBuiltDependencies:
+  - "@vgpu/adapter-node"
+  - webgpu
