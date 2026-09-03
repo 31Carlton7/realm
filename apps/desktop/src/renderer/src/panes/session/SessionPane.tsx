@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
-import { AGENT_SKILL_SUPPORT, type Item, type Skill } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, type Item, type Skill } from "@realm/contracts";
 import { TERMINAL_PANEL_WIDTH, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { TerminalView } from "../TerminalPane";
@@ -10,6 +10,7 @@ import { Composer } from "./Composer";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
 import { emptyTranscript } from "./transcript-model";
+import { promptHint } from "./prompt-hint";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
  *  re-render (and warn) forever. */
@@ -223,6 +224,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // mid-stream (its 5s timeout losing a race under load) would otherwise take away the one control that
   // can end the turn — and an agent that is streaming has self-evidently started.
   const availability = agentAvailability(session.agentKind, agentProbe);
+  // The prompter's suggested prompt, derived from THIS session (prompt-hint.ts): the last turn, the
+  // working tree, the mode. Computed here rather than in Composer because everything it reads is
+  // already the pane's — Composer only draws it and fills it in on ⇥.
+  const hint = promptHint({
+    blocks: transcript.blocks, gitInfo, status, inPlan: session.permissionMode === PLAN_PERMISSION_MODE,
+  });
   const blocked = isBlocked(availability) && status !== "running" && status !== "waiting_permission";
   const body = (
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}>
@@ -261,7 +268,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onAddFolder={() => run(() => pickAndLinkProject())}
             onManageConnections={() => run(() => openSpacePage(session.spaceId, "connections"))}
             submitKey={submitKey}
-            hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)} />}
+            hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)}
+            promptHint={hint} />}
     </div>
   );
   if (!panelOpen) return body;

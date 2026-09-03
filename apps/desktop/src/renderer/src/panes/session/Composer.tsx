@@ -222,7 +222,7 @@ function planMeaning(kind: AgentKind, acpPlan: AcpSessionMode | null): string {
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter" }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, hero, spaceName, onSuggestion, mentionSkills = [], staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -279,6 +279,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** Which key sends the draft (Settings ▸ App). Default "enter": plain Enter sends. "cmdEnter":
    *  only ⌘/Ctrl+Enter sends, plain Enter inserts a newline. */
   submitKey?: SubmitKey;
+  /** The session-derived suggested prompt (`prompt-hint.ts`), or null when there is nothing specific
+   *  to offer. Shown as the hint text over the empty box and filled in by ⇥. */
+  promptHint?: string | null;
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
@@ -329,6 +332,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     e.preventDefault();
     onAttachFiles(files);
   };
+
+  /** The hint replaces the placeholder, so it lives and dies with the placeholder: an empty draft
+   *  only. A single narrowed const rather than a boolean, so the ⇥ handler and the markup below both
+   *  get the string itself out of the one check. */
+  const hint = promptHint && draft === "" ? promptHint : null;
+  const hintId = `prompt-hint-${session.id}`;
 
   // First-render-only stagger (§6): decided once at mount (so a mid-animation re-render — typing,
   // status — never strips the attribute and snaps the chips), then marked as played for the app run.
@@ -459,6 +468,18 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
       if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(mentionMatches[mentionCur]!); return; }
       // Escape reaches us through the popover hook's own window listener → onClose → dismissal.
     }
+    // ⇥ takes the suggested prompt — the sentence the user is reading in the empty box. Gated on an
+    // EMPTY draft, which is exactly when the hint is on screen: once there is text, Tab goes back to
+    // meaning list-indent (below) or focus-move, and neither is worth a hidden second meaning. Shift
+    // is excluded so ⇧⇥ still walks focus backwards out of the textarea.
+    if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && hint) {
+      e.preventDefault();
+      onDraftChange(hint);
+      // Caret at the end, through the same channel a mention pick uses — the prompt is a starting
+      // point to edit, so it must land ready to type after, not with the caret parked at 0.
+      pendingSel.current = { start: hint.length, end: hint.length };
+      return;
+    }
     // Tab shifts a list item a level — but ONLY inside one. `indentList` returns null on a plain
     // draft, which leaves Tab as Tab: stealing it unconditionally would trap keyboard users in the
     // textarea. The picker above already claimed Tab when it is open.
@@ -549,10 +570,22 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 would sit one line short of the textarea from there down. */}
             {draft.endsWith("\n") && "\n"}
           </div>
-          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={`Ask ${AGENT_META[kind].label} anything…`} rows={1}
+          {/* The suggested prompt, in the placeholder's own place. Not the native `placeholder`: that
+              cannot carry the ⇥ cap, and a textarea placeholder wraps to a second line the one-row
+              empty box has no room for — this one ellipsizes instead. The real placeholder steps
+              aside while it shows, or the two would stack in the same box. */}
+          {hint && (
+            <div id={hintId} className="composer-hint">
+              <span className="composer-hint-text">{hint}</span>
+              <kbd>Tab</kbd>
+              <span className="visually-hidden">Press Tab to fill in this suggested prompt.</span>
+            </div>
+          )}
+          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : `Ask ${AGENT_META[kind].label} anything…`} rows={1}
             value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); }}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onKeyDown={onKeyDown} onPaste={onPaste} onScroll={syncScroll}
+            aria-describedby={hint ? hintId : undefined}
             aria-controls={mentionOpen ? "mention-list" : undefined}
             aria-activedescendant={mentionOpen ? `mention-${mentionMatches[mentionCur]!.id}` : undefined} />
         </div>

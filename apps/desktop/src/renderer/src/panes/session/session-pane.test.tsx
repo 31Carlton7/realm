@@ -102,9 +102,10 @@ describe("SessionPane", () => {
     const tool = screen.getByRole("button", { name: /Bash tool call/ });
     expect(tool).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(tool);
-    expect(screen.getAllByText(/"command": "ls -la"/).length).toBeGreaterThanOrEqual(1); // tool body (and the permission card details)
+    // Plan 24 W1: a Bash card's input is DRAWN as the command it will run, not dumped as its JSON.
     const card = tool.closest(".tool-card") as HTMLElement;
-    expect(within(card).getByText(/"command": "ls -la"/).closest("pre")).toHaveClass("tool-well");
+    expect(card.querySelector(".cmd-line code")).toHaveTextContent("ls -la");
+    expect(screen.getAllByText(/"command": "ls -la"/).length).toBeGreaterThanOrEqual(1); // the permission card still shows the raw details
     expect(screen.getByLabelText("running")).toBeInTheDocument(); // no result yet while the session is live
   });
 
@@ -554,7 +555,8 @@ describe("permission keyboard (U-H4)", () => {
 
   it("Enter on the details summary expands without deciding (native toggle keeps its default)", async () => {
     const { decided } = await mountFocused(true);
-    const summary = screen.getByText("Input");
+    // "Raw input" once a drawn preview sits above it (Plan 24 W1), plain "Input" without one.
+    const summary = screen.getByText(/^(Raw )?input$/i);
     summary.focus();
     const notPrevented = fireEvent.keyDown(summary, { key: "Enter" }); // true = default NOT prevented
     expect(notPrevented).toBe(true); // native <summary> Enter-toggle stays in charge
