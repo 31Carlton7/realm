@@ -147,6 +147,57 @@ describe("documents RPC — files", () => {
     c.close();
   });
 
+  it("renames a document and carries its open tab with it", async () => {
+    const { c, documentsId, root } = await setup();
+    await c.call("documents.createFile", { documentsId, path: "Untitled document.md", kind: "doc", title: "Untitled document" });
+    await c.call("documents.setTabs", { documentsId, openPaths: ["Untitled document.md"], activePath: "Untitled document.md" });
+
+    const r = await c.call("documents.renameFile", { documentsId, from: "Untitled document.md", to: "Q3 review.md" });
+    expect(r.result).toEqual({ path: "Q3 review.md" });
+    expect(await readFile(join(root, "Q3 review.md"), "utf8")).toContain("# Untitled document");
+    await expect(readFile(join(root, "Untitled document.md"), "utf8")).rejects.toThrow();
+    // The tab moved with the file. Had it not, the pane would still be holding a path that is gone.
+    const ws = (await c.call("documents.get", { documentsId })).result;
+    expect(ws.openPaths).toEqual(["Q3 review.md"]);
+    expect(ws.activePath).toBe("Q3 review.md");
+    c.close();
+  });
+
+  it("a rename is not seen as an outside edit — the tab it just moved must not go into conflict", async () => {
+    const { c, documentsId, root } = await setup();
+    await writeFile(join(root, "a.md"), "v1");
+    await c.call("documents.setTabs", { documentsId, openPaths: ["a.md"], activePath: "a.md" });
+    await c.call("documents.read", { documentsId, path: "a.md" });
+    await c.call("documents.renameFile", { documentsId, from: "a.md", to: "b.md" });
+    await new Promise((r) => setTimeout(r, 250));
+    // The vanished old path is a real event (the file IS gone from there); what must not happen is
+    // the NEW path arriving as a change the user never made.
+    expect(c.events.filter((e) => e.event === "documents.fileChanged" && e.params.path === "b.md")).toEqual([]);
+    c.close();
+  });
+
+  it("refuses to rename onto a file that already exists, and leaves both alone", async () => {
+    const { c, documentsId, root } = await setup();
+    await writeFile(join(root, "a.md"), "mine");
+    await writeFile(join(root, "b.md"), "theirs");
+    const r = await c.call("documents.renameFile", { documentsId, from: "a.md", to: "b.md" });
+    expect(r.error?.code).toBe("EXISTS");
+    expect(await readFile(join(root, "a.md"), "utf8")).toBe("mine");
+    expect(await readFile(join(root, "b.md"), "utf8")).toBe("theirs");
+    c.close();
+  });
+
+  it("refuses to rename out of the environment root, in either direction", async () => {
+    const { c, documentsId, root } = await setup();
+    await writeFile(join(root, "a.md"), "mine");
+    for (const [from, to] of [["a.md", "../escaped.md"], ["../../etc/passwd", "a.md"]] as const) {
+      const r = await c.call("documents.renameFile", { documentsId, from, to });
+      expect(r.error?.code, `${from} -> ${to}`).toBe("BAD_PATH");
+    }
+    expect(await readFile(join(root, "a.md"), "utf8")).toBe("mine");
+    c.close();
+  });
+
   it("refuses to read or write outside the environment root", async () => {
     const { c, documentsId } = await setup();
     for (const path of ["../escape.md", "/etc/passwd", "a/../../escape.md"]) {

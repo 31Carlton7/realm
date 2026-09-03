@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_MAX_BYTES, documentKindFor, documentTemplate, refineDocumentKind } from "./documents";
+import { DOCUMENT_MAX_BYTES, documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, refineDocumentKind } from "./documents";
 
 describe("documentKindFor", () => {
   it("routes each extension to its editor", () => {
@@ -139,5 +139,51 @@ describe("guide progress", () => {
     p = recordGuideAttempt(p, "a", { at: 2, correct: 1, total: 4 }); // best is 100%, last is 25%
     p = recordGuideAttempt(p, "m", { at: 1, correct: 4, total: 5 });
     expect(weakTopics(p)).toEqual(["a", "z"]);
+  });
+});
+
+describe("freeFileName", () => {
+  it("hands out the bare name when nothing is in the way", () => {
+    expect(freeFileName("Untitled document", "md", [])).toBe("Untitled document.md");
+  });
+  it("counts from 2, so the first two documents read as a pair rather than as 1 and 2", () => {
+    expect(freeFileName("Untitled document", "md", ["Untitled document.md"])).toBe("Untitled document 2.md");
+    expect(freeFileName("Untitled document", "md", ["Untitled document.md", "Untitled document 2.md"]))
+      .toBe("Untitled document 3.md");
+  });
+  it("fills a gap rather than always appending", () => {
+    expect(freeFileName("Untitled document", "md", ["Untitled document.md", "Untitled document 3.md"]))
+      .toBe("Untitled document 2.md");
+  });
+  it("is case-insensitive — the create would fail on a macOS filesystem otherwise", () => {
+    expect(freeFileName("Untitled document", "md", ["untitled DOCUMENT.md"])).toBe("Untitled document 2.md");
+  });
+  it("only collides within its own extension: a sheet and a doc may share a stem", () => {
+    expect(freeFileName("Untitled document", "csv", ["Untitled document.md"])).toBe("Untitled document.csv");
+  });
+  it("honours a multi-part extension whole", () => {
+    expect(freeFileName("Untitled presentation", "slides.md", ["Untitled presentation.slides.md"]))
+      .toBe("Untitled presentation 2.slides.md");
+  });
+});
+
+describe("documentExtension / documentStem", () => {
+  it("splits an ordinary name on its last dot", () => {
+    expect(documentExtension("notes/Q3 review.md")).toBe("md");
+    expect(documentStem("notes/Q3 review.md")).toBe("Q3 review");
+  });
+  it("keeps a deck's compound extension whole — splitting it would demote the deck to a document", () => {
+    expect(documentExtension("Q3.slides.md")).toBe("slides.md");
+    expect(documentStem("Q3.slides.md")).toBe("Q3");
+    expect(documentKindFor(`${documentStem("Q3.slides.md")} renamed.${documentExtension("Q3.slides.md")}`)).toBe("slides");
+    expect(documentExtension("plan.deck.markdown")).toBe("deck.markdown");
+  });
+  it("only the LAST dot is the extension elsewhere — a dotted stem stays part of the name", () => {
+    expect(documentStem("Q3.review.md")).toBe("Q3.review");
+  });
+  it("answers empty for a name with no extension, and leaves the whole name as the stem", () => {
+    expect(documentExtension("README")).toBe("");
+    expect(documentStem("README")).toBe("README");
+    expect(documentExtension(".gitignore")).toBe(""); // a leading dot is not an extension
   });
 });

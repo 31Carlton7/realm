@@ -83,11 +83,11 @@ describe("DocumentsPane — html guides (Plan 22)", () => {
     expect(api.calls.filter((c) => c.startsWith("recordGuideAttempt"))).toHaveLength(1);
   });
 
-  it("offers Guide among the new-document kinds", async () => {
-    renderPane({});
-    fireEvent.click(await screen.findByRole("button", { name: "Open or create a document" }));
-    fireEvent.change(screen.getByLabelText("New document name"), { target: { value: "caches" } });
-    expect(screen.getByRole("button", { name: "Guide" })).toBeEnabled();
+  it("offers Guide among the new-document kinds, and creating one needs no name up front", async () => {
+    const { api } = renderPane({});
+    fireEvent.click(await screen.findByRole("button", { name: "Add a document" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New guide" }));
+    await waitFor(() => expect(api.calls).toContain("createDocumentFile:docs1:Untitled guide.html"));
   });
 });
 
@@ -104,7 +104,8 @@ describe("DocumentsPane — pdf (Plan 22)", () => {
 
   it("the picker lets a PDF be opened", async () => {
     renderPane({ "slides/l4.pdf": "" });
-    fireEvent.click(await screen.findByRole("button", { name: "Open or create a document" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add a document" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open a file…" }));
     const row = await screen.findByRole("button", { name: /l4\.pdf/ });
     expect(row).toBeEnabled();
   });
@@ -113,12 +114,12 @@ describe("DocumentsPane — pdf (Plan 22)", () => {
 describe("DocumentsPane — open requests (Plan 22)", () => {
   it("opens the requested tab when the event names this workspace, and ignores other workspaces", async () => {
     const { api } = renderPane({ "a.md": "# A", "lectures/l.md": "# L" }, ["a.md"], "a.md");
-    await screen.findByRole("tab", { name: /a\.md/ });
+    await screen.findByRole("tab", { name: /^a\b/ });
     fire("documents.openRequested", { spaceId: "s1", environmentId: ENV, documentsId: "other", itemId: "i9", path: "lectures/l.md" });
     await new Promise((r) => setTimeout(r, 10));
-    expect(screen.queryByRole("tab", { name: /l\.md/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^l\b/ })).toBeNull();
     fire("documents.openRequested", { spaceId: "s1", environmentId: ENV, documentsId: DOCS_ID, itemId: "i1", path: "lectures/l.md" });
-    const tab = await screen.findByRole("tab", { name: /l\.md/ });
+    const tab = await screen.findByRole("tab", { name: /^l\b/ });
     expect(tab).toHaveAttribute("aria-selected", "true");
     await waitFor(() => expect(api.calls).toContain("readDocument:docs1:lectures/l.md"));
   });

@@ -34,6 +34,9 @@ export const icons = {
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
   // Pane focus (zoom one pane to the whole host) and its inverse; `group` is a pane group's tab.
   focusPane: Maximize01Icon, unfocusPane: Minimize01Icon, group: LayoutTable01Icon,
+  // Same glyph as `group`, under the name a spreadsheet is actually looking for — a document's
+  // icon should not have to borrow the pane system's vocabulary to find a table.
+  table: LayoutTable01Icon,
   laptop: LaptopIcon, plug: PlugSocketIcon, download: Download04Icon,
   // Shelve a sidebar row / take it back off the shelf. The pair is directional on purpose — the same
   // box, with the restore glyph lifting out of it — so the hover button reads as a toggle.

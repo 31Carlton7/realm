@@ -53,10 +53,10 @@ afterEach(() => { vi.useRealTimers(); });
 describe("DocumentsPane", () => {
   it("reopens the tabs the workspace persisted, on the active one", async () => {
     renderPane({ "a.md": "# A", "b.md": "# B" }, ["a.md", "b.md"], "b.md");
-    await screen.findByRole("tab", { name: /b\.md/ });
+    await screen.findByRole("tab", { name: /^b\b/ });
     await useSource();
-    expect(screen.getByRole("tab", { name: /a\.md/ })).toHaveAttribute("aria-selected", "false");
-    expect(screen.getByRole("tab", { name: /b\.md/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /^a\b/ })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: /^b\b/ })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByLabelText("Edit b.md")).toHaveValue("# B");
   });
 
@@ -141,7 +141,7 @@ describe("DocumentsPane", () => {
     await useSource();
     await screen.findByLabelText("Edit a.md");
     fireChange({ environmentId: ENV, path: "a.md", hash: null });
-    expect(await screen.findByRole("status")).toHaveTextContent(/deleted on disk/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/deleted on disk/i);
     expect(screen.getByLabelText("Edit a.md")).toHaveValue("# A");
   });
 
@@ -172,8 +172,124 @@ describe("DocumentsPane", () => {
     expect(await screen.findByLabelText("Edit q3.csv")).toHaveValue("A,B\n1,2\n");
   });
 
-  it("shows an empty state when nothing is open", async () => {
+  it("shows an empty state whose only control is the one that makes a document", async () => {
     renderPane({});
-    expect(await screen.findByText(/No document open/i)).toBeTruthy();
+    expect(await screen.findByText(/Nothing open yet/i)).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /New document/ }).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Creating a document, and naming it afterwards.
+ *
+ * The old flow refused to create anything until a name was typed into the picker: five disabled
+ * buttons behind a text field, for a file that did not exist yet. These cover the shape that replaced
+ * it — pick a kind, get a working document, rename it whenever (or never).
+ */
+describe("DocumentsPane — making a document", () => {
+  const addMenu = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Add a document" }));
+  };
+
+  it("creates and opens a document from one menu pick — no name asked for", async () => {
+    const { api } = renderPane({});
+    await addMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New document" }));
+    await waitFor(() => expect(api.calls).toContain("createDocumentFile:docs1:Untitled document.md"));
+    // It is OPEN, not merely created: the point of the change is that you land in the document.
+    expect(await screen.findByRole("tab", { name: /Untitled document/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("gives each kind its own extension, so the editor that opens is the one the menu named", async () => {
+    const { api } = renderPane({});
+    for (const [label, path] of [
+      ["New spreadsheet", "Untitled spreadsheet.csv"],
+      ["New presentation", "Untitled presentation.slides.md"],
+      ["New LaTeX", "Untitled LaTeX.tex"],
+    ] as const) {
+      await addMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: label }));
+      await waitFor(() => expect(api.calls).toContain(`createDocumentFile:docs1:${path}`));
+    }
+  });
+
+  it("numbers the second untitled document instead of failing on the name that is taken", async () => {
+    const { api } = renderPane({ "Untitled document.md": "# one" });
+    await addMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New document" }));
+    await waitFor(() => expect(api.calls).toContain("createDocumentFile:docs1:Untitled document 2.md"));
+  });
+
+  it("lands with the name selected, so the next keystroke replaces it", async () => {
+    renderPane({});
+    await addMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New document" }));
+    const field = await screen.findByLabelText("Document name") as HTMLInputElement;
+    expect(field.value).toBe("Untitled document");
+    expect(field).toHaveFocus();
+  });
+
+  it("renames the file on disk, keeping the extension the user never typed", async () => {
+    const { api } = renderPane({ "a.md": "# A" }, ["a.md"], "a.md");
+    fireEvent.click(await screen.findByTitle(/click to rename/));
+    const field = screen.getByLabelText("Document name");
+    fireEvent.change(field, { target: { value: "Q3 review" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(api.calls).toContain("renameDocumentFile:docs1:a.md:Q3 review.md"));
+    expect(await screen.findByRole("tab", { name: /Q3 review/ })).toBeTruthy();
+  });
+
+  it("keeps a deck a deck: the compound extension is not the user's to lose", async () => {
+    const { api } = renderPane({ "d.slides.md": "---\nmarp: true\n---\n" }, ["d.slides.md"], "d.slides.md");
+    fireEvent.click(await screen.findByTitle(/click to rename/));
+    const field = screen.getByLabelText("Document name");
+    fireEvent.change(field, { target: { value: "Kickoff" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(api.calls).toContain("renameDocumentFile:docs1:d.slides.md:Kickoff.slides.md"));
+  });
+
+  it("Escape abandons the rename, and an emptied name is not a rename at all", async () => {
+    const { api } = renderPane({ "a.md": "# A" }, ["a.md"], "a.md");
+    fireEvent.click(await screen.findByTitle(/click to rename/));
+    const field = screen.getByLabelText("Document name");
+    fireEvent.change(field, { target: { value: "gone" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    await screen.findByTitle("a.md — click to rename");
+
+    fireEvent.click(screen.getByTitle(/click to rename/));
+    const again = screen.getByLabelText("Document name");
+    fireEvent.change(again, { target: { value: "   " } });
+    fireEvent.keyDown(again, { key: "Enter" });
+    await waitFor(() => expect(screen.getByTitle("a.md — click to rename")).toBeTruthy());
+    expect(api.calls.some((c) => c.startsWith("renameDocumentFile:"))).toBe(false);
+  });
+
+  it("a second document switches the open name field to it", async () => {
+    // The real guard for this is in documents-pane-live.mjs, not here: the failure mode is a field
+    // that does NOT remount when the active document changes, and jsdom remounts it anyway, so this
+    // passes with or without the `key` that fixes it. Kept as a statement of the intended behaviour.
+    const { api } = renderPane({});
+    await addMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New document" }));
+    await waitFor(() => expect((screen.getByLabelText("Document name") as HTMLInputElement).value).toBe("Untitled document"));
+
+    await addMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New spreadsheet" }));
+    await waitFor(() => expect((screen.getByLabelText("Document name") as HTMLInputElement).value).toBe("Untitled spreadsheet"));
+
+    fireEvent.blur(screen.getByLabelText("Document name"));
+    await waitFor(() => expect(api.data.documentFiles.docs1?.["Untitled spreadsheet.csv"]).toBeDefined());
+    expect(api.calls.some((c) => c.startsWith("renameDocumentFile:"))).toBe(false);
+  });
+
+  it("the open editor survives the rename — its text is not reloaded from disk", async () => {
+    renderPane({ "a.md": "# A" }, ["a.md"], "a.md");
+    await useSource();
+    fireEvent.change(await screen.findByLabelText("Edit a.md"), { target: { value: "unsaved words" } });
+    fireEvent.click(screen.getByTitle(/click to rename/));
+    const field = screen.getByLabelText("Document name");
+    fireEvent.change(field, { target: { value: "renamed" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(await screen.findByLabelText("Edit renamed.md")).toHaveValue("unsaved words");
   });
 });

@@ -78,6 +78,28 @@ export async function writeDocument(abs: string, text: string, baseHash: string 
 }
 
 /**
+ * Move a document, refusing to land on a file that already exists.
+ *
+ * `rename(2)` overwrites its destination silently, which for a user-facing rename is the wrong
+ * default by a wide margin: typing the name of a document you already have would destroy it with no
+ * prompt and no undo. The existence check is not atomic — nothing on a POSIX filesystem gives you
+ * "rename unless the target exists" in one call — but the race it leaves is two renames onto the same
+ * name in the same millisecond, which is not a thing a person does.
+ */
+export async function renameDocument(absFrom: string, absTo: string): Promise<void> {
+  if (absFrom === absTo) return;
+  if (await readIfExists(absTo)) throw new RpcError("EXISTS", `${absTo} already exists`);
+  try {
+    await stat(absTo);
+    throw new RpcError("EXISTS", `${absTo} already exists`); // a directory, or a file too big to read
+  } catch (e) {
+    if (e instanceof RpcError) throw e;
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+  await rename(absFrom, absTo);
+}
+
+/**
  * Write via temp file + rename, so a crash mid-save can never leave a half-written document. The
  * rename is why the watcher watches DIRECTORIES rather than files: an `fs.watch` bound to the original
  * file's inode goes deaf the moment that inode is replaced, which is every single save.

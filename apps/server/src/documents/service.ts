@@ -12,7 +12,7 @@ import type { EnvironmentsStore } from "../store/environments";
 import type { ItemsStore } from "../store/items";
 import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
-import { hashText, readDocument, readIfExists, writeAtomic, writeDocument, type WriteOutcome } from "./files";
+import { hashText, readDocument, readIfExists, renameDocument, writeAtomic, writeDocument, type WriteOutcome } from "./files";
 import { relInRoot, resolveInRoot } from "./paths";
 import { DocumentWatcher } from "./watcher";
 
@@ -250,6 +250,32 @@ export class DocumentService {
     // teach the watcher a lie and suppress the very next real change.
     if (outcome.ok) this.watcher.noteWrite(abs, outcome.hash);
     return outcome;
+  }
+
+  /**
+   * Rename a document and carry its tab with it.
+   *
+   * The tab move is the point. A rename done as "write the new file, delete the old one" would fire
+   * two watch events at an open pane — a deletion and a creation — and the pane would close the tab
+   * the user is looking at. Doing it here means the strip is updated in the same breath as the
+   * filesystem, and the watch set follows.
+   */
+  async renameFile(documentsId: string, from: string, to: string): Promise<{ path: string }> {
+    const ws = this.get(documentsId);
+    const root = this.rootOf(ws);
+    const absFrom = resolveInRoot(root, from);
+    const absTo = resolveInRoot(root, to);
+    await renameDocument(absFrom, absTo);
+    if (from === to) return { path: to };
+    // The content did not change, so the hash the watcher holds for the old path is the right one
+    // for the new path — carrying it over is what stops the rename reading as an outside edit.
+    const current = await readIfExists(absTo);
+    if (current) this.watcher.noteWrite(absTo, current.hash);
+    if (ws.openPaths.includes(from)) {
+      await this.setTabs(documentsId, ws.openPaths.map((p) => (p === from ? to : p)),
+        ws.activePath === from ? to : ws.activePath);
+    }
+    return { path: to };
   }
 
   async createFile(documentsId: string, path: string, kind: DocumentKind, title: string): Promise<{ path: string; hash: string }> {

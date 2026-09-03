@@ -449,6 +449,18 @@ export const Methods = {
   },
   /** Create a new document from its kind's template and open it. Fails if the path already exists. */
   "documents.createFile": { params: z.object({ documentsId: IdSchema, path: z.string(), kind: DocumentKindSchema, title: z.string() }), result: z.object({ path: z.string(), hash: z.string() }) },
+  /**
+   * Rename a document on disk, carrying its tab with it.
+   *
+   * This is what lets a document be CREATED before it is named: a new file lands as "Untitled
+   * document" and the title is edited afterwards, in place, the way every document app works — rather
+   * than the pane demanding a name up front for a file the user has not seen yet.
+   *
+   * Server-side rather than a write-then-delete in the renderer, for the same reason `write` is: the
+   * server owns the watches, and a rename observed as "one file vanished, another appeared" would
+   * close the open tab before the new one existed. Refuses to overwrite an existing file.
+   */
+  "documents.renameFile": { params: z.object({ documentsId: IdSchema, from: z.string(), to: z.string() }), result: z.object({ path: z.string() }) },
   /** Release this workspace's filesystem watches without touching its persisted tabs — what a pane
    *  calls when it unmounts. Closing a pane is layout-only (Plan 4), so the tab strip must survive it;
    *  the watches must not, or every pane ever opened keeps a watcher alive for the whole session. */

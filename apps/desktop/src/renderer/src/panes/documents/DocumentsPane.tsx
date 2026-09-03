@@ -1,8 +1,12 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@realm/ui";
-import { documentKindFor, refineDocumentKind, type DocumentEntry, type DocumentKind, type DocumentWorkspace } from "@realm/contracts";
+import {
+  documentExtension, documentKindFor, documentStem, freeFileName, refineDocumentKind,
+  type DocumentEntry, type DocumentKind, type DocumentWorkspace,
+} from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 import { useApp } from "../../state/store";
+import { Menu, type MenuItem } from "../../components/Menu";
 import type { PaneProps } from "../registry";
 import {
   canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected, type Buffer,
@@ -13,13 +17,18 @@ import { PreviewFrame } from "./PreviewFrame";
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
 const AUTOSAVE_MS = 700;
 
-const NEW_KINDS: { kind: DocumentKind; label: string; ext: string }[] = [
-  { kind: "doc", label: "Document", ext: "md" },
-  { kind: "sheet", label: "Spreadsheet", ext: "csv" },
-  { kind: "slides", label: "Presentation", ext: "slides.md" },
-  { kind: "latex", label: "LaTeX", ext: "tex" },
+/**
+ * What "+" offers. `menu` and `stem` are written out rather than derived from one another, because
+ * the one case where a rule would have been tidy — lowercasing the menu word to build the stem — is
+ * the case that gets it wrong: "LaTeX" is not "latex".
+ */
+const NEW_KINDS: { kind: DocumentKind; menu: string; stem: string; ext: string }[] = [
+  { kind: "doc", menu: "New document", stem: "Untitled document", ext: "md" },
+  { kind: "sheet", menu: "New spreadsheet", stem: "Untitled spreadsheet", ext: "csv" },
+  { kind: "slides", menu: "New presentation", stem: "Untitled presentation", ext: "slides.md" },
+  { kind: "latex", menu: "New LaTeX", stem: "Untitled LaTeX", ext: "tex" },
   // Plan 22: an interactive study guide — self-contained HTML the preview server renders.
-  { kind: "html", label: "Guide", ext: "html" },
+  { kind: "html", menu: "New guide", stem: "Untitled guide", ext: "html" },
 ];
 
 /** A PDF is bytes, not text: no buffer is read for it, and its tab can never be dirty. The frame
@@ -54,11 +63,16 @@ export function DocumentsPane({ item }: PaneProps) {
   const readDocument = useApp((s) => s.readDocument);
   const writeDocument = useApp((s) => s.writeDocument);
   const createDocumentFile = useApp((s) => s.createDocumentFile);
+  const renameDocumentFile = useApp((s) => s.renameDocumentFile);
+  const listDocumentEntries = useApp((s) => s.listDocumentEntries);
 
   const [ws, setWs] = useState<DocumentWorkspace | null>(null);
   const [buffers, setBuffers] = useState<Record<string, Buffer>>({});
   const [active, setActive] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  /** The head bar's name field is open. Set by a click on the name, and by creating a document —
+   *  which is the whole point: the file exists first, and naming it is the next optional keystroke. */
+  const [renaming, setRenaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // "rich" for prose, "source" for the markdown behind it. Per-pane, not per-file: switching
   // documents keeps the mode the user chose.
@@ -188,38 +202,77 @@ export function DocumentsPane({ item }: PaneProps) {
 
   const tabs = Object.keys(buffers);
 
+  // ---- create ------------------------------------------------------------------------------------
+  // Named AFTERWARDS, not before. The old flow made the first thing you did in a new document a form
+  // field for a file that did not exist yet — and the name is the one thing you rarely know at that
+  // moment. So the file is created under "Untitled <kind>", opened, and its title left focused and
+  // selected in the head bar: type over it, or ignore it and start writing.
+  const createNew = useCallback((kind: DocumentKind, ext: string, stem: string) => run(async () => {
+    const entries = await listDocumentEntries(documentsId, "").catch(() => [] as DocumentEntry[]);
+    const path = freeFileName(stem, ext, entries.filter((e) => !e.isDir).map((e) => e.name));
+    await createDocumentFile(documentsId, path, kind, documentStem(path));
+    await openPath(path);
+    setRenaming(true);
+  }), [run, listDocumentEntries, createDocumentFile, documentsId, openPath]);
+
+  // ---- rename ------------------------------------------------------------------------------------
+  // The extension is never the user's to type: they edit a NAME, and the kind is already decided.
+  // Keeping it out of the field is also what stops a rename from silently changing a document into a
+  // spreadsheet by way of a typo.
+  const renameActive = useCallback((from: string, stem: string) => run(async () => {
+    const dir = from.includes("/") ? from.slice(0, from.lastIndexOf("/") + 1) : "";
+    const ext = documentExtension(from);
+    const to = `${dir}${stem.trim()}${ext ? `.${ext}` : ""}`;
+    if (!stem.trim() || to === from) return;
+    const { path } = await renameDocumentFile(documentsId, from, to);
+    // The server has already moved the persisted tab; this moves the pane's live buffer to match, so
+    // the open editor keeps its text and its baseHash rather than reloading from disk.
+    setBuffers((prev) => {
+      const b = prev[from];
+      if (!b) return prev;
+      const { [from]: _gone, ...rest } = prev;
+      return { ...rest, [path]: { ...b, path } };
+    });
+    setActive((cur) => (cur === from ? path : cur));
+  }), [run, renameDocumentFile, documentsId]);
+
   return (
     <div className="documents-pane">
-      <TabStrip
-        tabs={tabs} active={active} buffers={buffers}
-        onSelect={(p) => { setActive(p); persistTabs(tabs, p); }}
-        onClose={closeTab}
-        onNew={() => setPicking((v) => !v)}
-        picking={picking}
-      />
-
-      {picking && (
-        <FilePicker
-          documentsId={documentsId}
-          onOpen={(p) => run(() => openPath(p))}
-          onCreate={(path, k, title) => run(async () => {
-            await createDocumentFile(documentsId, path, k, title);
-            await openPath(path);
-          })}
-          onDismiss={() => setPicking(false)}
+      {/* The picker hangs off the strip rather than off the pane, so "just below the tabs" is a
+          layout fact rather than a pixel constant that drifts the moment a tab gets taller. */}
+      <div className="documents-topbar">
+        <TabStrip
+          tabs={tabs} active={active} buffers={buffers}
+          onSelect={(p) => { setRenaming(false); setActive(p); persistTabs(tabs, p); }}
+          onClose={closeTab}
+          onNew={createNew}
+          onOpenExisting={() => setPicking(true)}
         />
-      )}
+        {picking && (
+          <FilePicker
+            documentsId={documentsId}
+            onOpen={(p) => run(() => openPath(p))}
+            onDismiss={() => setPicking(false)}
+          />
+        )}
+      </div>
 
       {error && <div className="documents-error">{error}</div>}
 
       {!buf && !picking && (
         <div className="pane-placeholder muted">
-          No document open. Use <strong>+</strong> to open or create one.
+          <p>Nothing open yet.</p>
+          <NewMenuButton onNew={createNew} onOpenExisting={() => setPicking(true)} variant="btn" />
         </div>
       )}
 
       {buf && (
         <>
+          <DocumentHead
+            buffer={buf} kind={kind} mode={mode} onSetMode={setMode}
+            renaming={renaming} onRenaming={setRenaming}
+            onRename={(stem) => renameActive(buf.path, stem)}
+          />
           {buf.conflict && (
             <ConflictBar
               onKeepMine={() => { setBuffer(buf.path, keepMine); void save(buf.path); }}
@@ -227,25 +280,66 @@ export function DocumentsPane({ item }: PaneProps) {
             />
           )}
           {buf.missing && !buf.conflict && (
-            <div className="documents-bar warn" role="status">
-              This file was deleted on disk. Saving will re-create it.
+            // `alert`, not `status`: the head bar already carries the save state as this pane's one
+            // polite status, and a file vanishing under an open editor is not a polite update.
+            <div className="documents-bar warn" role="alert">
+              <Icon name="alert" size={13} />
+              <span>This file was deleted on disk. Saving will re-create it.</span>
             </div>
           )}
           <Editor
             buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
-            onSetMode={setMode}
             onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
           />
-          <StatusStrip buffer={buf} kind={kind} />
         </>
       )}
     </div>
   );
 }
 
-function TabStrip({ tabs, active, buffers, onSelect, onClose, onNew, picking }: {
+type NewHandler = (kind: DocumentKind, ext: string, stem: string) => void;
+
+/**
+ * "+" — one menu, five kinds, and "Open a file…".
+ *
+ * The old row was an input the buttons were disabled behind: five greyed-out kinds until you typed a
+ * name, in a panel that was also a directory browser. Picking a kind is the only decision that has to
+ * be made up front (it decides the template and the editor), so it is the only one this asks.
+ */
+function NewMenuButton({ onNew, onOpenExisting, variant = "icon" }: {
+  onNew: NewHandler; onOpenExisting: () => void; variant?: "icon" | "btn";
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const items: MenuItem[] = [
+    ...NEW_KINDS.map(({ kind, menu, stem, ext }) => ({
+      label: <><Icon name={iconForKind(kind)} size={14} />{menu}</>,
+      onSelect: () => onNew(kind, ext, stem),
+    })),
+    { kind: "separator" as const },
+    { label: <><Icon name="folder" size={14} />Open a file…</>, onSelect: onOpenExisting },
+  ];
+  return (
+    <>
+      <button ref={ref} type="button" aria-haspopup="menu" aria-expanded={open}
+        className={variant === "btn" ? "btn primary" : "icon-btn documents-new"}
+        // Two openers for one menu, so they must not share a name: the strip's "+" is always there,
+        // the empty state's is the page's one call to action.
+        aria-label={variant === "btn" ? undefined : "Add a document"}
+        title={variant === "btn" ? undefined : "Add a document"}
+        onClick={() => setOpen((v) => !v)}>
+        <Icon name="add" size={variant === "btn" ? 14 : 13} />
+        {variant === "btn" && "New document"}
+      </button>
+      {open && <Menu items={items} anchorRef={ref} onClose={() => setOpen(false)} label="Add a document" />}
+    </>
+  );
+}
+
+function TabStrip({ tabs, active, buffers, onSelect, onClose, onNew, onOpenExisting }: {
   tabs: string[]; active: string | null; buffers: Record<string, Buffer>;
-  onSelect: (p: string) => void; onClose: (p: string) => void; onNew: () => void; picking: boolean;
+  onSelect: (p: string) => void; onClose: (p: string) => void;
+  onNew: NewHandler; onOpenExisting: () => void;
 }) {
   return (
     <div className="documents-tabs" role="tablist" aria-label="Open documents">
@@ -256,7 +350,7 @@ function TabStrip({ tabs, active, buffers, onSelect, onClose, onNew, picking }: 
             data-active={path === active || undefined}>
             <button className="documents-tab-label" onClick={() => onSelect(path)} title={path}>
               <Icon name={iconFor(path)} size={12} />
-              <span>{baseName(path)}</span>
+              <span>{documentStem(path)}</span>
               {/* One dot for "not yet on disk", so the tab strip answers "is my work saved?" at a
                   glance. A conflicted tab is marked differently — it needs a decision, not a wait. */}
               {b?.conflict ? <span className="documents-dot conflict" aria-label="Needs attention" />
@@ -267,23 +361,92 @@ function TabStrip({ tabs, active, buffers, onSelect, onClose, onNew, picking }: 
           </div>
         );
       })}
-      <button className="icon-btn documents-new" aria-label="Open or create a document"
-        aria-expanded={picking} title="Open or create" onClick={onNew}><Icon name="add" size={13} /></button>
+      <NewMenuButton onNew={onNew} onOpenExisting={onOpenExisting} />
     </div>
   );
 }
 
-function iconFor(path: string): "artifact" | "documents" | "code" | "browser" {
-  const k = documentKindFor(path);
-  return k === "sheet" ? "code" : k === "html" ? "browser" : k === "unsupported" || k === "pdf" ? "artifact" : "documents";
+/**
+ * The document's own bar: its NAME, editable in place, plus the view toggle and whether it is saved.
+ *
+ * This replaces a toolbar that said "doc" and a status strip that repeated the full path and the kind
+ * a third time. What a person actually wants from a document's chrome is the name (and the ability to
+ * change it) and the answer to "is my work safe" — so that is what is here, and nothing else.
+ */
+function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onRename }: {
+  buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; onSetMode: (m: "rich" | "source") => void;
+  renaming: boolean; onRenaming: (v: boolean) => void; onRename: (stem: string) => void;
+}) {
+  const structured = structuredViewFor(kind);
+  const state = buffer.conflict ? "conflict" : buffer.missing ? "missing" : buffer.dirty ? "dirty" : "clean";
+  const stateLabel = { conflict: "Needs a decision", missing: "Deleted on disk", dirty: "Saving…", clean: "Saved" }[state];
+  return (
+    <div className="documents-head">
+      <Icon name={iconFor(buffer.path)} size={14} className="documents-head-glyph" />
+      {renaming
+        // Keyed by PATH. The field seeds its value once, on mount, and the active document can change
+        // underneath an open field — creating a second document does exactly that. Unkeyed, the field
+        // kept the previous document's name, and the next blur committed it onto the new one: a
+        // spreadsheet created straight after a document was silently renamed to the document's name.
+        ? <DocumentNameInput key={buffer.path} stem={documentStem(buffer.path)}
+            onCommit={(s) => { onRename(s); onRenaming(false); }}
+            onCancel={() => onRenaming(false)} />
+        : <button type="button" className="documents-name" title={`${buffer.path} — click to rename`}
+            onClick={() => onRenaming(true)}>{documentStem(buffer.path)}</button>}
+      <span className="documents-state t-xs muted" data-state={state} role="status">{stateLabel}</span>
+      {structured && structured !== "pdf" && (
+        <span className="documents-modes" role="group" aria-label="Editor mode">
+          <button type="button" aria-pressed={mode === "rich"} onClick={() => onSetMode("rich")}>{structuredLabel(structured)}</button>
+          <button type="button" aria-pressed={mode === "source"} onClick={() => onSetMode("source")}>Source</button>
+        </span>
+      )}
+    </div>
+  );
 }
+
+/** Commits on Enter or blur, abandons on Escape — the same contract as the sidebar's RenameInput,
+ *  which this cannot reuse because a document is a FILE, not an Item with a title column. */
+function DocumentNameInput({ stem, onCommit, onCancel }: { stem: string; onCommit: (s: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(stem);
+  return (
+    <input className="documents-name-input" aria-label="Document name" autoFocus value={value}
+      // Selected on focus, because a new document arrives here already called "Untitled document":
+      // the useful first keystroke replaces that, it does not append to it.
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => onCommit(value)}
+      // preventDefault marks Escape consumed so the global binding (interrupt) never sees it.
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { e.preventDefault(); onCommit(value); }
+        if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+      }} />
+  );
+}
+
+type DocIcon = "artifact" | "documents" | "table" | "browser" | "layout";
+
+function iconForKind(k: DocumentKind): DocIcon {
+  return k === "sheet" ? "table" : k === "html" ? "browser" : k === "slides" ? "layout"
+    : k === "unsupported" || k === "pdf" ? "artifact" : "documents";
+}
+const iconFor = (path: string): DocIcon => iconForKind(documentKindFor(path));
+
+/** Which kinds have a view other than their source, and what that view is. A PDF is the odd one: it
+ *  has no text to show, so it is preview-only and gets no toggle. */
+function structuredViewFor(kind: DocumentKind): "rich" | "grid" | "preview" | "pdf" | null {
+  return kind === "doc" || kind === "slides" ? "rich"
+    : kind === "sheet" ? "grid" : kind === "html" ? "preview" : kind === "pdf" ? "pdf" : null;
+}
+const structuredLabel = (v: "rich" | "grid" | "preview" | "pdf"): string =>
+  v === "grid" ? "Grid" : v === "preview" ? "Preview" : v === "pdf" ? "PDF" : "Rich";
 
 function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onTakeTheirs: () => void }) {
   return (
     <div className="documents-bar conflict" role="alert">
+      <Icon name="alert" size={13} />
       <span>This file changed on disk while you were editing.</span>
-      <button className="documents-bar-action" onClick={onKeepMine}>Keep mine</button>
-      <button className="documents-bar-action" onClick={onTakeTheirs}>Take theirs</button>
+      <button type="button" className="btn-quiet" onClick={onKeepMine}>Keep mine</button>
+      <button type="button" className="btn-quiet" onClick={onTakeTheirs}>Take theirs</button>
     </div>
   );
 }
@@ -292,27 +455,16 @@ function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onT
  * The editor host. W2 adds the rich Markdown editor for `doc` and `slides`; the source view remains for
  * every kind and is the only view for `sheet` and `latex` until W3 and W5 replace it.
  */
-function Editor({ buffer, kind, mode, documentsId, onChange, onSetMode }: {
+function Editor({ buffer, kind, mode, documentsId, onChange }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; documentsId: string;
-  onChange: (text: string) => void; onSetMode: (m: "rich" | "source") => void;
+  onChange: (text: string) => void;
 }) {
-  // Which kinds have a structured view, and what it is. "Rich"/"Grid"/"Preview" is the same toggle
-  // either way: every kind keeps Source as the always-available other half — except a PDF, which
-  // has no text to show and is preview-only (Plan 22).
-  const structured = kind === "doc" || kind === "slides" ? "rich" : kind === "sheet" ? "grid" : kind === "html" ? "preview" : kind === "pdf" ? "pdf" : null;
+  // The toggle itself lives in the head bar beside the name — the editor only has to know which view
+  // it is drawing. A PDF has no text, so it is preview-only regardless of the mode (Plan 22).
+  const structured = structuredViewFor(kind);
   const showStructured = structured !== null && (mode === "rich" || structured === "pdf");
-  const label = structured === "grid" ? "Grid" : structured === "preview" ? "Preview" : "Rich";
   return (
     <div className="documents-editor" data-kind={kind}>
-      <div className="documents-toolbar">
-        <span className="documents-kind muted">{kind}</span>
-        {structured && structured !== "pdf" && (
-          <span className="documents-modes" role="group" aria-label="Editor mode">
-            <button aria-pressed={mode === "rich"} onClick={() => onSetMode("rich")}>{label}</button>
-            <button aria-pressed={mode === "source"} onClick={() => onSetMode("source")}>Source</button>
-          </span>
-        )}
-      </div>
       <div className="documents-surface">
         {showStructured && (structured === "preview" || structured === "pdf") ? (
           // The frame reloads on the DISK hash: while the user edits the source, the preview keeps
@@ -336,32 +488,17 @@ function Editor({ buffer, kind, mode, documentsId, onChange, onSetMode }: {
   );
 }
 
-function StatusStrip({ buffer, kind }: { buffer: Buffer; kind: DocumentKind }) {
-  const state = buffer.conflict ? "Needs a decision"
-    : buffer.missing ? "Deleted on disk"
-    : buffer.dirty ? "Saving…"
-    : "Saved";
-  return (
-    <div className="documents-status">
-      <span className="muted">{buffer.path}</span>
-      <span className="documents-status-state" data-state={buffer.conflict ? "conflict" : buffer.dirty ? "dirty" : "clean"}>{state}</span>
-      <span className="muted">{kind}</span>
-    </div>
-  );
-}
-
-/** Open an existing file or start a new one. A flat directory browser, not a tree: the pane opens
- *  documents, it is not a file manager. */
-function FilePicker({ documentsId, onOpen, onCreate, onDismiss }: {
+/** Open an existing file. A flat directory browser, not a tree: the pane opens documents, it is not a
+ *  file manager. Creating one is no longer this panel's job — that moved to the "+" menu, which is
+ *  why the disabled-buttons-behind-a-name-field row is gone. */
+function FilePicker({ documentsId, onOpen, onDismiss }: {
   documentsId: string;
   onOpen: (path: string) => void;
-  onCreate: (path: string, kind: DocumentKind, title: string) => void;
   onDismiss: () => void;
 }) {
   const listDocumentEntries = useApp((s) => s.listDocumentEntries);
   const [dir, setDir] = useState("");
   const [entries, setEntries] = useState<DocumentEntry[]>([]);
-  const [name, setName] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -375,20 +512,8 @@ function FilePicker({ documentsId, onOpen, onCreate, onDismiss }: {
   return (
     <div className="documents-picker">
       <div className="documents-picker-head">
-        <span className="muted">{dir || "/"}</span>
-        <button className="icon-btn" aria-label="Close picker" onClick={onDismiss}><Icon name="close" size={12} /></button>
-      </div>
-
-      <div className="documents-picker-new">
-        <input value={name} placeholder="New document name…" aria-label="New document name"
-          onChange={(e) => setName(e.target.value)} />
-        {NEW_KINDS.map(({ kind, label, ext }) => (
-          <button key={kind} disabled={!name.trim()} onClick={() => {
-            const title = name.trim();
-            onCreate(dir ? `${dir}/${title}.${ext}` : `${title}.${ext}`, kind, title);
-            setName("");
-          }}>{label}</button>
-        ))}
+        <span className="t-xs muted">{dir || "/"}</span>
+        <button type="button" className="icon-btn" aria-label="Close picker" onClick={onDismiss}><Icon name="close" size={12} /></button>
       </div>
 
       <ul className="documents-picker-list">

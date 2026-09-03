@@ -104,6 +104,7 @@ export type Api = {
   writeDocument(documentsId: string, path: string, text: string, baseHash: string | null):
     Promise<{ ok: true; hash: string } | { ok: false; currentText: string; currentHash: string }>;
   createDocumentFile(documentsId: string, path: string, kind: DocumentKind, title: string): Promise<{ path: string; hash: string }>;
+  renameDocumentFile(documentsId: string, from: string, to: string): Promise<{ path: string }>;
   /** Plan 22 (school workflows): previews, guide progress, lectures, the Plynn handoff. */
   previewInfo(): Promise<{ port: number; token: string }>;
   openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string }>;
@@ -982,6 +983,7 @@ export type AppState = {
   writeDocument(documentsId: string, path: string, text: string, baseHash: string | null):
     Promise<{ ok: true; hash: string } | { ok: false; currentText: string; currentHash: string }>;
   createDocumentFile(documentsId: string, path: string, kind: DocumentKind, title: string): Promise<{ path: string; hash: string }>;
+  renameDocumentFile(documentsId: string, from: string, to: string): Promise<{ path: string }>;
   /** "Request review" (Plan 13 W3): spawn the read-only reviewer over this environment. Marks it
    *  `reviewing` until the verdict's `review.changed` lands; the reviewer's pane arrives via the
    *  server's `session.agentOpened`. */
@@ -2637,6 +2639,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       readDocument: (documentsId, path) => api.readDocument(documentsId, path),
       writeDocument: (documentsId, path, text, baseHash) => api.writeDocument(documentsId, path, text, baseHash),
       createDocumentFile: (documentsId, path, kind, title) => api.createDocumentFile(documentsId, path, kind, title),
+      renameDocumentFile: (documentsId, from, to) => api.renameDocumentFile(documentsId, from, to),
       async requestReview(environmentId) {
         if (get().reviewing[environmentId]) return; // the button is disabled too; the server refuses regardless
         set({ reviewing: { ...get().reviewing, [environmentId]: true } });

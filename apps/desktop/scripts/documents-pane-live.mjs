@@ -5,7 +5,8 @@
  * CDP endpoint open, drives the renderer over CDP, and proves the documents pane end to end:
  *
  *   1. onboarding → first space → palette → "Documents" opens the workspace pane (empty state)
- *   2. the picker creates a Markdown document; the RICH editor renders it (h1, not a textarea)
+ *   2. "+" → New document creates and OPENS one in a single pick, named afterwards in the head bar;
+ *      the RICH editor renders it (h1, not a textarea)
  *   3. editing in Source mode autosaves: the bytes land in the real file on disk
  *   4. an OUTSIDE edit to that file (the agent path) live-reloads a clean buffer, rich view included
  *   5. an outside edit under a DIRTY buffer raises the conflict bar; "Keep mine" wins the file
@@ -90,6 +91,15 @@ async function evalIn(c, expr) {
   return r.result.value;
 }
 
+/** "+" opens a real menu now, so every creation goes through it: click the opener, wait for the
+ *  portalled menu, pick the kind by its wording. */
+async function newDocument(c, menuLabel) {
+  await evalIn(c, `document.querySelector('.documents-new').click(); true`);
+  await until(() => evalIn(c, `!!document.querySelector('.menu [role="menuitem"]')`), 5000, `menu for ${menuLabel}`);
+  const picked = await evalIn(c, `__live.clickByText('.menu [role="menuitem"]', ${JSON.stringify(menuLabel)})`);
+  if (!picked) throw new Error(`no menu item labelled ${menuLabel}`);
+}
+
 const check = (name, cond, detail) => {
   results[name] = { pass: !!cond, ...(detail !== undefined ? { detail } : {}) };
   if (!cond) process.exitCode = 1;
@@ -161,19 +171,27 @@ async function main() {
   await evalIn(c, `__live.clickByText('.palette-opt .palette-label', 'Documents')`);
   await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 15000, "documents pane");
   check("palette opens the documents pane", true);
-  check("empty state offers the picker", await evalIn(c, `document.querySelector('.documents-pane').textContent.includes('No document open')`));
+  check("empty state offers a way in", await evalIn(c, `document.querySelector('.documents-pane').textContent.includes('Nothing open yet')`));
 
-  // 2. Create a Markdown document through the picker.
-  await evalIn(c, `document.querySelector('.documents-new').click(); true`);
-  await until(() => evalIn(c, `!!document.querySelector('.documents-picker-new input')`), 5000, "picker");
-  await evalIn(c, `(() => {
-    __live.setInput(document.querySelector('.documents-picker-new input'), "Live Report");
-    return __live.clickByText('.documents-picker-new button', 'Document'); })()`);
+  // 2. One pick makes a document. No name is asked for first — it arrives as "Untitled document",
+  // already open, with its name selected in the head bar.
+  await newDocument(c, "New document");
   await until(() => evalIn(c, `!!document.querySelector('[aria-label="Rich text editor"] h1')`), 15000, "rich editor");
-  check("new document opens in the RICH editor", true, {
+  check("one menu pick creates AND opens the document", true, {
     h1: await evalIn(c, `document.querySelector('[aria-label="Rich text editor"] h1')?.textContent`),
   });
-  check("its tab is in the strip", await evalIn(c, `[...document.querySelectorAll('.documents-tab-label span')].some((e) => e.textContent === 'Live Report.md')`));
+  check("it lands with its name selected, ready to be typed over", await evalIn(c,
+    `document.activeElement?.classList.contains('documents-name-input') && document.activeElement.value === 'Untitled document'`));
+  // Rename it in place — the half of the flow that used to happen before the file existed.
+  await evalIn(c, `(() => {
+    const el = document.querySelector('.documents-name-input');
+    __live.setInput(el, "Live Report");
+    __live.key(el, "Enter");
+    return true; })()`);
+  await until(() => evalIn(c, `[...document.querySelectorAll('.documents-tab-label span')].some((e) => e.textContent === 'Live Report')`), 10000, "renamed tab");
+  check("renaming in place moves the file and its tab", true, {
+    onDisk: !!findDoc("Live Report.md"), untitledGone: !findDoc("Untitled document.md"),
+  });
 
   // 3. Edit in Source mode; the autosaved bytes must land on the real disk.
   await evalIn(c, `__live.clickByText('.documents-modes button', 'Source')`);
@@ -186,8 +204,8 @@ async function main() {
     return p && fs.readFileSync(p, "utf8").includes("Typed in the live check") ? p : null;
   }, 10000, "autosave to disk");
   check("autosave reached the file on disk", true, { path: path.relative(scratch, onDisk) });
-  await until(() => evalIn(c, `document.querySelector('.documents-status-state')?.dataset.state === 'clean'`), 5000, "status clean");
-  check("status strip settles on Saved", true);
+  await until(() => evalIn(c, `document.querySelector('.documents-state')?.dataset.state === 'clean'`), 5000, "status clean");
+  check("the head bar settles on Saved", true);
 
   // 4. The agent path: an outside write to a CLEAN buffer live-reloads, rich view included.
   await evalIn(c, `__live.clickByText('.documents-modes button', 'Rich')`);
@@ -209,17 +227,13 @@ async function main() {
   check("conflicting outside edit raises the bar, not a clobber", true, {
     editorStillMine: await evalIn(c, `document.querySelector('.documents-source').value.startsWith('# Mine')`),
   });
-  await evalIn(c, `__live.clickByText('.documents-bar-action', 'Keep mine')`);
+  await evalIn(c, `__live.clickByText('.documents-bar .btn-quiet', 'Keep mine')`);
   await until(() => fs.readFileSync(onDisk, "utf8").startsWith("# Mine"), 10000, "keep mine wrote");
   check("Keep mine writes the user's text to disk", true);
   await until(() => evalIn(c, `!document.querySelector('.documents-bar.conflict')`), 5000, "bar cleared");
 
   // 6. A second document → two tabs.
-  await evalIn(c, `document.querySelector('.documents-new').click(); true`);
-  await until(() => evalIn(c, `!!document.querySelector('.documents-picker-new input')`), 5000, "picker 2");
-  await evalIn(c, `(() => {
-    __live.setInput(document.querySelector('.documents-picker-new input'), "Notes");
-    return __live.clickByText('.documents-picker-new button', 'Document'); })()`);
+  await newDocument(c, "New document");
   await until(() => evalIn(c, `document.querySelectorAll('.documents-tab').length === 2`), 10000, "two tabs");
   check("second document adds a tab", true, {
     tabs: await evalIn(c, `[...document.querySelectorAll('.documents-tab-label span')].map((e) => e.textContent)`),
@@ -227,18 +241,19 @@ async function main() {
 
   // 7. The sheet editor (W3): a real grid over a real CSV, formulas computed on screen but stored
   // as TEXT in the file — the property the whole format decision rests on.
-  await evalIn(c, `document.querySelector('.documents-new').click(); true`);
-  await until(() => evalIn(c, `!!document.querySelector('.documents-picker-new input')`), 5000, "picker 3");
-  await evalIn(c, `(() => {
-    __live.setInput(document.querySelector('.documents-picker-new input'), "Budget");
-    return __live.clickByText('.documents-picker-new button', 'Spreadsheet'); })()`);
+  await newDocument(c, "New spreadsheet");
   // The pane's mode toggle is per-pane and was left on Source above; the sheet's structured view is
   // behind the same toggle, labelled Grid.
   // Wait for the ACTIVE TAB to be the new sheet, not merely for a mode toolbar to exist — the
   // markdown tab's own Rich/Source toolbar matches `.documents-modes` and races the click.
-  await until(() => evalIn(c, `document.querySelector('.documents-tab[data-active] .documents-tab-label span')?.textContent === 'Budget.csv'`), 10000, "sheet tab active");
+  await until(() => evalIn(c, `document.querySelector('.documents-tab[data-active] .documents-tab-label span')?.textContent === 'Untitled spreadsheet'`), 10000, "sheet tab active");
+  // The name field is still open on the sheet, and it must be seeded from the SHEET, not from the
+  // document created before it — an unkeyed field kept the old value and the next blur renamed the
+  // new file to the old name. This is the assertion that caught that.
+  check("a second creation re-seeds the open name field", await evalIn(c,
+    `document.querySelector('.documents-name-input')?.value === 'Untitled spreadsheet'`));
   const clicked = await evalIn(c, `__live.clickByText('.documents-modes button', 'Grid')`);
-  console.log("grid click landed:", clicked, "kind:", await evalIn(c, `document.querySelector('.documents-kind')?.textContent`));
+  console.log("grid click landed:", clicked);
   for (let i = 0; i < 20; i++) {
     const st = await evalIn(c, `({ rows: document.querySelectorAll('.dsg-row').length, bar: !!document.querySelector('.sheet-formula-bar'), ph: document.querySelector('.documents-surface .pane-placeholder')?.textContent ?? null, src: !!document.querySelector('.documents-source') })`);
     if (st.rows >= 2 && st.bar) break;
@@ -268,7 +283,7 @@ async function main() {
       await until(() => evalIn(c, `!!document.querySelector('.sheet-cell-input')`), 5000, `edit ${r},${cCol}`);
     } catch (e) {
       console.log("edit diagnostics:", JSON.stringify(await evalIn(c, `({
-        at: document.elementFromPoint(${'${rect.x}'}, ${'${rect.y}'})?.className ?? null,
+        at: document.elementFromPoint(${rect.x}, ${rect.y})?.className ?? null,
         rows: document.querySelectorAll('.dsg-row').length,
         active: document.querySelector('.dsg-cell.dsg-active') ? true : false,
         focusedTag: document.activeElement?.tagName ?? null,
@@ -289,7 +304,7 @@ async function main() {
   check("formula computes on screen", true);
 
   const sheetOnDisk = await until(() => {
-    const p = findDoc("Budget.csv");
+    const p = findDoc("Untitled spreadsheet.csv");
     if (!p) return null;
     const t = fs.readFileSync(p, "utf8");
     return t.includes("=A1+A2") ? t : null;
@@ -316,8 +331,10 @@ main().catch(async (e) => {
     if (globalThis.__c) {
       const dump = await evalIn(globalThis.__c, `({
         tabs: [...document.querySelectorAll('.documents-tab-label span')].map((e) => e.textContent),
+        activeTab: document.querySelector('.documents-tab[data-active] .documents-tab-label span')?.textContent ?? null,
+        tabTitles: [...document.querySelectorAll('.documents-tab-label')].map((e) => e.title),
         modes: [...document.querySelectorAll('.documents-modes button')].map((e) => e.textContent + ':' + e.getAttribute('aria-pressed')),
-        kind: document.querySelector('.documents-kind')?.textContent ?? null,
+        name: document.querySelector('.documents-name, .documents-name-input')?.textContent ?? null,
         sheetEditor: !!document.querySelector('.sheet-editor'),
         formulaBar: !!document.querySelector('.sheet-formula-bar'),
         dsgRows: document.querySelectorAll('.dsg-row').length,
@@ -326,7 +343,9 @@ main().catch(async (e) => {
         surface: document.querySelector('.documents-surface')?.innerHTML?.slice(0, 400) ?? null,
         err: document.querySelector('.documents-error')?.textContent ?? null,
       })`);
-      console.error("PANE:", JSON.stringify(dump, null, 2).slice(0, 1200));
+      console.error("PANE:", JSON.stringify(dump, null, 2).slice(0, 1600));
+      const docsDir = path.join(scratch, "home", "personal", "live");
+      try { console.error("FILES:", fs.readdirSync(docsDir)); } catch (err) { console.error("FILES: unreadable", err.message); }
       console.error("CONSOLE:", globalThis.__c.events.slice(0, 8));
     }
   } catch (x) { console.error("dump failed", x.message); }

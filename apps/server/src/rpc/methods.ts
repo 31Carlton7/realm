@@ -441,6 +441,7 @@ export function registerMethods(d: Deps): void {
   reg("documents.read", (p) => d.documents.read(p.documentsId, p.path));
   reg("documents.write", (p) => d.documents.write(p.documentsId, p.path, p.text, p.baseHash));
   reg("documents.createFile", (p) => d.documents.createFile(p.documentsId, p.path, p.kind, p.title));
+  reg("documents.renameFile", (p) => d.documents.renameFile(p.documentsId, p.from, p.to));
   // Plan 22 — school workflows. Previews are a port+token the renderer builds frame URLs from;
   // openPath is the one "put this file on screen" call both the store and the docs_open tool use.
   reg("documents.previewInfo", () => d.documents.previewInfo());

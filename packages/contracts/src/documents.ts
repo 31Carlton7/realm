@@ -52,6 +52,46 @@ export function refineDocumentKind(kind: DocumentKind, text: string): DocumentKi
   return /^\s*marp\s*:\s*true\s*$/m.test(frontMatter) ? "slides" : kind;
 }
 
+/**
+ * The extension a rename has to preserve: `md`, `csv`, and — because `documentKindFor` reads them as
+ * one unit — `slides.md` and `deck.md` whole.
+ *
+ * Splitting on the last dot alone would turn `Q3.slides.md` into `Q3.slides` plus `md`, and renaming
+ * it would quietly demote a deck to a document. Everything else keeps the last-dot rule, so
+ * `Q3.review.md` renames its stem (`Q3.review`) and not just its first segment.
+ */
+export function documentExtension(path: string): string {
+  const name = path.split("/").pop() ?? path;
+  const compound = /\.((?:slides|deck)\.(?:md|markdown))$/i.exec(name);
+  if (compound) return compound[1]!.toLowerCase();
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1) : "";
+}
+
+/** The name without the extension `documentExtension` would keep — what a rename actually edits. */
+export function documentStem(path: string): string {
+  const name = path.split("/").pop() ?? path;
+  const ext = documentExtension(path);
+  return ext ? name.slice(0, name.length - ext.length - 1) : name;
+}
+
+/**
+ * The first free `<base>.<ext>`, `<base> 2.<ext>`, `<base> 3.<ext>` … given what is already there.
+ *
+ * This exists so a new document can be CREATED before it is named. Asking for a name up front makes
+ * the first thing a user does in a document app a form field for a file that does not exist yet, and
+ * it is the wrong question at the wrong time: the name is obvious afterwards and rarely obvious
+ * before. Realm hands out "Untitled document" and lets the name be edited in place, which needs this
+ * to answer "what is free" without a round trip per guess.
+ */
+export function freeFileName(base: string, ext: string, taken: Iterable<string>): string {
+  // Case-insensitively, because macOS filesystems are: "Untitled document.md" and "untitled
+  // document.md" are the same file, and offering the second as free would fail the create.
+  const used = new Set([...taken].map((n) => n.toLowerCase()));
+  const nth = (i: number) => `${i === 1 ? base : `${base} ${i}`}.${ext}`;
+  for (let i = 1; ; i++) if (!used.has(nth(i).toLowerCase())) return nth(i);
+}
+
 /** The starting content for each kind, used by `documents.createFile`. */
 export function documentTemplate(kind: DocumentKind, title: string): string {
   switch (kind) {

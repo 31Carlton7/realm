@@ -432,6 +432,18 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       (data.documentFiles[documentsId] ??= {})[path] = text;
       return { path, hash: `h:${text.length}:${text}` };
     },
+    renameDocumentFile: async (documentsId, from, to) => {
+      calls.push(`renameDocumentFile:${documentsId}:${from}:${to}`);
+      const files = (data.documentFiles[documentsId] ??= {});
+      if (to !== from && files[to] !== undefined) throw new Error(`${to} already exists`);
+      if (files[from] !== undefined) { files[to] = files[from]!; delete files[from]; }
+      const ws = data.documentWorkspaces[documentsId];
+      if (ws) {
+        ws.openPaths = ws.openPaths.map((p) => (p === from ? to : p));
+        if (ws.activePath === from) ws.activePath = to;
+      }
+      return { path: to };
+    },
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
     createProfile: async (name) => {
       calls.push(`createProfile:${name}`);
