@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import emojiData from "unicode-emoji-json/data-by-emoji.json";
 import { useApp } from "../state/store";
 import { SpaceIcon } from "./SpaceIcon";
+import { Spinner } from "./Spinner";
 import { useAnchoredPopover } from "./use-anchored-popover";
 
 type EmojiEntry = { name: string; slug: string; group: string; emoji_version: string; unicode_version: string; skin_tone_support: boolean };
@@ -146,7 +147,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
               generation in flight — for the reader and for the stylesheet, which must not grey the
               button out from under the press that started the work. */}
           <button type="button" className="btn primary" aria-busy={generating} disabled={!prompt.trim() || generating} onClick={submitGenerate}>
-            {generating ? <><Icon name="spinner" size={13} className="spin" /> Generating…</> : <><Icon name="sparkles" size={13} /> Generate</>}
+            {generating ? <><Spinner size={14} /> Generating…</> : <><Icon name="sparkles" size={13} /> Generate</>}
           </button>
           {genError && <p className="ip-error">{genError}</p>}
           <div className="ip-grid">

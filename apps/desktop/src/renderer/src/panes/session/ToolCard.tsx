@@ -1,8 +1,11 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
+import { Spinner } from "../../components/Spinner";
 import { clip, editStat, prettyJson, toolSummary } from "./tool-summary";
 import { formatDuration, formatToolRun, summarizeToolRun, type ToolBlock } from "./tool-group";
+import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
+import { DRAW_LIMIT, toolInputView, toolResultView } from "./rich/tool-view";
 
 type ToolState = "running" | "ok" | "error" | "none";
 
@@ -10,12 +13,19 @@ type ToolState = "running" | "ok" | "error" | "none";
 const COPIED_MS = 1400;
 
 /** Giant tool results are clamped to this many chars behind a "Show all" expander (A-M2) — an agent
- *  cat-ing a bundle must not wedge the transcript. Copy always takes the full text. */
-export const RESULT_CLAMP = 50 * 1024;
+ *  cat-ing a bundle must not wedge the transcript. Copy always takes the full text.
+ *  It is the same number `tool-view.ts` stops DRAWING a result at, and deliberately one constant:
+ *  two thresholds would leave a band where a result is neither drawn nor clamped. */
+export const RESULT_CLAMP = DRAW_LIMIT;
 
-/** One labelled recessed well (Input / Result / Error) with a copy button (A-M3) and, past the clamp,
- *  a "Show all (N KB)" expander. `label` doubles as the copy button's accessible object ("Copy result"). */
-function Well({ label, text, error = false }: { label: string; text: string; error?: boolean }) {
+/** One labelled section of the card body (Input / Result / Error): a copy button (A-M3) over either
+ *  a recessed well of raw text or, when `rich` is given, a DRAWN view of the same payload — a
+ *  diff, a plan, a terminal, a file preview (rich/ToolViews.tsx).
+ *
+ *  Copy always takes `text`, the raw payload, whichever is drawn. What a reader pastes into a shell
+ *  or a bug report has to be the thing the tool was actually handed, not a transcription of the
+ *  picture Realm drew of it. `label` doubles as the button's accessible object ("Copy result"). */
+function Well({ label, text, error = false, rich = null }: { label: string; text: string; error?: boolean; rich?: ReactNode }) {
   const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -39,8 +49,8 @@ function Well({ label, text, error = false }: { label: string; text: string; err
           <Icon name="check" size={12} className="copied-icon" />
         </button>
       </div>
-      <pre className="tool-well" data-error={error || undefined}>{clamped ? text.slice(0, RESULT_CLAMP) : text}</pre>
-      {clamped && (
+      {rich ?? <pre className="tool-well" data-error={error || undefined}>{clamped ? text.slice(0, RESULT_CLAMP) : text}</pre>}
+      {!rich && clamped && (
         <button className="tool-expand" onClick={() => setShowAll(true)}>
           Show all ({Math.ceil(text.length / 1024)} KB)
         </button>
@@ -61,19 +71,29 @@ export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolB
   const state: ToolState = block.result ? (block.result.isError ? "error" : "ok") : live ? "running" : "none";
   const summary = clip(toolSummary(block.name, block.input));
   const stat = editStat(block.name, block.input);
+  /* The drawn forms of this call's payloads, or null where the raw well is still the best showing
+     (rich/tool-view.ts). Computed only once the body has been built — a transcript of 300 collapsed
+     cards must not diff 300 payloads to render a row nobody opened. */
+  const inputView = everOpened.current ? toolInputView(block.name, block.input) : null;
+  const resultView = everOpened.current && block.result ? toolResultView(block.name, block.input, block.result.content, block.result.isError) : null;
   return (
     <div className="tool-card" data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
       <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={() => setOpen((o) => !o)}>
         <span className="tool-status" aria-label={state === "running" ? "running" : state === "ok" ? "done" : state === "error" ? "failed" : "no result"}>
-          {state === "running" && <Icon name="spinner" size={14} className="spin" />}
+          {/* 16, not the 14 the settled glyphs use: the orb fills the status slot, and 40 dots at
+              0.12–1 opacity carry far less weight than a 1.5px stroke, so it reads lighter even so. */}
+          {state === "running" && <Spinner size={16} />}
           {state === "ok" && <Icon name="check" size={14} />}
           {state === "error" && <Icon name="errorCircle" size={14} />}
         </span>
         <span className="tool-name">{block.name}</span>
         {summary && <span className="tool-summary" title={summary}>{summary}</span>}
         {stat && (
+          /* A zero side is dropped rather than printed: "−0" on a pure addition is a count of
+             nothing, and it reads as a deletion until the eye gets to the digit. */
           <span className="tool-stat">
-            <span className="tool-stat-add">+{stat.add}</span> <span className="tool-stat-del">−{stat.del}</span>
+            {stat.add > 0 && <span className="tool-stat-add">+{stat.add}</span>}
+            {stat.del > 0 && <span className="tool-stat-del">−{stat.del}</span>}
           </span>
         )}
         <Icon name="chevronRight" size={12} className="tool-chevron" />
@@ -86,8 +106,11 @@ export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolB
         <div className="tool-body-clip" inert={!open || undefined}>
           {everOpened.current && (
             <div className="tool-body">
-              <Well label="Input" text={prettyJson(block.input)} />
-              {block.result && <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError} />}
+              <Well label="Input" text={prettyJson(block.input)} rich={inputView && <ToolInputBody view={inputView} />} />
+              {block.result && (
+                <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError}
+                  rich={resultView && <ToolResultBody view={resultView} />} />
+              )}
             </div>
           )}
         </div>
@@ -126,12 +149,11 @@ export function ToolGroup({ steps, sessionStatus }: {
   const workedFor = useWorkedFor(working, steps[0]!.block.ts, summary.durationMs);
   return (
     <div className="tool-group" data-open={open || undefined} data-working={working || undefined}>
-      {/* Plan 9 W2: the row wears ThinkingState's header — sparkle glyph, and while the run is live
-          the label shimmers (BUI's working treatment); the label itself stays the kept Ara decision,
+      {/* Plan 9 W2: the row wears ThinkingState's header treatment — while the run is live the label
+          shimmers (BUI's working treatment); the label itself stays the kept Ara decision,
           `Worked for <duration>`, ticking live and freezing on settle. */}
       <button className="tool-group-row" aria-expanded={open} aria-label={`${steps.length} tool calls`}
         title={formatToolRun(summary)} onClick={() => setManual(!open)}>
-        <Icon name="sparkles" size={14} className="tool-group-glyph" />
         <span className="tool-group-summary">Worked for {workedFor}</span>
         <Icon name="chevronRight" size={12} className="tool-chevron" />
       </button>

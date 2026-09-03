@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 import type { PermissionDecision } from "../../state/store";
 import type { PendingPermission } from "./transcript-model";
 import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
+import { ToolInputBody } from "./rich/ToolViews";
+import { toolInputView } from "./rich/tool-view";
 
 /** §5's numbered-list pattern (`HJz3KMT`): the options are a list with kbd number chips, the
  *  selected row is an --rl-active pill, and the footer carries the navigation hints on the left and
@@ -25,6 +27,11 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
   permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
 }) {
   const summary = clip(toolSummary(permission.toolName, permission.input), 200);
+  /* Plan 24 W1: the thing being approved, drawn. An Edit's diff, the command about to run, the host
+     about to be fetched — shown OPEN, because "Allow" on a change nobody has seen is not consent.
+     The raw payload stays under the details below it: the drawing is what the reader decides on,
+     the JSON is what they check when the drawing surprises them. */
+  const preview = toolInputView(permission.toolName, permission.input);
   const [selected, setSelected] = useState(0);
   const rows = useRef<(HTMLButtonElement | null)[]>([]);
   useEffect(() => { if (autoFocus) rows.current[0]?.focus(); }, [autoFocus]);
@@ -67,7 +74,8 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
         <span className="status-pill" data-tone="warning">Waiting</span>
       </div>
       <div className="permission-tool"><Icon name={toolIcon(permission.toolName)} size={16} /><span className="tool-name">{permission.toolName}</span>{summary && <code>{summary}</code>}</div>
-      <details className="permission-details"><summary>Input</summary><pre>{prettyJson(permission.input)}</pre></details>
+      {preview && <div className="permission-preview"><ToolInputBody view={preview} /></div>}
+      <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre>{prettyJson(permission.input)}</pre></details>
       <div className="permission-options">
         {OPTIONS.map((o, i) => (
           <button key={o.decision} ref={(el) => { rows.current[i] = el; }} className="permission-option"

@@ -113,6 +113,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">Working…</span></div>}
         </div>
       </div>
+      {/* The transcript dissolves into the prompter instead of being clipped by it — a sibling of the
+          scroller (not a child) so its backdrop-filter still sees the text scrolling underneath. */}
+      <div className="transcript-fade" aria-hidden="true" />
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={13} /> New messages</button>}
     </div>
   );

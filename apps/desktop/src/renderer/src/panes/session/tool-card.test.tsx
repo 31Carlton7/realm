@@ -122,17 +122,26 @@ describe("tool-run summary line", () => {
 });
 
 describe("editStat (Plan 9 W2: ThinkingState's measured +/− counts)", () => {
-  it("counts an Edit's lines from both sides of its own payload", () => {
-    expect(editStat("Edit", { file_path: "/a", old_string: "one", new_string: "one\ntwo" })).toEqual({ add: 2, del: 1 });
+  /* Plan 24 W1 moved these onto the same diff the card below the row now draws (`fileDiffsFor`), so
+     the two can never disagree — and so the counts mean what a diff means. The old arithmetic
+     counted every line of an Edit's two fragments, calling a one-line change inside twenty lines of
+     unchanged context "+20 −20". */
+  it("counts an Edit's CHANGED lines — context on both sides is not a change", () => {
+    expect(editStat("Edit", { file_path: "/a", old_string: "one", new_string: "one\ntwo" })).toEqual({ add: 1, del: 0 });
     expect(editStat("Edit", { file_path: "/a", old_string: "", new_string: "x" })).toEqual({ add: 1, del: 0 });
+    expect(editStat("Edit", { file_path: "/a", old_string: "a\nb", new_string: "a\nB" })).toEqual({ add: 1, del: 1 });
   });
 
   it("sums a MultiEdit's edits and counts a Write's content as pure adds", () => {
     expect(editStat("MultiEdit", { edits: [
       { old_string: "a", new_string: "a\nb" },
       { old_string: "c\nd", new_string: "e" },
-    ] })).toEqual({ add: 3, del: 3 });
+    ] })).toEqual({ add: 2, del: 2 });
     expect(editStat("Write", { file_path: "/a", content: "l1\nl2\nl3" })).toEqual({ add: 3, del: 0 });
+  });
+
+  it("counts an apply_patch off the patch it was handed", () => {
+    expect(editStat("apply_patch", { changes: [{ path: "/a", diff: "--- a/a\n+++ b/a\n@@ -1,2 +1,2 @@\n-old\n+new\n ctx" }] })).toEqual({ add: 1, del: 1 });
   });
 
   it("refuses to invent counts where the payload does not carry both sides", () => {
@@ -141,15 +150,17 @@ describe("editStat (Plan 9 W2: ThinkingState's measured +/− counts)", () => {
     expect(editStat("Bash", { command: "ls" })).toBeNull();
     expect(editStat("MultiEdit", { edits: "nope" })).toBeNull();
     expect(editStat("apply_patch", { changes: [{ path: "/a" }] })).toBeNull();
+    // An Edit that changes nothing has nothing to count, and "+0 −0" on the row says otherwise.
+    expect(editStat("Edit", { file_path: "/a", old_string: "same", new_string: "same" })).toBeNull();
   });
 
-  it("renders the counts on the row — green adds, red deletes", () => {
+  it("renders the counts on the row — green adds, red deletes, and no zero side", () => {
     render(<ToolCard sessionStatus="idle" block={
       { kind: "tool", toolUseId: "t1", name: "Edit", input: { file_path: "/a.ts", old_string: "x", new_string: "x\ny\nz" }, result: { content: "ok", isError: false }, ts: 0 }
     } />);
     const stat = document.querySelector(".tool-stat")!;
-    expect(stat.querySelector(".tool-stat-add")).toHaveTextContent("+3");
-    expect(stat.querySelector(".tool-stat-del")).toHaveTextContent("−1");
+    expect(stat.querySelector(".tool-stat-add")).toHaveTextContent("+2");
+    expect(stat.querySelector(".tool-stat-del")).toBeNull();
   });
 });
 

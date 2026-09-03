@@ -1,4 +1,5 @@
 import type { IconName } from "@realm/ui";
+import { fileDiffsFor } from "./rich/diff";
 
 /** One-line summary of a tool call's input, per well-known tool; else the first string field. */
 export function toolSummary(name: string, input: Record<string, unknown>): string {
@@ -33,40 +34,24 @@ export function toolIcon(name: string): IconName {
   }
 }
 
-/** Lines in a string the way a diff counts them: 0 for empty, newlines + 1 otherwise. */
-const lineCount = (s: string): number => (s === "" ? 0 : s.split("\n").length);
-
 export type EditStat = { add: number; del: number };
 
 /** Measured add/del line counts for a file-editing tool (Plan 9 W2: ThinkingState's `+74 −41`).
- *  Derived from the edit's own payload — the input actually carries both sides of the change, so
- *  the counts are counted, never estimated. Tools whose input does not carry both sides (Read,
- *  Bash, apply_patch envelopes) get null: no counts is honest, invented counts are not. */
+ *
+ *  Derived from the SAME diff the card below the row draws (`fileDiffsFor`), so the two can never
+ *  disagree — and so the counts mean what a diff means. Counting every line of an Edit's two
+ *  fragments, which is what this did before there was a diff to ask, called a one-line change
+ *  inside twenty lines of context "+20 −20".
+ *
+ *  Null where the payload does not support a diff at all (Read, Bash, a permission preview carrying
+ *  no strings, an `apply_patch` envelope with no patch body): no counts is honest, invented counts
+ *  are not. */
 export function editStat(name: string, input: Record<string, unknown>): EditStat | null {
-  const str = (o: Record<string, unknown>, k: string) => (typeof o[k] === "string" ? (o[k] as string) : null);
-  switch (name) {
-    case "Edit": {
-      const oldS = str(input, "old_string"), newS = str(input, "new_string");
-      return oldS === null || newS === null ? null : { add: lineCount(newS), del: lineCount(oldS) };
-    }
-    case "MultiEdit": {
-      const edits = input["edits"];
-      if (!Array.isArray(edits)) return null;
-      let add = 0, del = 0, counted = false;
-      for (const e of edits) {
-        if (!e || typeof e !== "object") continue;
-        const oldS = str(e as Record<string, unknown>, "old_string"), newS = str(e as Record<string, unknown>, "new_string");
-        if (oldS === null || newS === null) continue;
-        add += lineCount(newS); del += lineCount(oldS); counted = true;
-      }
-      return counted ? { add, del } : null;
-    }
-    case "Write": {
-      const content = str(input, "content");
-      return content === null ? null : { add: lineCount(content), del: 0 };
-    }
-    default: return null;
-  }
+  const files = fileDiffsFor(name, input);
+  if (!files) return null;
+  let add = 0, del = 0;
+  for (const f of files) for (const h of f.hunks) for (const l of h.lines) { if (l.kind === "add") add++; else if (l.kind === "del") del++; }
+  return add === 0 && del === 0 ? null : { add, del };
 }
 
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
