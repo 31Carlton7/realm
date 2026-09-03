@@ -8,7 +8,7 @@ export type ItemMenuState = { item: Item; x: number; y: number } | null;
 /** Right-click menu shared by pinned tiles and list rows: Pin/Unpin, Archive/Unarchive (sessions only),
  *  Rename (inline, via `onRename`),
  *  Focus/Unfocus (fill the space with this pane, offered only while it is open), Move to group… (when
- *  the space has more than one), Move to space… (sessions only, only while unstarted), Close
+ *  the space has more than one), Move to space… (sessions only), Close
  *  (layout-only, offered only while the item is open), Delete (destructive, always offered). */
 export function useItemContextMenu(onRename: (item: Item) => void) {
   const [menu, setMenu] = useState<ItemMenuState>(null);
@@ -42,9 +42,10 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
   // A session's own checkpoints (W4), scoped to the session rather than to the whole checkout: the
   // diff pane's History shows every turn in the environment, this shows the ones this session took.
   const session = menu?.item.kind === "session" ? sessions[menu.item.refId] : undefined;
-  // The client-observable proxy for the server's `events.hasAny(id)` guard (same convention
-  // SessionPane's `canSwitchAgent` uses): a UX nicety only, the server's own check is authoritative.
-  const canMove = session !== undefined && session.lastEventSeq === 0;
+  // A session that has already run moves too: the server carries its checkout across, so the cwd its
+  // transcript describes is unchanged. What the client can see of that — `lastEventSeq` — only decides
+  // the WORDING, not whether the entry is offered.
+  const hasRun = session !== undefined && session.lastEventSeq > 0;
   const destinations = spaces.filter((sp) => sp.id !== (session?.spaceId ?? activeSpaceId));
   // Which group holds this pane, and — if it is the one on screen — whether it is the focused pane.
   // Focus is an ACTIVE-group state: focusing a pane in a group you are not looking at would silently
@@ -87,7 +88,12 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
               ? [{ label: "Move to group…", keepOpen: true, onSelect: () => setMovingToGroup(true) }]
               : []),
             ...(session ? [{ label: "Checkpoints…", onSelect: () => run(() => openCheckpoints(session.environmentId, session.id)) }] : []),
-            ...(canMove ? [{ label: "Move to space…", keepOpen: true, onSelect: () => setMovingToSpace(true) }] : []),
+            ...(session
+              ? [{ label: "Move to space…", keepOpen: true,
+                   title: hasRun ? "Takes its checkout along, so the transcript still names the tree it ran in"
+                                 : "Rewires it to the destination's checkout, like a session created there",
+                   onSelect: () => setMovingToSpace(true) }]
+              : []),
             { kind: "separator" as const },
             ...(holder
               ? [{ label: "Close", onSelect: () => run(() => closeFromLayout(menu.item.id)) }]

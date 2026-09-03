@@ -417,15 +417,55 @@ describe("SessionService over rpc", () => {
       c.close();
     });
 
-    it("refuses once the session has ANY event — same authority as setAgent/setEnvironment, nothing moves", async () => {
+    it("a session that has RUN moves too, and carries its checkout: same cwd, on a NEW row in the destination", async () => {
       const { c, sp, other } = await twoSpaces();
       const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
       await c.call("sessions.send", { id: session.id, text: "go" });
       await waitFor(() => c.eventTypes(session.id).includes("usage"));
       const r = await c.call("sessions.moveToSpace", { id: session.id, spaceId: other.id });
-      expect(r.ok).toBe(false);
-      expect(r.error.code).toBe("SESSION_STARTED");
-      expect((await c.call("sessions.get", { id: session.id })).result.spaceId).toBe(sp.id);
+      expect(r.ok).toBe(true);
+      expect(r.result.spaceId).toBe(other.id);
+      // The point of the whole exercise: the transcript still names the tree it ran in.
+      expect(r.result.cwd).toBe(session.cwd);
+      expect(r.result.cwd).not.toBe(other.folderPath);
+      // A DIFFERENT row from the origin's, in the destination's space, at the same path.
+      expect(r.result.environmentId).not.toBe(session.environmentId);
+      const envs = (await c.call("environments.list", { spaceId: other.id })).result;
+      const adopted = envs.find((e: Any) => e.id === r.result.environmentId);
+      expect(adopted.path).toBe(session.cwd);
+      // …and it is not a second primary — that index is a per-space singleton naming the space's folder.
+      expect(adopted.kind).toBe("checkout");
+      c.close();
+    });
+
+    it("carrying a checkout REUSES the destination's existing row for that path rather than duplicating it", async () => {
+      const { c, sp, other } = await twoSpaces();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      await c.call("sessions.send", { id: session.id, text: "go" });
+      await waitFor(() => c.eventTypes(session.id).includes("usage"));
+      // The destination already knows this checkout (a linked checkout, or an earlier move back).
+      app.db.prepare("INSERT INTO environments (id, space_id, path, branch, kind, port_block_start, created_at, updated_at) VALUES (?, ?, ?, NULL, 'checkout', NULL, 1, 1)")
+        .run("01ARZ3NDEKTSV4RRFFQ69G5FAW", other.id, session.cwd);
+      const r = await c.call("sessions.moveToSpace", { id: session.id, spaceId: other.id });
+      expect(r.result.environmentId).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAW");
+      expect((await c.call("environments.list", { spaceId: other.id })).result.filter((e: Any) => e.path === session.cwd)).toHaveLength(1);
+      c.close();
+    });
+
+    it("a started session KEEPS its terminal — the pty's cwd came along, so row and item move with it", async () => {
+      const { c, sp, other } = await twoSpaces();
+      const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+      await c.call("sessions.send", { id: session.id, text: "go" });
+      await waitFor(() => c.eventTypes(session.id).includes("usage"));
+      const { terminalId } = (await c.call("sessions.openTerminal", { id: session.id })).result;
+      const r = await c.call("sessions.moveToSpace", { id: session.id, spaceId: other.id });
+      expect(app.terminals.has(terminalId)).toBe(true);
+      expect(r.result.terminalItemId).not.toBeNull();
+      // Ownership, not just bookkeeping: `closeAllInSpace` reaches terminals by their row's space, so
+      // a row left behind would have this pty killed with a space the session no longer lives in.
+      await c.call("spaces.delete", { id: sp.id });
+      expect(app.terminals.has(terminalId)).toBe(true);
+      expect((await c.call("sessions.get", { id: session.id })).result.terminalItemId).not.toBeNull();
       c.close();
     });
 

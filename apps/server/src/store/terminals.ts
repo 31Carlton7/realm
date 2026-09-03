@@ -22,6 +22,13 @@ export class TerminalsStore {
   listBySpace(spaceId: string): TerminalRow[] {
     return (this.db.prepare("SELECT * FROM terminals WHERE space_id = ? ORDER BY created_at").all(spaceId) as Row[]).map(toRow);
   }
+  /** Re-home the row in another space, for a session terminal riding along with `sessions.moveToSpace`.
+   *  The pty is untouched — only the row's space changes, and the cwd it was spawned at is the same
+   *  checkout the session carried across. Ownership matters beyond bookkeeping: `closeAllInSpace`
+   *  reaches terminals through `listBySpace`, so a row left behind would be killed with the old space. */
+  moveToSpace(id: string, spaceId: string): void {
+    this.db.prepare("UPDATE terminals SET space_id = ?, updated_at = ? WHERE id = ?").run(spaceId, now(), id);
+  }
   /** Idempotent: a row may already be gone (e.g. removed on pty exit). */
   delete(id: string): void {
     this.db.prepare("DELETE FROM terminals WHERE id = ?").run(id);

@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -315,33 +315,44 @@ export class SessionService {
   }
 
   /**
-   * Move a session that has not started yet into another space (the sidebar's "Move to space…").
-   * Same authority and same guard as `setAgent`/`setEnvironment`, for the same reason: one persisted
-   * event ties the transcript to the checkout it ran in, and that checkout's disk path is meaningless
-   * once the session claims to live in a different space. Always lands on the destination's PRIMARY
-   * environment — the same fallback `resolveEnvironment` gives a plain `create` with no environment
-   * named — so a moved session ends up wired identically to one created fresh there. `projectId` is
-   * always cleared: projects are space-scoped rows, and the old one names nothing in the destination.
-   * A started session, worktree relocation, and checkpoint carry-over are all out of scope here; this
-   * is deliberately the cheap case only.
+   * Move a session into another space (the sidebar's "Move to space…"). Unlike `setAgent`/`setEnvironment`
+   * there is no started-guard, because the thing those guards protect is preserved here rather than
+   * broken: a transcript is tied to the CHECKOUT it ran in, so a session that has run takes that
+   * checkout with it (`carryEnvironment`) and its cwd never changes. Only the space does.
+   *
+   * The two cases differ in exactly one way, and the difference is the point:
+   *  - **Never run** — nothing ties it to a checkout, so it lands on the destination's PRIMARY
+   *    environment, wired identically to a session created fresh there (the same fallback a plain
+   *    `create` with no environment named gets).
+   *  - **Has run** — the destination adopts a row for the SAME path, so cwd, turn checkpoints, and
+   *    the terminal panel all still name the tree the transcript describes.
+   *
+   * `projectId` is always cleared either way: projects are space-scoped rows, and the old one names
+   * nothing in the destination.
    */
   moveToSpace(id: string, spaceId: string): Session {
     const s = this.get(id);
     if (s.spaceId === spaceId) return s;
-    if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; it can no longer move to another space");
     if (!this.d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
-    const env = this.d.environments.ensurePrimary(spaceId);
+    const env = this.d.events.hasAny(id)
+      ? this.carryEnvironment(spaceId, s.environmentId)
+      : this.d.environments.ensurePrimary(spaceId);
     // The session's terminal panel, if it was ever opened (openTerminal has no started-guard, so an
-    // unstarted session can still have a live pty): its cwd was rooted in the OLD environment, so it
-    // is torn down rather than left pointing at a tree the session no longer runs in.
+    // unstarted session can have a live pty too). Its pty was spawned AT a cwd, so it survives the
+    // move exactly when that cwd does — otherwise it is torn down rather than left pointing at a tree
+    // the session no longer runs in.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
-    if (term) this.closeTerminalItem(term.refId);
+    const keepTerminal = term !== null && env.path === s.cwd;
+    if (term && !keepTerminal) this.closeTerminalItem(term.refId);
     this.d.db.exec("BEGIN");
     let updated: Session;
     try {
       updated = this.d.sessions.moveToSpace(id, spaceId, env.id, null);
       const item = this.d.items.findByRefId(id);
       if (item) this.d.items.moveToSpace(item.id, spaceId);
+      // The hidden terminal item and its row follow the session, or the destination would own a
+      // session whose terminal the ORIGIN space's deletion would kill.
+      if (term && keepTerminal) { this.d.items.moveToSpace(term.id, spaceId); this.d.terminals.moveToSpace(term.refId, spaceId); }
       this.d.db.exec("COMMIT");
     } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
     // The origin space drops the item and the destination picks it up, the same two-broadcast shape
@@ -349,6 +360,29 @@ export class SessionService {
     this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
     this.d.rpc.broadcast("items.changed", { spaceId });
     return updated;
+  }
+
+  /**
+   * The destination space's environment row for a checkout a moving session has already run in.
+   * Environments are space-scoped (`environments_space_path` is UNIQUE per space, not globally), so
+   * "the same checkout in another space" means a second row at the same path — which is legal, and is
+   * what keeps the session's cwd stable across the move.
+   *
+   * The origin's row is deliberately left standing, per the store's stated lifecycle policy: nothing
+   * removes an environment implicitly, and other sessions may still point at it. One consequence worth
+   * naming: the port block does NOT travel (`environments_port_block` is UNIQUE, and the origin row
+   * keeps its own), so the adopted row allocates a fresh block on the session's next send.
+   */
+  private carryEnvironment(spaceId: string, environmentId: string): Environment {
+    const src = this.d.environments.get(environmentId);
+    if (!src) return this.d.environments.ensurePrimary(spaceId); // row vanished underneath us; wire it like a fresh session
+    const existing = this.d.environments.findByPath(spaceId, src.path);
+    if (existing) return existing;
+    // `primary` is a per-space singleton (`environments_one_primary`) that NAMES the space's own
+    // folder, so a carried-over primary can only land as a plain `checkout` in the destination.
+    return this.d.environments.create({
+      spaceId, path: src.path, kind: src.kind === "primary" ? "checkout" : src.kind, branch: src.branch,
+    });
   }
 
   /**

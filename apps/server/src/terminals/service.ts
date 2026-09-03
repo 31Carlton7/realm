@@ -108,6 +108,13 @@ export class TerminalService {
     }
   }
 
+  /** Re-home the row when a session terminal rides along with `sessions.moveToSpace`. Row only: the
+   *  pty stays exactly as it is, because the session carried its checkout across and the cwd the
+   *  shell was spawned at is unchanged. The item half is moved by the caller, inside its transaction. */
+  moveToSpace(terminalId: string, spaceId: string): void {
+    this.d.terminals.moveToSpace(terminalId, spaceId);
+  }
+
   /** Close every terminal whose row or item belongs to the space (used before space deletion). */
   closeAllInSpace(spaceId: string): void {
     const ids = new Set<string>();
