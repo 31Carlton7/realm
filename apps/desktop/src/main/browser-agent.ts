@@ -1,10 +1,11 @@
 /**
  * The browser agent's CDP logic (Plan 11 W3), Electron-free and pure over a `CdpSend` function so the
- * mutants that must die here — occlusion dropped, password value leaked, stale-coordinate acts — die
- * in unit tests against fake CDP payloads, not only in live runs. Executed in Electron MAIN (the
- * process that owns `webContents.debugger`); realm-server reaches it over the browserHost bridge.
+ * mutants that must die here — occlusion dropped, password value leaked, stale-coordinate acts,
+ * a credential filled on the wrong origin — die in unit tests against fake CDP payloads, not only in
+ * live runs. Executed in Electron MAIN (the process that owns `webContents.debugger`); realm-server
+ * reaches it over the browserHost bridge.
  */
-import type { BrowserAction, BrowserActResult, BrowserSnapshotResult } from "@realm/contracts";
+import { normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserRefusal, type BrowserSnapshotResult } from "@realm/contracts";
 
 export type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -401,11 +402,7 @@ export async function performAct(send: CdpSend, action: BrowserAction): Promise<
         if ((action.method ?? "keys") === "insertText") {
           await send("Input.insertText", { text: action.text });
         } else {
-          for (const ch of action.text) {
-            if (ch === "\n") { await pressNamedKey(send, "Enter"); continue; }
-            await send("Input.dispatchKeyEvent", { type: "keyDown", text: ch, unmodifiedText: ch, key: ch });
-            await send("Input.dispatchKeyEvent", { type: "keyUp", key: ch });
-          }
+          await typeCharacters(send, action.text);
         }
         if (action.submit) await pressNamedKey(send, "Enter");
         return { ok: true, detail: `typed ${action.text.length} character(s) into ref=${action.ref}${action.submit ? " and pressed Enter" : ""}` };
@@ -429,6 +426,118 @@ export async function performAct(send: CdpSend, action: BrowserAction): Promise<
     }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * What the fill executor is handed instead of a password.
+ *
+ * `reveal` is inversion of control used as a security boundary: the store runs the OS presence check,
+ * unseals, and calls `type` with the plaintext. There is no path by which the value becomes a return
+ * value, a local `const` in this file, or a field on anything this module can serialize — the only
+ * thing this file ever sees is the `type` closure it wrote itself.
+ */
+export type CredentialFill = {
+  /** Metadata only. `origin` is the enrolled origin the live page must EXACTLY equal. */
+  credential: { id: string; origin: string };
+  reveal(type: (value: string) => Promise<void>): Promise<{ ok: true } | { ok: false; refused: BrowserRefusal }>;
+};
+
+/**
+ * `fill_credential` — the ONLY route by which a real secret reaches a page, and the only thing that
+ * may type into a password field. It is not a relaxation of `performAct`'s password block: that block
+ * is unconditional and stays unconditional, because it governs a `type` action carrying agent-authored
+ * text. This op carries no text at all.
+ *
+ * The order of the three gates is load-bearing:
+ *
+ *   1. **Origin, from CDP, before anything else.** `Page.getNavigationHistory`'s current entry is the
+ *      browser's own record of what it loaded — the same class of trustworthy identity
+ *      `browser_describe` reports, and specifically NOT page text, a snapshot, a title, or anything a
+ *      page can author. It must normalize to exactly the enrolled origin: no subdomain match, no
+ *      registrable-domain fallback (see `normalizeOrigin`). A lookalike host gets `origin_mismatch`.
+ *   2. **Presence, only after the origin matched.** Deliberately second. Prompting for Touch ID on a
+ *      phishing page and then refusing would teach the user that the fingerprint prompt is noise to
+ *      swat away; by the time a prompt appears, Realm has already established the page is the right
+ *      one and the only question left is whether the human is there.
+ *   3. **Type, into the ref, character by character** — the same key events `performAct`'s `type`
+ *      dispatches, because a password field behind React ignores value writes.
+ *
+ * FAIL CLOSED everywhere: an unreadable navigation history, a ref that will not focus, or a thrown
+ * CDP call all refuse. No branch here falls through to typing.
+ *
+ * The success `detail` names the origin and nothing else. Not the username, not the field, and above
+ * all not a character count — "filled 14 characters" is a fact about a password, and this string goes
+ * into a tool result, which goes into the model's context.
+ */
+export async function performFillCredential(send: CdpSend, ref: number, fill: CredentialFill): Promise<BrowserActResult> {
+  const { credential } = fill;
+  let pageOrigin: string | null;
+  try {
+    pageOrigin = await currentOrigin(send);
+  } catch {
+    pageOrigin = null;
+  }
+  if (pageOrigin === null) {
+    return { ok: false, refused: "origin_mismatch", error: "could not establish the page's current origin from the browser, so nothing was filled" };
+  }
+  if (pageOrigin !== credential.origin) {
+    // Both origins are named because both are Realm's own normalized strings — neither is page-authored
+    // text, and the user (who sees this through the tool error) needs to know which page they are on.
+    return { ok: false, refused: "origin_mismatch", error: `this pane is on ${pageOrigin}, but that saved sign-in is for ${credential.origin} — nothing was filled` };
+  }
+
+  // Focus BEFORE presence: a ref that is already gone should fail as a stale ref, not burn a Touch ID
+  // prompt on an act that cannot land.
+  if (!(await focusRef(send, ref))) {
+    return { ok: false, error: `could not focus ref=${ref} — it may be gone; take a fresh browser_snapshot` };
+  }
+
+  try {
+    const outcome = await fill.reveal(async (value) => { await typeCharacters(send, value); });
+    if (!outcome.ok) {
+      return { ok: false, refused: outcome.refused, error: REVEAL_REFUSALS[outcome.refused] ?? "the saved sign-in was not available" };
+    }
+  } catch {
+    // The catch is bare ON PURPOSE. A CDP failure mid-typing can carry the characters it was
+    // dispatching in its message, and that message would otherwise reach a tool result. Nothing about
+    // the caught error is inspected, formatted, or forwarded.
+    return { ok: false, error: "the saved sign-in could not be typed into that field" };
+  }
+  return { ok: true, detail: `filled saved credential for ${credential.origin}` };
+}
+
+/** Refusal wording for the reasons the STORE decides (this module never learns more than the code). */
+const REVEAL_REFUSALS: Partial<Record<BrowserRefusal, string>> = {
+  no_credential: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins",
+  no_presence: "the Touch ID / login check was cancelled or failed, so nothing was filled",
+};
+
+/**
+ * The page's origin according to the BROWSER, not the page. `Page.getNavigationHistory` reports what
+ * the navigation stack actually committed; a page can change what it *renders*, and with the History
+ * API it can change the path, but it cannot make this report an origin it is not served from.
+ *
+ * Returns null (→ refusal) for a history CDP will not give up, an out-of-range current index, and any
+ * URL without a real http(s) origin (`about:blank`, `data:` — see `normalizeOrigin`).
+ */
+async function currentOrigin(send: CdpSend): Promise<string | null> {
+  const history = (await send("Page.getNavigationHistory")) as { currentIndex?: number; entries?: { url?: string }[] } | null;
+  const entries = history?.entries;
+  const index = history?.currentIndex;
+  if (!Array.isArray(entries) || typeof index !== "number") return null;
+  const url = entries[index]?.url;
+  return typeof url === "string" ? normalizeOrigin(url) : null;
+}
+
+/** Per-character key events — what React-style inputs need, and what a password field needs most of
+ *  all. Shared by `type` and by the credential fill so there is ONE typist: a fill that took a
+ *  different path could drift into `Input.insertText`, which some login forms ignore entirely. */
+async function typeCharacters(send: CdpSend, text: string): Promise<void> {
+  for (const ch of text) {
+    if (ch === "\n") { await pressNamedKey(send, "Enter"); continue; }
+    await send("Input.dispatchKeyEvent", { type: "keyDown", text: ch, unmodifiedText: ch, key: ch });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: ch });
   }
 }
 

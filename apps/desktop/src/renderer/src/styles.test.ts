@@ -136,11 +136,11 @@ describe("§6 motion table", () => {
 });
 
 describe("Ara refresh §3/§4 geometry", () => {
-  it("the user message is Ara's signature: raised card, window radius (BUI 14), 14px 16px padding, 85% wide, ragged-left", () => {
+  it("the user message is Ara's signature: raised card, window radius (BUI 14), 14px 16px padding, 85% wide, left-aligned text", () => {
     // Plan 9 W1 re-pin: the literal 14px became var(--r-float), which the bridge pins to BUI's
     // --radius-window (14px) — same geometry, now on the token scale.
     const body = bodiesFor(".msg-user").join(" ");
-    for (const decl of ["text-align: right", "max-width: 85%", "border-radius: var(--r-float)", "padding: 14px 16px", "background: var(--rl-raised)"])
+    for (const decl of ["text-align: left", "max-width: 85%", "border-radius: var(--r-float)", "padding: 14px 16px", "background: var(--rl-raised)"])
       expect(body, decl).toContain(decl);
   });
 
@@ -192,6 +192,25 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor(".composer-input::placeholder").join(" ")).toContain("-webkit-text-fill-color: var(--rl-text-faint)");
     // A classic scrollbar would take width from the textarea's text box and not from the mirror's.
     expect(input).toContain("scrollbar-width: none");
+  });
+
+  /* The suggested prompt stands in for the placeholder, so it inherits the placeholder's constraint:
+     it occupies the same text box, in a box that is exactly one row tall while it shows. A wrap here
+     would push the sentence past the empty prompter's height and be clipped mid-line. */
+  it("the prompt hint sits in the input's own text box, on one line", () => {
+    const body = bodiesFor(".composer-hint").join(" ");
+    const input = bodiesFor(".composer-input").join(" ");
+    for (const decl of ["font: inherit", "font-size: 15px", "line-height: 1.55", "padding: 14px 16px 6px"]) {
+      expect(body, decl).toContain(decl);
+      expect(input, decl).toContain(decl);
+    }
+    // Out of the flow (it must not enter the textarea's autogrow measurement) and click-through: a
+    // click on the hint has to place the caret in the textarea underneath, not land on a dead div.
+    expect(body).toContain("position: absolute");
+    expect(body).toContain("pointer-events: none");
+    // One line, ellipsized — never a second row the empty box has no height for.
+    expect(bodiesFor(".composer-hint-text").join(" ")).toContain("white-space: nowrap");
+    expect(bodiesFor(".composer-hint-text").join(" ")).toContain("text-overflow: ellipsis");
   });
 
   it("the control row's left group clips instead of wrapping — the measured collapse depends on it", () => {
@@ -453,7 +472,7 @@ describe("§6 do-NOT-animate list", () => {
     const reduced = blockAfter("@media (prefers-reduced-motion: reduce)");
     expect(reduced).toContain("animation: none !important");
     expect(reduced).toContain("transition: none !important");
-    expect(reduced).toContain(".spin { display: none; }");
+    expect(reduced).toContain(".spinner { display: none; }");
   });
 });
 
@@ -496,5 +515,133 @@ describe("row and control layout", () => {
     // The distinction only exists if the plain disabled treatment is still the dimmer one.
     expect(bodiesFor(".btn.primary:disabled").join(" ")).toContain("background: var(--rl-raised)");
     expect(bodiesFor(".btn:disabled").join(" ")).toContain("opacity: .45");
+  });
+});
+
+/** A pane is not a window: `minSize={10}` in PaneHost means a leaf can be a tenth of the host, and a
+ *  three-way split routinely leaves one under 300px. These assert the two halves of the fix — the
+ *  flex minimums that stop a pane sizing itself to its WIDEST child (and being clipped by
+ *  `.panel { overflow: hidden }` with nothing to scroll), and the container queries that re-flow the
+ *  parts once the pane is genuinely too narrow for them. Measured against the real panes at
+ *  240/340/480/560/620/640/700/900px: no element escapes its panel at any of them. */
+describe("narrow panes", () => {
+  it("the pane roots refuse to be sized by their content", () => {
+    // The named mutant: drop `min-width: 0` and `.page` grows to the width of the 180px rail plus a
+    // full row of action buttons, taking its head, rail and actions outside the panel's clip.
+    for (const sel of [".page", ".diff-pane", ".session-pane", ".browser-pane", ".panel"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("min-width: 0");
+    }
+  });
+
+  it("panes measure THEMSELVES, not the window — every narrow rule is a container query", () => {
+    // A media query here would answer to the window, and a 1400px window says nothing about a leaf
+    // that is a tenth of it.
+    for (const sel of [".page", ".diff-pane", ".panel"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("container-type: inline-size");
+    }
+    // The notifications page declared its own container first; hoisting it to `.page` is what lets
+    // every page share the breakpoints. A re-declaration would be a second, narrower container
+    // shadowing the shared one.
+    expect(RULES.filter((r) => r.selectors.includes(".notifications-page-pane"))).toHaveLength(0);
+  });
+
+  it("under 640px of pane the rail stands up as a scrolling strip instead of halving the content", () => {
+    const narrow = blockAfter("@container (max-width: 640px)");
+    expect(narrow).toContain("flex-direction: row");
+    // A fieldset's UA `min-inline-size: min-content` outranks `width: auto`: without this the rail
+    // refuses to shrink under the width of all its tabs and scrolls nothing.
+    expect(narrow).toContain("min-width: 0");
+    expect(narrow).toContain("overflow-x: auto");
+    expect(narrow).toMatch(/\.page-body \{[^}]*flex-direction: column/);
+    // Only the head's trailing action is meant to wrap; an `auto` basis put the title on its own
+    // line and stranded the 36px glyph above it.
+    expect(narrow).toMatch(/\.page-title \{[^}]*flex: 1 1 140px/);
+  });
+
+  it("action clusters take their own line rather than pinching the text they act on", () => {
+    const narrow = blockAfter("@container (max-width: 640px)");
+    // `1fr auto` with an unshrinkable auto column crushed `.env-path` to 13px — one character per
+    // line — at every pane width up to 640.
+    expect(narrow).toMatch(/\.env-row \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
+    expect(narrow).toMatch(/\.env-actions \{[^}]*grid-column: 1/);
+    expect(narrow).toMatch(/\.settings-row > \.settings-row-main \{[^}]*flex-basis: 100%/);
+  });
+
+  it("the panel bar spends a narrow pane on identity: meta goes, then the trail, never the title", () => {
+    expect(blockAfter("@container (max-width: 380px)")).toMatch(/\.panel-meta \{[^}]*display: none/);
+    expect(blockAfter("@container (max-width: 300px)")).toMatch(/\.panel-nav \{[^}]*display: none/);
+  });
+
+  it("the diff head and commit bar break onto their own rows under 560px", () => {
+    const narrow = blockAfter("@container (max-width: 560px)");
+    expect(narrow).toMatch(/\.diff-head \{[^}]*flex-wrap: wrap/);
+    expect(narrow).toMatch(/\.diff-head-spacer \{[^}]*flex-basis: 100%/);
+    expect(narrow).toMatch(/\.diff-commit-bar \{[^}]*flex-wrap: wrap/);
+  });
+
+  it("the notifications split waits for room for BOTH columns, not just the list", () => {
+    // The list alone claims up to 480px, so the old 640 threshold left the detail a 140px gutter
+    // that could not hold a title.
+    expect(blockAfter("@container (max-width: 760px)")).toMatch(/\.notif-split \{[^}]*flex-direction: column/);
+  });
+
+  it("every override sits AFTER the shorthand it overrides — a container query adds no specificity", () => {
+    // The mutant this catches is silent: move either block above its `flex: 1` and the query still
+    // matches, the rule still parses, and nothing re-flows. Both were written wrong the first time.
+    expect(css.indexOf("@container (max-width: 560px)"))
+      .toBeGreaterThan(css.indexOf(".diff-staged-count { flex: 1;"));
+    expect(css.lastIndexOf("@container (max-width: 640px)"))
+      .toBeGreaterThan(css.indexOf(".engines-head .page-lede { flex: 1;"));
+  });
+});
+
+/** Plan 24 W1 — the transcript's drawn payloads. These live here for the same reason the §6 motion
+ *  table does: jsdom has no layout, so nothing else in the suite can notice that a diff's columns
+ *  stopped lining up, that a code rail stopped being sticky, or that the one rule keeping the
+ *  transcript's diff independent of the diff PANE's has quietly been merged into it. */
+describe("Plan 24 W1: inline UI in the transcript", () => {
+  it("the transcript's diff keeps its own selectors — a change to the diff pane cannot restyle it", () => {
+    // The pane owns staging and history across a full-height list; this is a read-only card in a
+    // 680px column. Sharing `.diff-line` would couple a message from three weeks ago to the pane.
+    const shared = RULES.filter((r) => r.selectors.some((s) => s.includes(".fd-") && s.includes(".diff-")));
+    expect(shared).toEqual([]);
+  });
+
+  it("diff lines are a grid, so every hunk's code edge sits on one ruler", () => {
+    // Flex would let each line size its own gutter and the code edge would wander hunk to hunk.
+    expect(bodiesFor(".fd-line").join(" ")).toContain("display: grid");
+    expect(bodiesFor(".fd-line").join(" ")).toContain("grid-template-columns: 0 0 14px 1fr");
+    expect(bodiesFor(".fd-body[data-numbered] .fd-line").join(" ")).toContain("grid-template-columns: 38px 38px 14px 1fr");
+  });
+
+  it("intra-line emphasis is a wash of the ROW's own tint, never a third colour", () => {
+    expect(bodiesFor(".fd-mark").join(" ")).toContain("var(--green)");
+    expect(bodiesFor('.fd-line[data-kind="del"] .fd-mark').join(" ")).toContain("var(--red)");
+  });
+
+  it("the code preview's number rail stays put while the code scrolls under it", () => {
+    const gutter = bodiesFor(".code-gutter").join(" ");
+    expect(gutter).toContain("position: sticky");
+    expect(gutter).toContain("left: 0");
+    // Both columns must run the same mono line-height or the numbers drift off their lines.
+    expect(gutter).toContain("11.5px/1.65 var(--font-mono)");
+    expect(bodiesFor(".code-body").join(" ")).toContain("12px/1.65 var(--font-mono)");
+    expect(bodiesFor(".code-body").join(" ")).toContain("white-space: pre");
+  });
+
+  it("every drawn surface bounds its own height, so one tool call cannot own the scroller", () => {
+    for (const sel of [".code-block", ".term-out", ".md-scroll"])
+      expect(bodiesFor(sel).join(" "), `${sel} must cap its height`).toMatch(/max-height: \d+px/);
+  });
+
+  it("syntax colour is the ink ramp plus four hues — a transcript is prose with code in it", () => {
+    const hues = new Set(RULES.filter((r) => r.selectors.some((s) => s.startsWith(".hljs")))
+      .flatMap((r) => [...r.body.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]!)));
+    expect([...hues].sort()).toEqual(["--accent", "--green", "--ink", "--ink-2", "--ink-3", "--orange", "--red"]);
+  });
+
+  it("the todo bar is the one accent fill, and finished items are struck through rather than dropped", () => {
+    expect(bodiesFor(".todo-fill").join(" ")).toContain("background: var(--rl-accent)");
+    expect(bodiesFor('.todo-list li[data-status="completed"] .todo-text').join(" ")).toContain("line-through");
   });
 });

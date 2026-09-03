@@ -7,7 +7,8 @@ import { openDatabase, type Db } from "../db/database";
 import { McpServersStore, type McpServerRow } from "../store/mcp";
 import { RpcError } from "../store/rows";
 import { McpHub } from "./hub";
-import { McpOauth, readOauthState, type McpOauthState } from "./oauth";
+import { McpOauth, oauthSecretBox, readOauthState, type McpOauthState } from "./oauth";
+import { isSealed, newSecretKey } from "@realm/contracts/src/secret-box";
 import { oauthStatusOf } from "./service";
 import { makeStubAuthServer, type StubAuthServer } from "./fixtures/stub-auth-server";
 import { makeStubServer, type StubServer } from "./fixtures/stub-server";
@@ -589,5 +590,74 @@ describe("hub + oauth end to end", () => {
     // The second transport was built after the disconnect, so it carries no credential at all.
     expect(captured).toEqual([`Bearer ${h.as.lastIssuedAccessToken()}`, undefined]);
     await hub.close();
+  });
+});
+
+/**
+ * The at-rest encryption `oauth.ts:25` used to name as an unbuilt follow-up. Mutants:
+ *   - the seal skipped, leaving tokens as plaintext JSON in `realm.db`;
+ *   - the legacy plaintext branch dropped, which would silently orphan every row written before this;
+ *   - a sealed row read WITHOUT the key resolving to something other than "unconfigured".
+ */
+describe("oauthJson at rest", () => {
+  // The key is process-wide (see `oauthSecretBox`'s comment), so every test here restores it.
+  afterEach(() => { oauthSecretBox.setKey(null); });
+
+  it("with a key from main, a connected row's tokens are CIPHERTEXT in the database", async () => {
+    oauthSecretBox.setKey(newSecretKey().toString("base64"));
+    const h = await setup();
+    await h.connect();
+
+    const stored = h.reload().oauthJson;
+    expect(isSealed(stored)).toBe(true);
+    expect(stored).not.toContain("access_token");
+    expect(stored).not.toContain(h.state().tokens!.access_token);
+    // ...and it still reads back through the ordinary path, so nothing downstream changes.
+    expect(h.state().tokens?.access_token).toBeTruthy();
+  });
+
+  it("without a key it writes plaintext — the posture every build before this had, not a new failure", async () => {
+    const h = await setup();
+    await h.connect();
+    expect(isSealed(h.reload().oauthJson)).toBe(false);
+    expect(h.state().tokens?.access_token).toBeTruthy();
+  });
+
+  it("reads a LEGACY plaintext row after a key arrives — no migration, no backfill", async () => {
+    const h = await setup();
+    await h.connect();
+    const legacy = h.reload().oauthJson;
+    expect(isSealed(legacy)).toBe(false);
+
+    oauthSecretBox.setKey(newSecretKey().toString("base64"));
+    expect(readOauthState(legacy).tokens?.access_token).toBeTruthy();
+  });
+
+  it("a sealed row with NO key degrades to unconfigured rather than throwing (the documented recovery: Connect)", async () => {
+    oauthSecretBox.setKey(newSecretKey().toString("base64"));
+    const h = await setup();
+    await h.connect();
+    const sealed = h.reload().oauthJson;
+
+    oauthSecretBox.setKey(null);
+    expect(readOauthState(sealed)).toEqual({});
+  });
+
+  it("the WRONG key degrades the same way — never a throw on a read path documented not to throw", async () => {
+    oauthSecretBox.setKey(newSecretKey().toString("base64"));
+    const h = await setup();
+    await h.connect();
+    const sealed = h.reload().oauthJson;
+
+    oauthSecretBox.setKey(newSecretKey().toString("base64"));
+    expect(() => readOauthState(sealed)).not.toThrow();
+    expect(readOauthState(sealed)).toEqual({});
+  });
+
+  it("a malformed or short key leaves the box in plaintext mode rather than half-configured", async () => {
+    for (const bad of ["", "!!!not base64!!!", Buffer.alloc(16).toString("base64")]) {
+      oauthSecretBox.setKey(bad);
+      expect(oauthSecretBox.key, bad).toBeNull();
+    }
   });
 });

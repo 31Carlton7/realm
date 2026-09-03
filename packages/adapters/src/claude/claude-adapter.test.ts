@@ -345,23 +345,27 @@ describe("claudeMcpServers", () => {
 /**
  * W4's double-prompt fix: the SDK's `canUseTool` fires for every MCP tool, stacking Claude's own
  * prompt on top of Realm's broker — which deliberately lets read-only browser tools run free.
- * `allowedTools` pre-allows exactly the read-only four; mutating tools stay double-gated on purpose.
+ * `allowedTools` pre-allows exactly the read-only set; mutating tools stay double-gated on purpose.
  */
 describe("realm-browser allowedTools (Plan 11 W4)", () => {
   const gatewayEntry = { name: "realm", transport: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: "Bearer t" } };
 
-  it("expands to exactly the four read-only tools under the gateway's server name — nothing more", () => {
+  it("expands to exactly the read-only tools under the gateway's server name — nothing more", () => {
     expect(claudeAllowedTools([gatewayEntry])).toEqual([
       "mcp__realm__realm-browser__browser_list",
       "mcp__realm__realm-browser__browser_snapshot",
       "mcp__realm__realm-browser__browser_read",
       "mcp__realm__realm-browser__browser_screenshot",
+      // Listing enrolled sign-ins is read-only in the strong sense: `BrowserCredential` has no field
+      // for a value, so a promptless call discloses nothing but the origin/username/label the USER
+      // typed into Settings. The FILL is a different tool and is deliberately absent below.
+      "mcp__realm__realm-browser__browser_credentials",
     ]);
   });
 
   it("NEVER contains a mutating tool name (the named mutant: a pre-allowed act)", () => {
     const allowed = claudeAllowedTools([gatewayEntry]);
-    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch"]) {
+    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential"]) {
       expect(allowed.some((t) => t.endsWith(`__${mutating}`))).toBe(false);
     }
   });

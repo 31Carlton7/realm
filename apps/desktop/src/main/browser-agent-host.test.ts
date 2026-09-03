@@ -2,10 +2,23 @@ import { describe, expect, it } from "vitest";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 
+const SECRET = "correct horse battery staple";
+
 /** A fake pane: one live view ("b1") whose CDP send is programmable, plus event injection. */
-function setup(opts: { responses?: Record<string, unknown>; attachFails?: boolean } = {}) {
+function setup(opts: {
+  responses?: Record<string, unknown>;
+  attachFails?: boolean;
+  /** Omitted = no secret store at all (safeStorage unavailable, or the app still starting). */
+  credentials?: { id: string; origin: string; username: string; label: string; createdAt: number }[];
+  presence?: boolean;
+  /** Plan 23: a stand-in governor. Omitted = no download support, which must refuse rather than
+   *  fall back to writing files. */
+  downloads?: boolean;
+} = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  const audit: { ts: number; origin: string; credentialId: string; outcome: string }[] = [];
+  const grants: { browserId: string; origin: string; dir: string; expiresAt: number }[] = [];
   const liveViews = new Set(["b1"]);
   const binding: CdpBinding = {
     send: async (method, params) => {
@@ -13,6 +26,8 @@ function setup(opts: { responses?: Record<string, unknown>; attachFails?: boolea
       if (method === "DOMSnapshot.captureSnapshot") return opts.responses?.[method] ?? { documents: [], strings: [] };
       if (method === "Runtime.evaluate") return { result: { value: "page text here" } };
       if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
+      if (method === "Page.getNavigationHistory") return opts.responses?.[method] ?? { currentIndex: 0, entries: [{ url: "https://example.com/x" }] };
+      if (method === "DOM.getContentQuads") return opts.responses?.[method] ?? { quads: [[10, 10, 30, 10, 30, 20, 10, 20]] };
       return opts.responses?.[method] ?? {};
     },
     onEvent: (cb) => { emit = cb; },
@@ -22,8 +37,28 @@ function setup(opts: { responses?: Record<string, unknown>; attachFails?: boolea
     hasView: (id) => liveViews.has(id),
     navigate: (id, url) => (liveViews.has(id) && url.startsWith("https://allowed.") ? url : null),
     pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example" } : null),
+    secrets: opts.credentials === undefined ? undefined : {
+      listCredentials: () => [...opts.credentials!],
+      getCredential: (id) => opts.credentials!.find((c) => c.id === id) ?? null,
+      withCredentialValue: async (id, use) => {
+        if (!opts.credentials!.some((c) => c.id === id)) return { ok: false, refused: "no_credential" };
+        if (opts.presence === false) return { ok: false, refused: "no_presence" };
+        await use(SECRET);
+        return { ok: true };
+      },
+      audit: (entry) => { audit.push(entry); },
+    },
+    downloads: opts.downloads === true ? {
+      run: async (browserId, g, click) => {
+        grants.push({ browserId, ...g });
+        const clicked = await click();
+        return clicked.ok
+          ? { ok: true, name: "week-3.pdf", bytes: 2048, relPath: "downloads/week-3.pdf" }
+          : { ok: false, error: clicked.error ?? "click failed" };
+      },
+    } : undefined,
   });
-  return { host, calls, liveViews, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
+  return { host, calls, liveViews, audit, grants, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
 
 describe("BrowserAgentHost", () => {
@@ -158,5 +193,125 @@ describe("act highlight wiring (W4)", () => {
     const { host, calls } = setup();
     await host.handleOp("act", { browserId: "b1", action: { kind: "scroll", deltaX: 0, deltaY: 100 } });
     expect(calls.some((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("data-realm-agent-highlight"))).toBe(false);
+  });
+});
+
+/**
+ * The fill op at the host layer: the audit trail, and the degradation when there is no store.
+ * The origin gate itself is the executor's (browser-agent.test.ts); what must die HERE is an outcome
+ * that goes unlogged, and a log line that carries anything it shouldn't.
+ */
+describe("BrowserAgentHost — fillCredential", () => {
+  const cred = { id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1 };
+
+  it("fills on a matching origin and logs exactly timestamp/origin/credentialId/outcome", async () => {
+    const { host, calls, audit } = setup({ credentials: [cred] });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+
+    expect(result).toEqual({ ok: true, detail: "filled saved credential for https://example.com" });
+    expect(audit).toHaveLength(1);
+    expect(Object.keys(audit[0]!).sort()).toEqual(["credentialId", "origin", "outcome", "ts"]);
+    expect(audit[0]).toMatchObject({ origin: "https://example.com", credentialId: "cred-1", outcome: "filled" });
+    expect(JSON.stringify(audit)).not.toContain(SECRET);
+    // The value went into key events and nowhere else.
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent").length).toBe(SECRET.length * 2);
+  });
+
+  it("draws NO action highlight, unlike act — the one op that does the least in the page", async () => {
+    const { host, calls } = setup({ credentials: [cred] });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+    expect(calls.some((c) => c.method === "Runtime.evaluate")).toBe(false);
+  });
+
+  it("an origin mismatch refuses, logs the refusal, and types nothing", async () => {
+    const { host, calls, audit } = setup({
+      credentials: [cred],
+      responses: { "Page.getNavigationHistory": { currentIndex: 0, entries: [{ url: "https://examp1e.com/x" }] } },
+    });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" }) as { ok: boolean; refused?: string };
+
+    expect(result.ok).toBe(false);
+    expect(result.refused).toBe("origin_mismatch");
+    expect(audit[0]).toMatchObject({ outcome: "origin_mismatch", credentialId: "cred-1" });
+    expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("a cancelled Touch ID is logged as no_presence", async () => {
+    const { host, audit } = setup({ credentials: [cred], presence: false });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_presence");
+    expect(audit[0]).toMatchObject({ outcome: "no_presence" });
+  });
+
+  it("an unknown id refuses BEFORE touching CDP, and is still logged", async () => {
+    const { host, calls, audit } = setup({ credentials: [cred] });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "ghost" }) as { ok: boolean; refused?: string };
+
+    expect(result.refused).toBe("no_credential");
+    expect(audit[0]).toMatchObject({ outcome: "no_credential", credentialId: "ghost" });
+    expect(calls.some((c) => c.method === "Page.getNavigationHistory")).toBe(false);
+  });
+
+  it("with NO store (safeStorage unavailable) it behaves as if nothing is enrolled — never as a fallback", async () => {
+    const { host } = setup();
+    expect(await host.handleOp("credentials", {})).toEqual({ credentials: [] });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_credential");
+  });
+
+  it("the credentials op returns metadata only — there is no value field to strip", async () => {
+    const { host } = setup({ credentials: [cred] });
+    const r = await host.handleOp("credentials", {}) as { credentials: Record<string, unknown>[] };
+    expect(Object.keys(r.credentials[0]!).sort()).toEqual(["createdAt", "id", "label", "origin", "username"]);
+  });
+});
+
+/**
+ * The download op at the host layer. The gate itself is the governor's (downloads.test.ts); what must
+ * die HERE is a grant pinned to the wrong origin, a directory the host invented, and a build with no
+ * governor quietly writing files anyway.
+ */
+describe("BrowserAgentHost — download", () => {
+  it("pins the grant to the pane's LIVE origin and the server-supplied directory", async () => {
+    const { host, grants } = setup({ downloads: true });
+    const r = await host.handleOp("download", { browserId: "b1", ref: 11, dir: "/Users/x/notes/downloads" });
+
+    expect(r).toEqual({ ok: true, name: "week-3.pdf", bytes: 2048, relPath: "downloads/week-3.pdf" });
+    // pageState is https://example.com/x — the same trustworthy source `describe` reports, never page text.
+    expect(grants[0]).toMatchObject({ browserId: "b1", origin: "https://example.com", dir: "/Users/x/notes/downloads" });
+    expect(grants[0]!.expiresAt).toBeGreaterThan(Date.now());
+  });
+
+  it("clicks through the ordinary act path, so a download is a click that produces a file", async () => {
+    const { host, calls } = setup({ downloads: true });
+    await host.handleOp("download", { browserId: "b1", ref: 11, dir: "/tmp/d" });
+    expect(calls.some((c) => c.method === "DOM.getContentQuads")).toBe(true);
+    expect(calls.some((c) => c.method === "Input.dispatchMouseEvent")).toBe(true);
+  });
+
+  it("refuses a RELATIVE directory — this op writes to disk and a cwd-relative path is not a location", async () => {
+    const { host, grants } = setup({ downloads: true });
+    const r = await host.handleOp("download", { browserId: "b1", ref: 11, dir: "downloads" }) as { ok: boolean };
+    expect(r.ok).toBe(false);
+    expect(grants).toHaveLength(0);
+  });
+
+  it("with NO governor it refuses — never a fallback that writes files anyway", async () => {
+    const { host } = setup();
+    const r = await host.handleOp("download", { browserId: "b1", ref: 11, dir: "/tmp/d" }) as { ok: boolean };
+    expect(r.ok).toBe(false);
+  });
+
+  it("a pane with no page identity refuses BEFORE touching CDP — the origin guard runs first", async () => {
+    const { host, calls, grants } = setup({ downloads: true });
+    const r = await host.handleOp("download", { browserId: "gone", ref: 11, dir: "/tmp/d" }) as { ok: boolean; refused?: string };
+
+    expect(r.ok).toBe(false);
+    expect(r.refused).toBe("origin_mismatch");
+    // Deliberate ordering: no grant is minted and the debugger is never attached, so a pane Realm
+    // cannot identify never gets as far as a click.
+    expect(grants).toHaveLength(0);
+    expect(calls).toHaveLength(0);
   });
 });

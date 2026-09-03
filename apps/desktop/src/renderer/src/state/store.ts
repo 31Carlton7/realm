@@ -4,11 +4,11 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, parseSpaceIcon,
+  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, parseSpaceIcon,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory,
-  type AgentKind, type Attachment, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
+  type AgentKind, type Attachment, type BrowserCredential, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type Item, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus,
 } from "@realm/contracts";
-import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
@@ -63,6 +63,11 @@ export type TranscriptEntry = { lastSeq: number; t: Transcript };
 
 /** Everything the store needs from the outside world: realm-server RPC plus the two platform
  *  seams (native folder picker, local terminal disposal). Tests substitute a fake. */
+/** What main reports about the secret store itself. `available`: macOS will encrypt (no store
+ *  without it). `canPromptTouchID`: this Mac can satisfy a fill — Settings says so plainly rather
+ *  than letting the user enroll a password and find out at a sign-in prompt. */
+export type CredentialStatus = { available: boolean; canPromptTouchID: boolean; presenceTtlMs: number };
+
 export type Api = {
   listProfiles(): Promise<Profile[]>;
   /** Icon/color are server defaults (`user` / grey) — the sheet only asks for a name. */
@@ -177,6 +182,16 @@ export type Api = {
   /** The macOS Permissions tab's rows (Plan 12 W6) — main-process IPC, not RPC. Honest by
    *  construction: the probe behind it never triggers a TCC prompt (see main/tcc.ts). */
   tccProbe(): Promise<TccRow[]>;
+  /**
+   * Settings → Sign-ins (main's `secret-store.ts`). Note the absence of a read: `credentialAdd`
+   * takes a value and answers with `BrowserCredential`, which has no field for one. The renderer
+   * cannot read a saved credential back and neither can anything it talks to.
+   */
+  credentialList(): Promise<BrowserCredential[]>;
+  credentialStatus(): Promise<CredentialStatus>;
+  credentialAdd(input: BrowserCredentialInput): Promise<BrowserCredential>;
+  credentialRemove(id: string): Promise<boolean>;
+  credentialSetPresenceTtl(ms: number): Promise<number>;
   /** Deep-link one permission row's System Settings pane. Takes the ROW id; main owns the URLs. */
   openTccPane(pane: string): Promise<void>;
   /** The Updates row's state (Plan 15 W1) — main-process IPC. The gate lives in main (updater.ts):
@@ -186,6 +201,11 @@ export type Api = {
   checkUpdates(): Promise<UpdateStatus>;
   /** Quit-and-install; main ignores it unless an update is actually downloaded. */
   installUpdate(): Promise<void>;
+  /** Ask main to post an OS toast for a surfaced feed row. Answers whether one was actually shown —
+   *  main suppresses it while the Realm window is focused, and that call is main's to make. */
+  showDesktopNotification(input: { id: string; title: string; body: string | null }): Promise<boolean>;
+  /** Push the dock badge. Every unread change goes through here; 0 clears it. */
+  setBadgeCount(count: number): Promise<void>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
   /** `workspace.diff` — the changed-file list. Null when cwd is not a repo. */
@@ -423,6 +443,13 @@ export type AppState = {
   /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
   connectionState: "connected" | "reconnecting";
   paletteOpen: boolean;
+  /** The space overview (⌘⇧Space): every space across every profile, sectioned. Its own flag rather
+   *  than a `Sheet`, for the same reason `paletteOpen` is — it must toggle from its own hotkey while
+   *  open, which the sheet guard in hotkeys.ts forbids. */
+  spacesOpen: boolean;
+  /** profileId → the space that profile was last on, THIS RUN. Not persisted: it is the memory of a
+   *  session's back-and-forth, and a restart legitimately starts from the saved active space. */
+  lastSpaceByProfile: Record<string, string>;
   sheet: Sheet | null;
   /** Every visible browser view's rect, reference-stable between real changes (W2). */
   browserRects: BrowserRect[];
@@ -455,6 +482,11 @@ export type AppState = {
   notificationsUnread: number;
   /** `nextCursor` of the last page fetched; null = end reached (or nothing fetched yet). */
   notificationsCursor: string | null;
+  /** Whether the feed is allowed to reach the OS — toasts and the dock badge (`NOTIFICATIONS_DESKTOP_KEY`,
+   *  default-on). Held HERE rather than inside `settingsPrefs` because it is needed from the moment
+   *  the first broadcast can arrive, and `settingsPrefs` stays null until the Settings page mounts —
+   *  a toast that only worked after a visit to Settings would be a toast that does not work. */
+  desktopNotifications: boolean;
   agentProbe: AgentProbe[];
   /** The Settings page's App-tab preferences (Plan 12 W6), read from the server's settings rows:
    *  which notification categories are switched OFF (`NOTIFICATIONS_DISABLED_KEY` — default-on
@@ -465,6 +497,9 @@ export type AppState = {
   /** The Permissions tab's TCC rows, exactly as main's prompt-free probe reported them; null until
    *  the tab first probes. Never synthesised client-side — a row with no probe basis says so. */
   tccRows: TccRow[] | null;
+  /** Enrolled sign-ins; null until first load. Metadata only — see `credentialList`. */
+  credentials: BrowserCredential[] | null;
+  credentialStatus: CredentialStatus | null;
   /** The Updates row's state (Plan 15 W1), exactly as main's gated updater reported it; null until
    *  the App tab first asks. A disabled state renders its reason — never a dead button. */
   updateStatus: UpdateStatus | null;
@@ -593,8 +628,20 @@ export type AppState = {
   mcpCallsHasMore: boolean;
   activeSpace(): Space | undefined;
   activeIndex(): number;
+  /** The active space's profile — the only thing that decides which spaces the strip and the swiper
+   *  show. Null before boot (and only then): every space has a profile. */
+  activeProfileId(): string | null;
+  /** The ACTIVE PROFILE's spaces, in the global sort order. `spaces` stays the whole list — the
+   *  palette, the overview and cross-space badges all still want it — but the sidebar is scoped:
+   *  a profile is the separator, so a strip of one profile's spaces is a strip that fits. */
+  profileSpaces(): Space[];
   boot(): Promise<void>;
   selectSpace(id: string): Promise<void>;
+  /** Switch profiles: land on the space that profile was last on this run, else its first. The
+   *  strip's profile chip and the overview's cross-profile rows both come through here. */
+  selectProfile(profileId: string): Promise<void>;
+  /** Step within the ACTIVE PROFILE, never across it — the swiper, ⌃Tab and ⌘1…9 all page over the
+   *  same bounded set the strip shows. Crossing profiles is a deliberate act (chip, or overview). */
   nextSpace(): Promise<void>;
   prevSpace(): Promise<void>;
   /** Create a profile and merge it into `profiles`; returns it so callers can select it. */
@@ -705,6 +752,7 @@ export type AppState = {
    *  every open transcript up from its lastSeq — the events missed while the socket was down. */
   applyConnectionState(state: "connected" | "reconnecting"): void;
   setPaletteOpen(open: boolean): void;
+  setSpacesOpen(open: boolean): void;
   openSheet(sheet: Sheet): void;
   closeSheet(): void;
   /** Each browser pane reports the rect its native view paints; null when it stops (unmount, no
@@ -887,6 +935,11 @@ export type AppState = {
   setDefaultPermissionMode(mode: string): Promise<void>;
   /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
   refreshTcc(): Promise<void>;
+  /** Load the enrolled sign-ins and the store's own state (encryption available, Touch ID usable). */
+  refreshCredentials(): Promise<void>;
+  addCredential(input: BrowserCredentialInput): Promise<void>;
+  removeCredential(id: string): Promise<void>;
+  setCredentialPresenceTtl(ms: number): Promise<void>;
   /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
   openTccPane(pane: string): Promise<void>;
   /** Fetch the Updates row's current state from main's gated updater into `updateStatus`. */
@@ -911,6 +964,12 @@ export type AppState = {
   /** The row's jump affordance: land on the notification's session (switching space if needed) and
    *  mark it read — it has, by definition, been seen. */
   openNotificationTarget(n: Notification): Promise<void>;
+  /** A clicked OS toast, by row id (main knows nothing but the id). Resolves the row from the held
+   *  feed — refetching once if the page was never opened — and lands on it like any other jump. */
+  activateDesktopNotification(id: string): Promise<void>;
+  /** The Settings→App desktop switch. Writes `NOTIFICATIONS_DESKTOP_KEY` and immediately pushes the
+   *  badge the new answer implies, so switching off clears the dock rather than freezing a number. */
+  setDesktopNotifications(enabled: boolean): Promise<void>;
   /** Select a feed row into the page's detail column (null = back to the bare list). Records the move
    *  on the trail of the pane showing `pageItemId`, so the arrows retrace it, and marks the row read —
    *  opening a notification is the definition of having seen it. */
@@ -1144,6 +1203,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  prune the just-opened item and collapse its splits. Bumped by selectSpace so responses from a
      *  previous activation die even when the same space is re-selected. */
     let itemsFetchSeq = 0;
+    /** The ONE place the unread count is written — and therefore the one place the dock badge is
+     *  pushed. Five paths change the count (boot, refresh, page, markRead, broadcast); a badge each
+     *  of them had to remember separately is a badge that drifts from the pill beside it. Switched
+     *  off means ZERO, not "stop pushing": a frozen badge is a number the dock keeps asserting after
+     *  the user turned the surface off. */
+    const applyUnread = (unread: number) => {
+      set({ notificationsUnread: unread });
+      void api.setBadgeCount(get().desktopNotifications ? unread : 0).catch(() => {});
+    };
     /** Per-profile ordering for icon-library reads and writes. A picker refresh can be in flight when
      *  generation/upload finishes; without these guards its older snapshot can land last and make an
      *  `asset:` space icon fall back to a folder until the next refresh. */
@@ -1372,9 +1440,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      paletteOpen: false, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
+      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -1383,9 +1451,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
+      activeProfileId() { return get().activeSpace()?.profileId ?? null; },
+      profileSpaces() { const pid = get().activeProfileId(); return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
@@ -1408,11 +1478,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
         await get().refreshAllSessions();
+        // The desktop switch, read BEFORE the count lands because the badge push honors it — and read
+        // at boot at all because the first broadcast can arrive long before anyone opens Settings.
+        // A failed read keeps the default-on answer: a preference nobody could read is not a
+        // preference to switch the feature off.
+        const desktop = await api.getSetting(NOTIFICATIONS_DESKTOP_KEY).catch(() => null);
+        set({ desktopNotifications: desktop !== false });
         // The sidebar's unread pill needs the count before the page is ever opened. One row, not a
         // page — the count rides every list result. A badge, not a dependency: a failure here must
         // not take boot down with it.
         const feed = await api.listNotifications(null, 1).catch(() => null);
-        if (feed) set({ notificationsUnread: feed.unread });
+        if (feed) applyUnread(feed.unread);
         // Last, so `booted && spaces.length === 0` is only ever true for a genuinely empty home.
         set({ booted: true });
       },
@@ -1428,18 +1504,30 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           sheetSnap: null, // a snap belongs to the layout being left; that layout persisted UNsnapped
           diffs: {}, diffLoading: {}, patches: {} }));
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
+        // Remembered BEFORE the awaits below: the profile chip's "go back to where I was" must be
+        // true the moment the switch is committed, not a round trip later.
+        if (space) set({ lastSpaceByProfile: { ...get().lastSpaceByProfile, [space.profileId]: id } });
         await Promise.all([get().refreshProjects(), get().refreshEnvironments(), get().refreshItems(), get().refreshSessions()]);
         // Space activation refreshes git context for the focused pane's session, if any.
         const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
         if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
       },
       async nextSpace() {
-        const { spaces } = get(); const i = get().activeIndex();
-        const n = spaces[i + 1]; if (i >= 0 && n) await get().selectSpace(n.id);
+        const list = get().profileSpaces(); const i = list.findIndex((s) => s.id === get().activeSpaceId);
+        const n = list[i + 1]; if (i >= 0 && n) await get().selectSpace(n.id);
       },
       async prevSpace() {
-        const { spaces } = get(); const i = get().activeIndex();
-        const p = spaces[i - 1]; if (i > 0 && p) await get().selectSpace(p.id);
+        const list = get().profileSpaces(); const i = list.findIndex((s) => s.id === get().activeSpaceId);
+        const p = list[i - 1]; if (i > 0 && p) await get().selectSpace(p.id);
+      },
+      async selectProfile(profileId) {
+        if (get().activeProfileId() === profileId) return;
+        const remembered = get().lastSpaceByProfile[profileId];
+        const target = get().spaces.find((s) => s.id === remembered && s.profileId === profileId)
+          ?? get().spaces.find((s) => s.profileId === profileId);
+        // A profile with no spaces at all is not switchable-to: there would be nothing to land on,
+        // and an activeSpaceId of null is the no-space posture, not a profile.
+        if (target) await get().selectSpace(target.id);
       },
       async refreshSpaces() {
         const spaces = await api.listSpaces();
@@ -1845,8 +1933,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
-      setPaletteOpen(open) { set(open ? { paletteOpen: true, sheet: null, ...restoreSnap() } : { paletteOpen: false }); },
-      openSheet(sheet) { set({ sheet, paletteOpen: false, ...maybeSnapForSheet() }); },
+      setPaletteOpen(open) { set(open ? { paletteOpen: true, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false }); },
+      // Same one-slot rule the palette and the sheets keep: two overlays are never on screen at once.
+      setSpacesOpen(open) { set(open ? { spacesOpen: true, paletteOpen: false, sheet: null, ...restoreSnap() } : { spacesOpen: false }); },
+      openSheet(sheet) { set({ sheet, paletteOpen: false, spacesOpen: false, ...maybeSnapForSheet() }); },
       closeSheet() { set({ sheet: null, ...restoreSnap() }); },
       // Reference-stable: an unchanged rect never produces a new array, so the popover/palette/
       // sheet subscribers only re-place on real movement, not on every rAF echo.
@@ -2093,14 +2183,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
         // Drop it from the CURRENT space's layout/persist FIRST, same ordering deleteItem uses.
         if (item) await get().closeFromLayout(item.id);
-        mergeSession(await api.moveSessionToSpace(sessionId, spaceId));
+        const moved = await api.moveSessionToSpace(sessionId, spaceId);
+        mergeSession(moved);
         // It now belongs to `spaceId`'s item list, not this one's.
         if (item) set({ items: get().items.filter((i) => i.id !== item.id) });
         set({ sessionSpace: { ...get().sessionSpace, [sessionId]: spaceId } });
-        // The server already tore down any open terminal (its pty was rooted at the OLD cwd) —
-        // mirror deleteItem's client-side half of that cleanup for the renderer's xterm handle.
+        // A session that had RUN carried its checkout across, so its terminal's cwd is unchanged and
+        // the server kept the pty — the moved row still names the terminal item. A null column is the
+        // server saying it tore the trio down (the cwd moved), and only then does the renderer drop
+        // its xterm handle to match, the same client-side half deleteItem does.
         const termId = get().sessionTerminals[sessionId];
-        if (termId) {
+        if (termId && moved.terminalItemId === null) {
           api.disposeTerminal(termId);
           const { [sessionId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [sessionId]: _tp, ...terminalPanel } = get().terminalPanel;
@@ -2431,13 +2524,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       setProfilePageTab(profileId, tab) { set({ profilePageTab: { ...get().profilePageTab, [profileId]: tab } }); },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode] = await Promise.all([
-          api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY),
+        const [rawDisabled, rawMode, rawDesktop] = await Promise.all([
+          api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
-        set({ settingsPrefs: { disabledCategories, defaultPermissionMode } });
+        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, desktopNotifications: rawDesktop !== false });
       },
       async setNotificationCategoryEnabled(category, enabled) {
         const prefs = get().settingsPrefs; if (!prefs) return; // toggles only exist once prefs loaded
@@ -2455,6 +2548,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
+      async refreshCredentials() {
+        const [credentials, credentialStatus] = await Promise.all([api.credentialList(), api.credentialStatus()]);
+        set({ credentials, credentialStatus });
+      },
+      // Each of these re-reads rather than patching local state: main clamps the TTL and mints the
+      // id, so what it returns is the truth and a locally-patched list would be a guess at it.
+      async addCredential(input) { await api.credentialAdd(input); await get().refreshCredentials(); },
+      async removeCredential(id) { await api.credentialRemove(id); await get().refreshCredentials(); },
+      async setCredentialPresenceTtl(ms) { await api.credentialSetPresenceTtl(ms); await get().refreshCredentials(); },
       async openTccPane(pane) { await api.openTccPane(pane); },
       async refreshUpdateStatus() { set({ updateStatus: await api.updateStatus() }); },
       async checkForUpdates() {
@@ -2470,7 +2572,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // the list the user is scrolled into. Capped at the wire's own limit.
         const limit = Math.min(200, Math.max(NOTIFICATIONS_PAGE, get().notifications.length));
         const page = await api.listNotifications(null, limit);
-        set({ notifications: page.notifications, notificationsCursor: page.nextCursor, notificationsUnread: page.unread });
+        set({ notifications: page.notifications, notificationsCursor: page.nextCursor });
+        applyUnread(page.unread);
       },
       async loadMoreNotifications() {
         const cursor = get().notificationsCursor; if (!cursor) return;
@@ -2478,16 +2581,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Guard against a duplicate landing across a refetch that raced this page in.
         const known = new Set(get().notifications.map((n) => n.id));
         set({ notifications: [...get().notifications, ...page.notifications.filter((n) => !known.has(n.id))],
-          notificationsCursor: page.nextCursor, notificationsUnread: page.unread });
+          notificationsCursor: page.nextCursor });
+        applyUnread(page.unread);
       },
       async markNotificationsRead(ids) {
         const r = ids === "all" ? await api.markNotificationsRead({ all: true }) : await api.markNotificationsRead({ ids });
         const t = Date.now();
-        set({ notificationsUnread: r.unread,
-          notifications: get().notifications.map((n) => n.readAt === null && (ids === "all" || ids.includes(n.id)) ? { ...n, readAt: t } : n) });
+        set({ notifications: get().notifications.map((n) => n.readAt === null && (ids === "all" || ids.includes(n.id)) ? { ...n, readAt: t } : n) });
+        applyUnread(r.unread);
       },
       applyNotificationsChanged(payload) {
-        set({ notificationsUnread: payload.unread });
+        applyUnread(payload.unread);
         const n = payload.notification;
         if (n) {
           // A surfaced row lands at the top of whatever slice is held (a reopen moves, not
@@ -2503,6 +2607,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
               void get().run(() => get().markNotificationsRead([n.id]));
             }
           }
+          // The OS hop. Every SURFACED row is a candidate and nothing is re-filtered here: the server
+          // already dropped the categories switched off, and absorbed a repeat of a still-open
+          // condition into its existing row without surfacing it — so a flapping MCP server toasts
+          // once, for free. Note what is NOT consulted: the read bit. The auto-read above is a rule
+          // about which PANE is focused; a turn settling on the focused pane while Realm sits behind
+          // another app is exactly the toast worth showing. Whether one appears is main's call
+          // (window focus), and a failed toast must never take the feed handler down with it.
+          if (get().desktopNotifications) void api.showDesktopNotification({ id: n.id, title: n.title, body: n.body }).catch(() => {});
         } else if (get().notifications.length > 0) {
           // A resolution or a markRead from elsewhere: re-read the held slice so a permission row can
           // never keep rendering "pending" after it was answered in some other pane or window.
@@ -2518,6 +2630,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           if (item) await get().openItem(item.id);
         }
         if (n.readAt === null) await get().markNotificationsRead([n.id]);
+      },
+      async activateDesktopNotification(id) {
+        // Main hands back an id and nothing else. The feed may never have been loaded — a toast is
+        // often the FIRST this renderer hears of a row — so a miss refetches once rather than
+        // swallowing the click; the row is by construction at the top of the first page.
+        let n = get().notifications.find((x) => x.id === id);
+        if (!n) {
+          await get().refreshNotifications();
+          n = get().notifications.find((x) => x.id === id);
+        }
+        if (n) await get().openNotificationTarget(n);
+      },
+      async setDesktopNotifications(enabled) {
+        await api.setSetting(NOTIFICATIONS_DESKTOP_KEY, enabled);
+        set({ desktopNotifications: enabled });
+        // Republish the count under the new answer: switching off has to CLEAR the dock, not leave
+        // the last number sitting there until something else happens to change it.
+        applyUnread(get().notificationsUnread);
       },
       async selectNotification(pageItemId, id) {
         set({ notificationsSelectedId: id });
@@ -2766,6 +2896,17 @@ export const StoreContext = createContext<StoreApi<AppState> | null>(null);
 export function useApp<T>(sel: (s: AppState) => T): T {
   const store = useContext(StoreContext); if (!store) throw new Error("StoreContext missing");
   return useStore(store, sel);
+}
+/** The active profile's spaces, memoised. `profileSpaces()` itself allocates a fresh array on every
+ *  call, so passing it straight to `useApp` would hand React a new snapshot on every unrelated store
+ *  write; the two inputs it actually depends on are stable. */
+export function useProfileSpaces(): Space[] {
+  const spaces = useApp((s) => s.spaces);
+  const activeSpaceId = useApp((s) => s.activeSpaceId);
+  return useMemo(() => {
+    const profileId = spaces.find((s) => s.id === activeSpaceId)?.profileId;
+    return profileId === undefined ? [] : spaces.filter((s) => s.profileId === profileId);
+  }, [spaces, activeSpaceId]);
 }
 /** The raw store, for imperative access (hotkeys, event subscriptions). */
 export function useAppStore(): StoreApi<AppState> {

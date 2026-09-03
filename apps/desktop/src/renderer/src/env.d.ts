@@ -31,6 +31,21 @@ interface Window {
       check(): Promise<UpdateStatus>;
       install(): Promise<void>;
     };
+    /** Desktop notifications (the feed's last hop). `show` answers whether a toast was posted — main
+     *  suppresses one while the window is focused. `onActivate` carries a clicked toast's row id. */
+    notify: {
+      show(input: { id: string; title: string; body: string | null }): Promise<boolean>;
+      badge(count: number): Promise<void>;
+      onActivate(cb: (id: string) => void): () => void;
+    };
+    /** Settings → Sign-ins. One-way by construction: `add` takes a value, nothing gives one back. */
+    credentials: {
+      list(): Promise<import("@realm/contracts").BrowserCredential[]>;
+      status(): Promise<{ available: boolean; canPromptTouchID: boolean; presenceTtlMs: number }>;
+      add(input: import("@realm/contracts").BrowserCredentialInput): Promise<import("@realm/contracts").BrowserCredential>;
+      remove(id: string): Promise<boolean>;
+      setPresenceTtl(ms: number): Promise<number>;
+    };
     /** Browser pane (Plan 11 W1): drives the native WebContentsView main owns for a browser item. */
     browser: {
       create(id: string, url: string, allowlist: string[] | null): Promise<void>;
@@ -38,6 +53,11 @@ interface Window {
       /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
       navigate(id: string, input: string): Promise<string | null>;
       nav(id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void>;
+      /** Plan 23 W4: downloads the pane blocked, and the user's own consent to fetch one. */
+      blockedDownloads(id: string): Promise<import("@realm/contracts").BlockedDownload[]>;
+      saveDownload(id: string, blockedId: string, dir: string): Promise<import("@realm/contracts").BrowserDownloadResult>;
+      dismissDownload(id: string, blockedId: string): Promise<void>;
+      onDownloadBlocked(cb: (m: { browserId: string; blocked: import("@realm/contracts").BlockedDownload }) => void): () => void;
       setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
       /** Per-frame, fire-and-forget: placeholder rect (CSS px) + devicePixelRatio + visibility. */
       setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;

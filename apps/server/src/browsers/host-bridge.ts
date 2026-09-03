@@ -5,7 +5,28 @@ import type { RpcServer } from "../rpc/server";
 /** Ops the bridge is willing to relay — one place that names the protocol, shared (by convention, the
  *  two processes compile separately) with Electron main's dispatcher. Anything else is refused here,
  *  so a typo'd op fails loudly at the caller instead of timing out against a confused host. */
-export const BROWSER_HOST_OPS = ["describe", "snapshot", "read", "act", "navigate", "screenshot"] as const;
+export const BROWSER_HOST_OPS = [
+  "describe", "snapshot", "read", "act", "navigate", "screenshot",
+  /** Enrolled sign-ins, metadata only (`BrowserCredential` has no value field). */
+  "credentials",
+  /** Type one enrolled sign-in into a ref. The VALUE never crosses this bridge in either direction:
+   *  the request carries a `credentialId`, the answer carries `{ ok, detail }`. Everything secret
+   *  happens on the far side, inside Electron main. */
+  "fillCredential",
+  /**
+   * Hand realm-server the `oauth` domain key from main's safeStorage-anchored keyring, so
+   * `readOauthState` can stay synchronous while tokens stop being plaintext in `realm.db`.
+   *
+   * There is deliberately no op that exports the `credential` key, and no op that opens a blob on
+   * main's behalf. Both would be short additions, and either would undo the reason this list is
+   * enumerated in one place.
+   */
+  "oauthKey",
+  /** Arm a one-shot download grant, click the ref, and await the file. The DIRECTORY is decided
+   *  server-side (from the space's project) and travels with the op — main never picks a path, and
+   *  the page never influences one. */
+  "download",
+] as const;
 export type BrowserHostOp = (typeof BROWSER_HOST_OPS)[number];
 
 /** How long one op may run before the bridge gives up on it. Snapshot fuses four CDP calls plus a

@@ -375,6 +375,15 @@ export const Methods = {
    *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip. */
   "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
   "browsers.close":  { params: z.object({ browserId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Where a download from this space's panes lands (Plan 23): `<project root>/downloads`, or null
+   * when the space has no project and therefore no destination any Realm surface would show.
+   *
+   * The renderer needs this for the pane's blocked-download bar — the user's own downloads go to the
+   * same directory the agent's do, resolved by the same server-side rule (`spaceDownloadDir`) rather
+   * than by the renderer joining paths of its own.
+   */
+  "browsers.downloadDir": { params: z.object({ spaceId: IdSchema }), result: z.object({ dir: z.string().nullable() }) },
 
   /**
    * The browser agent host's side of the main↔server bridge (Plan 11 W3). Electron main — the process

@@ -15,7 +15,8 @@ import type { SkillsService } from "../skills/service";
 import type { McpService } from "../mcp/service";
 import type { McpHub } from "../mcp/hub";
 import type { McpGateway } from "../mcp/gateway";
-import type { McpOauth } from "../mcp/oauth";
+import { oauthSecretBox, type McpOauth } from "../mcp/oauth";
+import { spaceDownloadDir } from "../browsers/agent-tools";
 import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
@@ -408,12 +409,20 @@ export function registerMethods(d: Deps): void {
   reg("browsers.get", (p) => d.browsers.get(p.browserId));
   reg("browsers.update", (p) => { d.browsers.update(p.browserId, p); return { ok: true as const }; });
   reg("browsers.close", (p) => { d.browsers.close(p.browserId); return { ok: true as const }; });
+  reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, p.spaceId) }));
 
   // The browser agent host's bridge (Plan 11 W3). `register` is raw `rpc.register` rather than `reg`
   // because it is the one method that needs its caller's socket — the bridge sends that exact client
   // its `browserHost.op` events from then on.
   rpc.register("browserHost.register", Methods["browserHost.register"].params, async (_p, ctx) => {
     d.browserBridge.register(ctx.client);
+    // Adopt the `oauth` domain key from main's Keychain-anchored keyring, so `oauthJson` stops being
+    // plaintext in realm.db. Fire-and-forget on purpose: registration must not block on it, and a
+    // failure is the pre-existing plaintext posture rather than a broken bridge. Re-fetched on every
+    // register, so an Electron main that restarted re-supplies it.
+    void d.browserBridge.call("oauthKey", {})
+      .then((r) => { oauthSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
+      .catch(() => { /* no key: writes stay plaintext, exactly as before this existed */ });
     return { ok: true as const };
   });
   reg("browserHost.result", (p) => { d.browserBridge.handleResult(p); return { ok: true as const }; });

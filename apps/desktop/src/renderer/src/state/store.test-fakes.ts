@@ -1,7 +1,7 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { AgentsFileState, Attachment, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
-import type { AddMcpServerInput, AgentProbe, Api, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
+import type { AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus } from "@realm/contracts";
+import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { SearchResults } from "@realm/contracts";
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
@@ -104,6 +104,15 @@ export type FakeData = {
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
   tccRows?: TccRow[];
+  credentials?: BrowserCredential[];
+  credentialStatus?: CredentialStatus;
+  /** Toasts main actually posted, in order — an OUTPUT, read as `api.data.shownNotifications`. */
+  shownNotifications?: { id: string; title: string; body: string | null }[];
+  /** The dock badge's last pushed value — also an output. Starts at 0, like a fresh dock. */
+  badgeCount?: number;
+  /** Whether main would say the Realm window is focused, i.e. whether a requested toast is actually
+   *  posted. Defaults to false (Realm in the background) — the state a toast exists for. */
+  windowFocused?: boolean;
   /** What main's gated updater reports (Plan 15 W1). Defaults to today's shipped truth: a packaged
    *  local build is unsigned, so the row is disabled as "unsigned". Mutate between calls to script
    *  an enabled build's states. */
@@ -160,15 +169,20 @@ export type FakeApi = Api & {
   data: Required<FakeData>;
 };
 
-/** Defaults: profiles p1 "Work" / p2 "School"; spaces s1 "Versed" (p1, #7c6cff) / s2 "Homework" (p2, #3ddc97);
- *  items: s1 has one terminal (i1). Pass `overrides` to replace any of these. */
+/** Defaults: profiles p1 "Work" / p2 "School"; spaces s1 "Versed" and s2 "Homework", BOTH under p1
+ *  (#7c6cff / #3ddc97); items: s1 has one terminal (i1). Pass `overrides` to replace any of these.
+ *
+ *  Both default spaces share a profile because the sidebar is profile-scoped: the strip, the swiper,
+ *  ⌃Tab and ⌘1…9 all page within one profile, so a fixture that split its two spaces across two
+ *  profiles would model a strip with one button in it — not the two-space sidebar these tests mean.
+ *  p2 is deliberately left empty; the profile-crossing tests pass their own spaces. */
 export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
   const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[] = [];
   const data: Required<FakeData> = {
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
-    spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p2", "Homework", { color: "#3ddc97" })],
+    spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" })],
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
     projects: overrides.projects ?? {},
     environments: overrides.environments ?? {},
@@ -196,6 +210,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    credentials: overrides.credentials ?? [],
+    credentialStatus: overrides.credentialStatus ?? { available: true, canPromptTouchID: true, presenceTtlMs: 0 },
     tccRows: overrides.tccRows ?? [
       { id: "filesAndFolders", label: "Files & Folders", state: "unknown", detail: "Can't be checked until used — macOS only reveals these grants by asking." },
       { id: "automation", label: "Automation", state: "unknown", detail: "Can't be checked until used — grants are per-app-pair." },
@@ -203,6 +219,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       { id: "accessibility", label: "Accessibility", state: "granted", detail: "macOS reports Realm as a trusted accessibility client." },
       { id: "fullDisk", label: "Full Disk Access", state: "denied", detail: "macOS refused Realm a file only Full Disk Access unlocks." },
     ],
+    shownNotifications: overrides.shownNotifications ?? [],
+    badgeCount: overrides.badgeCount ?? 0,
+    windowFocused: overrides.windowFocused ?? false,
     updateStatus: overrides.updateStatus ?? { version: "0.0.1", state: { kind: "disabled", reason: "unsigned" } },
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
@@ -487,12 +506,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     moveSessionToSpace: async (id, spaceId) => {
       calls.push(`moveSessionToSpace:${id}=${spaceId}`);
       const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
-      // Mirrors the server: the same one-persisted-event lock as setAgent/setEnvironment.
-      if (data.sessions[i]!.lastEventSeq > 0) throw new Error("this session has already run; it can no longer move to another space");
       findSpace(spaceId);
-      // The fake has no per-space "primary environment" concept; unlike the real server this leaves
-      // environmentId/cwd untouched, so a test asserting on the destination cwd should seed one.
-      const s = { ...data.sessions[i]!, spaceId, projectId: null }; data.sessions[i] = s; return s;
+      // Mirrors the server on the one axis the renderer branches on: a session that has RUN carries its
+      // checkout across, so its terminal survives and `terminalItemId` stays put; an unstarted one is
+      // rewired to the destination and the server tears the terminal trio down (null column).
+      const cur = data.sessions[i]!;
+      const s = { ...cur, spaceId, projectId: null, terminalItemId: cur.lastEventSeq > 0 ? cur.terminalItemId : null };
+      data.sessions[i] = s; return s;
     },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     // Mirrors the server: get-or-create, so a second call for the same session returns the same trio —
@@ -511,6 +531,24 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     writeTerminal: async (terminalId, data) => { calls.push(`writeTerminal:${terminalId}=${data}`); },
     prefillTerminal: async (terminalId, command) => { calls.push(`prefillTerminal:${terminalId}=${command}`); },
     tccProbe: async () => { calls.push("tccProbe"); return [...data.tccRows]; },
+    // The fake store mirrors main's asymmetry exactly: `credentials` holds no value field, and
+    // `credentialAdd` DISCARDS the value it is handed rather than stashing it somewhere a test could
+    // read it back. A fake that kept the password would be a fake that could pass a test main fails.
+    credentialList: async () => { calls.push("credentialList"); return [...data.credentials]; },
+    credentialStatus: async () => { calls.push("credentialStatus"); return { ...data.credentialStatus }; },
+    credentialAdd: async (input) => {
+      calls.push(`credentialAdd:${input.origin}`);
+      const row = { id: `cred-${data.credentials.length + 1}`, origin: input.origin, username: input.username, label: input.label, createdAt: 0 };
+      data.credentials.push(row);
+      return row;
+    },
+    credentialRemove: async (id) => {
+      calls.push(`credentialRemove:${id}`);
+      const before = data.credentials.length;
+      data.credentials = data.credentials.filter((c) => c.id !== id);
+      return data.credentials.length !== before;
+    },
+    credentialSetPresenceTtl: async (ms) => { calls.push(`credentialSetPresenceTtl:${ms}`); data.credentialStatus.presenceTtlMs = ms; return ms; },
     openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
     updateStatus: async () => { calls.push("updateStatus"); return { ...data.updateStatus }; },
     // Mirrors main's gate: a disabled updater answers its state unchanged — the fake never checks.
@@ -520,6 +558,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { ...data.updateStatus };
     },
     installUpdate: async () => { calls.push("installUpdate"); },
+    // Mirrors main's gate exactly (notify.ts): a focused window suppresses the toast, and the call is
+    // logged either way — so a test can tell "the renderer never asked" from "main said no".
+    showDesktopNotification: async (input) => {
+      calls.push(`showDesktopNotification:${input.id}`);
+      if (data.windowFocused) return false;
+      data.shownNotifications.push(input);
+      return true;
+    },
+    setBadgeCount: async (count) => { calls.push(`setBadgeCount:${count}`); data.badgeCount = count; },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");

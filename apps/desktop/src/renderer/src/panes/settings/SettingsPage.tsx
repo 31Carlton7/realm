@@ -1,5 +1,6 @@
 import {
-  AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, NOTIFICATION_CATEGORIES,
+  AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
+  CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
 } from "@realm/contracts";
 import { Icon } from "@realm/ui";
@@ -9,9 +10,10 @@ import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import type { ThemePref } from "../../theme/useTheme";
 
-type SettingsTab = "engines" | "app" | "permissions";
+type SettingsTab = "engines" | "app" | "signins" | "permissions";
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: "engines", label: "Engines" }, { id: "app", label: "App" }, { id: "permissions", label: "Permissions" },
+  { id: "engines", label: "Engines" }, { id: "app", label: "App" },
+  { id: "signins", label: "Sign-ins" }, { id: "permissions", label: "Permissions" },
 ];
 
 /**
@@ -38,7 +40,7 @@ export function SettingsPage(_props: PaneProps) {
         <span className="page-glyph"><Icon name="settings-page" size={20} /></span>
         <div className="page-title">
           <h1>Settings</h1>
-          <span className="page-sub">Engines, app preferences, and what macOS lets Realm do.</span>
+          <span className="page-sub">Engines, app preferences, saved sign-ins, and what macOS lets Realm do.</span>
         </div>
       </header>
       <div className="page-body">
@@ -54,6 +56,7 @@ export function SettingsPage(_props: PaneProps) {
         <div className="page-content">
           {tab === "engines" && <EnginesTab />}
           {tab === "app" && <AppTab />}
+          {tab === "signins" && <SignInsTab />}
           {tab === "permissions" && <PermissionsTab />}
         </div>
       </div>
@@ -177,6 +180,10 @@ function AppTab() {
   const prefs = useApp((s) => s.settingsPrefs);
   const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
   const setNotificationCategoryEnabled = useApp((s) => s.setNotificationCategoryEnabled);
+  // Not part of `settingsPrefs`: this one is loaded at boot (the first toast can beat a visit here),
+  // so it is never null and the row never renders a loading state the others need.
+  const desktopNotifications = useApp((s) => s.desktopNotifications);
+  const setDesktopNotifications = useApp((s) => s.setDesktopNotifications);
   const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
@@ -224,6 +231,21 @@ function AppTab() {
         <p className="settings-hint">
           {submitKey === "enter" ? "Enter sends; Shift+Enter inserts a newline." : "⌘/Ctrl+Enter sends; Enter inserts a newline."}
         </p>
+      </div>
+
+      <div className="field"><span>Desktop notifications</span>
+        <ul className="settings-list">
+          <li className="settings-row">
+            <div className="settings-row-main">
+              <span className="settings-row-name">Notify me outside Realm</span>
+              <span className="settings-row-desc">Post a system notification, and count unread ones on the dock icon.</span>
+            </div>
+            <input type="checkbox" role="switch" className="switch" aria-label="Notify me outside Realm"
+              checked={desktopNotifications}
+              onChange={(e) => run(() => setDesktopNotifications(e.target.checked))} />
+          </li>
+        </ul>
+        <p className="settings-hint">Only when Realm is not the app you are in — a notification for something already on your screen is noise. Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app.</p>
       </div>
 
       <div className="field"><span>Notifications</span>
@@ -280,12 +302,154 @@ function AppTab() {
   );
 }
 
+
+/** How long one Touch ID check licenses further fills. "Every time" is the default and the honest
+ *  one; the windows exist because an SSO sign-in is often two fills a few seconds apart. */
+const PRESENCE_TTL_LABELS: Record<number, string> = { 0: "Every time", 60_000: "For 1 minute", 300_000: "For 5 minutes" };
+
+/**
+ * Settings → Sign-ins: the ONE place a browser credential can be created.
+ *
+ * That is a security property, not a UI choice, and it is why this is a plain form with a native
+ * password field rather than anything cleverer. There is no tool, no RPC method, no file importer and
+ * no chat path that reaches `addCredential` — so an agent cannot enroll a credential for the origin
+ * it is currently standing on and then ask to have it filled, which is the attack the origin gate
+ * would otherwise be powerless against.
+ *
+ * The list is metadata: origin, username, label. There is no reveal button and no edit-in-place for
+ * the value, because main has no method that would answer one. Changing a password means saving a new
+ * sign-in and removing the old.
+ */
+function SignInsTab() {
+  const credentials = useApp((s) => s.credentials);
+  const status = useApp((s) => s.credentialStatus);
+  const refreshCredentials = useApp((s) => s.refreshCredentials);
+  const addCredential = useApp((s) => s.addCredential);
+  const removeCredential = useApp((s) => s.removeCredential);
+  const setCredentialPresenceTtl = useApp((s) => s.setCredentialPresenceTtl);
+  const run = useApp((s) => s.run);
+  useEffect(() => { void run(() => refreshCredentials()); }, [run, refreshCredentials]);
+
+  const [origin, setOrigin] = useState("");
+  const [username, setUsername] = useState("");
+  const [label, setLabel] = useState("");
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const canSave = origin.trim() !== "" && value !== "" && !saving;
+
+  async function save() {
+    setError(null);
+    setSaving(true);
+    try {
+      await addCredential({ origin: origin.trim(), username: username.trim(), label: label.trim(), value });
+      // Cleared on success AND only on success: a rejected save keeps what the user typed so they can
+      // fix the address without retyping the password.
+      setOrigin(""); setUsername(""); setLabel(""); setValue("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That sign-in could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="form">
+      <p className="page-lede">
+        Sign-ins you save here can be typed into a page by an agent that never sees them. Realm checks
+        the page is really on the site you saved the sign-in for, asks you to approve that specific
+        fill, and asks for Touch ID — every time.
+      </p>
+
+      {status !== null && !status.available && (
+        <p className="settings-hint" role="alert">
+          macOS isn't offering Realm an encryption key right now, so sign-ins can't be saved. Realm
+          won't store one unencrypted.
+        </p>
+      )}
+      {status !== null && status.available && !status.canPromptTouchID && (
+        <p className="settings-hint" role="alert">
+          This Mac has no Touch ID sensor. Sign-ins can be saved, but filling one always needs Touch ID,
+          so fills will be refused here.
+        </p>
+      )}
+
+      <div className="field"><span>Saved sign-ins</span>
+        {credentials === null ? <p className="env-empty">Loading…</p> : credentials.length === 0 ? (
+          <p className="env-empty">No saved sign-ins yet.</p>
+        ) : (
+          <ul className="settings-list">
+            {credentials.map((c) => (
+              <li key={c.id} className="settings-row" aria-label={`${c.origin}${c.username ? `: ${c.username}` : ""}`}>
+                <div className="settings-row-main">
+                  <span className="settings-row-name">{c.origin}</span>
+                  <span className="settings-row-desc">{[c.username, c.label].filter(Boolean).join(" · ") || "No username or label"}</span>
+                </div>
+                <button type="button" className="btn-quiet" onClick={() => run(() => removeCredential(c.id))}>Remove</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="field"><span>Add a sign-in</span>
+        <label className="settings-input-label">Site address
+          <input type="url" inputMode="url" placeholder="https://example.com" value={origin}
+            onChange={(e) => setOrigin(e.target.value)} />
+        </label>
+        <label className="settings-input-label">Username
+          <input type="text" autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} />
+        </label>
+        <label className="settings-input-label">Label
+          <input type="text" autoComplete="off" placeholder="Work account" value={label}
+            onChange={(e) => setLabel(e.target.value)} />
+        </label>
+        {/* A real password input: masked by the OS, excluded from autofill managers, and — because
+            nothing reads it back — write-only from the moment it is saved. */}
+        <label className="settings-input-label">Password
+          <input type="password" autoComplete="new-password" value={value} onChange={(e) => setValue(e.target.value)} />
+        </label>
+        {error !== null && <p className="settings-hint" role="alert">{error}</p>}
+        <button type="button" className="btn-quiet" disabled={!canSave} onClick={() => { void save(); }}>
+          {saving ? "Saving…" : "Save sign-in"}
+        </button>
+        <p className="settings-hint">
+          Realm pins the sign-in to exactly this address. A sign-in saved for https://example.com will
+          not fill on https://login.example.com or on any lookalike — subdomains are different sites.
+        </p>
+      </div>
+
+      <div className="field"><span>Touch ID</span>
+        <fieldset className="settings-tabs" aria-label="Ask for Touch ID">
+          {CREDENTIAL_PRESENCE_TTLS.map((ms) => (
+            <label key={ms} className="settings-tab" data-selected={status?.presenceTtlMs === ms || undefined}>
+              <input type="radio" name="settings-credential-ttl" value={ms} checked={status?.presenceTtlMs === ms}
+                onChange={() => run(() => setCredentialPresenceTtl(ms))} />
+              {PRESENCE_TTL_LABELS[ms]}
+            </label>
+          ))}
+        </fieldset>
+        <p className="settings-hint">
+          A window only starts after a successful check, and never survives quitting Realm. Signing in
+          is often two fills a few seconds apart, which is what the windows are for.
+        </p>
+      </div>
+
+      <div className="field"><span>What Realm can't do</span>
+        <p className="settings-hint">{CREDENTIAL_2FA_NOTE}</p>
+        <p className="settings-hint">{CREDENTIAL_STORAGE_NOTE}</p>
+      </div>
+    </div>
+  );
+}
+
 /** Why the Updates button is disabled, in words — one honest sentence per gate reason (Plan 15 W1).
  *  The reasons are main's (updater.ts): the renderer names them, it never decides them. */
 export const UPDATE_DISABLED_COPY = {
   dev: "Update checks don't run in development builds.",
   unsigned: "Updates unavailable: unsigned build — macOS can only install a signed update. Signing steps: docs/dev/signing.md.",
-  "no-feed": "Updates unavailable: no public update feed — this build's releases are private. Activation conditions: README → Updates.",
+  "no-feed": "Updates unavailable: this build has no public update feed. See README → Updates.",
 } as const;
 
 /** One line per updater state — every word is a fact main reported, and the button only ever claims
@@ -306,7 +470,7 @@ function UpdatesField() {
     : st.kind === "downloading" ? `Downloading v${st.version}…`
     : st.kind === "downloaded" ? `v${st.version} is ready — restart to finish installing.`
     : st.kind === "error" ? `Update check failed: ${st.message}`
-    : "Checks only run when you ask — nothing polls in the background.";
+    : "Realm checks for updates on launch. You can also check now.";
   return (
     <div className="field"><span>Updates</span>
       <div className="settings-row update-row">

@@ -216,9 +216,19 @@ kbd { font: 11px var(--font-mono); }
 /* overscroll-behavior: the strip is the innermost horizontal scroller in a window that also swipes
    between spaces — without it, reaching either end hands the rest of the gesture to the ancestors,
    which reads as the strip stalling mid-scroll. */
-.strip-spaces { flex: 1; display: flex; align-items: center; justify-content: safe center; gap: 2px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+/* mask: the scrollbar is hidden, so without a fade at each end a strip that overflows looks exactly
+   like one that fits — the spaces past the edge were invisible AND unannounced. The fade only shows
+   where there is something under it, so a strip that fits reads as untouched. */
+.strip-spaces { flex: 1; display: flex; align-items: center; justify-content: safe center; gap: 2px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%); }
 .strip-spaces::-webkit-scrollbar { display: none; }
 .strip-side { flex: none; }
+/* The profile chip: which profile the strip below is scoped to, and the door to the others. One
+   square the size of a space button, wearing the profile's own icon and colour — spelling the name
+   out here cost roughly two space slots, and the header's profile pill already says it. */
+.strip-profile { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); }
+.strip-profile:hover:not(:disabled) { background: var(--rl-hover); }
+.strip-profile:disabled { opacity: .45; }
 .strip-space { position: relative; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); color: var(--rl-text-dim); flex: none; }
 .strip-space:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Active space (§5): --rl-active fill, no border; the glyph takes the space colour. */
@@ -376,8 +386,10 @@ kbd { font: 11px var(--font-mono); }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--rl-panel); }
 .panehost { flex: 1; min-height: 0; display: flex; -webkit-app-region: no-drag; }
 .panehost > * { flex: 1; min-width: 0; min-height: 0; }
+/* An inline-size container: the pane's own chrome (its bar, and every pane that queries below) sizes
+   itself against the LEAF it fills, not the window — a pane can be a tenth of the host. */
 .panel { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0;
-  background: var(--rl-panel); overflow: hidden; }
+  background: var(--rl-panel); overflow: hidden; container-type: inline-size; }
 /* 16px left rail, aligned with the transcript and composer (V-S2). */
 .panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--rl-hairline); font-size: 14px; -webkit-app-region: drag; }
 .panel-bar button, .panel-bar input { -webkit-app-region: no-drag; }
@@ -405,6 +417,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .panel-rename .rename { height: 24px; }
 .panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .panel-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+/* Narrow bar, in priority order. The title is the pane's identity — in a three-way split it is the
+   only way to tell two sessions apart — and it was the one thing shrinking to nothing while a model
+   label and a back arrow kept their full width. So the per-kind meta goes first (the model and cost
+   are on the composer's own chips anyway), then the back/forward trail (⌘[ / ⌘] still work), and the
+   actions cluster keeps its place at the right. */
+@container (max-width: 380px) { .panel-meta { display: none; } }
+@container (max-width: 300px) { .panel-nav { display: none; } }
 /* Browser panes (W2.3): the header's actions are inline buttons, never a dropdown. The two-step
    delete confirm swaps the trash icon for a small labelled button in place. */
 .panel-actions .icon-btn.danger:hover { color: var(--rl-danger); }
@@ -456,6 +475,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-ticker-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--rl-text-dim); }
 .browser-ticker-text[data-failed] { color: var(--rl-danger); }
 .browser-ticker-time { flex: none; font-size: 10.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* Plan 23 W4's blocked-download bar. A ROW between the chrome and the view host, never a floating
+   toast: the native view composites over anything inside its rectangle, so a toast there would be
+   invisible (W2's no-overlay invariant). Its height comes out of the view's, which the pane's
+   ResizeObserver already syncs. */
+.browser-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--rl-hairline); background: var(--rl-hover); }
+.browser-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--rl-text-dim); }
+.browser-notice-text strong { font-weight: 550; color: var(--rl-text-bright); }
 /* The placeholder the native view is bounds-synced onto. Painted the view's own opaque white so the
    sliver the view trails behind during a resize never flashes the panel tone (research: do NOT
    debounce the sync; match the colours instead). Pages are their own light world — like the
@@ -547,6 +573,37 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-snippet mark { background: transparent; color: var(--rl-text-bright); font-weight: 600; }
 .palette-empty { padding: 14px; text-align: center; }
 
+/* ── Space overview (⌘⇧Space) ──────────────────────────────────────────────
+   The strip is scoped to one profile, so this is where the whole home is legible: every space,
+   sectioned by profile, with its NAME — the thing a 16px glyph in a rail can never give you. Sits on
+   the sheet scrim rather than the palette's lighter one: it covers the window on purpose. */
+.spaces-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; background: rgba(0,0,0,.45); }
+.spaces-overview { display: flex; flex-direction: column; width: min(620px, calc(100vw - 32px)); max-height: 72vh; border-radius: var(--r-float); overflow: hidden;
+  background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-overlay); }
+.spaces-search { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-dim); }
+.spaces-search input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
+.spaces-search kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); }
+.spaces-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px 14px; }
+.spaces-section + .spaces-section { margin-top: 14px; }
+.spaces-section-head { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
+.spaces-section-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.spaces-section-count { font-variant-numeric: tabular-nums; }
+/* Fixed three columns: SpaceOverview's arrow keys step by that stride, so the two must agree. */
+.spaces-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.space-card { position: relative; display: flex; align-items: center; gap: 9px; min-width: 0; padding: 10px 11px; border-radius: var(--r-panel);
+  background: var(--rl-panel); color: var(--rl-text-bright); text-align: left; }
+.space-card-icon { display: grid; place-items: center; flex: none; }
+.space-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.space-card-badge { top: 7px; right: 7px; border-color: var(--rl-panel); }
+/* The keyboard cursor and the mouse share one treatment — two highlights on one grid would be a lie
+   about which one Enter follows. */
+.space-card[data-cursor] { background: var(--rl-hover); }
+/* Where you already are: a ring, not a fill, so it survives the cursor landing on top of it. */
+.space-card[data-current] { box-shadow: inset 0 0 0 1px var(--rl-line-strong); }
+.spaces-empty { padding: 24px; text-align: center; }
+.spaces-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--rl-hairline); }
+.spaces-foot-hint { font-size: 11px; }
+
 /* ── Session pane ──────────────────────────────────────────────────────── */
 /* A size container so the prompter's hero lift can be expressed in cqh (pane-height units). */
 .session-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); container-type: size; }
@@ -571,21 +628,68 @@ button.panel-title:hover { background: var(--rl-hover); }
 .status-dot[data-status="connected"] { background: var(--rl-success); }
 .status-dot[data-status="circuit_open"] { background: var(--rl-danger); animation: rl-pulse 0.9s ease-in-out infinite; }
 @keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
-@keyframes rl-spin { to { transform: rotate(360deg); } }
-.spin { animation: rl-spin 0.9s linear infinite; }
+/* The one loading spinner — the G5 "Idling" orb (components/Spinner.tsx builds the dots and their
+   nine poses). Nothing here rotates: each dot walks its own pre-projected pose table, so the whole
+   animation is transform + opacity. `--orb-k` scales the 28px stage geometry to the caller's size,
+   dots included; the -1px margins still centre them because a transform scales about its own centre. */
+.spinner { position: relative; display: inline-block; flex: none; }
+/* No `will-change` here, unlike the upstream orb: §6 reserves it for the swiper track, and hinting
+   40 dots would promote 40 layers for a 14px glyph. Transform + opacity are composited anyway. */
+.spinner-dot { position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; margin: -1px 0 0 -1px;
+  border-radius: 50%; background: currentColor; animation: rl-orb-breathe 3.6s linear infinite both; }
+/* The pose table's percentages are uneven on purpose: the 19%/44%/69%/94% steps are the slow crawls,
+   the 25%/50%/75%/100% ones the bursts that snap between them. */
+@keyframes rl-orb-breathe {
+  0%   { transform: scale(var(--orb-k)) translate(var(--g0x), var(--g0y)); opacity: var(--g0o); }
+  19%  { transform: scale(var(--orb-k)) translate(var(--g1x), var(--g1y)); opacity: var(--g1o); }
+  25%  { transform: scale(var(--orb-k)) translate(var(--g2x), var(--g2y)); opacity: var(--g2o); }
+  44%  { transform: scale(var(--orb-k)) translate(var(--g3x), var(--g3y)); opacity: var(--g3o); }
+  50%  { transform: scale(var(--orb-k)) translate(var(--g4x), var(--g4y)); opacity: var(--g4o); }
+  69%  { transform: scale(var(--orb-k)) translate(var(--g5x), var(--g5y)); opacity: var(--g5o); }
+  75%  { transform: scale(var(--orb-k)) translate(var(--g6x), var(--g6y)); opacity: var(--g6o); }
+  94%  { transform: scale(var(--orb-k)) translate(var(--g7x), var(--g7y)); opacity: var(--g7o); }
+  100% { transform: scale(var(--orb-k)) translate(var(--g8x), var(--g8y)); opacity: var(--g8o); }
+}
 
 .transcript-wrap { flex: 1; min-height: 0; position: relative; display: flex; }
-.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 40px; }
+/* The bottom padding above is the fade band's clearance: scrolled to the end, the last line
+   rests in the band's untouched top third rather than under its blur. */
 /* Shared rails (§4): content rides the prompter's 680px column; the scrollbar stays at the pane edge
    because .transcript itself is the scroller. Cluster-then-breathe rhythm (V-S1): 8px inside a turn,
    16px before each new user turn. */
 .transcript-col { width: 100%; max-width: var(--prompter-w); margin-inline: auto; display: flex; flex-direction: column; gap: 8px; }
 
+/* Ara §4: text does not stop at the prompter, it passes under it. A scroller clipped at its own box
+   edge cuts glyphs in half; a progressive blur reads as depth. Two backdrop layers — a light blur
+   over the whole band, a heavier one plus the panel wash over the bottom — each behind a mask that
+   starts lower, so the blur RAMPS instead of stepping (one flat band would show its own top edge).
+   The masks live on the blurring layers themselves, never on their parent: a masked ancestor becomes
+   a backdrop root and its children would blur an empty backdrop. */
+/* Right inset = the 10px scrollbar below: the thumb is chrome, not transcript, and a thumb that
+   dissolved halfway down would read as a scrollbar that stops short. */
+.transcript-fade { position: absolute; inset: auto 10px 0 0; height: 68px; pointer-events: none; z-index: 1; }
+.transcript-fade::before, .transcript-fade::after { content: ""; position: absolute; inset: 0; }
+.transcript-fade::before { backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 60%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 60%); }
+/* The wash ends fully opaque: the band's last pixels are pure panel, so the gap above the card has
+   nothing left to cut off. */
+.transcript-fade::after { backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px);
+  background: linear-gradient(to bottom, transparent 0, var(--rl-panel) 88%);
+  mask-image: linear-gradient(to bottom, transparent 30%, #000 78%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 30%, #000 78%); }
+/* Asked for less translucency: keep the fade (it is what stops the hard cut), drop the blur. */
+@media (prefers-reduced-transparency: reduce) {
+  .transcript-fade::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .transcript-fade::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
 .msg-user-row { display: flex; justify-content: flex-end; margin-top: 16px; }
 .msg-user-row:first-child { margin-top: 0; }
 /* Ara refresh §4: the user's message is a raised card on the column's RIGHT edge — radius 14,
-   14px 16px padding, 85% max — and, copying Ara exactly, ragged-left (text-align: right). */
-.msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: right;
+   14px 16px padding, 85% max. */
+.msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: left;
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Plan 20: a message another SESSION delivered. An attribution line plus a muted accent ring, so it
    reads as "an agent asked this" rather than as something the user typed. */
@@ -619,8 +723,6 @@ button.panel-title:hover { background: var(--rl-hover); }
 .md-code pre { margin: 0; padding: 10px 12px; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
 .md a { color: var(--rl-accent); text-decoration: underline; text-underline-offset: 2px; } /* Ara refresh §4: ink underline, no hue */
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
-.md table { border-collapse: collapse; margin: 6px 0 8px; } .md th, .md td { border: 1px solid var(--rl-line); padding: 4px 8px; }
-.md-scroll { overflow-x: auto; } /* renderMarkdown wraps every table (A-M1) */
 /* A 1px low-alpha outline keeps an image's edge legible on any surface it lands on. Pure white in
    dark mode / pure black in light — a tinted neutral would pick up the ground and read as dirt. */
 .md img { max-width: 100%; border-radius: var(--r-chip); outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
@@ -683,14 +785,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-card[data-open] .tool-body { opacity: 1; }
 
 /* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
-   the sparkle glyph plus `Worked for <duration> ›` at 13/500 — shimmering (BUI's working treatment)
-   while the run is live, settled ink-2 once every step has its result — and the opened trace hangs
-   off ThinkingState's solid 1px rail (the dashed connector is gone: BUI truth). */
+   `Worked for <duration> ›` at 13/500 — shimmering (BUI's working treatment) while the run is live,
+   settled ink-2 once every step has its result — and the opened trace hangs off ThinkingState's solid
+   1px rail (the dashed connector is gone: BUI truth). */
 .tool-group { border-radius: var(--r-ctl); font-size: 12px; }
 .tool-group-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); text-align: left; font-size: 13px; font-weight: 500; color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.tool-group-glyph { color: var(--ink-3); flex: none; }
-.tool-group[data-working] .tool-group-glyph { color: var(--ink-2); }
 .tool-group-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
    Driven by data-working — the group's own unsettled steps — never by a demo clock. */
@@ -722,6 +822,189 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-expand:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
 .tool-body pre[data-error] { color: var(--rl-danger); }
+
+/* ── Inline UI in the transcript (Plan 24 W1) ──────────────────────────────────
+   A tool card's body used to be two `<pre>`s: `JSON.stringify(input, null, 2)` and the raw result
+   text. Everything below replaces those with the thing the payload actually IS — a diff, a plan, a
+   terminal, a file, a list of matches — using the same materials the rest of the app is built from
+   (the surface ladder, the hairline ring, the mono face, the add/del tints §2.4 already allows).
+
+   Two rules the whole section keeps:
+   - Colour stays a condiment. The only hues here are DIFF STATE (add/del) and SYNTAX, both of which
+     §2.4 already names as places colour carries meaning. Nothing is coloured for decoration.
+   - Every one of these renders inside the 680px transcript column, so nothing may set a width that
+     the column cannot give it: the code surfaces scroll sideways inside their own box instead. */
+
+/* Syntax colours (highlight.js token classes; rich/highlight.ts emits them). One muted, six-hue
+   ramp shared by fenced code, file previews and the composer's code chips — deliberately quieter
+   than an editor theme, because a transcript is prose with code in it rather than an editor. */
+.hljs { color: var(--ink-2); }
+.hljs-comment, .hljs-quote { color: var(--ink-3); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-name { color: var(--accent); }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string { color: var(--green); }
+.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-template-variable, .hljs-variable { color: var(--orange); }
+.hljs-title, .hljs-section, .hljs-title.class_, .hljs-title.function_, .hljs-selector-id { color: var(--ink); font-weight: 550; }
+.hljs-type, .hljs-built_in, .hljs-class .hljs-title, .hljs-params { color: var(--ink); }
+.hljs-attr, .hljs-selector-attr, .hljs-selector-class, .hljs-property { color: var(--ink-2); }
+.hljs-meta, .hljs-comment .hljs-doctag { color: var(--ink-3); }
+.hljs-deletion { color: var(--red); }
+.hljs-emphasis { font-style: italic; } .hljs-strong { font-weight: 600; }
+
+/* A file, with a line-number rail (rich/ToolViews.tsx CodeBlock). The rail is its own column and
+   neither column wraps, so the numbers stay in register while the code scrolls under them. */
+.code-block { display: flex; align-items: stretch; background: var(--rl-frame); border-radius: var(--r-chip); overflow: hidden; max-height: 420px; overflow-y: auto; }
+.code-gutter { flex: none; padding: 8px 8px 8px 10px; text-align: right; white-space: pre; user-select: none;
+  font: 11.5px/1.65 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint);
+  background: var(--inset); position: sticky; left: 0; }
+.code-body { flex: 1; min-width: 0; margin: 0; padding: 8px 10px; overflow-x: auto; font: 12px/1.65 var(--font-mono); white-space: pre; }
+.code-body code { background: none; padding: 0; font: inherit; }
+
+/* ── File diff (AICSS "File Diff") ────────────────────────────────────────────
+   Its own `fd-` namespace rather than the diff PANE's `.diff-*`: the two draw the same thing but
+   have different jobs — the pane owns staging, history and file actions across a full-height list,
+   this one is a read-only card that has to fit the transcript column. They are kept looking alike
+   by sharing the tint tokens and the 12.5/1.65 mono line, not by sharing selectors, so a change to
+   the pane's chrome can never silently restyle a message from three weeks ago. */
+.fd-view { display: flex; flex-direction: column; gap: 8px; }
+.fd-file { border-radius: var(--r-ctl); background: var(--surface); box-shadow: var(--shadow-hairline); overflow: hidden; }
+.fd-head { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px 0 10px; border-bottom: 1px solid var(--line); }
+/* Path chips (PathLabel): the directory gives way, the file name never does. */
+.fd-path { flex: 1; min-width: 0; display: flex; font: 11.5px var(--font-mono); color: var(--rl-text-dim); }
+.path-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-faint); }
+.path-base { flex: none; color: var(--rl-text-bright); }
+.fd-stat { flex: none; display: flex; align-items: center; gap: 6px; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.fd-add { color: var(--rl-success); } .fd-del { color: var(--rl-danger); }
+/* Five cells, filled in proportion (statCells). Read before the numbers are. */
+.fd-bar { display: flex; gap: 1.5px; }
+.fd-bar i { width: 5px; height: 5px; border-radius: 1px; background: var(--rl-line-strong); }
+.fd-bar i[data-fill="add"] { background: var(--green); } .fd-bar i[data-fill="del"] { background: var(--red); }
+.fd-body { overflow-x: auto; padding: 4px 0; }
+/* Grid, not flex: every line's two gutters and sign share one column ruler, so the code edge stays
+   straight from the first hunk to the last however wide the numbers get. */
+.fd-line { display: grid; grid-template-columns: 0 0 14px 1fr; align-items: baseline;
+  font: 12px/1.65 var(--font-mono); white-space: pre; position: relative; }
+.fd-body[data-numbered] .fd-line { grid-template-columns: 38px 38px 14px 1fr; }
+.fd-no { padding-right: 8px; text-align: right; overflow: hidden; user-select: none;
+  font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.fd-sign { text-align: center; user-select: none; color: var(--rl-text-faint); }
+.fd-text { min-width: 0; padding-right: 10px; color: var(--ink-2); }
+/* §2.4's diff tints, with the 3px state bar the diff pane uses — the same colour language on both
+   surfaces, so a change looks the same wherever the reader meets it. */
+.fd-line[data-kind="add"] { background: var(--green-tint); }
+.fd-line[data-kind="del"] { background: var(--red-tint); }
+.fd-line[data-kind="add"]::before, .fd-line[data-kind="del"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; }
+.fd-line[data-kind="add"]::before { background: var(--green); }
+.fd-line[data-kind="del"]::before { background: var(--red); }
+.fd-line[data-kind="add"] .fd-no, .fd-line[data-kind="add"] .fd-sign { color: var(--green); }
+.fd-line[data-kind="del"] .fd-no, .fd-line[data-kind="del"] .fd-sign { color: var(--red); }
+/* The span inside a line that actually changed. A stronger wash of the row's own tint, never a new
+   hue: it has to read as "this part of this change", not as a third state. */
+.fd-mark { background: color-mix(in srgb, var(--green) 26%, transparent); color: inherit; border-radius: 2px; }
+.fd-line[data-kind="del"] .fd-mark { background: color-mix(in srgb, var(--red) 26%, transparent); }
+/* The elision rail between hunks. A line of its own so the reader can see that something was
+   skipped and how much — a diff that silently jumps is a diff you cannot trust. */
+.fd-skip { display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 10.5px; color: var(--rl-text-faint); background: var(--inset); }
+.fd-skip::before, .fd-skip::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.fd-note { padding: 6px 10px; font-size: 11.5px; color: var(--rl-text-faint); }
+
+/* ── Command + its output ─────────────────────────────────────────────────── */
+.cmd { border-radius: var(--r-chip); background: var(--rl-frame); overflow: hidden; }
+.cmd-line { display: flex; gap: 8px; padding: 8px 10px; font: 12px/1.6 var(--font-mono); }
+/* Outside the selectable text on purpose: a copied command must not arrive with a shell prompt on it. */
+.cmd-prompt { flex: none; user-select: none; color: var(--rl-success); }
+.cmd-line code { min-width: 0; background: none; padding: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.cmd-meta { display: flex; gap: 8px; padding: 0 10px 7px 28px; font-size: 11px; color: var(--rl-text-faint); }
+.cmd-cwd { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-out { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-terminal-bg); color: var(--ink-2);
+  font: 12px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+/* Shown only where the payload carried a code (Codex's `[exit N]`); §3 status-pill treatment. */
+.term-exit { display: inline-block; margin-top: 6px; padding: 2px 7px; border-radius: var(--r-chip);
+  font: 11px var(--font-mono); color: var(--rl-success); background: var(--green-tint); }
+.term-exit[data-bad] { color: var(--rl-danger); background: var(--red-tint); }
+
+/* ── The agent's plan (AICSS "To-do List") ────────────────────────────────── */
+.todo { display: flex; flex-direction: column; gap: 7px; }
+.todo-head { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
+.todo-count { flex: none; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.todo-active { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-track { height: 3px; border-radius: 2px; background: var(--rl-line); overflow: hidden; }
+/* The one bar in the app that fills with the accent: it is progress, not state — §3 reserves colour
+   for state, and reserves the accent for "the thing that is happening". */
+.todo-fill { height: 100%; border-radius: 2px; background: var(--rl-accent); transition: width 240ms var(--ease-out-strong); }
+.todo-list { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
+.todo-list li { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
+.todo-dot { flex: none; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--rl-line-strong); color: var(--rl-accent-contrast); transform: translateY(2px); }
+.todo-list li[data-status="in_progress"] { color: var(--rl-text-bright); }
+.todo-list li[data-status="in_progress"] .todo-dot { box-shadow: inset 0 0 0 1.5px var(--rl-accent); background:
+  radial-gradient(circle, var(--rl-accent) 0 3.5px, transparent 3.5px); }
+.todo-list li[data-status="completed"] { color: var(--rl-text-faint); }
+/* Struck through, not hidden: the plan's history is the point — what the agent decided to do and in
+   what order — and a list that deletes its finished items reads as a list that changed its mind. */
+.todo-list li[data-status="completed"] .todo-text { text-decoration: line-through; text-decoration-color: var(--rl-line-strong); }
+.todo-list li[data-status="completed"] .todo-dot { box-shadow: none; background: var(--rl-success); }
+
+/* ── Search results (Grep / Glob) ─────────────────────────────────────────── */
+.matches { display: flex; flex-direction: column; gap: 6px; }
+.matches-note { font-size: 11px; color: var(--rl-text-faint); }
+.match-file { border-radius: var(--r-chip); background: var(--rl-frame); overflow: hidden; }
+.match-path { display: flex; padding: 5px 9px; font: 11.5px var(--font-mono); color: var(--rl-text-dim); }
+.match-file:has(.match-row) .match-path { border-bottom: 1px solid var(--line); color: var(--rl-text-bright); }
+.match-row { display: grid; grid-template-columns: 44px 1fr; gap: 8px; padding: 1px 9px; font: 12px/1.6 var(--font-mono); }
+.match-no { text-align: right; user-select: none; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.match-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; color: var(--ink-2); }
+
+/* ── A web request the agent is making ────────────────────────────────────── */
+.req { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); }
+.req-head { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--rl-text-faint); }
+/* The host, pulled out and given weight: on a permission card it is the whole question. */
+.req-host { flex: none; padding: 1px 6px; border-radius: var(--r-chip); font-size: 11px; font-weight: 550;
+  color: var(--rl-text-bright); background: var(--field); box-shadow: var(--shadow-hairline); }
+.req-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--font-mono); color: var(--rl-text-dim); }
+.req-prompt { font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
+
+/* The permission card's preview of what it is about to approve. Given the card's own width and no
+   inner card of its own — it is the subject of the question, not an attachment to it. */
+.permission-preview { margin: 2px 0 2px; }
+.permission-preview .fd-file, .permission-preview .code-block { max-height: 300px; overflow: auto; }
+
+/* ── Markdown: callouts, task lists, tables, math ─────────────────────────── */
+/* GitHub admonitions (`> [!WARNING]`). Left rail in the state's own colour, header in the same —
+   the marker exists to say WHICH of the five it is, and a uniform grey bar throws that away. */
+.md-callout { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--rl-line-strong); border-radius: 0 var(--r-chip) var(--r-chip) 0;
+  background: var(--inset); color: var(--rl-text-dim); }
+.md-callout > :last-child { margin-bottom: 0; }
+.md-callout-head { margin-bottom: 3px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--rl-text-dim); }
+.md-callout[data-kind="tip"] { border-left-color: var(--green); } .md-callout[data-kind="tip"] .md-callout-head { color: var(--rl-success); }
+.md-callout[data-kind="warning"], .md-callout[data-kind="caution"] { border-left-color: var(--orange); }
+.md-callout[data-kind="warning"] .md-callout-head, .md-callout[data-kind="caution"] .md-callout-head { color: var(--rl-warning); }
+.md-callout[data-kind="important"] { border-left-color: var(--accent); } .md-callout[data-kind="important"] .md-callout-head { color: var(--rl-accent); }
+/* GFM task lists. The bullet is dropped for the checkbox — two markers on one row is one too many. */
+.md li:has(> input[type="checkbox"]) { list-style: none; margin-left: -20px; }
+.md input[type="checkbox"] { appearance: none; width: 12px; height: 12px; margin-right: 7px; border-radius: 3px; vertical-align: -1px;
+  box-shadow: inset 0 0 0 1.5px var(--rl-line-strong); }
+.md input[type="checkbox"]:checked { background: var(--rl-accent) no-repeat center /8px 8px
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E");
+  box-shadow: none; }
+/* Tables (AICSS "Data Table"): rules between rows only, a quiet header, numbers right-aligned on
+   tabular figures so a column of them lines up on the decimal point. */
+.md table { width: 100%; margin: 0; border-collapse: collapse; font-size: 13px; }
+.md th, .md td { border: 0; border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.md thead th { position: sticky; top: 0; font-size: 11px; font-weight: 550; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--rl-text-faint); background: var(--rl-panel); }
+.md tbody tr:last-child td { border-bottom: 0; }
+.md tbody tr:hover { background: var(--rl-hover); }
+.md td[align="right"], .md th[align="right"] { text-align: right; font-variant-numeric: tabular-nums; }
+/* renderMarkdown wraps every table in this (A-M1): a wide one scrolls itself rather than the
+   transcript, and it is the scroll container the sticky header above sticks to. */
+.md-scroll { margin: 6px 0 8px; max-height: 420px; overflow: auto; border-radius: var(--r-ctl); box-shadow: var(--shadow-hairline); }
+/* KaTeX (rich/math.ts). Display math gets its own scrolling row — a wide derivation must not be the
+   thing that widens the transcript column. */
+.math-display { margin: 10px 0; padding: 2px 0; overflow-x: auto; overflow-y: hidden; }
+.md .katex { font-size: 1.05em; }
+/* TeX that would not parse, shown as the agent wrote it: a red ParseError is not something a reader
+   can act on, and the source is. */
+.math-raw { font-family: var(--font-mono); font-size: .92em; color: var(--rl-warning); }
 
 /* Plan 9 W2: the permission card wears BUI ApprovalCard's shell — a surface card on shadow-card
    (BUI cards rest; the old floating overlay shadow is gone), radius-card, 12px card pad, and a
@@ -907,6 +1190,15 @@ button.panel-title:hover { background: var(--rl-hover); }
    has no mirror behind it — the mirror is empty in exactly the state the placeholder shows. */
 .composer-input, .composer-input::selection { -webkit-text-fill-color: transparent; }
 .composer-input::placeholder { color: var(--rl-text-faint); -webkit-text-fill-color: var(--rl-text-faint); }
+/* The suggested prompt (prompt-hint.ts), sitting exactly where the placeholder would: same font, same
+   padding box, one layer under the transparent textarea like the mirror is. Never a second line — the
+   empty box is one row tall — so the sentence ellipsizes and the ⇥ cap keeps its width. Click-through
+   on purpose: pressing ⇥ is the gesture, and a click here must still just place the caret. */
+.composer-hint { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+  display: flex; align-items: baseline; gap: 8px;
+  font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 6px; color: var(--rl-text-faint); }
+.composer-hint-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-hint kbd { flex: none; padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); color: var(--rl-text-faint); }
 /* No scrollbar past the 10-line cap: a classic (non-overlay) scrollbar takes width from the textarea's
    text box and NOT from the mirror's, which would misalign every wrapped line under it. Scrolling
    itself is untouched — wheel, drag-select and the caret's own scroll-into-view all still work. */
@@ -1094,10 +1386,15 @@ button.panel-title:hover { background: var(--rl-hover); }
    stated rather than merely omitted, so the absence reads as a decision. */
 .palette, .palette-backdrop { animation: none; }
 
+/* The overview is the opposite case to the palette above: an occasional, deliberate "show me
+   everything" that covers the window, so it enters on the sheet's own timings rather than snapping. */
+.spaces-overview { animation: rl-sheet-in 240ms var(--ease-out-strong); }
+.spaces-backdrop { animation: rl-fade-in 160ms var(--ease-out-strong); }
+
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
    never `all`, never geometry. */
 .item-row, .item-close, .item-shelf, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy,
-.strip-space, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"],
+.strip-space, .strip-profile, .space-card, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
   transition: background-color 100ms ease, color 100ms ease;
 }
@@ -1120,7 +1417,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   * { animation: none !important; transition: none !important; }
   /* A frozen spinner reads as a hang (A-L5): hide it. .msg-working keeps its "Working…" text; the
      running tool row gets a static ellipsis in the status slot instead. */
-  .spin { display: none; }
+  .spinner { display: none; }
   .tool-card[data-state="running"] .tool-status::after { content: "…"; }
 }
 
@@ -1128,7 +1425,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    Luminance, not lines: the pane is `panel`, its sticky header and commit dock step to `raised`,
    and the only hairlines are the two seams where content scrolls beneath them (§2.1). Colour is
    state only — the add/del tints and the status letters — never chrome. */
-.diff-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--rl-panel); }
+/* min-width: 0 for the same reason `.page` needs it — the head's button row (Stage all · Unstage all
+   · Request review · History) is wider than a narrow pane, and without it the whole pane grew to fit
+   and was clipped. An inline-size container so the head and the commit bar can re-flow to the PANE. */
+.diff-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--rl-panel); container-type: inline-size; }
 .diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rl-hairline); }
 .diff-head-count { font-size: 11.5px; color: var(--rl-text-dim); }
 .diff-head-spacer { flex: 1; }
@@ -1197,6 +1497,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 .commit-message:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .diff-commit-bar { display: flex; align-items: center; gap: 8px; }
 .diff-staged-count { flex: 1; font-size: 11.5px; color: var(--rl-text-faint); }
+/* Narrow: the branch and the file count keep the first line, the buttons take their own. The spacer
+   becoming a full-width break is what forces the split — left to itself the buttons would wrap one
+   at a time and leave a ragged half-row. */
+@container (max-width: 560px) {
+  .diff-head { flex-wrap: wrap; row-gap: 6px; }
+  .diff-head-spacer { flex-basis: 100%; }
+  .diff-commit-bar { flex-wrap: wrap; row-gap: 6px; }
+  .diff-staged-count { flex-basis: 100%; }
+}
 .ship-report { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--rl-text-dim); }
 .ship-report p { margin: 0; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .ship-report code { font-family: var(--font-mono); font-size: 11px; }
@@ -1337,6 +1646,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .origin-add { display: flex; gap: 8px; }
 .origin-add input { flex: 1; }
 .settings-note code { font: 10.5px var(--font-mono); }
+/* Settings → Sign-ins: a stacked label+input inside a `.field`. Its own label line rather than
+   `.field > span`, which is already spoken for by the field's own heading. */
+.settings-input-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 .settings-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); }
 .settings-hint[data-tone="danger"] { color: var(--rl-danger); }
 
@@ -1372,7 +1684,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ——— Page panes (Plan 12 W3). The space page is the first full "page" pane; Library, Notifications
    and Settings (W4/W5/W6) copy this pattern: `.page-head` header, `.page-rail` (~180px) of the
    sheet-era radio tabs stood upright, `.page-content` column capped at ~720px. ——— */
-.page { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); }
+/* `min-width: 0` is load-bearing. `.page` is a flex item of `.pane-slot`, so without it the page is
+   sized by its WIDEST child — the 180px rail plus a row of action buttons — and spills out of a
+   narrow pane, which `.panel` (overflow: hidden) then clips: head, rail and actions all cut off with
+   nothing to scroll. The inline-size container is the other half: every narrow rule below answers to
+   the PANE's width, never the window's, because a page is as likely to be a third of a split as it
+   is to be the whole screen. (The notifications page declared this container on itself first; it is
+   hoisted here so every page gets the same treatment from one place.) */
+.page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); container-type: inline-size; }
 .page-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 20px 24px 14px; }
 .page-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, currentColor 14%, transparent); }
@@ -1384,7 +1703,41 @@ button.panel-title:hover { background: var(--rl-hover); }
 .page-rail { flex: none; width: 180px; display: flex; flex-direction: column; gap: 2px; align-self: flex-start;
   margin: 0; padding: 0; border: none; background: none; }
 .page-rail .settings-tab { flex: none; text-align: left; padding: 6px 10px; font-size: 13px; border-radius: var(--r-ctl); }
-.page-content { flex: 1; min-width: 0; max-width: 720px; overflow-y: auto; padding-right: 4px; }
+/* `min-height: 0` matters once the narrow block below turns `.page-body` into a column: without it
+   the content column's auto minimum keeps it at full content height, and it overflows the pane
+   instead of scrolling inside it. */
+.page-content { flex: 1; min-width: 0; min-height: 0; max-width: 720px; overflow-y: auto; padding-right: 4px; }
+/* ── Narrow pane (Plan 12 W3, responsive pass) ────────────────────────────
+   A 180px rail beside a 60px reading column is two unusable columns, so under ~640px of PANE the
+   page stands its parts up: the rail becomes a scrolling tab strip above the content, the head lets
+   its trailing action fall under the title instead of crushing it, and every row's action cluster
+   takes its own line rather than pinching the text it acts on down to one character per line. */
+@container (max-width: 640px) {
+  .page-head { flex-wrap: wrap; gap: 10px; padding: 14px 16px 10px; }
+  /* Only the trailing action is meant to fall to a second line. Given a shrinkable basis the title
+     stays beside its glyph; left at `auto` its full text is the basis, and the glyph ended up
+     stranded alone on the first line. */
+  .page-title { flex: 1 1 140px; }
+  /* Wide, the title ellipsizes so the head stays one line; narrow, there is no line to save and an
+     ellipsized "N…" is worse than two lines of "Notifications". */
+  .page-title h1 { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .page-body { flex-direction: column; gap: 12px; padding: 0 16px 16px; }
+  /* `min-width: 0` beats the UA's `min-inline-size: min-content` on a fieldset — without it the rail
+     refuses to shrink under the width of all its tabs laid out in a row, and scrolls nothing. */
+  .page-rail { flex-direction: row; width: auto; min-width: 0; align-self: stretch; gap: 4px;
+    overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .page-rail::-webkit-scrollbar { display: none; }
+  .page-rail .settings-tab { white-space: nowrap; }
+  .page-content { max-width: none; padding-right: 0; }
+  /* The `1fr auto` row grid, stood up: the actions keep their own width and the path/name column
+     gets all of it back. */
+  .env-row { grid-template-columns: minmax(0, 1fr); }
+  .env-actions { grid-column: 1; grid-row: auto; flex-wrap: wrap; }
+  .settings-row, .engines-head { flex-wrap: wrap; } /* .settings-source-row and .scope-confirm already wrap */
+  .settings-row > .settings-row-main { flex-basis: 100%; }
+  .settings-tabs { overflow-x: auto; scrollbar-width: none; }
+  .settings-tabs .settings-tab { flex: none; white-space: nowrap; }
+}
 .page-lede { margin: 0; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); }
 .page-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px;
   border: 1px dashed var(--rl-line-strong); border-radius: var(--r-ctl); }
@@ -1441,9 +1794,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .notifications-page-pane .page-head { align-items: flex-start; }
 /* The feed is SCANNED, not read: it takes the whole pane instead of the ~720px reading column the
    other destination pages cap themselves at (there is no `.page-content` here at all), and spends
-   the width on a second column. A size container, so the two columns answer to the PANE's width and
-   not the window's — this page is as likely to be half of a split as it is to be the whole screen. */
-.notifications-page-pane { container-type: inline-size; }
+   the width on a second column. It answers to the PANE's width and not the window's — `.page` is the
+   inline-size container every page shares — because this page is as likely to be half of a split as
+   it is to be the whole screen. */
 .notif-split { gap: 0; }
 .notif-list { flex: 1 1 380px; min-width: 0; max-width: 480px; overflow-y: auto; padding-right: 16px; }
 .notif-detail { flex: 2 1 0; min-width: 0; overflow-y: auto; padding-left: 20px; border-left: 1px solid var(--rl-hairline); }
@@ -1455,8 +1808,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .notif-detail-body { margin: 0; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .notif-detail-card .notif-inline-card { width: 100%; }
 /* Too narrow for two columns: stack them and let the whole body scroll as one, rather than pinching
-   the list and the detail into two unreadable gutters. */
-@container (max-width: 640px) {
+   the list and the detail into two unreadable gutters. The threshold is wider than the other pages'
+   640 because this split needs BOTH columns readable at once — the list alone claims up to 480px, so
+   at 640 the detail was a 140px gutter that could not hold a title. */
+@container (max-width: 760px) {
   .notif-split { flex-direction: column; overflow-y: auto; }
   .notif-list, .notif-detail { flex: none; max-width: none; overflow: visible; padding-right: 0; padding-left: 0; }
   .notif-detail { border-left: none; border-top: 1px solid var(--rl-hairline); padding-top: 14px; margin-top: 6px; }
@@ -1489,6 +1844,9 @@ button.panel-title:hover { background: var(--rl-hover); }
    Permissions tab's state chip only ever wears green on a probe basis (main/tcc.ts's rule). ——— */
 .engines-head { display: flex; align-items: center; gap: 12px; }
 .engines-head .page-lede { flex: 1; min-width: 0; }
+/* Narrow: Re-check drops below the lede rather than squeezing it into a six-word gutter. Placed
+   after the `flex: 1` above on purpose — a container query carries no extra specificity. */
+@container (max-width: 640px) { .engines-head .page-lede { flex-basis: 100%; } }
 .engines-list { gap: 4px; }
 .engine-row { display: flex; gap: 10px; padding: 9px 10px; border-radius: var(--r-ctl); }
 .engine-row + .engine-row { border-top: 1px solid var(--rl-hairline); }
@@ -1513,4 +1871,4 @@ button.panel-title:hover { background: var(--rl-hover); }
 .scope-group-label { margin: 0; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
 .scope-move { flex: none; font-size: 11.5px; }
 .scope-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); background: var(--rl-raised); font-size: 12px; }
-.scope-confirm-copy { flex: 1; min-width: 200px; color: var(--rl-text-dim); }
+.scope-confirm-copy { flex: 1; min-width: min(200px, 100%); color: var(--rl-text-dim); } /* a floor wider than the pane is a floor that overflows it */

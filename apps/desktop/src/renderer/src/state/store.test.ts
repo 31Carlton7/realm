@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, sessionEvent, PAGE_REF_IDS, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
-import { fakeApi, iconAsset, item, mcpServer, session, skillRow, space, type FakeApi } from "./store.test-fakes";
+import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
 const split = (id: string, dir: "row" | "col", children: Layout[]): Layout =>
@@ -63,6 +63,42 @@ describe("app store", () => {
     await store.getState().prevSpace(); expect(store.getState().activeSpaceId).toBe("s1");
     await store.getState().prevSpace(); expect(store.getState().activeSpaceId).toBe("s1"); // clamp
     expect(set).toContain("ui.activeSpaceId=s2");
+  });
+
+  it("nextSpace/prevSpace stay inside the active PROFILE — they never step across the boundary", async () => {
+    // s1, s2 in Work; s3 in School. The strip and the swiper show one profile, so stepping must too.
+    const store = createAppStore(fakeApi({
+      spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Thesis")],
+      items: { s1: [], s2: [], s3: [] },
+    }));
+    await store.getState().boot();                 // s1 active
+    await store.getState().nextSpace(); expect(store.getState().activeSpaceId).toBe("s2");
+    // The named mutant: stepping over `spaces`, which would walk on into School's s3.
+    await store.getState().nextSpace(); expect(store.getState().activeSpaceId).toBe("s2");
+    await store.getState().selectSpace("s3");
+    expect(store.getState().profileSpaces().map((sp) => sp.id)).toEqual(["s3"]);
+    await store.getState().prevSpace(); expect(store.getState().activeSpaceId).toBe("s3");
+  });
+
+  it("selectProfile lands on where that profile was left, and an empty profile is a no-op", async () => {
+    const store = createAppStore(fakeApi({
+      spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Thesis")],
+      items: { s1: [], s2: [], s3: [] },
+      profiles: [profile("p1", "Work"), profile("p2", "School"), profile("p3", "Personal")],
+    }));
+    await store.getState().boot();
+    await store.getState().selectSpace("s2");      // Work's remembered space is now s2, not s1
+    await store.getState().selectProfile("p2");
+    expect(store.getState().activeSpaceId).toBe("s3");
+    await store.getState().selectProfile("p1");
+    expect(store.getState().activeSpaceId).toBe("s2"); // mutant: falling back to the profile's first
+    // Nothing to land on, so nothing happens — never an activeSpaceId of null, which is the
+    // no-space-at-all posture rather than "a profile".
+    await store.getState().selectProfile("p3");
+    expect(store.getState().activeSpaceId).toBe("s2");
+    // Already there: no re-entry, so the space's items are not torn down and refetched.
+    await store.getState().selectProfile("p1");
+    expect(store.getState().activeSpaceId).toBe("s2");
   });
 
   it("createSpace appends and activates; updateSpace merges; deleteSpace moves to neighbor", async () => {
@@ -2098,9 +2134,10 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     expect(store.getState().sessionSpace.se1).toBe("s2");
   });
 
-  it("moveSessionToSpace disposes the renderer's open terminal panel — the server already tore down its pty", async () => {
+  it("moveSessionToSpace disposes the renderer's terminal panel for an UNSTARTED session — the server tore its pty down", async () => {
     const a = seed();
     a.data.sessionTerminals.se1 = { terminalId: "term-se1", itemId: "titem-se1" };
+    a.data.sessions[0] = session("se1", "s1", { terminalItemId: "titem-se1" });
     const store = createAppStore(a); await store.getState().boot();
     store.setState({ sessionTerminals: { se1: "term-se1" }, terminalPanel: { se1: { open: true, width: 320 } } });
     await store.getState().moveSessionToSpace("se1", "s2");
@@ -2109,13 +2146,27 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     expect(store.getState().terminalPanel.se1).toBeUndefined();
   });
 
-  it("moveSessionToSpace is refused once the session has run, and nothing local changes", async () => {
+  it("moveSessionToSpace KEEPS the terminal panel for a session that has run — its checkout came along, so the pty is still valid", async () => {
+    const a = seed();
+    a.data.sessionTerminals.se1 = { terminalId: "term-se1", itemId: "titem-se1" };
+    a.data.sessions[0] = session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA", lastEventSeq: 3, terminalItemId: "titem-se1" });
+    const store = createAppStore(a); await store.getState().boot();
+    store.setState({ sessionTerminals: { se1: "term-se1" }, terminalPanel: { se1: { open: true, width: 320 } } });
+    await store.getState().moveSessionToSpace("se1", "s2");
+    expect(a.disposed).not.toContain("term-se1");
+    expect(store.getState().sessionTerminals.se1).toBe("term-se1");
+    expect(store.getState().terminalPanel.se1).toEqual({ open: true, width: 320 });
+  });
+
+  it("moveSessionToSpace re-homes a session that has already run", async () => {
     const a = seed();
     a.data.sessions[0] = session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA", lastEventSeq: 3 });
     const store = createAppStore(a); await store.getState().boot();
-    await expect(store.getState().moveSessionToSpace("se1", "s2")).rejects.toThrow(/already run/);
-    expect(store.getState().sessions.se1?.spaceId).toBe("s1");
-    expect(store.getState().items.map((i) => i.id)).toContain("i2");
+    await store.getState().moveSessionToSpace("se1", "s2");
+    expect(a.calls).toContain("moveSessionToSpace:se1=s2");
+    expect(store.getState().sessions.se1?.spaceId).toBe("s2");
+    expect(store.getState().sessionSpace.se1).toBe("s2");
+    expect(store.getState().items.map((i) => i.id)).not.toContain("i2");
   });
 
   it("worktreeTitleFrom: first four words, clipped; whitespace-only is null", () => {

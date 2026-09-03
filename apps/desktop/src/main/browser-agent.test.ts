@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserAction } from "@realm/contracts";
-import { buildSnapshot, performAct, SNAPSHOT_STYLES, isOpaqueColor, HIGHLIGHT_ATTR, highlightTargetRef, showActionHighlight, type CdpSend } from "./browser-agent";
+import { buildSnapshot, performAct, performFillCredential, SNAPSHOT_STYLES, isOpaqueColor, HIGHLIGHT_ATTR, highlightTargetRef, showActionHighlight, type CdpSend } from "./browser-agent";
 
 /**
  * The executor mutants, killed against fake CDP payloads:
@@ -56,6 +56,10 @@ function fakeSend(opts: {
   listeners?: Record<number, string[]>;
   quads?: Record<number, number[][] | "throw">;
   describe?: Record<number, { nodeName?: string; attributes?: string[] } | "throw">;
+  /** What `Page.getNavigationHistory` reports — the BROWSER's record of the committed URL, which is
+   *  what the credential fill's origin gate reads. `"throw"` is a history CDP will not give up. */
+  history?: { url: string } | "throw";
+  focus?: "throw";
 }) {
   const calls: { method: string; params: Record<string, unknown> }[] = [];
   const send: CdpSend = async (method, params = {}) => {
@@ -84,7 +88,13 @@ function fakeSend(opts: {
         return { node: d ?? { nodeName: "DIV", attributes: [] } };
       }
       case "Accessibility.getPartialAXTree": return { nodes: [] };
-      case "DOM.focus": return {};
+      case "DOM.focus":
+        if (opts.focus === "throw") throw new Error("node is detached");
+        return {};
+      case "Page.getNavigationHistory": {
+        if (opts.history === "throw") throw new Error("no history");
+        return opts.history ? { currentIndex: 0, entries: [{ url: opts.history.url }] } : { currentIndex: 0, entries: [{ url: "https://example.com/login" }] };
+      }
       case "Input.dispatchMouseEvent": case "Input.dispatchKeyEvent": case "Input.insertText": return {};
       default: return {};
     }
@@ -277,6 +287,156 @@ describe("performAct — the password hard block", () => {
     await performAct(send, { kind: "type", ref: 8, text: "a large paste", method: "insertText", submit: false });
     expect(calls.some((c) => c.method === "Input.insertText" && c.params.text === "a large paste")).toBe(true);
     expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent")).toHaveLength(0);
+  });
+});
+
+
+/**
+ * The credential fill, and the mutants the file header owes:
+ *   - the value reaching a result, an error, or a detail string in ANY form;
+ *   - the origin gate removed or loosened (a lookalike host filling);
+ *   - presence prompted BEFORE the origin was checked, which trains the reflex the gate protects;
+ *   - a fill proceeding after a refusal.
+ *
+ * `reveal` is the store's role, faked here: it records whether it was called at all, which is how a
+ * test can see that a refused fill never even reached the presence check.
+ */
+describe("performFillCredential", () => {
+  const SECRET = "correct horse battery staple";
+
+  /** A store stand-in. `presence` false is a cancelled Touch ID; `revealed` records whether the
+   *  presence/unseal path was entered, which the origin tests assert stays false. */
+  function fakeStore(opts: { presence?: boolean } = {}) {
+    const state = { revealed: false, typed: false };
+    const reveal = async (type: (v: string) => Promise<void>) => {
+      state.revealed = true;
+      if (opts.presence === false) return { ok: false as const, refused: "no_presence" as const };
+      await type(SECRET);
+      state.typed = true;
+      return { ok: true as const };
+    };
+    return { state, reveal };
+  }
+
+  const cred = { id: "cred-1", origin: "https://example.com" };
+
+  it("types the value character by character and reports ONLY the origin (mutant: value or length in the detail)", async () => {
+    const { send, calls } = fakeSend({ history: { url: "https://example.com/login" } });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+
+    expect(result).toEqual({ ok: true, detail: "filled saved credential for https://example.com" });
+    // The whole point: the secret went into the page and into nothing else.
+    expect(store.state.typed).toBe(true);
+    const keys = calls.filter((c) => c.method === "Input.dispatchKeyEvent" && c.params.type === "keyDown");
+    expect(keys.map((c) => c.params.key).join("")).toBe(SECRET);
+    // ...and the RESULT mentions neither the value nor its length.
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    expect(JSON.stringify(result)).not.toContain(String(SECRET.length));
+  });
+
+  it("REFUSES a lookalike origin and never asks for presence (mutant: origin gate removed)", async () => {
+    const { send, calls } = fakeSend({ history: { url: "https://examp1e.com/login" } });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+
+    expect(!result.ok && result.refused).toBe("origin_mismatch");
+    expect(store.state.revealed).toBe(false); // no Touch ID prompt on a phishing page
+    expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent")).toHaveLength(0);
+  });
+
+  it("a SUBDOMAIN is a different site — no registrable-domain leniency (mutant: suffix match)", async () => {
+    const { send } = fakeSend({ history: { url: "https://login.example.com/" } });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    expect(!result.ok && result.refused).toBe("origin_mismatch");
+    expect(store.state.revealed).toBe(false);
+  });
+
+  it("http is not https, and a port is part of the origin", async () => {
+    for (const url of ["http://example.com/", "https://example.com:8443/"]) {
+      const { send } = fakeSend({ history: { url } });
+      const store = fakeStore();
+      const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+      expect(!result.ok && result.refused, url).toBe("origin_mismatch");
+      expect(store.state.revealed).toBe(false);
+    }
+  });
+
+  it("fails CLOSED when the browser will not report a history (mutant: unknown origin treated as a match)", async () => {
+    const { send } = fakeSend({ history: "throw" });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    expect(!result.ok && result.refused).toBe("origin_mismatch");
+    expect(store.state.revealed).toBe(false);
+  });
+
+  it("an opaque page (about:blank) has no origin to match and is refused", async () => {
+    const { send } = fakeSend({ history: { url: "about:blank" } });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    expect(!result.ok && result.refused).toBe("origin_mismatch");
+  });
+
+  it("a cancelled Touch ID refuses AFTER the origin matched, and types nothing", async () => {
+    const { send, calls } = fakeSend({ history: { url: "https://example.com/login" } });
+    const store = fakeStore({ presence: false });
+    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+
+    expect(!result.ok && result.refused).toBe("no_presence");
+    expect(store.state.revealed).toBe(true); // it DID get as far as asking
+    expect(store.state.typed).toBe(false);
+    expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent")).toHaveLength(0);
+  });
+
+  it("a ref that will not focus fails as a stale ref, without burning a presence prompt", async () => {
+    const { send } = fakeSend({ history: { url: "https://example.com/login" }, focus: "throw" });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    expect(result.ok).toBe(false);
+    expect(store.state.revealed).toBe(false);
+  });
+
+  it("a CDP failure MID-TYPING never surfaces the characters it was dispatching (mutant: error message leak)", async () => {
+    // The realistic leak: a CDP error whose message quotes the params it failed on. Nothing about a
+    // caught error may reach the result, so the executor replaces it wholesale.
+    const send: CdpSend = async (method) => {
+      if (method === "Page.getNavigationHistory") return { currentIndex: 0, entries: [{ url: "https://example.com/x" }] };
+      if (method === "DOM.focus") return {};
+      if (method === "Input.dispatchKeyEvent") throw new Error(`dispatch failed for text "${SECRET}"`);
+      return {};
+    };
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    expect(!result.ok && result.error).toBe("the saved sign-in could not be typed into that field");
+  });
+
+  it("the value never reaches a SNAPSHOT either — the field it was typed into still reports no value", async () => {
+    // The end-to-end statement of the header's oldest invariant, from the fill's side: filling a
+    // password field does not make its value snapshot-visible.
+    const b = makeSnapshotDoc();
+    const root = b.addNode({ tag: "BODY" });
+    const pw = b.addNode({ tag: "INPUT", parent: root, attrs: { type: "password" }, backendId: 7, value: SECRET });
+    b.addLayout(root, [0, 0, 1000, 800]);
+    b.addLayout(pw, [10, 10, 200, 30]);
+    const { send } = fakeSend({ snapshot: b.payload(), ax: [{ backendDOMNodeId: 7, role: "textField", name: "Password", value: SECRET, protected: true }] });
+
+    const snap = await buildSnapshot(send, null);
+    expect(snap.text).not.toContain(SECRET);
+    expect(JSON.stringify(snap)).not.toContain(SECRET);
+  });
+
+  it("plain browser_act STILL refuses a password field — fill_credential is not an escape hatch for it", async () => {
+    // Guards the requirement most easily lost to a refactor: adding a sanctioned route must not have
+    // relaxed the unsanctioned one. No mode exists at this layer, so this is the bypassPermissions
+    // case too.
+    const { send, calls } = fakeSend({ describe: { 7: { nodeName: "INPUT", attributes: ["type", "password"] } } });
+    const result = await performAct(send, { kind: "type", ref: 7, text: SECRET, method: "keys", submit: false });
+    expect(result).toEqual({ ok: false, error: "target is a password field", refused: "password" });
+    expect(calls.filter((c) => c.method.startsWith("Input."))).toHaveLength(0);
   });
 });
 

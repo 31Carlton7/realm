@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
+import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult } from "@realm/contracts";
 import type { TccRow } from "../main/tcc";
 import type { UpdateStatus } from "../main/updater";
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
@@ -43,6 +44,35 @@ contextBridge.exposeInMainWorld("realm", {
     check: (): Promise<UpdateStatus> => ipcRenderer.invoke("updates:check"),
     install: (): Promise<void> => ipcRenderer.invoke("updates:install"),
   },
+  /** Desktop notifications (the feed's last hop). `show` resolves whether a toast was actually
+   *  posted — main suppresses one while the window is focused, and the renderer does not second-guess
+   *  that. `onActivate` fires with the ROW ID of a clicked toast; the store owns where that lands. */
+  notify: {
+    show: (input: { id: string; title: string; body: string | null }): Promise<boolean> => ipcRenderer.invoke("notify:show", input),
+    badge: (count: number): Promise<void> => ipcRenderer.invoke("notify:badge", count),
+    onActivate: (cb: (id: string) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, id: string) => cb(id);
+      ipcRenderer.on("realm:notification-activate", handler);
+      return () => ipcRenderer.removeListener("realm:notification-activate", handler);
+    },
+  },
+  /**
+   * Settings → Sign-ins: the ONLY enrollment path for a browser credential.
+   *
+   * Read this surface for what is missing. There is no `get`, no `reveal`, no `export`. `add` takes a
+   * value and answers with `BrowserCredential`, a type with no field for one; `list` answers with the
+   * same. A credential's plaintext travels renderer → main exactly once, at the moment the user types
+   * it, and never makes the return trip — not here, not over RPC, not through the MCP gateway.
+   */
+  credentials: {
+    list: (): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:list"),
+    /** `available`: the OS will encrypt. `canPromptTouchID`: this Mac can actually satisfy a fill. */
+    status: (): Promise<{ available: boolean; canPromptTouchID: boolean; presenceTtlMs: number }> => ipcRenderer.invoke("credentials:status"),
+    add: (input: BrowserCredentialInput): Promise<BrowserCredential> => ipcRenderer.invoke("credentials:add", input),
+    remove: (id: string): Promise<boolean> => ipcRenderer.invoke("credentials:remove", id),
+    /** Resolves the value main actually stored — clamped, so a stale renderer learns the truth. */
+    setPresenceTtl: (ms: number): Promise<number> => ipcRenderer.invoke("credentials:set-presence-ttl", ms),
+  },
   /** Browser pane (Plan 11 W1): drives the native WebContentsView the main process owns for a
    *  browser item. `setBounds` is per-frame and fire-and-forget; the rest are invokes. */
   browser: {
@@ -58,6 +88,23 @@ contextBridge.exposeInMainWorld("realm", {
       const handler = (_e: IpcRendererEvent, s: BrowserViewState) => cb(s);
       ipcRenderer.on("realm:browser-state", handler);
       return () => ipcRenderer.removeListener("realm:browser-state", handler);
+    },
+    /**
+     * Plan 23 W4 — downloads the pane blocked, and the user's own consent to fetch one.
+     *
+     * `saveDownload` is the only way main can learn that a HUMAN wanted a file: `will-download`
+     * cannot tell a real click from CDP input, but a page cannot reach the renderer, so a call
+     * arriving here is consent the page could not have forged. `dir` comes from the server
+     * (`browsers.downloadDir`), never from the page and never composed here.
+     */
+    blockedDownloads: (id: string): Promise<BlockedDownload[]> => ipcRenderer.invoke("browser:blocked-downloads", id),
+    saveDownload: (id: string, blockedId: string, dir: string): Promise<BrowserDownloadResult> =>
+      ipcRenderer.invoke("browser:save-download", id, blockedId, dir),
+    dismissDownload: (id: string, blockedId: string): Promise<void> => ipcRenderer.invoke("browser:dismiss-download", id, blockedId),
+    onDownloadBlocked: (cb: (m: { browserId: string; blocked: BlockedDownload }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: { browserId: string; blocked: BlockedDownload }) => cb(m);
+      ipcRenderer.on("realm:browser-download-blocked", handler);
+      return () => ipcRenderer.removeListener("realm:browser-download-blocked", handler);
     },
   },
 });

@@ -1,4 +1,4 @@
-import type { Browser } from "@realm/contracts";
+import type { BlockedDownload, Browser, BrowserDownloadResult } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 
 /** The per-space origin allowlist's settings key — stored like MCP enablement (`mcp.enabled:<spaceId>`),
@@ -55,6 +55,10 @@ export type BrowserHostBridge = {
   setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
   setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
   onState(cb: (s: BrowserViewState) => void): () => void;
+  blockedDownloads(id: string): Promise<BlockedDownload[]>;
+  saveDownload(id: string, blockedId: string, dir: string): Promise<BrowserDownloadResult>;
+  dismissDownload(id: string, blockedId: string): Promise<void>;
+  onDownloadBlocked(cb: (m: { browserId: string; blocked: BlockedDownload }) => void): () => void;
 };
 
 /** The server side: the persisted row and the space's allowlist setting. */
@@ -62,6 +66,9 @@ export type BrowserServerBridge = {
   get(browserId: string): Promise<Browser>;
   update(browserId: string, patch: { url?: string; title?: string }): Promise<void>;
   allowlist(spaceId: string): Promise<string[] | null>;
+  /** Where this space's downloads land — `<project root>/downloads`, or null with no project. The
+   *  SERVER decides, by the same rule the agent's downloads follow; the renderer never joins paths. */
+  downloadDir(spaceId: string): Promise<string | null>;
 };
 
 export type BrowserBridges = { host: BrowserHostBridge; server: BrowserServerBridge };
@@ -75,6 +82,7 @@ export function getBrowserBridges(): BrowserBridges {
       get: (browserId) => rpc().call("browsers.get", { browserId }),
       update: async (browserId, patch) => { await rpc().call("browsers.update", { browserId, ...patch }); },
       allowlist: async (spaceId) => parseAllowlist((await rpc().call("settings.get", { key: allowlistKey(spaceId) })).value),
+      downloadDir: async (spaceId) => (await rpc().call("browsers.downloadDir", { spaceId })).dir,
     },
   });
 }

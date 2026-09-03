@@ -1,3 +1,4 @@
+import type { BlockedDownload } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { StoreApi } from "zustand";
@@ -24,6 +25,65 @@ function useAgentWatch(store: StoreApi<AppState> | null, browserId: string) {
 
 const tickTime = (ts: number): string =>
   new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+
+/**
+ * Plan 23 W4 — the user's own downloads.
+ *
+ * Realm blocks every download that is not covered by a grant an approved agent act minted, and
+ * `will-download` cannot tell a human's click from `Input.dispatchMouseEvent` — so the pane cannot
+ * simply let the user's clicks through. What it can do is stop failing silently: remember what was
+ * blocked, say so, and offer one button whose press is consent a page could not have forged (a page
+ * lives in its own `WebContentsView` and cannot reach this renderer).
+ */
+function useBlockedDownloads(browserId: string, spaceId: string) {
+  const [blocked, setBlocked] = useState<BlockedDownload[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    const { host } = getBrowserBridges();
+    let live = true;
+    void host.blockedDownloads(browserId).then((rows) => { if (live) setBlocked(rows); });
+    const off = host.onDownloadBlocked((m) => {
+      if (m.browserId !== browserId) return;
+      setNote(null);
+      setBlocked((prev) => [...prev, m.blocked]);
+    });
+    return () => { live = false; off(); };
+  }, [browserId]);
+
+  const top = blocked.length > 0 ? blocked[blocked.length - 1]! : null;
+
+  const drop = (id: string) => setBlocked((prev) => prev.filter((b) => b.id !== id));
+
+  const dismiss = (id: string) => {
+    drop(id);
+    void getBrowserBridges().host.dismissDownload(browserId, id);
+  };
+
+  const save = async (entry: BlockedDownload) => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const { host, server } = getBrowserBridges();
+      // The SERVER decides where downloads go, by the same rule the agent's follow. A space with no
+      // project has no destination, and saying so is better than inventing one.
+      const dir = await server.downloadDir(spaceId);
+      if (dir === null) {
+        setNote("This space has no project folder, so there's nowhere to save downloads yet.");
+        return;
+      }
+      const result = await host.saveDownload(browserId, entry.id, dir);
+      drop(entry.id);
+      setNote(result.ok ? `Saved ${result.name} to downloads/` : result.error);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return { top, busy, note, dismiss, save, clearNote: () => setNote(null) };
+}
 
 /**
  * The browser pane (Plan 11 W1): DOM chrome ABOVE a native `WebContentsView` that Electron main owns.
@@ -52,6 +112,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const url = state?.url ?? initialUrl ?? "";
   const hasUrl = url !== "";
   const { actions, driving } = useAgentWatch(store, browserId);
+  const downloads = useBlockedDownloads(browserId, item.spaceId);
   const lastAction = actions.length > 0 ? actions[actions.length - 1]! : null;
 
   useEffect(() => {
@@ -212,6 +273,36 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           </div>
         )}
       </div>
+      {/* Below the chrome and ABOVE the view host, never over it: the native view composites over
+          anything inside its rectangle, so a floating toast here would be invisible (W2's invariant).
+          Its height comes out of the view's, which the ResizeObserver already syncs. */}
+      {(downloads.top || downloads.note) && (
+        <div className="browser-notice" role="status">
+          <Icon name="attach" size={13} />
+          {/* The note, when there is one, is the answer to what the user just pressed — so it wins the
+              text. The entry's own buttons stay put underneath it: a save that failed because the
+              space has no project is one the user can retry after adding one, and swallowing the
+              Save button at that moment would strand them. */}
+          <span className="browser-notice-text">
+            {downloads.note ?? (
+              <>
+                Blocked a download: <strong>{downloads.top!.name}</strong>
+                {!downloads.top!.retryable && " — Realm doesn't save this file type"}
+              </>
+            )}
+          </span>
+          {downloads.top?.retryable && (
+            <button type="button" className="btn-quiet" disabled={downloads.busy}
+              onClick={() => { void downloads.save(downloads.top!); }}>
+              {downloads.busy ? "Saving…" : "Save"}
+            </button>
+          )}
+          <button type="button" className="icon-btn" aria-label="Dismiss"
+            onClick={() => { if (downloads.top) downloads.dismiss(downloads.top.id); else downloads.clearNote(); }}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
       <div className="browser-view-host" ref={hostRef}>
         {!hasUrl && initialUrl !== null && (
           <div className="browser-hint muted">

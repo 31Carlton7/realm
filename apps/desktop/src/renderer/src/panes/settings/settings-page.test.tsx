@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DISABLED_KEY, PAGE_REF_IDS } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, notification, type FakeData } from "../../state/store.test-fakes";
 import type { AgentProbe } from "../../state/store";
 
 /** The pane as PaneHost mounts it: kind is the identity, refId the sentinel. */
@@ -35,11 +35,12 @@ async function mount(overrides: FakeData = {}) {
 }
 
 describe("the Settings page (Plan 12 W6)", () => {
-  it("wears the page pattern: head, an Engines · App · Permissions rail, Engines first", async () => {
+  it("wears the page pattern: head, an Engines · App · Sign-ins · Permissions rail, Engines first", async () => {
     await mount();
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Engines" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "App" })).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: "Sign-ins" })).not.toBeChecked();
     expect(screen.getByRole("radio", { name: "Permissions" })).not.toBeChecked();
   });
 });
@@ -151,6 +152,33 @@ describe("App tab", () => {
     expect(screen.getByText(/stops new rows from being written/)).toBeInTheDocument();
   });
 
+  it("the desktop switch is default-on, renders WITHOUT waiting on the page's own prefs load, and says the two things it does", async () => {
+    // Deliberately not `findBy`: this row reads a value boot already has, so it is on screen from
+    // the first paint — unlike the category switches, which wait on refreshSettingsPrefs.
+    const { store } = await openApp();
+    expect(store.getState().desktopNotifications).toBe(true);
+    expect(screen.getByRole("switch", { name: "Notify me outside Realm" })).toBeChecked();
+    expect(screen.getByText(/Only when Realm is not the app you are in/)).toBeInTheDocument();
+    expect(screen.getByText(/count unread ones on the dock icon/)).toBeInTheDocument();
+  });
+
+  it("a stored OFF renders OFF, and toggling writes the key and clears the dock badge without touching the categories", async () => {
+    const { api, store } = await openApp({
+      settings: { [NOTIFICATIONS_DESKTOP_KEY]: false, [NOTIFICATIONS_DISABLED_KEY]: ["mcp_health"] },
+      notifications: [notification("n1"), notification("n2")],
+    });
+    const sw = screen.getByRole("switch", { name: "Notify me outside Realm" });
+    expect(sw).not.toBeChecked();
+    fireEvent.click(sw);
+    await waitFor(() => expect(api.data.settings[NOTIFICATIONS_DESKTOP_KEY]).toBe(true));
+    expect(api.data.badgeCount).toBe(2); // switching ON republishes the real count
+    expect(store.getState().notificationsUnread).toBe(2);
+    fireEvent.click(sw);
+    await waitFor(() => expect(api.data.badgeCount).toBe(0)); // …and OFF clears the dock
+    // The category set is a different question and stays exactly as it was.
+    expect(api.data.settings[NOTIFICATIONS_DISABLED_KEY]).toEqual(["mcp_health"]);
+  });
+
   it("a toggle writes EXACTLY its own category (the named mutant: the wrong category), leaving the rest of the set alone", async () => {
     const { api } = await openApp({ settings: { [NOTIFICATIONS_DISABLED_KEY]: ["mcp_health"] } });
     fireEvent.click(await screen.findByRole("switch", { name: "Sessions finishing" }));
@@ -222,7 +250,7 @@ describe("App tab → Updates row (Plan 15 W1)", () => {
 
   it("each gate reason gets its own honest sentence (dev / no public feed)", async () => {
     await openApp({ updateStatus: { version: "0.0.1", state: { kind: "disabled", reason: "no-feed" } } });
-    expect(await screen.findByText(/no public update feed — this build's releases are private/)).toBeInTheDocument();
+    expect(await screen.findByText(/this build has no public update feed/)).toBeInTheDocument();
     cleanup();
     await openApp({ updateStatus: { version: "0.0.1", state: { kind: "disabled", reason: "dev" } } });
     expect(await screen.findByText("Update checks don't run in development builds.")).toBeInTheDocument();
@@ -297,5 +325,98 @@ describe("Permissions tab (macOS TCC)", () => {
     // Live-pass finding: "vcodex-cli 0.146.0". The v is for bare numbers only.
     expect(engineVersionLabel("codex-cli 0.146.0")).toBe("codex-cli 0.146.0");
     expect(engineVersionLabel("2.1.223 (Claude Code)")).toBe("v2.1.223 (Claude Code)");
+  });
+});
+
+/**
+ * Settings → Sign-ins. This tab is the ONLY enrollment path in the product, which is the security
+ * property the whole credential feature rests on — so what must die here is a UI that reads a value
+ * back, and a UI that quietly claims a fill will work on a Mac that cannot do one.
+ */
+describe("Sign-ins tab", () => {
+  const cred = { id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1 };
+
+  async function signIns(overrides: FakeData = {}) {
+    const r = await mount(overrides);
+    fireEvent.click(screen.getByRole("radio", { name: "Sign-ins" }));
+    return r;
+  }
+
+  it("lists enrolled sign-ins by origin, username and label — with NO reveal affordance", async () => {
+    await signIns({ credentials: [cred] });
+    const row = await screen.findByRole("listitem", { name: "https://example.com: ada" });
+    expect(within(row).getByText(/ada · Work/)).toBeInTheDocument();
+    // There is no button that could ask for a value, because main has no method that would answer.
+    expect(within(row).queryByRole("button", { name: /show|reveal|copy|edit/i })).toBeNull();
+    expect(within(row).getByRole("button", { name: "Remove" })).toBeInTheDocument();
+  });
+
+  it("saves a sign-in through a native password field, and clears it on success", async () => {
+    const { api } = await signIns();
+    await screen.findByText("No saved sign-ins yet.");
+
+    const password = screen.getByLabelText("Password");
+    expect(password).toHaveAttribute("type", "password");
+    fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "https://example.com" } });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "ada" } });
+    fireEvent.change(password, { target: { value: "hunter2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save sign-in" }));
+
+    await waitFor(() => expect(api.calls).toContain("credentialAdd:https://example.com"));
+    await waitFor(() => expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe(""));
+    // The list re-reads from main rather than being patched locally with what was typed.
+    expect(api.calls.filter((c) => c === "credentialList").length).toBeGreaterThan(1);
+  });
+
+  it("Save stays disabled until there is both an address and a password", async () => {
+    await signIns();
+    const save = screen.getByRole("button", { name: "Save sign-in" });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "https://example.com" } });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
+    expect(save).toBeEnabled();
+  });
+
+  it("a rejected save shows main's reason and KEEPS what was typed (mutant: the password cleared on failure)", async () => {
+    const { api } = await signIns();
+    api.credentialAdd = async () => { throw new Error('"nope" is not an http(s) address Realm can pin a sign-in to.'); };
+
+    fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "nope" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save sign-in" }));
+
+    await screen.findByText(/is not an http\(s\) address/);
+    expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("hunter2");
+  });
+
+  it("says plainly that a Mac without Touch ID can save but cannot fill", async () => {
+    await signIns({ credentialStatus: { available: true, canPromptTouchID: false, presenceTtlMs: 0 } });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no Touch ID sensor/);
+  });
+
+  it("says plainly when macOS offers no encryption key — and does not offer a plaintext fallback", async () => {
+    await signIns({ credentialStatus: { available: false, canPromptTouchID: true, presenceTtlMs: 0 } });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/won't store one unencrypted/);
+  });
+
+  it("defaults Touch ID to Every time, and a change round-trips through main", async () => {
+    const { api } = await signIns();
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Every time" })).toBeChecked());
+    fireEvent.click(screen.getByRole("radio", { name: "For 1 minute" }));
+    await waitFor(() => expect(api.calls).toContain("credentialSetPresenceTtl:60000"));
+  });
+
+  it("states the two-factor limit and the exact-origin rule rather than leaving them to be discovered", async () => {
+    await signIns();
+    expect(await screen.findByText(/Two-factor steps are not automated/)).toBeInTheDocument();
+    expect(screen.getByText(/subdomains are different sites/)).toBeInTheDocument();
+  });
+
+  it("removing a sign-in goes through main and re-reads the list", async () => {
+    const { api } = await signIns({ credentials: [cred] });
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(api.calls).toContain("credentialRemove:cred-1"));
+    await screen.findByText("No saved sign-ins yet.");
   });
 });

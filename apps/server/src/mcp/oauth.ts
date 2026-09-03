@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { isSealed, open as openSealed, seal, SECRET_KEY_BYTES } from "@realm/contracts/src/secret-box";
 import {
   discoverOAuthServerInfo,
   exchangeAuthorization,
@@ -20,9 +21,19 @@ import type { McpServerRow, McpServersStore } from "../store/mcp";
 
 /**
  * Everything Realm persists about one server row's OAuth connection, serialized into
- * `McpServerRow.oauthJson`. **Plaintext, same posture as `row.secrets`** — `MCP_SECRET_STORAGE_NOTE`
- * already says so on every surface that touches it, and W5 does not weaken (or quietly improve) that
- * claim; `safeStorage` is a named follow-up, not this build.
+ * `McpServerRow.oauthJson`.
+ *
+ * **Encrypted at rest, when Electron main can offer a key** — the `safeStorage` follow-up this
+ * comment used to name as unbuilt. Main owns a keyring sealed by the OS Keychain
+ * (`apps/desktop/src/main/secret-store.ts`) and hands realm-server the `oauth` domain key over the
+ * browser-host bridge at registration; `oauthSecretBox` below holds it, and this column then stores
+ * an AES-256-GCM blob instead of a JSON object. `row.secrets` (stdio `env`, http `headers`) is a
+ * SEPARATE question and is still plaintext — `MCP_SECRET_STORAGE_NOTE` is about those and remains
+ * accurate word for word.
+ *
+ * Realm-server running without the desktop app — a headless test, the window not up yet — has no key
+ * and writes plaintext, exactly as every build before this one did. That degradation is honest rather
+ * than silent: it is the old behaviour, not a new failure, and a row written either way reads back.
  *
  * Deliberately **unversioned**: there is no migration path and there does not need to be one. A blob
  * this reader cannot make sense of degrades to "unconfigured" (see `readOauthState`), and the recovery
@@ -95,7 +106,9 @@ const EXPIRY_SKEW_MS = 30_000;
 export function readOauthState(json: string): McpOauthState {
   if (!json) return {};
   let raw: unknown;
-  try { raw = JSON.parse(json); } catch { return {}; }
+  const plain = oauthSecretBox.open(json);
+  if (plain === null) return {};
+  try { raw = JSON.parse(plain); } catch { return {}; }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const o = raw as Record<string, unknown>;
   const state: McpOauthState = {};
@@ -121,6 +134,51 @@ export function readOauthState(json: string): McpOauthState {
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * The `oauth` domain key, and the seal/open pair every read and write of `oauthJson` goes through.
+ *
+ * Module-scoped rather than injected, deliberately: `readOauthState` is a free function called from
+ * `service.ts`'s synchronous status mapping as well as from five places in `McpOauth`, and threading
+ * a dependency through all of them to hold one process-wide fact — "did the desktop app give us a
+ * key?" — would be ceremony without a second implementation to justify it.
+ *
+ * Realm-server never receives the `credential` key and there is no bridge op that would carry it; and
+ * because `secret-box` mixes the domain byte in as AAD, this box could not open a credential blob
+ * even if one were somehow handed to it.
+ */
+export const oauthSecretBox = {
+  key: null as Buffer | null,
+
+  /** Called once, when Electron main registers on the browser-host bridge. A null or malformed key
+   *  leaves the box in plaintext mode rather than half-configured. */
+  setKey(base64: string | null): void {
+    if (!base64) { this.key = null; return; }
+    let buf: Buffer;
+    try { buf = Buffer.from(base64, "base64"); } catch { this.key = null; return; }
+    this.key = buf.length === SECRET_KEY_BYTES ? buf : null;
+  },
+
+  /** Ciphertext when a key is available, the plain JSON otherwise. */
+  seal(json: string): string {
+    return this.key ? seal(this.key, "oauth", json) : json;
+  },
+
+  /**
+   * The stored column back to JSON, or null when it cannot be recovered.
+   *
+   * Both shapes read: `isSealed` distinguishes a blob from the plaintext JSON older builds wrote, so
+   * upgrading needs no migration and no backfill — a row keeps working, and re-seals as ciphertext
+   * the next time anything writes it (a token refresh, at latest). A sealed row read WITHOUT a key
+   * (the app not up yet) returns null, which `readOauthState` turns into `{}` → `unconfigured`; the
+   * documented recovery for that is one click, and it resolves itself the moment main connects.
+   */
+  open(stored: string): string | null {
+    if (!isSealed(stored)) return stored;
+    return this.key ? openSealed(this.key, "oauth", stored) : null;
+  },
+};
+
 
 /**
  * OAuth 2.1 + PKCE for remote (http/sse) MCP servers, per the MCP authorization spec: RFC 9728
@@ -429,7 +487,7 @@ export class McpOauth {
    *  was actually asking about (or, for `handleCallback`, a clean failure page) rather than a confusing
    *  "not found" from a write nobody asked for. */
   private write(serverId: string, state: McpOauthState): void {
-    try { this.d.servers.setOauth(serverId, JSON.stringify(state)); } catch { /* row deleted mid-flow; nothing to persist to */ }
+    try { this.d.servers.setOauth(serverId, oauthSecretBox.seal(JSON.stringify(state))); } catch { /* row deleted mid-flow; nothing to persist to */ }
   }
 }
 

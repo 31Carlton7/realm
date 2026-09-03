@@ -1,17 +1,19 @@
-import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
-import { isImageMime, mimeForPath } from "@realm/contracts";
-import { closeSync, openSync } from "node:fs";
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
+import { BrowserCredentialInputSchema, isImageMime, mimeForPath, newId, type BrowserCredential } from "@realm/contracts";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startServer } from "./server-process";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { describeFiles, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
-import { blockBrowserDownloads, createBrowserPane, type BrowserPane } from "./browser-pane";
+import { createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
+import { BlockedDownloads, DownloadGovernor, retryBlockedDownload } from "./downloads";
 import type { BrowserPaneHost, ViewRect } from "./browser-host";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
+import { SecretStore, SecretStoreError } from "./secret-store";
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
@@ -24,6 +26,19 @@ let browserPane: BrowserPane | null = null;
  *  whichever window's views exist, and honestly reports "pane not open" between windows. */
 let agentHost: BrowserAgentHost | null = null;
 let agentBridge: { stop(): void } | null = null;
+/** The encrypted secret store (safeStorage + the OS Keychain). App-scoped, not per-window: the
+ *  bridge asks it for the `oauth` key at registration, and Settings enrolls into it. Built lazily
+ *  because it needs `realmHome`, which arrives with the server's ready line. */
+let secretStore: SecretStore | null = null;
+/** The download governor (Plan 23). App-scoped: it owns the partition-wide `will-download` handler,
+ *  which is registered once and outlives any window. */
+const downloadGovernor = new DownloadGovernor({
+  mkdirp: (dir) => { mkdirSync(dir, { recursive: true }); },
+  exists: (p) => existsSync(p),
+  now: () => Date.now(),
+});
+/** Plan 23 W4: what the pane's blocked-download bar reads. App-scoped alongside the governor. */
+const blockedDownloads = new BlockedDownloads(() => Date.now());
 
 /** With no explicit application menu, Electron installs its default one, whose File → Close Window
  *  binds ⌘W — and menu accelerators fire in the main process before the renderer ever sees the
@@ -97,14 +112,36 @@ async function createWindow(info: { port: number; home: string }) {
     hasView: (id) => pane.hasView(id),
     navigate: (id, url) => pane.host.navigate(id, url),
     pageState: (id) => pane.pageState(id),
+    // The fill op's only reach into the store. Passed as an object of bound methods rather than the
+    // store itself, so the executor host cannot reach `exportOauthKey` or anything added later.
+    secrets: {
+      listCredentials: () => secrets()?.listCredentials() ?? [],
+      getCredential: (id) => secrets()?.getCredential(id) ?? null,
+      withCredentialValue: async (id, use) => secrets()?.withCredentialValue(id, use) ?? { ok: false, refused: "no_credential" },
+      audit: (entry) => secrets()?.audit(entry),
+    },
+    downloads: downloadGovernor,
   });
   pane.onViewDestroyed((id) => host.release(id));
   agentHost = host;
-  // Downloads are a hard block on the browser partition — cancelled in every permission mode.
-  blockBrowserDownloads((wcId, url) => {
-    const id = browserPane?.browserIdForWebContents(wcId);
-    if (id) agentHost?.noteBlockedDownload(id, url);
-    console.error(`[browser-agent] download blocked${id ? ` (browser ${id})` : ""}: ${url}`);
+  // Downloads on the browser partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
+  // through exactly those covered by a live one-shot grant from an approved `browser_download`.
+  // Everything else is still cancelled, in every permission mode.
+  governBrowserDownloads({
+    browserIdFor: (wcId) => browserPane?.browserIdForWebContents(wcId) ?? null,
+    decide: (browserId, item) => downloadGovernor.handle(browserId, item),
+    onBlocked: (wcId, url, reason, filename) => {
+      const id = browserPane?.browserIdForWebContents(wcId);
+      if (id) {
+        agentHost?.noteBlockedDownload(id, url);
+        // W4: remember it so the pane can say so and offer to fetch it. A download the user started
+        // and that vanished without a word is the papercut this removes.
+        const entry = blockedDownloads.note(id, url, filename);
+        const win = BrowserWindow.getAllWindows()[0];
+        if (entry && win && !win.isDestroyed()) win.webContents.send("realm:browser-download-blocked", { browserId: id, blocked: entry });
+      }
+      console.error(`[browser-agent] download blocked (${reason})${id ? ` (browser ${id})` : ""}: ${url}`);
+    },
   });
   win.on("closed", () => { phases.stop(); browserHost = null; browserPane = null; agentHost = null; });
 }
@@ -117,6 +154,101 @@ ipcMain.handle("browser:navigate", (_e, id: string, input: string): string | nul
 ipcMain.handle("browser:nav", (_e, id: string, action: "back" | "forward" | "reload" | "stop") => { browserHost?.navAction(id, action); });
 ipcMain.handle("browser:set-allowlist", (_e, id: string, allowlist: string[] | null) => { browserHost?.setAllowlist(id, allowlist); });
 ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { browserHost?.setBounds(id, rect, dpr, visible); });
+
+/**
+ * The secret store, built on first use. Null only before realm-server has announced its home.
+ *
+ * Note what this does NOT branch on: `safeStorage.isEncryptionAvailable()`. The store checks that
+ * itself and refuses to enroll when the answer is no — there is no code path here or there that
+ * writes a credential in the clear because encryption was unavailable.
+ */
+function secrets(): SecretStore | null {
+  if (secretStore) return secretStore;
+  if (!realmHome) return null;
+  const home = realmHome;
+  const file = join(home, "secrets.json");
+  const auditFile = join(home, "logs", "credential-audit.log");
+  secretStore = new SecretStore({
+    safeStorage,
+    readFile: () => (existsSync(file) ? readFileSync(file, "utf8") : null),
+    // 0600: the ciphertext is useless without the Keychain item, but a file only the user can read
+    // costs nothing and is what anyone auditing this would expect to find.
+    writeFile: (text) => writeFileSync(file, text, { mode: 0o600 }),
+    appendAudit: (line) => {
+      mkdirSync(join(home, "logs"), { recursive: true });
+      appendFileSync(auditFile, line, { mode: 0o600 });
+    },
+    // Biometrics only — Electron's promptTouchID has no password fallback. Rejection (cancelled, no
+    // sensor, too many failed attempts) is `false`, never a throw: the caller treats every one of
+    // those as "no presence", which is the same refusal for the same reason.
+    promptPresence: (reason) =>
+      process.platform === "darwin"
+        ? systemPreferences.promptTouchID(reason).then(() => true, () => false)
+        : Promise.resolve(false),
+    now: () => Date.now(),
+    newId,
+  });
+  return secretStore;
+}
+
+/**
+ * Settings → Sign-ins (Plan 11). The ONLY way a credential is created, which is the point: there is
+ * no RPC method, no MCP tool, no file import and no chat path into `addCredential`, so nothing a
+ * model can call is able to enroll a credential for the origin it happens to be standing on.
+ *
+ * The traffic is one-way by construction. `credentials:add` takes a value; nothing here returns one,
+ * and `BrowserCredential` — the shape both list handlers answer with — has no field for one.
+ */
+/**
+ * Plan 23 W4 — the user's own downloads.
+ *
+ * This is the ONLY channel by which Electron main can learn that a human, specifically, wanted a
+ * file: `will-download` cannot tell a real click from `Input.dispatchMouseEvent`, but a page cannot
+ * reach the renderer (separate `WebContentsView`, contextIsolation, no preload), so an IPC call from
+ * the renderer is consent the page could not have forged.
+ *
+ * `dir` is resolved by the SERVER (`browsers.downloadDir` → `spaceDownloadDir`) and passed through,
+ * so the user's downloads land exactly where the agent's do, by the same rule.
+ */
+ipcMain.handle("browser:blocked-downloads", (_e, browserId: string) => blockedDownloads.list(String(browserId)));
+ipcMain.handle("browser:dismiss-download", (_e, browserId: string, id: string) => { blockedDownloads.dismiss(String(browserId), String(id)); });
+ipcMain.handle("browser:save-download", async (_e, browserId: string, id: string, dir: string) => {
+  const pane = browserPane;
+  if (!pane) return { ok: false, error: "the browser pane is not open" };
+  // Same absolute-path requirement the agent op has: this writes to disk, and a relative path would
+  // resolve against whatever cwd Electron happens to have.
+  if (!String(dir).startsWith("/")) return { ok: false, error: "this space has no project folder, so there is nowhere to save downloads" };
+  return retryBlockedDownload(downloadGovernor, blockedDownloads, {
+    browserId: String(browserId), id: String(id), dir: String(dir),
+    downloadURL: (url) => pane.downloadURL(String(browserId), url),
+    now: () => Date.now(),
+  });
+});
+
+ipcMain.handle("credentials:list", (): BrowserCredential[] => secrets()?.listCredentials() ?? []);
+ipcMain.handle("credentials:status", () => ({
+  available: secrets()?.available ?? false,
+  // Surfaced so Settings can say plainly that this Mac cannot fill, rather than letting the user
+  // enroll a password and discover it at a sign-in prompt.
+  canPromptTouchID: process.platform === "darwin" && systemPreferences.canPromptTouchID(),
+  presenceTtlMs: secrets()?.presenceTtlMs ?? 0,
+}));
+ipcMain.handle("credentials:add", (_e, input: unknown): BrowserCredential => {
+  const store = secrets();
+  if (!store) throw new Error("Realm is still starting up; try saving the sign-in again in a moment");
+  const parsed = BrowserCredentialInputSchema.safeParse(input);
+  // The zod error is NOT forwarded: it echoes the parsed input, and the parsed input is the password.
+  if (!parsed.success) throw new Error("That sign-in is missing something — check the address and password fields.");
+  try {
+    return store.addCredential(parsed.data);
+  } catch (e) {
+    // Same reason. `SecretStoreError` messages are written for a person and carry no input; anything
+    // else is replaced wholesale rather than stringified.
+    throw new Error(e instanceof SecretStoreError ? e.message : "That sign-in could not be saved.");
+  }
+});
+ipcMain.handle("credentials:remove", (_e, id: string): boolean => secrets()?.removeCredential(String(id)) ?? false);
+ipcMain.handle("credentials:set-presence-ttl", (_e, ms: number): number => secrets()?.setPresenceTtlMs(Number(ms)) ?? 0);
 
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
@@ -217,6 +349,10 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       port: info.port,
       handleOp: (op, params) => {
+        // Answered here rather than in the executor: it needs no window and no CDP, and realm-server
+        // asks for it the instant it registers. `exportOauthKey` is the ONE key that leaves main;
+        // there is deliberately no sibling op for the credential key.
+        if (op === "oauthKey") return Promise.resolve({ key: secrets()?.exportOauthKey() ?? null });
         const host = agentHost;
         if (!host) return Promise.reject(new Error("the Realm window is not open — browser tools need it"));
         return host.handleOp(op, params);

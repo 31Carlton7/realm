@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { Browser } from "@realm/contracts";
+import type { BlockedDownload, Browser, BrowserDownloadResult } from "@realm/contracts";
 import { BrowserPane } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
@@ -15,7 +15,10 @@ function fakeBridges(row: Partial<Browser> = {}) {
   const bounds: { id: string; rect: DOMRectReadOnly | { x: number; y: number; width: number; height: number }; dpr: number; visible: boolean }[] = [];
   const updates: Record<string, unknown>[] = [];
   const cbs = new Set<(s: StateMsg) => void>();
+  const blockedCbs = new Set<(m: { browserId: string; blocked: BlockedDownload }) => void>();
   let allowlist: string[] | null = null;
+  let downloadDir: string | null = "/tmp/proj/downloads";
+  let saveResult: BrowserDownloadResult = { ok: true, name: "week-3.pdf", bytes: 2048, relPath: "downloads/week-3.pdf" };
   const host: BrowserHostBridge = {
     create: async (id, url, list) => { calls.push(`create:${id}:${url}:${JSON.stringify(list)}`); },
     destroy: async (id) => { calls.push(`destroy:${id}`); },
@@ -24,16 +27,26 @@ function fakeBridges(row: Partial<Browser> = {}) {
     setAllowlist: async () => {},
     setBounds: (id, rect, dpr, visible) => { bounds.push({ id, rect, dpr, visible }); },
     onState: (cb) => { cbs.add(cb); return () => cbs.delete(cb); },
+    blockedDownloads: async () => [],
+    saveDownload: async (id, blockedId, dir) => { calls.push(`save:${id}:${blockedId}:${dir}`); return saveResult; },
+    dismissDownload: async (id, blockedId) => { calls.push(`dismiss:${id}:${blockedId}`); },
+    onDownloadBlocked: (cb) => { blockedCbs.add(cb); return () => blockedCbs.delete(cb); },
   };
   const server: BrowserServerBridge = {
     get: async () => r,
     update: async (id, patch) => { updates.push({ id, ...patch }); },
     allowlist: async () => allowlist,
+    downloadDir: async () => downloadDir,
   };
   const bridges: BrowserBridges = { host, server };
   return {
     bridges, calls, bounds, updates,
     setAllowlist: (l: string[] | null) => { allowlist = l; },
+    setDownloadDir: (d: string | null) => { downloadDir = d; },
+    setSaveResult: (r: BrowserDownloadResult) => { saveResult = r; },
+    blockDownload: (blocked: BlockedDownload, browserId = "b1") => {
+      for (const cb of blockedCbs) cb({ browserId, blocked });
+    },
     emit: (s: Partial<StateMsg>) => {
       const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, ...s };
       for (const cb of cbs) cb(full);
@@ -333,5 +346,99 @@ describe("action ticker + driving dot (W4)", () => {
     act(() => store.getState().applyBrowserAction({ browserId: "b1", text: "Scroll the page on example.com", ok: true, ts: 1 }));
     expect(container.querySelector(".browser-chrome .browser-ticker")).toBeInTheDocument();
     expect(container.querySelector(".browser-chrome [aria-haspopup]")).toBeNull();
+  });
+});
+
+/**
+ * Plan 23 W4 — the blocked-download bar.
+ *
+ * What it exists to remove is a SILENT failure: `will-download` cannot tell the user's click from
+ * the agent's, so the user's own downloads are blocked like everything else, and before W4 they
+ * simply vanished. The mutants: a bar that never appears; a Save button offered for a file type the
+ * allowlist would refuse; a save that invents a destination when the space has no project.
+ */
+describe("the blocked-download bar (Plan 23 W4)", () => {
+  const blocked = (over: Partial<BlockedDownload> = {}): BlockedDownload =>
+    ({ id: "bd_1", name: "week-3.pdf", retryable: true, ts: 1, ...over });
+
+  async function mountPane() {
+    const f = fakeBridges();
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible focused={false} />);
+    await act(async () => {});
+    return f;
+  }
+
+  it("says what was blocked instead of failing silently, and offers to save it", async () => {
+    const f = await mountPane();
+    expect(screen.queryByRole("status")).toBeNull();
+
+    await act(async () => { f.blockDownload(blocked()); });
+    const bar = screen.getByRole("status");
+    expect(bar).toHaveTextContent("Blocked a download");
+    expect(bar).toHaveTextContent("week-3.pdf");
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
+  it("Save goes through main with the SERVER's directory — the renderer never composes a path", async () => {
+    const f = await mountPane();
+    await act(async () => { f.blockDownload(blocked()); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
+
+    expect(f.calls).toContain("save:b1:bd_1:/tmp/proj/downloads");
+    expect(screen.getByRole("status")).toHaveTextContent("Saved week-3.pdf to downloads/");
+  });
+
+  it("a NON-retryable type is shown but offers no Save button (mutant: a button that cannot work)", async () => {
+    const f = await mountPane();
+    await act(async () => { f.blockDownload(blocked({ name: "installer.dmg", retryable: false })); });
+
+    const bar = screen.getByRole("status");
+    expect(bar).toHaveTextContent("installer.dmg");
+    expect(bar).toHaveTextContent("doesn't save this file type");
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("a space with no project says so rather than inventing a destination", async () => {
+    const f = await mountPane();
+    f.setDownloadDir(null);
+    await act(async () => { f.blockDownload(blocked()); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
+
+    expect(screen.getByRole("status")).toHaveTextContent("no project folder");
+    expect(f.calls.some((c) => c.startsWith("save:"))).toBe(false);
+  });
+
+  it("a failed save reports main's reason", async () => {
+    const f = await mountPane();
+    f.setSaveResult({ ok: false, error: "that file was too large and was cancelled part-way" });
+    await act(async () => { f.blockDownload(blocked()); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
+    expect(screen.getByRole("status")).toHaveTextContent("too large");
+  });
+
+  it("Dismiss clears the bar and tells main to forget it", async () => {
+    const f = await mountPane();
+    await act(async () => { f.blockDownload(blocked()); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dismiss" })); });
+
+    expect(f.calls).toContain("dismiss:b1:bd_1");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("ignores blocked downloads belonging to ANOTHER pane", async () => {
+    const f = await mountPane();
+    await act(async () => { f.blockDownload(blocked(), "b2"); });
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("shows the most recent block, and dismissing it reveals the one before", async () => {
+    const f = await mountPane();
+    await act(async () => { f.blockDownload(blocked({ id: "bd_1", name: "first.pdf" })); });
+    await act(async () => { f.blockDownload(blocked({ id: "bd_2", name: "second.pdf" })); });
+    expect(screen.getByRole("status")).toHaveTextContent("second.pdf");
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dismiss" })); });
+    expect(screen.getByRole("status")).toHaveTextContent("first.pdf");
   });
 });

@@ -133,3 +133,64 @@ describe("BrowserPermissionBroker.gate", () => {
     expect(broker.owns("01J8ULID")).toBe(false);
   });
 });
+
+/**
+ * `alwaysPrompt` — the narrowing `browser_fill_credential` relies on, and the one place a permission
+ * mode's meaning is deliberately not honored. Its mutants: bypassPermissions skipping the card; a
+ * prior allow_always satisfying it; answering "always" to a credential card licensing the next one.
+ */
+describe("BrowserPermissionBroker.gate — alwaysPrompt (credential fills)", () => {
+  const opts = { alwaysPrompt: true };
+
+  it("PROMPTS under bypassPermissions (mutant: mode parity applied to a credential fill)", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    const gate = broker.gate("s1", "browser_fill_credential", "Fill the saved sign-in for https://example.com", {}, "browser_fill_credential", opts);
+    const requestId = requestIdOf(events);
+    broker.resolve(requestId, "allow");
+    expect(await gate).toEqual({ allowed: true });
+  });
+
+  it("still refuses in plan mode — a read-only session fills nothing", async () => {
+    const { broker, events } = setup("plan");
+    const r = await broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
+    expect(r.allowed).toBe(false);
+    expect(events).toEqual([]);
+  });
+
+  it("a prior allow_always on the SAME key does not satisfy it", async () => {
+    const { broker, events } = setup();
+    // An ordinary gate first, answered "always" — the grant that would otherwise carry over.
+    const first = broker.gate("s1", "browser_fill_credential", "Fill…", {});
+    broker.resolve(requestIdOf(events), "allow_always");
+    await first;
+
+    events.length = 0;
+    const second = broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
+    const requestId = requestIdOf(events); // it prompted again
+    broker.resolve(requestId, "allow");
+    expect(await second).toEqual({ allowed: true });
+  });
+
+  it("answering allow_always TO a credential card records nothing (mutant: the grant remembered)", async () => {
+    const { broker, events } = setup();
+    const first = broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
+    broker.resolve(requestIdOf(events), "allow_always");
+    expect(await first).toEqual({ allowed: true });
+
+    // A LATER ordinary gate on the same key must still prompt: the credential card licensed nothing,
+    // not even for tools that would normally honor allow_always.
+    events.length = 0;
+    const second = broker.gate("s1", "browser_fill_credential", "Fill…", {});
+    const requestId = requestIdOf(events);
+    broker.resolve(requestId, "allow");
+    expect(await second).toEqual({ allowed: true });
+  });
+
+  it("a denial refuses the fill", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    const gate = broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
+    broker.resolve(requestIdOf(events), "deny");
+    const r = await gate;
+    expect(r.allowed).toBe(false);
+  });
+});

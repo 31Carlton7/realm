@@ -23,6 +23,33 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
 - Offline / UI work: `REALM_ENABLE_FAKE_AGENT=1 pnpm dev` registers a scripted **Fake agent** (echoes what you send) next to Claude in New → Session….
 - **MCP gateway** — third-party MCP servers are configured in a space's settings, not per-agent: every session gets one Realm gateway endpoint, and credentials or OAuth tokens never reach the agent CLI. Every proxied tool call shows up in the Activity view (space settings → Activity, or "MCP Activity" in the command palette).
 
+## Saved sign-ins (browser panes)
+
+An agent driving a browser pane can sign you in to a site without ever seeing the password.
+
+- **You enroll, in Settings → Sign-ins.** That is the only path. No tool, no RPC method, no file import
+  and no chat message can create a credential — which is what makes the origin check below worth
+  anything, since an agent that could enroll one could enroll it for whatever page it is standing on.
+- **Values live in the OS Keychain**, encrypted by Electron's `safeStorage`
+  (`apps/desktop/src/main/secret-store.ts`), decrypted only inside Realm's main process, and never
+  readable back — not by you, not over IPC, not through the gateway. MCP OAuth tokens share the same
+  store, so `realm.db` no longer holds them in the clear. (Per-server MCP `env`/`headers` still do;
+  `MCP_SECRET_STORAGE_NOTE` says so.)
+- **Every fill is gated three ways**: the pane's current origin, read from CDP, must exactly equal the
+  origin you saved the credential for (no subdomains, no lookalikes); you approve that specific fill on
+  a card naming the origin, username and label; and Touch ID confirms you are there. The card appears
+  in every permission mode including `bypassPermissions`, is never batched, and answering "always"
+  licenses nothing. Fills are logged to `~/Realm/logs/credential-audit.log` — timestamp, origin,
+  credential id, outcome, never the value.
+- **Typing into a password field with `browser_act` is still refused, in every mode.**
+  `browser_fill_credential` is a separate op, not a way around it.
+- **Two-factor is not automated, and will not be.** A Duo/Okta push cannot be driven from here, and a
+  TOTP prompt is out of scope. Realm fills the username and password and stops; an SSO + 2FA sign-in
+  stays partly manual, and you finish it in the pane. If TOTP support is ever added it would be a
+  separately enrolled secret under the same rules — never a code the model sees.
+- A Mac without a Touch ID sensor can save sign-ins but cannot fill them: `promptTouchID` is
+  biometrics-only, with no password fallback. Settings says so on the tab.
+
 ## Packaging
 
 - `pnpm dist` — full build + DMG and zip in `apps/desktop/release/` (`pnpm dist:dir` stops at an
@@ -32,6 +59,10 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
   electron-builder (`apps/desktop/electron-builder.yml`) packs it — server and skills as real files
   under `Contents/Resources/`, never inside the asar, because `node-pty`'s native prebuilds and a
   spawnable server entry can't load from an archive.
+- `pnpm app:update` — the fast local update loop: builds the unpacked app, gracefully quits the
+  installed `/Applications/Realm.app`, replaces it with rollback protection, and relaunches it.
+  Set `REALM_APP_PATH=/another/location/Realm.app` to target a nonstandard install. This is for
+  locally built unsigned copies; published builds continue to use the signed updater below.
 - No system Node needed: the packaged app runs realm-server under its own binary with
   `ELECTRON_RUN_AS_NODE`. Launched from Finder (launchd's minimal `PATH`), main adopts the login
   shell's `PATH` at startup (`login-shell-path.ts`) before anything spawns, so agent CLIs and
@@ -61,21 +92,14 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
 
 ## Updates
 
-- The app carries auto-update scaffolding (`electron-updater`, Settings → App → Updates), but the
-  updater **ships disabled** and the Settings row says why instead of pretending. The gate
-  (`apps/desktop/src/main/updater.ts`) only ever enables when ALL of: packaged app, signed build,
-  and `UPDATE_FEED_LIVE` flipped true.
-- Why disabled: this repo is **private**. electron-updater's GitHub provider can only read private
-  release assets with an API token, and shipping a GitHub token inside the app would hand it to
-  every user — banned, permanently. And updates into an unsigned app can't pass Squirrel.Mac's
-  signature validation anyway.
-- Activation conditions (both required): **(1)** releases reachable without credentials — public
-  GitHub releases carrying the dmg/zip + `latest-mac.yml` that `pnpm release` builds, or a generic
-  update server (any static host serving the same files) swapped into `electron-builder.yml`'s
-  `publish` block; **(2)** signed + notarized builds (`docs/dev/signing.md`). Then flip
-  `UPDATE_FEED_LIVE` in `updater.ts` — nothing else changes: the Settings row starts offering a
-  real check, and quit-and-install already tears the server child down cleanly
-  (`before-quit-for-update`).
+- Signed packaged builds check the public GitHub release feed on launch, download a newer version
+  in the background, and ask before restarting to install it. Settings → App → Updates also supports
+  manual checks and installing a downloaded update.
+- Public releases must carry the dmg, zip, and `latest-mac.yml` artifacts produced by `pnpm release`.
+  The updater never embeds a GitHub token.
+- The hard gate in `apps/desktop/src/main/updater.ts` still disables updates in development and in
+  unsigned builds: macOS cannot apply an unsigned Squirrel update. Configure signing and
+  notarization as described in `docs/dev/signing.md`; `pnpm app:update` handles local unsigned builds.
 
 ## Skills
 

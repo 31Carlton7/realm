@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BrowserOrigins } from "./BrowserOrigins";
-import { ALLOWLIST_GUARDRAIL_NOTE, allowlistKey, parseOriginInput, setBrowserBridgesForTests, type BrowserBridges } from "../../panes/browser/browser-client";
+import { ALLOWLIST_GUARDRAIL_NOTE, allowlistKey, parseOriginInput, setBrowserBridgesForTests } from "../../panes/browser/browser-client";
+import { fakeBrowserBridges } from "../../panes/browser/browser-bridges.test-fakes";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 
@@ -41,14 +42,10 @@ describe("parseOriginInput", () => {
 
 function fakeHost() {
   const setCalls: { id: string; list: string[] | null }[] = [];
-  const bridges: BrowserBridges = {
-    host: {
-      create: async () => {}, destroy: async () => {}, navigate: async () => null, nav: async () => {},
-      setAllowlist: async (id, list) => { setCalls.push({ id, list }); },
-      setBounds: () => {}, onState: () => () => {},
-    },
-    server: { get: async () => { throw new Error("unused"); }, update: async () => {}, allowlist: async () => null },
-  };
+  const bridges = fakeBrowserBridges({
+    host: { setAllowlist: async (id, list) => { setCalls.push({ id, list }); } },
+    server: { get: async () => { throw new Error("unused"); } },
+  });
   return { bridges, setCalls };
 }
 

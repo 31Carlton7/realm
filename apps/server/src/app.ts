@@ -338,7 +338,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   reviews = new ReviewService({ settings, sessions, rpc, engine: delegationEngine, environments, notifications,
     otherDelegation: { isChild: (id) => agentRunsFinal.isChild(id) || browserAgentsFinal.isChild(id) },
     fallbackKind: opts.review?.fallbackKind ?? opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.review?.timeouts });
-  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
+  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is neither a valid asker nor a valid target, because its own parent is already blocked inside
   // an MCP call waiting for it. `permissions` is the SAME broker the browser tools gate on — the card

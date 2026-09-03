@@ -1,6 +1,7 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
 import { BrowserPaneHost, type ViewFactory } from "./browser-host";
 import type { CdpBinding } from "./browser-agent-host";
+import type { DownloadDecision, DownloadItemLike } from "./downloads";
 
 /** The browser views' session partition. Persistent and Realm's own: never the user's daily Chrome
  *  profile — they log in once inside Realm, and the isolation is structural (capability research §5:
@@ -88,6 +89,10 @@ export type BrowserPane = {
   pageState(id: string): { url: string; title: string } | null;
   /** browser id for a WebContents id — how the partition-wide download handler finds its pane. */
   browserIdForWebContents(webContentsId: number): string | null;
+  /** Re-request a URL as a download, on the view's own session so its cookies apply (Plan 23 W4's
+   *  Save button). Fires `will-download` again — which is still default-deny, so this only produces
+   *  a file when the governor has been armed for this pane first. */
+  downloadURL(id: string, url: string): void;
   /** Fires on view destruction, so the agent host can drop buffers and snapshot state. */
   onViewDestroyed(cb: (id: string) => void): void;
 };
@@ -116,6 +121,10 @@ export function createBrowserPane(win: BrowserWindow): BrowserPane {
       for (const [id, wc] of views) if (!wc.isDestroyed() && wc.id === webContentsId) return id;
       return null;
     },
+    downloadURL: (id, url) => {
+      const wc = views.get(id);
+      if (wc && !wc.isDestroyed()) wc.downloadURL(url);
+    },
     onViewDestroyed: (cb) => destroyedCbs.push(cb),
     attachCdp: (id) => {
       const wc = views.get(id);
@@ -130,17 +139,32 @@ export function createBrowserPane(win: BrowserWindow): BrowserPane {
 }
 
 /**
- * The W3 download hard block: downloads on the browser partition are CANCELLED, not prompted —
- * an agent-triggered download writes to disk outside every guard Realm has, and the pane is not a
- * download manager for the user either (their real browser is one keystroke away). Registered once
- * per partition; `onBlocked` routes the notice to the pane's console buffer via the wc→browser map.
+ * Downloads on the browser partition (Plan 11 W3, narrowed by Plan 23).
+ *
+ * The posture is unchanged in its resting state: **`will-download` is default-deny**, and the
+ * `preventDefault()` below runs for every download that is not covered by a live, one-shot,
+ * server-gated grant. What Plan 23 added is that one branch, not a setting — see `downloads.ts` for
+ * why "permit the user, keep blocking the agent" is not implementable at this layer (CDP input is
+ * indistinguishable from a real click, so any rule loose enough for a human is loose for the agent).
+ *
+ * Registered once per partition. `decide` is the governor's; this function only translates its answer
+ * into Electron's event API and routes the notice to the pane's console buffer via the wc→browser map.
  */
-let downloadsBlocked = false;
-export function blockBrowserDownloads(onBlocked: (webContentsId: number, url: string) => void): void {
-  if (downloadsBlocked) return;
-  downloadsBlocked = true;
+let downloadsGoverned = false;
+export function governBrowserDownloads(d: {
+  browserIdFor(webContentsId: number): string | null;
+  decide(browserId: string | null, item: DownloadItemLike): DownloadDecision;
+  onBlocked(webContentsId: number, url: string, reason: string, filename: string): void;
+}): void {
+  if (downloadsGoverned) return;
+  downloadsGoverned = true;
   session.fromPartition(BROWSER_PARTITION).on("will-download", (event, item, wc) => {
+    const wcId = wc?.id ?? -1;
+    const decision = d.decide(d.browserIdFor(wcId), item as unknown as DownloadItemLike);
+    if (decision.allow) return; // the governor already called setSavePath and wired the item
     event.preventDefault();
-    onBlocked(wc?.id ?? -1, item.getURL());
+    // The filename travels too, so W4's bar can name what was blocked. Page/server-authored, and
+    // sanitized by `BlockedDownloads.note` before it is stored or shown — never used as a path here.
+    d.onBlocked(wcId, item.getURL(), decision.refused, item.getFilename());
   });
 }

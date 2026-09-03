@@ -1,8 +1,10 @@
 import { z } from "zod";
 import {
-  BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserReadKindSchema,
-  type BrowserAction, type BrowserActResult, type BrowserDescribeResult, type BrowserNavigateResult,
-  type BrowserReadResult, type BrowserScreenshotResult, type BrowserSnapshotResult, type Browser,
+  BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserReadKindSchema, CREDENTIAL_2FA_NOTE,
+  DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES,
+  type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
+  type BrowserDownloadResult, type BrowserNavigateResult, type BrowserReadResult,
+  type BrowserScreenshotResult, type BrowserSnapshotResult, type Browser,
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
@@ -12,6 +14,8 @@ import type { McpService } from "../mcp/service";
 import type { BrowserService } from "./service";
 import type { BrowserHostBridge } from "./host-bridge";
 import type { BrowserPermissionBroker } from "./permissions";
+import { join } from "node:path";
+import type { ProjectsStore } from "../store/projects";
 import { fenceUntrusted, isOAuthConsentUrl } from "./guards";
 
 export const BROWSER_PROVIDER_NAME = "realm-browser";
@@ -40,6 +44,10 @@ export const BROWSER_PROVIDER_NAME = "realm-browser";
  */
 export type BrowserAgentToolsDeps = {
   browsers: Pick<BrowsersStore, "get" | "list">;
+  /** Plan 23: resolves a space's project, whose root is the only place a download may land. A space
+   *  with no project has no destination and `browser_download` refuses — deliberately, rather than
+   *  inventing a Realm-owned directory no other surface shows the user. */
+  projects: Pick<ProjectsStore, "list">;
   browserService: Pick<BrowserService, "open">;
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
@@ -142,6 +150,41 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: "browser_credentials",
+    description:
+      "List the sign-ins the user has saved in Realm's Settings for this machine: id, origin, username and label. Never returns passwords — Realm cannot give you one. Use an id with browser_fill_credential. Read-only.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "browser_fill_credential",
+    description:
+      "Type a saved sign-in into a field, without ever seeing it. Give the [ref=N] of the username or password field and a credentialId from browser_credentials. Realm checks the pane's current origin against the one the credential was saved for and refuses if they differ, asks the user to approve this specific fill, and requires Touch ID — every time. You never receive the value and cannot read it back. Two-factor prompts (Duo, Okta, an emailed code) are not automated: hand those to the user.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        browserId: { type: "string" },
+        ref: { type: "number", description: "the field's ref from browser_snapshot" },
+        credentialId: { type: "string", description: "id from browser_credentials" },
+      },
+      required: ["browserId", "ref", "credentialId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "browser_download",
+    description:
+      `Download the file behind a link or button by its [ref=N], into the space project's ${DOWNLOAD_DIRNAME}/ directory. Asks the user for permission. Only document, image, archive and media types are saved — never anything executable — only from the origin the pane is already on, and only up to ${Math.round(DOWNLOAD_MAX_BYTES / 1024 / 1024)} MB. Returns the project-relative path, which you can then read with your own file tools. Batch this when fetching several files: one prompt covers the batch.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        browserId: { type: "string" },
+        ref: { type: "number", description: "ref of the download link or button, from browser_snapshot" },
+      },
+      required: ["browserId", "ref"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "browser_batch",
     description: "Run several browser tool calls in sequence, stopping at the first failure. Runs without a prompt ONLY when every action is read-only; a batch containing any mutating action asks the user once for the whole batch.",
     inputSchema: {
@@ -170,6 +213,12 @@ const NavigateArgs = z.object({ browserId: z.string().min(1), url: z.string().mi
 const BrowserIdArgs = z.object({ browserId: z.string().min(1) });
 const ReadArgs = z.object({ browserId: z.string().min(1), kind: BrowserReadKindSchema.default("text") });
 const ActArgs = z.object({ browserId: z.string().min(1), action: BrowserActionSchema });
+const DownloadArgs = z.object({ browserId: z.string().min(1), ref: z.number().int().positive() });
+const FillCredentialArgs = z.object({
+  browserId: z.string().min(1),
+  ref: z.number().int().positive(),
+  credentialId: z.string().min(1),
+});
 const BatchArgs = z.object({
   actions: z.array(z.object({ tool: z.string().min(1), arguments: z.record(z.unknown()).default({}) })).min(1).max(20),
 });
@@ -255,6 +304,70 @@ const HANDLERS: Record<string, Handler> = {
     return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
   },
 
+  browser_credentials: async (d, ctx) => {
+    const rows = await listCredentials(d);
+    if (rows.length === 0) {
+      return ok("No saved sign-ins. The user adds them in Realm's Settings → Sign-ins; there is no way for you to create one, and no tool that could.");
+    }
+    // The user's own words from Settings, not page-authored text, so no `fenceUntrusted` — but still
+    // clipped, because a long label in a tool result is a long label in the model's context.
+    const lines = rows.map((c) => `credentialId: ${c.id} — ${c.origin}${c.username ? ` · ${c.username}` : ""}${c.label ? ` · ${clip(c.label, 60)}` : ""}`);
+    return ok(`Saved sign-ins (no passwords — Realm cannot show you one):\n${lines.join("\n")}\n\n${CREDENTIAL_2FA_NOTE}`);
+  },
+
+  browser_fill_credential: async (d, ctx, rawArgs) => {
+    const args = parse(FillCredentialArgs, rawArgs); if ("error" in args) return args.error;
+    const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_fill_credential"); if (limited) return err(limited);
+
+    // The card is built from the CREDENTIAL's stored metadata (the user's own words, typed in
+    // Settings) and the pane's live URL — never the page's text, and never the value. If the id is
+    // unknown, say so now: a prompt for a credential that does not exist teaches nothing.
+    const credential = (await listCredentials(d)).find((c) => c.id === args.value.credentialId);
+    if (!credential) {
+      return err("refused: no saved sign-in has that id. browser_credentials lists what exists; the user enrolls new ones in Realm's Settings → Sign-ins.");
+    }
+    const live = await describeSafe(d, row.value.id);
+    const title = `Fill the saved sign-in for ${credential.origin}${credential.username ? ` (${credential.username})` : ""}${credential.label ? ` — ${clip(credential.label, 40)}` : ""} into the page on ${hostOf(live?.url)}`;
+    // `alwaysPrompt`: this card appears for every fill in every mode, and answering "always" to it
+    // licenses nothing. See `GateOptions`.
+    const gate = await d.broker.gate(
+      ctx.sessionId, "browser_fill_credential", title,
+      // The input echoed onto the permission event — the card's "what was asked for" detail. Origin,
+      // username and label, exactly as the spec requires, and structurally nothing else.
+      { browserId: row.value.id, ref: args.value.ref, origin: credential.origin, username: credential.username, label: credential.label },
+      "browser_fill_credential", { alwaysPrompt: true },
+    );
+    if (!gate.allowed) return err(gate.reason);
+
+    return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
+      const result = (await d.bridge.call("fillCredential", {
+        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id,
+      })) as BrowserActResult;
+      // No screenshot on failure, unlike `runAct`. A shot taken microseconds after a fill can contain
+      // the filled field, and some sites render the value in plain text on the way to masking it.
+      if (!result.ok) return err(`the sign-in was not filled: ${result.error}`);
+      return ok(`${result.detail}. ${CREDENTIAL_2FA_NOTE}`);
+    });
+  },
+
+  browser_download: async (d, ctx, rawArgs) => {
+    const args = parse(DownloadArgs, rawArgs); if ("error" in args) return args.error;
+    const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_download"); if (limited) return err(limited);
+    const dest = downloadDir(d, ctx.spaceId);
+    if (!dest) return err(noDestination);
+    const title = await describeDownload(d, row.value.id, args.value.ref);
+    // Ordinary mode parity, UNLIKE browser_fill_credential: `bypassPermissions` skips this card. A
+    // download is not a secret leaving the machine, and the guards that actually matter — path
+    // confinement, the extension allowlist, the size cap, the one-shot grant — are unconditional and
+    // never consult a mode. A second always-prompt tool would only train prompt-fatigue on the one
+    // workflow that legitimately needs twenty in a row.
+    const gate = await d.broker.gate(ctx.sessionId, "browser_download", title, { browserId: row.value.id, ref: args.value.ref });
+    if (!gate.allowed) return err(gate.reason);
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runDownload(d, row.value.id, args.value.ref, dest));
+  },
+
   browser_batch: async (d, ctx, rawArgs) => {
     const args = parse(BatchArgs, rawArgs); if ("error" in args) return args.error;
     // Validate every action BEFORE running any: a batch is a plan, and a half-executed plan whose
@@ -262,6 +375,11 @@ const HANDLERS: Record<string, Handler> = {
     const validated: { tool: string; arguments: unknown }[] = [];
     for (const a of args.value.actions) {
       if (a.tool === "browser_batch") return err("browser_batch cannot nest.");
+      // Refused at VALIDATION time, before the batch's single prompt is raised — not merely absent
+      // from `runBatchMutation`. A credential fill gets its own card naming its own origin and its
+      // own Touch ID check; "one prompt per fill, no batching" is the requirement, and a batch is by
+      // construction one prompt for many steps.
+      if (a.tool === "browser_fill_credential") return err("browser_fill_credential cannot run inside browser_batch — a credential fill is approved one at a time, on its own card. Call it directly.");
       if (!HANDLERS[a.tool]) return err(`unknown tool "${a.tool}" in batch.`);
       validated.push(a);
     }
@@ -328,6 +446,19 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const title = await describeAct(d, row.value.id, args.value.action);
     return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
   }
+  if (tool === "browser_download") {
+    // Every check the plain handler makes, minus the prompt. "Every study guide in the class" is
+    // twenty downloads and batching is the point of supporting it — but a batched step that reached
+    // the bridge without re-resolving the destination, or without the constraint check, would be the
+    // security bug this function exists to prevent.
+    const args = parse(DownloadArgs, rawArgs); if ("error" in args) return args.error;
+    const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_download"); if (limited) return err(limited);
+    const dest = downloadDir(d, ctx.spaceId);
+    if (!dest) return err(noDestination);
+    const title = await describeDownload(d, row.value.id, args.value.ref);
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runDownload(d, row.value.id, args.value.ref, dest));
+  }
   return err(`"${tool}" is not a known mutating browser tool.`);
 }
 
@@ -387,7 +518,65 @@ async function describeAct(d: Deps, browserId: string, action: BrowserAction): P
   }
 }
 
+/**
+ * Execute one download. The hard blocks (path confinement, the extension allowlist, the size cap,
+ * the one-shot grant) all live in Electron main's governor and apply regardless of what happens
+ * here — this is only result-shaping.
+ *
+ * On the filename, which is page-authored (`Content-Disposition`, or the URL): it is NOT wrapped in
+ * `fenceUntrusted`. That fence is a multi-line preamble built for blocks of page text and reads as
+ * nonsense around a single token mid-sentence. What actually makes this name safe is that it is the
+ * name main WROTE — already through `safeAttachmentName`, which reduces it to `[\w.\- ]` and 120
+ * characters, so it cannot carry a newline, a bracket, or a fence marker of its own. `clip` is the
+ * belt: a bound on length that does not depend on remembering what the sanitizer guarantees.
+ */
+async function runDownload(d: Deps, browserId: string, ref: number, dir: string): Promise<CallToolResult> {
+  const result = (await d.bridge.call("download", { browserId, ref, dir })) as BrowserDownloadResult;
+  if (!result.ok) return err(`download failed: ${result.error}`);
+  const name = clip(result.name.replace(/\s+/g, " "), 120);
+  return ok(`Saved "${name}" (${Math.round(result.bytes / 1024)} KB) into ${DOWNLOAD_DIRNAME}/ in the space's project. Read it at the project-relative path ${clip(result.relPath, 200)}.`);
+}
+
+/** The permission card for a download. The link's accessible name is page-derived and attributed as
+ *  such — never laundered into Realm's own voice — and the destination is named so the user knows
+ *  where a file is about to appear. */
+async function describeDownload(d: Deps, browserId: string, ref: number): Promise<string> {
+  const live = await describeSafe(d, browserId, ref);
+  const el = live?.element ? ` the page labels "${clip(live.element.name, 60)}"` : ` ref=${ref}`;
+  return `Download the file behind${el} from ${hostOf(live?.url)} into ${DOWNLOAD_DIRNAME}/`;
+}
+
+/**
+ * Where downloads land for a space: the first project's root. `null` when the space has no project.
+ *
+ * Exported because the USER's own downloads (Plan 23 W4, via the pane's blocked-download bar) must
+ * land in exactly the same place as the agent's, resolved by exactly the same rule. Two resolvers
+ * would eventually disagree, and the one that drifted would be writing files somewhere nobody looks.
+ */
+export function spaceDownloadDir(projects: Pick<ProjectsStore, "list">, spaceId: string): string | null {
+  const project = projects.list(spaceId)[0];
+  return project ? join(project.rootPath, DOWNLOAD_DIRNAME) : null;
+}
+
+const downloadDir = (d: Deps, spaceId: string): string | null => spaceDownloadDir(d.projects, spaceId);
+
+const noDestination =
+  "refused: this space has no project, so there is nowhere for a download to land where the user would see it. Add a project to the space first (its folder is where downloads go, and they show up in the diff pane).";
+
 /* ---------------------------------- small helpers ---------------------------------- */
+
+/** Enrolled sign-ins from Electron main. Metadata only — there is no bridge op that returns a value,
+ *  so there is nothing here to strip. An app that is not running answers with an empty list rather
+ *  than a bridge error: "no sign-ins are available" is true either way, and the distinction is not
+ *  one the agent could act on. */
+async function listCredentials(d: Deps): Promise<BrowserCredential[]> {
+  try {
+    const result = (await d.bridge.call("credentials", {})) as { credentials?: BrowserCredential[] };
+    return Array.isArray(result?.credentials) ? result.credentials : [];
+  } catch {
+    return [];
+  }
+}
 
 const ok = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: false });
 const err = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });

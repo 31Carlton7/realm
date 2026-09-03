@@ -13,7 +13,22 @@ const REQUEST_PREFIX = "bperm_";
  *  the agent's own transport gives up at some unhelpful place. */
 const PROMPT_TIMEOUT_MS = 15 * 60 * 1000;
 
-type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: PermissionDecision) => void; timer: NodeJS.Timeout };
+type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: PermissionDecision) => void; timer: NodeJS.Timeout; alwaysPrompt: boolean };
+
+/**
+ * Per-call gate behaviour.
+ *
+ * `alwaysPrompt` makes ONE call prompt every single time: `bypassPermissions` does not skip it and
+ * `allow_always` neither satisfies it nor gets recorded by it. Exactly one caller sets it —
+ * `browser_fill_credential`, the only tool that puts a real secret onto a page.
+ *
+ * The reasoning, since this is the sole place a mode's meaning is narrowed: `bypassPermissions` means
+ * "stop asking me about ordinary actions", and Realm has never treated a secret entering a page as an
+ * ordinary action — `browser_act` refuses password fields in that mode too. A batched or remembered
+ * approval is also the wrong shape for this specific decision: the card names an origin, and the
+ * whole point of the origin gate is that the answer changes when the origin does.
+ */
+export type GateOptions = { alwaysPrompt?: boolean };
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
 
@@ -54,7 +69,9 @@ export class BrowserPermissionBroker {
     if (!p) return;
     this.pending.delete(requestId);
     clearTimeout(p.timer);
-    if (decision === "allow_always") {
+    // An `alwaysPrompt` gate records nothing: the user answering "always" to a credential fill card
+    // must not silently license the next one, on whatever origin that turns out to be.
+    if (decision === "allow_always" && !p.alwaysPrompt) {
       let set = this.always.get(p.sessionId);
       if (!set) { set = new Set(); this.always.set(p.sessionId, set); }
       set.add(p.toolKey);
@@ -81,11 +98,13 @@ export class BrowserPermissionBroker {
    * browser_act may always act in this session"); `title` is the human-readable line the ApprovalCard
    * shows; `input` is echoed onto the event so the card can show what the agent asked for.
    */
-  async gate(sessionId: string, toolKey: string, title: string, input: Record<string, unknown>, toolName: string = toolKey): Promise<GateResult> {
+  async gate(sessionId: string, toolKey: string, title: string, input: Record<string, unknown>, toolName: string = toolKey, opts: GateOptions = {}): Promise<GateResult> {
     const mode = this.d.permissionMode(sessionId);
-    if (mode === "bypassPermissions") return { allowed: true };
     if (mode === "plan") return { allowed: false, reason: "this session is in Plan (read-only) mode — mutating browser tools are refused; switch modes to act on pages" };
-    if (this.always.get(sessionId)?.has(toolKey)) return { allowed: true };
+    if (!opts.alwaysPrompt) {
+      if (mode === "bypassPermissions") return { allowed: true };
+      if (this.always.get(sessionId)?.has(toolKey)) return { allowed: true };
+    }
 
     const requestId = REQUEST_PREFIX + randomBytes(12).toString("base64url");
     const decision = await new Promise<PermissionDecision>((resolve) => {
@@ -95,7 +114,7 @@ export class BrowserPermissionBroker {
         this.d.emit(sessionId, sessionEvent("status", { status: "running" }));
         resolve("deny");
       }, PROMPT_TIMEOUT_MS);
-      this.pending.set(requestId, { sessionId, toolKey, resolve, timer });
+      this.pending.set(requestId, { sessionId, toolKey, resolve, timer, alwaysPrompt: opts.alwaysPrompt === true });
       // Emitted AFTER the pending entry exists: a same-tick respondPermission must find it.
       // `toolName` is what the card SHOWS; `toolKey` is what `allow_always` remembers. They differ when
       // the grant must be narrower than the tool — Plan 20's ask keys on `agent_ask:<targetId>` so
