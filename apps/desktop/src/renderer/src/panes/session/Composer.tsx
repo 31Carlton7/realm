@@ -87,7 +87,7 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
         {attachments.map((a) => (
           <li key={a.path} className="composer-attach-item">
             <AttachmentTile path={a.path} mime={a.mime} name={a.name} disposition={attachmentDisposition(kind, a.mime)}
-              title={`${a.path} · ${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
+              detail={`${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
               onRemove={() => onRemove(a.path)} />
           </li>
         ))}

@@ -75,23 +75,27 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
             case "user": return (
-              // Attachments render as their own line of file chips (Plan 14 W5): an attachment-only
-              // message has no text at all, and an empty bubble would look like a send that lost its
-              // words rather than one that carried files.
+              // Attachments sit ABOVE the bubble, not inside it (and not below): what was sent was a
+              // stack of files with a note under it, and the tiles are the subject rather than a
+              // footnote to the text. It is also the only arrangement that survives the two
+              // degenerate cases — an attachment-only message has no bubble to sit inside, and a long
+              // message would otherwise push its own files off the bottom of the card.
               <div key={key} className="msg-user-row" data-enter={enter || undefined} data-from={b.from ? "" : undefined}>
                 {/* A question another session asked is NOT the user's words. Rendering it as a plain
                     user bubble would have the user believing they typed it — a lie by omission — so
                     the bubble is attributed and styled apart. The fenced text itself is left exactly
                     as the peer received it: the user should see what the agent was actually handed. */}
                 {b.from && <span className="msg-user-from">Asked by {b.from.title}</span>}
-                <div className="msg-user">
-                  {b.text}
-                  {b.attachments && (
-                    <span className="msg-user-files" aria-label="Attached files">
-                      {b.attachments.map((a) => <AttachmentTile key={a.path} path={a.path} mime={a.mime} />)}
-                    </span>
-                  )}
-                </div>
+                {b.attachments && (
+                  <ul className="msg-user-files" aria-label="Attached files">
+                    {b.attachments.map((a) => (
+                      <li key={a.path}><AttachmentTile path={a.path} mime={a.mime} /></li>
+                    ))}
+                  </ul>
+                )}
+                {/* An attachment-only message has no text at all, and an empty bubble would read as a
+                    send that lost its words rather than one that carried only files. */}
+                {b.text && <div className="msg-user">{b.text}</div>}
               </div>);
             case "assistant": return <Markdown key={key} className="msg-assistant" text={b.text} streaming={b.streaming} enter={enter} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;

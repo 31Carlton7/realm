@@ -1,12 +1,12 @@
 import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
-import { isImageMime, mimeForPath } from "@realm/contracts";
+import { DEFAULT_MIME, isImageMime, mimeForPath } from "@realm/contracts";
 import { closeSync, existsSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { startServer } from "./server-process";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
-import { describeFiles, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
+import { describeFiles, quickLookThumbnail, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { blockBrowserDownloads, createBrowserPane, type BrowserPane } from "./browser-pane";
 import type { BrowserPaneHost, ViewRect } from "./browser-host";
 import { BrowserAgentHost } from "./browser-agent-host";
@@ -237,21 +237,35 @@ ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
 ipcMain.handle("updates:install", () => { updater.install(); });
 
-/** Attachment thumbnails. An attached image can only ever be NAMED in the renderer unless the pixels
+/** Attachment thumbnails. An attached file can only ever be NAMED in the renderer unless the pixels
  *  get there somehow: the renderer has no filesystem access (contextIsolation), and the page's CSP is
  *  `img-src 'self' data:` — so `file://` is refused even in a packaged build. A data: URL minted here
  *  is the one channel that needs neither a protocol handler nor a CSP hole.
  *
- *  Downscaled in main on purpose: a 12-megapixel screenshot would otherwise cross the bridge whole,
- *  as base64, for a 44px tile. Non-images and unreadable files answer null — the caller draws its
- *  file glyph instead, which is also what makes a deleted/moved path degrade quietly. */
+ *  Two producers, in cost order. An image is decoded and downscaled in-process, because that is
+ *  cheap and synchronous — and downscaled on purpose: a 12-megapixel screenshot would otherwise
+ *  cross the bridge whole, as base64, for a 44px tile. Everything else goes to QuickLook, which is
+ *  what puts the first page of a PDF (or a Keynote slide, or a movie frame) on the tile instead of
+ *  the same generic glyph every non-image used to share.
+ *
+ *  Either producer answering null is normal, not an error: the caller draws its file glyph, which is
+ *  also what makes a deleted or moved path degrade quietly. */
 const THUMB_PX = 96;
-ipcMain.handle("attachment-thumbnail", (_e, path: string): string | null => {
+ipcMain.handle("attachment-thumbnail", async (_e, path: string): Promise<string | null> => {
   try {
-    if (typeof path !== "string" || !isImageMime(mimeForPath(path))) return null;
-    const img = nativeImage.createFromPath(path);
-    if (img.isEmpty()) return null;
-    return img.resize({ height: THUMB_PX }).toDataURL();
+    if (typeof path !== "string") return null;
+    if (isImageMime(mimeForPath(path))) {
+      const img = nativeImage.createFromPath(path);
+      // An empty decode is not necessarily "not an image" — an HEIC or an SVG lands here too, and
+      // QuickLook renders both — so a failed decode falls through rather than giving up.
+      if (!img.isEmpty()) return img.resize({ height: THUMB_PX }).toDataURL();
+    }
+    if (!realmHome) return null; // QuickLook needs a scratch directory, and that lives under home
+    // An extension Realm's mime table does not know is one macOS is unlikely to have a generator
+    // for either — and `qlmanage` answers "no generator" by hanging until the timeout. Skipping the
+    // ask is what keeps attaching a `.bin` from costing three seconds of a stalled child process.
+    if (mimeForPath(path) === DEFAULT_MIME) return null;
+    return await quickLookThumbnail(realmHome, path, THUMB_PX);
   } catch { return null; }
 });
 

@@ -5,7 +5,8 @@ import { basenameOf, isImageMime } from "@realm/contracts";
 /** Thumbnails are minted in main (see the `attachment-thumbnail` handler) and are pure functions of a
  *  path, so one module-level cache serves every tile: the same screenshot appears in the composer and
  *  then again in the transcript, and re-reading it off disk for each would be work nobody asked for.
- *  A path that yields no thumbnail caches `null` too — a PDF must not be re-probed on every render. */
+ *  A path that yields no thumbnail caches `null` too — an unpreviewable file must not send QuickLook
+ *  off to fail again on every render. */
 const cache = new Map<string, string | null>();
 const inflight = new Map<string, Promise<string | null>>();
 
@@ -28,45 +29,67 @@ const extOf = (path: string): string => {
   return dot > 0 ? base.slice(dot + 1).toLowerCase().slice(0, 4) : "";
 };
 
-/** One attachment, shown rather than merely named: the image itself when it is an image, a file glyph
- *  otherwise, with the type as a badge and the full path on hover.
+/**
+ * One attachment, as a square: the file itself when macOS can render it — the image, the first page
+ * of the PDF — and a glyph with the file's extension when it cannot.
  *
- *  A non-image, an unreadable file, or a path that has since moved all land in the same place — the
- *  glyph — because `attachmentThumbnail` answers null for every one of them. */
-export function AttachmentTile({ path, mime, name, title, disposition, onRemove }: {
+ * The NAME is deliberately not on the tile. A row of chips reading "Screenshot 2026-09-02 at
+ * 14.31.07.png" tells the user something they already know (they just picked the file) at the cost of
+ * the one thing they cannot check at a glance: whether it is the right file. The picture answers
+ * that. The name is one hover away, in the tip, where it is available but not in the way.
+ *
+ * A thumbnail that never arrives — an unreadable file, a path that has since moved, a type QuickLook
+ * has no generator for — lands on the glyph, because `attachmentThumbnail` answers null for every one
+ * of them and the tile treats "no picture yet" and "no picture ever" the same.
+ */
+export function AttachmentTile({ path, mime, name, detail, disposition, onRemove }: {
   path: string; mime: string;
   /** The picker's own name when there is one; otherwise the path's basename. */
   name?: string;
-  /** Hover text; defaults to the full path, which is what makes a bare basename unambiguous. */
-  title?: string;
-  /** The composer's per-agent fate for this file; drives the warning tint. Absent in the transcript,
-   *  where the message has already been sent and the fate is no longer actionable. */
+  /** Second line of the tip: size, and this agent's fate for the file. Absent in the transcript,
+   *  where the message has been sent and neither is actionable any more. */
+  detail?: string;
+  /** The composer's per-agent fate for this file; drives the warning tint. */
   disposition?: string;
   onRemove?: () => void;
 }) {
   const label = name ?? basenameOf(path);
   const [thumb, setThumb] = useState<string | null>(() => cache.get(path) ?? null);
-  const isImage = isImageMime(mime);
+  const ext = extOf(path);
 
   useEffect(() => {
-    if (!isImage || cache.has(path)) { setThumb(cache.get(path) ?? null); return; }
+    if (cache.has(path)) { setThumb(cache.get(path) ?? null); return; }
     let live = true;
     void loadThumbnail(path).then((url) => { if (live) setThumb(url); });
     return () => { live = false; };
-  }, [path, isImage]);
+  }, [path]);
 
   return (
-    <span className="attach-chip" title={title ?? path} data-disposition={disposition} data-image={thumb ? "" : undefined}>
+    <span className="attach-tile" data-disposition={disposition} data-image={thumb ? "" : undefined}>
+      {/* The picture and its badge sit in their own well, which is the element that clips to the
+          rounded corners. The tile around it must NOT clip — the tip hangs outside its box. */}
       <span className="attach-art">
         {thumb
-          ? <img className="attach-thumb" src={thumb} alt={label} draggable={false} />
-          : <Icon name={isImage ? "image" : "artifact"} size={15} className="attach-glyph" />}
-        {extOf(path) && <span className="attach-ext">{extOf(path)}</span>}
+          // alt="" on purpose: the file is named once, by the visually-hidden span below. An alt
+          // here would have a screen reader read it twice.
+          ? <img className="attach-thumb" src={thumb} alt="" draggable={false} />
+          : <Icon name={isImageMime(mime) ? "image" : "artifact"} size={18} className="attach-glyph" />}
+        {ext && <span className="attach-ext">{ext}</span>}
       </span>
-      <span className="chip-label">{label}</span>
+      {/* Dropping the visible name must not drop it from the accessibility tree: a tile whose only
+          content is a picture and a three-letter badge is unreadable to a screen reader, and this is
+          the one place the file is still named for one. */}
+      <span className="visually-hidden">{label}{detail ? ` — ${detail}` : ""}</span>
+      {/* The tip is a real element rather than a `title`: the OS tooltip waits a second, arrives
+          under the pointer and cannot show more than one line. `aria-hidden` because the name above
+          is already in the tree — a screen reader must not hear the file twice. */}
+      <span className="attach-tip" aria-hidden="true">
+        <span className="attach-tip-name">{label}</span>
+        {detail && <span className="attach-tip-detail">{detail}</span>}
+      </span>
       {onRemove && (
         <button type="button" className="attach-remove" aria-label={`Remove ${label}`} onClick={onRemove}>
-          <Icon name="close" size={10} />
+          <Icon name="close" size={9} />
         </button>
       )}
     </span>

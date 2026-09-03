@@ -4,7 +4,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  describeFiles, safeAttachmentName, saveTempAttachment, sweepTempAttachments,
+  describeFiles, quickLookThumbnail, safeAttachmentName, saveTempAttachment, sweepTempAttachments,
   TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
 } from "./attachments";
 
@@ -125,5 +125,65 @@ describe("describeFiles", () => {
   it("drops directories", async () => {
     await mkdir(join(home, "adir.png"));
     expect(await describeFiles([join(home, "adir.png")])).toEqual([]);
+  });
+});
+
+/** A minimal, valid, one-page PDF. Written here rather than imported from the server's test-pdf
+ *  helper so this suite stays inside apps/desktop — and QuickLook only needs a well-formed file, not
+ *  an interesting one. */
+function makePdf(): Buffer {
+  const content = "BT /F1 18 Tf 72 720 Td (Hello Realm) Tj ET";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let out = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  objects.forEach((body, i) => { offsets.push(Buffer.byteLength(out)); out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+  const xref = Buffer.byteLength(out);
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const o of offsets) out += `${String(o).padStart(10, "0")} 00000 n \n`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, "latin1");
+}
+
+describe("quickLookThumbnail", () => {
+  const darwin = process.platform === "darwin";
+  const onDarwin = darwin ? it : it.skip;
+
+  onDarwin("renders a PDF's first page — the case nativeImage cannot decode at all", async () => {
+    const p = join(home, "report.pdf");
+    await writeFile(p, makePdf());
+    const url = await quickLookThumbnail(home, p, 96);
+    expect(url).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/);
+  }, 20_000);
+
+  onDarwin("answers null for a file QuickLook has no generator for, rather than throwing", async () => {
+    const p = join(home, "mystery.zzz");
+    await writeFile(p, "not a document");
+    expect(await quickLookThumbnail(home, p, 96)).toBeNull();
+  }, 20_000);
+
+  onDarwin("answers null for a path that does not exist", async () => {
+    expect(await quickLookThumbnail(home, join(home, "gone.pdf"), 96)).toBeNull();
+  }, 20_000);
+
+  onDarwin("leaves no scratch directory behind, on success or on failure", async () => {
+    const p = join(home, "report.pdf");
+    await writeFile(p, makePdf());
+    await quickLookThumbnail(home, p, 96);
+    await quickLookThumbnail(home, join(home, "gone.pdf"), 96);
+    // `tmp/thumbs` may exist; what must never accumulate is a per-call directory inside it.
+    let left: string[] = [];
+    try { left = await readdir(join(home, "tmp", "thumbs")); } catch { /* never created is also fine */ }
+    expect(left).toEqual([]);
+  }, 20_000);
+
+  it("is a no-op off macOS — qlmanage is Apple's, and the caller falls back to its glyph", async () => {
+    if (darwin) return; // the darwin path is covered above; this is the guard's other branch
+    expect(await quickLookThumbnail(home, join(home, "report.pdf"), 96)).toBeNull();
   });
 });

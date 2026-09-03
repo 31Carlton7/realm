@@ -1716,7 +1716,7 @@ describe("prompter attachments", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Add files…/ })); // kbd hint ⌘U rides the accessible name
   };
-  const chips = () => Array.from(document.querySelectorAll(".attach-chip")).map((c) => c.textContent ?? "");
+  const chips = () => Array.from(document.querySelectorAll(".attach-tile")).map((c) => c.textContent ?? "");
   const notes = () => Array.from(document.querySelectorAll(".composer-attach-note")).map((n) => n.textContent ?? "");
   const composer = () => document.querySelector(".composer") as HTMLElement;
   const dt = (files: File[]) => ({ dataTransfer: { files, items: files.map(() => ({ kind: "file" })), types: ["Files"] } });
@@ -1740,7 +1740,7 @@ describe("prompter attachments", () => {
     expect(warn).not.toContain("shot.png"); // the image is fine, and must not be tarred with it
     expect(notes().some((t) => /Claude reads image attachments inline/.test(t))).toBe(true);
     // The doomed chip wears the warning fate; the image does not.
-    const marked = Array.from(document.querySelectorAll(".attach-chip[data-disposition='ignored']"));
+    const marked = Array.from(document.querySelectorAll(".attach-tile[data-disposition='ignored']"));
     expect(marked).toHaveLength(1);
     expect(marked[0]).toHaveTextContent("report.pdf");
   });
@@ -1752,7 +1752,7 @@ describe("prompter attachments", () => {
     expect(notes().join(" ")).toContain("Codex");
     expect(notes().join(" ")).toContain("file path");
     expect(notes().join(" ")).not.toMatch(/ignores/);
-    expect(document.querySelectorAll(".attach-chip[data-disposition='ignored']")).toHaveLength(0);
+    expect(document.querySelectorAll(".attach-tile[data-disposition='ignored']")).toHaveLength(0);
   });
 
   it("says something DIFFERENT again for Cursor — a link", async () => {
@@ -1767,18 +1767,36 @@ describe("prompter attachments", () => {
     await mountFor("codex", [picked("/x/report.pdf", "application/pdf")]);
     attach();
     await waitFor(() => expect(chips()).toHaveLength(1));
-    const text = notes().join(" ") + (document.querySelector(".attach-chip")!.getAttribute("title") ?? "");
+    const text = notes().join(" ") + (document.querySelector(".attach-tile")!.textContent ?? "");
     for (const other of ["Claude", "Cursor", "Gemini"]) expect(text, other).not.toContain(other);
   });
 
-  it("the chip's tooltip carries the full path, the size and the same verdict", async () => {
+  it("the tile's tip carries the name, the size and the same verdict — and not the path", async () => {
     await mountFor("claude", [picked("/very/long/path/report.pdf", "application/pdf", 2048)]);
     attach();
     await waitFor(() => expect(chips()).toHaveLength(1));
-    const title = document.querySelector(".attach-chip")!.getAttribute("title")!;
-    expect(title).toContain("/very/long/path/report.pdf");
-    expect(title).toContain("2.0 KB");
-    expect(title).toContain("Claude ignores non-image attachments");
+    const tip = document.querySelector(".attach-tip")!.textContent!;
+    expect(tip).toContain("report.pdf");
+    expect(tip).toContain("2.0 KB");
+    expect(tip).toContain("Claude ignores non-image attachments");
+    // No directory. The path used to be here because the chip TRUNCATED its label and a bare
+    // basename could be ambiguous; nothing truncates now, and for the common case — a pasted
+    // screenshot under Realm's own tmp — the folder was three lines of noise over the answer.
+    expect(tip).not.toContain("/very/long/path");
+  });
+
+  it("the tile shows no name at rest, but is still named to a screen reader", async () => {
+    await mountFor("codex", [picked("/x/report.pdf", "application/pdf")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    const tile = document.querySelector(".attach-tile")!;
+    // Everything naming the file is either visually hidden or inside the hover tip — nothing else
+    // in the tile carries text, which is what keeps a row of files to a row of squares.
+    const visible = Array.from(tile.childNodes)
+      .filter((n) => !(n instanceof HTMLElement && (n.classList.contains("visually-hidden") || n.classList.contains("attach-tip"))))
+      .map((n) => n.textContent ?? "").join("");
+    expect(visible).not.toContain("report");
+    expect(tile.querySelector(".visually-hidden")!.textContent).toContain("report.pdf");
   });
 
   it("a removed chip is gone from the row AND never reaches the wire", async () => {
