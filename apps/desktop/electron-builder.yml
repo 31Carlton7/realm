@@ -39,9 +39,8 @@ afterSign: scripts/notarize.cjs
 # The update feed's shape (Plan 15 W1/W2): presence of this block makes electron-builder emit
 # latest-mac.yml next to the dmg/zip (what `pnpm release` stages for a GitHub release) and embed
 # app-update.yml in the app. It does NOT publish — both dist scripts pin `--publish never`; humans
-# publish (see `pnpm release`'s printed next steps). The repo is PRIVATE today, so the in-app
-# updater ships gated off (src/main/updater.ts's doc comment has the activation conditions —
-# private-repo updates would require embedding a GitHub token in the app, which is banned).
+# publish (see `pnpm release`'s printed next steps). The public repository makes release assets
+# readable without credentials; src/main/updater.ts still requires a signed packaged build.
 publish:
   provider: github
   owner: 31Carlton7

@@ -120,8 +120,7 @@ export function nextStepsText({ tag, branch, artifacts }) {
     `       gh release create ${tag} --draft --title "Realm ${tag}" --notes "TODO" \\`,
     `         ${fileArgs}`,
     `     then paste the CHANGELOG.md section as the notes and publish the draft in the GitHub UI.`,
-    `     (Releases stay private while the repo is private — the in-app updater stays gated off;`,
-    `      activation conditions: README → Updates.)`,
+    `     Once published, this public release becomes the in-app feed for signed builds.`,
     ``,
   ].join("\n");
 }

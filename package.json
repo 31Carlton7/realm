@@ -12,6 +12,7 @@
     "dev": "pnpm --filter @realm/server build && pnpm -r --parallel --filter @realm/server --filter @realm/desktop dev",
     "dist": "pnpm build && pnpm --filter @realm/desktop dist",
     "dist:dir": "pnpm build && pnpm --filter @realm/desktop dist:dir",
+    "app:update": "pnpm dist:dir && node scripts/install-local.mjs",
     "release": "node scripts/release.mjs"
   },
   "devDependencies": {

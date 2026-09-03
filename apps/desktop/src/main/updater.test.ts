@@ -22,9 +22,9 @@ describe("updaterDecision — the hard gate (Plan 15 W1)", () => {
     expect(updaterDecision({ packaged: true, signed: true, feedLive: true })).toEqual({ enabled: true });
   });
 
-  it("the shipped flag is off: this build's decision can never enable (repo private — see the doc comment)", () => {
-    expect(UPDATE_FEED_LIVE).toBe(false);
-    expect(updaterDecision({ packaged: true, signed: true, feedLive: UPDATE_FEED_LIVE })).toEqual({ enabled: false, reason: "no-feed" });
+  it("the shipped public feed is live; a signed packaged build enables updates", () => {
+    expect(UPDATE_FEED_LIVE).toBe(true);
+    expect(updaterDecision({ packaged: true, signed: true, feedLive: UPDATE_FEED_LIVE })).toEqual({ enabled: true });
   });
 });
 
@@ -84,6 +84,20 @@ describe("RealmUpdater", () => {
     expect(up.status().state).toEqual({ kind: "downloaded", version: "1.1.0" });
     up.install();
     expect(fake.installed).toBe(1);
+  });
+
+  it("notifies the host exactly when a download completes", async () => {
+    const fake = fakeUpdater();
+    const downloaded: string[] = [];
+    const up = new RealmUpdater({
+      version: "1.0.0", decision: { enabled: true }, load: async () => fake,
+      onDownloaded: (version) => downloaded.push(version),
+    });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    expect(downloaded).toEqual([]);
+    fake.fireDownloaded("1.1.0");
+    expect(downloaded).toEqual(["1.1.0"]);
   });
 
   it("a downloaded event that lands before checkForUpdates settles is not clobbered back to downloading", async () => {

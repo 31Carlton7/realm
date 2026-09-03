@@ -1,7 +1,7 @@
 /**
  * Auto-update scaffolding (Plan 15 W1). The machinery is wired end to end — electron-updater,
- * a feed config in electron-builder.yml, the Settings→App row — but it ships DISABLED, and the
- * gate below is the whole story of when it may run:
+ * a public GitHub feed in electron-builder.yml, the Settings→App row — and the gate below is the
+ * whole story of when it may run:
  *
  *   1. Never in dev (`app.isPackaged` false). Not "usually": the updater module is not even
  *      loaded — `RealmUpdater.check()` refuses before the dynamic import.
@@ -9,22 +9,15 @@
  *      it installs; an unsigned Realm.app (today's `pnpm dist` without CSC_* env) cannot apply an
  *      update, so offering a check would be a lie. `signed` is baked in at build time from the
  *      same env vars that make electron-builder sign (see electron.vite.config.ts's define).
- *   3. Never without a live public feed (`UPDATE_FEED_LIVE`). The repo is PRIVATE: electron-updater's
- *      GitHub provider can only reach private release assets with an API token, and shipping a
- *      GitHub token inside a desktop app hands write-scoped credentials to every user who unzips
- *      the asar — banned, permanently. So the feed config in electron-builder.yml points at this
- *      repo's releases for the day they are PUBLIC, and until then the flag stays false.
+ *   3. Never without a live public feed (`UPDATE_FEED_LIVE`). The GitHub provider reads Realm's
+ *      public releases without embedding credentials in the app. Keep this explicit gate so a
+ *      future hosting or visibility change fails closed instead of producing a broken updater.
  *
- * ACTIVATION CONDITIONS — flip `UPDATE_FEED_LIVE` to true only when BOTH hold:
- *   a. Releases are reachable without credentials: the repo (or a mirror the publish config points
- *      at) has public releases carrying the dmg/zip + latest-mac.yml that `pnpm release` builds,
- *      OR a generic update server (any static host serving those same files) replaces the GitHub
- *      provider in electron-builder.yml.
- *   b. Builds are signed + notarized (docs/dev/signing.md) — condition 2 lifts on its own then.
- * Nothing else changes: the gate reads the flag, the Settings row starts offering a real check,
- * and quit-and-install already tears the server child down via before-quit-for-update (index.ts).
+ * The feed is live because github.com/31Carlton7/realm is public. Builds still must be signed and
+ * notarized (docs/dev/signing.md); condition 2 lifts automatically when the CSC_* build credentials
+ * are present. Unsigned local iteration uses `pnpm app:update` instead of weakening this gate.
  */
-export const UPDATE_FEED_LIVE = false;
+export const UPDATE_FEED_LIVE = true;
 
 export type UpdateDisabledReason = "dev" | "unsigned" | "no-feed";
 export type UpdaterDecision = { enabled: true } | { enabled: false; reason: UpdateDisabledReason };
@@ -63,7 +56,12 @@ export type UpdaterLike = {
 export class RealmUpdater {
   private state: UpdateState;
   private updater: UpdaterLike | null = null;
-  constructor(private readonly d: { version: string; decision: UpdaterDecision; load: () => Promise<UpdaterLike> }) {
+  constructor(private readonly d: {
+    version: string;
+    decision: UpdaterDecision;
+    load: () => Promise<UpdaterLike>;
+    onDownloaded?: (version: string) => void;
+  }) {
     this.state = d.decision.enabled ? { kind: "idle" } : { kind: "disabled", reason: d.decision.reason };
   }
 
@@ -103,7 +101,10 @@ export class RealmUpdater {
     if (this.updater) return this.updater;
     const u = await this.d.load();
     u.autoDownload = true;
-    u.on("update-downloaded", (info) => { this.state = { kind: "downloaded", version: info.version }; });
+    u.on("update-downloaded", (info) => {
+      this.state = { kind: "downloaded", version: info.version };
+      this.d.onDownloaded?.(info.version);
+    });
     this.updater = u;
     return u;
   }
