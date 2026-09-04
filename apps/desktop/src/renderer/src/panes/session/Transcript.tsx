@@ -5,6 +5,7 @@ import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { PermissionCard } from "./PermissionCard";
+import { PlanCard, PlanDecision, isPlanDecision } from "./PlanCard";
 import { QuestionCard, questionCardFor } from "./QuestionCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
 import { formatDuration, groupTranscript } from "./tool-group";
@@ -104,7 +105,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
   const [pill, setPill] = useState(false);
   const count = transcript.blocks.length;
   const lastText = transcript.blocks.at(-1);
-  const lastLen = lastText && "text" in lastText ? lastText.text.length : 0;
+  // `?? 0` because not every text-bearing block has text: a checklist-only plan carries none.
+  const lastLen = lastText && "text" in lastText ? lastText.text?.length ?? 0 : 0;
   // Permission cards only make sense while the adapter is actually waiting; stale requests (crash, restart) are closed server-side.
   const permissions = sessionStatus === "waiting_permission" ? transcript.pendingPermissions : [];
   // §6: 180ms enter, new items only. Everything on screen at mount is seeded as already-seen, so
@@ -176,6 +178,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} />;
+            case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter} />;
             case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
             // The shimmer the reader was watching, settled: same verb, past tense, with the wait it
             // cost them. It stays in the scrollback rather than vanishing with the spinner — "how
@@ -184,12 +187,17 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
           }
         })}
         {permissions.map((p, i) => {
-          // A question-shaped tool call gets the question card; everything else is a permission and
-          // keeps the Allow / Allow always / Deny gate.
+          // A question-shaped tool call gets the question card and a plan gets its approve/reject
+          // row; everything else really is a permission and keeps the Allow / Allow always / Deny gate.
           const questions = questionCardFor(p);
           if (questions) return <QuestionCard key={p.requestId} questions={questions} autoFocus={focused && i === 0}
             enter={isEntering(permKey(p.requestId))}
             onAnswer={(answers) => onDecide(p.requestId, "allow", answers)} onSkip={() => onDecide(p.requestId, "deny")} />;
+          // A plan is not a permission. The plan itself is already a block above (mapped off the same
+          // tool call), so this is only the answer to it — repeating the markdown here would print the
+          // plan twice.
+          if (isPlanDecision(p)) return <PlanDecision key={p.requestId} autoFocus={focused && i === 0}
+            enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />;
           return <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0}
             enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />;
         })}

@@ -24,7 +24,7 @@ describe("isHarnessPreamble", () => {
 const NOW = 1_800_000_000_000;
 const jsonl = (rows: unknown[]): string => rows.map((r) => JSON.stringify(r)).join("\n");
 const texts = (events: SessionEvent[], type: SessionEvent["type"]): string[] =>
-  events.filter((e) => e.type === type).map((e) => ("text" in e.payload ? e.payload.text : ""));
+  events.filter((e) => e.type === type).map((e) => ("text" in e.payload ? e.payload.text ?? "" : ""));
 
 describe("parseClaudeTranscript", () => {
   const base = { sessionId: "s-1", cwd: "/Users/me/proj", isSidechain: false };

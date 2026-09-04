@@ -54,6 +54,31 @@ describe("map-sdk-message", () => {
     expect(delta1.type === "assistant_delta" && delta1.payload.messageId).toBe(delta2.type === "assistant_delta" && delta2.payload.messageId);
     expect(delta1.type === "assistant_delta" && delta1.payload.messageId).toBe(text.type === "assistant_text" && text.payload.messageId);
   });
+  it("maps ExitPlanMode to a plan carrying the markdown, not to a tool call", () => {
+    const out = createSdkMapper().map(asst([{ type: "tool_use", id: "toolu_p", name: "ExitPlanMode", input: { plan: "# Ship it\n\n1. Do the thing", planFilePath: "/tmp/p.md" } }]) as never);
+    // The mutant: dropping the ExitPlanMode branch. The plan then reaches the transcript as a generic
+    // tool call whose summary clips the whole document to one line.
+    expect(out.map((e) => e.type)).toEqual(["plan"]);
+    expect(out[0]!.type === "plan" && out[0]!.payload).toEqual({ planId: "toolu_p", text: "# Ship it\n\n1. Do the thing" });
+  });
+  it("keys the plan on the tool use id, so a re-proposed plan is a second card and a resend is not", () => {
+    const m = createSdkMapper();
+    const first = m.map(asst([{ type: "tool_use", id: "toolu_a", name: "ExitPlanMode", input: { plan: "v1" } }]) as never);
+    const second = m.map(asst([{ type: "tool_use", id: "toolu_b", name: "ExitPlanMode", input: { plan: "v2" } }]) as never);
+    expect([first[0]!, second[0]!].map((e) => e.type === "plan" && e.payload.planId)).toEqual(["toolu_a", "toolu_b"]);
+  });
+  it.each([
+    ["no plan field", { planFilePath: "/tmp/p.md" }],
+    ["a non-string plan", { plan: { markdown: "nope" } }],
+    ["a blank plan", { plan: "   " }],
+  ])("falls back to the ordinary tool call when the call carries %s — a plan card with no plan is worse than the generic one", (_name, input) => {
+    const out = createSdkMapper().map(asst([{ type: "tool_use", id: "toolu_p", name: "ExitPlanMode", input }]) as never);
+    expect(out.map((e) => e.type)).toEqual(["tool_call"]);
+  });
+  it("leaves every other tool alone — a TodoWrite whose input happens to have a `plan` key is still a tool call", () => {
+    const out = createSdkMapper().map(asst([{ type: "tool_use", id: "t9", name: "TodoWrite", input: { plan: "not mine" } }]) as never);
+    expect(out.map((e) => e.type)).toEqual(["tool_call"]);
+  });
   it("result with is_error emits usage then error, and resets text dedupe", () => {
     const m = createSdkMapper();
     m.map(asst([{ type: "text", text: "same" }], null, "m1") as never);

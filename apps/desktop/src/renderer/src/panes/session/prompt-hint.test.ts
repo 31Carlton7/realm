@@ -18,6 +18,8 @@ const assistant = (text: string): Block => ({ kind: "assistant", messageId: "m1"
 const tool = (name: string, input: Record<string, unknown> = {}, result: { content: string; isError: boolean } | null = null): Block =>
   ({ kind: "tool", toolUseId: `t-${name}`, name, input, result, ts: 2 });
 
+const plan = (): Block => ({ kind: "plan", planId: "p1", text: "# The plan", ts: 2 });
+
 const hint = (o: Partial<Parameters<typeof promptHint>[0]> = {}) =>
   promptHint({ blocks: [], gitInfo: null, status: "idle", inPlan: false, ...o });
 
@@ -75,11 +77,17 @@ describe("the session's suggested prompt", () => {
     });
 
     it("says go when a plan is on screen and the agent cannot act on it", () => {
-      const blocks = [user("plan it"), assistant("Here is the plan.")];
+      const blocks = [user("plan it"), plan()];
       expect(hint({ blocks, inPlan: true }))
         .toBe("Implement the plan, then verify its riskiest assumption.");
       // Out of Plan, it still continues the actual subject rather than falling back to repo state.
       expect(hint({ blocks, inPlan: false })).toBeNull();
+    });
+
+    it("waits for a real plan rather than reading one into any finished sentence", () => {
+      // The mutant: gating on `assistant && !streaming` again. An agent that asked a clarifying
+      // question and stopped would be answered with "Implement the plan" — there is no plan.
+      expect(hint({ blocks: [user("plan it"), assistant("Which files should I look at first?")], inPlan: true })).toBeNull();
     });
 
     it("suggests the tests once the agent has written to a file", () => {

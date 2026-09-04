@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sessionEvent } from "@realm/contracts";
-import { emptyTranscript, reduceAll, reduceTranscript } from "./transcript-model";
+import { blockKey, emptyTranscript, reduceAll, reduceTranscript } from "./transcript-model";
 
 describe("a message another session delivered (Plan 20)", () => {
   it("carries `from` onto the user block, and leaves it undefined for a message the user typed", () => {
@@ -13,6 +13,58 @@ describe("a message another session delivered (Plan 20)", () => {
     // Kills the reducer dropping the field, which silently un-labels every injected message: the pane
     // would then render another agent's words as something the user typed.
     expect(t.blocks.at(-1)).toMatchObject({ kind: "user", text: "an agent asked this", from: { sessionId: "s1", title: "Refactor the parser" } });
+  });
+});
+
+describe("a plan the agent proposed", () => {
+  const plan = (planId: string, payload: { text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }, ts: number) =>
+    sessionEvent("plan", { planId, ...payload }, ts);
+
+  it("carries prose and checklist independently — neither is derived from the other", () => {
+    let t = emptyTranscript();
+    t = reduceTranscript(t, plan("p1", { text: "# Do it" }, 10));
+    expect(t.blocks.at(-1)).toEqual({ kind: "plan", planId: "p1", text: "# Do it", ts: 10 });
+    // A checklist-only plan must not grow an empty `text`: Claude sends no steps and Codex's
+    // turn/plan/updated sends no prose, and inventing the missing half is the whole failure mode.
+    t = reduceTranscript(t, plan("p2", { steps: [{ text: "Read the spec", status: "completed" }] }, 20));
+    expect(t.blocks.at(-1)).toEqual({ kind: "plan", planId: "p2", steps: [{ text: "Read the spec", status: "completed" }], ts: 20 });
+    expect(t.blocks.at(-1)).not.toHaveProperty("text");
+  });
+
+  it("replaces a revised plan in place instead of stacking a second card", () => {
+    // The mutant: `blocks.push(block)` unconditionally. Codex re-sends the whole plan on every
+    // turn/plan/updated and ACP's plan is explicitly "not incremental", so an agent that revises
+    // three times would leave four cards saying almost the same thing.
+    let t = emptyTranscript();
+    t = reduceTranscript(t, plan("p1", { steps: [{ text: "A", status: "pending" }] }, 10));
+    t = reduceTranscript(t, sessionEvent("assistant_text", { messageId: "m1", text: "working" }, 15));
+    t = reduceTranscript(t, plan("p1", { steps: [{ text: "A", status: "completed" }, { text: "B", status: "in_progress" }] }, 30));
+    expect(t.blocks.filter((b) => b.kind === "plan")).toHaveLength(1);
+    expect(t.blocks[0]).toMatchObject({ kind: "plan", steps: [{ text: "A", status: "completed" }, { text: "B", status: "in_progress" }] });
+    // In its original place, and dated from when it first appeared: the card the reader has been
+    // watching must not jump ahead of the message that was written after it.
+    expect(t.blocks.map((b) => b.kind)).toEqual(["plan", "assistant"]);
+    expect(t.blocks[0]).toMatchObject({ ts: 10 });
+  });
+
+  it("keeps a different plan id as its own card", () => {
+    let t = emptyTranscript();
+    t = reduceTranscript(t, plan("p1", { text: "first" }, 10));
+    t = reduceTranscript(t, plan("p2", { text: "second" }, 20));
+    expect(t.blocks.filter((b) => b.kind === "plan")).toHaveLength(2);
+  });
+
+  it("keys the block on its plan id, so a revision never replays the entrance animation", () => {
+    // The mutant: letting plan fall through to the positional `${kind}:${i}` key. A plan whose index
+    // shifts (an interjected message landing before it) would then remount and animate in again.
+    const block = { kind: "plan" as const, planId: "p1", text: "x", ts: 1 };
+    expect(blockKey(block, 3)).toBe("plan:p1");
+    expect(blockKey(block, 7)).toBe("plan:p1");
+  });
+
+  it("survives a reload: the same events replayed rebuild the same single card", () => {
+    const events = [plan("p1", { steps: [{ text: "A", status: "pending" }] }, 10), plan("p1", { steps: [{ text: "A", status: "completed" }] }, 30)];
+    expect(reduceAll(events).blocks).toEqual([{ kind: "plan", planId: "p1", steps: [{ text: "A", status: "completed" }], ts: 10 }]);
   });
 });
 

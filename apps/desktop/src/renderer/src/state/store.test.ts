@@ -1040,6 +1040,49 @@ describe("app store", () => {
       expect(store.getState().sessions.se1?.permissionMode).toBe("plan");
     });
 
+    /** A session parked in Plan with an open ExitPlanMode request — the state the plan card answers. */
+    const inPlan = async () => {
+      api = fakeApi({
+        items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+        sessions: [session("se1", "s1", { status: "waiting_permission", permissionMode: "plan" })],
+        sessionEvents: { se1: [
+          stored("se1", 1, sessionEvent("plan", { planId: "toolu_p", text: "# Ship it" })),
+          stored("se1", 2, sessionEvent("permission_request", { requestId: "r1", toolName: "ExitPlanMode", input: { plan: "# Ship it" }, title: "Exit plan mode?", suggestions: [] })),
+        ] },
+      });
+      const store = createAppStore(api); await store.getState().boot(); await store.getState().openSession("se1");
+      store.setState({ planReturn: { se1: "acceptEdits" } });
+      return store;
+    };
+
+    it("approving the plan leaves Plan and restores the permission mode it was holding", async () => {
+      // The mutant: dropping the setSessionMode call from respondPermission. The agent acts on the
+      // approval at once and Realm never hears about it, so the chip goes on claiming Plan over a
+      // session that is building — and the parked "Accept edits" is stranded forever.
+      const store = await inPlan();
+      await store.getState().respondPermission("se1", "r1", "allow");
+      expect(api.calls).toContain("respondPermission:se1:r1:allow");
+      expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits");
+      expect(store.getState().planReturn.se1).toBeUndefined();
+    });
+
+    it("keeps the session in Plan when the plan is rejected — `keep planning` changes nothing", async () => {
+      const store = await inPlan();
+      await store.getState().respondPermission("se1", "r1", "deny");
+      expect(store.getState().sessions.se1?.permissionMode).toBe("plan");
+      expect(store.getState().planReturn.se1).toBe("acceptEdits");
+    });
+
+    it("leaves the mode alone when the approved tool is anything else", async () => {
+      const store = await inPlan();
+      // Allowing a Read inside Plan is an ordinary permission; it is not the user choosing Build.
+      store.setState({ transcripts: { ...store.getState().transcripts,
+        se1: { ...store.getState().transcripts.se1!, t: { ...store.getState().transcripts.se1!.t,
+          pendingPermissions: [{ requestId: "r2", toolName: "Read", input: {}, title: "Read?" }] } } } });
+      await store.getState().respondPermission("se1", "r2", "allow");
+      expect(store.getState().sessions.se1?.permissionMode).toBe("plan");
+    });
+
     it("probeAgents stores the probe; deleteItem on a session drops its transcript, status and session", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().probeAgents();

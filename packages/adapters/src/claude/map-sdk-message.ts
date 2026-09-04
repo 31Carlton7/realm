@@ -16,6 +16,24 @@ type Block = { type: string; [k: string]: unknown };
  * - `assistant_text` is de-duplicated per (messageId, text) because the SDK can re-emit the same assistant message;
  *   the dedupe set is cleared on `result`.
  */
+/**
+ * Claude's plan, which arrives as an ordinary `ExitPlanMode` tool call.
+ *
+ * The markdown is `input.plan` — verified against real SDK transcripts on disk, whose tool_use input
+ * is `{plan, planFilePath}`; the generated `ExitPlanModeInput` types only the deprecated
+ * `allowedPrompts` and leaves the rest to its index signature, so the schema cannot be read for it.
+ * Null when there is no plan string, and the call then maps as the plain tool call it is: a plan card
+ * with no plan in it would be worse than the generic one.
+ *
+ * The `canUseTool` permission this same call raises is deliberately untouched. Approving it is how
+ * the session leaves Plan, so it stays on the permission channel and keeps its decision.
+ */
+function exitPlanText(name: string, input: Record<string, unknown>): string | null {
+  if (name !== "ExitPlanMode") return null;
+  const plan = input["plan"];
+  return typeof plan === "string" && plan.trim() ? plan : null;
+}
+
 export function createSdkMapper() {
   const streamMsgIds = new Map<string | null, string>(); // parent_tool_use_id -> current streaming message id
   const emittedText = new Set<string>();
@@ -46,7 +64,11 @@ export function createSdkMapper() {
           const messageId = streamMsgIds.get(parent) ?? m.id;
           for (const b of m.content) {
             if (b.type === "tool_use") {
-              out.push(sessionEvent("tool_call", { toolUseId: String(b.id), name: String(b.name), input: (b.input as Record<string, unknown>) ?? {}, parentToolUseId: parent }));
+              const toolUseId = String(b.id), name = String(b.name), input = (b.input as Record<string, unknown>) ?? {};
+              const plan = exitPlanText(name, input);
+              out.push(plan
+                ? sessionEvent("plan", { planId: toolUseId, text: plan })
+                : sessionEvent("tool_call", { toolUseId, name, input, parentToolUseId: parent }));
             } else if (parent !== null) {
               continue; // subagent prose dropped in v1 (see header comment)
             } else if (b.type === "text") {

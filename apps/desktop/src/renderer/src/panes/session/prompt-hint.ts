@@ -65,7 +65,11 @@ export function promptHint(ctx: {
   // Plan mode: retain the subject that caused the plan and ask for the valuable second half of the
   // work too — testing its riskiest assumption. This reads like a continuation of this conversation,
   // not a stock button label.
-  if (inPlan && turn.some((b) => b.kind === "assistant" && !b.streaming)) {
+  //
+  // Gated on an actual plan block, not on the agent merely having finished speaking. "Which files
+  // should I look at first?" is a completed assistant message too, and offering to implement the
+  // plan under it promised a plan that did not exist. A `plan` event is the agent saying it has one.
+  if (inPlan && turn.some((b) => b.kind === "plan")) {
     return request
       ? `Turn the plan for ${request} into working code, then verify its riskiest assumption.`
       : "Implement the plan, then verify its riskiest assumption.";

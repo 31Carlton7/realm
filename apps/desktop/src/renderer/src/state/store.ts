@@ -2459,7 +2459,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().openItemBesideQuiet(itemId);
       },
       async interruptSession(id) { await api.interruptSession(id); },
-      async respondPermission(id, requestId, decision, answers) { await api.respondPermission(id, requestId, decision, answers); },
+      /**
+       * Answering a permission — plus the one case where the answer also settles the MODE axis.
+       *
+       * `ExitPlanMode` is how a Claude session leaves Plan, and the agent acts on the approval
+       * immediately. Realm's own row does not hear about that, so without this the session would go
+       * on building while its chip still said Plan, and the parked permission mode would never be
+       * restored. Approving the plan IS choosing Build; a denial is "keep planning" and changes
+       * nothing.
+       */
+      async respondPermission(id, requestId, decision, answers) {
+        const pending = get().transcripts[id]?.t.pendingPermissions.find((p) => p.requestId === requestId);
+        await api.respondPermission(id, requestId, decision, answers);
+        if (decision !== "deny" && pending?.toolName === "ExitPlanMode") await get().setSessionMode(id, "build");
+      },
       async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
       /**
        * Build ⇄ Plan.

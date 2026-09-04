@@ -1,4 +1,7 @@
-import type { AcpSessionMode, SessionEvent } from "@realm/contracts";
+import type { AcpSessionMode, SessionEvent, SessionEventPayload } from "@realm/contracts";
+
+/** One step of a checklist-shaped plan, exactly as the `plan` event carries it. */
+export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
 export type Block =
   /** `attachments` present only when the message carried any — an attachment-only message (Plan 14
@@ -10,6 +13,12 @@ export type Block =
   | { kind: "thinking"; messageId: string; text: string; ts: number }
   | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; result: { content: string; isError: boolean } | null; ts: number }
   | { kind: "error"; message: string; ts: number }
+  /** A plan the agent proposed. `text` is prose, `steps` a checklist, and at least one is present —
+   *  which of them depends on the protocol, not on the agent's mood (see the `plan` event). A revised
+   *  plan REPLACES this block rather than appending a second one, so `ts` stays the moment the plan
+   *  first appeared: the card keeps its place in the scrollback, and claiming the revision's time
+   *  would put it out of order with the messages around it. */
+  | { kind: "plan"; planId: string; text?: string; steps?: PlanStep[]; ts: number }
   /** A finished run, banked where it finished. `ms` is how long the agent actually worked — the time
    *  the run sat parked on a permission prompt is subtracted, because a run the user left waiting on
    *  an Allow button for twenty minutes did not work for twenty minutes. `startedAt` rides along as
@@ -35,7 +44,8 @@ export type Transcript = {
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
  *  state; everything else keys on position, which is stable because blocks are only ever appended or
  *  replaced in place (a streaming assistant block becomes its final self at the same index). */
-export const blockKey = (b: Block, i: number): string => (b.kind === "tool" ? `tool:${b.toolUseId}` : `${b.kind}:${i}`);
+export const blockKey = (b: Block, i: number): string =>
+  b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : `${b.kind}:${i}`;
 
 export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null });
 
@@ -75,6 +85,17 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       return { ...t, pendingPermissions: t.pendingPermissions.filter((p) => p.requestId !== e.payload.requestId) };
     }
     case "error": blocks.push({ kind: "error", message: e.payload.message, ts: e.ts }); return { ...t, blocks };
+    case "plan": {
+      const i = findLast(blocks, (b) => b.kind === "plan" && b.planId === e.payload.planId);
+      const block: Block = {
+        kind: "plan", planId: e.payload.planId,
+        ...(e.payload.text ? { text: e.payload.text } : {}),
+        ...(e.payload.steps ? { steps: e.payload.steps } : {}),
+        ts: i >= 0 ? blocks[i]!.ts : e.ts,
+      };
+      if (i >= 0) blocks[i] = block; else blocks.push(block);
+      return { ...t, blocks };
+    }
     case "usage": return { ...t, usage: e.payload };
     case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId, ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}) } };
     case "status": {

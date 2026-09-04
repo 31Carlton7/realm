@@ -23,6 +23,31 @@ const P = {
   status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]) }),
   error: z.object({ message: z.string() }),
   usage: z.object({ costUsd: z.number(), inputTokens: z.number(), outputTokens: z.number(), numTurns: z.number() }),
+  /** A plan the agent proposed. Both shapes are carried because the three protocols send genuinely
+   *  different artifacts and neither derives from the other:
+   *
+   *   - **Claude** — `ExitPlanMode`'s `input.plan`, markdown prose. No structure at all.
+   *   - **Codex** — TWO things. The `plan` ThreadItem is `{id, text}`, prose again; `turn/plan/updated`
+   *     is `{step, status}[]`, a checklist. (`codex app-server generate-ts`, codex 0.146.0.)
+   *   - **ACP** — the `plan` update's `entries: {content, status}[]`, a checklist
+   *     (docs/dev/acp-protocol.md:182).
+   *
+   *  Collapsing the checklist to prose would throw away per-step status; synthesising steps out of
+   *  Claude's markdown would invent structure it never sent. So a plan carries whichever it was given
+   *  and at least one is always present — a mapper holding neither emits nothing rather than a card
+   *  with no plan in it.
+   *
+   *  `planId` is the identity a REVISION lands on. Codex re-sends the whole plan on every
+   *  `turn/plan/updated` and ACP says its `plan` is "not incremental: replace the whole list each
+   *  time", so a repeat has to replace the card already drawn rather than stack a second one.
+   *
+   *  Both payload fields optional, per this file's rule that a new field must not break rows already
+   *  on disk — transcripts are rebuilt from `session_events` at every relaunch. */
+  plan: z.object({
+    planId: z.string(),
+    text: z.string().optional(),
+    steps: z.array(z.object({ text: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })).optional(),
+  }),
   init: z.object({
     providerSessionId: z.string(), model: z.string(), tools: z.array(z.string()), cwd: z.string(),
     /** The instruction files the agent says it loaded — Codex `thread/start` `instructionSources`, W3's
@@ -54,6 +79,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("error"),
   variant("usage"),
   variant("init"),
+  variant("plan"),
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
@@ -65,7 +91,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "permission_request", "permission_response", "status", "error", "usage", "init"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "permission_request", "permission_response", "status", "error", "usage", "init", "plan"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

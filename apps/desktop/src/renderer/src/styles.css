@@ -2914,3 +2914,27 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
   .bd-bar-row { grid-template-columns: minmax(70px, 1fr) minmax(60px, 2fr) auto; }
   .bd-bar-caption { display: none; }
 }
+
+/* ── The agent's plan, as a transcript block ──────────────────────────────────
+   A card on the permission card's bones (opaque --surface, --shadow-card) rather than the tool
+   card's, because a plan is addressed TO the reader: it is the one thing in a Plan-mode turn they
+   are meant to actually read, and the tool card's collapsed ledger row is built to be skipped.
+   The checklist inside reuses `.todo` wholesale — a plan with per-step status IS a to-do list. */
+.plan-card { border-radius: var(--r-panel); padding: 14px; background: var(--surface); box-shadow: var(--shadow-card);
+  display: flex; flex-direction: column; gap: 10px; }
+.plan-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--fw-label); color: var(--ink); }
+/* The prose body is the plan's own markdown and carries its own headings and lists; it only needs
+   its outer margins collapsed so the card's padding is the whole frame. */
+.plan-body > :first-child { margin-top: 0; }
+.plan-body > :last-child { margin-bottom: 0; }
+
+/* The answer to a plan, not a permission on one: two named outcomes, no "always". Sits directly
+   under the plan block it answers, so it carries no copy of the plan. */
+.plan-decision { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--shadow-card); }
+.plan-decision-ask { flex: 1; min-width: 0; font-size: 13px; color: var(--ink); }
+.plan-decision-actions { display: flex; gap: 6px; }
+.plan-decision button { padding: 6px 12px; border-radius: var(--r-ctl); font-size: 13px; }
+.plan-approve { background: var(--rl-accent); color: var(--rl-accent-contrast); font-weight: var(--fw-label); }
+.plan-reject { background: var(--hover); color: var(--ink-2); }
+.plan-reject:hover { background: var(--hover-2); color: var(--ink); }
