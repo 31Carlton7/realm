@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
 import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, type Item, type Skill } from "@realm/contracts";
 import { TERMINAL_PANEL_WIDTH, useApp, type PickedAttachment } from "../../state/store";
@@ -247,6 +247,11 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const submitKey = useApp((s) => s.submitKey);
   // Stable across renders: InstallCard registers it as a window "focus" listener.
   const reprobe = useCallback(() => { run(() => probeAgents(true)); }, [probeAgents, run]);
+  // Sends from THIS prompter, counted so the transcript can pin to the bottom on each one. Counted
+  // here rather than off the transcript's own growth because only the prompter's send carries the
+  // intent: ⌘⇧↩ dispatches the draft into a NEW session (store.dispatchDraft, bound in hotkeys.ts)
+  // and must leave this scroller exactly where the reader parked it.
+  const [sends, setSends] = useState(0);
 
   useEffect(() => { run(() => openSession(id)); }, [id, openSession, run]);
   // Cheap by construction: the store dedups concurrent calls and the server holds a TTL cache, so a
@@ -287,6 +292,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const body = (
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
+        sends={sends}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))} />
       {blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
@@ -297,7 +303,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onAttachPick={() => run(() => attachFromPicker(id))}
             onAttachFiles={(files) => run(() => attachFiles(id, files))}
             onRemoveAttachment={(path) => removeAttachment(id, path)}
-            onSend={(text) => run(() => sendMessage(id, text))}
+            onSend={(text) => { setSends((n) => n + 1); run(() => sendMessage(id, text)); }}
             onStop={() => run(() => interruptSession(id))}
             onOptions={(o) => run(() => setSessionOptions(id, o))}
             onPickModel={(kind, modelId) => run(async () => {

@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { basenameOf, isPlayablePath, mediaCandidatesIn, type MediaFile, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
@@ -92,13 +92,18 @@ function AssistantMessage({ text, streaming, enter, cwd }: { text: string; strea
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, visible = true, focused = false, cwd = null }: {
+export function Transcript({ transcript, sessionStatus, onDecide, visible = true, focused = false, cwd = null, sends = 0 }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
   /** The session's working directory — the base a message's bare filenames are joined against when
    *  it names no directory of its own. Null in tests and wherever the session is not yet known. */
   cwd?: string | null;
+  /** How many messages the prompter below has sent, counted by the pane. Sending is an unambiguous
+   *  statement that the bottom is where the reader wants to be, so it re-pins from wherever they had
+   *  scrolled to — and because the pin is `atBottom` itself, it holds across the RPC until the
+   *  `user_message` block lands, which is what stops a send answering itself with the pill. */
+  sends?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -127,7 +132,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
     if (atBottom.current) { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; }
     else if (count > 0) setPill(true);
   }, [count, lastLen, permissions.length, visible]);
-  useEffect(() => { scrollToBottom(); }, []); // first paint of a restored transcript starts at the end
+  // First paint of a restored transcript starts at the end, and so does every send.
+  useLayoutEffect(() => { scrollToBottom(); }, [sends]);
 
   /* Content that grows AFTER its block arrived. The effect above fires on new blocks and on the
      streaming message getting longer, and neither describes a media strip: it appears once main has
