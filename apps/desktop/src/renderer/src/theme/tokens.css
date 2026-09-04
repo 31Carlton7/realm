@@ -49,7 +49,6 @@
 
   /* borders — the ramp itself now comes from the TEMBO ALIGNMENT block at the
    * foot of this file, which redraws it as alpha overlays. */
-  --grid-line: color-mix(in srgb, var(--line) 78%, transparent);
   --field: oklch(0.293 0.006 271.223);
   --stripe: oklch(1 0 0 / 0.055);
   --stripe-bg: oklch(0.226 0.004 264.485);
@@ -389,11 +388,22 @@ a {
    * already matches tembo's `--ease-out` / `--ease-in-out` exactly.) */
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
+  /* Scrims. The one place "black at some alpha" cannot serve both modes: the veil subtracts from
+   * whatever is behind it, and a near-white window gives up far more light than a dark one does at
+   * the same alpha — 45% over light mode is a dim the dialog has to shout through. */
+  --scrim: oklch(0 0 0 / 0.45);      /* a surface that covers the window on purpose */
+  --scrim-soft: oklch(0 0 0 / 0.35); /* ⌘K, which is transient and does not */
+
   /* Shadow stacks: a RING plus a LIFT, the lift graduated across several soft
    * layers. Dark-mode rings lighten — a light edge over a dark ground reads as
    * the lit top face of a raised surface; light-mode rings darken. */
   --shadow-bevel: inset 0 1px 0.5px #ffffff14;
-  --shadow-glass-inset: inset 0 0 1.5px 0 #ffffff29;
+  /* The lit top edge of a FILLED control — primary, send, destructive. Deliberately does NOT flip
+   * with the mode, for the same reason --rl-accent-contrast does not: the fill under it is a
+   * saturated accent or red in both modes, and the light still comes from above. It is the ground
+   * that changes, not where the light is. (--shadow-bevel above is the other case — a bevel for a
+   * SURFACE, which does flip, because a white edge on a white card is nothing.) */
+  --fill-bevel: inset 0 1px 0 oklch(1 0 0 / 0.14);
   --shadow-pill: 0 2px 9px 0 #00000052;
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-lighten-400), 0 1px 2px #00000052;
   /* The card stack, stated as its two halves and then composed. The squircle surfaces need them
@@ -418,6 +428,9 @@ a {
   --line: var(--overlay-darken-200);
   --line-strong: var(--overlay-darken-300);
   --line-soft: var(--overlay-darken-100);
+
+  --scrim: oklch(0 0 0 / 0.32);
+  --scrim-soft: oklch(0 0 0 / 0.22);
 
   --shadow-bevel: inset 0 1px 0.5px #00000026;
   --shadow-pill: 0 2px 9px 0 #0000000f;

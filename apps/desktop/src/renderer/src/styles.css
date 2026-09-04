@@ -75,6 +75,14 @@
   /* terminals stay dark in both modes, one step below BUI's dark --page (cool-tinted,
      oklch(.17 .004 264) ≈ #0e0f11). Hex literal: xterm parses it once at hub creation. */
   --rl-terminal-bg: #1c1d1f; /* the session pane's dark ground (BUI dark --canvas), so the drawer no longer reads as a darker well */
+  /* ...and the ink drawn ON it, which is white in both app modes for the same reason the ground is
+     dark in both. Named rather than written as a literal because a bare rgba(255,255,255,.55) in a
+     stylesheet reads as a light-mode bug to anyone sweeping for them — it has been mistaken for one. */
+  --rl-terminal-ink: oklch(1 0 0 / 0.55);
+  --rl-terminal-ink-dim: oklch(1 0 0 / 0.32);
+  /* Chrome drawn over an attached PICTURE rather than over the theme: it has to stay legible on
+     whatever the user attached, so it does not flip either. */
+  --rl-on-media: oklch(1 0 0);
   /* floating surfaces compose `var(--rl-edge), var(--rl-shadow)` — together they equal BUI's
      --shadow-overlay: the hairline ring half and the layered-shadow half, split so the few
      places using --rl-edge alone still get the BUI hairline ring. Light override below. */
@@ -651,8 +659,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .terminal-hint { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; justify-items: center; gap: 4px;
   text-align: center; pointer-events: none; user-select: none; opacity: 1; transition: opacity var(--dur-slow) var(--ease); }
 .terminal-hint[data-hidden] { opacity: 0; }
-.terminal-hint-path { font: 12px var(--font-mono); color: rgba(255,255,255,.55); }
-.terminal-hint-keys { font-size: 11px; color: rgba(255,255,255,.32); }
+.terminal-hint-path { font: 12px var(--font-mono); color: var(--rl-terminal-ink); }
+.terminal-hint-keys { font-size: 11px; color: var(--rl-terminal-ink-dim); }
 /* ── Browser pane (Plan 11 W1) ─────────────────────────────────────────────
    Chrome sits ABOVE the native WebContentsView; the view's bounds start below it. Every control is
    an inline toolbar button — no dropdowns, no menus (W2's no-overlay invariant starts here). */
@@ -701,7 +709,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .conn-banner button:hover { background: var(--rl-hover); }
 
 /* ── Sheets / palette (raised) ─────────────────────────────────────────── */
-.sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0,0,0,.45); }
+.sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); }
 .sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; border-radius: var(--r-float); background: var(--surface); color: var(--rl-text-bright);
   box-shadow: var(--shadow-overlay); outline: none; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 6px; }
@@ -732,7 +740,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   background: var(--surface); box-shadow: var(--shadow-btn); }
 .btn > svg { flex: none; }
 .btn:hover:not(:disabled) { background: var(--inset); }
-.btn.primary { background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
+.btn.primary { background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
 .btn.primary:hover:not(:disabled) { background: var(--accent-ink); }
 .btn.danger { background: none; color: var(--rl-danger); box-shadow: none; }
 .btn.danger:hover:not(:disabled) { background: var(--hover); }
@@ -746,7 +754,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .danger-zone { justify-content: flex-start; align-items: center; border-top: 1px solid var(--rl-hairline); padding-top: 12px; }
 .danger-zone .muted { flex: 1; }
 
-.palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: rgba(0,0,0,.35); }
+.palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: var(--scrim-soft); }
 .palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-float); overflow: hidden; background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-overlay); }
 .palette-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-dim); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
@@ -772,7 +780,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    The strip is scoped to one profile, so this is where the whole home is legible: every space,
    sectioned by profile, with its NAME — the thing a 16px glyph in a rail can never give you. Sits on
    the sheet scrim rather than the palette's lighter one: it covers the window on purpose. */
-.spaces-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; background: rgba(0,0,0,.45); }
+.spaces-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; background: var(--scrim); }
 .spaces-overview { display: flex; flex-direction: column; width: min(620px, calc(100vw - 32px)); max-height: 72vh; border-radius: var(--r-float); overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-overlay); }
 .spaces-search { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-dim); }
@@ -1413,7 +1421,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .attach-ext { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 2px; text-align: center;
   font-size: 8px; line-height: 1.25; font-weight: var(--fw-title); letter-spacing: .02em; text-transform: uppercase;
   color: var(--ink-2); background: color-mix(in srgb, var(--surface) 78%, transparent); }
-.attach-tile[data-image] .attach-ext { color: #fff; background: rgb(0 0 0 / .55); }
+.attach-tile[data-image] .attach-ext { color: var(--rl-on-media); background: rgb(0 0 0 / .55); }
 /* A file the agent will simply discard must not look like one it will read (§2.4: colour = state). */
 .attach-tile[data-disposition="ignored"] .attach-art { color: var(--orange); background: var(--orange-tint);
   box-shadow: 0 0 0 var(--hairline-w) var(--orange); }
@@ -1436,7 +1444,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Remove rides the corner and only exists while the pointer is on the tile — at rest the tile is the
    file, not a control. It stays for keyboard focus, which has no hover to trade on. */
 .attach-remove { position: absolute; top: 2px; right: 2px; display: grid; place-items: center;
-  width: 16px; height: 16px; border-radius: 50%; color: #fff; background: rgb(0 0 0 / .62);
+  width: 16px; height: 16px; border-radius: 50%; color: var(--rl-on-media); background: rgb(0 0 0 / .62);
   box-shadow: var(--shadow-btn); opacity: 0; transition: opacity var(--dur-hover) ease; }
 .attach-tile:hover .attach-remove, .attach-remove:focus-visible { opacity: 1; }
 .attach-remove:hover { background: rgb(0 0 0 / .82); }
@@ -1545,7 +1553,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    Plan 9 W3: the circle wears BUI Button's accent treatment — inset top highlight, accent-ink on
    hover — and PromptBar's disabled send (line-strong fill, ink-2 glyph) replaces the bare fade. */
 .composer-send { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
-  background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); flex: none; }
+  background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); flex: none; }
 .composer-send:hover:not(:disabled) { background: var(--accent-ink); }
 .composer-send:disabled { background: var(--line-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
 .composer-send svg { grid-area: 1 / 1;
@@ -1925,7 +1933,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .cp-stale, .cp-blocked { margin: 0; font-size: 12px; color: var(--rl-warning); }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 /* §3: destructive confirms are the ONE place a red-filled button is allowed. */
-.btn.destructive { background: var(--rl-danger); color: #ffffff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
+.btn.destructive { background: var(--rl-danger); color: #ffffff; box-shadow: var(--fill-bevel); }
 .btn.destructive:hover:not(:disabled) { background: var(--rl-danger); filter: brightness(0.95); } /* BUI's filled-hover for tones with no -ink step */
 .btn:disabled { opacity: .45; }
 /* A disabled primary must not wear the accent — 45% opacity on a filled blue button still reads as

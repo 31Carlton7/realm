@@ -618,7 +618,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
   });
 
   it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's line-strong disabled fill", () => {
-    expect(bodiesFor(".composer-send").join(" ")).toContain("inset 0 1px 0 rgba(255,255,255,0.14)");
+    expect(bodiesFor(".composer-send").join(" ")).toContain("box-shadow: var(--fill-bevel)");
     expect(bodiesFor(".composer-send:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
     const off = bodiesFor(".composer-send:disabled").join(" ");
     expect(off).toContain("background: var(--line-strong)");
@@ -681,7 +681,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(btn).toContain("box-shadow: var(--shadow-btn)");
     expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).toContain("background: var(--inset)");
     const primary = bodiesFor(".btn.primary").join(" ");
-    expect(primary).toContain("inset 0 1px 0 rgba(255,255,255,0.14)");
+    expect(primary).toContain("box-shadow: var(--fill-bevel)");
     expect(bodiesFor(".btn.primary:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
   });
 });
@@ -847,6 +847,85 @@ describe("squircle surfaces", () => {
     const used = new Set([...css.matchAll(/(--sq-[a-z-]+)\s*:/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !declared.has(n)).sort(), "set in styles.css, not read by the worklet").toEqual([]);
     expect([...used].filter((n) => !registered.has(n)).sort(), "set in styles.css, never registered").toEqual([]);
+  });
+});
+
+/** Light mode is a real mode, not a filter over the dark one. These pin the colours that were being
+ *  written as dark-tuned literals in `styles.css` — one layer below the token ramps, where a sweep of
+ *  tokens.css cannot see them — and, just as importantly, the ones that deliberately do NOT flip. */
+describe("light mode", () => {
+  const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+  const lightBlocks = [...tokens.matchAll(/:root\[data-mode="light"\]\s*\{([^}]*)\}/g)].map((m) => m[1]!).join("\n");
+
+  /** Black or white written literally, in either the comma or the space syntax. */
+  const RAW_INK = /rgba?\(\s*(?:0[\s,]+0[\s,]+0|255[\s,]+255[\s,]+255)[\s,/)]|(?<![\w-])#(?:fff|ffffff)(?![\w-])/i;
+  /** Every rule allowed to write one, and the reason it is not the theme's to flip. */
+  const NOT_THE_THEMES_TO_FLIP = new Map([
+    // Drawn on a video frame or a photo the user supplied. The picture is the same picture in both
+    // modes, so chrome over it answers to the picture.
+    [".media-play", "on a video frame"], [".media-play:hover", "on a video frame"],
+    [".media-controls", "on a video frame"], [".media-btn:hover", "on a video frame"],
+    [".media-scrub", "on a video frame"], [".media-scrub::-webkit-slider-thumb", "on a video frame"],
+    [".media-lightbox-bar", "on a video frame"],
+    [".media-lightbox-bar .media-name", "on a video frame"], [".media-lightbox-bar .media-detail", "on a video frame"],
+    [".media-lightbox-bar .media-action", "on a video frame"], [".media-lightbox-bar .media-action:hover", "on a video frame"],
+    [".attach-tile[data-image] .attach-ext", "on the attached picture"],
+    [".attach-remove", "on the attached picture"], [".attach-remove:hover", "on the attached picture"],
+    // Matching the native WebContentsView's own opaque white, so the sliver it trails during a
+    // resize cannot flash the panel tone through the gap.
+    [".browser-view-host", "the browser view's own ground"],
+    // White on a red fill, the same as white on the accent fill (--rl-accent-contrast), which is
+    // deliberately one value for both modes.
+    [".btn.destructive", "ink on a filled control"],
+    // The base half of a pair: the rule immediately below it flips the outline for light mode.
+    [".md img", "paired with a light override"],
+  ]);
+
+  it("no rule paints a raw black or white that the mode cannot reach", () => {
+    // The failure is invisible from tokens.css: every ramp there flips correctly, and then a
+    // component writes `rgba(0,0,0,.45)` one layer below it and never changes. Anything that
+    // genuinely must not flip is either a named token now or listed above with its reason.
+    const offenders = RULES
+      .filter((r) => RAW_INK.test(r.body))
+      .flatMap((r) => r.selectors)
+      .filter((sel) => !sel.startsWith(':root[data-mode="light"]') && !NOT_THE_THEMES_TO_FLIP.has(sel));
+    expect(offenders.sort()).toEqual([]);
+  });
+
+  it("the one literal that is half a pair really does have its other half", () => {
+    expect(bodiesFor(".md img").join(" ")).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
+    expect(bodiesFor(':root[data-mode="light"] .md img').join(" ")).toContain("outline-color: rgba(0, 0, 0, 0.1)");
+  });
+
+  it("the scrims are the one colour that has to differ per mode", () => {
+    // A veil subtracts from what is behind it, so the same alpha over a near-white window is a much
+    // heavier dim than over a dark one. Everything else here can be one value for both modes.
+    for (const sel of [".sheet-backdrop", ".spaces-backdrop"]) expect(bodiesFor(sel).join(" "), sel).toContain("background: var(--scrim)");
+    expect(bodiesFor(".palette-backdrop").join(" ")).toContain("background: var(--scrim-soft)");
+    expect(lightBlocks).toContain("--scrim:");
+    expect(lightBlocks).toContain("--scrim-soft:");
+  });
+
+  it("the colours that answer to something other than the theme are named, and stay put", () => {
+    // Each of these is drawn ON something that is the same in both modes — the terminal's own dark
+    // interior, or a picture the user attached — so a light override would be the bug. They are
+    // tokens rather than literals precisely so that reading is available to the next sweep.
+    for (const token of ["--rl-terminal-ink", "--rl-terminal-ink-dim", "--rl-on-media"])
+      expect(lightBlocks, token).not.toContain(token);
+    expect(bodiesFor(".terminal-hint-path").join(" ")).toContain("color: var(--rl-terminal-ink)");
+    expect(bodiesFor(".attach-remove").join(" ")).toContain("color: var(--rl-on-media)");
+    // Same case, one level up: a filled control's lit top edge. The fill under it is a saturated
+    // accent in both modes and the light still comes from above.
+    expect(lightBlocks).not.toContain("--fill-bevel");
+    for (const sel of [".btn.primary", ".composer-send", ".btn.destructive"])
+      expect(bodiesFor(sel).join(" "), sel).toContain("box-shadow: var(--fill-bevel)");
+  });
+
+  it("a token defined for one mode only is a token that would carry a dark value into light", () => {
+    // --grid-line and --shadow-glass-inset were both declared in the dark block alone and referenced
+    // nowhere. That is worse than unused: the first thing to reach for one would have got a dark
+    // value in light mode with nothing reporting it.
+    for (const gone of ["--grid-line", "--shadow-glass-inset"]) expect(tokens, gone).not.toContain(gone);
   });
 });
 
