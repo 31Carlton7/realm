@@ -7,11 +7,12 @@
  *
  *   1. onboarding → first space → a browser pane on a locally served page (no network)
  *   2. palette over a FULL-WIDTH browser: squeezed into the complement, clear of the view rect
- *   3. the DEGENERATE sheet: opening "New space…" snaps the full-width browser leaf to a [50,50]
+ *   3. the space overview (⌘⇧Space) over the same full-width browser: squeezed into the complement
+ *   4. the DEGENERATE sheet: opening "New space…" snaps the full-width browser leaf to a [50,50]
  *      split (an empty sibling pane appears), the sheet sits clear of the shrunken view, and
  *      closing restores the exact pre-snap width and removes the sibling
- *   4. the browser pane header carries NO popup control (no aria-haspopup anywhere in its bar/chrome)
- *   5. a non-browser pane's ⋯ menu whose NATURAL right-aligned position would cross into the view
+ *   5. the browser pane header carries NO popup control (no aria-haspopup anywhere in its bar/chrome)
+ *   6. a non-browser pane's ⋯ menu whose NATURAL right-aligned position would cross into the view
  *      (narrow pane, browser beside it) is repositioned clear of the view rect
  *
  * Ports: 9223 (CDP), 8788 (realm-server), 8799 (local test page). Refuses to run if any is taken.
@@ -193,7 +194,20 @@ async function main() {
     return p2 && !rectsIntersect(p2, v0) && p2.x + p2.width <= v0.x + 0.5;
   }, 5000, async () => ({ palette: await evalIn(c, `__live.rect('.palette')`), view: v0 }));
 
-  // 6. The DEGENERATE sheet: "New space…" must snap the browser leaf to [50,50] and restore on close.
+  // 6. The space overview (⌘⇧Space) over the same full-width browser: it is a centered surface like
+  //     the palette, so it must squeeze into the complement rather than open under the view.
+  await evalIn(c, `__live.key(window, " ", { code: "Space", metaKey: true, shiftKey: true })`);
+  await until(() => evalIn(c, `!!document.querySelector('.spaces-overview')`), 5000, "overview open");
+  await checkEventually("space overview clear of the view", async () => {
+    const o = await evalIn(c, `__live.rect('.spaces-overview')`);
+    return o && !rectsIntersect(o, v0) && o.x + o.width <= v0.x + 0.5;
+  }, 5000, async () => ({ overview: await evalIn(c, `__live.rect('.spaces-overview')`), view: v0 }));
+  // Escape goes to the dialog itself: the handler is React's onKeyDown on the panel, not a window listener.
+  await evalIn(c, `__live.key(document.querySelector('.spaces-overview'), "Escape")`);
+  await until(() => evalIn(c, `!document.querySelector('.spaces-backdrop')`), 5000, "overview closed");
+
+  // 7. The DEGENERATE sheet: "New space…" must snap the browser leaf to [50,50] and restore on close.
+  await openPalette();
   await evalIn(c, `(() => {
     const input = document.querySelector('.palette-input input');
     __live.setInput(input, "New space");
@@ -222,11 +236,11 @@ async function main() {
   const panels2 = await evalIn(c, `document.querySelectorAll('.panel').length`);
   check("restore: the empty sibling is gone", panels2 === 1, { panels: panels2 });
 
-  // 7. The browser pane header carries no popup control at all.
+  // 8. The browser pane header carries no popup control at all.
   const popups = await evalIn(c, `document.querySelectorAll('.panel-bar [aria-haspopup], .browser-chrome [aria-haspopup]').length`);
   check("browser pane header/chrome is dropdown-free", popups === 0, { popups });
 
-  // 8. Menu avoidance: browser LEFT, a narrow terminal pane RIGHT whose right-aligned ⋯ menu would
+  // 9. Menu avoidance: browser LEFT, a narrow terminal pane RIGHT whose right-aligned ⋯ menu would
   //    naturally cross into the view. Split right, open a terminal there, shrink it, open the menu.
   await evalIn(c, `(() => {
     const b = [...document.querySelectorAll('button')].find((x) => /^Split .* right$/.test(x.getAttribute('aria-label') ?? ''));

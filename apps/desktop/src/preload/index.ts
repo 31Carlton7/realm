@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult } from "@realm/contracts";
+import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, MediaFile } from "@realm/contracts";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { UpdateStatus } from "../main/updater";
@@ -19,6 +19,17 @@ contextBridge.exposeInMainWorld("realm", {
   attachmentThumbnail: (path: string): Promise<string | null> => ipcRenderer.invoke("attachment-thumbnail", path),
   /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
   pickIconImage: (): Promise<PickedFile | null> => ipcRenderer.invoke("pick-icon-image"),
+  /** Local media the transcript draws inline. Only `stat` and `poster` cross IPC — the bytes are
+   *  streamed over `realm-media://`, which is what lets a video seek instead of arriving whole. */
+  media: {
+    /** Which of these candidate paths are really media files on disk. Everything else is dropped,
+     *  so a path guessed out of an agent's prose costs one stat and draws nothing. */
+    stat: (candidates: readonly string[]): Promise<(MediaFile | null)[]> => ipcRenderer.invoke("media:stat", candidates),
+    /** A QuickLook poster frame (data: URL) for a video, or null when macOS has none. */
+    poster: (path: string): Promise<string | null> => ipcRenderer.invoke("media:poster", path),
+    reveal: (path: string): Promise<void> => ipcRenderer.invoke("media:reveal", path),
+    open: (path: string): Promise<void> => ipcRenderer.invoke("media:open", path),
+  },
   /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
   saveTempAttachment: (name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> => ipcRenderer.invoke("save-temp-attachment", name, mime, bytes),
   /** The real filesystem path behind a dropped File. Electron 32 removed `File.path`; `webUtils` is

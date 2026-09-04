@@ -1,11 +1,12 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
 import { clip, editStat, prettyJson, toolSummary } from "./tool-summary";
 import { formatDuration, formatToolRun, summarizeToolRun, type ToolBlock } from "./tool-group";
 import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
-import { DRAW_LIMIT, toolInputView, toolResultView } from "./rich/tool-view";
+import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
+import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
 
 type ToolState = "running" | "ok" | "error" | "none";
 
@@ -62,8 +63,14 @@ function Well({ label, text, error = false, rich = null }: { label: string; text
 /** A tool call the agent made: BUI ThinkingState's coding-row shape (Plan 9 W2) — a leading status
  *  glyph whose spinner→muted-check progression is the block's REAL settled state (result present),
  *  never a clock; the tool name; the target as a mono chip (ToolChips' chip language); measured
- *  +/− counts where the edit's payload carries both sides. Click still expands input + result. */
-export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean }) {
+ *  +/− counts where the edit's payload carries both sides. Click still expands input + result.
+ *
+ *  Memoized because a streaming answer re-renders the whole transcript around it. The reducer rebuilds
+ *  the block ARRAY on each update but keeps every settled block's object, so a card whose call has
+ *  landed compares equal on all three props and is skipped — a 300-call transcript stops re-deriving
+ *  300 summaries and edit stats behind an assistant message that is still typing. `enter` is stable
+ *  for a key's whole life (transcript-enter.ts), so memoizing cannot strand a card mid-animation. */
+export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = false }: { block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean }) {
   const [open, setOpen] = useState(false);
   const everOpened = useRef(false);
   everOpened.current ||= open;
@@ -76,6 +83,13 @@ export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolB
      cards must not diff 300 payloads to render a row nobody opened. */
   const inputView = everOpened.current ? toolInputView(block.name, block.input) : null;
   const resultView = everOpened.current && block.result ? toolResultView(block.name, block.input, block.result.content, block.result.isError) : null;
+  /* A picture the call is ABOUT, drawn in the input well instead of its filename (`Read` of a
+     screenshot, `Write` of a render). Same first-open gate as the views above. */
+  const mediaPath = everOpened.current ? toolMediaPath(block.name, block.input) : null;
+  /* The one state aicss.dev's image-generation component has, on the one call it belongs to: media
+     being made, right now. Bound to `state === "running"` — the call's REAL settled state — so the
+     canvas cannot outlive the work, and a failure leaves a failed card rather than a shimmer. */
+  const work = state === "running" ? mediaWorkFor(block.name, block.input) : null;
   return (
     <div className="tool-card" data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
       <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={() => setOpen((o) => !o)}>
@@ -98,6 +112,10 @@ export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolB
         )}
         <Icon name="chevronRight" size={12} className="tool-chevron" />
       </button>
+      {/* Outside the expander on purpose: the placeholder's whole job is to be seen while the work
+          happens, and a canvas the reader has to open a card to find would be a spinner with extra
+          steps. It leaves of its own accord when the result lands. */}
+      {work && <GeneratingCanvas kind={work.kind} label={work.label} detail={work.detail} aspect={work.aspect} />}
       {/* §6 expands the row by transitioning grid-template-rows 0fr→1fr, which only animates if the
           content is in the DOM on both sides of the flip. So the body is built on first open and
           stays built: collapsing animates too, and re-opening is instant. `inert` keeps the hidden
@@ -106,7 +124,8 @@ export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolB
         <div className="tool-body-clip" inert={!open || undefined}>
           {everOpened.current && (
             <div className="tool-body">
-              <Well label="Input" text={prettyJson(block.input)} rich={inputView && <ToolInputBody view={inputView} />} />
+              <Well label="Input" text={prettyJson(block.input)}
+                rich={mediaPath ? <ToolMedia path={mediaPath} /> : inputView && <ToolInputBody view={inputView} />} />
               {block.result && (
                 <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError}
                   rich={resultView && <ToolResultBody view={resultView} />} />
@@ -117,7 +136,7 @@ export function ToolCard({ block, sessionStatus, enter = false }: { block: ToolB
       </div>
     </div>
   );
-}
+});
 
 /** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still
  *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's

@@ -1,15 +1,18 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { SessionStatus } from "@realm/contracts";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { basenameOf, isPlayablePath, mediaCandidatesIn, type MediaFile, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard, questionCardFor } from "./QuestionCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
-import { groupTranscript } from "./tool-group";
+import { formatDuration, groupTranscript } from "./tool-group";
 import { blockKey, type Transcript as TranscriptModel } from "./transcript-model";
+import { runLabelFor } from "./run-label";
 import { useEnterTracker } from "./transcript-enter";
+import { MediaLightbox, MediaStrip } from "./media/MediaView";
+import { useMediaByCandidate, useMediaFiles } from "./media/use-media";
 
 const NEAR_BOTTOM_PX = 80;
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
@@ -25,13 +28,76 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
   );
 }
 
+/**
+ * The tiles above a user message. Media among them opens in the lightbox on click.
+ *
+ * A screenshot was already visible as a 56px thumbnail, which answers "did I attach the right file"
+ * and nothing else; a video attachment could not be played at all. Both are files the user chose,
+ * so both are files they should be able to look at without leaving for Finder.
+ *
+ * Non-media attachments keep the plain tile. A PDF's tile shows its first page and there is nothing
+ * more Realm can do with it here, so making it look clickable would be a promise it cannot keep.
+ */
+function UserAttachments({ attachments }: { attachments: readonly { path: string; mime: string }[] }) {
+  const candidates = useMemo(
+    () => attachments.filter((a) => isPlayablePath(a.path)).map((a) => a.path),
+    [attachments],
+  );
+  const byCandidate = useMediaByCandidate(candidates);
+  const [open, setOpen] = useState<MediaFile | null>(null);
+  return (
+    <>
+      <ul className="msg-user-files" aria-label="Attached files">
+        {attachments.map((a) => {
+          const file = byCandidate.get(a.path);
+          const tile = <AttachmentTile path={a.path} mime={a.mime} />;
+          return (
+            <li key={a.path}>
+              {file
+                ? <button type="button" className="msg-user-file-open" aria-label={`Open ${basenameOf(a.path)}`} onClick={() => setOpen(file)}>{tile}</button>
+                : tile}
+            </li>
+          );
+        })}
+      </ul>
+      {open && <MediaLightbox file={open} onClose={() => setOpen(null)} />}
+    </>
+  );
+}
+
+/**
+ * An assistant message, plus whatever media it is pointing at.
+ *
+ * The strip is deliberately NOT part of the markdown. A message that says "the three videos are in
+ * `~/Desktop/mockups/`" and lists their names has embedded nothing — there is no `![](…)` to fill —
+ * but it is unmistakably telling the reader to go and look, and having to leave for Finder to find
+ * out whether the render is any good is the gap this closes.
+ *
+ * Nothing is drawn while the message is still streaming. Half a path is a different path, and a
+ * strip that appeared, changed and disappeared as the sentence completed would be worse than one
+ * that waits for the full stop.
+ */
+function AssistantMessage({ text, streaming, enter, cwd }: { text: string; streaming: boolean; enter: boolean; cwd: string | null }) {
+  const candidates = useMemo(() => (streaming ? [] : mediaCandidatesIn(text, cwd)), [streaming, text, cwd]);
+  const files = useMediaFiles(candidates);
+  return (
+    <>
+      <Markdown className="msg-assistant" text={text} enter={enter} />
+      <MediaStrip files={files} />
+    </>
+  );
+}
+
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, visible = true, focused = false }: {
+export function Transcript({ transcript, sessionStatus, onDecide, visible = true, focused = false, cwd = null }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
+  /** The session's working directory — the base a message's bare filenames are joined against when
+   *  it names no directory of its own. Null in tests and wherever the session is not yet known. */
+  cwd?: string | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -61,6 +127,22 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
   }, [count, lastLen, permissions.length, visible]);
   useEffect(() => { scrollToBottom(); }, []); // first paint of a restored transcript starts at the end
 
+  /* Content that grows AFTER its block arrived. The effect above fires on new blocks and on the
+     streaming message getting longer, and neither describes a media strip: it appears once main has
+     confirmed the files, several frames later, and then grows again as each picture decodes. Without
+     this the reader is left looking at the top of a video whose controls are under the prompter.
+     Only while already at the bottom — a reader who has scrolled up must not be yanked down. */
+  useLayoutEffect(() => {
+    const col = ref.current?.querySelector(".transcript-col");
+    if (!col) return;
+    const ro = new ResizeObserver(() => {
+      const el = ref.current;
+      if (atBottom.current && el) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(col);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <div className="transcript-wrap">
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
@@ -86,21 +168,19 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
                     the bubble is attributed and styled apart. The fenced text itself is left exactly
                     as the peer received it: the user should see what the agent was actually handed. */}
                 {b.from && <span className="msg-user-from">Asked by {b.from.title}</span>}
-                {b.attachments && (
-                  <ul className="msg-user-files" aria-label="Attached files">
-                    {b.attachments.map((a) => (
-                      <li key={a.path}><AttachmentTile path={a.path} mime={a.mime} /></li>
-                    ))}
-                  </ul>
-                )}
+                {b.attachments && <UserAttachments attachments={b.attachments} />}
                 {/* An attachment-only message has no text at all, and an empty bubble would read as a
                     send that lost its words rather than one that carried only files. */}
                 {b.text && <div className="msg-user">{b.text}</div>}
               </div>);
-            case "assistant": return <Markdown key={key} className="msg-assistant" text={b.text} streaming={b.streaming} enter={enter} />;
+            case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} />;
             case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
+            // The shimmer the reader was watching, settled: same verb, past tense, with the wait it
+            // cost them. It stays in the scrollback rather than vanishing with the spinner — "how
+            // long did that take" is a question asked after the fact, not during.
+            case "run": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>{runLabelFor(b.startedAt).past} for {formatDuration(b.ms)}</div>;
           }
         })}
         {permissions.map((p, i) => {
@@ -113,8 +193,10 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
           return <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0}
             enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />;
         })}
-        {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock. */}
-        {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">Working…</span></div>}
+        {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock.
+            The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
+            anything that moves would re-roll the verb on every streaming delta. */}
+        {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0).present}…</span></div>}
         </div>
       </div>
       {/* The transcript dissolves into the prompter instead of being clipped by it — a sibling of the

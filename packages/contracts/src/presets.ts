@@ -75,6 +75,11 @@ export const AGENT_MODELS = {
   // the probe (through `configOptions` now, see acpSessionConfig), so a hardcoded list would only ever
   // be a stale copy that shadows the truth. opencode alone reported 50 models on 2026-09-01.
   "acp:opencode": [], "acp:copilot": [], "acp:goose": [], "acp:qwen": [], "acp:grok": [], "acp:fx": [],
+  // DeepSeek's ACP server is configured with ONE provider+model pair at boot and exposes no model
+  // list on the wire (its README's protocol table has no config option and no `models`), so a probe
+  // has nothing to enumerate. Curated for the same reason `claude` is — with the two the harness's
+  // own docs name — and kept to the pair a `dsh` install can actually route to.
+  "acp:deepseek": [{ id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" }, { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" }],
   fake: [{ id: "fake", label: "Fake" }],
 } as const satisfies Record<import("./entities").AgentKind, readonly AgentModel[]>;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -88,7 +93,7 @@ export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
  */
 export const SELECTABLE_AGENT_KINDS = [
   "claude", "codex", "acp:cursor", "acp:gemini",
-  "acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx",
+  "acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx", "acp:deepseek",
 ] as const satisfies ReadonlyArray<import("./entities").AgentKind>;
 /** Frontier default model label per kind — what the prompter's model chip shows while `session.model`
  *  is null (the adapter's own default). Display-only: never transmitted as a model id. */
@@ -100,6 +105,9 @@ export const DEFAULT_MODEL_LABEL = {
   // guess here would put a model the session is not on into the prompter's chip.
   "acp:opencode": "Default", "acp:copilot": "Default", "acp:goose": "Default",
   "acp:qwen": "Default", "acp:grok": "Default", "acp:fx": "Default",
+  // Named, not "Default": unlike the ACP agents above, a dsh ACP server is BOOTED with its model, so
+  // an un-pinned session runs whatever `--model` the spec passed — which Realm sets to V4 Pro.
+  "acp:deepseek": "DeepSeek V4 Pro",
   fake: "Fake",
 } as const satisfies Record<import("./entities").AgentKind, string>;
 /**
@@ -121,6 +129,10 @@ export const AGENT_SUPPORTS_PERMISSION_MODES = {
   // map Ask / Accept edits / Full access onto. One adapter, one answer.
   "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
   "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  // DeepSeek is a harder `false` than the rest: its ACP server resolves permission requests BY ITS
+  // OWN POLICY (the README's `session/request_permission` line offers one-shot allow/reject that
+  // "clients may answer automatically"), so there is no mode to set even in principle.
+  "acp:deepseek": false,
   fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -148,6 +160,9 @@ export const AGENT_CONVERSATION_REWIND = {
   claude: false, codex: false, "acp:cursor": false, "acp:gemini": false,
   "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
   "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  // dsh-acp supports no session load, resume, list, delete or fork at all — its own "Known
+  // Limitations" heading says so — so it is further from a rewind than the rest, not closer.
+  "acp:deepseek": false,
   fake: false,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -233,7 +248,7 @@ export const AGENT_MIDTURN_DELIVERY = {
   // §6) — if a live check disproves it, the honest fix is a third value here, not a workaround.
   "acp:cursor": "interrupt", "acp:gemini": "interrupt", "acp:opencode": "interrupt",
   "acp:copilot": "interrupt", "acp:goose": "interrupt", "acp:qwen": "interrupt",
-  "acp:grok": "interrupt", "acp:fx": "interrupt",
+  "acp:grok": "interrupt", "acp:fx": "interrupt", "acp:deepseek": "interrupt",
   // The scripted adapter models the interrupt kinds (its `interrupt` breaks the step loop while the
   // turn still emits its trailing usage + idle), which is what the behaviour suite needs.
   fake: "interrupt",
@@ -248,6 +263,9 @@ export const AGENT_SUPPORTS_PLAN_MODE = {
   // wrongly accept. The chip appears only when acpPlanMode finds a well-known id.
   "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
   "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  // dsh-acp advertises no modes and no config options — the one ACP kind where `false` is not a
+  // pre-handshake floor but the final answer, because the handshake has nothing to raise it with.
+  "acp:deepseek": false,
   fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -415,8 +433,94 @@ export const AGENT_META = {
   "acp:qwen": { label: "Qwen Code", icon: "qwen" },
   "acp:grok": { label: "Grok", icon: "grok" },
   "acp:fx": { label: "fx", icon: "fx" },
+  "acp:deepseek": { label: "DeepSeek", icon: "deepseek" },
   fake: { label: "Fake agent", icon: "bot" },
 } as const satisfies Record<import("./entities").AgentKind, { label: string; icon: string }>;
+
+/**
+ * What each harness is FOR, in the user's terms — the sentences the model picker shows beside a
+ * route so choosing one is a decision rather than a guess.
+ *
+ * Three fields, kept apart because they answer three different questions and go stale at different
+ * rates:
+ *
+ * - `good` — what this harness is better at than the others. Judged on what the ADAPTER can actually
+ *   reach (skills injection, MCP, permission modes, plan mode, model catalog), because that is what
+ *   changes a session in Realm; a harness's marketing is not evidence.
+ * - `billing` — who pays, and how. This is the field that stops the picker's per-token prices from
+ *   lying: Claude Code and Codex bill through a subscription the user already has, so their models'
+ *   API list price is context, not a bill. Never a number — Realm cannot see the user's plan.
+ * - `limits` — what this harness cannot do that a reader would otherwise assume it can, or null when
+ *   nothing surprising is missing. Only structural limits earn a line here; "not installed" is
+ *   availability, which the probe reports separately.
+ *
+ * Deliberately NOT ranked and NOT scored. A one-line comparison between eleven agents would be a
+ * claim no one measured, and the honest thing a picker can say is what each is for.
+ */
+export const AGENT_NOTES = {
+  claude: {
+    good: "Deepest integration Realm has: skills, MCP tools, permission modes and Plan all reach the agent.",
+    billing: "Bills through your Claude subscription or API key — the `claude` CLI's own login.",
+    limits: null,
+  },
+  codex: {
+    good: "Long autonomous runs in a sandbox, and the one agent Realm can steer mid-turn instead of interrupting it.",
+    billing: "Bills through your ChatGPT plan or OpenAI API key — the `codex` CLI's own login.",
+    limits: null,
+  },
+  "acp:cursor": {
+    good: "One login across several vendors' models, and its own Composer for fast edits.",
+    billing: "Bills through your Cursor plan.",
+    limits: "Realm cannot set permission modes here — Cursor's modes are its own.",
+  },
+  "acp:gemini": {
+    good: "Google's own CLI, for Gemini models with a Google account or Vertex credentials.",
+    billing: "Bills through a Gemini API key or Vertex AI project.",
+    limits: "The free personal tier is discontinued, so a plain Google sign-in no longer works.",
+  },
+  "acp:opencode": {
+    good: "The widest model list of any harness here — dozens of providers through keys you already hold.",
+    billing: "Bills through whichever provider key you configured in opencode.",
+    limits: "Realm cannot inject skills or set permission modes over ACP.",
+  },
+  "acp:copilot": {
+    good: "Tied into GitHub: the same subscription that runs Copilot in your editor.",
+    billing: "Bills through your GitHub Copilot subscription.",
+    limits: "Realm cannot inject skills or set permission modes over ACP.",
+  },
+  "acp:goose": {
+    good: "Provider-agnostic — you point it at any model API and it brings its own extensions.",
+    billing: "Bills through whichever provider you set with `goose configure`.",
+    limits: "Realm cannot inject skills or set permission modes over ACP.",
+  },
+  "acp:qwen": {
+    good: "Alibaba's coding CLI, strongest on Qwen models and free-tier friendly.",
+    billing: "Bills through a Qwen account or an OpenAI-compatible key.",
+    limits: "Realm cannot inject skills or set permission modes over ACP.",
+  },
+  "acp:grok": {
+    good: "xAI's agent, for Grok models with fast frontier reasoning on STEM work.",
+    billing: "Bills through SuperGrok / X Premium, or an xAI API key.",
+    limits: "Realm cannot inject skills or set permission modes over ACP.",
+  },
+  "acp:fx": {
+    good: "Vercel's agent over the AI Gateway — many models behind one gateway key.",
+    billing: "Bills through your Vercel AI Gateway credit.",
+    limits: "Realm cannot inject skills or set permission modes over ACP.",
+  },
+  "acp:deepseek": {
+    good: "By far the cheapest capable coding loop here — DeepSeek V4 runs at a fraction of frontier prices.",
+    billing: "Bills through your DeepSeek API key (DEEPSEEK_API_KEY).",
+    // Every clause is from the harness's own README, and together they are why this kind is offered
+    // with a warning rather than quietly: its ACP server is "automation-only".
+    limits: "Answers arrive whole — no live typing, no tool cards, no MCP, and sessions cannot be resumed.",
+  },
+  fake: {
+    good: "The scripted offline adapter used to develop Realm itself.",
+    billing: "Free — it never calls a model.",
+    limits: "Its answers are canned.",
+  },
+} as const satisfies Record<import("./entities").AgentKind, { good: string; billing: string; limits: string | null }>;
 
 /**
  * The two commands that can make an agent usable: `install` puts its CLI on the machine, `login` signs it
@@ -441,6 +545,18 @@ export const AGENT_CLI_COMMANDS = {
   // fx installs by shell script and gates its ACP handshake on being signed in — `fx login` is the
   // Vercel OAuth route, `fx setup` the API-key one. One command per slot, so `login` names the former.
   "acp:fx": { install: "curl -fsSL https://fx.sh/setup.sh | bash", login: "fx login" },
+  // The ACP server is a SEPARATE package from the `dsh` launcher, and it is what Realm spawns — so
+  // this installs that one, not `@deepseek-ai/dsh`.
+  //
+  // Measured 2026-09-03, and the reason `acp:deepseek` ships dimmed rather than ready: this command
+  // FAILS today. `@deepseek-ai/dsh-acp-demo@0.0.1-rc.1` requires two peers that are not published —
+  // `@deepseek-ai/dsh-workspace-context` and `@deepseek-ai/dsh-bash-env` both 404 on the registry —
+  // so npm aborts on peer resolution and pnpm aborts on the missing package. `--legacy-peer-deps`
+  // "succeeds" by installing no peers at all and then dies at boot on a missing `dsh-app-boot`.
+  // The command is still the right one: it is what will work the day DeepSeek publishes the rest of
+  // the harness, and until then the probe reports the CLI as missing, which is the truth.
+  // There is no login command — the server reads DEEPSEEK_API_KEY.
+  "acp:deepseek": { install: "npm install -g @deepseek-ai/dsh-acp-demo", login: null },
   fake: { install: null, login: null },
 } as const satisfies Record<import("./entities").AgentKind, { install: string | null; login: string | null }>;
 
@@ -461,5 +577,6 @@ export const AGENT_LOGIN_HINTS = {
   // fx refuses `initialize` itself when signed out, so its failure lands on the boot branch with an
   // empty auth-method list; this hint is the only thing that tells the user what to do.
   "acp:fx": "Run `fx login` to sign in with Vercel, `fx setup` for an AI Gateway API key, or set AI_GATEWAY_API_KEY.",
+  "acp:deepseek": "The DeepSeek Harness is still a release candidate: two of its packages are unpublished, so its ACP server cannot be installed from npm yet. Once `dsh-acp-demo` is on your PATH, set DEEPSEEK_API_KEY — there is no login command.",
   fake: "Scripted offline agent used for development.",
 } as const satisfies Record<import("./entities").AgentKind, string>;

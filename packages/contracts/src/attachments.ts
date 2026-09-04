@@ -105,6 +105,10 @@ const DISPOSITIONS = {
   "acp:qwen": { image: "link", other: "link" },
   "acp:grok": { image: "link", other: "link" },
   "acp:fx": { image: "link", other: "link" },
+  // dsh-acp advertises no image or embedded-context capability and flattens a `resource_link` to a
+  // bracketed textual reference — the file is NAMED to the model, never read for it. Still "link":
+  // that is the block Realm sends, and the note beside it is where the flattening is explained.
+  "acp:deepseek": { image: "link", other: "link" },
   // fake-adapter.ts never looks at `attachments`.
   fake: { image: "ignored", other: "ignored" },
 } as const satisfies Record<AgentKind, { image: AttachmentDisposition; other: AttachmentDisposition }>;
@@ -128,14 +132,14 @@ export function attachmentNote(kind: AgentKind, mime: string): string {
   }
 }
 
-/** Worst news first: a file that will be dropped outranks one that merely has to be opened. */
-const NOTICE_ORDER: AttachmentDisposition[] = ["ignored", "link", "path", "inline"];
+/** Only dispositions that need explanation. Inline is the expected happy path and stays quiet. */
+const NOTICE_ORDER: AttachmentDisposition[] = ["ignored", "link", "path"];
 
 /**
  * The prompter's note rows: one line per distinct disposition among the pending attachments, naming
- * the files it covers. Grouped rather than per-chip so four screenshots do not print the same sentence
- * four times — but never collapsed to a single line, because "inlined" and "dropped" in the same batch
- * is exactly the case the user must be able to see.
+ * the files it covers. Grouped rather than per-chip so four files do not print the same sentence four
+ * times. Files read inline need no note: the row is reserved for a limitation or extra handoff the user
+ * can act on.
  */
 export function attachmentSummary(kind: AgentKind, attachments: readonly Attachment[]): { disposition: AttachmentDisposition; note: string; files: string[] }[] {
   const groups = new Map<AttachmentDisposition, { disposition: AttachmentDisposition; note: string; files: string[] }>();

@@ -71,10 +71,14 @@ describe("§6 motion table", () => {
     // and a second animation here is how the prompter's picker drifts away from every other surface.
     expect(bodiesFor(".model-picker").join(" ")).toContain("animation: rl-menu-in 140ms var(--ease-out-strong)");
     // Its interactive rows honour the hover rule — background/colour only, never geometry.
-    for (const sel of [".mp-row", ".mp-rail-btn"]) {
+    for (const sel of [".mp-row", ".mp-seg-opt"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("transition: background-color 100ms ease, color 100ms ease");
       expect(bodiesFor(sel).join(" "), sel).not.toContain("transform");
     }
+    // The route pills animate their border too — they carry the selected state on the outline rather
+    // than on a fill — but still nothing geometric.
+    expect(bodiesFor(".mp-route").join(" ")).toContain("transition: border-color 100ms ease, background-color 100ms ease, color 100ms ease");
+    expect(bodiesFor(".mp-route").join(" ")).not.toContain("transform");
   });
 
   it("transcript items enter at 180ms with a 6px rise, gated on the data-enter mark Transcript.tsx sets", () => {
@@ -308,6 +312,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The spinner's pose table (Spinner.tsx): nine poses × per-dot x/y/opacity plus the stage
       // scale, computed from the globe's geometry and set inline so one keyframe can walk them.
       "--orb-k", ...Array.from({ length: 9 }, (_, i) => [`--g${i}x`, `--g${i}y`, `--g${i}o`]).flat(),
+      // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
+      // track and the knob are one box and cannot drift out of register.
+      "--media-progress",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
@@ -362,6 +369,17 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");
   });
 
+  it("an open card's head squares off against the body divider — only the card's own corners round", () => {
+    // Both radii are the control radius while collapsed: the row IS the card's whole surface, so
+    // its hover fill has to trace the card's corners exactly.
+    expect(bodiesFor(".tool-card").join(" ")).toContain("border-radius: var(--r-ctl)");
+    expect(bodiesFor(".tool-row").join(" ")).toContain("border-radius: var(--r-ctl)");
+    // Open, the bottom two stop rounding: a curve there pulls the hover fill away from the
+    // hairline and leaves a notch at each end of the divider.
+    expect(bodiesFor(".tool-card[data-open] .tool-row").join(" "))
+      .toContain("border-radius: var(--r-ctl) var(--r-ctl) 0 0");
+  });
+
   it("fenced code is CodeBlock's editor panel: surface + hairline ring, a language header, 12.5/1.65 mono body", () => {
     const panel = bodiesFor(".md-code").join(" ");
     expect(panel).toContain("background: var(--surface)");
@@ -370,13 +388,6 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     const body = bodiesFor(".md-code pre").join(" ");
     expect(body).toContain("font-size: 12.5px");
     expect(body).toContain("line-height: 1.65");
-  });
-
-  it("the streaming caret is StreamText's solid 2px ink bar — no pulse, no blink while streaming", () => {
-    const caret = bodiesFor(".md-caret").join(" ");
-    expect(caret).toContain("width: 2px");
-    expect(caret).toContain("background: var(--ink)");
-    expect(caret).not.toContain("animation");
   });
 
   it("diff lines carry the CodeBlock diff treatment: token tints, a 3px bar (solid green add, red hatch delete), coloured gutters", () => {
@@ -396,6 +407,43 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     const focus = bodiesFor(".composer:focus-within").join(" ");
     expect(focus).toContain("0 0 0 1px var(--line-strong)");
     expect(focus).not.toContain("--rl-accent");
+  });
+
+  it("the commit dock wears that same card, on nothing: no fill behind it, no rule above it", () => {
+    const card = bodiesFor(".commit-card").join(" ");
+    expect(card).toContain("background: var(--surface)");
+    expect(card).toContain("box-shadow: var(--shadow-card)");
+    expect(bodiesFor(".commit-card:focus-within").join(" ")).toContain("0 0 0 1px var(--line-strong)");
+    // The removed form: the dock used to be a raised strip behind a hairline. Both must stay gone —
+    // the list already dissolves into the card through .diff-fade, and either one draws that seam twice.
+    const dock = bodiesFor(".diff-commit").join(" ");
+    expect(dock).not.toContain("background:");
+    expect(dock).not.toContain("border-top:");
+  });
+
+  it("the commit field keeps its scrollbar, because nothing auto-grows it the way .composer-input grows", () => {
+    // Inheriting the composer's `scrollbar-width: none` hid the only sign a message runs on.
+    expect(bodiesFor(".commit-message").join(" ")).not.toContain("scrollbar-width: none");
+    expect(bodiesFor(".commit-message").join(" ")).not.toContain("max-height");
+    expect(bodiesFor(".commit-message").some((b) => b.includes("scrollbar-width: thin"))).toBe(true);
+  });
+
+  it("the changes list clears the whole fade, and reads its height from the same --fade-h the ramp does", () => {
+    // Scrolled to the end, the last row must not sit in the blur. A fraction of the band (it was
+    // 20px against 44) left the filename you scrolled down for smeared under the ramp.
+    expect(bodiesFor(".diff-list").join(" ")).toContain("padding-bottom: var(--fade-h)");
+    expect(bodiesFor(".diff-list-wrap").join(" ")).toContain("--fade-h: 44px");
+    // One declaration of the number: a second one on the fade itself is how the two drift apart.
+    expect(RULES.filter((r) => r.selectors.includes(".diff-fade")).map((r) => r.body).join(" ")).not.toContain("--fade-h:");
+  });
+
+  it("a disabled quiet button stays dark under the cursor — the hover fill is guarded like .btn's", () => {
+    // Unguarded, "Commit only" with nothing staged still lit up on hover: a control that answers
+    // the pointer while refusing the click.
+    expect(RULES.some((r) => r.selectors.includes(".btn-quiet:hover"))).toBe(false);
+    expect(bodiesFor(".btn-quiet:hover:not(:disabled)").join(" ")).toContain("background: var(--rl-hover)");
+    // The base `button:disabled` already dims it; a .btn-quiet copy of that opacity says it twice.
+    expect(RULES.some((r) => r.selectors.includes(".btn-quiet:disabled"))).toBe(false);
   });
 
   it("an attachment is a SQUARE on the field fill behind a hairline ring — no name, no label column", () => {
@@ -667,11 +715,14 @@ describe("narrow panes", () => {
     expect(blockAfter("@container (max-width: 300px)")).toMatch(/\.panel-nav \{[^}]*display: none/);
   });
 
-  it("the diff head and commit bar break onto their own rows under 560px", () => {
+  it("the diff head breaks onto its own row under 560px, and the commit bar holds out to 380", () => {
     const narrow = blockAfter("@container (max-width: 560px)");
     expect(narrow).toMatch(/\.diff-head \{[^}]*flex-wrap: wrap/);
     expect(narrow).toMatch(/\.diff-head-spacer \{[^}]*flex-basis: 100%/);
-    expect(narrow).toMatch(/\.diff-commit-bar \{[^}]*flex-wrap: wrap/);
+    expect(narrow).not.toMatch(/\.diff-commit-bar \{[^}]*flex-wrap: wrap/);
+    const tight = blockAfter("@container (max-width: 380px)");
+    expect(tight).toMatch(/\.diff-commit-bar \{[^}]*flex-wrap: wrap/);
+    expect(tight).toMatch(/\.diff-staged-count \{[^}]*flex-basis: 100%/);
   });
 
   it("the notifications split waits for room for BOTH columns, not just the list", () => {

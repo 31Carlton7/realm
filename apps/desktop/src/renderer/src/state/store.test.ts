@@ -844,11 +844,120 @@ describe("app store", () => {
       expect(store.getState().transcripts.se1!.t.blocks).toHaveLength(2);
       store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m2", delta: "st" })), ephemeral: true });
       store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m2", delta: "ream" })), ephemeral: true });
+      store.getState().flushSessionDeltas();
       expect(store.getState().transcripts.se1!.t.blocks.at(-1)).toMatchObject({ kind: "assistant", text: "stream", streaming: true });
       expect(store.getState().transcripts.se1!.lastSeq).toBe(2);
       store.getState().applySessionEvent({ ...stored("se1", 3, sessionEvent("assistant_text", { messageId: "m2", text: "stream" })), ephemeral: false });
       expect(store.getState().transcripts.se1!.t.blocks.at(-1)).toMatchObject({ kind: "assistant", text: "stream", streaming: false });
       expect(store.getState().transcripts.se1!.lastSeq).toBe(3);
+    });
+
+    /* The app's largest power cost was applying every streaming delta the instant it landed: a store
+       write, a render and a full markdown re-parse per token. Deltas now coalesce onto one painted
+       frame, which is also what makes an agent streaming into a hidden window free — Chromium stops
+       servicing rAF for a window nobody can see, so the callback these tests fire by hand is a
+       callback that simply never runs. */
+    describe("streaming deltas coalesce onto a frame", () => {
+      /** Takes over the frame clock: `frames.pending` is what Chromium would decline to run while the
+       *  window is not painting, and `frames.paint()` is the window coming back. */
+      const takeFrameClock = () => {
+        const pending: (() => void)[] = [];
+        vi.stubGlobal("requestAnimationFrame", (fn: () => void) => { pending.push(fn); return pending.length; });
+        return { get pending() { return pending.length; }, paint() { const due = pending.splice(0); for (const fn of due) fn(); } };
+      };
+      afterEach(() => { vi.unstubAllGlobals(); });
+
+      it("holds deltas out of the store until the frame lands, then writes them once", async () => {
+        const frames = takeFrameClock();
+        api = seed(); const store = createAppStore(api); await store.getState().boot();
+        await store.getState().openSession("se1");
+        const before = store.getState().transcripts.se1!.t;
+        let writes = 0; store.subscribe(() => writes++);
+
+        for (const d of ["Hel", "lo ", "wor", "ld"])
+          store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m9", delta: d })), ephemeral: true });
+        // The whole point: four deltas, no store write and not even a new transcript object yet.
+        expect(writes).toBe(0);
+        expect(store.getState().transcripts.se1!.t).toBe(before);
+        expect(frames.pending).toBe(1); // one frame for the burst, not one per delta
+
+        frames.paint();
+        expect(writes).toBe(1);
+        expect(store.getState().transcripts.se1!.t.blocks.at(-1)).toMatchObject({ kind: "assistant", text: "Hello world", streaming: true });
+      });
+
+      it("accumulates indefinitely while no frame paints, and lands the whole stream in one write", async () => {
+        const frames = takeFrameClock();
+        api = seed(); const store = createAppStore(api); await store.getState().boot();
+        await store.getState().openSession("se1");
+        let writes = 0; store.subscribe(() => writes++);
+
+        // 500 deltas into a window Chromium is not painting: nothing runs, nothing renders.
+        for (let i = 0; i < 500; i++)
+          store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m9", delta: "x" })), ephemeral: true });
+        expect(writes).toBe(0);
+        expect(frames.pending).toBe(1);
+
+        frames.paint(); // the user comes back
+        expect(writes).toBe(1);
+        expect(store.getState().transcripts.se1!.t.blocks.at(-1)).toMatchObject({ kind: "assistant", text: "x".repeat(500) });
+      });
+
+      it("writes once for all streaming sessions, not once per session", async () => {
+        const frames = takeFrameClock();
+        api = seed(); const store = createAppStore(api); await store.getState().boot();
+        await store.getState().openSession("se1"); await store.getState().openSession("se9");
+        let writes = 0; store.subscribe(() => writes++);
+
+        for (const id of ["se1", "se9", "se1", "se9"])
+          store.getState().applySessionEvent({ ...stored(id, -1, sessionEvent("assistant_delta", { messageId: `m-${id}`, delta: "z" })), ephemeral: true });
+        frames.paint();
+        expect(writes).toBe(1);
+        expect(store.getState().transcripts.se1!.t.blocks.at(-1)).toMatchObject({ text: "zz" });
+        expect(store.getState().transcripts.se9!.t.blocks.at(-1)).toMatchObject({ text: "zz" });
+      });
+
+      it("keeps a run per message, so interleaved messages replay in the order they streamed", async () => {
+        const frames = takeFrameClock();
+        api = seed(); const store = createAppStore(api); await store.getState().boot();
+        await store.getState().openSession("se1");
+        for (const [messageId, delta] of [["a", "A1"], ["b", "B1"], ["a", "A2"]] as const)
+          store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId, delta })), ephemeral: true });
+        frames.paint();
+        // Not ["A1A2", "B1"]: folding a message's deltas together across an intervening message would
+        // reorder the transcript against what the reader watching an unbuffered stream would have seen.
+        expect(store.getState().transcripts.se1!.t.blocks.slice(-3).map((b) => "text" in b ? b.text : b.kind)).toEqual(["A1", "B1", "A2"]);
+      });
+
+      it("a persisted event folds the waiting deltas into its own write, keeping their order", async () => {
+        const frames = takeFrameClock();
+        api = seed(); const store = createAppStore(api); await store.getState().boot();
+        await store.getState().openSession("se1");
+        let writes = 0; store.subscribe(() => writes++);
+
+        store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m5", delta: "thinking out" })), ephemeral: true });
+        // A tool call lands before the frame does. It must sit AFTER the streamed text, not before it,
+        // and it must not need a second write to get there.
+        store.getState().applySessionEvent({ ...stored("se1", 3, sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: {}, parentToolUseId: null })), ephemeral: false });
+        expect(writes).toBe(1);
+        expect(store.getState().transcripts.se1!.t.blocks.slice(-2).map((b) => b.kind)).toEqual(["assistant", "tool"]);
+        expect(store.getState().transcripts.se1!.lastSeq).toBe(3);
+
+        frames.paint(); // the already-drained frame has nothing left to write
+        expect(writes).toBe(1);
+      });
+
+      it("drops the deltas of a session whose transcript closed before the frame", async () => {
+        const frames = takeFrameClock();
+        api = seed(); const store = createAppStore(api); await store.getState().boot();
+        await store.getState().openSession("se1");
+        store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m5", delta: "gone" })), ephemeral: true });
+        await store.getState().deleteItem("i2");
+        let writes = 0; store.subscribe(() => writes++);
+        frames.paint();
+        expect(writes).toBe(0); // no transcript to write into, and no resurrected entry either
+        expect(store.getState().transcripts.se1).toBeUndefined();
+      });
     });
 
     it("events arriving while openSession is fetching are applied after the fetched ones, in order", async () => {
@@ -2177,14 +2286,16 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     expect(worktreeTitleFrom("x".repeat(90))!.length).toBeLessThanOrEqual(40);
   });
 
-  it("boot fetches the machine name; a failure degrades to '' instead of failing boot", async () => {
+  it("boot fetches the machine and user names; a failure degrades to '' instead of failing boot", async () => {
     const a = seed(); const store = createAppStore(a); await store.getState().boot();
     expect(store.getState().machineName).toBe("Carlton's M4 MacBook Pro");
+    expect(store.getState().userName).toBe("Carlton");
     const b = seed();
-    b.machineName = async () => { throw new Error("no scutil"); };
+    b.systemInfo = async () => { throw new Error("no scutil"); };
     const store2 = createAppStore(b); await store2.getState().boot();
     expect(store2.getState().booted).toBe(true);
     expect(store2.getState().machineName).toBe("");
+    expect(store2.getState().userName).toBe("");
   });
 
   it("refreshConnectors caches per space, and mcp.serverStatus broadcasts patch the cache live", async () => {

@@ -152,6 +152,12 @@ export class SessionEventsStore {
     }
     return [...open];
   }
+  /** The newest persisted event's timestamp, or null when the session has none. The last moment the
+   *  log has evidence for — which is where a run interrupted by a crash is dated. */
+  lastTs(sessionId: string): number | null {
+    const r = this.db.prepare("SELECT ts FROM session_events WHERE session_id = ? ORDER BY seq DESC LIMIT 1").get(sessionId) as Pick<EventRow, "ts"> | undefined;
+    return r ? r.ts : null;
+  }
   /** The newest persisted event of one type, or null. Skips rows that fail schema validation. */
   lastOfType(sessionId: string, type: SessionEvent["type"]): SessionEvent | null {
     const r = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1")
@@ -160,15 +166,6 @@ export class SessionEventsStore {
     let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { return null; }
     const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
     return p.success ? p.data : null;
-  }
-
-  /** The timestamp of the session's newest persisted event, or null when it has none. Boot-time
-   *  repairs date their synthetic events here rather than at `Date.now()`, so a log written before a
-   *  crash does not gain an event stamped hours later. */
-  lastTs(sessionId: string): number | null {
-    const r = this.db.prepare("SELECT ts FROM session_events WHERE session_id = ? ORDER BY seq DESC LIMIT 1")
-      .get(sessionId) as Pick<EventRow, "ts"> | undefined;
-    return r ? r.ts : null;
   }
 
   /**

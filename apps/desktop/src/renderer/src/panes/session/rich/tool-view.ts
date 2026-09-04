@@ -1,3 +1,4 @@
+import { isPlayablePath } from "@realm/contracts";
 import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff, type FileDiff } from "./diff";
 
 /** What a tool call's input and result should be DRAWN as, rather than dumped as JSON and text.
@@ -165,4 +166,84 @@ export function toolResultView(name: string, input: Record<string, unknown>, con
     if (matches) return { kind: "matches", ...matches };
   }
   return null;
+}
+
+const MEDIA_PATH_TOOLS = new Set(["Read", "Write", "view_image", "read_file"]);
+
+/** A file a tool call names that Realm can actually SHOW. `Read`-ing a screenshot and then seeing
+ *  the raw well say `file_path: "/tmp/s1.png"` is the transcript at its least useful: the agent
+ *  looked at a picture, and the reader is told its name. Only the input is used — a `Read` result
+ *  for an image is a base64 block or a stub, never something worth drawing twice. */
+export function toolMediaPath(name: string, input: Record<string, unknown>): string | null {
+  if (!MEDIA_PATH_TOOLS.has(name)) return null;
+  const path = str(input, "file_path") ?? str(input, "path") ?? str(input, "notebook_path");
+  return path && isPlayablePath(path) ? path : null;
+}
+
+/** What a tool call is in the middle of MAKING, while it is still running.
+ *
+ *  This drives the one state aicss.dev's image-generation component has: a canvas of roughly the
+ *  right shape, shimmering, captioned with what is being made. It is worth having because encoding
+ *  a video is the rare tool call that takes minutes, and a spinner that says `Bash` for four of them
+ *  tells the reader nothing about the thing they are waiting for.
+ *
+ *  Recognition is by the command's PRODUCER, never by guesswork about intent: `ffmpeg` writes video
+ *  (an image only when explicitly asked for a single frame), the ImageMagick and macOS converters
+ *  write images, and a tool whose own name is about generating pictures generates pictures.
+ *  `ffprobe` and friends inspect and are deliberately absent — nothing is being made. */
+export type MediaWork = { kind: "image" | "video"; label: string; detail: string | null; aspect: string };
+
+/** Command words that WRITE media. The value is what they write by default. */
+const PRODUCERS: Record<string, "image" | "video"> = {
+  ffmpeg: "video", avconv: "video", "HandBrakeCLI": "video",
+  magick: "image", convert: "image", sips: "image", "rsvg-convert": "image", "qlmanage": "image",
+};
+/** Tool names that mean an image or a video is being generated — an MCP server's own, whatever it
+ *  is called. Matched on the whole name, so an `Edit` or a `Read` can never fall in here. */
+const GENERATOR_TOOL = /(?:^|[_.\-:])(?:generate_?(?:image|video)|image_?gen\w*|video_?gen\w*|text_to_(?:image|video)|imagine|dall_?e\d*|flux|sora|veo|midjourney|stable_?diffusion)(?:$|[_.\-:])/i;
+
+/** A `WIDTHxHEIGHT` or `scale=W:H` pair stated in the command, so the placeholder is the shape of
+ *  the thing coming rather than a default square. Both sides must be three digits or more — a
+ *  timestamp (`14:03`) and a CRF are not dimensions, and a placeholder in the wrong shape is worse
+ *  than an honest square. */
+export function aspectIn(text: string): string | null {
+  const m = /\b(\d{3,5})[x:](\d{3,5})\b/.exec(text);
+  if (!m) return null;
+  const w = Number(m[1]), h = Number(m[2]);
+  // A wildly lopsided pair is a pair of numbers that happened to be adjacent, not a frame size.
+  const ratio = w / h;
+  return ratio > 0.1 && ratio < 10 ? `${w} / ${h}` : null;
+}
+
+/** The first command word of each `;`/`&&`/`|`-separated segment — where a producer's name has to
+ *  appear for it to BE the command rather than a word inside an argument. `ls ffmpeg-notes.txt`
+ *  must not read as an encode. */
+function commandWords(command: string): string[] {
+  return command
+    .split(/[;|&\n]+|\$\(|`/)
+    .map((seg) => /^\s*(?:\w+=\S*\s+)*(?:sudo\s+|env\s+|time\s+|nice\s+)?([\w.\/-]+)/.exec(seg)?.[1] ?? "")
+    .map((word) => word.slice(word.lastIndexOf("/") + 1))
+    .filter(Boolean);
+}
+
+export function mediaWorkFor(name: string, input: Record<string, unknown>): MediaWork | null {
+  if (GENERATOR_TOOL.test(name)) {
+    const prompt = str(input, "prompt") ?? str(input, "text") ?? str(input, "description");
+    const kind = /video|sora|veo/i.test(name) ? "video" : "image";
+    return { kind, label: `Generating ${kind}`, detail: prompt, aspect: aspectIn(JSON.stringify(input)) ?? (kind === "video" ? "16 / 9" : "1 / 1") };
+  }
+  if (!COMMAND_TOOLS.has(name)) return null;
+  const command = str(input, "command");
+  if (!command) return null;
+  const producer = commandWords(command).map((w) => PRODUCERS[w]).find(Boolean);
+  if (!producer) return null;
+  // `ffmpeg -frames:v 1 out.png` is a frame grab, not an encode — the same binary, a different
+  // artefact, and the placeholder should be the shape of what actually lands.
+  const kind = producer === "video" && /-frames:v\s+1\b|-vframes\s+1\b/.test(command) ? "image" : producer;
+  return {
+    kind,
+    label: kind === "video" ? "Encoding video" : "Rendering image",
+    detail: str(input, "description"),
+    aspect: aspectIn(command) ?? (kind === "video" ? "16 / 9" : "1 / 1"),
+  };
 }

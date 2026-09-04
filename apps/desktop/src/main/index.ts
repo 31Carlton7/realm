@@ -1,5 +1,5 @@
 import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
-import { BrowserCredentialInputSchema, DEFAULT_MIME, isImageMime, mimeForPath, newId, type BrowserCredential } from "@realm/contracts";
+import { BrowserCredentialInputSchema, DEFAULT_MIME, isImageMime, mimeForPath, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
@@ -20,6 +20,13 @@ import {
 import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
+import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
+
+/* `realm-media://` has to be declared privileged before `app.ready`, which is why this is a
+   top-level statement rather than a line in `whenReady` — Electron ignores the registration
+   afterwards, and the failure mode is a scheme that silently serves nothing. The handler that
+   actually reads files is installed in `whenReady`, once the server has told us where home is. */
+registerMediaScheme();
 
 let serverChild: import("node:child_process").ChildProcess | null = null;
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
@@ -467,6 +474,30 @@ ipcMain.handle("save-temp-attachment", async (_e, name: string, mime: string, by
   return saveTempAttachment(realmHome, name, mime, bytes);
 });
 
+/** Local media (Plan: inline playback). `stat` is the gate the transcript asks BEFORE it draws
+ *  anything: a path harvested from an agent's prose is a guess, and a guess that does not resolve to
+ *  a real media file must cost one stat and no pixels. The bytes themselves never come through IPC —
+ *  they are streamed over `realm-media://`, which is what lets a video seek. */
+ipcMain.handle("media:stat", (_e, candidates: unknown): Promise<(MediaFile | null)[]> =>
+  statMedia(Array.isArray(candidates) ? candidates.filter((c): c is string => typeof c === "string") : []));
+ipcMain.handle("media:poster", async (_e, path: unknown): Promise<string | null> => {
+  if (typeof path !== "string" || !realmHome) return null;
+  // Re-gated rather than trusted: `poster` takes a path from the renderer just as the protocol
+  // handler does, and QuickLook will happily render a file this app has no business previewing.
+  const servable = await servablePath(path);
+  return servable ? mediaPoster(realmHome, servable) : null;
+});
+/** The two things a reader wants from a file they can see but not touch. Both are `shell` calls on
+ *  a path re-gated the same way, so neither can be pointed at something that is not media. */
+ipcMain.handle("media:reveal", async (_e, path: unknown): Promise<void> => {
+  const servable = typeof path === "string" ? await servablePath(path) : null;
+  if (servable) shell.showItemInFolder(servable);
+});
+ipcMain.handle("media:open", async (_e, path: unknown): Promise<void> => {
+  const servable = typeof path === "string" ? await servablePath(path) : null;
+  if (servable) await shell.openPath(servable);
+});
+
 app.whenReady().then(async () => {
   try {
     installMenu();
@@ -483,6 +514,8 @@ app.whenReady().then(async () => {
     child.on("exit", () => { serverChild = null; });
     const info = await ready;
     realmHome = info.home;
+    // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
+    handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
     // restarts the app is bounded too.
     void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});

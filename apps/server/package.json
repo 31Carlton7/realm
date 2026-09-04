@@ -12,6 +12,7 @@
   "//tsconfig.scripts": "the live-*-check scripts sit outside tsconfig.json's src-only include; this second project gives them type coverage",
   "//node-pty": "pinned to 1.2.0-beta.15: 1.1.0 prebuild ships non-executable spawn-helper",
   "//claude-agent-sdk": "direct dep so the tsup-external import resolves from apps/server at runtime. This copy is the one that MATTERS at runtime: the SDK spawns the `claude` binary from its own platform package, and a packaged app resolves that from Contents/Resources/server/node_modules, not from packages/adapters. Keep the floor in step with packages/adapters — the API rejects a model the bundled binary predates (400 'Claude Code X does not support this model'), so the floor is a model-support floor, not just a bugfix one. ^0.3.251 is what claude-fable-5-1 needs.",
+  "//vis-network": "vendored for the document preview server, exactly like katex: graphify writes a graph.html whose only script tag points at unpkg, and the guide CSP (default-src 'none') blocks it. preview.ts serves this copy same-origin instead.",
   "//modelcontextprotocol-sdk": "the hub (mcp/hub.ts) is the ONLY code that speaks MCP to third-party servers — direct dep so its client/transport imports resolve from apps/server at runtime, same as claude-agent-sdk above",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.251",
@@ -21,6 +22,7 @@
     "katex": "^0.16.47",
     "node-pty": "1.2.0-beta.15",
     "pdfjs-dist": "^5.7.284",
+    "vis-network": "^9.1.6",
     "ws": "^8.18.0",
     "zod": "^3.24.0"
   },

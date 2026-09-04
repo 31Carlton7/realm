@@ -227,6 +227,12 @@ export const AgentKindSchema = z.enum([
   "claude", "codex", "acp:gemini", "acp:cursor",
   // Plan 18: every one of these answered a live ACP `initialize` on 2026-09-01 (see the plan's table).
   "acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx",
+  // DeepSeek Harness (`dsh`), added 2026-09-03. It is NOT in the ACP registry — it ships its own ACP
+  // bundle (`@deepseek-ai/dsh-acp`, runnable as `@deepseek-ai/dsh-acp-demo`), which is why Plan 18's
+  // registry sweep did not find it. Registered like any other ACP kind, but deliberately reduced:
+  // its server is automation-only (see AGENT_NOTES), so Realm shows a turn's answer whole rather
+  // than streaming it. Better a harness that says what it cannot do than one that is missing.
+  "acp:deepseek",
   "fake",
 ]);
 export type AgentKind = z.infer<typeof AgentKindSchema>;

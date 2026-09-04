@@ -270,27 +270,34 @@ export function DiffPane({ item }: PaneProps) {
         <div className="diff-note">Showing {files.length} of {summary.totalFiles} changed files — too many to render at once.</div>
       )}
 
-      <div className="diff-list">
-        {files.length === 0
-          ? <div className="diff-empty">Nothing has changed in this checkout since the last commit.</div>
-          : files.map((f) => <FileRow key={f.path} cwd={cwd} file={f} />)}
+      <div className="diff-list-wrap">
+        <div className="diff-list">
+          {files.length === 0
+            ? <div className="diff-empty">Nothing has changed in this checkout since the last commit.</div>
+            : files.map((f) => <FileRow key={f.path} cwd={cwd} file={f} />)}
+        </div>
+        {/* A sibling of the scroller, never a child: nested, its backdrop-filter would sample the
+            scroller's own clipped content and blur nothing. */}
+        <div className="diff-fade" aria-hidden="true" />
       </div>
 
       {review && <ReviewSection environmentId={environmentId} review={review} />}
 
       <div className="diff-commit">
         {result && <ShipReport cwd={cwd} environmentId={environmentId} result={result} />}
-        <textarea className="commit-message" aria-label="Commit message" rows={2} placeholder="Describe the change…"
-          value={message} onChange={(e) => setCommitMessage(cwd, e.target.value)} onKeyDown={onKeyDown} />
-        <div className="diff-commit-bar">
-          <span className="diff-staged-count">
-            {unstageable.length === 0 ? "Nothing staged" : `${unstageable.length} staged`}
-          </span>
-          <button type="button" className="btn" disabled={!canCommit || shipping}
-            onClick={() => doShip(false)}>Commit only</button>
-          <button type="button" className="btn primary" disabled={!canCommit || shipping}
-            title="Commit, push and open a pull request (⌘↵)"
-            onClick={() => doShip(true)}>{shipping ? "Working…" : "Commit, push & PR"}</button>
+        <div className="commit-card">
+          <textarea className="commit-message" aria-label="Commit message" rows={2} placeholder="Describe the change…"
+            value={message} onChange={(e) => setCommitMessage(cwd, e.target.value)} onKeyDown={onKeyDown} />
+          <div className="diff-commit-bar">
+            <span className="diff-staged-count">
+              {unstageable.length === 0 ? "Nothing staged" : `${unstageable.length} staged`}
+            </span>
+            <button type="button" className="btn-quiet" disabled={!canCommit || shipping}
+              onClick={() => doShip(false)}>Commit only</button>
+            <button type="button" className="btn primary" disabled={!canCommit || shipping}
+              title="Commit, push and open a pull request (⌘↵)"
+              onClick={() => doShip(true)}>{shipping ? "Working…" : "Commit, push & PR"}</button>
+          </div>
         </div>
       </div>
     </div>

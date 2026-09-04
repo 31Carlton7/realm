@@ -29,7 +29,7 @@ export function promptHint(ctx: {
   if (status === "running" || status === "waiting_permission") return null;
 
   const reviewChanges = gitInfo && gitInfo.dirty > 0
-    ? `Review my uncommitted changes on ${gitInfo.branch} for bugs and style issues.`
+    ? freshChangesHint(gitInfo)
     : null;
 
   // Nothing has happened yet: the working tree is the only session-specific fact there is. Work in
@@ -46,19 +46,132 @@ export function promptHint(ctx: {
   // user block at all) is its own single turn.
   const lastUser = findLastIndex(blocks, (b) => b.kind === "user");
   const turn = blocks.slice(lastUser + 1);
+  const request = lastUser >= 0 && blocks[lastUser]?.kind === "user"
+    ? subjectOf(blocks[lastUser].text)
+    : null;
+  const files = filesIn(turn);
 
-  // A turn that ended in an error is the one case where the next prompt is not a choice.
-  if (blocks[blocks.length - 1]?.kind === "error" || status === "error") return "Fix that error and try again.";
-  // Plan mode: the agent has just written a plan and cannot act on it. Saying go is the whole gesture.
-  if (inPlan && turn.some((b) => b.kind === "assistant" && !b.streaming)) return "Go ahead and implement that plan.";
-  // It wrote code. What is not yet known is whether the code works.
-  if (turn.some((b) => b.kind === "tool" && WRITE_TOOLS.has(b.name))) return "Run the tests and fix anything that fails.";
+  // A failed tool or run names the actual thing that broke. Quoting its short detail is far more
+  // useful than pointing vaguely upward at "that error".
+  const last = blocks.at(-1);
+  const failure = lastFailure(turn) ?? (last?.kind === "error" ? short(last.message, 68) : null);
+  if (failure || status === "error") {
+    const target = request ? ` while working on ${request}` : "";
+    return failure
+      ? `Investigate “${failure}”${target}, fix the root cause, and retry.`
+      : `Find the failure${target}, fix the root cause, and retry.`;
+  }
+
+  // Plan mode: retain the subject that caused the plan and ask for the valuable second half of the
+  // work too — testing its riskiest assumption. This reads like a continuation of this conversation,
+  // not a stock button label.
+  if (inPlan && turn.some((b) => b.kind === "assistant" && !b.streaming)) {
+    return request
+      ? `Turn the plan for ${request} into working code, then verify its riskiest assumption.`
+      : "Implement the plan, then verify its riskiest assumption.";
+  }
+
+  // It wrote code. Name what changed and why it changed; the files are taken from the actual tool
+  // calls, while the subject comes from the user's latest request.
+  if (turn.some((b) => b.kind === "tool" && WRITE_TOOLS.has(b.name))) {
+    const where = files.length ? ` in ${joinFiles(files)}` : "";
+    return request
+      ? `Stress-test ${request}${where}, then fix what the tests expose.`
+      : `Stress-test the changes${where}, then fix what the tests expose.`;
+  }
+
+  // A read-only investigation already established a trail through the repo. Offer to follow that
+  // trail instead of collapsing back to the unrelated dirty-tree fallback.
+  if (files.length && request) {
+    return `Trace ${request} through ${joinFiles(files)}, then identify the highest-leverage change.`;
+  }
+
+  // Even a tool-free answer has a session-specific subject. The next useful move is to make the
+  // answer concrete; this is intentionally absent when there was no user request to anchor it to.
+  if (request && turn.some((b) => b.kind === "assistant" && !b.streaming)) {
+    return `Take “${request}” further: show the concrete code path and its weakest edge case.`;
+  }
   return reviewChanges;
 }
 
 /** Tools that CHANGE a file. Deliberately narrower than tool-group's `FILE_TOOLS`, which counts reads
  *  too — "it read four files" is not a reason to suggest running the tests. */
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"]);
+
+const PATH_TOOLS = new Set([...WRITE_TOOLS, "Read", "View", "read_file"]);
+
+/** Turn a request into a compact noun phrase that can be embedded in the next prompt. This is not
+ *  pretending to understand prose: it only removes common conversational/action wrappers, preserves
+ *  the user's own words, and declines noisy or tiny results. */
+const subjectOf = (text: string): string | null => {
+  let value = text.replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
+  value = value
+    .replace(/^(?:please\s+)?(?:can|could|would)\s+you\s+/i, "")
+    .replace(/^(?:please\s+)?(?:help me\s+)?(?:add|build|create|debug|design|explain|fix|implement|improve|investigate|make|plan|refactor|review|test|update|write)\s+/i, "")
+    .replace(/^(?:me|my|our|the|an?)\s+/i, "");
+  if (/^[A-Z][a-z]/.test(value)) value = value[0]!.toLowerCase() + value.slice(1);
+  value = short(value, 58);
+  return value.length >= 4 ? value : null;
+};
+
+const freshChangesHint = (git: GitInfo): string => {
+  const topic = branchTopic(git.branch);
+  if (topic) return `Take a skeptical pass over the ${topic} work: find the edge case this diff is most likely to miss.`;
+  const files = `${git.dirty} uncommitted ${git.dirty === 1 ? "file" : "files"}`;
+  return `Audit the ${files} on ${git.branch}; find the edge case most likely to escape review.`;
+};
+
+/** main/master/develop carry no subject. A descriptive branch does, and is often the only context a
+ *  brand-new session has, so turn `feature/pane-groups` into `pane groups`. */
+const branchTopic = (branch: string): string | null => {
+  const bare = branch.replace(/^(?:feature|feat|fix|bugfix|hotfix|chore|refactor)\//i, "");
+  if (/^(?:main|master|develop|dev|trunk)$/i.test(bare)) return null;
+  const topic = bare.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return topic || null;
+};
+
+const filesIn = (blocks: readonly Block[]): string[] => {
+  const paths: string[] = [];
+  for (const block of blocks) {
+    if (block.kind !== "tool" || !PATH_TOOLS.has(block.name)) continue;
+    const direct = [block.input.file_path, block.input.notebook_path, block.input.path]
+      .find((value): value is string => typeof value === "string" && value.length > 0);
+    if (direct) paths.push(direct);
+    if (block.name === "apply_patch" && typeof block.input.patch === "string") {
+      for (const match of block.input.patch.matchAll(/^\*\*\* (?:Add|Update) File: (.+)$/gm)) paths.push(match[1]!);
+    }
+  }
+  return [...new Set(paths.map(displayPath))].slice(0, 2);
+};
+
+const displayPath = (path: string): string => {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts.slice(-2).join("/") || path;
+};
+
+const joinFiles = (files: readonly string[]): string => files.length === 1
+  ? files[0]!
+  : `${files[0]} and ${files[1]}`;
+
+const lastFailure = (blocks: readonly Block[]): string | null => {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i]!;
+    if (block.kind === "error") return short(block.message, 68);
+    if (block.kind === "tool" && block.result?.isError) {
+      const command = typeof block.input.command === "string" ? short(block.input.command, 52) : null;
+      return command || short(block.result.content, 68) || `${block.name} failed`;
+    }
+  }
+  return null;
+};
+
+const short = (text: string, max: number): string => {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= max) return oneLine;
+  const cut = oneLine.slice(0, max - 1);
+  const word = cut.replace(/\s+\S*$/, "");
+  return `${word.length >= Math.floor(max * .6) ? word : cut}…`;
+};
 
 const findLastIndex = <T,>(xs: readonly T[], pred: (x: T) => boolean): number => {
   for (let i = xs.length - 1; i >= 0; i--) if (pred(xs[i]!)) return i;

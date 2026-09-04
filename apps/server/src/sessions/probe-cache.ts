@@ -15,18 +15,22 @@ export const PROBE_TTL_MS = 30_000;
  * A forced call never joins an unforced probe already in flight — that probe may have read the filesystem
  * *before* the installer finished, which is the one answer the force was asking to escape. It joins another
  * forced probe (a double-click is one question), and unforced calls join anything in flight.
+ *
+ * Generic in what a probe answers with (defaulting to this file's original `ProbeResult[]`) so a
+ * second probe — GraphifyService's — gets the same force/TTL/dedup semantics without a second copy
+ * of this reasoning to keep in sync.
  */
-export class ProbeCache {
-  private cached: { at: number; value: ProbeResult[] } | null = null;
-  private inflight: { forced: boolean; p: Promise<ProbeResult[]> } | null = null;
+export class ProbeCache<T = ProbeResult[]> {
+  private cached: { at: number; value: T } | null = null;
+  private inflight: { forced: boolean; p: Promise<T> } | null = null;
   private ttlMs: number;
   private now: () => number;
-  constructor(private compute: () => Promise<ProbeResult[]>, opts: { ttlMs?: number; now?: () => number } = {}) {
+  constructor(private compute: () => Promise<T>, opts: { ttlMs?: number; now?: () => number } = {}) {
     this.ttlMs = opts.ttlMs ?? PROBE_TTL_MS;
     this.now = opts.now ?? Date.now;
   }
 
-  async get({ force = false }: { force?: boolean } = {}): Promise<ProbeResult[]> {
+  async get({ force = false }: { force?: boolean } = {}): Promise<T> {
     if (!force && this.cached && this.now() - this.cached.at < this.ttlMs) return this.cached.value;
     const pending = this.inflight;
     if (pending && (!force || pending.forced)) return pending.p;

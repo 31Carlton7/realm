@@ -1,6 +1,6 @@
-import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, acpPlanMode, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, acpPlanMode, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
@@ -9,6 +9,7 @@ import { modelIdOn, modelRows } from "./model-rows";
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
+import { heroGreeting } from "./greeting";
 import { continueList, highlightSegments, indentList, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 
@@ -71,13 +72,14 @@ function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel
 }
 
 /**
- * Pending attachments (§4 row 1): one removable chip per file, then one note row per distinct fate.
+ * Pending attachments (§4 row 1): one removable chip per file, then one note row per distinct fate
+ * that is worth saying out loud.
  *
  * The notes are the point of this row. The three adapters do three different things with the same
- * file — Claude inlines an image and DROPS a PDF without a word, Codex hands over paths, an ACP agent
- * gets a link — and the only moment that difference is actionable is before the message is sent. So
- * the note names the agent and says what will happen, and a file that will simply be discarded says so
- * in the warning tone rather than looking exactly like one that will be read.
+ * file — Claude DROPS a PDF without a word, Codex hands over paths, an ACP agent gets a link — and the
+ * only moment that difference is actionable is before the message is sent. So the note names the agent
+ * and says what will happen, and a file that will simply be discarded says so in the warning tone. A
+ * file the agent reads as-is gets no row (see `attachmentSummary`); its fate is on the chip's tip.
  */
 function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attachments: PickedAttachment[]; onRemove: (path: string) => void }) {
   if (attachments.length === 0) return null;
@@ -234,7 +236,7 @@ function planMeaning(kind: AgentKind, acpPlan: AcpSessionMode | null): string {
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, onToggleModelFavorite, hero, spaceName, onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -263,8 +265,14 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   agentProbe: AgentProbe[];
   /** Canonical model keys the user has starred, and the toggle behind the picker's stars. */
   modelFavorites: string[];
+  /** The model catalog by canonical key — prices, context windows and reasoning efforts for the
+   *  picker's detail pane. `{}` is a supported state (never fetched, or offline). */
+  modelInfo: Record<string, ModelInfo>;
   onToggleModelFavorite: (key: string) => void;
   hero: boolean; spaceName: string; onSuggestion: (prompt: string) => void;
+  /** The person's first name, for the hero greeting. "" (the default) means the greeting keeps to
+   *  the space — never a "Good evening, " with nothing after the comma. */
+  userName?: string;
   /** What `@` may complete to HERE (W4): the space's enabled, valid skills — and only for an agent
    *  Realm can inject skills into. Empty (the default) means typing `@` opens nothing, which is how a
    *  Cursor session never grows an affordance that would silently do nothing. */
@@ -365,6 +373,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // status — never strips the attribute and snaps the chips), then marked as played for the app run.
   const [stagger] = useState(() => hero && !staggerPlayed.has(session.id));
   useEffect(() => { if (hero) staggerPlayed.add(session.id); }, [hero, session.id]);
+
+  // The greeting is picked once per session (and re-picked only if the space is renamed or the name
+  // arrives late from boot): the time of day is read at that moment, so an open hero never rewrites
+  // itself mid-sentence at 6pm.
+  const greeting = useMemo(() => heroGreeting({ spaceName, userName, seed: session.id }), [spaceName, userName, session.id]);
 
   // ── Rich text (highlight mirror) ───────────────────────────────────────
   // The textarea keeps every character; what it does NOT keep is its own colour. Its text is painted
@@ -543,43 +556,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const rows = useMemo(
     () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, favorites: modelFavorites }),
     [kind, session.model, agentProbe, canSwitchAgent, modelFavorites]);
-  const currentRow = rows.find((r) => r.selected) ?? null;
-  // The session's own kind leads and is never absent, so a `fake` session still names its harness.
-  const harnessKinds: AgentKind[] = [kind, ...SELECTABLE_AGENT_KINDS.filter((k) => k !== kind)];
-  /**
-   * The harness menu — which CLI runs this session, split out from WHICH MODEL it runs.
-   *
-   * Each item carries the consequence of picking it, worked out before the click rather than
-   * reported after: a harness that can run the current model just switches the route and keeps the
-   * model, and one that cannot says which model it would fall back to. That is the whole reason the
-   * item labels are ReactNode — "Cursor · runs Composer" is a different promise from "Cursor", and
-   * the user is entitled to it while deciding.
-   *
-   * Empty once the session has run: `sessions.setAgent` refuses after the first event, and ChipMenu
-   * renders an item-less chip as a plain label with the title explaining why, rather than a disabled
-   * button that still takes a tab stop.
-   */
-  const harnessItems: MenuItem[] = canSwitchAgent ? harnessKinds.map((k) => {
-    const id = currentRow ? modelIdOn(currentRow, k) : undefined;
-    const keeps = id !== undefined; // this harness offers the very model the session is on
-    const note = availabilityNote(agentAvailability(k, agentProbe));
-    return {
-      label: (
-        <>
-          {AGENT_META[k].label}
-          {!keeps && <span className="menu-hint"> runs {DEFAULT_MODEL_LABEL[k]}</span>}
-          {note && <span className="menu-hint"> — {note}</span>}
-        </>
-      ),
-      checked: k === kind,
-      title: keeps
-        ? `Run this session on ${AGENT_META[k].label}, keeping ${currentRow?.label ?? "the current model"}`
-        : `${AGENT_META[k].label} doesn’t offer ${currentRow?.label ?? "this model"} — switching runs ${DEFAULT_MODEL_LABEL[k]} instead`,
-      // Reuses the picker's own handler, so a harness switch is the same ordered pair as a model
-      // pick: setAgent (which clears `model` server-side) and only then the model it must land on.
-      onSelect: () => onPickModel(k, id ?? null),
-    };
-  }) : [];
   const permissionItems = PERMISSION_MODES.map((m) => ({
     label: m.label, checked: session.permissionMode === m.id,
     onSelect: () => {
@@ -618,7 +594,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
 
   return (
     <div className="composer-dock">
-      {hero && <div className="hero-greeting">What should we build in <em>{spaceName}</em>?</div>}
+      {hero && (
+        <div className="hero-greeting">
+          {greeting.map((part, i) => (part.em ? <em key={i}>{part.text}</em> : <Fragment key={i}>{part.text}</Fragment>))}
+        </div>
+      )}
       {/* The whole card is the drop target — aiming at a 44px textarea with a file in hand is a chore.
           §6 forbids animating during a drag, so the state change is a static ring, not a transition. */}
       <div className="composer" data-dropping={dragDepth > 0 || undefined}
@@ -716,12 +696,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             )}
           </div>
           <div className="composer-actions">
-            {/* Harness before model, reading right-to-left from the send button: the chip that says
-                WHAT RUNS sits outside the chip that says WHAT IT RUNS. */}
-            <ChipMenu ariaLabel="Harness" icon={AGENT_META[kind].icon} label={AGENT_META[kind].label} items={harnessItems}
-              title={canSwitchAgent ? `Harness: ${AGENT_META[kind].label}`
-                : `Harness: ${AGENT_META[kind].label} — a session's agent can only change before its first message`} />
-            <ModelPicker kind={kind} model={session.model} effort={session.effort} rows={rows}
+            {/* ONE chip, not two. The harness menu that used to sit here is gone: a harness is only
+                ever chosen FOR a model, so that choice moved inside the picker as the highlighted
+                model's "Run it through" pills, where the consequence of each route is on screen
+                beside it. The chip still wears the harness's mark, so nothing it said is lost. */}
+            <ModelPicker kind={kind} model={session.model} effort={session.effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
               onPick={onPickModel} effortItems={effortItems} overflow={overflow} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
@@ -742,7 +721,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           </div>
         </div>
       </div>
-      {status === "running" && <div className="composer-thinking"><span>Thinking…</span></div>}
       {/* Under-strip (Plan 12 W1): where this session runs. In normal flow inside .composer-dock so
           the hero→docked move — one transform on the dock (§6: 320ms) — carries it untouched. */}
       <div className="composer-understrip">
@@ -756,6 +734,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
         )}
         <ChipMenu ariaLabel="Workspace" icon={envIcon} label={envLabel} items={envItems}
           title={canSwitchAgent ? `Workspace: ${envLabel}` : `Workspace: ${envLabel} — a session's checkout can only change before its first message`} />
+        {status === "running" && <div className="composer-thinking"><span>Thinking…</span></div>}
       </div>
       {hero && (
         <div className="suggestions" data-animate={stagger || undefined}>

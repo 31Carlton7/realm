@@ -47,5 +47,12 @@ export const SUGGESTIONS: Record<AgentKind, { title: string; description: string
     { title: "Summarize this repo", description: "Purpose, stack, and layout", prompt: "Summarize this repository: purpose, stack, and layout." },
     { title: "Fix a bug", description: "Find and fix the most likely bug", prompt: "Find the most likely bug in this codebase and fix it." },
   ],
+  // One-shot work only, matching what the harness can actually show: dsh-acp reports a turn's answer
+  // whole, with no tool activity on the wire, so a starter that invites a long exploratory run would
+  // stare back at the user in silence.
+  "acp:deepseek": [
+    { title: "Explain code", description: "What this codebase does, and where", prompt: "Explain what this codebase does and where its core logic lives." },
+    { title: "Review my changes", description: "Bugs and style in uncommitted work", prompt: "Review my uncommitted changes for bugs and style issues." },
+  ],
   fake: [{ title: "Say hello", description: "A quick round trip through the fake agent", prompt: "Hello!" }],
 };

@@ -108,6 +108,7 @@ export const AGENT_MEMORY_CHANNEL = {
   "acp:qwen": "none",
   "acp:grok": "none",
   "acp:fx": "none",
+  "acp:deepseek": "none",
   fake: "none",
 } as const satisfies Record<AgentKind, MemoryChannel>;
 

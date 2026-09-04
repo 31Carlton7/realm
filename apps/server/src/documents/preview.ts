@@ -30,12 +30,19 @@ import { GUIDE_CSS, GUIDE_JS } from "./guide-runtime";
  * What is injected into an `.html` response: the guide stylesheet and runtime (always — both are
  * inert on a page that uses none of the markup), and KaTeX only when the document opts in with
  * `<meta name="realm-helpers" content="katex">`. Nothing is injected into any other type.
+ *
+ * `.html` is additionally REWRITTEN to point any remote vis-network bundle at the vendored copy
+ * (`localizeVisNetwork`). That one is not opt-in, because the documents it rescues are generated:
+ * graphify rewrites its `graph.html` on every `graphify update`, so a `realm-helpers` meta tag we
+ * asked the user to add would be gone by the next extraction.
  */
 export type PreviewDeps = {
   /** Workspace id → absolute root, or null when no such workspace. */
   rootOf(documentsId: string): string | null;
   /** Directory holding `katex.min.js`, `katex.min.css`, `contrib/`, `fonts/`; null disables KaTeX. */
   katexDir?: string | null;
+  /** Directory holding `vis-network.min.js`; null leaves a remote bundle URL alone. */
+  visNetworkDir?: string | null;
 };
 
 const MIME: Record<string, string> = {
@@ -71,15 +78,28 @@ export function defaultKatexDir(): string | null {
   }
 }
 
+/** Locate the vendored vis-network UMD bundle, or null if it is not resolvable. See `defaultKatexDir`. */
+export function defaultVisNetworkDir(): string | null {
+  try {
+    const { createRequire } = process.getBuiltinModule("node:module") as typeof import("node:module");
+    const req = createRequire(import.meta.url);
+    return dirname(req.resolve("vis-network/standalone/umd/vis-network.min.js"));
+  } catch {
+    return null;
+  }
+}
+
 export class DocumentPreviewServer {
   private server: HttpServer | null = null;
   private port: number | null = null;
   readonly token: string;
   private readonly katexDir: string | null;
+  private readonly visNetworkDir: string | null;
 
   constructor(private d: PreviewDeps) {
     this.token = randomBytes(18).toString("base64url");
     this.katexDir = d.katexDir === undefined ? defaultKatexDir() : d.katexDir;
+    this.visNetworkDir = d.visNetworkDir === undefined ? defaultVisNetworkDir() : d.visNetworkDir;
   }
 
   async listen(): Promise<number> {
@@ -139,8 +159,10 @@ export class DocumentPreviewServer {
     const mime = MIME[ext] ?? "application/octet-stream";
     if (ext === "html" || ext === "htm") {
       if (st.size > DOCUMENT_MAX_BYTES) return this.fail(res, 413, "document too large to preview");
-      const html = await readFile(abs, "utf8");
-      const body = injectHelpers(html, `/p/${this.token}/_realm`, { katex: this.katexDir !== null && wantsKatex(html) });
+      const raw = await readFile(abs, "utf8");
+      const base = `/p/${this.token}/_realm`;
+      const html = this.visNetworkDir === null ? raw : localizeVisNetwork(raw, base);
+      const body = injectHelpers(html, base, { katex: this.katexDir !== null && wantsKatex(raw) });
       res.writeHead(200, { "content-type": mime, "content-security-policy": GUIDE_CSP, "content-length": Buffer.byteLength(body) });
       res.end(req.method === "HEAD" ? undefined : body);
       return;
@@ -154,6 +176,14 @@ export class DocumentPreviewServer {
     res.setHeader("cache-control", "public, max-age=600");
     if (rel === "guide.js") return this.text(res, "text/javascript; charset=utf-8", GUIDE_JS);
     if (rel === "guide.css") return this.text(res, "text/css; charset=utf-8", GUIDE_CSS);
+    if (rel === "vis-network/vis-network.min.js" && this.visNetworkDir) {
+      const file = join(this.visNetworkDir, "vis-network.min.js");
+      let st;
+      try { st = await stat(file); } catch { return this.fail(res, 404, "not found"); }
+      res.writeHead(200, { "content-type": MIME.js!, "content-length": st.size });
+      createReadStream(file).on("error", () => res.destroy()).pipe(res);
+      return;
+    }
     if (rel.startsWith("katex/") && this.katexDir) {
       const sub = rel.slice("katex/".length);
       // Only the three entry files and the fonts directory — never a listing of the package.
@@ -194,6 +224,31 @@ export function wantsKatex(html: string): boolean {
   if (!m) return false;
   const content = /content\s*=\s*["']([^"']*)["']/i.exec(m[0])?.[1] ?? "";
   return /\bkatex\b/i.test(content);
+}
+
+/**
+ * Point a remote vis-network bundle at the vendored copy, so a graphify `graph.html` draws instead of
+ * rendering blank. Its only script tag is a CDN one (`https://unpkg.com/vis-network@9.1.6/...`), which
+ * `default-src 'none'` in GUIDE_CSP refuses — and relaxing the policy to let it through would give every
+ * previewed document the network back, which is the one thing the sandbox is for.
+ *
+ * `integrity` and `crossorigin` are dropped along with the URL, and that is the whole subtlety here:
+ * graphify ships an SRI hash of the CDN bytes, so leaving it on a tag now pointing at a DIFFERENT build
+ * makes the digest false by construction and the browser blocks the script — the same blank graph, one
+ * layer further down. `crossorigin` is what SRI requires and is meaningless same-origin, so it goes too.
+ *
+ * Matched by URL shape rather than by exact pin, because the version graphify requests moves with its
+ * releases; the served bundle is whatever `vis-network` resolves to in this install. Every other
+ * attribute survives, and so does every other script on the page.
+ */
+export function localizeVisNetwork(html: string, base: string): string {
+  return html.replace(
+    /<script\b[^>]*\bsrc\s*=\s*["']https?:\/\/[^"']*vis-network[^"']*\.js["'][^>]*>/gi,
+    (tag) => tag
+      .replace(/\bsrc\s*=\s*["'][^"']*["']/i, `src="${base}/vis-network/vis-network.min.js"`)
+      .replace(/\s+integrity\s*=\s*["'][^"']*["']/gi, "")
+      .replace(/\s+crossorigin(\s*=\s*["'][^"']*["'])?/gi, ""),
+  );
 }
 
 /**

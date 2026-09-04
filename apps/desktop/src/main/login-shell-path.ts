@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 /**
  * A packaged app launched from Finder inherits launchd's minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`)
@@ -12,8 +14,19 @@ import { execFile } from "node:child_process";
  * falls back to the current PATH plus the standard Homebrew/local dirs.
  */
 
-/** Appended only when the login shell could not be asked — the two places macOS CLIs actually live. */
-export const FALLBACK_EXTRA_DIRS = ["/opt/homebrew/bin", "/usr/local/bin"];
+/**
+ * Appended only when the login shell could not be asked — the two places macOS CLIs actually live,
+ * plus `~/.local/bin`, the install dir `uv tool install` and `pipx install` use for Python CLI tools.
+ * A function, not a constant, so the home directory is the real one at call time.
+ */
+export function fallbackExtraDirs(): string[] {
+  const dirs = ["/opt/homebrew/bin", "/usr/local/bin"];
+  let home = "";
+  // homedir() throws on a host with no passwd entry for the uid; a missing ~/.local/bin is not fatal.
+  try { home = homedir(); } catch { home = ""; }
+  if (home) dirs.push(join(home, ".local", "bin"));
+  return dirs;
+}
 
 const START = "__REALM_ENV_START__";
 const END = "__REALM_ENV_END__";
@@ -45,7 +58,7 @@ export function mergePath(current: string | undefined, login: string | null): st
   const push = (p: string) => { if (p && !parts.includes(p)) parts.push(p); };
   for (const p of (login ?? "").split(":")) push(p);
   for (const p of (current ?? "").split(":")) push(p);
-  if (login === null) for (const p of FALLBACK_EXTRA_DIRS) push(p);
+  if (login === null) for (const p of fallbackExtraDirs()) push(p);
   return parts.join(":");
 }
 

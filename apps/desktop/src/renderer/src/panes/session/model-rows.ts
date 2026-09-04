@@ -1,9 +1,6 @@
-import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, canonicalModelKey, type AgentKind } from "@realm/contracts";
+import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
-
-/** The rail's selection: one harness, the favourites shelf, or everything. */
-export type RailFilter = AgentKind | "favorites" | null;
 
 /** One pickable line in the model picker: a MODEL, and the harness that would run it. */
 export type ModelRow = {
@@ -204,30 +201,71 @@ export function modelIdOn(row: ModelRow, harness: AgentKind): string | null | un
 }
 
 /**
- * Search + rail filtering.
+ * Search.
  *
- * The query matches the model name OR the agent name, because both are on the row and users reach for
- * either ("opus", "cursor"). It deliberately does NOT match model *ids*: `claude-fable-5` would make
- * "5" match everything, and an id the row never displays is not something anyone is typing at.
+ * The query matches the model's name OR the name of ANY harness that could run it — not merely the
+ * one the row resolved to. Typing "cursor" therefore answers "what could I get from Cursor", which is
+ * the question the old icon rail existed to answer and the one thing it was good at; a model that
+ * resolved to the Claude CLI because that is installed is still a model Cursor offers.
  *
- * A harness tab matches any row that harness can RUN, not merely the one it was resolved to — the tab
- * asks "what could I get from Cursor", and a model that resolved to the Claude CLI because that is
- * installed is still a model Cursor offers.
+ * It deliberately does NOT match model *ids*: `claude-fable-5` would make "5" match everything, and
+ * an id the row never displays is not something anyone is typing at.
  */
-export function filterRows(rows: ModelRow[], { query, provider }: { query: string; provider: RailFilter }): ModelRow[] {
+export function filterRows(rows: ModelRow[], query: string): ModelRow[] {
   const q = query.trim().toLowerCase();
+  if (q === "") return rows;
   return rows.filter((r) =>
-    (provider === null || (provider === "favorites" ? r.favorite : r.harnesses.includes(provider))) &&
-    (q === "" || r.label.toLowerCase().includes(q) || r.agentLabel.toLowerCase().includes(q)));
+    r.label.toLowerCase().includes(q) ||
+    r.harnesses.some((h) => AGENT_META[h].label.toLowerCase().includes(q)));
 }
 
-/** Favourites first, each group keeping the order `modelRows` built — the shortcut-badged rows lead
- *  the list, and un-starring one drops it back exactly where it was rather than to the end. */
-export function sortFavoritesFirst(rows: ModelRow[]): ModelRow[] {
-  return [...rows.filter((r) => r.favorite), ...rows.filter((r) => !r.favorite)];
+/** One labelled block of the picker's list. `label: ""` is a group with no heading — what a search
+ *  produces, where a heading per harness would be three words of chrome per result. */
+export type RowGroup = { label: string; rows: ModelRow[] };
+
+/**
+ * The list's shape: favourites first, then one group per harness.
+ *
+ * Grouping by the harness a row RESOLVED to (rather than by vendor, or not at all) is what makes the
+ * list teach: reading it top to bottom says "these are the models your Claude CLI runs, these are the
+ * ones Codex runs". The session's own harness leads, because `modelRows` builds in that order and
+ * first appearance is the order kept.
+ *
+ * A search collapses all of it into one unlabelled group. Headings over a filtered list would say
+ * where a result came from, which the row's own second line already says, and would push the third
+ * match below the fold to do it.
+ */
+export function groupRows(rows: ModelRow[], { query }: { query: string }): RowGroup[] {
+  if (query.trim() !== "") return rows.length ? [{ label: "", rows }] : [];
+  const favorites = rows.filter((r) => r.favorite);
+  const groups: RowGroup[] = favorites.length ? [{ label: "Favourites", rows: favorites }] : [];
+  const byKind = new Map<AgentKind, ModelRow[]>();
+  for (const r of rows) {
+    if (r.favorite) continue; // one row, one place: a starred model is in Favourites, not twice
+    const held = byKind.get(r.kind);
+    if (held) held.push(r); else byKind.set(r.kind, [r]);
+  }
+  for (const [kind, kindRows] of byKind) groups.push({ label: AGENT_META[kind].label, rows: kindRows });
+  return groups;
 }
 
-/** The rail's entries: every harness reachable from `rows`, in row order, deduped. */
-export function railKinds(rows: ModelRow[]): AgentKind[] {
-  return [...new Set(rows.flatMap((r) => r.harnesses))];
+/** Every row the groups hold, in the order they are drawn — the sequence ↑/↓ walks and the one the
+ *  ⌘-digit shortcuts are numbered against. Derived from the groups rather than recomputed, so the
+ *  keyboard can never disagree with the eye about what "the next row" is. */
+export function flatten(groups: RowGroup[]): ModelRow[] {
+  return groups.flatMap((g) => g.rows);
+}
+
+/**
+ * What Realm can say about a model beyond its name: a sentence, a price, a context window.
+ *
+ * Two sources, and the order is the point. Realm's own `MODEL_NOTES` line wins because it was written
+ * to help someone choose between the rows actually on screen; the catalog's `blurb` is the vendor's
+ * first sentence about its own model and reads like it. Everything else (price, context, efforts)
+ * exists only in the catalog — no harness reports it — so a model the catalog has never heard of
+ * simply has no numbers, and the panel shows the sentence alone.
+ */
+export function modelDetail(row: ModelRow, info: Record<string, ModelInfo>): { note: string | null; catalog: ModelInfo | null } {
+  const catalog = info[row.key] ?? null;
+  return { note: MODEL_NOTES.get(row.key) ?? catalog?.blurb ?? null, catalog };
 }

@@ -18,7 +18,7 @@ const git = (extra: Partial<GitInfo> = {}): GitInfo =>
 /** The session's cwd from `store.test-fakes`; `gitInfo` is keyed by it. */
 const CWD = "/tmp";
 /** What a fresh session in a dirty checkout is offered (`prompt-hint.ts`, first rung). */
-const HINT = "Review my uncommitted changes on main for bugs and style issues.";
+const HINT = "Audit the 3 uncommitted files on main; find the edge case most likely to escape review.";
 
 async function mount(gitInfo: GitInfo | null = git({ dirty: 3 })) {
   const it0 = item("i9", "s1", { kind: "session", refId: "se1", title: "s" });

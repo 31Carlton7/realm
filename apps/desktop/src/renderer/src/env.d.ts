@@ -13,6 +13,18 @@ interface Window {
     attachmentThumbnail(path: string): Promise<string | null>;
     /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
     pickIconImage(): Promise<PickedFile | null>;
+    /** Local media drawn inline in the transcript. Optional in the type on purpose: every call site
+     *  degrades to "no media" without it, so a renderer that loads before the bridge (and jsdom,
+     *  which has no bridge at all) shows prose rather than throwing. */
+    media?: {
+      /** One answer per candidate, in order: the media file it names, or null. Aligned rather than
+       *  filtered — the answer's path is the resolved one, which is rarely the string asked with. */
+      stat(candidates: readonly string[]): Promise<(import("@realm/contracts").MediaFile | null)[]>;
+      /** QuickLook poster frame (data: URL) for a video; null when macOS has none. */
+      poster(path: string): Promise<string | null>;
+      reveal(path: string): Promise<void>;
+      open(path: string): Promise<void>;
+    };
     /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
     saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedFile>;
     /** Real filesystem path behind a dropped File ("" when it has none — a pasted image). */

@@ -17,6 +17,8 @@ import {
   House01Icon, PlaneIcon, Train01Icon, BicycleIcon, Globe02Icon, PaintBucketIcon, Pen01Icon, RulerIcon, PenTool01Icon, StartUp01Icon,
   Bookmark01Icon, BookOpen02Icon, FavouriteIcon, HeartbreakIcon, CameraAiIcon, FireworksIcon, DiceFaces01Icon, GameboyIcon, PentagonIcon, MicroscopeIcon,
   Maximize01Icon, Minimize01Icon, LayoutTable01Icon, SidebarLeft01Icon, Archive02Icon, ArchiveArrowUpIcon,
+  // Inline media playback (MediaView.tsx).
+  PlayIcon, PauseIcon, VolumeHighIcon, VolumeOffIcon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -34,6 +36,7 @@ export const icons = {
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
   // Pane focus (zoom one pane to the whole host) and its inverse; `group` is a pane group's tab.
   focusPane: Maximize01Icon, unfocusPane: Minimize01Icon, group: LayoutTable01Icon,
+  play: PlayIcon, pause: PauseIcon, volumeOn: VolumeHighIcon, volumeOff: VolumeOffIcon,
   // Same glyph as `group`, under the name a spreadsheet is actually looking for — a document's
   // icon should not have to borrow the pane system's vocabulary to find a table.
   table: LayoutTable01Icon,

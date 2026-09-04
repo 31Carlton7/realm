@@ -133,6 +133,42 @@ describe("SpaceOverview", () => {
   });
 });
 
+/** jsdom window is 1024×768; rects are seeded through the store exactly as the real pane does. */
+describe("SpaceOverview no-overlay centering (W2)", () => {
+  const withRects = async (rects: { x: number; y: number; width: number; height: number }[]) => {
+    const { store, ...r } = await mount();
+    act(() => rects.forEach((rect, i) => store.getState().setBrowserRect(`b${i}`, rect)));
+    return { store, ...r };
+  };
+  const dialog = () => screen.getByRole("dialog", { name: "All spaces" });
+
+  it("without browser rects: plain CSS centering, nothing inline", async () => {
+    await mount();
+    expect(dialog().style.position).toBe(""); // the backdrop's flex centering stays in charge
+    expect(dialog().style.width).toBe("");
+  });
+
+  it("MUTANT: with a browser view on the right half, the overview must NOT open under it", async () => {
+    const view = { x: 512, y: 40, width: 512, height: 728 };
+    await withRects([view]);
+    // Window-centered is (1024-620)/2 = 202 → right edge 822, deep inside the view: the reported bug.
+    const left = parseFloat(dialog().style.left);
+    expect(left + parseFloat(dialog().style.width)).toBeLessThanOrEqual(view.x);
+  });
+
+  it("MUTANT: TWO browser panes — centered against the union's complement, not the seam between them", async () => {
+    await withRects([{ x: 200, y: 0, width: 400, height: 768 }, { x: 600, y: 0, width: 424, height: 768 }]);
+    const left = parseFloat(dialog().style.left);
+    expect(left + parseFloat(dialog().style.width)).toBeLessThanOrEqual(200);
+  });
+
+  it("column narrower than the overview: it shrinks into the column rather than spilling over the view", async () => {
+    await withRects([{ x: 300, y: 0, width: 724, height: 768 }]);
+    expect(dialog().style.width).toBe("276px"); // 300 - 2*12
+    expect(parseFloat(dialog().style.left) + 276).toBeLessThanOrEqual(300);
+  });
+});
+
 describe("useSpacesHotkey (⌘⇧Space)", () => {
   async function hotkeys() {
     const store = createAppStore(threeSpaces());

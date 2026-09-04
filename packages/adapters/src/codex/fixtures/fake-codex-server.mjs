@@ -219,6 +219,13 @@ async function streamEchoTurn(threadId, turnId, text, input) {
   endTurn(threadId, turnId);
 }
 
+/** Echoes all turn/start params so tests can assert application context separately from user input. */
+async function streamTurnParams(threadId, turnId, text, params) {
+  await openTurn(threadId, turnId, text);
+  agentMessage(threadId, turnId, JSON.stringify(params));
+  endTurn(threadId, turnId);
+}
+
 /** A server request no client is expected to understand; the turn only ends once it is answered. */
 async function streamOddballTurn(threadId, turnId, text) {
   await openTurn(threadId, turnId, text);
@@ -300,6 +307,7 @@ function handleRequest(id, method, params) {
       if (text.includes("PATCH")) { void streamPatchTurn(params.threadId, turnId, text); return; }
       if (text.includes("APPROVE")) { void streamApprovalTurn(params.threadId, turnId, text); return; }
       if (text.includes("ODDBALL")) { void streamOddballTurn(params.threadId, turnId, text); return; }
+      if (text.includes("TURN_PARAMS")) { void streamTurnParams(params.threadId, turnId, text, params); return; }
       if (text.includes("ECHO")) { void streamEchoTurn(params.threadId, turnId, text, params.input); return; }
       // Attachment-only sends carry no text item at all (Plan 14 W5) — echo those too, so tests can
       // assert the exact input shape without a text trigger to hang one on.

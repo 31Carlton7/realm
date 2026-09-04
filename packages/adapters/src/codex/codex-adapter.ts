@@ -24,6 +24,22 @@ const MODEL_LIST_TIMEOUT_MS = 10_000;
 const MODEL_LIST_MAX_PAGES = 5;
 
 /**
+ * Codex can inherit host-specific browser plugins from the user's global config. In Realm those
+ * plugins target another app's browser bridge, while every Realm pane is exposed through the
+ * gateway's `realm-browser` provider. The two surfaces look interchangeable to the model until the
+ * foreign bridge fails during setup, so state the host boundary on every turn. `additionalContext`
+ * also reaches resumed threads, unlike `developerInstructions`, which belongs to `thread/start`.
+ */
+export const REALM_APPLICATION_CONTEXT =
+  "For browser tabs and panes inside Realm, use the realm-browser browser tools (begin with browser_list or browser_snapshot). " +
+  "Do not use the bundled browser:control-in-app-browser skill or node_repl for Realm tabs; that browser bridge belongs to a different host application. " +
+  "Use a Chrome-specific integration only when the user explicitly asks to control Chrome.";
+
+const realmAdditionalContext = {
+  realm_browser_host: { kind: "application", value: REALM_APPLICATION_CONTEXT },
+} as const;
+
+/**
  * W4 double-prompt verdict for Codex: NOTHING to wire, on purpose. Claude's SDK prompts per MCP tool
  * (fixed there via `allowedTools`); Codex's app-server protocol raises approvals ONLY for the two
  * methods below — captured live, and `mcpToolCall` items stream through `map-codex.ts` as tool calls
@@ -480,7 +496,11 @@ export class CodexAdapter implements AgentAdapter {
               activeTurnId = null;
             }
           }
-          const started = obj(await conn.request("turn/start", { threadId, input }));
+          const started = obj(await conn.request("turn/start", {
+            threadId,
+            input,
+            additionalContext: realmAdditionalContext,
+          }));
           activeTurnId = str(obj(started.turn).id) || null;
         } catch (e) {
           events.push(sessionEvent("error", { message: message(e) }));

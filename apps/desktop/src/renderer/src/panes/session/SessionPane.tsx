@@ -214,6 +214,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const removeAttachment = useApp((s) => s.removeAttachment);
   // Under-strip + "+" menu (Plan 12 W1).
   const machineName = useApp((s) => s.machineName);
+  const userName = useApp((s) => s.userName);
   const environments = useApp((s) => s.environments);
   const setSessionEnvironment = useApp((s) => s.setSessionEnvironment);
   const moveSessionToNewWorktree = useApp((s) => s.moveSessionToNewWorktree);
@@ -237,6 +238,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
   const modelFavorites = useApp((s) => s.modelFavorites);
+  const modelInfo = useApp((s) => s.modelInfo);
+  const refreshModelCatalog = useApp((s) => s.refreshModelCatalog);
   const refreshModelFavorites = useApp((s) => s.refreshModelFavorites);
   const toggleModelFavorite = useApp((s) => s.toggleModelFavorite);
   const prefillTerminal = useApp((s) => s.prefillTerminal);
@@ -252,6 +255,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // One settings read, alongside the probe. Favourites only ever change through this app's own
   // toggle (which writes through and updates the store), so there is nothing to poll for.
   useEffect(() => { run(() => refreshModelFavorites()); }, [refreshModelFavorites, run]);
+  // Prices and context windows for the picker's detail pane. Same shape as the two reads above and
+  // just as cheap: the server caches the catalog for a day, the store collapses concurrent calls, and
+  // a failure leaves `modelInfo` empty — which the picker renders as rows without prices.
+  useEffect(() => { run(() => refreshModelCatalog()); }, [refreshModelCatalog, run]);
 
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
   const space = spaces.find((s) => s.id === session.spaceId);
@@ -279,7 +286,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const blocked = isBlocked(availability) && status !== "running" && status !== "waiting_permission";
   const body = (
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}>
-      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused}
+      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))} />
       {blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
@@ -306,12 +313,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             acpModes={transcript.init ? transcript.init.availableModes ?? [] : null}
             canSwitchAgent={canSwitchAgent}
             agentProbe={agentProbe}
-            modelFavorites={modelFavorites}
+            modelFavorites={modelFavorites} modelInfo={modelInfo}
             onToggleModelFavorite={(key) => run(() => toggleModelFavorite(key))}
             mentionSkills={mentionSkills} allSkills={allSkills} staleMentions={staleMentions}
             onToggleSkill={(skillId, enabled) => run(() => setSkillEnabled(session.spaceId, skillId, enabled))}
             onManageSkills={() => run(() => openSpacePage(session.spaceId, "skills"))}
-            machineName={machineName} environments={spaceEnvironments}
+            machineName={machineName} userName={userName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
             onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}

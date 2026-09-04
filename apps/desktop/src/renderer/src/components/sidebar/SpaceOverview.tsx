@@ -1,7 +1,8 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { StoreApi } from "zustand";
-import { spaceBadge, useApp, type AppState } from "../../state/store";
+import { centerOverComplement } from "../../state/no-overlay";
+import { spaceBadge, useApp, useBrowserRects, type AppState } from "../../state/store";
 import { SpaceIcon } from "../SpaceIcon";
 
 /** The grid is a fixed three columns (see `.spaces-grid`), so ↑/↓ can step by a known stride instead
@@ -9,6 +10,9 @@ import { SpaceIcon } from "../SpaceIcon";
 const COLUMNS = 3;
 
 const BADGE_LABEL = { running: "agent running", waiting_permission: "agent needs permission", error: "agent error" } as const;
+
+/** The overview's CSS width (styles.css `.spaces-overview`); the no-overlay path needs the number. */
+const OVERVIEW_WIDTH = 620;
 
 /**
  * ⌘⇧Space, and the profile chip's "All spaces…". Kept out of hotkeys.ts's BINDINGS for the same
@@ -63,6 +67,13 @@ function OverviewBody() {
   const [cursor, setCursor] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
+  // W2 (no-overlay): a native browser view composites over EVERY piece of renderer DOM in its rect,
+  // so a window-centered overview opens underneath the browser panes. Center over the widest
+  // non-browser column instead — the same treatment the palette and the sheets already get. `top`
+  // mirrors the backdrop's own 10vh padding so the two placements land at the same height.
+  const browserRects = useBrowserRects();
+  const spot = centerOverComplement({ width: window.innerWidth, height: window.innerHeight }, browserRects, OVERVIEW_WIDTH);
+  const style = spot ? { position: "absolute" as const, left: spot.left, top: "10vh", width: spot.width } : undefined;
 
   const q = query.trim().toLowerCase();
   // Sections follow the profile list's own order; a profile with nothing left after the filter drops
@@ -95,7 +106,7 @@ function OverviewBody() {
 
   return (
     <div className="spaces-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div className="spaces-overview" role="dialog" aria-modal="true" aria-label="All spaces" onKeyDown={onKeyDown}>
+      <div className="spaces-overview" role="dialog" aria-modal="true" aria-label="All spaces" style={style} onKeyDown={onKeyDown}>
         <div className="spaces-search">
           <Icon name="search" size={15} />
           <input ref={inputRef} value={query} onChange={(e) => { setQuery(e.target.value); setCursor(0); }}

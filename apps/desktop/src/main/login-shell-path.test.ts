@@ -1,6 +1,10 @@
 // @vitest-environment node
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { extractPathFromEnvOutput, mergePath, loginShellPath, FALLBACK_EXTRA_DIRS } from "./login-shell-path";
+import { extractPathFromEnvOutput, mergePath, loginShellPath, fallbackExtraDirs } from "./login-shell-path";
+
+const LOCAL_BIN = join(homedir(), ".local", "bin");
 
 describe("extractPathFromEnvOutput", () => {
   const wrap = (body: string) => `__REALM_ENV_START__\n${body}\n__REALM_ENV_END__\n`;
@@ -32,19 +36,33 @@ describe("mergePath", () => {
     expect(mergePath("/usr/bin:/bin", "/opt/homebrew/bin:/usr/bin")).toBe("/opt/homebrew/bin:/usr/bin:/bin");
   });
   it("null login falls back to current plus the standard extra dirs", () => {
-    expect(mergePath("/usr/bin:/bin", null)).toBe(`/usr/bin:/bin:${FALLBACK_EXTRA_DIRS.join(":")}`);
+    expect(mergePath("/usr/bin:/bin", null)).toBe(`/usr/bin:/bin:${fallbackExtraDirs().join(":")}`);
   });
   it("fallback dirs already present are not duplicated", () => {
-    expect(mergePath("/opt/homebrew/bin:/usr/bin", null)).toBe("/opt/homebrew/bin:/usr/bin:/usr/local/bin");
+    expect(mergePath("/opt/homebrew/bin:/usr/bin", null)).toBe(`/opt/homebrew/bin:/usr/bin:/usr/local/bin:${LOCAL_BIN}`);
   });
   it("undefined current with a login answer is just the login PATH", () => {
     expect(mergePath(undefined, "/a:/b")).toBe("/a:/b");
   });
   it("undefined current and null login still yields the fallback dirs", () => {
-    expect(mergePath(undefined, null)).toBe(FALLBACK_EXTRA_DIRS.join(":"));
+    expect(mergePath(undefined, null)).toBe(fallbackExtraDirs().join(":"));
   });
   it("empty segments are dropped", () => {
     expect(mergePath(":/usr/bin:", "/a::/b")).toBe("/a:/b:/usr/bin");
+  });
+  it("a login shell that could not be asked still yields the real ~/.local/bin, where uv and pipx install tools", () => {
+    // Kills dropping ~/.local/bin from the fallback list, and resolving it against anything but os.homedir().
+    expect(mergePath("/usr/bin:/bin", null)).toBe(`/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:${LOCAL_BIN}`);
+  });
+  it("a login shell that answered gets no ~/.local/bin appended", () => {
+    // Kills pushing the fallback dirs unconditionally instead of only when login === null.
+    expect(mergePath("/usr/bin:/bin", "/opt/homebrew/bin:/usr/bin").split(":")).not.toContain(LOCAL_BIN);
+  });
+  it("~/.local/bin already on the inherited PATH keeps its place and is not repeated", () => {
+    // Kills appending the fallback dirs without the dedup guard.
+    const merged = mergePath(`${LOCAL_BIN}:/usr/bin`, null).split(":");
+    expect(merged.filter((p) => p === LOCAL_BIN)).toHaveLength(1);
+    expect(merged[0]).toBe(LOCAL_BIN);
   });
 });
 

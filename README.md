@@ -29,6 +29,28 @@ why that matters and how to verify the WebGPU hero shader headlessly.
 - Offline / UI work: `REALM_ENABLE_FAKE_AGENT=1 pnpm dev` registers a scripted **Fake agent** (echoes what you send) next to Claude in New → Session….
 - **MCP gateway** — third-party MCP servers are configured in a space's settings, not per-agent: every session gets one Realm gateway endpoint, and credentials or OAuth tokens never reach the agent CLI. Every proxied tool call shows up in the Activity view (space settings → Activity, or "MCP Activity" in the command palette).
 
+## Code graphs (Graphify)
+
+[Graphify](https://github.com/Graphify-Labs/graphify) extracts a queryable knowledge graph from a
+checkout. It is a Python CLI, installed out of band like the agent CLIs — Realm probes for it and
+never installs it.
+
+- **Install it with the `mcp` extra**: `uv tool install "graphifyy[mcp]"`. A plain
+  `uv tool install graphifyy` still puts a `graphify-mcp` on PATH, but it dies on
+  `ModuleNotFoundError: No module named 'mcp'` the first time the hub dials it.
+- **`graphify.probe` / `graphify.update`** are Realm's own RPC methods, not agent kinds — graphify
+  has no models, no login and no transcript, so it stays off `AgentKind`. `graphify update` runs
+  `graphify update .` in the space's primary checkout and needs no LLM and no API key.
+- **As an MCP server**, add it in a space's Connections: transport `stdio`, command `graphify-mcp`,
+  args the absolute path of `graphify-out/graph.json`. Its ten graph tools then reach every session
+  in that space through the one Realm gateway endpoint.
+- **The rendered `graphify-out/graph.html` opens in the documents pane.** graphify points its only
+  script tag at unpkg with an SRI hash; the guide CSP is `default-src 'none'`, so the preview server
+  rewrites that tag to a vendored `vis-network` and drops the hash, which no longer describes the
+  bytes being served (`localizeVisNetwork` in `apps/server/src/documents/preview.ts`).
+- Proof: `pnpm --filter @realm/server exec tsx scripts/live-graphify-check.ts` drives the real CLI,
+  the real hub and the real preview server, and skips rather than passes when graphify is absent.
+
 ## Saved sign-ins (browser panes)
 
 An agent driving a browser pane can sign you in to a site without ever seeing the password.

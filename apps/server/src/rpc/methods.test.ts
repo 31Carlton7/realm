@@ -83,6 +83,9 @@ describe("rpc methods", () => {
     // The under-strip's machine label (Plan 12 W1): always a non-empty name, whatever the host calls itself.
     expect(typeof info.machineName).toBe("string");
     expect(info.machineName.length).toBeGreaterThan(0);
+    // The greeting's name, on the other hand, is allowed to be unknown — a host with no real name on
+    // the account answers "", and the hero greets the space instead.
+    expect(typeof info.userName).toBe("string");
     c.close();
   });
 
@@ -499,5 +502,44 @@ describe("the ship log over rpc", () => {
     expect(r.ok).toBe(false);
     expect(r.error.code).toBe("NOT_FOUND");
     c.close();
+  });
+});
+
+describe("graphify over rpc", () => {
+  /** A path nothing can be installed at, so both tests answer the same on any machine — with or
+   *  without graphify actually present. */
+  const NO_BIN = "/nonexistent/graphify";
+
+  it("graphify.probe is registered and reports a missing binary rather than failing the call", async () => {
+    const { c } = await boot();
+    const prev = process.env.REALM_GRAPHIFY_BIN;
+    process.env.REALM_GRAPHIFY_BIN = NO_BIN;
+    try {
+      const r = await c.call("graphify.probe", { force: true });
+      // The mutant this kills is dropping the `reg("graphify.probe", …)` line: the service tests keep
+      // passing, and the method comes back as an unregistered-method error instead.
+      expect(r.ok).toBe(true);
+      expect(r.result).toEqual({ available: false, version: null, reason: expect.any(String) });
+    } finally {
+      if (prev === undefined) delete process.env.REALM_GRAPHIFY_BIN; else process.env.REALM_GRAPHIFY_BIN = prev;
+      c.close();
+    }
+  });
+
+  it("graphify.update is registered and surfaces an unrunnable CLI as GRAPHIFY_FAILED", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "Graphed" })).result;
+    const prev = process.env.REALM_GRAPHIFY_BIN;
+    process.env.REALM_GRAPHIFY_BIN = NO_BIN;
+    try {
+      const r = await c.call("graphify.update", { spaceId: space.id });
+      expect(r.ok).toBe(false);
+      // A spawn failure must arrive with a code the client can branch on, not as a bare INTERNAL.
+      expect(r.error.code).toBe("GRAPHIFY_FAILED");
+    } finally {
+      if (prev === undefined) delete process.env.REALM_GRAPHIFY_BIN; else process.env.REALM_GRAPHIFY_BIN = prev;
+      c.close();
+    }
   });
 });

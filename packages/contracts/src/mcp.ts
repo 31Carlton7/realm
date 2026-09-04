@@ -158,6 +158,9 @@ export const AGENT_HAS_MCP: Record<AgentKind, boolean> = {
   "acp:goose": true,
   "acp:qwen": true,
   "acp:grok": true,
+  // dsh-acp is the exception among ACP kinds: its `session/new` REJECTS a non-empty `mcpServers`
+  // (its README says so outright), so Realm's gateway entry cannot be handed over at all.
+  "acp:deepseek": false,
   "acp:fx": true,
   fake: false,
 };

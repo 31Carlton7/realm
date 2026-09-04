@@ -104,16 +104,13 @@ describe("attachmentSummary", () => {
       a("/x/one.png", "image/png"), a("/x/report.pdf", "application/pdf"),
       a("/x/two.png", "image/png"), a("/x/notes.txt", "text/plain"),
     ]);
-    expect(rows.map((r) => r.disposition)).toEqual(["ignored", "inline"]);
+    expect(rows.map((r) => r.disposition)).toEqual(["ignored"]);
     expect(rows[0]!.files).toEqual(["report.pdf", "notes.txt"]);
-    expect(rows[1]!.files).toEqual(["one.png", "two.png"]);
   });
 
-  it("leads with the bad news — ignored outranks link outranks path outranks inline", () => {
-    // No single agent produces all four, so assert the ordering the comparator itself defines by
-    // asking each agent for its own pair and checking the worse one comes first.
-    expect(attachmentSummary("claude", [a("/a.png", "image/png"), a("/b.pdf", "application/pdf")])
-      .map((r) => r.disposition)).toEqual(["ignored", "inline"]);
+  it("says nothing about a file the agent will simply read", () => {
+    // The good case earns no row: attaching a screenshot to Claude leaves the prompter silent.
+    expect(attachmentSummary("claude", [a("/a.png", "image/png"), a("/b.png", "image/png")])).toEqual([]);
   });
 
   it("collapses repeats into one line, never one line per file", () => {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
-import { CodexAdapter, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
+import { CodexAdapter, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
 import type { AgentHandle, StartOptions } from "../types";
 
 /**
@@ -178,6 +178,21 @@ describe("CodexAdapter", () => {
     await handle.send({ text: "ECHO", attachments: [] });
     await waitFor(() => expect(texts(evs)).toHaveLength(1));
     expect(JSON.parse(texts(evs)[0]!)).toEqual([{ type: "text", text: "ECHO", text_elements: [] }]);
+    await handle.dispose();
+  });
+
+  it("routes Realm panes to the native browser tools on every turn, including resumed threads", async () => {
+    const { handle, evs } = await booted({ resume: "th_previous" });
+    await handle.send({ text: "TURN_PARAMS", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    const params = JSON.parse(texts(evs)[0]!) as {
+      additionalContext?: Record<string, { kind: string; value: string }>;
+    };
+    expect(params.additionalContext).toEqual({
+      realm_browser_host: { kind: "application", value: REALM_APPLICATION_CONTEXT },
+    });
+    expect(params.additionalContext?.realm_browser_host?.value).toContain("realm-browser");
+    expect(params.additionalContext?.realm_browser_host?.value).toContain("Do not use the bundled browser:control-in-app-browser skill");
     await handle.dispose();
   });
 

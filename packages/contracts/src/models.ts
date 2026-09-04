@@ -80,3 +80,39 @@ export const MODEL_ALIASES: Record<string, string> = {
   "4.5-haiku": "4.5-claude-haiku",
   "4.5-opus": "4.5-claude-opus",
 };
+
+/**
+ * Realm's own one-line answer to "what is this model FOR", for the models a user is actually choosing
+ * between — keyed, like everything else here, by canonical name.
+ *
+ * These override the catalog's `blurb`, which is the vendor's marketing first sentence and reads like
+ * it ("delivering enhanced performance across complex workflows"). A line here is written to help
+ * someone choose: it says what the model is better at than its neighbours in the list, and where it
+ * is worth the money or worth the wait. Every claim is the vendor's own positioning of the model
+ * against ITS OWN siblings, which is the one comparison a vendor has no incentive to get wrong.
+ *
+ * Keep this list SHORT and current. A blurb for a retired model is dead weight the fallback would
+ * have covered anyway; a model with no entry loses nothing but a sharper sentence. Curated
+ * 2026-09-03 against the live OpenRouter catalog.
+ */
+export const MODEL_NOTES: ReadonlyMap<string, string> = new Map(([
+  ["Claude Fable 5.1", "Anthropic's newest — strongest here at long agentic runs, big refactors and front-end work."],
+  ["Claude Fable 5", "The previous Fable. Same shape as 5.1 and usually a step behind it on agentic coding."],
+  ["Claude Opus 5", "Deep reasoning over long horizons: end-to-end tasks, code review, bug hunts."],
+  ["Claude Sonnet 5", "Frontier coding at a fifth of Fable's price — the sensible everyday default."],
+  ["Claude Haiku 4.5", "Fastest Claude. For small edits, lookups and subagents, where latency beats depth."],
+  ["GPT-5.6 Sol", "OpenAI's flagship, tuned for command-line and multi-step coding work."],
+  ["GPT-5.6 Terra", "The balanced GPT-5.6 tier: everyday coding without Sol's output price."],
+  ["GPT-5.6 Luna", "Cheap and fast, for high-volume or latency-sensitive work rather than hard problems."],
+  ["GPT-5.3-Codex", "The Codex-tuned GPT — trained for the agent loop the `codex` CLI runs."],
+  ["Gemini 3.1 Pro", "Google's frontier reasoning model; strong multimodal input and long-context work."],
+  ["Gemini 3.8 Flash", "Google's fast tier, now good enough for real software engineering, at Flash prices."],
+  ["Grok 4.6", "xAI's smartest: frontier coding and STEM, mid-tier pricing, 500K context."],
+  ["Composer", "Cursor's own model, tuned for fast in-editor edits rather than long reasoning."],
+  ["DeepSeek V4 Pro", "Near-frontier coding for roughly a fifteenth of Fable's price. Open weights."],
+  ["DeepSeek V4 Flash", "Cheap enough to leave running on repetitive agent work all day; 1.3M context."],
+  ["Kimi K3", "Open-weight multimodal reasoning at 2.8T parameters; strong on long agentic work."],
+  ["GLM 5.3", "Built for long-horizon agent tasks and software engineering, at a fraction of frontier cost."],
+  ["Qwen3 Max Thinking", "Qwen's deep-reasoning tier for multi-step problems rather than quick edits."],
+  ["Devstral 2 2512", "Open-source and specialised in agentic coding; runs well behind your own keys."],
+] as const).map(([name, note]) => [canonicalModelKey(name), note]));

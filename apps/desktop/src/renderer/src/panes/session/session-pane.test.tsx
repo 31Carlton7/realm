@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, canonicalModelKey, sessionEvent, type Environment } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, AGENT_NOTES, MODEL_NOTES, canonicalModelKey, sessionEvent, type Environment } from "@realm/contracts";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
@@ -110,12 +110,19 @@ describe("SessionPane", () => {
   });
 
   it("empty transcript is the HERO prompter: greeting + title-only suggestion rows; clicking one fills the composer without sending", async () => {
-    const { api } = await mount("idle", reduceAll([]));
+    const { api, store } = await mount("idle", reduceAll([]));
     const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
     expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "hero");
     const title = document.querySelector(".hero-greeting");
-    expect(title).toHaveTextContent("What should we build in Versed?");
+    // One line out of greeting.ts's pool, picked from the session id — never "what should we build",
+    // since a space is as often a course as a repo.
+    expect(title).toHaveTextContent("What's on your mind in Versed?");
     expect(title?.querySelector("em")).toHaveTextContent("Versed");
+    // The name from `system.info` reaches the greeting: without one, the pool it draws from is the
+    // smaller, name-less half, so the same session lands on a different line.
+    act(() => store.setState({ userName: "" }));
+    expect(document.querySelector(".hero-greeting")).toHaveTextContent("What are we working on in Versed?");
+    act(() => store.setState({ userName: "Carlton" }));
     const chip = screen.getByRole("button", { name: /Say hello/ }); // default mount() session is agentKind "fake"
     expect(chip.querySelector(".suggestion-title")).toHaveTextContent("Say hello");
     // Ara refresh §3: rows are a leading glyph + one title line; the description line is retired
@@ -206,10 +213,7 @@ describe("SessionPane", () => {
     const { api, store } = await mount("running", reduceAll([sessionEvent("assistant_delta", { messageId: "m1", delta: "str" })]));
     expect(api.calls).toContain("sessionEvents:se1:4");
     expect(screen.getByText("str")).toBeInTheDocument();
-    // Plan 9 W2 re-pin: the caret is BUI StreamText's element (a 2px ink bar, .md-caret), not the
-    // old ▍ glyph. Same meaning — a live stream shows a caret; what it pins is that the caret
-    // exists exactly while `streaming` is true.
-    expect(document.querySelector(".md[data-streaming] .md-caret")).not.toBeNull();
+    expect(document.querySelector(".md-caret")).toBeNull();
     // The morph: one button, stop face up, send face still mounted for the cross-fade (§6).
     const morph = screen.getByRole("button", { name: "Stop" });
     expect(morph).toHaveAttribute("data-state", "stop");
@@ -847,16 +851,16 @@ describe("fenced code (Plan 9 W2 — BUI CodeBlock)", () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it("a streaming block renders everything that has arrived, immediately — the wire paces the stream, no reveal timer to replay", () => {
+  it("a markdown block updates immediately, with no synthetic caret", () => {
     // The mutant this kills: a BUI-style char-reveal interval, which would re-play settled text on
     // every re-render (the transcript-enter regression named in Plan 9 W2).
-    const { rerender, container } = render(<Markdown text="alpha beta" streaming />);
+    const { rerender, container } = render(<Markdown text="alpha beta" />);
     expect(container.textContent).toContain("alpha beta");
-    expect(container.querySelector(".md-caret")).not.toBeNull();
-    rerender(<Markdown text="alpha beta gamma" streaming />);
+    expect(container.querySelector(".md-caret")).toBeNull();
+    rerender(<Markdown text="alpha beta gamma" />);
     expect(container.textContent).toContain("alpha beta gamma");
     rerender(<Markdown text="alpha beta gamma" />);
-    expect(container.querySelector(".md-caret")).toBeNull(); // caret exists exactly while streaming
+    expect(container.querySelector(".md-caret")).toBeNull();
   });
 });
 
@@ -1081,13 +1085,15 @@ describe("prompter model picker", () => {
     await mountKindFresh("codex");
     openPicker();
     expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
-      // Then the rest of SELECTABLE_AGENT_KINDS, in its order. The six Plan 18 agents each contribute
+      // Then the rest of SELECTABLE_AGENT_KINDS, in its order. The Plan 18 agents each contribute
       // one "Default" row: their real catalogs are enumerated live by the probe, and naming a guess
-      // here would put a model the session is not on into the picker.
-      "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
+      // here would put a model the session is not on into the picker. DeepSeek is the exception —
+      // its ACP server is booted with one model and enumerates nothing, so its two are curated.
+      "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
+      "DeepSeek V4 Pro", "DeepSeek V4 Flash"]);
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
     expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
-      "opencode", "githubCopilot", "goose", "qwen", "grok", "fx"]);
+      "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "deepseek", "deepseek"]);
     expect(document.querySelector("[data-brand='qwen']")).toHaveAttribute("viewBox", "0 0 141.38 140");
     expect(document.querySelector("[data-brand='githubCopilot']")?.querySelectorAll("path")).toHaveLength(3);
   });
@@ -1112,7 +1118,8 @@ describe("prompter model picker", () => {
     await mountFresh({ agentKind: "fake" });
     openPicker();
     expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
-      "GPT-5.6", "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
+      "GPT-5.6", "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
+      "DeepSeek V4 Pro", "DeepSeek V4 Flash"]);
     expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -1135,7 +1142,10 @@ describe("prompter model picker", () => {
       openPicker();
       const codex = screen.getByRole("option", { name: /GPT-5\.6/ });
       expect(codex).toHaveAttribute("aria-disabled", "true");
-      expect(codex.getAttribute("title")).toMatch(/already run/);
+      // The reason lives in the detail pane, where there is room for the whole sentence — the row
+      // itself only has to say that something is wrong.
+      fireEvent.mouseEnter(codex);
+      expect(screen.getByRole("dialog", { name: "Model picker" })).toHaveTextContent(/already run/);
       fireEvent.click(codex);
       // Nothing transmitted, nothing changed, and the picker is still open to explain itself.
       expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
@@ -1171,7 +1181,7 @@ describe("prompter model picker", () => {
     });
   });
 
-  describe("search and the provider rail", () => {
+  describe("search", () => {
     it("matches the model name and the agent name, and nothing else", async () => {
       await mountFresh();
       openPicker();
@@ -1186,13 +1196,29 @@ describe("prompter model picker", () => {
       expect(screen.getByText(/No models match/)).toBeInTheDocument();
     });
 
-    it("the rail narrows to one agent and toggles back off", async () => {
+    it("a harness name finds every model that harness can run, not just the ones routed to it", async () => {
+      // What the icon rail used to be for, and the only part of it worth keeping. Cursor proxies a
+      // model the Claude CLI also runs: searching "cursor" has to surface it even though the row
+      // resolved to Claude, or the search would deny Cursor a model it just listed.
+      const { store } = await mountFresh({}, 0, [{ kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null,
+        models: [{ id: "claude-fable-5.1", label: "Claude Fable 5.1" }] }]);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openPicker();
+      fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "cursor" } });
+      expect(rowNames()).toContain("Claude Fable 5.1");
+      expect(rowNames()).not.toContain("Claude Sonnet 5"); // claude-only; Cursor never offered it
+    });
+
+    it("groups by harness when idle and drops the headings while searching", async () => {
+      // The list teaches which CLI runs what — but a filtered list is already an answer, and a
+      // heading per result would push the third match below the fold to repeat the row's own line.
       await mountFresh();
       openPicker();
-      fireEvent.click(screen.getByRole("button", { name: "Cursor" }));
-      expect(rowNames()).toEqual(["Composer"]);
-      fireEvent.click(screen.getByRole("button", { name: "Cursor" }));
-      expect(rowNames().length).toBeGreaterThan(1);
+      const headings = () => [...document.querySelectorAll(".mp-group-label")].map((n) => n.textContent);
+      expect(headings()).toContain("Claude");
+      expect(headings()).toContain("Codex");
+      fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "opus" } });
+      expect(headings()).toEqual(["Run it through"]); // the detail pane's own label, not a list heading
     });
 
     it("Enter picks the highlighted row after arrowing down", async () => {
@@ -1223,9 +1249,10 @@ describe("prompter model picker", () => {
       // list and Codex's default row are untouched by Cursor's probe models.
       expect(rowNames()).toEqual(["Composer", "Auto", "composer-2.5", "gpt-5.3-codex",
         "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6",
-        // Every other offered kind still contributes exactly its default row: one agent's probe
-        // catalog must not leak onto another's rows.
-        "Gemini", "Default", "Default", "Default", "Default", "Default", "Default"]);
+        // Every other offered kind still contributes exactly its own rows: one agent's probe catalog
+        // must not leak onto another's.
+        "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
+        "DeepSeek V4 Pro", "DeepSeek V4 Flash"]);
       expect(screen.getByRole("option", { name: /Composer/ })).toHaveAttribute("aria-selected", "true");
       expect(screen.getByRole("option", { name: /Auto/ })).toHaveAttribute("aria-selected", "false");
     });
@@ -1270,25 +1297,20 @@ describe("prompter model picker", () => {
       return r;
     };
 
-    it("puts the rail above the search field, led by the favourites tab", () => {
-      // The screenshot's layout, and the reading order it implies: scope first, then narrow.
-      return mountFresh().then(() => {
-        openPicker();
-        const picker = screen.getByRole("dialog", { name: "Model picker" });
-        const kids = [...picker.children].map((n) => n.className);
-        expect(kids[0]).toBe("mp-rail");
-        expect(kids[1]).toBe("mp-search");
-        const tabs = within(screen.getByRole("group", { name: "Filter models" })).getAllByRole("button");
-        expect(tabs[0]).toHaveAccessibleName("Favourites");
-      });
-    });
-
-    it("says how to fill the favourites tab rather than showing an empty list", async () => {
+    it("opens on search over a list, and shows no Favourites group when nothing is starred", async () => {
+      // Search first, then the list: the popover opens for typing, and the groups are what the eye
+      // falls to when the user has nothing to type.
       await mountFresh();
       openPicker();
-      fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
-      expect(screen.queryAllByRole("option")).toHaveLength(0);
-      expect(screen.getByText(/star a model to pin it here/i)).toBeInTheDocument();
+      const picker = screen.getByRole("dialog", { name: "Model picker" });
+      expect([...picker.children].map((n) => n.className)).toEqual(["mp-search", "mp-body"]);
+      expect([...document.querySelectorAll(".mp-group-label")].map((n) => n.textContent)).not.toContain("Favourites");
+    });
+
+    it("leads the list with a Favourites group once something is starred", async () => {
+      await withFavorites([OPUS]);
+      openPicker();
+      expect([...document.querySelectorAll(".mp-group-label")][0]).toHaveTextContent("Favourites");
     });
 
     it("starring a row persists a canonical KEY, not a model id", async () => {
@@ -1398,77 +1420,135 @@ describe("prompter model picker", () => {
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
     });
 
-    it("the favourites tab lists the starred models and nothing else", async () => {
+    it("a starred model appears once — in Favourites, not also under its harness", async () => {
       await withFavorites([OPUS]);
       openPicker();
-      fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
-      expect(rowNames()).toEqual(["Claude Opus 5"]);
+      const groups = [...document.querySelectorAll(".mp-group")];
+      expect(groups[0]!.querySelector(".mp-group-label")).toHaveTextContent("Favourites");
+      expect([...groups[0]!.querySelectorAll(".mp-row-name")].map((n) => n.textContent)).toEqual(["Claude Opus 5"]);
+      expect(rowNames().filter((n) => n === "Claude Opus 5")).toHaveLength(1);
     });
   });
 
-  describe("the harness chip", () => {
-    /** Cursor proxying a model the Claude CLI also runs — the overlap a harness switch has to carry. */
+  describe("the route pills (the harness chip's replacement)", () => {
+    /** Cursor proxying a model the Claude CLI also runs — the overlap a route switch has to carry. */
     const proxyProbe: AgentProbe[] = [
       { kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null,
         models: [{ id: "claude-fable-5.1", label: "Claude Fable 5.1" }, { id: "gpt-5.5", label: "GPT-5.5" }] },
     ];
-    const openHarness = () => fireEvent.click(screen.getByRole("button", { name: "Harness" }));
+    const detail = () => screen.getByRole("dialog", { name: "Model picker" });
 
-    it("names the session's own harness and offers the others", async () => {
-      await mountFresh();
-      expect(screen.getByRole("button", { name: "Harness" })).toHaveTextContent("Claude");
-      openHarness();
-      const items = screen.getAllByRole("menuitemcheckbox").map((n) => n.textContent);
-      expect(items[0]).toContain("Claude");
-      expect(items.join(" ")).toContain("Codex");
-      expect(items.join(" ")).toContain("Cursor");
-      expect(screen.getAllByRole("menuitemcheckbox")[0]).toHaveAttribute("aria-checked", "true");
+    it("the prompter has ONE chip, and it names the harness as well as the model", async () => {
+      // The harness menu is gone: a harness is only ever chosen FOR a model, so it moved inside the
+      // picker. The chip still has to say which CLI is running the session, or that fact has no home.
+      await mountFresh({ model: "claude-opus-5" });
+      expect(screen.queryByRole("button", { name: "Harness" })).toBeNull();
+      const chip = screen.getByRole("button", { name: "Model" });
+      expect(chip).toHaveTextContent("Claude Opus 5");
+      expect(chip.getAttribute("title")).toBe("Claude Opus 5 through Claude");
+      expect(chip.querySelector("[data-brand]")).toHaveAttribute("data-brand", "claude"); // the HARNESS's mark
     });
 
-    it("carries the model across when the target harness offers it", async () => {
-      // The point of splitting the axes: changing WHAT RUNS must not silently change WHAT IT RUNS.
-      // Cursor names this model by a different id, so the switch has to re-map rather than re-send.
+    it("offers one pill per harness that can run the highlighted model, resolved one pressed", async () => {
+      const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openPicker();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      const pills = within(detail()).getAllByRole("button", { name: /^Run Claude Fable 5\.1 through/ });
+      expect(pills.map((p) => p.textContent)).toEqual(["Claude", "Cursor"]);
+      expect(pills[0]).toHaveAttribute("aria-pressed", "true"); // the session's own harness wins the tie
+    });
+
+    it("switching the route and using the model re-maps the id for the harness that will run it", async () => {
+      // The point of keeping the axes distinct: changing WHAT RUNS must not silently change WHAT IT
+      // RUNS. Cursor names this model by a different id, so the switch re-maps rather than re-sends.
       const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openHarness();
-      fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /Cursor/ }));
+      openPicker();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      fireEvent.click(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Model picker" })).getByRole("button", { name: /model$/ }));
       await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
       expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1"); // Cursor's id, not Claude's
       expect(api.calls.filter((c) => c.startsWith("setSessionAgent") || c.startsWith("setSessionOptions")))
         .toEqual(["setSessionAgent:se1=acp:cursor", "setSessionOptions:se1"]); // setAgent clears model, so order matters
     });
 
-    it("says which model a harness would fall back to before it is picked", async () => {
-      // Worked out in the label rather than reported afterwards — the consequence belongs to the
-      // decision, not to the undo.
-      const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
+    it("←/→ walk the routes without leaving the search field", async () => {
+      const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openHarness();
-      const codex = screen.getByRole("menuitemcheckbox", { name: /Codex/ });
-      expect(codex).toHaveTextContent("runs GPT-5.6");
-      expect(screen.getByRole("menuitemcheckbox", { name: /Cursor/ })).not.toHaveTextContent("runs");
-      fireEvent.click(codex);
-      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("codex"));
-      // No model is sent: a claude id means nothing to Codex, and there is no Codex id to put there.
-      expect(store.getState().sessions.se1?.model).toBeNull();
-      expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
+      openPicker();
+      const search = screen.getByRole("combobox", { name: "Search models" });
+      fireEvent.change(search, { target: { value: "fable 5.1" } });
+      fireEvent.keyDown(search, { key: "ArrowRight" });
+      expect(within(detail()).getByRole("button", { name: /through Cursor/ })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.keyDown(search, { key: "Enter" });
+      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
+      expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1");
     });
 
-    it("flags a harness whose CLI is missing rather than hiding it", async () => {
-      const { store } = await mountFresh({}, 0,
-        [{ kind: "codex", available: false, version: null, loggedIn: null, reason: "not on PATH", models: null }]);
+    it("a route the user chose applies to that model only, not to the next one they look at", async () => {
+      // A route is part of the choice being made, not a mode the picker is in — otherwise glancing
+      // at one model would re-route the next.
+      const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openHarness();
-      expect(screen.getByRole("menuitemcheckbox", { name: /Codex/ })).toHaveTextContent("not installed");
+      openPicker();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      fireEvent.click(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Sonnet 5/ }));
+      expect(within(detail()).getByRole("button", { name: /Claude Sonnet 5 through Claude/ })).toHaveAttribute("aria-pressed", "true");
     });
 
-    it("becomes a plain label once the session has run", async () => {
-      // sessions.setAgent refuses after the first event; a menu that cannot change anything is worse
-      // than a label, and a disabled button would still take a tab stop.
+    it("says what the harness is for, and how it bills, next to the price it would charge", async () => {
+      // The line that stops a per-token number from lying: Claude Code runs on a subscription, so
+      // "$50 / Mtok" is context rather than a bill, and the picker has to say which.
+      const { store } = await mountFresh();
+      await act(async () => {
+        store.setState({ modelInfo: { [canonicalModelKey("Claude Fable 5.1")]: {
+          key: canonicalModelKey("Claude Fable 5.1"), label: "Claude Fable 5.1", vendor: "Anthropic",
+          priceIn: 10, priceOut: 50, context: 1_000_000, efforts: ["max", "low"], blurb: "Vendor prose." } } });
+      });
+      openPicker();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      expect(detail()).toHaveTextContent("$10 / Mtok");
+      expect(detail()).toHaveTextContent("$50 / Mtok");
+      expect(detail()).toHaveTextContent("1M");
+      expect(detail()).toHaveTextContent(AGENT_NOTES.claude.billing);
+      // Realm's own sentence beats the catalog's marketing first line.
+      expect(detail()).toHaveTextContent(MODEL_NOTES.get(canonicalModelKey("Claude Fable 5.1"))!);
+      expect(detail()).not.toHaveTextContent("Vendor prose.");
+    });
+
+    it("renders a model the catalog has never heard of without inventing a price", async () => {
+      // Composer and every "Default" row have no catalog entry at all. A picker that hid them, or
+      // guessed, would be worse than one that shows the sentence and stops.
+      await mountFresh();
+      openPicker();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Composer/ }));
+      expect(detail()).not.toHaveTextContent("/ Mtok");
+      expect(detail()).toHaveTextContent(AGENT_NOTES["acp:cursor"].good);
+    });
+
+    it("warns about a harness that cannot do what its neighbours can", async () => {
+      // DeepSeek's ACP server is automation-only. Offering the kind silently would be the dishonest
+      // half of shipping it; this line is the other half.
+      await mountFresh();
+      openPicker();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /DeepSeek V4 Pro/ }));
+      expect(detail()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].limits!);
+      expect(detail()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].billing);
+    });
+
+    it("cannot re-route a session that has already run, and says why", async () => {
+      // sessions.setAgent refuses after the first event. The pills stay visible and disabled: a model
+      // whose routes vanished would read as a bug rather than as a rule.
       await mountFresh({ lastEventSeq: 3 }, 3);
-      const chip = screen.getByTitle(/agent can only change before its first message/);
-      expect(chip).toHaveTextContent("Claude");
-      expect(screen.queryByRole("button", { name: "Harness" })).toBeNull();
+      openPicker();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /GPT-5\.6/ }));
+      const pill = within(detail()).getByRole("button", { name: /through Codex/ });
+      expect(pill).toBeDisabled();
+      expect(detail()).toHaveTextContent(/already run/);
+      expect(within(detail()).getByRole("button", { name: /model$/ })).toBeDisabled();
     });
   });
 });
@@ -1740,7 +1820,10 @@ describe("prompter attachments", () => {
     expect(warn).toContain("ignores non-image attachments");
     expect(warn).toContain("report.pdf");
     expect(warn).not.toContain("shot.png"); // the image is fine, and must not be tarred with it
-    expect(notes().some((t) => /Claude reads image attachments inline/.test(t))).toBe(true);
+    // The image gets no note of its own: being read is the expected outcome, and a row saying so
+    // would only compete with the one warning that matters.
+    expect(notes()).toHaveLength(1);
+    expect(notes().join(" ")).not.toMatch(/reads image attachments inline/);
     // The doomed chip wears the warning fate; the image does not.
     const marked = Array.from(document.querySelectorAll(".attach-tile[data-disposition='ignored']"));
     expect(marked).toHaveLength(1);
@@ -1995,6 +2078,19 @@ describe("under-strip (Plan 12 W1)", () => {
   it("the strip lives INSIDE the dock, so the hero→docked transform moves it with the card", async () => {
     await mountStrip();
     expect(document.querySelector(".composer-dock .composer-understrip")).not.toBeNull();
+  });
+
+  it("streaming does not take the strip away — Thinking… rides INSIDE it, machine and workspace stay", async () => {
+    // Where a session runs is standing context: the strip must survive the status flip, and the
+    // answer must not move under the cursor as "Thinking…" comes and goes.
+    const { store } = await mountStrip();
+    const strip = document.querySelector(".composer-understrip")!;
+    expect(strip.querySelector(".composer-thinking")).toBeNull();
+    act(() => store.getState().applySessionStatus("se1", "running"));
+    expect(document.querySelector(".composer-understrip")).toBe(strip); // same node, not a re-mount
+    expect(strip.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");
+    expect(strip).toHaveTextContent("Carlton's M4 MacBook Pro");
+    expect(screen.getByRole("button", { name: "Workspace" }).closest(".composer-understrip")).toBe(strip);
   });
 });
 

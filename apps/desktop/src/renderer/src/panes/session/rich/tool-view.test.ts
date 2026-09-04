@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DRAW_LIMIT, parseMatches, parseTodos, splitExitCode, stripLineNumbers, toolInputView, toolResultView } from "./tool-view";
+import { DRAW_LIMIT, aspectIn, mediaWorkFor, parseMatches, parseTodos, splitExitCode, stripLineNumbers, toolInputView, toolMediaPath, toolResultView } from "./tool-view";
 
 describe("parseTodos", () => {
   it("reads TodoWrite's list, carrying a missing activeForm as null rather than faking one", () => {
@@ -134,5 +134,88 @@ describe("the draw limit", () => {
     // agent that cats a bundle; a drawn view would swallow it.
     expect(toolResultView("Bash", {}, "x".repeat(DRAW_LIMIT), false)).toBeNull();
     expect(toolResultView("Bash", {}, "x".repeat(DRAW_LIMIT - 1), false)).toMatchObject({ kind: "terminal" });
+  });
+});
+
+describe("toolMediaPath", () => {
+  it("names the picture a file tool is about", () => {
+    expect(toolMediaPath("Read", { file_path: "/tmp/mockup/s1.png" })).toBe("/tmp/mockup/s1.png");
+    expect(toolMediaPath("Write", { file_path: "/out/hero.webp" })).toBe("/out/hero.webp");
+    expect(toolMediaPath("view_image", { path: "/out/frame.jpg" })).toBe("/out/frame.jpg");
+  });
+  it("declines a file tool pointed at anything that is not media", () => {
+    expect(toolMediaPath("Read", { file_path: "/src/index.ts" })).toBeNull();
+    expect(toolMediaPath("Read", { file_path: "/a/report.pdf" })).toBeNull();
+    expect(toolMediaPath("Read", {})).toBeNull();
+  });
+  it("declines tools whose payload merely mentions a path", () => {
+    // A Bash command that writes a png is not a call ABOUT that png, and its input well is a
+    // terminal — drawing the picture there would replace the command with its output.
+    expect(toolMediaPath("Bash", { command: "convert a.svg /out/a.png", file_path: "/out/a.png" })).toBeNull();
+    expect(toolMediaPath("Grep", { file_path: "/out/a.png" })).toBeNull();
+  });
+});
+
+describe("aspectIn", () => {
+  it("takes a stated frame size, in either notation", () => {
+    expect(aspectIn("scale=1080:1920,format=yuv420p")).toBe("1080 / 1920");
+    expect(aspectIn("ffmpeg -s 1920x1080 -i in.mov out.mp4")).toBe("1920 / 1080");
+  });
+  /* The reason both sides must be three digits: a message full of timestamps and quality settings
+     would otherwise produce a placeholder in an invented shape, which is worse than a square. */
+  it("ignores numbers that are not dimensions", () => {
+    expect(aspectIn("-crf 17 -preset slow")).toBeNull();
+    expect(aspectIn("recorded at 14:03 with -g 60")).toBeNull();
+    expect(aspectIn("no numbers here")).toBeNull();
+  });
+  it("ignores a pair too lopsided to be a frame", () => {
+    expect(aspectIn("seek 100:99999")).toBeNull();
+  });
+});
+
+describe("mediaWorkFor", () => {
+  it("recognises an encode, and takes the frame size the command states", () => {
+    const work = mediaWorkFor("Bash", {
+      command: 'ffmpeg -i in.mov -filter_complex "scale=808:1756,pad=1080:1920" -c:v libx264 out.mp4',
+      description: "Encode all three mockup videos",
+    });
+    expect(work).toEqual({ kind: "video", label: "Encoding video", detail: "Encode all three mockup videos", aspect: "808 / 1756" });
+  });
+
+  it("calls a single-frame grab an image, though it is the same binary", () => {
+    expect(mediaWorkFor("Bash", { command: "ffmpeg -ss 3 -i in.mov -frames:v 1 s1.png -y" }))
+      .toMatchObject({ kind: "image", label: "Rendering image" });
+  });
+
+  it("recognises the image converters", () => {
+    expect(mediaWorkFor("Bash", { command: "magick in.svg -resize 400 out.png" })).toMatchObject({ kind: "image" });
+    expect(mediaWorkFor("Bash", { command: "sips -Z 800 shot.png" })).toMatchObject({ kind: "image" });
+  });
+
+  /* Nothing is being MADE by an inspection, so nothing should be drawn as pending. `ffprobe` is
+     absent from the producer table for exactly this reason. */
+  it("declines commands that only inspect", () => {
+    expect(mediaWorkFor("Bash", { command: "ffprobe -v error -show_streams in.mov" })).toBeNull();
+    expect(mediaWorkFor("Bash", { command: "ls -la ~/Desktop/mockups" })).toBeNull();
+  });
+
+  it("requires the producer to BE the command, not a word inside one", () => {
+    expect(mediaWorkFor("Bash", { command: "cat ffmpeg-notes.txt" })).toBeNull();
+    expect(mediaWorkFor("Bash", { command: "grep convert README.md" })).toBeNull();
+    // …but it survives a path, an env prefix and a pipeline position.
+    expect(mediaWorkFor("Bash", { command: "/opt/homebrew/bin/ffmpeg -i a.mov b.mp4" })).toMatchObject({ kind: "video" });
+    expect(mediaWorkFor("Bash", { command: "cd /tmp && ffmpeg -i a.mov b.mp4" })).toMatchObject({ kind: "video" });
+  });
+
+  it("recognises a generator tool by its own name, and captions it with the prompt", () => {
+    expect(mediaWorkFor("mcp__studio__generate_image", { prompt: "a calm mountain lake at dawn" }))
+      .toEqual({ kind: "image", label: "Generating image", detail: "a calm mountain lake at dawn", aspect: "1 / 1" });
+    expect(mediaWorkFor("text_to_video", { prompt: "a drone shot" })).toMatchObject({ kind: "video", aspect: "16 / 9" });
+    expect(mediaWorkFor("sora", { prompt: "x", size: "1920x1080" })).toMatchObject({ kind: "video", aspect: "1920 / 1080" });
+  });
+
+  it("never mistakes an ordinary tool for a generator", () => {
+    for (const name of ["Read", "Edit", "Write", "Grep", "TodoWrite", "WebFetch", "reimagine_the_docs"])
+      expect(mediaWorkFor(name, { prompt: "x", file_path: "/a/b.png" }), name).toBeNull();
   });
 });

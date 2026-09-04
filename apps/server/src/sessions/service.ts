@@ -447,6 +447,9 @@ export class SessionService {
    */
   markStaleOnBoot(): void {
     for (const s of this.d.sessions.listAll()) {
+      // Read BEFORE the synthetic denies below append rows of their own — they carry `Date.now()`,
+      // and dating the run's terminator at one of them would put the crash at boot time.
+      const lastRealTs = this.d.events.lastTs(s.id);
       for (const requestId of this.d.events.findDanglingPermissions(s.id)) {
         const deny = sessionEvent("permission_response", { requestId, decision: "deny" });
         this.persist(s.id, deny);
@@ -454,18 +457,16 @@ export class SessionService {
         // the same way it would for a real one.
         this.d.notifications?.handleSessionEvent(s, deny);
       }
+      // The row is reset below, but the EVENT LOG is what the transcript replays, and a session that
+      // died mid-turn left `running` as its last word there. Nothing would ever close that run, so the
+      // next turn's settle would report a span reaching back across the crash. The synthetic idle is
+      // dated at the last event the log actually has, which is the last moment there is evidence the
+      // agent was working — not now, which would count the hours the app was shut down.
+      if (s.status === "running" || s.status === "waiting_permission") {
+        this.persist(s.id, sessionEvent("status", { status: "idle" }, lastRealTs ?? Date.now()));
+      }
       const resumable = s.status === "running" || s.status === "waiting_permission" || (s.status === "ended" && s.providerSessionId !== null);
       if (resumable) this.d.sessions.update({ id: s.id, status: "idle" });
-      // Resetting the ROW is not enough: the transcript is rebuilt by replaying the event log, and on a
-      // crash that log's last word is still `running`. Nothing would ever close that run, so the next
-      // turn's settle would report a span reaching back across the restart. Close it here, dated at the
-      // last event the log actually has — not `Date.now()`, which would bill the downtime to the run.
-      const lastStatus = this.d.events.lastOfType(s.id, "status");
-      const open = lastStatus?.type === "status" && (lastStatus.payload.status === "running" || lastStatus.payload.status === "waiting_permission");
-      if (open) {
-        const at = this.d.events.lastTs(s.id);
-        if (at !== null) this.persist(s.id, sessionEvent("status", { status: "idle" }, at));
-      }
     }
   }
 

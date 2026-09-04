@@ -1,8 +1,12 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { grammarFor, highlightToHtml } from "./rich/highlight";
 import { mathExtension } from "./rich/math";
+import { mediaExtension, mediaRefsIn } from "./media/md-media";
+import { MediaFrame, MediaLightbox } from "./media/MediaView";
+import { useMediaByCandidate } from "./media/use-media";
 
 marked.setOptions({ gfm: true, breaks: false });
 /* Fenced code is tokenised here rather than left as plain text (Plan 24 W1). It happens BEFORE
@@ -23,6 +27,9 @@ marked.use({
   },
 });
 marked.use(mathExtension);
+/* Local `![](…)` and `[](…)` become parked placeholders the component below fills with a real
+ * player. AFTER the math extension so a formula is never mistaken for a path. */
+marked.use(mediaExtension);
 // Links open in the OS browser: main's setWindowOpenHandler denies in-app windows and hands the URL to the shell.
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
@@ -105,13 +112,14 @@ export function renderMarkdown(text: string): string {
   return decorate(DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true }, ADD_ATTR: ["target"] }));
 }
 
-/** Assistant prose: markdown → sanitized HTML. `streaming` appends BUI StreamText's caret — a solid
- *  2px ink bar (the stream is live exactly as long as the caret exists, so it never blinks). The
- *  text itself is whatever has actually arrived: deltas pace the stream, there is no reveal timer,
- *  so a re-render can never replay it. `enter` opts the block into the transcript's 180ms enter
- *  animation (§6 — set only for blocks that are genuinely new). */
-export function Markdown({ text, streaming = false, className = "", enter = false }: { text: string; streaming?: boolean; className?: string; enter?: boolean }) {
+/** Assistant prose: markdown → sanitized HTML. The text itself is whatever has actually arrived:
+ *  deltas pace the stream, there is no reveal timer, so a re-render can never replay it. `enter`
+ *  opts the block into the transcript's 180ms enter animation (§6 — set only for blocks that are
+ *  genuinely new). */
+export function Markdown({ text, className = "", enter = false }: { text: string; className?: string; enter?: boolean }) {
   const html = useMemo(() => renderMarkdown(text), [text]);
+  const body = useRef<HTMLDivElement>(null);
+  const media = useMediaPortals(body, html);
   // Copy buttons live inside dangerouslySetInnerHTML, so they are wired by delegation; the ✓ hold
   // is a DOM attribute (the injected nodes are outside React's tree), timers cleared on unmount.
   const timers = useRef(new Map<Element, ReturnType<typeof setTimeout>>());
@@ -126,9 +134,52 @@ export function Markdown({ text, streaming = false, className = "", enter = fals
     timers.current.set(btn, setTimeout(() => { btn.removeAttribute("data-copied"); timers.current.delete(btn); }, COPIED_MS));
   };
   return (
-    <div className={`md ${className}`.trim()} data-streaming={streaming || undefined} data-enter={enter || undefined}>
-      <div dangerouslySetInnerHTML={{ __html: html }} onClick={onClick} />
-      {streaming && <span className="md-caret" aria-hidden="true" />}
+    <div className={`md ${className}`.trim()} data-enter={enter || undefined}>
+      {/* The markup is written imperatively rather than through `dangerouslySetInnerHTML`, and the
+          reason is portals: React 19 does not commit a portal into a node it created by setting
+          innerHTML, so media parked inside the prose would never appear. A node the effect below
+          made is an ordinary foreign node, and portals into it land. The string is the same
+          DOMPurify-clean html either way. */}
+      <div ref={body} onClick={onClick} />
+      {media}
     </div>
+  );
+}
+
+/**
+ * Fills the placeholders `mediaExtension` parked for `![](/local/path)` with real players.
+ *
+ * Portals rather than markup: the player is a React component with state (playing, muted, the
+ * scrub position) and the surrounding prose is an innerHTML blob React does not own. A portal is
+ * what lets the two coexist — the span stays where the sentence put it, and the component inside it
+ * survives every re-render the stream causes, so a video does not restart mid-message.
+ *
+ * Nothing is drawn for a path main did not confirm. An agent that embeds a file it failed to write
+ * leaves the empty span it always would have, not a broken frame.
+ */
+function useMediaPortals(body: React.RefObject<HTMLDivElement | null>, html: string) {
+  const [refs, setRefs] = useState<{ path: string; el: HTMLElement }[]>([]);
+  // Layout effect, not effect: the markup has to be in the DOM before the browser paints, or every
+  // message would flash empty for a frame — and, while streaming, on every delta.
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    el.innerHTML = html;
+    const found = mediaRefsIn(el);
+    // Replacing the array unconditionally would re-portal on every delta of a streaming message.
+    setRefs((prev) => (prev.length === found.length && prev.every((r, i) => r.el === found[i]!.el) ? prev : found));
+  }, [html, body]);
+  // Keyed by the candidate, not the resolved path: the placeholder holds `~/out/clip.mp4` and main
+  // answers `/Users/me/out/clip.mp4`, so a by-path lookup would find nothing for every `~` embed.
+  const byCandidate = useMediaByCandidate(refs.map((r) => r.path));
+  const [open, setOpen] = useState<import("@realm/contracts").MediaFile | null>(null);
+  return (
+    <>
+      {refs.map(({ path, el }) => {
+        const file = byCandidate.get(path);
+        return file ? createPortal(<MediaFrame file={file} onExpand={() => setOpen(file)} />, el, file.path) : null;
+      })}
+      {open && <MediaLightbox file={open} onClose={() => setOpen(null)} />}
+    </>
   );
 }

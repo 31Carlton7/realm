@@ -868,6 +868,19 @@ export const Methods = {
   /** Write the monthly ceiling and its alert thresholds. Answers the STORED budget (thresholds
    *  normalized), so the client renders what was actually saved rather than what it sent. */
   "usage.setBudget": { params: UsageBudgetSchema, result: UsageBudgetSchema },
+  /** Availability of the local Graphify extractor. `force` bypasses the shared probe cache. */
+  "graphify.probe": {
+    params: z.object({ force: z.boolean().default(false) }),
+    result: z.object({ available: z.boolean(), version: z.string().nullable(), reason: z.string().nullable() }),
+  },
+  /** Rebuild a space's code graph in its primary checkout and report the generated graph. */
+  "graphify.update": {
+    params: z.object({ spaceId: IdSchema }),
+    result: z.object({
+      nodes: z.number().int().nonnegative(), links: z.number().int().nonnegative(),
+      communities: z.number().int().nonnegative(), graphPath: z.string(),
+    }),
+  },
   /** Prices, context windows and reasoning efforts for the model picker, from a public catalog
    *  (`ModelCatalogService`). Never fails: an unreachable catalog answers with whatever was cached,
    *  or with `[]`, and the picker simply shows rows without prices. `force` refetches past the TTL —

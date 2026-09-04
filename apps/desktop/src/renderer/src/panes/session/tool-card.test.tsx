@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { ToolCard, ToolGroup, RESULT_CLAMP } from "./ToolCard";
 import { editStat } from "./tool-summary";
+import * as summaryModule from "./tool-summary";
 import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock } from "./tool-group";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
@@ -118,6 +119,9 @@ describe("tool-run summary line", () => {
     expect(formatDuration(4_000)).toBe("4s");
     expect(formatDuration(59_400)).toBe("59s");
     expect(formatDuration(372_000)).toBe("6m 12s");
+    // Past the hour the seconds are noise, and "62m 3s" is arithmetic the reader should not do.
+    expect(formatDuration(3_723_000)).toBe("1h 2m");
+    expect(formatDuration(3_600_000)).toBe("1h 0m");
   });
 });
 
@@ -294,7 +298,7 @@ describe("copy ✓ (§6 icon swap)", () => {
 
 describe("tool groups inside the transcript", () => {
   const model = (blocks: Block[]): TranscriptModel =>
-    ({ blocks, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null });
+    ({ blocks, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null });
   const run = (n: number) => model(Array.from({ length: n }, (_, k) => tool(`t${k + 1}`, "Read", { file_path: `/f${k}.ts` })));
   const view = (n: number) => <Transcript transcript={run(n)} sessionStatus="idle" onDecide={() => {}} />;
 
@@ -307,5 +311,45 @@ describe("tool groups inside the transcript", () => {
     expect(cards()).toHaveLength(4);            // still expanded: the group was not remounted
     expect(cards()[1]).toHaveAttribute("data-open"); // and the open card is still the one opened
     expect(cards()[0]).not.toHaveAttribute("data-open");
+  });
+});
+
+/* The transcript re-renders on every frame of a streaming answer. Settled tool cards must not come
+   with it: re-deriving 300 summaries and edit stats 60 times a second, behind a message the reader
+   is watching type, is work with nothing at the end of it. `toolSummary` is the observable proxy —
+   ToolCard calls it exactly once per render. */
+describe("settled tool cards do not re-render behind a streaming answer", () => {
+  it("re-derives nothing for cards whose call has landed", () => {
+    const cards: ToolBlock[] = Array.from({ length: 20 }, (_, i) => ({
+      kind: "tool", toolUseId: `t${i}`, name: "Bash", input: { command: `echo ${i}` },
+      result: { content: "ok", isError: false }, ts: i,
+    }));
+    // Below GROUP_MIN consecutive calls per run would fold them into a ToolGroup, so each card is
+    // separated by a message — this is a transcript of individual cards, which is what we're counting.
+    const settled: Block[] = cards.flatMap((c, i) => [{ kind: "user", text: `q${i}`, ts: i } as Block, c]);
+    const withStream = (text: string): TranscriptModel => ({
+      blocks: [...settled, { kind: "assistant", messageId: "live", text, streaming: true, ts: 99 }],
+      pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null,
+    });
+
+    const spy = vi.spyOn(summaryModule, "toolSummary");
+    const view = render(<Transcript transcript={withStream("Hel")} sessionStatus="running" onDecide={() => {}} />);
+    expect(spy).toHaveBeenCalledTimes(cards.length); // the first paint derives each card once
+    expect(document.querySelectorAll(".tool-card")).toHaveLength(cards.length);
+
+    // Ten more deltas land. The blocks array is rebuilt each time (as the reducer does) but every
+    // settled card keeps its object, so none of them re-derives.
+    spy.mockClear();
+    for (const text of ["Hell", "Hello", "Hello ", "Hello w", "Hello wo", "Hello wor", "Hello worl", "Hello world", "Hello world!", "Hello world!!"])
+      view.rerender(<Transcript transcript={withStream(text)} sessionStatus="running" onDecide={() => {}} />);
+    expect(spy).toHaveBeenCalledTimes(0);
+    expect(screen.getByText("Hello world!!")).toBeTruthy();
+
+    // A card that actually changes still re-renders: its block is a new object.
+    const landed = withStream("Hello world!!");
+    landed.blocks[1] = { ...cards[0]!, result: { content: "changed", isError: true } };
+    view.rerender(<Transcript transcript={landed} sessionStatus="running" onDecide={() => {}} />);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 });

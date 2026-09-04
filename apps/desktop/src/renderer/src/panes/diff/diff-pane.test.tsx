@@ -59,6 +59,15 @@ describe("DiffPane", () => {
     expect(within(rowFor("README.md")).getByText("?")).toBeInTheDocument();
   });
 
+  it("hangs the fade beside the scroller, never inside it", async () => {
+    const { container } = await mount();
+    const fade = container.querySelector(".diff-fade")!;
+    // The mutant this kills: nesting the fade in .diff-list to "tidy up" the markup, which both
+    // blanks its backdrop-filter (see DiffPane) and scrolls it away with the rows.
+    expect(fade.parentElement).toHaveClass("diff-list-wrap");
+    expect(container.querySelector(".diff-list .diff-fade")).toBeNull();
+  });
+
   it("fetches a file's patch only when the row is expanded", async () => {
     const { api } = await mount({ patches: { [`${CWD}|src/a.ts|false`]: patch("src/a.ts") } });
     expect(api.calls.some((c) => c.startsWith("fileDiff:"))).toBe(false);

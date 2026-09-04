@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MODEL_LABEL, canonicalModelKey } from "@realm/contracts";
-import { filterRows, modelIdOn, modelRows, railKinds, sortFavoritesFirst } from "./model-rows";
+import { DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey } from "@realm/contracts";
+import { filterRows, flatten, groupRows, modelDetail, modelIdOn, modelRows } from "./model-rows";
 import type { AgentProbe } from "../../state/store";
 
 const probe = (kind: AgentProbe["kind"], models: AgentProbe["models"]): AgentProbe =>
@@ -75,15 +75,14 @@ describe("filterRows at catalog scale", () => {
   });
 
   it("search still narrows by model name across the whole catalog", () => {
-    expect(filterRows(rows, { query: "model 39", provider: null }).map((r) => r.label)).toEqual(["Model 39"]);
-    expect(filterRows(rows, { query: "model 3", provider: null }).length).toBe(11); // 3, 30..39
+    expect(filterRows(rows, "model 39").map((r) => r.label)).toEqual(["Model 39"]);
+    expect(filterRows(rows, "model 3").length).toBe(11); // 3, 30..39
   });
 
-  it("the provider rail still narrows a large mixed list to one kind", () => {
-    const cursorOnly = filterRows(rows, { query: "", provider: "acp:cursor" });
+  it("searching a harness name narrows a large mixed list to what that harness runs", () => {
+    const cursorOnly = filterRows(rows, "cursor");
     expect(cursorOnly).toHaveLength(41);
     expect(new Set(cursorOnly.map((r) => r.kind))).toEqual(new Set(["acp:cursor"]));
-    expect(railKinds(rows)).toContain("acp:cursor");
   });
 });
 
@@ -215,35 +214,73 @@ describe("favourites", () => {
     expect(modelRows({ kind: "claude", model: null, agentProbe: [], canSwitchAgent: true }).some((r) => r.favorite)).toBe(false);
   });
 
-  it("floats favourites to the top without disturbing either group's order", () => {
+  it("collects favourites into their own leading group, in row order", () => {
     const rows = withFavs([canonicalModelKey("GPT-5.5"), canonicalModelKey("Claude Sonnet 5")]);
-    const sorted = sortFavoritesFirst(rows);
-    expect(sorted.slice(0, 2).map((r) => r.label)).toEqual(["Claude Sonnet 5", "GPT-5.5"]); // row order, not favourites-array order
-    expect(sorted.filter((r) => !r.favorite).map((r) => r.key)).toEqual(rows.filter((r) => !r.favorite).map((r) => r.key));
+    const groups = groupRows(rows, { query: "" });
+    expect(groups[0]!.label).toBe("Favourites");
+    // Row order, not favourites-array order: the ⌘-digit column has to read 1,2,3 down the page.
+    expect(groups[0]!.rows.map((r) => r.label)).toEqual(["Claude Sonnet 5", "GPT-5.5"]);
   });
 
-  it("the favourites tab shows starred rows and nothing else", () => {
+  it("a starred model appears once — in Favourites, not also under its harness", () => {
     const rows = withFavs([canonicalModelKey("GPT-5.5")]);
-    expect(filterRows(rows, { query: "", provider: "favorites" }).map((r) => r.label)).toEqual(["GPT-5.5"]);
-    expect(filterRows(rows, { query: "", provider: null }).length).toBe(rows.length);
+    const groups = groupRows(rows, { query: "" });
+    expect(flatten(groups).filter((r) => r.label === "GPT-5.5")).toHaveLength(1);
+    expect(flatten(groups)).toHaveLength(rows.length);
+  });
+
+  it("shows no Favourites group when nothing is starred", () => {
+    const groups = groupRows(withFavs([]), { query: "" });
+    expect(groups.map((g) => g.label)).not.toContain("Favourites");
   });
 });
 
-describe("the rail after dedupe", () => {
+describe("searching a harness after dedupe", () => {
   const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
     agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
 
-  it("a harness tab shows every model that harness can run, not just the ones routed to it", () => {
-    // Fable resolved to the Claude CLI, but Cursor offers it too — hiding it under Cursor's tab
+  it("finds every model that harness can run, not just the ones routed to it", () => {
+    // Fable resolved to the Claude CLI, but Cursor offers it too — dropping it from a "cursor" search
     // would tell the user Cursor can't run a model it just listed.
-    const cursorTab = filterRows(rows, { query: "", provider: "acp:cursor" }).map((r) => r.label);
-    expect(cursorTab).toContain("Claude Fable 5.1");
-    expect(cursorTab).toContain("GPT-5.5");
-    expect(cursorTab).not.toContain("Claude Sonnet 5"); // claude-only, and Cursor never offered it
+    const cursorHits = filterRows(rows, "cursor").map((r) => r.label);
+    expect(cursorHits).toContain("Claude Fable 5.1");
+    expect(cursorHits).toContain("GPT-5.5");
+    expect(cursorHits).not.toContain("Claude Sonnet 5"); // claude-only, and Cursor never offered it
   });
 
-  it("lists every reachable harness, including ones no row resolved to", () => {
-    expect(railKinds(rows)).toContain("acp:cursor");
-    expect(railKinds(rows)).toContain("claude");
+  it("groups by the harness a row resolved to, session's own first, and drops headings while searching", () => {
+    expect(groupRows(rows, { query: "" }).map((g) => g.label)[0]).toBe("Claude");
+    expect(groupRows(filterRows(rows, "gpt"), { query: "gpt" }).map((g) => g.label)).toEqual([""]);
+  });
+});
+
+describe("modelDetail", () => {
+  const rows = modelRows({ kind: "claude", model: null, agentProbe: [], canSwitchAgent: true });
+  const fable = rows.find((r) => r.label === "Claude Fable 5.1")!;
+  const info = (over: Partial<import("@realm/contracts").ModelInfo> = {}) => ({
+    [fable.key]: { key: fable.key, label: "Claude Fable 5.1", vendor: "Anthropic", priceIn: 10, priceOut: 50,
+      context: 1_000_000, efforts: ["max", "low"], blurb: "Vendor prose.", ...over },
+  });
+
+  it("prefers Realm's own note over the catalog's vendor prose", () => {
+    const { note, catalog } = modelDetail(fable, info());
+    expect(note).toBe(MODEL_NOTES.get(fable.key));
+    expect(note).not.toBe("Vendor prose.");
+    expect(catalog?.priceOut).toBe(50);
+  });
+
+  it("falls back to the catalog blurb for a model Realm has written nothing about", () => {
+    // A model no curated line covers — which every model in AGENT_MODELS currently has, so the row
+    // is synthesised rather than found. The guard below is what keeps that honest.
+    const other = { ...fable, key: canonicalModelKey("Someone Else 9"), label: "Someone Else 9" };
+    expect(MODEL_NOTES.has(other.key)).toBe(false);
+    const blurbOnly = { [other.key]: { ...info()[fable.key]!, key: other.key, blurb: "Only the vendor's line." } };
+    expect(modelDetail(other, blurbOnly).note).toBe("Only the vendor's line.");
+  });
+
+  it("says nothing at all for a model no source describes", () => {
+    expect(modelDetail(fable, {})).toEqual({ note: MODEL_NOTES.get(fable.key), catalog: null });
+    const nameless = { ...fable, key: "nothing-knows-this" };
+    expect(modelDetail(nameless, {})).toEqual({ note: null, catalog: null });
   });
 });
