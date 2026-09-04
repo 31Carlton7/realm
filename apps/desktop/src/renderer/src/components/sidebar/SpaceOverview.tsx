@@ -108,7 +108,7 @@ function OverviewBody() {
     <div className="spaces-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div className="spaces-overview" role="dialog" aria-modal="true" aria-label="All spaces" style={style} onKeyDown={onKeyDown}>
         <div className="spaces-search">
-          <Icon name="search" size={15} />
+          <Icon name="search" size={14} />
           <input ref={inputRef} value={query} onChange={(e) => { setQuery(e.target.value); setCursor(0); }}
             placeholder="Filter spaces" aria-label="Filter spaces" spellCheck={false} />
           <kbd>esc</kbd>
@@ -144,7 +144,7 @@ function OverviewBody() {
         </div>
         <div className="spaces-foot">
           <button className="ghost-chip" onClick={() => openSheet({ kind: "new-space" })}>
-            <Icon name="add" size={13} /><span>New space</span>
+            <Icon name="add" size={12} /><span>New space</span>
           </button>
           <span className="spaces-foot-hint muted">↑↓←→ to move · ↵ to switch</span>
         </div>

@@ -74,7 +74,7 @@ export function SpaceStrip() {
           );
         })}
       </div>
-      <button className="icon-btn strip-side" aria-label="New space" title="New space" onClick={() => openSheet({ kind: "new-space" })}><Icon name="add" size={16} /></button>
+      <button className="icon-btn strip-side" aria-label="New space" title="New space" onClick={() => openSheet({ kind: "new-space" })}><Icon name="add" size={14} /></button>
     </div>
   );
 }

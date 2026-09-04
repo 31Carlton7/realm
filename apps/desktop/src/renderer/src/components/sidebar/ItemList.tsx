@@ -125,7 +125,7 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                 <button className="item-shelf" aria-label={`${variant === "archived" ? "Unarchive" : "Archive"} ${it.title}`}
                   title={variant === "archived" ? "Unarchive" : "Archive"}
                   onClick={() => run(() => archiveItem(it.id, variant !== "archived"))}>
-                  <Icon name={variant === "archived" ? "unarchive" : "archive"} size={13} />
+                  <Icon name={variant === "archived" ? "unarchive" : "archive"} size={12} />
                 </button>
               )}
               {variant === "open" && (

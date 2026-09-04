@@ -244,7 +244,7 @@ function ArchivedSection({ items }: { items: Item[] }) {
     <>
       <div className="group-label group-head archived-head">
         <button className="group-head-name archived-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-          <span className="archived-caret" data-open={open || undefined} aria-hidden="true"><Icon name="chevronRight" size={11} /></span>
+          <span className="archived-caret" data-open={open || undefined} aria-hidden="true"><Icon name="chevronRight" size={12} /></span>
           <span>Archived</span>
           <span className="archived-count">{items.length}</span>
         </button>

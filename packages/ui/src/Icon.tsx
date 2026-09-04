@@ -73,6 +73,21 @@ export function isIconName(x: string): x is IconName {
   return Object.prototype.hasOwnProperty.call(icons, x) || isBrandName(x);
 }
 
+/**
+ * The size ladder. `size` is a free number, so the only thing stopping 21 call sites from drifting
+ * to 21 values is this list — pick the rung whose ROLE matches, never the one that happens to look
+ * right in one place. Rungs are 2px apart because 1px apart is not a difference a reader can see:
+ * two controls in one 22px box at 12 and 13 read as a mistake, not as a distinction.
+ *
+ *   20  card     the glyph IS the card's subject, at card scale (.space-card)
+ *   18  tile     the glyph IS the tile's subject (.pinned-grid .tile)
+ *   16  row      what a row or a strip square IS — item kind, destination, space, profile
+ *   14  control  a button's verb (.icon-btn, .sb-toggle, .panel-bar) and a field's leading glyph
+ *   12  inline   inside a box of 22px or less (.item-close, .item-shelf), or leading text at 12.5px
+ *
+ * Role, not local font size: the overview's filter field sets 15px text and the sidebar's search
+ * 13px, and both take the 14 rung, because in both the glyph is the affordance and not the content.
+ */
 export function Icon({ name, size = 16, className, colored = false }: { name: IconName | (string & {}); size?: number; className?: string;
   /** Render a brand mark in its vendor's declared colour instead of `currentColor`. Only marks that
    *  declare one change (Claude, Gemini); the rest — and every non-brand glyph — ignore the flag. */

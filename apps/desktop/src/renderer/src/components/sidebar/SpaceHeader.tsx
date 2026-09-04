@@ -34,7 +34,7 @@ export function SpaceHeader({ space }: { space: Space }) {
             second door to the space page, which the title button beside it already is. */}
         {profile && <button className="pill" title="Open profile" onClick={() => run(() => openProfilePage())}>{profile.name}</button>}
         <button ref={btnRef} className="icon-btn" aria-label="Space menu" aria-haspopup="menu" aria-expanded={menu}
-          title="More" onClick={() => setMenu((o) => !o)}><Icon name="more" size={15} /></button>
+          title="More" onClick={() => setMenu((o) => !o)}><Icon name="more" size={14} /></button>
         {menu && (
           <Menu align="right" anchorRef={btnRef} label="Space menu" onClose={closeMenu} items={[
               { label: "Open space", onSelect: openPage },

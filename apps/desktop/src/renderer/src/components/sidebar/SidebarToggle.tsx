@@ -17,7 +17,7 @@ export function SidebarToggle() {
   return (
     <button className="sb-toggle" aria-label={collapsed ? "Show sidebar (⌘B)" : "Hide sidebar (⌘B)"}
       aria-expanded={!collapsed} onClick={() => run(() => toggleSidebar())}>
-      <Icon name="sidebar" size={16} />
+      <Icon name="sidebar" size={14} />
     </button>
   );
 }

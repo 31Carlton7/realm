@@ -4,7 +4,19 @@ import { allItems, findLeafOfItem, type Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { leafPositionOf } from "./ItemList";
+
+/** The five rungs of Icon.tsx's ladder — card, tile, row, control, inline. */
+const RUNGS = new Set([20, 18, 16, 14, 12]);
+/* Vite rewrites `import.meta.url` to a non-file scheme under jsdom, so walk up from the cwd instead
+   (vitest may be invoked from the repo root or from apps/desktop). */
+function repoDir(rel: string): string {
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) { const p = join(dir, rel); if (existsSync(p)) return p; dir = dirname(dir); }
+  throw new Error(`cannot locate ${rel} from ${process.cwd()}`);
+}
 
 async function mount(api = fakeApi()) {
   const store = createAppStore(api); await store.getState().boot();
@@ -803,5 +815,25 @@ describe("archiving a session", () => {
     expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Unarchive" }));
     await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(false));
+  });
+});
+
+/** The ladder is documented on `Icon` (packages/ui/src/Icon.tsx) and enforceable only here: `size`
+ *  is a plain number, so nothing in a type or a render can notice a call site quietly picking 15.
+ *  Scanning the source is the whole point — a rendered assertion would only cover the rows a test
+ *  happens to mount, and the drift this pins is in the ones nobody mounts. */
+describe("sidebar icon sizes", () => {
+  it("every call site sits on a rung of the ladder", () => {
+    const dir = repoDir("apps/desktop/src/renderer/src/components/sidebar");
+    const files = readdirSync(dir).filter((f) => f.endsWith(".tsx") && !f.includes(".test."));
+    const offenders: string[] = [];
+    for (const file of files) {
+      const src = readFileSync(join(dir, file), "utf8");
+      for (const m of src.matchAll(/size=\{(\d+)\}/g)) {
+        const size = Number(m[1]);
+        if (!RUNGS.has(size)) offenders.push(`${file}: size={${size}}`);
+      }
+    }
+    expect(offenders, "off-ladder icon sizes — pick a rung or move the ladder, do not add a value").toEqual([]);
   });
 });
