@@ -415,9 +415,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     timeouts: opts.ask?.timeouts,
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
-  // Computer use: the same gateway, the same host bridge, the same permission broker — pointed at the
-  // Mac's own apps instead of a browser pane. Off until a space turns it on; see the safety model on
-  // `createComputerAgentProvider`.
+  // The one provider a space has to switch ON: it reaches every app on the Mac.
   mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker }));
   // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
   // One extractor for the process: PDF text is memoized across every session's searches.

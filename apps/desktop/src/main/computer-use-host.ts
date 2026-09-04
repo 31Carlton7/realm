@@ -1,7 +1,7 @@
 import {
   parseKeySpec,
   type ComputerAction, type ComputerActResult, type ComputerAppsResult,
-  type ComputerElement, type ComputerGrants, type ComputerRefusal, type ComputerSnapshotResult,
+  type ComputerElement, type ComputerRefusal, type ComputerSnapshotResult,
 } from "@realm/contracts";
 
 /**
@@ -32,11 +32,6 @@ export class ComputerUseHost {
   /** One bridge op. Throws with an agent-readable message; the bridge relays it. */
   async handleOp(op: string, params: Record<string, unknown>): Promise<unknown> {
     switch (op) {
-      case "computerGrants": {
-        // Answerable without the helper: "no helper" is itself the honest answer to "may I?".
-        if (!this.d.available()) return { accessibility: false, screenRecording: false } satisfies ComputerGrants;
-        return this.d.request<ComputerGrants>("ping");
-      }
       case "computerListApps": {
         this.requireHelper();
         return this.d.request<ComputerAppsResult>("listApps");

@@ -1,18 +1,15 @@
 import { z } from "zod";
 import {
-  COMPUTER_PROVIDER_NAME, ComputerActionSchema,
-  type ComputerAction, type ComputerActResult, type ComputerAppsResult,
-  type ComputerGrants, type ComputerSnapshotResult,
+  COMPUTER_KEY_NAMES, COMPUTER_MODIFIERS, COMPUTER_PROVIDER_NAME, ComputerActionSchema,
+  type ComputerAction, type ComputerActResult, type ComputerAppsResult, type ComputerSnapshotResult,
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
-import { clip, err, ok } from "../mcp/tool-result";
+import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { McpService } from "../mcp/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import { fenceUntrusted } from "../browsers/guards";
-
-export { COMPUTER_PROVIDER_NAME };
 
 /**
  * The `realm-computer` gateway provider: the agent tool surface over the Mac's own applications,
@@ -132,11 +129,11 @@ const TOOLS: Tool[] = [
             y: { type: "number" },
             button: { type: "string", enum: ["left", "right", "middle"] },
             clickCount: { type: "number", description: "2 for a double-click, 3 for a triple" },
-            modifiers: { type: "array", items: { type: "string", enum: ["command", "control", "option", "shift", "function"] } },
+            modifiers: { type: "array", items: { type: "string", enum: [...COMPUTER_MODIFIERS] } },
             text: { type: "string" },
-            key: { type: "string", description: 'a key chord: modifiers joined with "+" then a single character or a named key, e.g. "cmd+c", "shift+Tab", "Return", "Escape", "pagedown"' },
+            key: { type: "string", description: `a key chord: modifiers joined with "+" then a single character or a named key, e.g. "cmd+c" or "shift+Tab". Named keys: ${[...COMPUTER_KEY_NAMES].join(", ")}` },
             dx: { type: "number" },
-            dy: { type: "number", description: "pixels; negative scrolls the content up" },
+            dy: { type: "number", description: "vertical scroll amount in pixels" },
           },
           required: ["kind"],
         },
@@ -170,11 +167,11 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   computer_snapshot: async (d, ctx, rawArgs) => {
-    const args = parse(SnapshotArgs, rawArgs);
+    const args = parseArgs(SnapshotArgs, rawArgs);
     if ("error" in args) return args.error;
-    const grants = (await d.bridge.call("computerGrants", {})) as ComputerGrants;
-    if (!grants.accessibility) return err(NO_ACCESSIBILITY);
-
+    // No grant pre-check: the helper refuses an ungranted snapshot itself, with the same advice, and
+    // it has to — it is the only side that can see the trust state at the moment of the walk. Asking
+    // first would be a second round-trip to restate what the answer already carries.
     const snap = (await d.bridge.call("computerSnapshot", {
       ...(args.value.bundleId ? { bundleId: args.value.bundleId } : {}),
       screenshot: args.value.screenshot,
@@ -195,7 +192,7 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   computer_act: async (d, ctx, rawArgs) => {
-    const args = parse(ActArgs, rawArgs);
+    const args = parseArgs(ActArgs, rawArgs);
     if ("error" in args) return args.error;
     const { snapshotId, action } = args.value;
 
@@ -240,16 +237,16 @@ const HANDLERS: Record<string, Handler> = {
 const NO_ACCESSIBILITY =
   "macOS has not granted Realm the Accessibility permission, so it cannot read or drive other applications. The user grants it in Realm's Settings, under Permissions — it needs a real click from them and cannot be turned on from here.";
 
+const MAX_REMEMBERED_SNAPSHOTS = 256;
+
 /**
  * Which session owns which snapshot, and which app it describes.
  *
  * Bounded by insertion order rather than by session lifetime: the helper itself keeps only the newest
  * snapshot per app, so an entry evicted here was almost certainly already dead over there, and both
- * sides refuse the same way — "take a fresh snapshot". A cap avoids growing this for the life of the
- * process on a session that snapshots in a loop.
+ * sides refuse the same way — "take a fresh snapshot". The cap stops this growing for the life of
+ * the process on a session that snapshots in a loop.
  */
-const MAX_REMEMBERED_SNAPSHOTS = 256;
-
 class SnapshotOwners {
   private readonly byKey = new Map<string, { bundleId: string; appName: string }>();
 
@@ -267,7 +264,7 @@ class SnapshotOwners {
   }
 }
 
-/** `\0` cannot occur in either id, so no pair of ids can collide by concatenation. */
+/** NUL cannot occur in either id, so no pair of them can collide by concatenation. */
 const key = (sessionId: string, snapshotId: string): string => `${sessionId} ${snapshotId}`;
 
 /**
@@ -292,9 +289,4 @@ function describeAct(action: ComputerAction, appName: string): string {
     case "drag": return `Drag one element onto another in ${where}`;
     case "menu": return `Open a context menu in ${where}`;
   }
-}
-
-function parse<S extends z.ZodTypeAny>(schema: S, raw: unknown): { value: z.infer<S> } | { error: CallToolResult } {
-  const r = schema.safeParse(raw);
-  return r.success ? { value: r.data } : { error: err(`invalid arguments: ${r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`) };
 }

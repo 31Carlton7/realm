@@ -105,14 +105,12 @@ async function run() {
   const host = new ComputerUseHost({ available: () => helper.available, request: (m, p) => helper.request(m, p) });
 
   // ---- tier 1: no grant needed -------------------------------------------------------------
-  const grants = await host.handleOp("computerGrants", {});
-  ok("the helper spawns and answers a grant probe", typeof grants.accessibility === "boolean" && typeof grants.screenRecording === "boolean",
-    `accessibility=${grants.accessibility} screenRecording=${grants.screenRecording}`);
-
   const apps = await host.handleOp("computerListApps", {});
-  ok("the app list is real", Array.isArray(apps.apps) && apps.apps.length > 0, `${apps.apps?.length ?? 0} app(s)`);
-  ok("listing apps needs no Accessibility grant", Array.isArray(apps.apps) && apps.apps.length > 0,
-    "NSWorkspace, not the accessibility API — so an ungranted machine can still discover what is running");
+  const grants = { accessibility: apps.accessibility, screenRecording: apps.screenRecording };
+  ok("the helper spawns and reports both grants honestly", typeof grants.accessibility === "boolean" && typeof grants.screenRecording === "boolean",
+    `accessibility=${grants.accessibility} screenRecording=${grants.screenRecording}`);
+  ok("the app list is real, with no Accessibility grant", Array.isArray(apps.apps) && apps.apps.length > 0,
+    `${apps.apps?.length ?? 0} app(s) — NSWorkspace rather than the accessibility API, so an ungranted machine can still discover what is running`);
 
   // The refusals that matter most, observed rather than assumed. Realm is several processes sharing
   // one bundle id, and the helper is a descendant of one of them.
@@ -138,8 +136,8 @@ async function run() {
 
   // The client must survive its child dying — the helper is killable by the OS at any time.
   helper.stop();
-  const afterRestart = await host.handleOp("computerGrants", {});
-  ok("the helper client respawns after the child is stopped", typeof afterRestart.accessibility === "boolean");
+  const afterRestart = await host.handleOp("computerListApps", {});
+  ok("the helper client respawns after the child is stopped", Array.isArray(afterRestart.apps));
 
   // ---- tier 2: needs the Accessibility grant -----------------------------------------------
   if (!grants.accessibility) {

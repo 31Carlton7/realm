@@ -16,9 +16,6 @@ import { z } from "zod";
  */
 export const COMPUTER_PROVIDER_NAME = "realm-computer";
 
-/** Tools that only read. Everything else goes through the permission gate — see the provider. */
-export const COMPUTER_READ_ONLY_TOOLS = ["computer_list_apps", "computer_snapshot"] as const;
-
 /**
  * Refusals the helper reports with a machine-readable tag, because the agent's correct next move
  * differs for each and "it failed" would leave it guessing.
@@ -110,8 +107,6 @@ export type ComputerSnapshotResult = {
 export type ComputerActResult =
   | { ok: true; detail: string }
   | { ok: false; error: string; refused?: ComputerRefusal };
-
-export type ComputerGrants = { accessibility: boolean; screenRecording: boolean };
 
 /**
  * Key chords, in the xdotool spelling the reference tool surface uses: modifiers joined to a key by

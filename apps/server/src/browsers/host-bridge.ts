@@ -35,8 +35,8 @@ export const BROWSER_HOST_OPS = [
  * they answer to different hosts in main and have nothing else in common.
  */
 export const COMPUTER_HOST_OPS = [
-  /** Both TCC grants, queried without prompting for either. */
-  "computerGrants",
+  /** Running apps, plus both TCC grants — the grant state rides along so an empty or failing list is
+   *  never ambiguous between "nothing is running" and "nothing is permitted". */
   "computerListApps",
   "computerSnapshot",
   "computerAct",

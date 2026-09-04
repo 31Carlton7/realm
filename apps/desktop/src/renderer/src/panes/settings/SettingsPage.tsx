@@ -553,6 +553,7 @@ function ComputerAccessSection() {
                     {TCC_STATE_LABEL[r.state]}
                   </span>
                   <span className="settings-row-desc">{r.detail}</span>
+                  {r.askExplanation && <span className="settings-row-desc">{r.askExplanation}</span>}
                 </div>
                 <div className="mac-row-actions">
                   {r.canPrompt && (

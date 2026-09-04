@@ -362,10 +362,16 @@ ipcMain.handle("computer:status", (): ComputerAccessStatus => computerAccessStat
  *  computer-access.ts's closed set — it can never name an arbitrary method for the helper to run. */
 ipcMain.handle("computer:request", async (_e, id: unknown): Promise<ComputerAccessStatus> => {
   if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
-  // Both prompts are raised by the helper, so macOS attributes them to the same bundle that will
-  // later use the grant. Failures are swallowed: the status returned below is the real answer, and a
-  // helper that could not start has already reported itself unavailable.
-  try { await computerHelper.request("requestTrust", { what: id }); } catch { /* status tells the truth */ }
+  if (computerHelper.available) {
+    // Preferred when it exists, because it is the only route to Screen Recording's prompt and it
+    // raises both from one place.
+    try { await computerHelper.request("requestTrust", { what: id }); } catch { /* the re-read below is the real answer */ }
+  } else if (id === "accessibility") {
+    // The `true` is the prompting form, and this branch is the reason `computerAccessRows` lets the
+    // Accessibility row offer to ask on a build with no helper: Electron can raise that one dialog
+    // by itself. Screen Recording has no such API, so its row offers System Settings instead.
+    systemPreferences.isTrustedAccessibilityClient(true);
+  }
   return computerAccessStatus();
 });
 

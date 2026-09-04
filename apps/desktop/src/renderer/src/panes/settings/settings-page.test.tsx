@@ -386,7 +386,7 @@ describe("Permissions tab (macOS TCC)", () => {
   it("says computer control is unavailable when the build has no helper", async () => {
     await openPermissions({ computerAccess: {
       hostName: "Realm", packaged: true, helperAvailable: false,
-      rows: [{ id: "accessibility", label: "Accessibility", state: "granted", detail: "Granted.", canPrompt: false, needsSettings: false }],
+      rows: [{ id: "accessibility", label: "Accessibility", state: "granted", detail: "Granted.", canPrompt: false, needsSettings: false, askExplanation: null }],
     } });
     expect(await screen.findByText(/no accessibility helper/)).toBeInTheDocument();
   });
@@ -394,7 +394,7 @@ describe("Permissions tab (macOS TCC)", () => {
   it("warns that a dev build's grants attach to Electron, not Realm.app", async () => {
     await openPermissions({ computerAccess: {
       hostName: "Electron", packaged: false, helperAvailable: true,
-      rows: [{ id: "accessibility", label: "Accessibility", state: "denied", detail: "Required.", canPrompt: true, needsSettings: true }],
+      rows: [{ id: "accessibility", label: "Accessibility", state: "denied", detail: "Required.", canPrompt: true, needsSettings: true, askExplanation: "macOS will open System Settings." }],
     } });
     expect(await screen.findByText(/attribute these grants to .Electron./)).toBeInTheDocument();
   });

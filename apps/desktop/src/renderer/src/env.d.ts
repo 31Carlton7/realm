@@ -143,6 +143,8 @@ interface ComputerAccessRow {
   canPrompt: boolean;
   /** The switch that actually grants it lives in System Settings — true whenever it is missing. */
   needsSettings: boolean;
+  /** What pressing "Ask macOS" will really do; null when there is nothing to ask for. */
+  askExplanation: string | null;
 }
 interface ComputerAccessStatus {
   rows: ComputerAccessRow[];

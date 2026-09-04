@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { COMPUTER_PROVIDER_NAME, createComputerAgentProvider } from "./agent-tools";
+import { COMPUTER_PROVIDER_NAME } from "@realm/contracts";
+import { createComputerAgentProvider } from "./agent-tools";
 import type { GateResult } from "../browsers/permissions";
 
 /**
@@ -77,11 +78,13 @@ describe("realm-computer provider", () => {
 });
 
 describe("the Accessibility grant", () => {
-  it("tells the user where to grant it rather than reporting a bare failure", async () => {
-    const { provider } = setup({ ops: { computerGrants: { accessibility: false, screenRecording: false } } });
+  it("relays the helper's refusal, which already says where to grant it", async () => {
+    // The helper is the only side that can see the trust state when the walk happens, so it owns
+    // this refusal; the provider must not swallow it into something vaguer.
+    const { provider } = setup({ ops: { computerSnapshot: () => { throw new Error("Realm is not a trusted accessibility client — grant Accessibility in Realm's Settings"); } } });
     const r = await provider.call(ctx, "computer_snapshot", {});
     expect(r.isError).toBe(true);
-    expect(text(r)).toMatch(/Realm's Settings, under Permissions/);
+    expect(text(r)).toMatch(/grant Accessibility in Realm's Settings/);
   });
 
   it("is checked before the app list is believed", async () => {

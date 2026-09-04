@@ -92,7 +92,6 @@ private let FORBIDDEN_BUNDLE_IDS: Set<String> = [
   "com.apple.systempreferences",       // System Settings (and its System Preferences ancestor)
   "com.apple.SecurityAgent",           // the password / Touch ID modal
   "com.apple.security.pboxd",          // Powerbox — the file-grant dialog TCC drives
-  "com.apple.KeychainAccess",
   "com.apple.keychainaccess",
   "com.apple.Terminal",
   "com.googlecode.iterm2",
@@ -214,14 +213,16 @@ private struct Snapshot {
 private final class Snapshots {
   private var byPid: [pid_t: Snapshot] = [:]
 
+  static func staleError(_ snapshotId: String) -> HelperError {
+    HelperError("snapshot \(snapshotId) is no longer current — take a fresh snapshot before acting", code: "stale_snapshot")
+  }
+
   func store(_ snapshot: Snapshot) {
     byPid[snapshot.pid] = snapshot
   }
 
   func resolve(snapshotId: String, index: Int) throws -> Element {
-    guard let snapshot = byPid.values.first(where: { $0.id == snapshotId }) else {
-      throw HelperError("snapshot \(snapshotId) is no longer current — take a fresh snapshot before acting", code: "stale_snapshot")
-    }
+    guard let snapshot = app(snapshotId: snapshotId) else { throw Snapshots.staleError(snapshotId) }
     guard let element = snapshot.elements.first(where: { $0.index == index }) else {
       throw HelperError("no element \(index) in snapshot \(snapshotId)", code: "no_element")
     }
@@ -490,8 +491,13 @@ private final class Input {
   ///
   /// `keyboardSetUnicodeString` on a keycode-0 event, rather than a sequence of real keycodes: it
   /// hands the string to the app directly, so it is layout-independent, needs no dead-key handling,
-  /// and can type characters the physical keyboard has no key for. Text is chunked because a single
-  /// event's payload is bounded and long strings are silently truncated past it.
+  /// and can type characters the physical keyboard has no key for.
+  ///
+  /// Chunked in UTF-16 UNITS, which is what the API counts — not in Characters, which is what a
+  /// reader counts. One emoji is a single Character and two UTF-16 units, so chunking by Character
+  /// would put twice the intended payload in an event for exactly the text most likely to overflow
+  /// it. Chunks are still cut on Character boundaries so a surrogate pair is never split across two
+  /// events, which would deliver two replacement characters instead of the emoji.
   func type(_ text: String) {
     for chunk in chunk(text, 16) {
       let units = Array(chunk.utf16)
@@ -522,12 +528,22 @@ private final class Input {
     event.post(tap: .cghidEventTap)
   }
 
-  private func chunk(_ s: String, _ size: Int) -> [String] {
+  /// Split into pieces of at most `units` UTF-16 units, never splitting a Character. A single
+  /// Character longer than the budget (a flag emoji, a family sequence) still goes out whole rather
+  /// than being cut into meaningless halves.
+  private func chunk(_ s: String, _ units: Int) -> [String] {
     var out: [String] = []
     var current = ""
+    var currentUnits = 0
     for character in s {
+      let width = character.utf16.count
+      if currentUnits > 0, currentUnits + width > units {
+        out.append(current)
+        current = ""
+        currentUnits = 0
+      }
       current.append(character)
-      if current.count >= size { out.append(current); current = "" }
+      currentUnits += width
     }
     if !current.isEmpty { out.append(current) }
     return out
@@ -545,9 +561,9 @@ private final class Input {
 /// an app can decline to come forward, and a modal from a THIRD app can sit on top of it.
 ///
 /// `CGWindowListCopyWindowInfo` returns bounds and owner pids WITHOUT the Screen Recording grant
-/// (only titles and pixels are gated — verified: with the grant off, 12 windows came back with full
-/// bounds and pids while `kCGWindowName` was withheld on most). So this works on a machine that has
-/// granted only Accessibility, which is the configuration to expect.
+/// (only titles and pixels are gated — with the grant off, windows still come back with full bounds
+/// and owner pids while `kCGWindowName` is withheld). So this works on a machine that has granted
+/// only Accessibility, which is the configuration to expect.
 ///
 /// **The layer filter is not optional.** Normal application windows live at layer 0; everything
 /// above is system or floating chrome. Measured on an ordinary desktop:
@@ -687,7 +703,7 @@ private final class Helper {
     let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
     let rows: [[String: Any]] = apps.compactMap { app in
       let bundleId = app.bundleIdentifier ?? ""
-      if isForbidden(bundleId: bundleId, pid: app.processIdentifier) { return nil }
+      if isForbidden(bundleId: bundleId) { return nil }
       return [
         "pid": Int(app.processIdentifier),
         "bundleId": bundleId,
@@ -728,7 +744,7 @@ private final class Helper {
       "truncated": truncated,
       "elements": elements.map(\.wire),
     ]
-    if (params["screenshot"] as? Bool) ?? true, let jpeg = captureApp(pid: pid) {
+    if (params["screenshot"] as? Bool) ?? false, let jpeg = captureApp(pid: pid) {
       result["screenshot"] = jpeg
     }
     return result
@@ -740,14 +756,12 @@ private final class Helper {
     try requireTrust()
     guard let snapshotId = params["snapshotId"] as? String else { throw HelperError("act needs a snapshotId") }
     guard let kind = params["kind"] as? String else { throw HelperError("act needs a kind") }
-    guard let snapshot = snapshots.app(snapshotId: snapshotId) else {
-      throw HelperError("snapshot \(snapshotId) is no longer current — take a fresh snapshot before acting", code: "stale_snapshot")
-    }
+    guard let snapshot = snapshots.app(snapshotId: snapshotId) else { throw Snapshots.staleError(snapshotId) }
     guard let app = NSRunningApplication(processIdentifier: snapshot.pid) else {
       snapshots.forget(pid: snapshot.pid)
       throw HelperError("\(snapshot.appName) has quit since that snapshot was taken", code: "stale_snapshot")
     }
-    try refuseForbidden(bundleId: snapshot.bundleId, pid: snapshot.pid)
+    try refuseForbidden(bundleId: snapshot.bundleId)
 
     let element = try (params["index"] as? Int).map { try snapshots.resolve(snapshotId: snapshotId, index: $0) }
     if let element { try refuseSecureField(element, kind: kind) }
@@ -766,7 +780,7 @@ private final class Helper {
       break
     }
 
-    let point = try focusedPoint(app: app, element: element, params: params)
+    let point = try resolveActionPoint(app: app, element: element, params: params)
     let modifiers = input.flags(for: (params["modifiers"] as? [String]) ?? [])
 
     switch kind {
@@ -849,7 +863,7 @@ private final class Helper {
   /// from the LIVE element (a window that just came forward has usually moved or resized), then
   /// hit-test. An element's coordinates from snapshot time are a hypothesis; the frame read here is
   /// the fact.
-  private func focusedPoint(app: NSRunningApplication, element: Element?, params: [String: Any]) throws -> CGPoint {
+  private func resolveActionPoint(app: NSRunningApplication, element: Element?, params: [String: Any]) throws -> CGPoint {
     try raise(app)
     let point: CGPoint
     if let element {
@@ -904,15 +918,14 @@ private final class Helper {
   /// Refusal is by BUNDLE ID, not by pid: Realm is several processes (main, renderer, GPU, the
   /// server child) and only one of them is this helper's ancestor, but they all share a bundle id and
   /// all of them draw Realm's windows — including the window a permission card appears in.
-  private func isForbidden(bundleId: String, pid: pid_t) -> Bool {
+  private func isForbidden(bundleId: String) -> Bool {
     if FORBIDDEN_BUNDLE_IDS.contains(bundleId) { return true }
-    if pid == getpid() { return true }
     if let selfBundleId, !selfBundleId.isEmpty, bundleId == selfBundleId { return true }
     return false
   }
 
-  private func refuseForbidden(bundleId: String, pid: pid_t) throws {
-    guard isForbidden(bundleId: bundleId, pid: pid) else { return }
+  private func refuseForbidden(bundleId: String) throws {
+    guard isForbidden(bundleId: bundleId) else { return }
     throw HelperError("refused: \(bundleId.isEmpty ? "that app" : bundleId) is never driveable — Realm will not drive itself, System Settings, or a password prompt", code: "forbidden_app")
   }
 
@@ -929,8 +942,8 @@ private final class Helper {
       app = running.first { $0.isActive && $0.activationPolicy == .regular }
       if app == nil { throw HelperError("no app is frontmost") }
     }
-    let resolved = app!
-    try refuseForbidden(bundleId: resolved.bundleIdentifier ?? "", pid: resolved.processIdentifier)
+    guard let resolved = app else { throw HelperError("no such application") }
+    try refuseForbidden(bundleId: resolved.bundleIdentifier ?? "")
     return resolved
   }
 

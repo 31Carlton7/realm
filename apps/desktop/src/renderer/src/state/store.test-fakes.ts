@@ -339,8 +339,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     computerAccess: overrides.computerAccess ?? {
       hostName: "Realm", packaged: true, helperAvailable: true,
       rows: [
-        { id: "accessibility", label: "Accessibility", state: "denied", detail: "Required.", canPrompt: true, needsSettings: true },
-        { id: "screenRecording", label: "Screen Recording", state: "granted", detail: "Optional.", canPrompt: false, needsSettings: false },
+        { id: "accessibility", label: "Accessibility", state: "denied", detail: "Required.", canPrompt: true, needsSettings: true, askExplanation: "macOS will open System Settings." },
+        { id: "screenRecording", label: "Screen Recording", state: "granted", detail: "Optional.", canPrompt: false, needsSettings: false, askExplanation: null },
       ],
     },
     updateStatus: overrides.updateStatus ?? { version: "0.0.1", state: { kind: "disabled", reason: "unsigned" } },
@@ -824,7 +824,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`computerAccessRequest:${id}`);
       await wait(`computerAccessRequest:${id}`);
       if (data.computerGrantAnswers[id] === "granted") {
-        const rows = data.computerAccess.rows.map((r) => (r.id === id ? { ...r, state: "granted" as const, canPrompt: false, needsSettings: false } : r));
+        const rows = data.computerAccess.rows.map((r) => (r.id === id ? { ...r, state: "granted" as const, canPrompt: false, needsSettings: false, askExplanation: null } : r));
         data.computerAccess = { ...data.computerAccess, rows };
       }
       return structuredClone(data.computerAccess);

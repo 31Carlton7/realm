@@ -143,12 +143,6 @@ describe("ComputerUseHost", () => {
     expect(calls).toEqual([]);
   });
 
-  it("reports both grants as absent when the build has no helper, without spawning one", async () => {
-    const { instance, calls } = host({}, { available: false });
-    expect(await instance.handleOp("computerGrants", {})).toEqual({ accessibility: false, screenRecording: false });
-    expect(calls).toEqual([]);
-  });
-
   it("says so plainly when a real op needs a helper this build does not have", async () => {
     const { instance } = host({}, { available: false });
     await expect(instance.handleOp("computerSnapshot", { bundleId: "x" })).rejects.toThrow(/not compiled/);

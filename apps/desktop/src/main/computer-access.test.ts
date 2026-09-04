@@ -18,6 +18,8 @@ describe("computerAccessRows", () => {
   });
 
   it("still offers to ask for Accessibility with no helper — Electron can raise that prompt alone", () => {
+    // Paired with the fallback in main's `computer:request`. If that branch goes, this row's button
+    // becomes one that renders and does nothing.
     expect(rows({ accessibility: false, screenRecording: false }, false).accessibility!.canPrompt).toBe(true);
   });
 
@@ -57,6 +59,14 @@ describe("computerGrantExplanation", () => {
     // dialog only deep-links, so a row that stayed red after "Grant" would look broken.
     expect(computerGrantExplanation("accessibility")).toMatch(/nothing is granted until you do/);
     expect(computerGrantExplanation("screenRecording")).toMatch(/System Settings/);
+  });
+
+  it("rides on the row, so the user reads it before pressing the button", () => {
+    const missing = rows({ accessibility: false, screenRecording: false });
+    expect(missing.accessibility!.askExplanation).toBe(computerGrantExplanation("accessibility"));
+    // Nothing to explain where there is nothing to ask for.
+    expect(rows({ accessibility: true, screenRecording: true }).accessibility!.askExplanation).toBeNull();
+    expect(rows({ accessibility: false, screenRecording: false }, false).screenRecording!.askExplanation).toBeNull();
   });
 });
 

@@ -8,7 +8,7 @@ import {
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
-import { clip, err, ok } from "../mcp/tool-result";
+import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { BrowsersStore } from "../store/browsers";
 import type { McpService } from "../mcp/service";
@@ -242,7 +242,7 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_open: async (d, ctx, rawArgs) => {
-    const args = parse(OpenArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(OpenArgs, rawArgs); if ("error" in args) return args.error;
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
@@ -257,7 +257,7 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_navigate: async (d, ctx, rawArgs) => {
-    const args = parse(NavigateArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(NavigateArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
@@ -274,7 +274,7 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_snapshot: async (d, ctx, rawArgs) => {
-    const args = parse(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const snap = (await d.bridge.call("snapshot", { browserId: row.value.id })) as BrowserSnapshotResult;
     const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; changed-since-last-snapshot lines end with [new].`;
@@ -282,21 +282,21 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_read: async (d, ctx, rawArgs) => {
-    const args = parse(ReadArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(ReadArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const result = (await d.bridge.call("read", { browserId: row.value.id, kind: args.value.kind })) as BrowserReadResult;
     return ok(`${args.value.kind} of browser ${row.value.id}:\n${fenceUntrusted(result.text || "(empty)")}`);
   },
 
   browser_screenshot: async (d, ctx, rawArgs) => {
-    const args = parse(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const shot = (await d.bridge.call("screenshot", { browserId: row.value.id })) as BrowserScreenshotResult;
     return { content: [{ type: "image", data: shot.data, mimeType: shot.mimeType }], isError: false };
   },
 
   browser_act: async (d, ctx, rawArgs) => {
-    const args = parse(ActArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(ActArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_act"); if (limited) return err(limited);
     const title = await describeAct(d, row.value.id, args.value.action);
@@ -317,7 +317,7 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_fill_credential: async (d, ctx, rawArgs) => {
-    const args = parse(FillCredentialArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(FillCredentialArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_fill_credential"); if (limited) return err(limited);
 
@@ -353,7 +353,7 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_download: async (d, ctx, rawArgs) => {
-    const args = parse(DownloadArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(DownloadArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_download"); if (limited) return err(limited);
     const dest = downloadDir(d, ctx.spaceId);
@@ -370,7 +370,7 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_batch: async (d, ctx, rawArgs) => {
-    const args = parse(BatchArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(BatchArgs, rawArgs); if ("error" in args) return args.error;
     // Validate every action BEFORE running any: a batch is a plan, and a half-executed plan whose
     // second half was never valid is the worst of both worlds.
     const validated: { tool: string; arguments: unknown }[] = [];
@@ -417,7 +417,7 @@ const HANDLERS: Record<string, Handler> = {
  */
 async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string, rawArgs: unknown): Promise<CallToolResult> {
   if (tool === "browser_open") {
-    const args = parse(OpenArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(OpenArgs, rawArgs); if ("error" in args) return args.error;
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
@@ -428,7 +428,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     return ok(`Opened browser pane ${opened.browserId} at ${url}.`);
   }
   if (tool === "browser_navigate") {
-    const args = parse(NavigateArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(NavigateArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
@@ -441,7 +441,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     });
   }
   if (tool === "browser_act") {
-    const args = parse(ActArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(ActArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_act"); if (limited) return err(limited);
     const title = await describeAct(d, row.value.id, args.value.action);
@@ -452,7 +452,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     // twenty downloads and batching is the point of supporting it — but a batched step that reached
     // the bridge without re-resolving the destination, or without the constraint check, would be the
     // security bug this function exists to prevent.
-    const args = parse(DownloadArgs, rawArgs); if ("error" in args) return args.error;
+    const args = parseArgs(DownloadArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_download"); if (limited) return err(limited);
     const dest = downloadDir(d, ctx.spaceId);
@@ -579,11 +579,6 @@ async function listCredentials(d: Deps): Promise<BrowserCredential[]> {
   }
 }
 
-
-function parse<S extends z.ZodTypeAny>(schema: S, raw: unknown): { value: z.infer<S> } | { error: CallToolResult } {
-  const r = schema.safeParse(raw);
-  return r.success ? { value: r.data } : { error: err(`invalid arguments: ${r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`) };
-}
 
 /** The browser must exist AND belong to the calling session's space — a browserId from another space
  *  is refused exactly like one that never existed (no cross-space discovery through error shapes). */
