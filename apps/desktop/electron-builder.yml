@@ -27,8 +27,8 @@ mac:
   # Signing (Plan 15 W3): no `identity` here — scripts/pack.mjs adds `-c.mac.identity=null` (skip
   # codesign entirely rather than fail hunting for a cert) exactly when the env carries no
   # CSC_LINK/CSC_NAME. With credentials present the build signs with hardened runtime, and
-  # scripts/notarize.cjs notarizes+staples when APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID
-  # are set too (it no-ops loudly otherwise). Human steps: docs/dev/signing.md. Unsigned
+  # scripts/notarize.cjs notarizes+staples when an APPLE_KEYCHAIN_PROFILE or the three raw APPLE_*
+  # credentials are set too (it no-ops loudly otherwise). Human steps: docs/dev/signing.md. Unsigned
   # consequence (README "Install"): first launch on another Mac needs right-click → Open, or
   # `xattr -cr /Applications/Realm.app` if Gatekeeper reports it damaged.
   hardenedRuntime: true

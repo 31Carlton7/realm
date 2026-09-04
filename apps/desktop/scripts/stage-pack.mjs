@@ -24,6 +24,12 @@ mkdirSync(stage, { recursive: true });
 console.log("[stage-pack] pnpm deploy @realm/server…");
 execFileSync("pnpm", ["--filter", "@realm/server", "deploy", "--legacy", "--prod", join(stage, "server")], { cwd: root, stdio: "inherit" });
 
+// pnpm's legacy deploy leaves an aggregator link for the package being deployed. In the workspace
+// it points back to apps/server, which is outside the staged tree; after electron-builder copies it
+// into Realm.app the same relative link is dangling, and macOS codesign rejects the app. Runtime
+// starts dist/main.js directly, so this self-reference is neither imported nor needed.
+rmSync(join(stage, "server", "node_modules", ".pnpm", "node_modules", "@realm", "server"), { force: true });
+
 // Deploy copies the whole package dir; only dist/, node_modules/ and package.json matter at runtime.
 for (const f of ["src", "scripts", "tsconfig.json", "tsup.config.ts", "vitest.config.ts"]) {
   rmSync(join(stage, "server", f), { recursive: true, force: true });
