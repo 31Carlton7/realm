@@ -121,14 +121,15 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
     setArmed(false);
     if (!picked) return; // cancelled, navigated, or the pane went away — nothing to say
     const state = store?.getState();
-    const sessionId = state ? sessionForPick(state.items, state.layout, state.focusedLeafId) : null;
-    if (!sessionId || !state) {
+    const target = state ? sessionForPick(state.items, state.layout, state.focusedLeafId) : null;
+    if (!target || !state) {
       setNote("Nothing to send this to — open a session pane in this group first.");
       return;
     }
-    // The store answers with the label it actually used, which is not always the one this element
-    // would produce on its own — a second identical button gets disambiguated on the way in.
-    setNote(`Added ${state.addElementChip(sessionId, picked)} to the prompter.`);
+    // Named twice over, because neither name is guessable from here: the store answers with the label
+    // it actually used (a second identical button is disambiguated on the way in), and the session is
+    // said out loud because with two open the chip lands in a prompter the user is not looking at.
+    setNote(`Added ${state.addElementChip(target.refId, picked)} to ${target.title}.`);
   };
 
   return { armed, note, toggle, clearNote: () => setNote(null) };

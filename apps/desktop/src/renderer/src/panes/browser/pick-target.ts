@@ -10,14 +10,16 @@ import { allItems, findLeafOfItem, type Item, type Layout } from "@realm/contrac
  * clicked into"), and otherwise take the first in layout order. Layout order is left-to-right,
  * top-to-bottom, which is where a one-session-plus-one-browser split puts the obvious answer.
  *
+ * The ITEM comes back rather than the session id because the pane has to name where the chip went:
+ * with two sessions open, "added it to the prompter" does not say which prompter.
+ *
  * Null means no session is open in this group at all, and the pane says so rather than picking a
  * session from another group the user cannot see receiving it.
  */
-export function sessionForPick(items: readonly Item[], layout: Layout | null, focusedLeafId: string | null): string | null {
+export function sessionForPick(items: readonly Item[], layout: Layout | null, focusedLeafId: string | null): Item | null {
   if (!layout) return null;
   const byId = new Map(items.map((i) => [i.id, i]));
   const open = allItems(layout).map((id) => byId.get(id)).filter((i): i is Item => i?.kind === "session");
   if (open.length === 0) return null;
-  const focused = open.find((i) => findLeafOfItem(layout, i.id)?.id === focusedLeafId);
-  return (focused ?? open[0]!).refId;
+  return open.find((i) => findLeafOfItem(layout, i.id)?.id === focusedLeafId) ?? open[0]!;
 }

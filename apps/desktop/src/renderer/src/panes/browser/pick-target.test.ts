@@ -14,19 +14,19 @@ const leafFor = (l: Layout, itemId: string): string => {
 describe("sessionForPick", () => {
   it("sends to the only session open beside the browser", () => {
     const items = [sessionItem("i1", "se1"), browserItem()];
-    expect(sessionForPick(items, twoUp("i1", "ib"), null)).toBe("se1");
+    expect(sessionForPick(items, twoUp("i1", "ib"), null)?.refId).toBe("se1");
   });
 
   it("prefers the session in the FOCUSED leaf when several are open", () => {
     const items = [sessionItem("i1", "se1"), sessionItem("i2", "se2")];
     const layout = twoUp("i1", "i2");
-    expect(sessionForPick(items, layout, leafFor(layout, "i2"))).toBe("se2");
+    expect(sessionForPick(items, layout, leafFor(layout, "i2"))?.refId).toBe("se2");
   });
 
   it("falls back to layout order when the focused leaf is the browser's own", () => {
     const items = [sessionItem("i1", "se1"), sessionItem("i2", "se2"), browserItem()];
     const layout = gridPreset("three-col", ["ib", "i1", "i2"]);
-    expect(sessionForPick(items, layout, leafFor(layout, "ib"))).toBe("se1");
+    expect(sessionForPick(items, layout, leafFor(layout, "ib"))?.refId).toBe("se1");
   });
 
   it("answers null when no session is open in the group, so the pane can say so", () => {

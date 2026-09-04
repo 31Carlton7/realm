@@ -504,11 +504,11 @@ describe("BrowserPane — element picker", () => {
     expect(screen.getByLabelText("Pick an element")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("says where the pick went — the chip appears in a pane the user may not be looking at", async () => {
+  it("names the session the pick went to — with two open, \"the prompter\" says nothing", async () => {
     const { f } = await mount();
     await press();
     await act(async () => { f.settlePick(PICKED); });
-    expect(screen.getByRole("status")).toHaveTextContent('Added button "Sign in" to the prompter.');
+    expect(screen.getByRole("status")).toHaveTextContent('Added button "Sign in" to Session.');
   });
 
   it("a pick with nowhere to go says so rather than being dropped", async () => {
