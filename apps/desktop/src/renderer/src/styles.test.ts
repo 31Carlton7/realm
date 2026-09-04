@@ -295,6 +295,31 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(body).toContain("overflow: hidden");
     expect(bodiesFor(".composer-opts > *").join(" ")).toContain("flex: none");
   });
+
+  it("the branch name is capped by the pane it is in, never by a flat number", () => {
+    // The named mutant: put `max-width: 160px` back. Every pane over ~600px then truncates a name it
+    // had hundreds of pixels of room for, and every pane under ~565px has the whole chip amputated by
+    // the clip above — a button sliced down the middle. Neither is visible from here (jsdom has no
+    // layout); composer-bar-live.mjs sweeps the real row and fails on a chip the group has cut.
+    const branch = bodiesFor(".composer-git .git-branch").join(" ");
+    expect(branch).toContain("100cqw");
+    expect(branch).toContain("var(--branch-reserved)");
+    expect(bodiesFor(".composer-git").join(" ")).toContain("--branch-reserved:");
+  });
+
+  it("a narrow pane spends its width on the branch's NAME, dropping the counts that restate it", () => {
+    const noDirty = blockAfter("@container (max-width: 520px)");
+    expect(noDirty).toMatch(/\.git-dirty \{[^}]*display: none/);
+    const noDiff = blockAfter("@container (max-width: 460px)");
+    expect(noDiff).toMatch(/\.git-diff \{[^}]*display: none/);
+    // The reserve has to be restated as each count leaves, or the name goes on being capped against
+    // room the row has just handed back to it — the silent half of this, and the one worth pinning.
+    expect(noDirty).toContain("--branch-reserved:");
+    expect(noDiff).toContain("--branch-reserved:");
+    // Last step: the chip becomes the mark it already carries. Hidden from the eye, not from a
+    // screen reader — the button's whole remaining content would otherwise be an icon.
+    expect(blockAfter("@container (max-width: 360px)")).toMatch(/\.chip-label \{[^}]*clip-path: inset\(50%\)/);
+  });
 });
 
 describe("Plan 9 W1 — the BUI bridge", () => {

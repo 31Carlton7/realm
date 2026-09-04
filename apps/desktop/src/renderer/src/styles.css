@@ -1510,10 +1510,25 @@ button.panel-title:hover { background: var(--rl-hover); }
    chips would eat the overflow the measurement is looking for. */
 .composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
 .composer-opts > * { flex: none; }
-/* The branch group (§3): still one button, still the way into the diff pane. */
-.composer-git { display: inline-flex; align-items: center; gap: 2px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
+/* The branch group (§3): still one button, still the way into the diff pane.
+   `--branch-reserved` is everything of FIXED width the row has to fit before the branch name gets
+   any: the card's margins and padding, the "+" and mode chips, the model chip and the send button,
+   plus whichever of the two number chips is still on the row (the narrow steps below restate it as
+   they drop them). Whatever is left over is the name's. Measured with
+   apps/desktop/scripts/composer-bar-live.mjs, which sweeps the row across pane widths and fails on
+   any chip the group has clipped. It is deliberately the figure for the COLLAPSED row: sized for the
+   wider un-collapsed one, panes between the two would fold the permission chip away to buy the
+   branch pixels it did not need. */
+.composer-git { --branch-reserved: 456px; display: inline-flex; align-items: center; gap: 2px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
 .composer-git:hover .ghost-chip { background: var(--rl-hover); color: var(--rl-text-bright); }
-.composer-git .git-branch { max-width: 160px; }
+/* A branch name is the one thing on this row whose width is user data, and the flat 160px cap it had
+   was wrong at both ends: it truncated a 30-character branch in a 1000px pane with 500px going
+   spare, and in anything under ~565px the chip was amputated outright by the group's clip — a button
+   sliced down the middle, which reads as a rendering fault rather than as a name that did not fit.
+   Capped against the pane instead, the name grows and shrinks with the room it actually has. The
+   chip stays `flex: none` with everything else on the row, so the collapse measurement above still
+   sees a real overflow rather than one this chip quietly absorbed. */
+.composer-git .git-branch { max-width: clamp(0px, calc(100cqw - var(--branch-reserved)), 240px); }
 .composer-git .git-diff { gap: 6px; font-variant-numeric: tabular-nums; }
 .composer-git .diff-add { color: var(--rl-success); }
 .composer-git .diff-del { color: var(--rl-danger); }
@@ -1538,6 +1553,20 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
 .bypass-confirm { color: var(--orange); background: var(--orange-tint); cursor: pointer; }
 .bypass-confirm:hover { background: color-mix(in srgb, var(--orange) 24%, transparent); }
+/* Narrow panes, in the order the row can afford to lose things. Every threshold is the pane width at
+   which the branch would otherwise be squeezed under its floor, read off a measured sweep rather than
+   guessed, and every one is the SESSION PANE's own width — a session in a three-way split is narrow
+   on a wide screen, which no window query would notice.
+   "N changed" goes first: the +/− pair beside it answers the same question and the file count is in
+   the button's own tip, so it is the only thing here that is purely a second telling. The pair
+   follows. Last the name itself gives way to the mark it already carries — a branch nobody can read
+   is a worse chip than a glyph that still opens the diff, and the name stays legible to a screen
+   reader (`.visually-hidden`'s own declarations) and one hover away for everyone else. */
+@container (max-width: 520px) { .composer-git { --branch-reserved: 376px; } .composer-git .git-dirty { display: none; } }
+@container (max-width: 460px) { .composer-git { --branch-reserved: 310px; } .composer-git .git-diff { display: none; } }
+@container (max-width: 360px) {
+  .composer-git .git-branch .chip-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 .composer-actions { display: flex; align-items: center; gap: 4px; flex: none; }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
