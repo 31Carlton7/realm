@@ -61,6 +61,17 @@ describe("notarizeDecision — no-op loudly unless EVERYTHING needed is present"
     expect(notarizeDecision({ CSC_LINK: "x", ...apple })).toEqual({ run: true });
     expect(notarizeDecision({ CSC_NAME: "Developer ID Application: …", ...apple })).toEqual({ run: true });
   });
+
+  it("signed + a stored notarytool Keychain profile runs without raw Apple credentials", () => {
+    expect(notarizeDecision({ CSC_NAME: "Developer ID Application: …", APPLE_KEYCHAIN_PROFILE: "realm-notary" }))
+      .toEqual({ run: true });
+  });
+
+  it("an empty Keychain profile does not bypass the raw credential checks", () => {
+    const d = notarizeDecision({ CSC_NAME: "Developer ID Application: …", APPLE_KEYCHAIN_PROFILE: "" });
+    expect(d.run).toBe(false);
+    expect(d.reason).toContain("APPLE_ID");
+  });
 });
 
 /**

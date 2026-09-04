@@ -1,7 +1,8 @@
 # Signing & notarization
 
-Plan 15 W3. The wiring is fully in place and **entirely env-driven**: a `pnpm dist` with the six
-variables below signs, notarizes and staples with **zero code changes**. Without them it builds the
+Plan 15 W3. The wiring is fully in place and **entirely env-driven**: a `pnpm dist` with a signing
+identity and either notarization strategy below signs, notarizes and staples with **zero code
+changes**. Without them it builds the
 same unsigned app as always and says so loudly (`[pack] signing DISABLED…`, `[notarize] SKIPPED…`).
 Nothing in this repo fakes a signature — an ad-hoc or self-signed workaround would still fail
 Gatekeeper on other Macs while hiding the real state, so the build is honestly unsigned until real
@@ -13,7 +14,7 @@ credentials exist.
 | --- | --- |
 | `apps/desktop/scripts/pack.mjs` | Runs electron-builder. No `CSC_LINK`/`CSC_NAME` in env → appends `-c.mac.identity=null` (skip codesign); otherwise electron-builder signs with the provided identity. |
 | `apps/desktop/electron-builder.yml` | `hardenedRuntime: true` + entitlements (`apps/desktop/resources/entitlements.mac.plist`) — used only when signing actually happens. |
-| `apps/desktop/scripts/notarize.cjs` | electron-builder `afterSign` hook. Notarizes + staples via `@electron/notarize` when `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` are set **and** the build was signed; otherwise prints exactly why it skipped and does nothing. |
+| `apps/desktop/scripts/notarize.cjs` | electron-builder `afterSign` hook. Notarizes + staples via `@electron/notarize` when `APPLE_KEYCHAIN_PROFILE` or the three raw `APPLE_*` credentials are set **and** the build was signed; otherwise prints exactly why it skipped and does nothing. |
 | `electron.vite.config.ts` | Bakes `__REALM_SIGNED_BUILD__` from the same `CSC_*` vars — a signed build's in-app updater gate stops claiming "unsigned" automatically (see `src/main/updater.ts`). |
 
 ## The env vars
@@ -25,7 +26,8 @@ credentials exist.
 | `APPLE_ID` | The Apple ID of the developer account. |
 | `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password for that Apple ID (never the account password). |
 | `APPLE_TEAM_ID` | The 10-character team id. |
-| `CSC_NAME` (alternative) | Instead of `CSC_LINK`: the name of a signing identity already in the login keychain, e.g. `Developer ID Application: Carlton Aikins (XXXXXXXXXX)`. |
+| `APPLE_KEYCHAIN_PROFILE` | Preferred alternative to the three variables above: a profile previously saved by `xcrun notarytool store-credentials`. Secrets remain in Keychain. |
+| `CSC_NAME` (alternative) | Instead of `CSC_LINK`: the certificate subject without the `Developer ID Application:` prefix, e.g. `Carlton Aikins (XXXXXXXXXX)`. |
 
 ## Human steps (one-time)
 
@@ -38,8 +40,9 @@ credentials exist.
 4. **Base64 it**: `base64 -i realm-signing.p12 | pbcopy` → that clipboard is `CSC_LINK`; the export
    password is `CSC_KEY_PASSWORD`. (Skippable: leave the cert in the keychain and set `CSC_NAME`
    instead — then `CSC_LINK`/`CSC_KEY_PASSWORD` aren't needed.)
-5. **App-specific password**: account.apple.com → Sign-In and Security → App-Specific Passwords →
-   generate one (label it "realm notarization") → `APPLE_APP_SPECIFIC_PASSWORD`.
+5. **Notarization credentials**: preferably save the Apple ID, app-specific password, and team once
+   with `xcrun notarytool store-credentials realm-notary`, then set
+   `APPLE_KEYCHAIN_PROFILE=realm-notary`. Alternatively export the three raw `APPLE_*` variables.
 6. **Team id**: developer.apple.com → Membership details → `APPLE_TEAM_ID`.
 7. Put them somewhere `pnpm dist` can see, **never in the repo** — e.g. `~/.config/realm-signing.env`
    (`chmod 600`) with `export CSC_LINK=… CSC_KEY_PASSWORD=… APPLE_ID=… APPLE_APP_SPECIFIC_PASSWORD=… APPLE_TEAM_ID=…`.
