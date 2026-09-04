@@ -724,6 +724,12 @@ export async function describeElement(send: CdpSend, backendNodeId: number): Pro
  * The cost is the look: this is DevTools' box-model highlight with its tag/size tooltip, not Realm's
  * action ring. For a picker that is the better trade — the tooltip names what the box IS, which is
  * the one thing someone choosing an element needs to read before they commit.
+ *
+ * One behaviour worth knowing, because it is invisible until it bites: inspect mode inspects the node
+ * it is HOVERING, which it learns from mouse moves. A press with no move before it finds nothing
+ * highlighted and falls through to the page. A hand always moves before it clicks, so this costs a
+ * user nothing — but a synthetic click that skips the move is not a test of this code
+ * (`element-picker-live.cjs` sends the move for exactly that reason).
  */
 const INSPECT_HIGHLIGHT = {
   showInfo: true,
