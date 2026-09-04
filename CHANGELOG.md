@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.1 — 2026-09-04
+
+This maintenance release replaces the unsigned v0.5.0 downloads with a Developer ID signed and
+Apple-notarized build. The product feature set is unchanged from v0.5.0.
+
+- Signed with Realm's Developer ID Application certificate and notarized through credentials stored
+  securely in macOS Keychain.
+- Fixed the packaged server staging layout so codesign can validate every bundled runtime file.
+
 ## v0.5.0 — 2026-09-04
 
 This release brings the work from every active Realm branch back into one build.
