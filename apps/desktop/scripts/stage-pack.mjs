@@ -49,10 +49,15 @@ if (existsSync(pnpmDir)) {
 // 2. Bundled skills — bundledSkillsDir()'s packaged branch reads <resources>/skills.
 cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });
 
-// 3. ScrollPhase helper (optional: absent when swiftc was unavailable; the app falls back to timers).
-const scrollphase = join(desktop, "native", "bin", "scrollphase");
-if (existsSync(scrollphase)) cpSync(scrollphase, join(stage, "scrollphase"));
-else console.warn("[stage-pack] native/bin/scrollphase not built; packaged app will use timer fallback");
+// 3. Swift helpers (each optional: absent when swiftc was unavailable, and each degrades on its own).
+for (const [binary, missing] of [
+  ["scrollphase", "the app falls back to timer-based scroll phases"],
+  ["axhelper", "the computer-use tools stay unavailable"],
+]) {
+  const built = join(desktop, "native", "bin", binary);
+  if (existsSync(built)) cpSync(built, join(stage, binary));
+  else console.warn(`[stage-pack] native/bin/${binary} not built; ${missing}`);
+}
 
 // 4. App icon where electron-builder's mac.icon points.
 mkdirSync(join(desktop, "build"), { recursive: true });
