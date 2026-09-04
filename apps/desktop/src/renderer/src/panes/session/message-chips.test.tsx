@@ -30,10 +30,8 @@ const bubble = () => document.querySelector(".msg-user")!;
 const chips = () => Array.from(bubble().querySelectorAll(".msg-chip")).map((el) => [el.getAttribute("data-kind"), el.textContent]);
 
 /**
- * Chips in a sent message. The bubble rendered `{b.text}` as one raw text child, so a message that
- * showed chips in the composer arrived as flat grey prose — the chips were a property of typing
- * rather than of the message. These pin that they survive the send, and that drawing them changes
- * nothing about what the record says.
+ * Chips in a sent message: that they survive the send, that they are recognised by the same rules the
+ * composer paints by, and that drawing them changes nothing about what the record says.
  */
 describe("chips in the user message bubble", () => {
   it("draws a mentioned skill as a chip", async () => {

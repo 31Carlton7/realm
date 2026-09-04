@@ -20,6 +20,13 @@ import type { McpGateway } from "../mcp/gateway";
 import type { MemoryService } from "../memory/service";
 import type { MemorySources } from "@realm/contracts";
 
+/**
+ * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
+ * as chips: they never enter the transcript (which keeps what the user typed, chips and all) and are
+ * appended, fenced, to the text the ADAPTER sees — the same split mentions already follow.
+ */
+export type SendMessage = { text: string; attachments: { path: string; mime: string }[]; mentions?: string[]; elements?: ElementChip[] };
+
 const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
 export const TITLE_MAX = 40;
 /** First line of the message, whitespace-collapsed, clipped to TITLE_MAX. */
@@ -60,13 +67,6 @@ type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean 
  * Every adapter event (except deltas) is persisted with a global, monotonically increasing seq (unique across sessions;
  * clients page per session with `afterSeq`) and broadcast as `session.event`.
  */
-/**
- * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
- * as chips: they never enter the transcript (which keeps what the user typed, chips and all) and are
- * appended, fenced, to the text the ADAPTER sees — the same split mentions already follow.
- */
-export type SendMessage = { text: string; attachments: { path: string; mime: string }[]; mentions?: string[]; elements?: ElementChip[] };
-
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
@@ -185,11 +185,12 @@ export class SessionService {
    */
   private resolveMentions(id: string, msg: SendMessage): UserMessage {
     const declared = [...new Set(msg.mentions ?? [])].filter((m) => SkillIdSchema.safeParse(m).success);
-    const base = { text: msg.text + elementContext(msg.elements ?? []), attachments: msg.attachments };
+    const context = elementContext(msg.elements ?? []);
+    const base = { text: msg.text + context, attachments: msg.attachments };
     if (declared.length === 0) return base;
     const tokens = scanMentions(msg.text, declared);
     if (tokens.length === 0) return base;
-    const text = stripMentionAts(msg.text, tokens) + elementContext(msg.elements ?? []);
+    const text = stripMentionAts(msg.text, tokens) + context;
     const s = this.get(id);
     let skill: SkillMention | undefined;
     if (AGENT_SKILL_SUPPORT[s.agentKind] === "injected" && this.live.get(id)?.skillsInjected) {

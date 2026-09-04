@@ -1,10 +1,9 @@
 /**
  * Fencing: wrapping text that is not the user's words so it cannot pretend to be.
  *
- * Shared rather than server-local because two processes now need it. realm-server fences page text
- * on its way into a tool result; the desktop renderer fences the markup of an element the user
- * picked in a browser pane on its way into a prompt. One implementation, so the two can never
- * disagree about what a fence looks like.
+ * Here rather than in realm-server because `elementContext` (chips.ts) composes a fenced block and is
+ * a contract both processes link — the fence has to be reachable from the package that defines it.
+ * realm-server is still the only caller of either function; nothing in the renderer fences anything.
  *
  * The token is random per call so the content cannot close the fence and speak outside it — a static
  * delimiter would be trivially escapable by text that includes the delimiter. `crypto` here is the

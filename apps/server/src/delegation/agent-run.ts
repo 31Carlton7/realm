@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AGENT_SKILL_SUPPORT, AgentKindSchema, AgentRunConstraintsSchema, MAX_DELEGATION_DEPTH, type AgentKind, type Environment } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { fenceAgentOutput } from "../browsers/guards";
+import { fenceAgentOutput } from "@realm/contracts";
 import { cleanupWorktree, errorMessage, resolveAgentKind, resolveEnvironment, resolveSkillSubset, type EnvironmentDeps } from "./dispatch";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok } from "../mcp/tool-result";

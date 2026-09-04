@@ -1,8 +1,3 @@
-// The fence pair lives in contracts: realm-server is no longer its only caller (the desktop
-// renderer fences a picked element's markup on its way into a prompt), and two implementations of
-// a delimiter that exists to be unguessable would be two chances to get it wrong.
-export { fenceAgentOutput, fenceUntrusted } from "@realm/contracts";
-
 /**
  * OAuth-consent detection for agent-driven navigation (Plan 11 W3 hard block). An agent must never
  * steer the pane onto a consent screen — a click on "Authorize" there grants a durable capability no

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AGENT_SUPPORTS_PLAN_MODE, PLAN_PERMISSION_MODE, reviewResultKey, type AgentKind, type Environment, type ReviewResult } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { fenceAgentOutput } from "../browsers/guards";
+import { fenceAgentOutput } from "@realm/contracts";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";

@@ -17,7 +17,8 @@ import type { BrowserHostBridge } from "./host-bridge";
 import type { BrowserPermissionBroker } from "./permissions";
 import { join } from "node:path";
 import type { ProjectsStore } from "../store/projects";
-import { fenceUntrusted, isOAuthConsentUrl } from "./guards";
+import { fenceUntrusted } from "@realm/contracts";
+import { isOAuthConsentUrl } from "./guards";
 
 export const BROWSER_PROVIDER_NAME = "realm-browser";
 

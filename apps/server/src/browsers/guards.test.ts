@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fenceUntrusted, isOAuthConsentUrl } from "./guards";
+import { fenceUntrusted } from "@realm/contracts";
+import { isOAuthConsentUrl } from "./guards";
 
 describe("isOAuthConsentUrl", () => {
   it.each([

@@ -34,18 +34,13 @@ const NO_MENTIONS: readonly string[] = [];
 /**
  * A user message's text, with its chips drawn as chips.
  *
- * This is the one surface where a chip can be what a chip should be. The composer's chips are paint
- * over a textarea whose caret they must not move, so they get a background and nothing else; nothing
- * in a bubble shares a box with a caret, so here a chip is a real pill with padding and a border.
+ * The runs between chips stay PLAIN TEXT, not markdown: the transcript's job is to show what the user
+ * typed, markers and all, and parsing it would change the words in the record. `chipRuns` partitions
+ * rather than rewrites, which is what makes drawing them safe at all.
  *
- * The runs between chips stay PLAIN TEXT, not markdown. The transcript's job is to show what the user
- * typed — markers and all — and parsing it as markdown would change the words in the record. Chips
- * are the exception that proves it: `chipRuns` partitions rather than rewrites, so every character
- * the user sent is still on screen, in order.
- *
- * A mention is recognised against the LIVE library, exactly as the composer recognises it. A skill
- * deleted since the message was sent stops reading as a chip and goes back to being the `@name` the
- * user typed — which is also what the agent was told, since the server could not resolve it either.
+ * A mention is recognised against the LIVE library, exactly as the composer recognises it, so a skill
+ * deleted since the message was sent goes back to being the `@name` the user typed — which is also
+ * what the agent was told, the server having failed to resolve it too.
  */
 function UserText({ text, mentionIds }: { text: string; mentionIds: readonly string[] }) {
   const runs = useMemo(() => chipRuns(text, mentionIds), [text, mentionIds]);

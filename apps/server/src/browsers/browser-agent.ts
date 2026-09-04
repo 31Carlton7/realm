@@ -13,7 +13,7 @@ import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
 import { BROWSER_PROVIDER_NAME } from "./agent-tools";
-import { fenceAgentOutput } from "./guards";
+import { fenceAgentOutput } from "@realm/contracts";
 
 export const REALM_AGENT_PROVIDER_NAME = "realm-agent";
 export const RUN_TOOL_NAME = "browser_agent_run";

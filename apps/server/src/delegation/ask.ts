@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AGENT_MIDTURN_DELIVERY, newId, type Session } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { fenceAgentOutput } from "../browsers/guards";
+import { fenceAgentOutput } from "@realm/contracts";
 import type { ProviderCallContext } from "../mcp/gateway";
 import type { SessionService } from "../sessions/service";
 import type { DelegationEngine } from "./engine";

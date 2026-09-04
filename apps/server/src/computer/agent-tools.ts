@@ -9,7 +9,7 @@ import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { McpService } from "../mcp/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
-import { fenceUntrusted } from "../browsers/guards";
+import { fenceUntrusted } from "@realm/contracts";
 
 /**
  * The `realm-computer` gateway provider: the agent tool surface over the Mac's own applications,

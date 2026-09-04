@@ -312,8 +312,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         )}
         {/* Inline, like every other control here: the native view composites over this pane's
             rectangle, so a picker that opened a panel would open it underneath the page. */}
-        <button className="icon-btn" aria-label="Pick an element" aria-pressed={picker.armed}
-          title="Pick an element to send to the prompter" data-active={picker.armed || undefined}
+        <button className="icon-btn browser-pick" aria-label="Pick an element" aria-pressed={picker.armed}
+          title="Pick an element to send to the prompter"
           disabled={!hasUrl} onClick={() => { void picker.toggle(); }}>
           <Icon name="target" size={14} />
         </button>

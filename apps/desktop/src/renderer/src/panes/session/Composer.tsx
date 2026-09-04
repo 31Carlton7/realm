@@ -515,9 +515,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
     // window level in hotkeys.ts — consuming it here would turn dispatch into a plain send.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); send(); return; }
-    // Backspace behind an element chip takes the whole token. Only with a collapsed selection and no
-    // modifiers: ⌥⌫ and a live selection are the user being specific, and this is the one key where
-    // guessing wider than they asked destroys text they can no longer see.
+    // Backspace behind an element chip takes the whole token (see `deleteElementChipBefore` for why
+    // only that kind). A collapsed selection and no modifiers: ⌥⌫ and a live selection are the user
+    // already being specific, and guessing wider destroys text they can no longer see.
     if (e.key === "Backspace" && !e.metaKey && !e.ctrlKey && !e.altKey && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
       const edit = deleteElementChipBefore(draft, e.currentTarget.selectionStart ?? 0);
       if (edit) { e.preventDefault(); applyEdit(edit); return; }
