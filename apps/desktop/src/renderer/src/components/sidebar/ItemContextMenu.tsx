@@ -6,7 +6,8 @@ import { Menu } from "../Menu";
 export type ItemMenuState = { item: Item; x: number; y: number } | null;
 
 /** Right-click menu shared by pinned tiles and list rows: Pin/Unpin, Archive/Unarchive (sessions only),
- *  Rename (inline, via `onRename`),
+ *  Rename (inline, via `onRename`), Open here (move the pane into the focused one, offered only while
+ *  it is open somewhere else),
  *  Focus/Unfocus (fill the space with this pane, offered only while it is open), Move to group… (when
  *  the space has more than one), Move to space… (sessions only), Close
  *  (layout-only, offered only while the item is open), Delete (destructive, always offered). */
@@ -33,6 +34,8 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
   const spaces = useApp((s) => s.spaces);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const openCheckpoints = useApp((s) => s.openCheckpoints);
+  const openItem = useApp((s) => s.openItem);
+  const focusedLeafId = useApp((s) => s.focusedLeafId);
   const run = useApp((s) => s.run);
   const onContextMenu = useCallback((item: Item) => (e: MouseEvent) => {
     e.preventDefault(); setConfirmingDelete(false); setMovingToSpace(false); setMovingToGroup(false);
@@ -54,6 +57,9 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
   const inActiveGroup = !!holder && !!groups && holder.id === groups.activeGroupId;
   const leafId = holder && menu ? findLeafOfItem(holder.layout, menu.item.id)?.id ?? null : null;
   const isFocused = inActiveGroup && !!leafId && activeGroup(groups!).zoomedLeafId === leafId;
+  // Open in a pane that is not the one on screen: the only case where "here" is not what a plain row
+  // click already does — an unopened row opens into the focused leaf anyway.
+  const elsewhere = !!holder && (!inActiveGroup || leafId !== focusedLeafId);
   const otherGroups = groups?.groups.filter((g) => g.id !== holder?.id) ?? [];
   const element = menu ? (
     <Menu at={{ x: menu.x, y: menu.y }}
@@ -77,6 +83,14 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
                    onSelect: () => run(() => archiveItem(menu.item.id, !menu.item.archived)) }]
               : []),
             { label: "Rename", onSelect: () => onRename(menu.item) },
+            // A plain row click goes TO the pane, which is right when you meant "take me there" and
+            // wrong when you meant "put it in front of me". Naming the focused leaf is what turns
+            // openItem's homing into a move, and it moves across pane groups too — the drag this
+            // replaces could only ever reach the arrangement already on screen.
+            ...(elsewhere
+              ? [{ label: "Open here", title: "Move this pane into the focused one",
+                   onSelect: () => run(() => openItem(menu.item.id, focusedLeafId)) }]
+              : []),
             // The focus gesture the pane bar also carries — offered here because the sidebar row is
             // where you are when you decide a pane deserves the whole space.
             ...(inActiveGroup && leafId

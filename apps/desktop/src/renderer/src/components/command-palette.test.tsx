@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, renderHook, act } from "@testing-library/react";
 import { CommandPalette, matchScore, relTime, usePaletteHotkey } from "./CommandPalette";
 import { StoreContext, createAppStore } from "../state/store";
+import { findLeafOfItem } from "@realm/contracts";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 
 async function mount(over: Parameters<typeof fakeApi>[0] = {}) {
@@ -264,6 +265,23 @@ describe("Open library / Open connections (Plan 12 W4)", () => {
     fireEvent.click(screen.getByRole("option", { name: /Open library/ }));
     await waitFor(() => expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(true));
     expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1);
+  });
+
+  it("the second placement is offered only while the page sits in a pane that is not the focused one", async () => {
+    const { store } = await mount();
+    fireEvent.change(input(), { target: { value: "open library" } });
+    // One entry while the plain open would land in the focused pane anyway — a palette that always
+    // listed both would be advertising a choice with one outcome.
+    expect(options().filter((o) => o!.includes("Open library"))).toHaveLength(1);
+    await act(async () => {
+      await store.getState().openDestinationPage("library-page");
+      await store.getState().splitFocused("row");
+    });
+    const page = store.getState().items.find((i) => i.kind === "library-page")!;
+    const other = store.getState().focusedLeafId!;
+    await waitFor(() => expect(options().filter((o) => o!.includes("Open library"))).toHaveLength(2));
+    fireEvent.click(screen.getByRole("option", { name: /Open library in this pane/ }));
+    await waitFor(() => expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(other));
   });
 
   it("Open connections opens the connections-page item", async () => {

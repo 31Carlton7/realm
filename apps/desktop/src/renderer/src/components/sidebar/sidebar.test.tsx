@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
-import { allItems, type Layout } from "@realm/contracts";
+import { allItems, findLeafOfItem, type Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
@@ -391,6 +391,34 @@ describe("Arc sidebar", () => {
     expect(api.calls).toContain("deleteItem:i2");
   });
 
+  it("THE homing mutant: the row menu's Open here brings the pane INTO the focused leaf", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" })] },
+    });
+    const { store } = await mount(api);
+    await act(async () => { await store.getState().splitFocused("row"); });
+    const other = store.getState().focusedLeafId!;
+    expect(other).not.toBe("L1");
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open here" }));
+    await waitFor(() => expect(findLeafOfItem(store.getState().layout!, "i1")!.id).toBe(other));
+  });
+
+  it("…and it is absent wherever a plain click would land in the same place anyway", async () => {
+    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
+    });
+    await mount(api);
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" })); // open, and its leaf is the focused one
+    expect(screen.queryByRole("menuitem", { name: "Open here" })).not.toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Beta" })); // not open at all: a click opens it here
+    expect(screen.queryByRole("menuitem", { name: "Open here" })).not.toBeInTheDocument();
+  });
+
   it("Delete on an OPEN item removes it from both the layout and the item list", async () => {
     const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
     const api = fakeApi({
@@ -638,6 +666,25 @@ describe("sidebar destinations (Plan 12 W4)", () => {
     fireEvent.click(within(nav).getByRole("button", { name: "Library" }));
     await waitFor(() => expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1));
     expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("library-page"))).toHaveLength(1);
+  });
+
+  it("THE modifier-ignored mutant: ⌥-clicking a destination row brings its page to the focused pane", async () => {
+    const { store } = await mount();
+    const nav = screen.getByRole("navigation", { name: "Destinations" });
+    const row = () => within(nav).getByRole("button", { name: "Library" });
+    // Nothing to choose between yet: the page does not exist, so a plain click already lands here.
+    expect(row()).not.toHaveAttribute("title");
+    fireEvent.click(row());
+    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(true));
+    const page = store.getState().items.find((i) => i.kind === "library-page")!;
+    const home = store.getState().focusedLeafId!;
+    await act(async () => { await store.getState().splitFocused("row"); });
+    const other = store.getState().focusedLeafId!;
+    expect(other).not.toBe(home);
+    // Now the two placements differ, and the row says so before it is used.
+    await waitFor(() => expect(row()).toHaveAttribute("title", expect.stringContaining("⌥")));
+    fireEvent.click(row(), { altKey: true });
+    await waitFor(() => expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(other));
   });
 
   // Moved off the space strip's left slot, which is the profile chip now. Same contract it had there:

@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type Item, type PresetName, type SearchResults, type SearchSnippet } from "@realm/contracts";
+import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type DestinationPageKind, type Item, type PresetName, type SearchResults, type SearchSnippet } from "@realm/contracts";
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../state/no-overlay";
@@ -80,6 +80,15 @@ const PALETTE_WIDTH = 560;
 /** Layout presets moved here from the retired topbar LayoutMenu (spec amendment §A1). */
 const PRESET_LABELS: Record<PresetName, string> = { one: "1-up", "two-col": "2 columns", "three-col": "3 columns", "grid-2x2": "2×2 grid", "grid-3x3": "3×3 grid" };
 
+/** The sidebar destinations, in the nav's own order, paired with the noun their entries read as
+ *  ("Open library"). The kind doubles as the icon name — these pages own the icon of their kind. */
+const DESTINATIONS: [DestinationPageKind, string][] = [
+  ["library-page", "library"],
+  ["connections-page", "connections"],
+  ["notifications-page", "notifications"],
+  ["settings-page", "settings"],
+];
+
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen);
   if (!open) return null;
@@ -123,6 +132,7 @@ function PaletteBody() {
   const openSpacePage = useApp((s) => s.openSpacePage);
   const setSpacesOpen = useApp((s) => s.setSpacesOpen);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
+  const destinationPageElsewhere = useApp((s) => s.destinationPageElsewhere);
   const openProfilePage = useApp((s) => s.openProfilePage);
   const openActivity = useApp((s) => s.openActivity);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
@@ -254,12 +264,15 @@ function PaletteBody() {
       // The active space's PROFILE page (Plan 14 W2) — same gate: the page needs a layout to live in.
       ...(activeSpaceId ? [act("open-profile", "Open profile", "profile-page", () => run(() => openProfilePage()))] : []),
       // The sidebar destinations (W4) — gated like "Open space": the page needs a layout to live in.
-      ...(activeSpaceId ? [
-        act("open-library", "Open library", "library-page", () => run(() => openDestinationPage("library-page"))),
-        act("open-connections", "Open connections", "connections-page", () => run(() => openDestinationPage("connections-page"))),
-        act("open-notifications", "Open notifications", "notifications-page", () => run(() => openDestinationPage("notifications-page"))),
-        act("open-settings", "Open settings", "settings-page", () => run(() => openDestinationPage("settings-page"))),
-      ] : []),
+      // Each carries a second entry while — and only while — its page sits in a pane that is not the
+      // focused one, which is the one situation where the placement changes the outcome. That is the
+      // same choice the sidebar row spells ⌥-click, so neither surface can do what the other cannot.
+      ...(activeSpaceId ? DESTINATIONS.flatMap(([kind, noun]) => [
+        act(`open-${noun}`, `Open ${noun}`, kind, () => run(() => openDestinationPage(kind))),
+        ...(destinationPageElsewhere(kind)
+          ? [act(`open-${noun}-here`, `Open ${noun} in this pane`, kind, () => run(() => openDestinationPage(kind, "here")))]
+          : []),
+      ]) : []),
       // Global (every space's calls, W7) — unlike the space page above, it never needs an activeSpaceId.
       act("mcp-activity", "MCP Activity", "tool", () => run(() => openActivity())),
       act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), <kbd>⌘\</kbd>),
@@ -284,7 +297,7 @@ function PaletteBody() {
     return [...open, ...activeRest, ...others, ...actions, ...themes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, drafts, dispatchDraft,
       selectSpace, openItem, newTerminal, newBrowser, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
-      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
+      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, destinationPageElsewhere, openProfilePage, openActivity, setSpacesOpen, run,
       groups, zoomedLeaf, activatePaneGroup, newPaneGroup, toggleFocusPane]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked

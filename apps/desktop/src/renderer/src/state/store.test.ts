@@ -2384,6 +2384,46 @@ describe("openDestinationPage", () => {
     await store.getState().openDestinationPage("library-page");
     expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
   });
+
+  it("THE homing mutant: a `here` placement MOVES an open page into the focused pane, where a plain open goes to it", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openDestinationPage("library-page");
+    const page = store.getState().items.find((i) => i.kind === "library-page")!;
+    const home = store.getState().focusedLeafId!;
+    await store.getState().splitFocused("row");
+    const other = store.getState().focusedLeafId!;
+    expect(other).not.toBe(home);
+
+    // Plain: one page per space, so this is "go there" — the focus moves to the pane, not the pane
+    // to the focus, and the empty half of the split stays empty.
+    await store.getState().openDestinationPage("library-page");
+    expect(store.getState().focusedLeafId).toBe(home);
+    expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(home);
+
+    store.getState().focusLeaf(other);
+    await store.getState().openDestinationPage("library-page", "here");
+    expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(other);
+    // Still one page: a placement is about WHERE it lands, never about how many there are.
+    expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1);
+  });
+
+  it("destinationPageElsewhere is the gate both surfaces read — false whenever the placement would change nothing", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    expect(store.getState().destinationPageElsewhere("library-page")).toBe(false); // no page: a plain open already lands here
+    await store.getState().openDestinationPage("library-page");
+    expect(store.getState().destinationPageElsewhere("library-page")).toBe(false); // the page IS the focused pane
+    await store.getState().splitFocused("row");
+    expect(store.getState().destinationPageElsewhere("library-page")).toBe(true);  // now it is somewhere to be brought FROM
+    const page = store.getState().items.find((i) => i.kind === "library-page")!;
+    await store.getState().closeFromLayout(page.id);
+    // The item outlives its pane; with no pane holding it, both placements open one.
+    expect(store.getState().items.some((i) => i.id === page.id)).toBe(true);
+    expect(store.getState().destinationPageElsewhere("library-page")).toBe(false);
+  });
 });
 
 describe("openProfilePage (Plan 14 W2)", () => {

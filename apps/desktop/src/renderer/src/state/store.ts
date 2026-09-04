@@ -366,6 +366,19 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   "profile-page": "Profile",
 };
 
+/**
+ * Where an activated destination page lands.
+ *
+ * `reuse` is the plain click: one page per space, so a second activation goes to the pane that already
+ * holds it — including one in a pane group that is not on screen, which the plain click will switch to.
+ * `here` overrides that homing and moves the page into the focused pane instead.
+ *
+ * They only differ once the page is open somewhere else. A page that does not exist yet is created in
+ * the focused pane under either placement, which is why the surfaces offering `here` gate on
+ * `destinationPageElsewhere` rather than advertising a choice that has one outcome.
+ */
+export type DestinationPlacement = "reuse" | "here";
+
 /** Feed page size (W5). Modest: the page is a glance at what waited, not an archive browser —
  *  "Load more" pages further on the server's cursor. */
 export const NOTIFICATIONS_PAGE = 50;
@@ -1090,8 +1103,13 @@ export type AppState = {
   setProfilePageTab(profileId: string, tab: ProfilePageTab): void;
   /** Open (or focus) a sidebar destination page (Plan 12 W4: Library, Connections) in the ACTIVE
    *  space's layout. One page item per space, deduped by KIND — the refId is the kind's well-known
-   *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from. */
-  openDestinationPage(kind: DestinationPageKind): Promise<void>;
+   *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from.
+   *  Returns the page item's id — null only when there is no active space to put it in — which is what
+   *  a caller needs to then address something INSIDE the page it just opened. */
+  openDestinationPage(kind: DestinationPageKind, placement?: DestinationPlacement): Promise<string | null>;
+  /** True when `kind`'s page is open in a pane that is not the focused one: the only case in which a
+   *  `here` placement does something the plain click does not. */
+  destinationPageElsewhere(kind: DestinationPageKind): boolean;
   /** Read both Settings-page preference keys into `settingsPrefs` (Plan 12 W6). Junk in a row —
    *  an unknown category, a mode PERMISSION_MODES doesn't name — is dropped/defaulted here, once,
    *  so the page never renders a state the server would not honor. */
@@ -2891,20 +2909,42 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const created = await api.createItem(spaceId, "space-page", "Overview", spaceId);
         await adoptItem(spaceId, created.id, null);
       },
-      async openDestinationPage(kind) {
+      async openDestinationPage(kind, placement = "reuse") {
         // The page lives in the ACTIVE space's layout — that space is the vantage its scope groups
         // ("This space" / "From <profile>" / "Everywhere") are computed from. No active space
         // (mid-boot) → no-op, openSpacePage's guard.
         const spaceId = get().activeSpaceId;
-        if (!spaceId) return;
+        if (!spaceId) return null;
         // One page per space, deduped by KIND (`items` only ever holds the active space's items).
         // The named W4 mutant: a second click accumulating a second Library pane.
         const existing = get().items.find((i) => i.kind === kind);
-        if (existing) { await get().openItem(existing.id); return; }
+        if (existing) {
+          // Naming the focused leaf is what makes openItem MOVE the pane; passing null is what makes it
+          // home to wherever the pane already sits. With nothing focused there is no "here" to mean, so
+          // the null falls through to homing on its own rather than needing a second branch.
+          await get().openItem(existing.id, placement === "here" ? get().focusedLeafId : null);
+          return existing.id;
+        }
         // Static title (the page header owns the live copy); refId is the kind's well-known sentinel —
         // there is no row behind these pages, and identity is really the kind (see PAGE_REF_IDS).
         const created = await api.createItem(spaceId, kind, DESTINATION_PAGE_TITLES[kind], PAGE_REF_IDS[kind]);
         await adoptItem(spaceId, created.id, null);
+        return created.id;
+      },
+      destinationPageElsewhere(kind) {
+        const it = get().items.find((i) => i.kind === kind);
+        if (!it) return false; // no page yet — a plain click already creates it in the focused pane
+        const gs = get().groups;
+        if (!gs) {
+          const leaf = findLeafOfItem(get().layout ?? emptyLayout(), it.id);
+          return leaf !== null && leaf.id !== get().focusedLeafId;
+        }
+        const holder = groupOfItem(gs, it.id);
+        if (!holder) return false; // the item exists but no pane holds it: both placements would open one
+        // A page held by a group that is not on screen is elsewhere by the strongest reading — the plain
+        // click swaps the whole arrangement to reach it.
+        if (holder.id !== gs.activeGroupId) return true;
+        return findLeafOfItem(holder.layout, it.id)?.id !== get().focusedLeafId;
       },
       setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
       async openProfilePage(tab) {

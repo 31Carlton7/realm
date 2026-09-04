@@ -60,7 +60,8 @@ export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }
  *  SPACE group (everything else): no x, no glyph, just click-to-open. "archived" = the shelf: no x, no
  *  glyph, and the row's click RESTORES before it opens (see below). Row clicks call openItem either
  *  way, but the store treats an already-open item as "go there" (focus its pane, no layout change);
- *  only SPACE rows actually open into the focused leaf. Moving an open item is drag-only. */
+ *  only SPACE rows actually open into the focused leaf. Moving an open item is a drag, or the row
+ *  menu's "Open here". */
 export function ItemList({ items, variant, layout: groupLayout }: {
   items: Item[]; variant: "open" | "space" | "archived";
   /** The layout the quadrant glyph is drawn against — the owning GROUP's tree, which for a group that
