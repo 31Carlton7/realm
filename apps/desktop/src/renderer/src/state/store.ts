@@ -2507,7 +2507,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const pending = get().pendingAttachments[sessionId] ?? [];
         // Read synchronously BEFORE anything clears — sendMessage's own idiom, same reason.
         const mentions = mentionIds(text, new Set([...(get().draftMentions[sessionId] ?? []), ...mentionableIds(sessionId)]));
-        const elements = keepLiveChips(text, get().draftElements[sessionId] ?? []);
+        // Read straight off the sidecar, unlike `sendMessage`: there the text is the PROMPTER's and
+        // may already have moved on, but here it is this draft trimmed, and `setDraft` has kept the
+        // sidecar in step with it on every keystroke.
+        const elements = get().draftElements[sessionId] ?? [];
         const { session, itemId } = await api.createSession({
           spaceId: source.spaceId, agentKind: source.agentKind, environmentId: source.environmentId,
           model: source.model, effort: source.effort, permissionMode: source.permissionMode,
