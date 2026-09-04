@@ -2357,6 +2357,15 @@ describe("element chips in the draft", () => {
     expect(a.sent[0]).toEqual({ id: "se1", text: "never mind", attachments: [] });
   });
 
+  it("⌘⇧↩ carries the picked elements into the dispatched session, and leaves none behind", async () => {
+    const { a, store } = await ready();
+    store.getState().addElementChip("se1", PICKED);
+    await store.getState().dispatchDraft("se1");
+    expect(a.sent[0]).toMatchObject({ text: '@[button "Sign in"]', elements: [{ label: 'button "Sign in"', element: PICKED }] });
+    expect(a.sent[0]!.id).not.toBe("se1"); // the dispatch went to the NEW session
+    expect(store.getState().draftElements.se1).toEqual([]);
+  });
+
   it("deleting the session's item drops its picked elements with the draft", async () => {
     const { store } = await ready();
     store.getState().addElementChip("se1", PICKED);
