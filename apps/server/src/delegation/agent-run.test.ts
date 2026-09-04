@@ -679,6 +679,24 @@ describe("agent_start / agent_wait — several agents at once", () => {
     expect(text(collected).match(/did NOT finish \(cancelled\)/g)).toHaveLength(3);
   }, 30_000);
 
+  it("a blocking agent_run finishing does NOT evict a detached sibling's uncollected report", async () => {
+    // `end(parent, run)` must remove ONE run. THE MUTANT: ignore the argument and delete the parent's
+    // whole entry — which is what every pre-parallel caller meant — and the blocking run's `finally`
+    // silently throws away a sibling's report that nobody has collected yet. The handle then reads as
+    // unknown, and the work of a whole agent is lost with no error anywhere.
+    const { spaceId, parentId } = await boot({ script: longScript(12), delayMs: 60, caps: { perParent: 3 } });
+    const detached = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "detached sibling" })));
+    const blocking = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "blocking one" });
+    expect(blocking.isError).toBe(false);
+
+    // The sibling is still ours — running or finished, but never forgotten.
+    expect(text(app.agentRuns.status({ sessionId: parentId, spaceId }))).toContain(detached);
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [detached], timeoutMs: 30_000 });
+    expect(collected.isError).toBe(false);
+    expect(text(collected)).toContain(detached);
+    expect(text(collected)).toContain("step 11");
+  }, 40_000);
+
   it("a detached child is invisible to hasRun — the parent is free to browse and to be asked", async () => {
     // Detached means "not blocked". Counting it as blocked would make agent_start strictly worse than
     // agent_run: fire one and the parent loses the browser agent and peer questions for its duration.
