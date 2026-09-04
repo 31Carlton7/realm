@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contrast, hexToOklch, type Oklch } from "./oklch";
-import { CONTRAST_FLOOR, THEMES, THEME_VARS, resolveMode, themeModes, themeSwatches, themeVars } from "./themes";
+import { CONTRAST_FLOOR, THEMES, THEME_VARS, deriveVars, resolveMode, themeModes, themeSwatches, themeVars } from "./themes";
 import type { Mode } from "./theme";
 
 const parse = (value: string): Oklch => {
@@ -144,6 +144,26 @@ describe(`every theme clears the floor (ink ${CONTRAST_FLOOR.ink}:1, ink-2 ${CON
         }
       }
     });
+
+  it("the budget REFUSES rather than over-lifting — which is what makes a stated hue vendored", () => {
+    // Every syntax seed in this file is the value its upstream publishes, and `lift` is what makes
+    // that safe: it corrects along lightness and stops at LIFT_BUDGET. If it kept going instead,
+    // every published hue would "clear" at whatever distance from the published colour it took, and
+    // the provenance in the comments would be decoration.
+    //
+    // Nord is the case that proves it. Its spec comment is nord3 (#4c566a), which measures 1.39:1 on
+    // the surface derived from nord0 and needs 0.160 of lightness — past the budget. The palette
+    // therefore states #616e88, the tone Nord's own editor ports adopted, which needs 0.074.
+    const nord = THEMES.find((t) => t.name === "nord")!.dark!;
+    const spec = deriveVars({ ...nord, syntax: { ...nord.syntax, comment: "#4c566a" } }, "dark");
+    const asShipped = deriveVars(nord, "dark");
+    const onSurface = (v: Record<string, string>) => contrast(parse(v["--syn-comment"]!), parse(v["--surface"]!));
+    // THE runaway-lift mutant: drop the budget from `lift`'s loop bound. This flips green, nord3
+    // "works", and the one seed in the set that upstream's own value cannot carry stops being
+    // visible to anyone reading the file.
+    expect(onSurface(spec), "nord3 must NOT be rescued past the budget").toBeLessThan(CONTRAST_FLOOR.syntax);
+    expect(onSurface(asShipped), "the value the palette actually states does clear").toBeGreaterThanOrEqual(CONTRAST_FLOOR.syntax);
+  });
 
   it("the floor can actually fail — a ground and an ink half a step apart do not clear it", () => {
     // Without this the suite above proves only that the derivation is self-consistent. `--ink` is

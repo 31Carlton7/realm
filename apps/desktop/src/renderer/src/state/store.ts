@@ -1985,7 +1985,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // while dragging is a guessing game — but a drag fires on every step, and the settings table
         // does not need forty rows of one gesture. Same debounce the layout persist uses.
         if (groundAlphaTimer) clearTimeout(groundAlphaTimer);
-        groundAlphaTimer = setTimeout(() => { groundAlphaTimer = null; void api.setSetting(SETTING_GROUND_ALPHA, next); }, PERSIST_DEBOUNCE_MS);
+        // Through `run`, like the layout persist above: this fires long after the caller's promise
+        // settled, so a failed write has nowhere else to surface and would otherwise be swallowed.
+        groundAlphaTimer = setTimeout(() => { groundAlphaTimer = null; get().run(() => api.setSetting(SETTING_GROUND_ALPHA, next)); }, PERSIST_DEBOUNCE_MS);
       },
       async setSwipeInvert(v) {
         set({ swipeInvert: v });

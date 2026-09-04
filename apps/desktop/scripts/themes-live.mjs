@@ -45,13 +45,13 @@ const SYNTAX_FLOOR = 2.7;
 /** Every palette, and the modes each one has. Read off THEMES; a theme added there and not here is
  *  simply not screenshotted, which check 5 catches. */
 const PALETTES = [
-  ["Realm", ["light", "dark"]],
-  ["One", ["light", "dark"]],
-  ["Monokai", ["dark"]],
-  ["Dracula", ["dark"]],
-  ["Nord", ["dark"]],
-  ["Solarized", ["light", "dark"]],
-  ["Gruvbox", ["light", "dark"]],
+  ["Realm", "realm", ["light", "dark"]],
+  ["One", "one", ["light", "dark"]],
+  ["Monokai", "monokai", ["dark"]],
+  ["Dracula", "dracula", ["dark"]],
+  ["Nord", "nord", ["dark"]],
+  ["Solarized", "solarized", ["light", "dark"]],
+  ["Gruvbox", "gruvbox", ["light", "dark"]],
 ];
 const SYNTAX_ROLES = ["keyword", "string", "number", "title", "type", "attr", "comment"];
 
@@ -255,16 +255,19 @@ async function main() {
 
   const grounds = new Map();
   const shots = [];
-  for (const [label, modes] of PALETTES) {
+  for (const [label, name, modes] of PALETTES) {
     await evalIn(c, `__live.menu(${JSON.stringify(`Palette: ${label}`)})`);
     await sleep(250);
     for (const mode of modes) {
       await evalIn(c, `__live.menu(${JSON.stringify(`Theme: ${mode[0].toUpperCase()}${mode.slice(1)}`)})`);
       await sleep(300);
       const p = await evalIn(c, `__live.probe()`);
-      const tag = `${p.theme}-${p.mode}`;
+      const tag = `${name}-${mode}`;
+      // BOTH halves of the selection, not just the mode. `tag` is built from what was ASKED for, so
+      // a menu click that silently missed fails here by name instead of quietly relabelling every
+      // check below it with whatever palette was still on.
       check(`${tag}: the menu selection is the palette the window is actually wearing`,
-        p.mode === mode, { asked: mode, got: p.mode });
+        p.theme === name && p.mode === mode, { asked: `${name}/${mode}`, got: `${p.theme}/${p.mode}` });
 
       // 2. The token chain, end to end, through the real cascade.
       for (const role of SYNTAX_ROLES) {
@@ -306,9 +309,11 @@ async function main() {
   await evalIn(c, `__live.menu("Palette: Realm")`);
   await sleep(300);
   const back = await evalIn(c, `__live.probe()`);
-  // tokens.css: dark --canvas is oklch(0.231 0.004 264.487), light is oklch(0.961 0.002 247.84).
+  // tokens.css: dark --canvas is oklch(0.231 0.004 264.487) = #1c1d1f, light is
+  // oklch(0.961 0.002 247.84) = #f1f2f3. Tolerance 1, not 2 — at 2 a wrong expectation still passes,
+  // which is how the previous #1c1d20 went unnoticed.
   check("returning to Realm restores the shipped palette, not the last theme's",
-    near(back.canvas, back.mode === "dark" ? [28, 29, 32] : [241, 242, 243], 2), back.canvas);
+    near(back.canvas, back.mode === "dark" ? [28, 29, 31] : [241, 242, 243], 1), back.canvas);
 
   const errs = c.events.filter((e) => !e.includes("Autofill"));
   check("no renderer console errors", errs.length === 0, errs.slice(0, 5));

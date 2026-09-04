@@ -22,6 +22,12 @@ import type { Mode } from "./theme";
  *  The border ramp, the shadow stacks and the scrims state nothing here on purpose: tembo's ramps are
  *  ALPHA overlays over whatever ground they land on, so they already follow a repainted surface. That
  *  is the property that makes a twelve-value seed enough. */
+/** Every hue below is the value its upstream PUBLISHES, not a value tuned to clear Realm's floors.
+ *  It can be, because `lift` corrects a stated hue along lightness until it clears — and refuses to
+ *  move it further than `LIFT_BUDGET`, which is what makes "vendored" mean something. Hand-brightening
+ *  a seed to clear the floor routes around that guarantee: it clears silently, at whatever distance
+ *  from the published colour it took, and the budget never gets to object. The one seed here that
+ *  upstream's own value cannot carry is named where it is written. */
 export type SyntaxSeed = {
   /** Comments and doc tags. The one syntax colour allowed to sit near the ground. */
   comment: string;
@@ -414,12 +420,12 @@ export const THEMES: readonly ThemeDef[] = [
     dark: {
       bg: "#282c34", ink: "#d7dae0", accent: "#61afef",
       green: "#98c379", orange: "#d19a66", red: "#e06c75",
-      syntax: { comment: "#7f848e", keyword: "#c678dd", string: "#98c379", number: "#d19a66", title: "#61afef", type: "#e5c07b", attr: "#56b6c2" },
+      syntax: { comment: "#5c6370", keyword: "#c678dd", string: "#98c379", number: "#d19a66", title: "#61afef", type: "#e5c07b", attr: "#56b6c2" },
     },
     light: {
       bg: "#fafafa", ink: "#383a42", accent: "#4078f2",
       green: "#50a14f", orange: "#986801", red: "#e45649",
-      syntax: { comment: "#8e8f96", keyword: "#a626a4", string: "#50a14f", number: "#986801", title: "#4078f2", type: "#c18401", attr: "#0184bc" },
+      syntax: { comment: "#a0a1a7", keyword: "#a626a4", string: "#50a14f", number: "#986801", title: "#4078f2", type: "#c18401", attr: "#0184bc" },
     },
   },
   {
@@ -435,7 +441,7 @@ export const THEMES: readonly ThemeDef[] = [
     dark: {
       bg: "#272822", ink: "#f8f8f2", accent: "#f92672",
       green: "#a6e22e", orange: "#fd971f", red: "#f92672",
-      syntax: { comment: "#8f907e", keyword: "#f92672", string: "#e6db74", number: "#ae81ff", title: "#a6e22e", type: "#66d9ef", attr: "#a6e22e" },
+      syntax: { comment: "#88846f", keyword: "#f92672", string: "#e6db74", number: "#ae81ff", title: "#a6e22e", type: "#66d9ef", attr: "#a6e22e" },
     },
     light: null,
   },
@@ -449,15 +455,19 @@ export const THEMES: readonly ThemeDef[] = [
     dark: {
       bg: "#282a36", ink: "#f8f8f2", accent: "#bd93f9",
       green: "#50fa7b", orange: "#ffb86c", red: "#ff5555",
-      syntax: { comment: "#7f8ec0", keyword: "#ff79c6", string: "#f1fa8c", number: "#bd93f9", title: "#50fa7b", type: "#8be9fd", attr: "#50fa7b" },
+      syntax: { comment: "#6272a4", keyword: "#ff79c6", string: "#f1fa8c", number: "#bd93f9", title: "#50fa7b", type: "#8be9fd", attr: "#50fa7b" },
     },
     light: null,
   },
   {
     /* Nord — arcticicestudio/nord, MIT © Sven Greb. Dark only: Nord is specified as one palette
      * (Polar Night grounds, Snow Storm ink), and the "Nord Light" builds in the wild are community
-     * inversions rather than upstream. Comments are #616e88, the brightened value Nord's own
-     * editor ports moved to — nord3 (#4c566a) does not clear the contrast floor on nord0. */
+     * inversions rather than upstream.
+     * The one seed in this file that is not the value its spec publishes: comments are #616e88, the
+     * brightened tone Nord's own editor ports adopted, because nord3 (#4c566a) measures 1.39:1 on
+     * the surface derived from nord0 and needs 0.160 of lightness to clear the syntax floor — past
+     * LIFT_BUDGET, which is the mechanism refusing to pretend and saying so. #616e88 needs 0.074 and
+     * is corrected in the ordinary way. */
     name: "nord",
     label: "Nord",
     credit: "Nord — MIT © Sven Greb",
@@ -465,18 +475,18 @@ export const THEMES: readonly ThemeDef[] = [
     dark: {
       bg: "#2e3440", ink: "#eceff4", accent: "#88c0d0",
       green: "#a3be8c", orange: "#d08770", red: "#bf616a",
-      syntax: { comment: "#7c8aa5", keyword: "#81a1c1", string: "#a3be8c", number: "#b48ead", title: "#88c0d0", type: "#8fbcbb", attr: "#d8dee9" },
+      syntax: { comment: "#616e88", keyword: "#81a1c1", string: "#a3be8c", number: "#b48ead", title: "#88c0d0", type: "#8fbcbb", attr: "#d8dee9" },
     },
     light: null,
   },
   {
     /* Solarized — altercation/solarized, MIT © Ethan Schoonover. Both faces, which is the whole point
      * of Solarized: one set of accent hues over two symmetric grounds.
-     * Two deviations from the reference, both forced by the contrast floor and both in the same
-     * direction — Solarized's own text tones are tuned for a code editor, not for UI chrome:
-     *   - `ink` is base2/base02 rather than base0/base00, so primary UI text clears 7:1.
-     *   - the LIGHT comment is #7a8a8a, one step down from base1 (#93a1a1), which reads 2.46:1 on
-     *     base3 and is the one value in this set that could not be vendored as written. */
+     * One deviation, and it is the one `lift` cannot make: `ink` is base2/base02 rather than
+     * base0/base00. Solarized's text tones are an editor foreground, and as UI chrome base0 measures
+     * 3.16:1 and base00 3.54:1 against the grounds this palette derives — under the 4.5:1 that
+     * primary text is held to. `--ink` is deliberately the one seed nothing corrects, so a palette
+     * whose foreground will not carry chrome has to say which tone it borrowed instead. */
     name: "solarized",
     label: "Solarized",
     credit: "Solarized — MIT © Ethan Schoonover",
@@ -484,12 +494,12 @@ export const THEMES: readonly ThemeDef[] = [
     dark: {
       bg: "#002b36", ink: "#eee8d5", accent: "#268bd2",
       green: "#859900", orange: "#cb4b16", red: "#dc322f",
-      syntax: { comment: "#657b83", keyword: "#859900", string: "#2aa198", number: "#d33682", title: "#268bd2", type: "#b58900", attr: "#6c71c4" },
+      syntax: { comment: "#586e75", keyword: "#859900", string: "#2aa198", number: "#d33682", title: "#268bd2", type: "#b58900", attr: "#6c71c4" },
     },
     light: {
       bg: "#fdf6e3", ink: "#073642", accent: "#268bd2",
       green: "#859900", orange: "#cb4b16", red: "#dc322f",
-      syntax: { comment: "#7a8a8a", keyword: "#859900", string: "#2aa198", number: "#d33682", title: "#268bd2", type: "#b58900", attr: "#6c71c4" },
+      syntax: { comment: "#93a1a1", keyword: "#859900", string: "#2aa198", number: "#d33682", title: "#268bd2", type: "#b58900", attr: "#6c71c4" },
     },
   },
   {
@@ -503,7 +513,7 @@ export const THEMES: readonly ThemeDef[] = [
     dark: {
       bg: "#282828", ink: "#ebdbb2", accent: "#83a598",
       green: "#b8bb26", orange: "#fe8019", red: "#fb4934",
-      syntax: { comment: "#a89984", keyword: "#fb4934", string: "#b8bb26", number: "#d3869b", title: "#fabd2f", type: "#8ec07c", attr: "#83a598" },
+      syntax: { comment: "#928374", keyword: "#fb4934", string: "#b8bb26", number: "#d3869b", title: "#fabd2f", type: "#8ec07c", attr: "#83a598" },
     },
     light: {
       bg: "#fbf1c7", ink: "#3c3836", accent: "#076678",
