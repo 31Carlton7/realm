@@ -36,6 +36,14 @@ const os = require("node:os");
 const { execFileSync } = require("node:child_process");
 
 const repoRoot = path.resolve(__dirname, "../../..");
+
+/** The contract's forbidden list, read out of its source: this script is CommonJS and cannot import
+ *  a TypeScript module. `computer-access.test.ts` is what holds this copy to the helper's own. */
+const FORBIDDEN = (() => {
+  const src = fs.readFileSync(path.join(repoRoot, "packages/contracts/src/computer-use.ts"), "utf8");
+  const start = src.indexOf("COMPUTER_FORBIDDEN_BUNDLE_IDS = [");
+  return new Set([...src.slice(start, src.indexOf("\n]", start)).matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+})();
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-computer-use-live-"));
 const OVERALL_TIMEOUT_MS = 120_000;
 const CALCULATOR = "com.apple.calculator";
@@ -117,7 +125,14 @@ async function run() {
   const bundles = (apps.apps ?? []).map((a) => a.bundleId);
   ok("Realm never lists itself", !bundles.some((b) => b.includes("realm")), bundles.filter((b) => b.includes("realm")).join(", ") || "absent");
   ok("System Settings is never listed", !bundles.includes("com.apple.systempreferences"));
-  ok("terminals are never listed", !bundles.includes("com.apple.Terminal") && !bundles.includes("com.googlecode.iterm2"));
+  // Named against the whole list rather than two entries: asserting Terminal.app and iTerm are absent
+  // from a machine running neither passes without testing anything, and it did — Ghostty sat in the
+  // app list, driveable, while this line was green. `running` reports which forbidden apps were
+  // actually up, so a run that proved nothing says so instead of reading as a pass.
+  const leaked = bundles.filter((b) => FORBIDDEN.has(b));
+  const running = [...FORBIDDEN].filter((b) => bundles.includes(b));
+  ok("no forbidden app is ever listed", leaked.length === 0,
+    leaked.length ? `LEAKED: ${leaked.join(", ")}` : running.length ? `${running.length} forbidden app(s) running and all excluded` : "none of the forbidden apps are running — this run proves nothing");
 
   // Acting on a snapshot the helper has never issued must refuse, not act on whatever matches.
   // Without the grant the trust check answers first, and deliberately so: "grant Accessibility" is

@@ -79,6 +79,17 @@ private let CAPTURE_TIMEOUT_S = 4.0
 /// The security agent is the modal that asks for the user's password and Touch ID; Keychain Access
 /// hands out secrets in plain text. None of these are things a permission prompt could sensibly
 /// describe, so they are not prompts — they are refusals.
+///
+/// Terminals are here for the reason System Settings is: a terminal is a shell, so driving one is
+/// arbitrary code execution outside every sandbox, permission card and mode Realm has — the agent
+/// would be typing PAST its own approval gate rather than through it. The entries name the terminals
+/// shipping as macOS apps today, and that set is a FLOOR rather than the boundary: a denylist keyed
+/// on bundle id cannot enumerate every terminal that will ever exist, and the per-app permission card
+/// is what bounds the ones it misses.
+///
+/// Kept in step with `COMPUTER_FORBIDDEN_BUNDLE_IDS` in packages/contracts/src/computer-use.ts by
+/// computer-access.test.ts, which reads this file: enforcement has to live here, in the last process
+/// before an event is posted, but nothing written in Swift can be reached by the suite.
 private let FORBIDDEN_BUNDLE_IDS: Set<String> = [
   // Realm itself, named statically as well as derived from the process ancestry.
   //
@@ -95,6 +106,13 @@ private let FORBIDDEN_BUNDLE_IDS: Set<String> = [
   "com.apple.keychainaccess",
   "com.apple.Terminal",
   "com.googlecode.iterm2",
+  "com.mitchellh.ghostty",
+  "net.kovidgoyal.kitty",
+  "com.github.wez.wezterm",
+  "org.alacritty",
+  "dev.warp.Warp-Stable",
+  "co.zeit.hyper",
+  "org.tabby",
 ]
 
 // ── JSON plumbing ───────────────────────────────────────────────────────────────────────────────

@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { COMPUTER_FORBIDDEN_BUNDLE_IDS } from "@realm/contracts";
 import { describe, expect, it } from "vitest";
 import { computerAccessRows, computerGrantExplanation, isComputerAccessId } from "./computer-access";
 
@@ -78,5 +81,34 @@ describe("isComputerAccessId", () => {
 
   it("rejects anything else, so no IPC payload can name an arbitrary target", () => {
     for (const bad of ["fullDisk", "", null, undefined, 7, {}]) expect(isComputerAccessId(bad)).toBe(false);
+  });
+});
+
+describe("the helper's forbidden-app list", () => {
+  // Enforcement is in Swift, which the suite cannot call. Reading the source is the only way to
+  // assert the rule at all, and drift here is silent: a bundle id present in one copy and missing
+  // from the other reads as "covered" everywhere except the one process that decides.
+  const swift = readFileSync(join(import.meta.dirname, "../../native/AxHelper.swift"), "utf8");
+  // Anchored on the declaration rather than the name, and comment lines dropped before matching:
+  // the doc comment above cites the contract's copy by name, and the prose between the entries
+  // quotes an English phrase. A looser read counts either as a bundle id.
+  const start = swift.indexOf("private let FORBIDDEN_BUNDLE_IDS");
+  const enforced = swift
+    .slice(start, swift.indexOf("\n]", start))
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("//"))
+    .flatMap((line) => [...line.matchAll(/"([^"]+)"/g)].map((m) => m[1]!));
+
+  it("matches the contract's copy exactly, in both directions", () => {
+    expect([...enforced].sort()).toEqual([...COMPUTER_FORBIDDEN_BUNDLE_IDS].sort());
+  });
+
+  it("refuses the terminals people actually run, not only the two Apple and iTerm ship", () => {
+    // A terminal is a shell: driving one is arbitrary code execution outside every gate Realm has,
+    // so the entry that matters is whichever terminal is on THIS machine. The original list named
+    // Terminal.app and iTerm only, and its live check asserted their absence from a machine running
+    // neither — a green that proved nothing while Ghostty sat in the app list, driveable.
+    for (const id of ["com.mitchellh.ghostty", "net.kovidgoyal.kitty", "com.github.wez.wezterm", "org.alacritty"])
+      expect(enforced, id).toContain(id);
   });
 });

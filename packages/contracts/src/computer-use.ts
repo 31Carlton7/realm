@@ -17,6 +17,36 @@ import { z } from "zod";
 export const COMPUTER_PROVIDER_NAME = "realm-computer";
 
 /**
+ * Apps no agent may drive, whatever mode it runs in and whatever grants the machine has given.
+ *
+ * The enforcing copy is `FORBIDDEN_BUNDLE_IDS` in `apps/desktop/native/AxHelper.swift`, because the
+ * refusal has to happen in the last process before an event is posted. This copy exists so the rule
+ * can be asserted from a suite that cannot run Swift; `computer-access.test.ts` reads the helper's
+ * source and fails when the two drift apart.
+ *
+ * Terminals are on the list for the reason System Settings is: driving a shell is arbitrary code
+ * execution outside every sandbox and permission card Realm has. It is a floor rather than the
+ * boundary — a bundle-id denylist cannot name every terminal that will exist — and the per-app
+ * permission card is what bounds the ones it misses.
+ */
+export const COMPUTER_FORBIDDEN_BUNDLE_IDS = [
+  "co.charmtechnologies.realm",
+  "com.apple.systempreferences",
+  "com.apple.SecurityAgent",
+  "com.apple.security.pboxd",
+  "com.apple.keychainaccess",
+  "com.apple.Terminal",
+  "com.googlecode.iterm2",
+  "com.mitchellh.ghostty",
+  "net.kovidgoyal.kitty",
+  "com.github.wez.wezterm",
+  "org.alacritty",
+  "dev.warp.Warp-Stable",
+  "co.zeit.hyper",
+  "org.tabby",
+] as const;
+
+/**
  * Refusals the helper reports with a machine-readable tag, because the agent's correct next move
  * differs for each and "it failed" would leave it guessing.
  *
