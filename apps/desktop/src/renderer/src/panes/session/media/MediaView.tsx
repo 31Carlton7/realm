@@ -87,8 +87,13 @@ function VideoPlayer({ file, autoFocus = false, onExpand }: { file: MediaFile; a
         </button>
       )}
       <div className="media-controls">
+        {/* §6 icon swap: the transport is one control whose glyph turns over, so both stay in the DOM
+            and cross-fade. A ternary replaces the element instead, and gets no transition at all. */}
         <button type="button" className="media-btn" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
-          <Icon name={playing ? "pause" : "play"} size={13} />
+          <span className="icon-swap" data-on={playing || undefined}>
+            <Icon name="play" size={13} className="swap-off" />
+            <Icon name="pause" size={13} className="swap-on" />
+          </span>
         </button>
         <span className="media-time">{formatTime(time)}</span>
         <input
@@ -101,7 +106,10 @@ function VideoPlayer({ file, autoFocus = false, onExpand }: { file: MediaFile; a
         />
         <span className="media-time media-duration">{formatTime(duration)}</span>
         <button type="button" className="media-btn" aria-label={muted ? "Unmute" : "Mute"} aria-pressed={muted} onClick={() => setMuted((m) => !m)}>
-          <Icon name={muted ? "volumeOff" : "volumeOn"} size={13} />
+          <span className="icon-swap" data-on={muted || undefined}>
+            <Icon name="volumeOn" size={13} className="swap-off" />
+            <Icon name="volumeOff" size={13} className="swap-on" />
+          </span>
         </button>
         {onExpand && (
           <button type="button" className="media-btn" aria-label="Open larger" onClick={onExpand}>

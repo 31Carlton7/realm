@@ -191,6 +191,33 @@ describe("§6 motion table", () => {
     expect(css, "no disclosure may animate max-height").not.toMatch(/transition:[^;]*max-height/);
   });
 
+  it("every glyph that carries a state turns over on ONE rule — no surface writes the swap again", () => {
+    // The two that had their own copy of it are now comma-separated parts of the shared one, which
+    // is what lets a third control (the media transport) reach for `.icon-swap` instead of writing
+    // a fourth. Anything declaring the cross-fade outside this pair of rules is a copy coming back.
+    const swapRules = RULES.filter((r) => r.body.includes("filter") && r.body.includes(dur("--dur-swap")) && r.body.includes("grid-area"));
+    expect(swapRules).toHaveLength(1);
+    expect(swapRules[0]!.selectors).toContain(".icon-swap > *");
+    const down = RULES.filter((r) => r.body.includes("blur(4px)") && r.body.includes("scale(.25)"));
+    expect(down).toHaveLength(1);
+    // `.icon-swap` reads its state off the CONTAINER, so a control adopting it needs no new CSS —
+    // just the two glyphs and a `data-on`.
+    expect(down[0]!.selectors).toEqual(expect.arrayContaining([".icon-swap:not([data-on]) .swap-on", ".icon-swap[data-on] .swap-off"]));
+  });
+
+  it("an icon button can finally show that it is ON, one rung past hover", () => {
+    // Bold, Italic, and the terminal drawer's ⌘J are `.icon-btn[aria-pressed]` and had no pressed
+    // treatment of any kind — a toggle you could not tell the state of. The fill is the state (the
+    // glyph does not change), so it has to sit ABOVE the hover fill or "on" and "under the pointer"
+    // would be the same picture.
+    const on = bodiesFor('.icon-btn[aria-pressed="true"]').join(" ");
+    expect(on).toContain("background: var(--hover-2)");
+    expect(bodiesFor(".icon-btn:hover").join(" ")).toContain("background: var(--rl-hover)");
+    // …and it moves on the hover rung the button already carries — §6 gives it no rule of its own.
+    expect(on).not.toContain("transition");
+    expect(on).not.toContain("transform"); // hover and state are colour; geometry is the press alone
+  });
+
   it("the copy ✓ swap uses the same 160ms opacity/scale/blur cross-fade as send↔stop", () => {
     const swap = bodiesFor(".tool-copy .copy-icon").join(" ");
     for (const prop of ["opacity", "transform", "filter"]) expect(swap, prop).toContain(`${prop} ${dur("--dur-swap")}`);

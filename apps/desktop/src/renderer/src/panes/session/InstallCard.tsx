@@ -45,8 +45,10 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal }: {
           <div className="install-cmd">
             <code>{command}</code>
             <button className="tool-copy" aria-label="Copy command" title={copied ? "Copied" : "Copy"}
+              data-copied={copied || undefined}
               onClick={() => { void navigator.clipboard?.writeText(command); setCopied(true); }}>
-              <Icon name={copied ? "check" : "copy"} size={12} />
+              <Icon name="copy" size={12} className="copy-icon" />
+              <Icon name="check" size={12} className="copied-icon" />
             </button>
           </div>
         )}

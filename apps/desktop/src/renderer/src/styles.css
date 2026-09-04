@@ -244,6 +244,12 @@ kbd { font: 11px var(--font-mono); }
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
 .icon-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-ctl); color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* A toggle whose glyph does NOT change has to say so with its fill, and these had no on-state at all:
+   the rich-text toolbar's Bold and the terminal drawer's ⌘J looked identical pressed and unpressed.
+   One rung past hover, so "on" always reads as more than "under the pointer" — which is also why it
+   sits after the hover rule and wins over it. It moves on the hover transition the button already
+   carries (§6), so turning a toggle on settles rather than snaps. */
+.icon-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 /* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way.
    .tool-copy joins the list — its 20px box sits alone at its row's right edge, so the overhang
    never crosses another interactive element. */
@@ -1123,11 +1129,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-body { border-top: 1px solid var(--rl-hairline); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity var(--dur-press) ease; }
 .tool-section { display: flex; flex-direction: column; }
-/* Copy ✓ (§6 icon swap): both glyphs stacked in one grid cell, cross-fading with scale + blur. */
-.tool-copy .copy-icon, .tool-copy .copied-icon { grid-area: 1 / 1;
-  transition: opacity var(--dur-swap) var(--ease-out-strong), transform var(--dur-swap) var(--ease-out-strong), filter var(--dur-swap) var(--ease-out-strong); }
+/* Copy ✓ rides §6's icon swap (the shared rule down in the motion block); the tick's colour is the
+   only part of it that belongs to this button. */
 .tool-copy .copied-icon { color: var(--rl-success); }
-.tool-copy:not([data-copied]) .copied-icon, .tool-copy[data-copied] .copy-icon { opacity: 0; transform: scale(.25); filter: blur(4px); }
 .tool-label { display: flex; align-items: center; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-dim); margin-bottom: 4px; }
 .tool-copy { margin-left: auto; display: grid; place-items: center; width: 20px; height: 20px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
 .tool-copy:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -1637,17 +1641,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
   border-radius: calc(var(--r-float) + 4px); corner-shape: squircle; background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
   font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
-/* Send↔stop morph (§6; Ara refresh §2 sizes it up to 32px): accent circle; both icons in the DOM,
-   cross-fading 160ms with opacity + scale .25→1 + 4px blur. data-state picks which one is up.
+/* Send↔stop morph (§6): accent circle at Ara refresh §2's 32px, wearing the shared icon swap in the
+   motion block — both icons in the DOM, `data-state` picking which one is up.
    Plan 9 W3: the circle wears BUI Button's accent treatment — inset top highlight, accent-ink on
    hover — and PromptBar's disabled send (line-strong fill, ink-2 glyph) replaces the bare fade. */
 .composer-send { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); flex: none; }
 .composer-send:hover:not(:disabled) { background: var(--accent-ink); }
 .composer-send:disabled { background: var(--line-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
-.composer-send svg { grid-area: 1 / 1;
-  transition: opacity var(--dur-swap) var(--ease-out-strong), transform var(--dur-swap) var(--ease-out-strong), filter var(--dur-swap) var(--ease-out-strong); }
-.composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon { opacity: 0; transform: scale(.25); filter: blur(4px); }
+
 /* ── Under-strip (§4 + Plan 12 W1): machine label + workspace selector, one size quieter than the
    control row (11px on faint vs 12px on dim), on a frame fill sliding out from beneath the card
    (z-index 1 on .composer keeps the card on top). Drawn unconditionally — where a session runs is
@@ -1863,6 +1865,22 @@ button.panel-title:hover { background: var(--rl-hover); }
    everything" that covers the window, so it enters on the sheet's own timings rather than snapping. */
 .spaces-overview { animation: rl-sheet-in var(--dur-slow) var(--ease-out-strong); }
 .spaces-backdrop { animation: rl-fade-in var(--dur-swap) var(--ease-out-strong); }
+
+/* Icon swap (§6): a control whose GLYPH carries its state keeps both glyphs in the DOM, stacked in
+   one grid cell, and turns them over with opacity + scale .25 + a 4px blur on the swap rung. Written
+   once, because it was written twice and skipped twice: the copy tick and the send↔stop morph each
+   carried a copy, while Settings' and the install card's copy buttons — which match `.tool-copy` and
+   were therefore already paying for the rule — swapped their glyph with a bare ternary and got no
+   transition at all, there being nothing named to reach for. The scale-into-the-centre is what makes
+   it read as one glyph turning over rather than two crossing past each other, and the control keeps
+   ONE glyph box and ONE accessible name throughout: a swap is a change of state, not of control. */
+.icon-swap { display: grid; place-items: center; }
+.icon-swap > *, .tool-copy .copy-icon, .tool-copy .copied-icon, .composer-send svg { grid-area: 1 / 1;
+  transition: opacity var(--dur-swap) var(--ease-out-strong), transform var(--dur-swap) var(--ease-out-strong), filter var(--dur-swap) var(--ease-out-strong); }
+.icon-swap:not([data-on]) .swap-on, .icon-swap[data-on] .swap-off,
+.tool-copy:not([data-copied]) .copied-icon, .tool-copy[data-copied] .copy-icon,
+.composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon {
+  opacity: 0; transform: scale(.25); filter: blur(4px); }
 
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
    never `all`, never geometry. */
