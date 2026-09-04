@@ -10,4 +10,8 @@ import "katex/dist/katex.min.css";
 // BUI foundation first (Tailwind layers + tokens); styles.css is unlayered and so wins conflicts.
 import "./theme/tokens.css";
 import "./styles.css";
+import { enableSquircles } from "./theme/squircle";
+// Fire and forget: the cards render on their circular-corner fallback until the painter is ready,
+// and stay there if it never loads. Nothing waits on a corner shape.
+void enableSquircles();
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);

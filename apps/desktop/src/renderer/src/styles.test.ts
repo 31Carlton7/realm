@@ -644,6 +644,83 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
   });
 });
 
+/** The squircle surfaces. What the CORNER looks like is settled by scripts/squircle-live.mjs, which
+ *  measures the composited pixels — jsdom has no layout and no CSS Painting API, so to it
+ *  `background: paint(rl-squircle)` and `border-radius: 20px` are the same declaration. What is
+ *  checkable here is everything around the shape: that the fallback survives, that the two halves of
+ *  the card shadow cannot drift apart, and that the three files involved still agree on the names
+ *  they pass between them. */
+describe("squircle surfaces", () => {
+  const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+  const worklet = readFileSync(repoFile("apps/desktop/src/renderer/public/squircle-paint.js"), "utf8");
+  const registrar = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/squircle.ts"), "utf8");
+  const SURFACES = [".composer", ".composer-drop-hint", ".composer-understrip", ".install-card", ".commit-card"];
+
+  it("every squircle surface keeps a circular-corner fallback AND the declarative form", () => {
+    // `corner-shape` is a no-op on Chromium 138 (measured in squircle-live.mjs) and takes over at
+    // 139. Dropping either half strands the app: without `border-radius` a failed worklet load
+    // renders a square card, without `corner-shape` the upgrade brings nothing.
+    for (const sel of SURFACES) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("corner-shape: squircle");
+      expect(body, sel).toMatch(/border-radius:/);
+    }
+  });
+
+  it("the painted treatment is gated on the mark theme/squircle.ts only sets once the worklet loaded", () => {
+    // `paint()` with no registered painter resolves to nothing, so a card that opted in before the
+    // module arrived would render as an invisible box. The gate is what makes that unreachable.
+    for (const sel of SURFACES) {
+      const body = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
+      expect(body, sel).toContain("background: paint(rl-squircle)");
+      // The background painting area is clipped by the radius, and a superellipse sits FURTHER into
+      // the corner than the arc of the same radius — left in place it shaves the painted corner
+      // straight back into the rounded rect this replaces.
+      expect(body, sel).toContain("border-radius: 0");
+    }
+    expect(registrar).toContain('root.setAttribute("data-squircle", "")');
+  });
+
+  it("the ring moves to the painter and the lift stays on box-shadow", () => {
+    // A box-shadow ring is drawn on the rounded rect whatever the fill does, so under the gate —
+    // where the radius is 0 — a focus ring left on box-shadow would square the corner off. The lift
+    // is the opposite case: blurred far wider than the two curves diverge, so it stays put, and
+    // keeping it there is what a mask would have cost.
+    for (const sel of [".composer", ".commit-card"]) {
+      expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain("box-shadow: var(--shadow-card-lift)");
+      const focus = bodiesFor(`:root[data-squircle] ${sel}:focus-within`).join(" ");
+      expect(focus, sel).toContain("--sq-ring: var(--line-strong)");
+      expect(focus, sel).not.toContain("0 0 0 1px");
+    }
+    expect(bodiesFor(":root[data-squircle] .composer[data-dropping]").join(" ")).toContain("--sq-ring: var(--rl-accent)");
+  });
+
+  it("--shadow-card is composed from the ring and the lift, in both modes", () => {
+    // The squircle surfaces need the two halves apart; every other card wants the whole stack. One
+    // definition of each half, and the composite built from them, is what stops the two drifting.
+    // Twice: once per mode. (A third `--shadow-card:` exists in `@theme inline`, which only re-exports
+    // the token to Tailwind and states no value of its own.)
+    const composed = /--shadow-card: 0 0 0 var\(--hairline-w\) var\(--card-ring\), var\(--shadow-card-lift\)/g;
+    expect(tokens.match(composed) ?? []).toHaveLength(2);
+    for (const half of ["--card-ring", "--shadow-card-lift"]) {
+      expect(tokens.match(new RegExp(`${half}:`, "g")) ?? [], half).toHaveLength(2);
+    }
+  });
+
+  it("the stylesheet, the painter and the registrar agree on every name they pass between them", () => {
+    // All three failures here are silent. A renamed painter leaves `paint()` resolving to nothing; an
+    // input the worklet does not declare is never read, so the corner quietly keeps its last value;
+    // an unregistered property arrives as its raw token stream — `calc(16px + 4px)` — which canvas
+    // cannot parse into a length.
+    expect(worklet).toContain('registerPaint(\n  "rl-squircle"');
+    const declared = new Set([...worklet.matchAll(/"(--sq-[a-z-]+)"/g)].map((m) => m[1]!));
+    const registered = new Set([...registrar.matchAll(/name: "(--sq-[a-z-]+)"/g)].map((m) => m[1]!));
+    const used = new Set([...css.matchAll(/(--sq-[a-z-]+)\s*:/g)].map((m) => m[1]!));
+    expect([...used].filter((n) => !declared.has(n)).sort(), "set in styles.css, not read by the worklet").toEqual([]);
+    expect([...used].filter((n) => !registered.has(n)).sort(), "set in styles.css, never registered").toEqual([]);
+  });
+});
+
 describe("§6 do-NOT-animate list", () => {
   it("never uses `transition: all` anywhere", () => {
     expect(css).not.toMatch(/transition:\s*all\b/);

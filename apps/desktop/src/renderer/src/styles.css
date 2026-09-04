@@ -1383,10 +1383,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The card (Plan 9 W3 — BUI PromptBar): a surface field on shadow-card (the hairline ring is part
    of the stack), --r-float, borderless. Focus is BUI's border-brighten — the ring steps to
    line-strong — replacing the old 30% accent glow (PromptBar's focus-within:border-line-strong). */
-/* Squircle prompter: `corner-shape: squircle` turns the corners into a continuous superellipse
-   curve (Chromium 139+; a no-op on the current runtime, where the bumped radius alone already
-   reads softer). The radius steps past --r-float because a squircle at the same radius reads
-   visually smaller than a circular corner. */
+/* Squircle prompter. What is written here is the FALLBACK — a circular corner one radius step past
+   --r-float, because a squircle at the same radius reads visually smaller — plus `corner-shape`,
+   which states the shape declaratively and takes over once Electron ships Chromium 139. On the
+   runtime this app actually has (Chromium 138) `corner-shape` is not a recognised property at all,
+   so the curve is drawn by the paint worklet instead; see the squircle block further down. */
 .composer { width: 100%; border-radius: calc(var(--r-float) + 4px); corner-shape: squircle; background: var(--surface);
   box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
@@ -1560,7 +1561,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    transform carries it and the absolutely-hung suggestions land below it. ── */
 .composer-understrip { display: flex; align-items: center; gap: 2px; min-width: 0;
   margin: -10px 10px 0; padding: 12px 6px 6px; background: var(--rl-frame);
-  border-radius: 0 0 var(--r-panel) var(--r-panel); }
+  border-radius: 0 0 var(--r-panel) var(--r-panel); corner-shape: squircle; }
 .composer-understrip .ghost-chip { height: 24px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
 /* "Thinking…" hangs off the strip's far end, so arriving mid-stream costs the chips no motion. */
@@ -1591,6 +1592,59 @@ button.panel-title:hover { background: var(--rl-hover); }
 .install-cmd code { display: block; flex: 1; min-width: 0; font: 12px var(--font-mono); color: var(--rl-text-bright); overflow-x: auto; white-space: pre; user-select: text; }
 .install-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .install-note { margin: 0; font-size: 11px; color: var(--rl-text-faint); }
+
+/* ── Squircle surfaces ─────────────────────────────────────────────────────
+   The prompter, its under-strip, its drop hint, the install card that stands in for it and the
+   commit dock all wear a continuous superellipse corner rather than the circular arc a plain
+   `border-radius` draws. `corner-shape: squircle` is the declarative form of exactly this and it
+   stays on every rule above — but it lands in Chromium 139 and Electron 37.10.3 ships 138, where
+   the property is not recognised, so today the curve comes from a paint worklet
+   (public/squircle-paint.js). theme/squircle.ts sets `data-squircle` only after the worklet module
+   has loaded, so a failed load leaves every surface below on its `border-radius` fallback rather
+   than on `paint()` with no painter — which resolves to nothing and would render an invisible card.
+
+   Three things the painter, not CSS, has to own:
+   - `border-radius` goes to 0. A superellipse sits FURTHER into the corner than the circular arc of
+     the same radius, and the background painting area is clipped by the radius — left in place it
+     would shave the painted corner straight back into the rounded rect this replaces.
+   - The RING. A box-shadow ring is drawn on the rounded rect whatever the fill does, so it would
+     cross a corner the fill has already bulged past; --sq-ring/--sq-ring-w hand it to the painter,
+     and focus and the drop target become a change of those two rather than a second box-shadow.
+   - Nothing else. The soft LIFT stays on box-shadow (--shadow-card-lift, --rl-shadow): it is blurred
+     several times wider than the two curves ever diverge, and a mask — the obvious alternative to
+     painting the fill — would have clipped it away entirely. */
+:root[data-squircle] .composer,
+:root[data-squircle] .composer-drop-hint,
+:root[data-squircle] .composer-understrip,
+:root[data-squircle] .install-card,
+:root[data-squircle] .commit-card {
+  border-radius: 0;
+  background: paint(rl-squircle);
+  --sq-radius-top: calc(var(--r-float) + 4px);
+  --sq-radius-bottom: calc(var(--r-float) + 4px);
+}
+:root[data-squircle] .composer, :root[data-squircle] .commit-card {
+  --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
+  box-shadow: var(--shadow-card-lift);
+}
+/* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
+:root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
+  --sq-ring: var(--line-strong); --sq-ring-w: 1px;
+  box-shadow: var(--shadow-card-lift);
+}
+:root[data-squircle] .composer[data-dropping] {
+  --sq-ring: var(--rl-accent); --sq-ring-w: 2px;
+  box-shadow: var(--shadow-card-lift);
+}
+/* The hint lies inset:0 over the card, so it takes the card's own radius or it would square off
+   inside a rounded corner. No ring: the card underneath is already wearing the drop target's. */
+:root[data-squircle] .composer-drop-hint { --sq-fill: color-mix(in srgb, var(--rl-raised) 82%, transparent); }
+/* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
+:root[data-squircle] .composer-understrip { --sq-fill: var(--rl-frame); --sq-radius-top: 0px; --sq-radius-bottom: var(--r-panel); }
+:root[data-squircle] .install-card {
+  --sq-fill: var(--rl-raised); --sq-ring: var(--line); --sq-ring-w: var(--hairline-w);
+  box-shadow: var(--rl-shadow);
+}
 
 /* ── First-run onboarding (W4): the whole pane, one centered sheet, nothing behind it ── */
 .onboarding-stage { flex: 1; display: grid; place-items: center; padding: 24px; overflow: auto; }

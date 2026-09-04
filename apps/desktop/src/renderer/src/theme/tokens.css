@@ -374,9 +374,14 @@ a {
   --shadow-glass-inset: inset 0 0 1.5px 0 #ffffff29;
   --shadow-pill: 0 2px 9px 0 #00000052;
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-lighten-400), 0 1px 2px #00000052;
-  --shadow-card:
-    0 0 0 var(--hairline-w) var(--overlay-lighten-400),
-    0 1px 2px #00000033, 0 2px 6px #00000033;
+  /* The card stack, stated as its two halves and then composed. The squircle surfaces need them
+   * apart: a box-shadow ring is always drawn on the `border-radius` rounded rect, so on a card whose
+   * corner is a painted superellipse the ring cuts across the fill and the painter has to stroke the
+   * edge itself (--card-ring), leaving box-shadow only the lift. Every other card keeps the whole
+   * stack, and there is still one place either half is written. */
+  --card-ring: var(--overlay-lighten-400);
+  --shadow-card-lift: 0 1px 2px #00000033, 0 2px 6px #00000033;
+  --shadow-card: 0 0 0 var(--hairline-w) var(--card-ring), var(--shadow-card-lift);
   --shadow-raised:
     0 0 0 var(--hairline-w) var(--overlay-lighten-500),
     0 8px 16px #00000038, 0 24px 117px #0000003d;
@@ -395,7 +400,9 @@ a {
   --shadow-bevel: inset 0 1px 0.5px #00000026;
   --shadow-pill: 0 2px 9px 0 #0000000f;
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-300), 0 1px 2px #03071214;
-  --shadow-card: 0 0 0 var(--hairline-w) #03071214, 0 2px 4px 0 #0307120a;
+  --card-ring: #03071214;
+  --shadow-card-lift: 0 2px 4px 0 #0307120a;
+  --shadow-card: 0 0 0 var(--hairline-w) var(--card-ring), var(--shadow-card-lift);
   --shadow-raised: 0 0 0 var(--hairline-w) #03071214, 0 8px 16px 0 #0307120a, 0 24px 117px 0 #1c284024;
   --shadow-overlay:
     0 0 0 var(--hairline-w) #0000000d,
