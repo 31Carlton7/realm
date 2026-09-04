@@ -2,7 +2,7 @@
  * Headless proof for the hero shader.
  *
  * Compiles `lib/realm-shader.ts` through vgpu's Dawn-backed Node entrypoint and renders frames to
- * PNG. A WGSL compile error, a NaN, or a scene that marches into empty space all show up here
+ * PNG. A WGSL compile error, a NaN, or a ring that drifts off the icon all show up here
  * instead of in a browser, and the string it renders is the exact string the browser gets.
  *
  * This file is excluded from the site's tsconfig: it runs under `node --experimental-strip-types`,
@@ -28,7 +28,7 @@ import { realmShader } from "../lib/realm-shader.ts"
 
 const WIDTH = 1200
 const HEIGHT = 750
-/** Seconds to sample. Spread wide enough to catch the counter-rotating panes at different phases. */
+/** Seconds to sample. Spread wide enough to catch the ring's head at different positions. */
 const TIMES = [0, 2.5, 7, 15]
 
 const outDir = dirname(fileURLToPath(import.meta.url))

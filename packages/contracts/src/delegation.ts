@@ -31,3 +31,25 @@ export const AgentRunConstraintsSchema = z.object({
   skills: z.array(SkillIdSchema).max(50).optional(),
 });
 export type AgentRunConstraints = z.infer<typeof AgentRunConstraintsSchema>;
+
+/**
+ * How deep delegation may nest. A root session (one nobody delegated) is depth 0; the child it
+ * spawns is depth 1; that child's child is depth 2, and at `MAX_DELEGATION_DEPTH` the `agent_run`
+ * family disappears from the toolset entirely.
+ *
+ * This replaces the flat depth-1 rule. Depth-1 was never the real constraint — it was a proxy for
+ * "a delegating agent must not be able to fork-bomb the machine", chosen because with one blocking
+ * run per parent there was no other bound available. The actual bound now lives where it belongs, on
+ * concurrency (`MAX_RUNS_PER_PARENT` and `MAX_RUNS_TOTAL` in the delegation engine), so depth can be
+ * a budget instead of a wall.
+ *
+ * Two is the value rather than something larger for a reason that is about legibility, not safety:
+ * the human watching this has one pane per session, and a three-level tree of agents spawning agents
+ * stops being something anyone can follow. The engine's total cap would hold at depth 5; the person
+ * would not.
+ *
+ * Deliberately NOT applied to the other two delegated shapes. A browser-agent child and a reviewer
+ * child stay depth-1: a reviewer that can spawn workers is no longer read-only in any sense the
+ * human's ship decision can rely on, and that is a safety line, not a budget.
+ */
+export const MAX_DELEGATION_DEPTH = 2;

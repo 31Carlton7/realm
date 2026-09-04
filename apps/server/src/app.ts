@@ -10,6 +10,7 @@ import { SettingsStore } from "./store/settings";
 import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
 import { BrowsersStore } from "./store/browsers";
+import { GraphifyService } from "./graphify/service";
 import { DocumentsStore } from "./store/documents";
 import { DocumentService } from "./documents/service";
 import { DocumentPreviewServer } from "./documents/preview";
@@ -53,11 +54,14 @@ import { CheckpointsStore } from "./store/checkpoints";
 import { CheckpointGit } from "./workspace/checkpoints";
 import { CheckpointService } from "./checkpoints/service";
 import { SearchService } from "./search/service";
+import { ModelCatalogService } from "./models/catalog";
+import { UsageService } from "./usage/service";
 import { ForkService } from "./sessions/fork";
 import { ImportService } from "./import/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 import { machineName } from "./machine-name";
+import { userFirstName } from "./user-name";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
@@ -134,6 +138,26 @@ export function defaultAdapters(): AdapterRegistry {
       label: "Grok",
       loginHint: "Run `grok login` (browser sign-in, needs SuperGrok or X Premium), or set XAI_API_KEY.",
     }),
+    // DeepSeek Harness (`dsh`), added 2026-09-03. NOT from the ACP registry — DeepSeek publishes its
+    // own ACP bundle, `@deepseek-ai/dsh-acp`, whose runnable composition is `dsh-acp-demo`.
+    //
+    // Registered like any other ACP kind and expected to report as MISSING for now: measured
+    // 2026-09-03, `@deepseek-ai/dsh-acp-demo@0.0.1-rc.1` cannot be installed at all — two of its
+    // required peers (`dsh-workspace-context`, `dsh-bash-env`) are unpublished, so npm aborts on peer
+    // resolution and pnpm on the 404. The spec is written now so that the day those packages land,
+    // the harness works with no code change; until then the probe says "not installed" and the picker
+    // says why (AGENT_LOGIN_HINTS), which is a better answer than pretending the kind does not exist.
+    //
+    // No `modelCatalog`: dsh-acp takes its provider and model as BOOT CONFIG and exposes neither a
+    // `models` field nor a config option, so a probe-time `session/new` would spend a round trip to
+    // learn nothing. `AGENT_MODELS["acp:deepseek"]` carries the two models instead.
+    "acp:deepseek": new AcpAdapter({
+      kind: "acp:deepseek",
+      bin: process.env.REALM_DEEPSEEK_BIN ?? "dsh-acp-demo",
+      args: [],
+      label: "DeepSeek",
+      loginHint: "Set DEEPSEEK_API_KEY — the DeepSeek Harness has no login command of its own.",
+    }),
     "acp:fx": new AcpAdapter({
       kind: "acp:fx",
       bin: process.env.REALM_FX_BIN ?? "fx",
@@ -158,7 +182,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   browserAgent?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perActMs: number; pollMs: number } };
   /** Plan 13 W1: the same knobs for `agent_run`. `fallbackKind` falls back to `browserAgent`'s when
    *  unset (test harnesses configure the fake once); `timeouts` shrinks the settle budget. */
-  agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number } };
+  agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number }; maxDepth?: number; caps?: { perParent?: number; total?: number } };
   /** Plan 13 W3: the same knobs for the reviewer recipe. `fallbackKind` (the reviewer's kind when the
    *  requester's has no read-only plan mode, or the user clicked) falls back to `agentRun`'s, then
    *  `browserAgent`'s. */
@@ -309,6 +333,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let agentRuns: AgentRunService | null = null;
   let reviews: ReviewService | null = null;
   let asks: AskService | null = null;
+  // Declared here and built after `modelCatalog` (which it prices with), then read back through the
+  // session-event hook below — the same forward-reference `runs` takes, for the same reason.
+  let usage: UsageService | null = null;
   let runs: RunService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
@@ -321,7 +348,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     sessionToolset: (sessionId) => {
       const only = browserAgents?.sessionToolset(sessionId);
       if (only) return only;
-      return agentRuns?.isChild(sessionId) || reviews?.isChild(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
+      // A reviewer child, and an agent_run child that has SPENT its depth budget, lose the whole
+      // realm-agent provider here. An agent_run child that still has budget keeps it and is narrowed
+      // to the agent_run family by the provider's own `tools()` — the coarse gateway hammer cannot
+      // express "this provider, but only four of its tools", and inventing a shape that could would
+      // put per-tool delegation policy in the gateway, which is exactly where it does not belong.
+      const spentChild = agentRuns?.isChild(sessionId) && !agentRuns.canDelegate(sessionId);
+      return spentChild || reviews?.isChild(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
     } });
   gateway = mcpGateway;
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam });
@@ -340,7 +373,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
     notifications: {
-      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); },
+      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); usage?.handleSessionEvent(session, ev); },
       probeResults: (results) => notifications.probeResults(results),
     },
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
@@ -358,10 +391,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // `realm-agent` provider serving `browser_agent_run` + `agent_run`. A delegated child is a REAL
   // session whose specialization all rides existing seams — see each service's class doc comment,
   // including the bypass-is-never-inherited rule both tools carry.
-  const delegationEngine = new DelegationEngine({ sessions });
+  const delegationEngine = new DelegationEngine({ sessions, caps: opts.agentRun?.caps });
   browserAgents = new BrowserAgentService({ settings, sessions, rpc, engine: delegationEngine, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
   agentRuns = new AgentRunService({ settings, sessions, rpc, engine: delegationEngine, environments: envService, skills, otherDelegation: browserAgents,
-    fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts });
+    fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts, maxDepth: opts.agentRun?.maxDepth });
   // The reviewer recipe (W3): same engine, read-only cap, review-origin children. `otherDelegation`
   // fans across BOTH sibling registries — no delegated child of any kind may mint a reviewer.
   const agentRunsFinal = agentRuns, browserAgentsFinal = browserAgents;
@@ -391,6 +424,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     openPath: (p) => documents.openPath(p),
     progressForSpace: (spaceId, path) => documents.progressRead(documents.open({ spaceId }).documentsId, path),
   }));
+  // The graphify CLI seam (probe + `graphify update`). Only the space's checkout path crosses into
+  // it — it never learns what a space or a database is.
+  const graphify = new GraphifyService({ rootForSpace: (id) => documents.rootForSpace(id) });
   const lectures = new LectureService({ spaces, documents });
   const plynn = new PlynnService({ spaces, settings, documents, meetingsDir: opts.plynnMeetingsDir });
   // Durable runs: a goal that owns a session across attempts and survives restarts. Not on the
@@ -404,6 +440,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Global search (Plan 16 W1). The service reads; the index writes live in the stores' own choke
   // points (SessionEventsStore.append, ItemsStore) so no producer can skip them.
   const search = new SearchService({ db, settings, profiles, spaces, skills, memory });
+  // Model prices and context windows for the picker (public catalog, cached in `settings`). Nothing
+  // depends on it: every method returns rows, and an unreachable catalog returns the stale ones.
+  const modelCatalog = new ModelCatalogService({ settings });
+  // Spend and activity for Settings → Usage, and the budget watcher behind it. Reads only; the one
+  // thing it writes is the budget row, and the one thing it emits is a threshold notification.
+  usage = new UsageService({ db, settings, catalog: modelCatalog, notifications });
   // Session forks (Plan 16 W3). `createSession` is SessionService's own create — the fork's session
   // is a session like any other (item, broadcast, adapter check), just dispatched by "fork".
   forks = new ForkService({ checkpoints: new CheckpointsStore(db), environments, envService, worktrees,
@@ -419,9 +461,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ships.record(entry);
     rpc.broadcast("ships.changed", { spaceId: entry.spaceId });
   } });
+  // Two shell-outs for two labels: asked for together so boot waits once, not twice.
+  const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
-    rpc, home: opts.home, version: SERVER_VERSION, machineName: await machineName(),
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn,
+    rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();

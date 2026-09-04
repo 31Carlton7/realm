@@ -12,9 +12,10 @@ import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { EnvironmentsStore } from "../store/environments";
+import { SettingsStore } from "../store/settings";
 import { waitFor } from "../test-utils";
 import { createRealmAgentProvider, RUN_TOOL_NAME } from "../browsers/browser-agent";
-import { AGENT_RUN_TOOL_NAME } from "./agent-run";
+import { AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL_NAME } from "./agent-run";
 
 /**
  * Plan 13 W1 behaviour suite — `agent_run`, driven through the REAL app (`createApp` + FakeAdapter),
@@ -76,6 +77,7 @@ async function boot(opts: {
   script?: FakeScript; delayMs?: number;
   parentKind?: "fake" | "claude"; parentMode?: string;
   timeouts?: { baseMs: number; perTurnMs: number; pollMs: number };
+  maxDepth?: number; caps?: { perParent?: number; total?: number };
 } = {}) {
   const home = mkdtempSync(join(tmpdir(), "realm-ar-"));
   const fake = new CaptureFake({ script: opts.script ?? CHILD_SCRIPT, delayMs: opts.delayMs ?? 5 });
@@ -84,7 +86,7 @@ async function boot(opts: {
   app = await createApp({
     home, port: 0, adapters: { fake, claude: fake },
     browserAgent: { fallbackKind: "fake", timeouts: { baseMs: 5000, perActMs: 0, pollMs: 20 } },
-    agentRun: { timeouts: opts.timeouts ?? { baseMs: 5000, perTurnMs: 0, pollMs: 20 } },
+    agentRun: { timeouts: opts.timeouts ?? { baseMs: 5000, perTurnMs: 0, pollMs: 20 }, maxDepth: opts.maxDepth, caps: opts.caps },
   });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const spacesStore = new SpacesStore(app.db, home);
@@ -148,7 +150,19 @@ describe("agent_run — the delegated session", () => {
     const started = fake.seen[0]!;
     expect(started.systemContext).toContain("Delegated agent (Realm)");
     expect(started.systemContext).toContain("Refactor the parser");
-    expect(started.systemContext).toContain("depth-1");
+    // The preamble states the REMAINING budget, not a flat prohibition. A depth-1 child under the
+    // default max of 2 has one level left, and telling it otherwise would cost the whole budget.
+    expect(started.systemContext).toContain("only 1 level deeper");
+    expect(started.systemContext).toContain("depth 1 of 2");
+  });
+
+  it("tells a child that has SPENT the budget it cannot delegate — the preamble tracks depth", async () => {
+    const { fake, spaceId, parentId } = await boot({ parentKind: "claude", maxDepth: 1 });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "Refactor the parser" });
+    // THE MUTANT: hard-code the "you may delegate" branch and a depth-1 child under maxDepth 1 is
+    // told it may spawn agents that every server-side guard will then refuse.
+    expect(fake.seen[0]!.systemContext).toContain("cannot delegate further");
+    expect(fake.seen[0]!.systemContext).not.toContain("levels deeper");
   });
 });
 
@@ -186,37 +200,96 @@ describe("permission cap — min(parent, requested), bypass never granted", () =
   });
 });
 
-describe("recursion guard — depth-1, enforced server-side", () => {
-  it("a child cannot run agent_run OR browser_agent_run, and lists no realm-agent tools", async () => {
-    const { spaceId, parentId } = await boot();
+describe("the depth budget — a wall replaced by a countdown, enforced server-side", () => {
+  it("a SPENT child lists no realm-agent tools and is refused by all three layers", async () => {
+    // maxDepth 1 makes the first child a spent one, which is exactly the old depth-1 rule — so this
+    // is the original recursion-guard test, re-pinned at the budget's edge instead of at depth 1.
+    const { spaceId, parentId } = await boot({ maxDepth: 1 });
     await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
     const child = childOf(spaceId, parentId);
 
     // The child is registered — the seam app.ts's gateway closure turns into { exclude: ["realm-agent"] }.
     expect(app.agentRuns.isChild(child.id)).toBe(true);
     expect(app.agentRuns.isChild(parentId)).toBe(false);
+    expect(app.agentRuns.canDelegate(child.id)).toBe(false);
     // NOT the browser child's only-mode restriction: the agent child keeps the full surface.
     expect(app.browserAgents.sessionToolset(child.id)).toBeNull();
 
     // The provider's own belt, independent of the gateway toolset shape:
     const provider = createRealmAgentProvider(app.browserAgents, { providerEnabled: () => true }, app.agentRuns);
     expect(await provider.tools({ sessionId: child.id, spaceId })).toEqual([]);
-    expect((await provider.tools({ sessionId: parentId, spaceId })).map((t) => t.name)).toEqual([RUN_TOOL_NAME, AGENT_RUN_TOOL_NAME]);
-    for (const tool of [AGENT_RUN_TOOL_NAME, RUN_TOOL_NAME]) {
+    expect((await provider.tools({ sessionId: parentId, spaceId })).map((t) => t.name))
+      .toEqual([RUN_TOOL_NAME, AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_WAIT_TOOL_NAME, AGENT_STATUS_TOOL_NAME]);
+    for (const tool of [AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, RUN_TOOL_NAME]) {
       const refused = await provider.call({ sessionId: child.id, spaceId }, tool, { goal: "spawn another" });
       expect(refused.isError).toBe(true);
       expect(text(refused)).toContain("depth-1");
     }
     // The service's innermost check, even if both outer layers were lost:
-    const direct = await app.agentRuns.run({ sessionId: child.id, spaceId }, { goal: "spawn another" });
-    expect(direct.isError).toBe(true);
-    expect(text(direct)).toContain("depth-1");
+    for (const spawn of [app.agentRuns.run, app.agentRuns.start]) {
+      const direct = await spawn.call(app.agentRuns, { sessionId: child.id, spaceId }, { goal: "spawn another" });
+      expect(direct.isError).toBe(true);
+      expect(text(direct)).toContain("maximum delegation depth");
+    }
     // No grandchild session appeared.
     expect(app.sessions.list(spaceId)).toHaveLength(2);
   });
 
-  it("through the REAL gateway, the child's tools/list has the full surface minus realm-agent — app.ts's closure, not a stub", async () => {
-    const { spaceId, parentId } = await boot();
+  it("a child WITH budget may delegate — and its grandchild, now spent, may not", async () => {
+    // THE MUTANT this kills: keep the flat `isChild` refusal in spawn() and the budget is decorative —
+    // every child is still a leaf, and MAX_DELEGATION_DEPTH means nothing.
+    const { spaceId, parentId } = await boot({ maxDepth: 2 });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "level one" });
+    const child = childOf(spaceId, parentId);
+    expect(app.agentRuns.depthOf(child.id)).toBe(1);
+    expect(app.agentRuns.canDelegate(child.id)).toBe(true);
+
+    const grand = await app.agentRuns.run({ sessionId: child.id, spaceId }, { goal: "level two" });
+    expect(grand.isError).toBe(false);
+    const grandchild = app.sessions.list(spaceId).find((x) => x.id !== parentId && x.id !== child.id)!;
+    expect(grandchild.dispatchedBy).toEqual({ sessionId: child.id, kind: "agent_run" });
+    expect(app.agentRuns.depthOf(grandchild.id)).toBe(2);
+    expect(app.agentRuns.canDelegate(grandchild.id)).toBe(false);
+
+    const greatGrand = await app.agentRuns.run({ sessionId: grandchild.id, spaceId }, { goal: "level three" });
+    expect(greatGrand.isError).toBe(true);
+    expect(text(greatGrand)).toContain("maximum delegation depth");
+    expect(app.sessions.list(spaceId)).toHaveLength(3);
+  });
+
+  it("a budgeted child gets the agent_run family and NOTHING else — no browser agent, no review, no peer questions", async () => {
+    // The budget buys delegation, not the whole delegating surface: browser agents, reviews and
+    // interjections all assume the caller is the human's own session.
+    const { spaceId, parentId } = await boot({ maxDepth: 2 });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const child = childOf(spaceId, parentId);
+    const provider = createRealmAgentProvider(app.browserAgents, { providerEnabled: () => true }, app.agentRuns);
+    expect((await provider.tools({ sessionId: child.id, spaceId })).map((t) => t.name))
+      .toEqual([AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_WAIT_TOOL_NAME, AGENT_STATUS_TOOL_NAME]);
+    const refused = await provider.call({ sessionId: child.id, spaceId }, RUN_TOOL_NAME, { goal: "browse" });
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toContain("the delegating session's to open");
+    // And the gateway keeps the provider visible for it — the closure must not exclude a budgeted child.
+    expect(app.sessions.list(spaceId)).toHaveLength(2);
+  });
+
+  it("a persisted record with no depth field reads as depth 1 — never as a root with a fresh budget", async () => {
+    // Records written before the budget existed. THE MUTANT: default the missing field to 0, and every
+    // pre-existing child silently becomes a root that can delegate MAX_DELEGATION_DEPTH levels again.
+    const { spaceId, parentId } = await boot({ maxDepth: 1 });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const child = childOf(spaceId, parentId);
+    const key = `agentRun.child:${child.id}`;
+    const settings = new SettingsStore(app.db);
+    const stored = settings.get(key) as Record<string, unknown>;
+    delete stored.depth;
+    settings.set(key, stored);
+    expect(app.agentRuns.depthOf(child.id)).toBe(1);
+    expect(app.agentRuns.canDelegate(child.id)).toBe(false);
+  });
+
+  it("through the REAL gateway, a SPENT child's tools/list has the full surface minus realm-agent — app.ts's closure, not a stub", async () => {
+    const { spaceId, parentId } = await boot({ maxDepth: 1 });
     await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
     const child = childOf(spaceId, parentId);
     const connectAs = async (sessionId: string): Promise<Client> => {
@@ -240,7 +313,23 @@ describe("recursion guard — depth-1, enforced server-side", () => {
     const parentTools = (await asParent.listTools()).tools.map((t) => t.name);
     await asParent.close();
     expect(parentTools).toContain(`realm-agent__${AGENT_RUN_TOOL_NAME}`);
+    expect(parentTools).toContain(`realm-agent__${AGENT_START_TOOL_NAME}`);
     expect(parentTools).toContain(`realm-agent__${RUN_TOOL_NAME}`);
+  });
+
+  it("through the REAL gateway, a BUDGETED child keeps realm-agent but sees only the agent_run family", async () => {
+    // The other half of app.ts's closure: `spentChild` must be a DEPTH question, not `isChild`. THE
+    // MUTANT: leave the old `agentRuns?.isChild(...)` there and a budgeted child loses the provider
+    // at the gateway, so the whole budget is unreachable no matter what the service allows.
+    const { spaceId, parentId } = await boot({ maxDepth: 2 });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const child = childOf(spaceId, parentId);
+    const cfg = app.gateway.register(child.id, spaceId) as Extract<McpServerConfig, { url: string }>;
+    const client = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+    const names = (await client.listTools()).tools.map((t) => t.name).filter((n) => n.startsWith("realm-agent__"));
+    await client.close();
+    expect(names).toEqual([AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_WAIT_TOOL_NAME, AGENT_STATUS_TOOL_NAME].map((n) => `realm-agent__${n}`));
   });
 
   it("a BROWSER-agent child cannot call agent_run either", async () => {
@@ -421,17 +510,182 @@ describe("cancellation, budgets, and the one-run rule", () => {
     expect(text(result)).toContain("timed out");
   }, 15_000);
 
-  it("one delegated run per parent — across BOTH tools (shared engine)", async () => {
+  it("a parent BLOCKED in agent_run still cannot open a browser agent — hasRun's meaning is unchanged", async () => {
+    // The pre-parallel invariant, kept exactly: `hasRun` means "blocked inside a delegation call",
+    // and a blocking agent_run is still that. Its wording predates the engine and must not drift.
     const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 50 });
     const first = app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
     await waitFor(() => app.sessions.list(spaceId).length === 2);
-    const secondAgent = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "another" });
-    expect(secondAgent.isError).toBe(true);
-    expect(text(secondAgent)).toContain("already has a delegated run in flight");
     const secondBrowser = await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "browse too" });
     expect(secondBrowser.isError).toBe(true);
     expect(text(secondBrowser)).toContain("already has a browser agent running");
     await app.sessions.interrupt(parentId);
     await first;
   });
+
+  it("refuses a spawn past the per-session cap, and the refusal names the way out", async () => {
+    const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 50, caps: { perParent: 2 } });
+    for (let i = 0; i < 2; i += 1) {
+      const r = await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: `task ${i}` });
+      expect(r.isError).toBe(false);
+    }
+    // THE MUTANT: drop `atCapacity` from spawn() and a loop of agent_start calls opens one agent
+    // process per iteration until the machine gives out.
+    const over = await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "one too many" });
+    expect(over.isError).toBe(true);
+    expect(text(over)).toContain("2 delegated agents running");
+    expect(text(over)).toContain(AGENT_WAIT_TOOL_NAME);
+    expect(app.sessions.list(spaceId)).toHaveLength(3); // parent + 2 — the refused one created nothing
+    await app.sessions.interrupt(parentId);
+  });
+
+  it("refuses past the MACHINE-wide cap even when no single parent is over its own", async () => {
+    // The guard that makes the depth budget safe: per-parent caps alone do not bound a tree.
+    const { spaceId, parentId, profileId, spacesStore } = await boot({ script: longScript(60), delayMs: 50, caps: { perParent: 3, total: 2 } });
+    const otherSpace = spacesStore.create({ profileId, name: "S2", icon: "folder" });
+    const otherParent = app.sessions.create({ spaceId: otherSpace.id, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default" });
+    expect((await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "a" })).isError).toBe(false);
+    expect((await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "b" })).isError).toBe(false);
+    const over = await app.agentRuns.start({ sessionId: otherParent.session.id, spaceId: otherSpace.id }, { goal: "c" });
+    expect(over.isError).toBe(true);
+    expect(text(over)).toContain("machine-wide cap");
+    await app.sessions.interrupt(parentId);
+  });
 });
+
+/**
+ * Parallel delegation — the point of the whole change. Every test here would pass trivially against
+ * the old one-blocking-run-per-parent shape EXCEPT the first, which is why the wall-clock assertion is
+ * the one that matters: a `agent_start` that secretly blocks satisfies every other expectation in this
+ * block, and only elapsed time tells you.
+ */
+describe("agent_start / agent_wait — several agents at once", () => {
+  it("runs children CONCURRENTLY — three starts finish in about one child's time, not three", async () => {
+    // Each child emits two chunks at 300ms apiece, so one child is ~600ms of work. Sequential would
+    // be ~1800ms. THE MUTANT: make `start` await `run.settled` (i.e. quietly re-block) and the elapsed
+    // time crosses 1500ms while every other assertion in this file still passes.
+    const { spaceId, parentId } = await boot({ delayMs: 300, caps: { perParent: 4 } });
+    const t0 = Date.now();
+    const handles: string[] = [];
+    for (const goal of ["one", "two", "three"]) {
+      const r = await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal });
+      expect(r.isError).toBe(false);
+      handles.push(handleIn(text(r)));
+    }
+    const startedBy = Date.now() - t0;
+    expect(startedBy).toBeLessThan(600); // starting is not waiting
+
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles });
+    const elapsed = Date.now() - t0;
+    expect(collected.isError).toBe(false);
+    expect(elapsed).toBeLessThan(1500);
+    // All three reports came back, each attributed to its own child.
+    for (const h of handles) expect(text(collected)).toContain(h);
+    expect(text(collected)).toContain("All 3 delegated agents finished");
+    expect(text(collected).match(/FINAL: wrote the file, all done/g)).toHaveLength(3);
+    expect(app.sessions.list(spaceId)).toHaveLength(4); // parent + 3
+  }, 20_000);
+
+  it("collects an already-finished agent instantly, and SPENDS the handle", async () => {
+    const { spaceId, parentId } = await boot();
+    const started = await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "go" });
+    const handle = handleIn(text(started));
+    const first = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle] });
+    expect(first.isError).toBe(false);
+    expect(text(first)).toContain("FINAL: wrote the file, all done");
+    // THE MUTANT: leave the run in the registry after reporting it, and a parent that waits twice is
+    // handed the same report again — and its capacity slot never comes back.
+    const again = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle] });
+    expect(again.isError).toBe(true);
+    expect(text(again)).toContain("unknown handle");
+  });
+
+  it("a wait TIMEOUT gives up on listening — the children keep running and stay collectable", async () => {
+    // The distinction that stops a parent from spawning a duplicate of work still in progress.
+    const { spaceId, parentId } = await boot({ script: longScript(8), delayMs: 120 });
+    const started = await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "slow" });
+    const handle = handleIn(text(started));
+    const early = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle], timeoutMs: 1_000 });
+    expect(early.isError).toBe(true);
+    expect(text(early)).toContain("STILL RUNNING");
+    expect(text(early)).toContain(handle);
+    // Still ours, still running, still collectable — the timeout stopped nothing.
+    expect(app.sessions.get(handle).status).not.toBe("ended");
+    const later = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [handle], timeoutMs: 20_000 });
+    expect(later.isError).toBe(false);
+    expect(text(later)).toContain("step 7");
+  }, 30_000);
+
+  it('mode "any" returns on the first finisher and leaves the rest collectable', async () => {
+    const { spaceId, parentId } = await boot({ delayMs: 5, caps: { perParent: 4 } });
+    const fast = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "fast" })));
+    const second = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "second" })));
+    const any = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [fast, second], mode: "any" });
+    expect(any.isError).toBe(false);
+    // Whatever came back, the uncollected one is still addressable afterwards.
+    const rest = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { timeoutMs: 20_000 });
+    expect([any, rest].map((r) => text(r)).join("\n")).toContain(fast);
+    expect([any, rest].map((r) => text(r)).join("\n")).toContain(second);
+  }, 20_000);
+
+  it("waits for EVERYTHING in flight when no handles are named", async () => {
+    const { spaceId, parentId } = await boot({ delayMs: 5, caps: { perParent: 4 } });
+    await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "a" });
+    await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "b" });
+    const all = await app.agentRuns.wait({ sessionId: parentId, spaceId }, {});
+    expect(all.isError).toBe(false);
+    expect(text(all)).toContain("All 2 delegated agents finished");
+  }, 20_000);
+
+  it("refuses a handle belonging to ANOTHER session — a handle is not a bearer token", async () => {
+    const { spaceId, parentId } = await boot({ script: longScript(20), delayMs: 60 });
+    const mine = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "mine" })));
+    const stranger = app.sessions.create({ spaceId, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default" });
+    const stolen = await app.agentRuns.wait({ sessionId: stranger.session.id, spaceId }, { handles: [mine] });
+    expect(stolen.isError).toBe(true);
+    expect(text(stolen)).toContain("unknown handle");
+    await app.sessions.interrupt(parentId);
+  });
+
+  it("agent_status distinguishes running from finished-and-uncollected, and never blocks", async () => {
+    const { spaceId, parentId } = await boot({ script: longScript(20), delayMs: 60, caps: { perParent: 4 } });
+    expect(text(app.agentRuns.status({ sessionId: parentId, spaceId }))).toContain("No delegated agents");
+    const slow = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "slow one" })));
+    const status = app.agentRuns.status({ sessionId: parentId, spaceId });
+    expect(status.isError).toBe(false);
+    expect(text(status)).toContain(`${slow}: running`);
+    expect(text(status)).toContain("1 running, 0 finished");
+    await app.sessions.interrupt(parentId);
+  });
+
+  it("interrupting the parent cancels EVERY detached child, not just the first", async () => {
+    // THE MUTANT: leave `parentInterrupted` reading one run off the map and two of three agents keep
+    // running after the human hit stop — ghosts, which is the exact failure that rule exists to prevent.
+    const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 60, caps: { perParent: 3 } });
+    const handles = [] as string[];
+    for (const goal of ["a", "b", "c"]) handles.push(handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal }))));
+    await app.sessions.interrupt(parentId);
+    for (const h of handles) await waitFor(() => app.sessions.get(h).status === "idle");
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles, timeoutMs: 20_000 });
+    expect(text(collected)).toContain("did NOT finish (cancelled)");
+    expect(text(collected).match(/did NOT finish \(cancelled\)/g)).toHaveLength(3);
+  }, 30_000);
+
+  it("a detached child is invisible to hasRun — the parent is free to browse and to be asked", async () => {
+    // Detached means "not blocked". Counting it as blocked would make agent_start strictly worse than
+    // agent_run: fire one and the parent loses the browser agent and peer questions for its duration.
+    const { spaceId, parentId } = await boot({ script: longScript(20), delayMs: 60 });
+    await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "detached" });
+    const browser = await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "browse" });
+    expect(text(browser)).not.toContain("already has a browser agent running");
+    await app.sessions.interrupt(parentId);
+  }, 20_000);
+});
+
+/** `agent_start`'s result names the child session id as the handle — the tests read it back out the
+ *  same way the delegating agent would. */
+function handleIn(result: string): string {
+  const m = /Started delegated agent (\S+) \(/.exec(result);
+  expect(m, `no handle in: ${result}`).toBeTruthy();
+  return m![1]!;
+}

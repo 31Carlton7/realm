@@ -7,8 +7,8 @@ import { site } from "@/lib/site"
 export function Hero() {
   return (
     <section className="relative overflow-hidden border-b border-line">
-      {/* Two washes of accent behind everything: a wide one anchored where the shader's core sits, and
-          a narrow one under the headline, so the copy reads out of a lit ground rather than a flat one. */}
+      {/* Two washes of accent behind everything: a wide one anchored where the icon sits, and a narrow
+          one under the headline, so the copy reads out of a lit ground rather than a flat one. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(1100px_620px_at_72%_46%,color-mix(in_srgb,var(--color-accent)_15%,transparent),transparent_70%),radial-gradient(700px_420px_at_18%_18%,color-mix(in_srgb,var(--color-accent)_7%,transparent),transparent_72%)]"
@@ -64,10 +64,10 @@ export function Hero() {
           </p>
         </div>
 
-        {/* The canvas is masked to a soft ellipse rather than clipped to the column — it should look
-            like the realm is lit inside the page, not like a rectangle someone dropped on it. */}
+        {/* The shader paints the page colour around the icon and lets the ring's light leak onto it, so
+            the canvas has no edge to hide and needs no mask. */}
         <div className="lg:col-span-6">
-          <RealmCanvas className="relative mx-auto aspect-square w-full max-w-[560px] [mask-image:radial-gradient(closest-side,black_64%,transparent_100%)] lg:-mr-10 lg:max-w-none" />
+          <RealmCanvas className="relative mx-auto aspect-square w-full max-w-[560px] lg:-mr-10 lg:max-w-none" />
         </div>
       </div>
     </section>

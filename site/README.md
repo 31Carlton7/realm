@@ -42,11 +42,13 @@ functions.
 
 ## The hero shader
 
-`lib/realm-shader.ts` holds the WGSL as a plain string rather than a `.wgsl` module, so the build
-needs no bundler loader — vgpu accepts a raw string as shader source. `components/RealmCanvas.tsx`
+`lib/realm-shader.ts` is the app icon (`resources/icon-src/icon.wgsl`) drawn live and set in motion:
+the ring's bright head sweeps round, the hue drifts, and the icon tilts toward the pointer. It holds
+the WGSL as a plain string rather than a `.wgsl` module, so the build needs no bundler loader — vgpu
+accepts a raw string as shader source. `components/RealmCanvas.tsx`
 imports vgpu dynamically (it never enters the initial bundle), stops the frame loop whenever the
 canvas scrolls off screen or the tab is hidden, honours `prefers-reduced-motion` by rendering a
-single frame, and falls back to a CSS composition anywhere WebGPU is unavailable.
+single frame, and falls back to the static icon anywhere WebGPU is unavailable.
 
 ### Verifying the shader without a browser
 

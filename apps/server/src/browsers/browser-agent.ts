@@ -3,7 +3,7 @@ import { AGENT_SKILL_SUPPORT, BrowserAgentConstraintsSchema, type AgentKind } fr
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { DelegationEngine } from "../delegation/engine";
 import type { AgentRunService } from "../delegation/agent-run";
-import { AGENT_RUN_TOOL, AGENT_RUN_TOOL_NAME } from "../delegation/agent-run";
+import { AGENT_RUN_FAMILY, AGENT_RUN_TOOL, AGENT_RUN_TOOL_NAME, AGENT_START_TOOL, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL, AGENT_WAIT_TOOL_NAME } from "../delegation/agent-run";
 import type { ReviewService } from "../delegation/review";
 import { AGENT_REVIEW_TOOL, AGENT_REVIEW_TOOL_NAME } from "../delegation/review";
 import type { AskService } from "../delegation/ask";
@@ -257,38 +257,70 @@ export class BrowserAgentService {
 
 /**
  * The `realm-agent` gateway provider: `browser_agent_run` (Plan 11 W5) and — when the services are
- * wired (production always does, older tests need not) — `agent_run` (Plan 13 W1) and
- * `agent_review` (Plan 13 W3) beside it. A delegated child session of ANY of the three sees an
- * empty tool list here (and a refusal on call) even before the gateway-level toolset restriction
- * hides the provider entirely — two independent server-side enforcements of depth-1. Per-space off
- * switch via `mcp.setProviderEnabled`, same as `realm-browser` (the gateway contract: a provider
- * handles its own enablement).
+ * wired (production always does, older tests need not) — the `agent_run` family (Plan 13 W1, opened
+ * up to `agent_start`/`agent_wait`/`agent_status`) and `agent_review` (Plan 13 W3) beside it.
+ * Per-space off switch via `mcp.setProviderEnabled`, same as `realm-browser` (the gateway contract:
+ * a provider handles its own enablement).
+ *
+ * **What a delegated child sees here.** Two shapes, because the depth rules are no longer the same
+ * for all three kinds of child:
+ *
+ *   - A browser-agent child or a reviewer child sees an EMPTY tool list, and every tool refuses on
+ *     call. Those two stay depth-1 — a reviewer that can spawn workers is not read-only in any sense
+ *     the human's ship decision can rely on.
+ *   - An `agent_run` child with depth budget left sees ONLY the `agent_run` family: it may delegate,
+ *     but it may not open a browser agent, request a review, or interject on a peer. Those are all
+ *     surfaces whose invariants assume the caller is the human's own session. Spend the budget and
+ *     it drops to the empty list like any other child.
+ *
+ * Both shapes are enforced twice over, here and at the gateway's `sessionToolset` — and a third time
+ * inside each tool. Nothing about the budget loosens that.
  */
 export function createRealmAgentProvider(service: BrowserAgentService, mcp: { providerEnabled(spaceId: string, name: string): boolean }, agentRuns?: AgentRunService, reviews?: ReviewService, asks?: AskService): RealmToolProvider {
-  const isDelegatedChild = (sessionId: string): boolean =>
-    service.isChild(sessionId) || (agentRuns?.isChild(sessionId) ?? false) || (reviews?.isChild(sessionId) ?? false);
+  /** A child of a shape that stays depth-1: nothing here is for it. */
+  const isFlatChild = (sessionId: string): boolean =>
+    service.isChild(sessionId) || (reviews?.isChild(sessionId) ?? false);
+  /** An `agent_run` child that has spent its depth budget — same treatment as a flat child. */
+  const isSpentChild = (sessionId: string): boolean =>
+    (agentRuns?.isChild(sessionId) ?? false) && !(agentRuns?.canDelegate(sessionId) ?? false);
+  const isBlockedChild = (sessionId: string): boolean => isFlatChild(sessionId) || isSpentChild(sessionId);
+  /** An `agent_run` child with budget left — gets the agent_run family and nothing else. */
+  const isBudgetedChild = (sessionId: string): boolean =>
+    (agentRuns?.isChild(sessionId) ?? false) && (agentRuns?.canDelegate(sessionId) ?? false);
+
   const askTools = asks ? [AGENT_PEERS_TOOL, AGENT_ASK_TOOL, AGENT_ANSWER_TOOL] : [];
-  const toolNames = (): string => [RUN_TOOL_NAME, ...(agentRuns ? [AGENT_RUN_TOOL_NAME] : []), ...(reviews ? [AGENT_REVIEW_TOOL_NAME] : []), ...askTools.map((t) => t.name)].join(", ");
+  const runFamily = agentRuns ? [AGENT_RUN_TOOL, AGENT_START_TOOL, AGENT_WAIT_TOOL, AGENT_STATUS_TOOL] : [];
+  const toolNames = (): string => [RUN_TOOL_NAME, ...runFamily.map((t) => t.name), ...(reviews ? [AGENT_REVIEW_TOOL_NAME] : []), ...askTools.map((t) => t.name)].join(", ");
   return {
     name: REALM_AGENT_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME)) return [];
-      if (isDelegatedChild(ctx.sessionId)) return [];
-      return [RUN_TOOL, ...(agentRuns ? [AGENT_RUN_TOOL] : []), ...(reviews ? [AGENT_REVIEW_TOOL] : []), ...askTools];
+      if (isBlockedChild(ctx.sessionId)) return [];
+      if (isBudgetedChild(ctx.sessionId)) return runFamily;
+      return [RUN_TOOL, ...runFamily, ...(reviews ? [AGENT_REVIEW_TOOL] : []), ...askTools];
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME))
         return err(`the ${REALM_AGENT_PROVIDER_NAME} tools are disabled for this space — mcp.setProviderEnabled turns them back on.`);
-      // The provider's own belt across ALL delegation tools: a delegated child (of any kind) is
-      // refused here, before each tool's run() re-checks its own registry — depth-1, twice over.
-      // agent_answer is on this list DELIBERATELY: a delegated child can never be asked, so it can
-      // never hold a valid requestId, and leaving it callable would be a surface with no legitimate use.
-      if (isDelegatedChild(ctx.sessionId) && (tool === RUN_TOOL_NAME || tool === AGENT_RUN_TOOL_NAME || tool === AGENT_REVIEW_TOOL_NAME
-        || tool === AGENT_ASK_TOOL_NAME || tool === AGENT_ANSWER_TOOL_NAME || tool === AGENT_PEERS_TOOL_NAME))
+      // The provider's own belt, mirroring the tool list above. A child with no budget is refused
+      // everything; a budgeted child is refused everything EXCEPT the agent_run family, which its own
+      // service then re-checks against the depth budget. agent_answer is on the refusal list
+      // DELIBERATELY: a delegated child can never be asked, so it can never hold a valid requestId,
+      // and leaving it callable would be a surface with no legitimate use.
+      const isDelegationTool = tool === RUN_TOOL_NAME || tool === AGENT_REVIEW_TOOL_NAME
+        || tool === AGENT_ASK_TOOL_NAME || tool === AGENT_ANSWER_TOOL_NAME || tool === AGENT_PEERS_TOOL_NAME
+        || (AGENT_RUN_FAMILY as readonly string[]).includes(tool);
+      const isRunFamily = (AGENT_RUN_FAMILY as readonly string[]).includes(tool);
+      if (isBlockedChild(ctx.sessionId) && isDelegationTool)
         return err("refused: a delegated agent may not delegate further — delegation is depth-1 only.");
+      if (isBudgetedChild(ctx.sessionId) && isDelegationTool && !isRunFamily)
+        return err(`refused: a delegated agent may delegate with ${AGENT_RUN_TOOL_NAME}/${AGENT_START_TOOL_NAME}, but browser agents, reviews and peer questions are the delegating session's to open.`);
       try {
         if (tool === RUN_TOOL_NAME) return await service.run(ctx, args);
         if (tool === AGENT_RUN_TOOL_NAME && agentRuns) return await agentRuns.run(ctx, args);
+        if (tool === AGENT_START_TOOL_NAME && agentRuns) return await agentRuns.start(ctx, args);
+        if (tool === AGENT_WAIT_TOOL_NAME && agentRuns) return await agentRuns.wait(ctx, args);
+        if (tool === AGENT_STATUS_TOOL_NAME && agentRuns) return agentRuns.status(ctx);
         if (tool === AGENT_REVIEW_TOOL_NAME && reviews) return await reviews.runTool(ctx, args);
         if (tool === AGENT_PEERS_TOOL_NAME && asks) return asks.peers(ctx);
         if (tool === AGENT_ASK_TOOL_NAME && asks) return await asks.ask(ctx, args);

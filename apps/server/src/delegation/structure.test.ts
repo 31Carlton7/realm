@@ -36,7 +36,7 @@ describe("one settle/drain implementation (Plan 13 W1)", () => {
   it.each([
     ["the settle condition", 'lastStatus === "idle" && finalText !== null'],
     ["the cancelled-wins return", 'if (run.cancelled) return { outcome: "interrupted"'],
-    ["the run registry", "new Map<string, ActiveRun>"],
+    ["the run registry", "new Map<string, ActiveRun[]>"],
   ])("%s lives only in the engine", (_what, needle) => {
     expect(filesMentioning(needle)).toEqual(["delegation/engine.ts"]);
   });
@@ -62,10 +62,30 @@ describe("one settle/drain implementation (Plan 13 W1)", () => {
     for (const tool of ["browsers/browser-agent.ts", "delegation/agent-run.ts", "delegation/review.ts"]) {
       const text = readFileSync(join(SRC, tool), "utf8");
       expect(text).toMatch(/from "\.\.?\/(delegation\/)?engine"/);
-      expect(text).toContain("engine.drain(");
-      // No private polling loop: the tools never sleep-and-re-read session events themselves.
+      // `agent_run` reaches drain through the engine's `watch` (its blocking path is the detached
+      // path plus an await) rather than calling it directly — still the one loop, one caller further
+      // out. Every other flow calls drain itself.
+      expect(text).toMatch(/engine\.(drain|watch)\(/);
+      // No private polling loop: the tools never sleep-and-re-read session events themselves. This is
+      // what keeps `agent_wait`'s listening budget in the engine (`awaitRuns`) where drain's is.
       expect(text).not.toContain("setTimeout");
     }
+  });
+
+  /**
+   * Plan 24's own single-copy rule. Parallel delegation added a second way to be waiting on a child
+   * (`awaitRuns`, the listening budget) and a second registry predicate (`atCapacity`); both belong to
+   * the engine for drain's reason. A tool that grew its own `run.done` poll would be a third settle
+   * path, and the one that silently stops honouring cancellation.
+   */
+  it("the detached-run bookkeeping is the engine's — no tool polls run.done itself", () => {
+    expect(filesMentioning("async awaitRuns(")).toEqual(["delegation/engine.ts"]);
+    expect(filesMentioning("run.done = s")).toEqual(["delegation/engine.ts"]);
+    const text = readFileSync(join(SRC, "delegation/agent-run.ts"), "utf8");
+    // It may READ done (to partition collected from still-running) but must never wait on it.
+    expect(text).toContain("engine.awaitRuns(");
+    expect(text).not.toMatch(/while\s*\(/);
+    expect(text).not.toMatch(/for\s*\(;;\)/);
   });
 });
 

@@ -1,0 +1,13 @@
+{
+  "name": "realm-icon-src",
+  "private": true,
+  "type": "module",
+  "description": "Renders the Realm app icon (resources/icon.png + icon.icns) from icon.wgsl with vgpu. Not part of the pnpm workspace.",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "vgpu": "0.3.1"
+  }
+}

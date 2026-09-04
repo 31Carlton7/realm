@@ -4,21 +4,21 @@ import { useEffect, useRef, useState } from "react"
 
 import { realmShader } from "@/lib/realm-shader"
 
-/** Frozen frame used when the visitor asked for reduced motion — chosen because the shell is open. */
-const STILL_TIME = 7
+/** Frozen frame used when the visitor asked for reduced motion — the head of the ring sits top-left. */
+const STILL_TIME = 0
 
 type Status = "pending" | "running" | "unsupported"
 
 /**
- * The hero: Realm's shape, raymarched on the GPU through vgpu.
+ * The hero: the Realm app icon, drawn live on the GPU through vgpu and set in motion.
  *
  * Three things this has to get right beyond drawing:
  *
  * - **Never block the page.** vgpu is imported dynamically, so WebGPU never enters the initial bundle
  *   and nothing here runs during SSR.
  * - **Never burn a laptop.** The loop is stopped outright when the canvas scrolls away or the tab is
- *   hidden, not merely skipped — a raymarcher left running behind another tab is the difference
- *   between a warm fan and a cold one.
+ *   hidden, not merely skipped — a shader left running behind another tab is the difference between
+ *   a warm fan and a cold one.
  * - **Always render something.** Firefox still ships WebGPU off by default, and `init()` can fail on a
  *   machine that reports `navigator.gpu` but has no usable adapter. Both land on the CSS fallback.
  */
@@ -49,10 +49,9 @@ export function RealmCanvas({ className }: { className?: string }) {
           return
         }
 
-        // dpr is capped at 1.5 rather than the usual 2: this shader is ~100 distance-field
-        // evaluations per pixel, and the extra samples buy nothing on a hero that is mostly
-        // smooth gradient.
-        const output = surface(gpu, canvas, { dpr: [1, 1.5], clearColor: [0.039, 0.043, 0.055, 1] })
+        // The shader is a handful of gaussians per pixel, so it can afford full retina density —
+        // and the ring's core is thin enough that it needs it.
+        const output = surface(gpu, canvas, { dpr: [1, 2], clearColor: [0.039, 0.043, 0.055, 1] })
         const scene = effect(gpu, realmShader, {
           set: {
             params: { resolution: output.size, pointer: [0, 0], time: reduceMotion ? STILL_TIME : 0 },
@@ -63,7 +62,7 @@ export function RealmCanvas({ className }: { className?: string }) {
         })
 
         // Pointer target vs. smoothed value: the shader gets the smoothed one, so a fast flick
-        // eases the camera around instead of snapping it.
+        // eases the icon round instead of snapping it.
         const target = { x: 0, y: 0 }
         const smooth = { x: 0, y: 0 }
         const onPointerMove = (event: PointerEvent) => {
@@ -108,7 +107,7 @@ export function RealmCanvas({ className }: { className?: string }) {
         }
 
         if (reduceMotion) {
-          // One frame, then nothing: the shape is there, it simply does not move.
+          // One frame, then nothing: the icon is there, it simply does not move.
           const { frame } = await import("vgpu")
           if (disposed) {
             gpu.dispose()
@@ -173,30 +172,25 @@ export function RealmCanvas({ className }: { className?: string }) {
         {status !== "running" ? <CanvasFallback /> : null}
       </div>
       <span className="sr-only">
-        An animated rendering of a Realm: a glowing core wrapped in a shell of orbiting panes, circled
-        by a single ring.
+        The Realm app icon, animated: a glowing ring of shifting colour set into a dark rounded square.
       </span>
     </div>
   )
 }
 
 /**
- * Shown until WebGPU is up, and permanently where it never will be. It is the same composition in
- * CSS — a lit core, a ring, a suggestion of panes — so the section's balance does not change when the
- * real thing fades in over it.
+ * Shown until WebGPU is up, and permanently where it never will be: the real icon, at the same size
+ * and position the shader draws it, with its glow approximated by a shadow — so nothing shifts when
+ * the live version fades in over it.
  */
 function CanvasFallback() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 grid place-items-center">
-      <div className="relative aspect-square w-[74%]">
-        {/* halo → core → ring → panes, in the order the shader stacks them */}
-        <div className="absolute inset-[8%] rounded-full bg-[radial-gradient(circle,color-mix(in_srgb,var(--color-accent)_30%,transparent)_0%,transparent_66%)] blur-2xl" />
-        <div className="absolute inset-[37%] rounded-full bg-[radial-gradient(circle_at_36%_30%,#eaf3ff_0%,#8fc0fb_30%,#2f7fe8_58%,#12356f_85%,#0d2247_100%)] shadow-[0_0_60px_12px_color-mix(in_srgb,var(--color-accent)_28%,transparent)]" />
-        <div className="absolute inset-[2%] rotate-[18deg] rounded-[50%] border border-white/30 [transform:rotate3d(1,0.4,0,62deg)]" />
-        <div className="absolute top-[15%] left-[16%] h-[19%] w-[13%] -rotate-12 rounded-md border border-white/15 bg-white/8 backdrop-blur-[2px]" />
-        <div className="absolute top-[26%] right-[13%] h-[21%] w-[14%] rotate-[14deg] rounded-md border border-white/10 bg-white/5 backdrop-blur-[2px]" />
-        <div className="absolute bottom-[16%] left-[30%] h-[18%] w-[13%] rotate-[7deg] rounded-md border border-white/15 bg-white/8 backdrop-blur-[2px]" />
-      </div>
+      <img
+        src="/app-icon.png"
+        alt=""
+        className="w-[60%] max-w-none drop-shadow-[0_0_48px_rgba(120,110,255,0.22)]"
+      />
     </div>
   )
 }

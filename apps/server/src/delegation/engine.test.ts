@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StoredSessionEvent, SessionEvent } from "@realm/contracts";
-import { DelegationEngine } from "./engine";
+import { DelegationEngine, type ActiveRun } from "./engine";
 
 /**
  * Direct unit tests for `awaitAnswer` (Plan 20), against a scripted transcript.
@@ -30,7 +30,7 @@ function engineOver(batches: StoredSessionEvent[][]) {
   return { engine, interrupted };
 }
 
-const run = () => ({ childSessionId: "peer", cancelled: false, interruptOnCancel: false });
+const run = (): ActiveRun => ({ childSessionId: "peer", cancelled: false, interruptOnCancel: false, detached: false, settled: null, done: null });
 const wait = (engine: DelegationEngine, r = run(), answer: { text: string | null } = { text: null }, deadlineMs = 2000) =>
   engine.awaitAnswer({ targetId: "peer", fromSeq: 0, run: r, answer, deadline: Date.now() + deadlineMs, pollMs: 1 });
 
@@ -80,7 +80,7 @@ describe("awaitAnswer — the prose fallback only counts a turn that started AFT
   });
 
   it("cancelled wins over an answer that landed in the same poll window", async () => {
-    const r = { childSessionId: "peer", cancelled: true, interruptOnCancel: false };
+    const r = { ...run(), cancelled: true };
     const { engine } = engineOver([[status("running", 1), said("x", 2), status("idle", 3)]]);
     const settled = await wait(engine, r, { text: "answered too" });
     // Same ordering rule drain uses: once the asker is gone, nobody is listening, and reporting an

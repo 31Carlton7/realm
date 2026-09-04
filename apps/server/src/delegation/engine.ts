@@ -9,61 +9,195 @@ import type { StoredSessionEvent } from "@realm/contracts";
  *
  * The engine owns two things and nothing else:
  *
- *   - **The run registry** — one active delegated run per PARENT session, across both tools: a parent
- *     mid-`browser_agent_run` cannot also start an `agent_run` (and vice versa), and
- *     `SessionService.interrupt`'s one `parentInterrupted` call cancels whichever kind is in flight.
- *     In memory, deliberately: an in-flight MCP call cannot outlive the process.
- *   - **The settle wait** — `drain()`, the `live-agent-check` idiom scoped to events after `fromSeq`.
+ *   - **The run registry** — the delegated runs of each PARENT session, across every tool, and the
+ *     caps on how many may exist. `SessionService.interrupt`'s one `parentInterrupted` call cancels
+ *     all of them. In memory, deliberately: an in-flight MCP call cannot outlive the process.
+ *   - **The settle wait** — `drain()`, the `live-agent-check` idiom scoped to events after `fromSeq`,
+ *     plus `watch()`, which runs that same drain in the BACKGROUND for a detached run.
  *
  * What the engine does NOT own: child records, toolset restrictions, permission-mode capping,
  * environments, budgets, result phrasing. Those are per-tool policy and live with each tool.
+ *
+ * **Blocking vs detached, and why `hasRun` still means what it always did.** Until Plan 24 a parent
+ * had at most ONE run, so "has a run" and "is blocked inside a delegation call" were the same
+ * sentence. They are not any more: `agent_start` leaves a run in the registry while its parent goes
+ * on doing other things. Every predicate that meant *blocked* — the browser agent's refusal, the
+ * reviewer's, and `ask`'s askability check on a PEER — must keep meaning blocked, so `hasRun`
+ * counts only NON-detached runs and detached ones are invisible to it. The new predicate
+ * `atCapacity` is the one that counts everything, because a cap is about machines running, not
+ * about who is waiting.
  */
+/** How many runs one parent may have going at once (`agent_start`'s cap). Four rather than "as many
+ *  as you like": every child is a real agent process with its own context window and its own
+ *  worktree, and the point of a cap is that a fan-out mistake costs one refusal instead of a laptop. */
+export const MAX_RUNS_PER_PARENT = 4;
+
+/** The engine-wide ceiling, across every parent and every tool. `MAX_RUNS_PER_PARENT` alone does not
+ *  bound the tree: with a depth budget, four children each spawning four grandchildren is twenty
+ *  processes from one prompt. This is the guard that makes the depth budget safe to hand out, and it
+ *  is deliberately the smaller-feeling number — hitting it is a refusal an agent can read and retry,
+ *  whereas the failure it prevents is the machine going away. */
+export const MAX_RUNS_TOTAL = 12;
+
 export class DelegationEngine {
-  /** One active run per parent session — see the class doc comment. */
-  private readonly runs = new Map<string, ActiveRun>();
+  /** The runs of each parent session — see the class doc comment. A parent with none holds no entry
+   *  (`end` prunes the empty array), so `runs.size` is the number of parents currently delegating. */
+  private readonly runs = new Map<string, ActiveRun[]>();
+  private readonly maxPerParent: number;
+  private readonly maxTotal: number;
 
   constructor(private readonly d: {
     sessions: {
       events(id: string, afterSeq: number, limit: number): StoredSessionEvent[];
       interrupt(id: string): Promise<void>;
     };
-  }) {}
+    /** Tests tighten these to one and two so a cap is reachable without spawning four fake agents. */
+    caps?: { perParent?: number; total?: number };
+  }) {
+    this.maxPerParent = d.caps?.perParent ?? MAX_RUNS_PER_PARENT;
+    this.maxTotal = d.caps?.total ?? MAX_RUNS_TOTAL;
+  }
 
-  /** Whether this parent already has a delegated run in flight (either tool). The caller words its
-   *  own refusal — the browser tool's exact message predates the engine and must not drift. */
-  hasRun(parentSessionId: string): boolean {
-    return this.runs.has(parentSessionId);
+  private list(parentSessionId: string): ActiveRun[] {
+    return this.runs.get(parentSessionId) ?? [];
   }
 
   /**
-   * Register a run. The caller has already checked `hasRun` and refused; this is the write.
+   * Whether this parent is BLOCKED inside a delegation call right now. The caller words its own
+   * refusal — the browser tool's exact message predates the engine and must not drift.
+   *
+   * Detached runs are deliberately invisible here: a parent that fired `agent_start` and walked away
+   * is not blocked, and every caller of this predicate (the browser agent's refusal, the reviewer's,
+   * and `ask`'s askability check on a peer) is asking about being blocked. See the class doc comment.
+   */
+  hasRun(parentSessionId: string): boolean {
+    return this.list(parentSessionId).some((r) => !r.detached);
+  }
+
+  /** The parent's runs that are still EXECUTING — a settled-but-unclaimed detached run holds a
+   *  result, not a machine, so it is not counted against the cap and is not listed here. */
+  running(parentSessionId: string): ActiveRun[] {
+    return this.list(parentSessionId).filter((r) => r.done === null);
+  }
+
+  /** Every run of this parent the registry still holds, settled ones included — `agent_status`'s
+   *  read, and what `agent_wait` resolves a handle against. */
+  runsOf(parentSessionId: string): ActiveRun[] {
+    return [...this.list(parentSessionId)];
+  }
+
+  private totalRunning(): number {
+    let n = 0;
+    for (const list of this.runs.values()) for (const r of list) if (r.done === null) n += 1;
+    return n;
+  }
+
+  /**
+   * Whether a new run would exceed a cap — the check `agent_start`/`agent_run` make in place of the
+   * old `hasRun`. Returns the reason so the caller can word a refusal that says WHICH ceiling was hit
+   * (a per-parent cap is "wait for one of yours"; the global one is "the machine is busy"), or null
+   * when there is room.
+   */
+  atCapacity(parentSessionId: string): { scope: "parent" | "total"; limit: number } | null {
+    if (this.running(parentSessionId).length >= this.maxPerParent) return { scope: "parent", limit: this.maxPerParent };
+    if (this.totalRunning() >= this.maxTotal) return { scope: "total", limit: this.maxTotal };
+    return null;
+  }
+
+  /**
+   * Register a run. The caller has already checked `hasRun`/`atCapacity` and refused; this is the write.
    *
    * `interruptOnCancel` defaults TRUE so every delegation call site is byte-unchanged: a delegated
    * child is ours, and a stop on the parent must not leave a ghost agent running. Plan 20's ask
    * passes false — the session it targets is a PEER, not a child. See `parentInterrupted`.
+   *
+   * `detached` marks a run nobody is currently awaiting (`agent_start`). It changes exactly two
+   * things: `hasRun` ignores it, and its drain is expected to be running in the background under
+   * `watch` rather than under the caller's own await.
    */
-  begin(parentSessionId: string, targetSessionId: string, opts: { interruptOnCancel?: boolean } = {}): ActiveRun {
-    const run: ActiveRun = { childSessionId: targetSessionId, cancelled: false, interruptOnCancel: opts.interruptOnCancel ?? true };
-    this.runs.set(parentSessionId, run);
+  begin(parentSessionId: string, targetSessionId: string, opts: { interruptOnCancel?: boolean; detached?: boolean } = {}): ActiveRun {
+    const run: ActiveRun = {
+      childSessionId: targetSessionId, cancelled: false,
+      interruptOnCancel: opts.interruptOnCancel ?? true,
+      detached: opts.detached ?? false, done: null, settled: null,
+    };
+    this.runs.set(parentSessionId, [...this.list(parentSessionId), run]);
     return run;
   }
 
-  /** The run is over (any outcome) — always called from the tool's `finally`. */
-  end(parentSessionId: string): void {
-    this.runs.delete(parentSessionId);
+  /**
+   * The run is over (any outcome) — always called from the tool's `finally`.
+   *
+   * Omitting `run` removes ALL of the parent's runs, which is what `release` (the parent session was
+   * deleted) means and what every pre-Plan-24 caller meant when a parent could only have one. A
+   * caller that may have siblings in flight — only `agent_run`/`agent_wait` — passes its own run, so
+   * a sibling's `finally` can never evict a detached run whose report has not been collected yet.
+   */
+  end(parentSessionId: string, run?: ActiveRun): void {
+    if (!run) { this.runs.delete(parentSessionId); return; }
+    const rest = this.list(parentSessionId).filter((r) => r !== run);
+    if (rest.length === 0) this.runs.delete(parentSessionId);
+    else this.runs.set(parentSessionId, rest);
   }
 
-  /** The PARENT was interrupted: its delegated run (if any) is cancelled and the child interrupted —
-   *  a stop on the delegating session must not leave a ghost agent running. Called from
-   *  `SessionService.interrupt` for every session; a session with no active run is a no-op. */
+  /** The PARENT was interrupted: ALL its delegated runs are cancelled and their children interrupted
+   *  — a stop on the delegating session must not leave a ghost agent running, and after `agent_start`
+   *  there may be several. Called from `SessionService.interrupt` for every session; a session with
+   *  no active run is a no-op. */
   parentInterrupted(sessionId: string): void {
-    const run = this.runs.get(sessionId);
-    if (!run) return;
-    run.cancelled = true;
-    // A delegated CHILD is ours to stop. A PEER being asked a question is not: it was doing its own
-    // work before the question arrived and is still doing it, and stopping it because the ASKER was
-    // stopped would destroy work nobody asked to cancel. Cancelling the wait is the whole action.
-    if (run.interruptOnCancel) void this.d.sessions.interrupt(run.childSessionId).catch(() => { /* child may be gone already */ });
+    for (const run of this.list(sessionId)) {
+      if (run.cancelled) continue;
+      run.cancelled = true;
+      // A delegated CHILD is ours to stop. A PEER being asked a question is not: it was doing its own
+      // work before the question arrived and is still doing it, and stopping it because the ASKER was
+      // stopped would destroy work nobody asked to cancel. Cancelling the wait is the whole action.
+      if (run.interruptOnCancel) void this.d.sessions.interrupt(run.childSessionId).catch(() => { /* child may be gone already */ });
+    }
+  }
+
+  /**
+   * Start this run's settle wait in the BACKGROUND — the same `drain`, not a second one, just nobody
+   * awaiting it yet. Both delegation shapes go through here: `agent_run` calls `watch` and then
+   * immediately awaits `run.settled`, `agent_start` calls `watch` and returns. One code path, so a
+   * detached run cannot settle by rules the blocking one does not have.
+   *
+   * The watcher owns the deadline whether or not anyone ever waits, which is the whole reason it is
+   * started at spawn instead of at `agent_wait`: a parent that fires three children and then forgets
+   * them must still not leave three agents running forever, and drain's own timeout interrupts the
+   * child. `agent_wait`'s timeout is therefore a separate, shorter thing — giving up on LISTENING,
+   * which never stops the child.
+   */
+  watch(run: ActiveRun, childId: string, fromSeq: number, deadline: number, pollMs: number): void {
+    run.settled = this.drain(childId, fromSeq, run, deadline, pollMs).then((s) => { run.done = s; return s; });
+    // drain resolves for every outcome rather than throwing, but an unobserved promise that somehow
+    // did reject would take the process down — and a detached run is unobserved by construction.
+    void run.settled.catch(() => { /* surfaced through run.done / the awaiting tool */ });
+  }
+
+  /**
+   * Wait for a set of already-watched runs to settle — `agent_wait`'s wait, and the reason that tool
+   * needs no timer of its own (`structure.test.ts` forbids one in the tools).
+   *
+   * The deadline here is a LISTENING budget, not an execution one: it gives up on waiting and returns
+   * `timeout`, leaving every child running under its own `watch` deadline. That asymmetry is the
+   * point of detached runs — a parent may stop listening and come back later — and it is why this
+   * never interrupts anything, unlike `drain`'s timeout.
+   *
+   * Polls `run.done` rather than racing the `settled` promises so that `mode: "any"` does not have to
+   * abandon promises it is no longer interested in, and so a run that settled BEFORE this call (the
+   * common case: fire three, do other work, collect) resolves on the first pass with no wait at all.
+   */
+  async awaitRuns(runs: ActiveRun[], mode: "all" | "any", deadline: number, pollMs: number): Promise<"settled" | "timeout"> {
+    if (runs.length === 0) return "settled";
+    const satisfied = (): boolean => mode === "all" ? runs.every((r) => r.done !== null) : runs.some((r) => r.done !== null);
+    for (;;) {
+      if (satisfied()) return "settled";
+      // A cancelled run whose drain has returned is `done`; one whose parent was interrupted mid-poll
+      // resolves on the next pass. Either way the loop below is what notices, so there is no separate
+      // cancellation branch here.
+      if (Date.now() >= deadline) return "timeout";
+      await sleep(pollMs);
+    }
   }
 
   /**
@@ -171,9 +305,26 @@ export class DelegationEngine {
   }
 }
 
-/** `childSessionId` is the TARGET of the wait: a delegated child for the delegation tools, a peer
- *  session for Plan 20's ask — which is what `interruptOnCancel: false` distinguishes. */
-export type ActiveRun = { childSessionId: string; cancelled: boolean; interruptOnCancel: boolean };
+/**
+ * `childSessionId` is the TARGET of the wait: a delegated child for the delegation tools, a peer
+ * session for Plan 20's ask — which is what `interruptOnCancel: false` distinguishes. It doubles as
+ * the run's HANDLE: `agent_start` hands the child's session id back, and `agent_wait` resolves a
+ * handle by matching it here. No second identifier space, and the handle an agent holds is the same
+ * string that names the pane it can go read.
+ *
+ * `settled` is the background drain's promise (set by `watch`); `done` is its result, written when
+ * that promise resolves. `done !== null` is the difference between a run that is still burning a
+ * process and one that is only holding a report nobody has collected — which is why the caps count
+ * `done === null` and `agent_status` reads both.
+ */
+export type ActiveRun = {
+  childSessionId: string;
+  cancelled: boolean;
+  interruptOnCancel: boolean;
+  detached: boolean;
+  settled: Promise<SettledRun> | null;
+  done: SettledRun | null;
+};
 export type SettledRun = { outcome: "done" | "interrupted" | "timeout" | "failed" | "gone"; finalText: string | null; lastStatus: string | null };
 /** `sawTurnStart` is what makes the prose fallback safe — see `scan`. */
 type TranscriptScan = { lastStatus: string | null; finalText: string | null; sawTurnStart: boolean };
