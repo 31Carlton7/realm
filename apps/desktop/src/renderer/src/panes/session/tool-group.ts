@@ -46,21 +46,21 @@ const NO_NESTED: ToolNode[] = [];
  *  Lifting a sub-agent's calls out of the top level closes the gaps they left, so a parent's own
  *  calls that were only separated by its child's now group as the one run they always were. */
 export function groupTranscript(blocks: readonly Block[]): TranscriptItem[] {
+  // Only calls ALREADY seen are candidate parents — the map is written after the lookup, one pass,
+  // in arrival order. That is true of every real transcript (a sub-agent cannot act before the call
+  // that spawned it) and it is also what makes a cycle unrepresentable: a malformed pair of ids
+  // would otherwise nest into each other, vanish from the render, and recurse until the stack went.
   const nodes = new Map<string, ToolNode>();
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i]!;
-    if (b.kind === "tool") nodes.set(b.toolUseId, { key: blockKey(b, i), block: b, nested: [] });
-  }
-
   const top: { key: string; block: Block; nested: ToolNode[] }[] = [];
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i]!;
     if (b.kind !== "tool") { top.push({ key: blockKey(b, i), block: b, nested: NO_NESTED }); continue; }
-    const node = nodes.get(b.toolUseId)!;
     const parent = b.parentToolUseId === undefined ? undefined : nodes.get(b.parentToolUseId);
-    // A parent this transcript does not contain leaves the call where it is. An id Realm cannot
-    // resolve is still work the agent did, and hiding it would lose the call rather than nest it.
-    if (parent && parent !== node) parent.nested.push(node); else top.push(node);
+    const node: ToolNode = { key: blockKey(b, i), block: b, nested: [] };
+    nodes.set(b.toolUseId, node);
+    // A parent this transcript does not hold leaves the call where it is. An id Realm cannot resolve
+    // is still work the agent did, and hiding it would lose the call rather than nest it.
+    if (parent) parent.nested.push(node); else top.push(node);
   }
 
   const out: TranscriptItem[] = [];

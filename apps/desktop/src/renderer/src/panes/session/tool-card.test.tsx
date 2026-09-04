@@ -135,7 +135,6 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
       sub("task2", "task1", "Task", { description: "inner" }),
       sub("s1", "task2", "Bash", { command: "ls" }),
       sub("orphan", "gone", "Read", { file_path: "/o" }),
-      // A call naming itself would otherwise nest into itself and leave the transcript entirely.
       sub("selfie", "selfie", "Read", { file_path: "/s" }),
     ]);
     expect(items).toHaveLength(1);
@@ -144,6 +143,18 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
     // really did — and kills losing a self-referential id down its own hole.
     expect(group.kind === "group" && group.steps.map((x) => x.key)).toEqual(["tool:task1", "tool:orphan", "tool:selfie"]);
     expect(group.kind === "group" && flatKeys(group.steps[0]!.nested)).toEqual(["tool:task2", "tool:s1"]);
+  });
+
+  it("cannot be talked into a cycle by two calls naming each other", () => {
+    const items = groupTranscript([
+      sub("ping", "pong", "Read", { file_path: "/p" }),
+      sub("pong", "ping", "Read", { file_path: "/q" }),
+    ]);
+    // A parent is only ever a call already seen. THE MUTANT: resolve against every call in the
+    // transcript instead, and this pair nests into each other — both leave the render entirely, and
+    // walking the tree to mark enter flags recurses until the stack goes.
+    expect(items.map((i) => i.key)).toEqual(["tool:ping"]);
+    expect(items[0]!.kind === "block" && items[0]!.nested.map((n) => n.key)).toEqual(["tool:pong"]);
   });
 
   it("draws the sub-agent's steps under its Task row, labelled as the sub-agent's own work", () => {
