@@ -68,7 +68,7 @@ export type ThemeDef = {
   light: ThemeSeed | null;
 };
 
-export type ThemeName = "realm" | "one" | "monokai";
+export type ThemeName = "realm" | "one" | "monokai" | "dracula" | "nord" | "solarized" | "gruvbox";
 
 /* ── how a seed becomes a palette ──────────────────────────────────────────────
  * Every constant below was MEASURED off the shipped palette in theme/tokens.css, so a derived theme
@@ -414,5 +414,77 @@ export const THEMES: readonly ThemeDef[] = [
       syntax: { comment: "#8f907e", keyword: "#f92672", string: "#e6db74", number: "#ae81ff", title: "#a6e22e", type: "#66d9ef", attr: "#a6e22e" },
     },
     light: null,
+  },
+  {
+    /* Dracula — dracula/visual-studio-code, MIT © Dracula Theme. Dark only on purpose: Dracula's
+     * light counterpart (Alucard) ships with the paid Dracula PRO and is not ours to vendor. */
+    name: "dracula",
+    label: "Dracula",
+    credit: "Dracula — MIT © Dracula Theme",
+    blurb: "Dracula's purple night. Dark only.",
+    dark: {
+      bg: "#282a36", ink: "#f8f8f2", accent: "#bd93f9",
+      green: "#50fa7b", orange: "#ffb86c", red: "#ff5555",
+      syntax: { comment: "#7f8ec0", keyword: "#ff79c6", string: "#f1fa8c", number: "#bd93f9", title: "#50fa7b", type: "#8be9fd", attr: "#50fa7b" },
+    },
+    light: null,
+  },
+  {
+    /* Nord — arcticicestudio/nord, MIT © Sven Greb. Dark only: Nord is specified as one palette
+     * (Polar Night grounds, Snow Storm ink), and the "Nord Light" builds in the wild are community
+     * inversions rather than upstream. Comments are #616e88, the brightened value Nord's own
+     * editor ports moved to — nord3 (#4c566a) does not clear the contrast floor on nord0. */
+    name: "nord",
+    label: "Nord",
+    credit: "Nord — MIT © Sven Greb",
+    blurb: "Arctic blue-greys. Dark only.",
+    dark: {
+      bg: "#2e3440", ink: "#eceff4", accent: "#88c0d0",
+      green: "#a3be8c", orange: "#d08770", red: "#bf616a",
+      syntax: { comment: "#7c8aa5", keyword: "#81a1c1", string: "#a3be8c", number: "#b48ead", title: "#88c0d0", type: "#8fbcbb", attr: "#d8dee9" },
+    },
+    light: null,
+  },
+  {
+    /* Solarized — altercation/solarized, MIT © Ethan Schoonover. Both faces, which is the whole point
+     * of Solarized: one set of accent hues over two symmetric grounds.
+     * Two deviations from the reference, both forced by the contrast floor and both in the same
+     * direction — Solarized's own text tones are tuned for a code editor, not for UI chrome:
+     *   - `ink` is base2/base02 rather than base0/base00, so primary UI text clears 7:1.
+     *   - the LIGHT comment is #7a8a8a, one step down from base1 (#93a1a1), which reads 2.46:1 on
+     *     base3 and is the one value in this set that could not be vendored as written. */
+    name: "solarized",
+    label: "Solarized",
+    credit: "Solarized — MIT © Ethan Schoonover",
+    blurb: "Ethan Schoonover's symmetric pair.",
+    dark: {
+      bg: "#002b36", ink: "#eee8d5", accent: "#268bd2",
+      green: "#859900", orange: "#cb4b16", red: "#dc322f",
+      syntax: { comment: "#657b83", keyword: "#859900", string: "#2aa198", number: "#d33682", title: "#268bd2", type: "#b58900", attr: "#6c71c4" },
+    },
+    light: {
+      bg: "#fdf6e3", ink: "#073642", accent: "#268bd2",
+      green: "#859900", orange: "#cb4b16", red: "#dc322f",
+      syntax: { comment: "#7a8a8a", keyword: "#859900", string: "#2aa198", number: "#d33682", title: "#268bd2", type: "#b58900", attr: "#6c71c4" },
+    },
+  },
+  {
+    /* Gruvbox — morhetz/gruvbox, MIT © Pavel Pertsev. Both faces. Gruvbox paints strings and function
+     * names the same green upstream; here the title takes the yellow it uses for types, because two
+     * roles sharing one hue in a nine-token mapping loses a distinction the mapping exists to make. */
+    name: "gruvbox",
+    label: "Gruvbox",
+    credit: "Gruvbox — MIT © Pavel Pertsev",
+    blurb: "Warm retro contrast, light and dark.",
+    dark: {
+      bg: "#282828", ink: "#ebdbb2", accent: "#83a598",
+      green: "#b8bb26", orange: "#fe8019", red: "#fb4934",
+      syntax: { comment: "#a89984", keyword: "#fb4934", string: "#b8bb26", number: "#d3869b", title: "#fabd2f", type: "#8ec07c", attr: "#83a598" },
+    },
+    light: {
+      bg: "#fbf1c7", ink: "#3c3836", accent: "#076678",
+      green: "#79740e", orange: "#af3a03", red: "#9d0006",
+      syntax: { comment: "#7c6f64", keyword: "#9d0006", string: "#79740e", number: "#8f3f71", title: "#b57614", type: "#427b58", attr: "#076678" },
+    },
   },
 ];
