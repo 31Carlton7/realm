@@ -114,13 +114,13 @@ describe("ComputerUseHost", () => {
     });
     const snap = await instance.handleOp("computerSnapshot", { bundleId: "com.apple.TextEdit" }) as { text: string };
     expect(snap.text).toBe('[0] AXButton "Save" (10,20 30×40) {press}');
-    expect(calls[0]).toEqual({ method: "snapshot", params: { bundleId: "com.apple.TextEdit", screenshot: true } });
+    expect(calls[0]).toEqual({ method: "snapshot", params: { bundleId: "com.apple.TextEdit", screenshot: false } });
   });
 
-  it("asks for no screenshot only when explicitly told not to", async () => {
+  it("asks for a screenshot only when explicitly told to — a read tool stays cheap by default", async () => {
     const { instance, calls } = host({ snapshot: { elements: [] } });
-    await instance.handleOp("computerSnapshot", { bundleId: "x", screenshot: false });
-    expect(calls[0]!.params.screenshot).toBe(false);
+    await instance.handleOp("computerSnapshot", { bundleId: "x", screenshot: true });
+    expect(calls[0]!.params.screenshot).toBe(true);
   });
 
   it("turns the helper's tag into a refusal the agent can branch on", async () => {

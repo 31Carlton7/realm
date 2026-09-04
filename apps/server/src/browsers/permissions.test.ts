@@ -194,3 +194,66 @@ describe("BrowserPermissionBroker.gate — alwaysPrompt (credential fills)", () 
     expect(r.allowed).toBe(false);
   });
 });
+
+/**
+ * `promptUnderBypass` — the computer-use narrowing. `bypassPermissions` does not skip the card, but
+ * unlike `alwaysPrompt` an `allow_always` both satisfies and is recorded by it, so the user is asked
+ * once per key and never again in that session. Its mutants: bypass skipping the card; allow_always
+ * failing to stick; and the grant leaking across keys, which is what keys it per application.
+ */
+describe("gate({ promptUnderBypass })", () => {
+  const opts = { promptUnderBypass: true } as const;
+
+  it("PROMPTS under bypassPermissions, unlike an ordinary gate", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    const gate = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click in TextEdit", {}, "computer_act", opts);
+    broker.resolve(requestIdOf(events), "allow");
+    expect(await gate).toEqual({ allowed: true });
+  });
+
+  it("stops asking once the user answers always — even in bypassPermissions", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    const first = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click in TextEdit", {}, "computer_act", opts);
+    broker.resolve(requestIdOf(events), "allow_always");
+    expect(await first).toEqual({ allowed: true });
+
+    events.length = 0;
+    expect(await broker.gate("s1", "computer_act:com.apple.TextEdit", "Click again", {}, "computer_act", opts)).toEqual({ allowed: true });
+    expect(events).toEqual([]);
+  });
+
+  it("does not let a grant for one app license another", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    const first = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click in TextEdit", {}, "computer_act", opts);
+    broker.resolve(requestIdOf(events), "allow_always");
+    await first;
+
+    events.length = 0;
+    const other = broker.gate("s1", "computer_act:com.apple.Mail", "Click in Mail", {}, "computer_act", opts);
+    // A card, not a silent pass: this is the whole point of keying the grant per application.
+    const requestId = requestIdOf(events);
+    broker.resolve(requestId, "deny");
+    expect((await other).allowed).toBe(false);
+  });
+
+  it("is still refused outright in plan mode", async () => {
+    const { broker, events } = setup("plan");
+    const r = await broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", opts);
+    expect(r.allowed).toBe(false);
+    expect(!r.allowed && r.reason).toMatch(/read-only/);
+    expect(events).toEqual([]);
+  });
+
+  it("forgets its grants when the session is released", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    const first = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", opts);
+    broker.resolve(requestIdOf(events), "allow_always");
+    await first;
+
+    broker.release("s1");
+    events.length = 0;
+    const again = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", opts);
+    broker.resolve(requestIdOf(events), "allow");
+    expect(await again).toEqual({ allowed: true });
+  });
+});

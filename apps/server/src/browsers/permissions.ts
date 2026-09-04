@@ -28,7 +28,19 @@ type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: Permissi
  * approval is also the wrong shape for this specific decision: the card names an origin, and the
  * whole point of the origin gate is that the answer changes when the origin does.
  */
-export type GateOptions = { alwaysPrompt?: boolean };
+/**
+ * `promptUnderBypass` is the softer sibling: `bypassPermissions` does NOT skip the card, but
+ * `allow_always` both satisfies and is recorded by it — so the user is asked once per `toolKey` and
+ * never again for that key in that session.
+ *
+ * The computer-use tools set it, keyed per application. `bypassPermissions` means "stop asking me
+ * about ordinary actions", and it earns that meaning from the blast radius being a web page in
+ * Realm's own pane. Driving the whole machine has no such bound: the first time a session reaches
+ * for Mail is a decision the user should get to make, and the difference between "drive TextEdit"
+ * and "drive anything on this Mac" is not one a mode set for coding agents can express. Keying the
+ * grant per app is what keeps approving one from licensing the rest.
+ */
+export type GateOptions = { alwaysPrompt?: boolean; promptUnderBypass?: boolean };
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
 
@@ -38,7 +50,9 @@ export type GateResult = { allowed: true } | { allowed: false; reason: string };
  *
  *   - runs free under `bypassPermissions` (parity with every adapter: that mode's whole meaning is
  *     "no prompts") — the HARD blocks (password fields, OAuth consent URLs, downloads) are not
- *     prompts and live elsewhere (the act executor in Electron main; the URL guard in agent-tools);
+ *     prompts and live elsewhere (the act executor in Electron main; the URL guard in agent-tools).
+ *     Two narrowings exist, both opt-in per call and both documented on `GateOptions`:
+ *     `alwaysPrompt` and `promptUnderBypass`;
  *   - is refused outright under `plan` (a read-only session must not click things);
  *   - otherwise emits a `permission_request` session event — the same event, card and
  *     `sessions.respondPermission` round trip the user already knows — and blocks the tool call on
@@ -100,10 +114,13 @@ export class BrowserPermissionBroker {
    */
   async gate(sessionId: string, toolKey: string, title: string, input: Record<string, unknown>, toolName: string = toolKey, opts: GateOptions = {}): Promise<GateResult> {
     const mode = this.d.permissionMode(sessionId);
-    if (mode === "plan") return { allowed: false, reason: "this session is in Plan (read-only) mode — mutating browser tools are refused; switch modes to act on pages" };
+    if (mode === "plan") return { allowed: false, reason: "this session is in Plan (read-only) mode — mutating tools are refused; switch modes to act" };
     if (!opts.alwaysPrompt) {
-      if (mode === "bypassPermissions") return { allowed: true };
+      // `allow_always` is consulted BEFORE the mode, so a `promptUnderBypass` gate the user has
+      // already answered "always" to stops asking. For every other caller the two orders agree:
+      // both branches return allowed.
       if (this.always.get(sessionId)?.has(toolKey)) return { allowed: true };
+      if (mode === "bypassPermissions" && !opts.promptUnderBypass) return { allowed: true };
     }
 
     const requestId = REQUEST_PREFIX + randomBytes(12).toString("base64url");

@@ -8,6 +8,14 @@ import { z } from "zod";
  * key names) follows open-codex-computer-use (MIT); the schemas and the permission model are Realm's.
  */
 
+/**
+ * The gateway provider's name, and so the prefix its tools arrive under
+ * (`realm-computer__computer_snapshot`). It lives here rather than beside the provider because
+ * `McpService` needs it too — this is the one provider that is OFF until a space turns it on, and
+ * that table cannot import the provider without a cycle.
+ */
+export const COMPUTER_PROVIDER_NAME = "realm-computer";
+
 /** Tools that only read. Everything else goes through the permission gate — see the provider. */
 export const COMPUTER_READ_ONLY_TOOLS = ["computer_list_apps", "computer_snapshot"] as const;
 

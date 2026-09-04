@@ -22,6 +22,7 @@ import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
+import { createComputerAgentProvider } from "./computer/agent-tools";
 import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAME } from "./browsers/browser-agent";
 import { DelegationEngine } from "./delegation/engine";
 import { AgentRunService } from "./delegation/agent-run";
@@ -414,6 +415,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     timeouts: opts.ask?.timeouts,
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
+  // Computer use: the same gateway, the same host bridge, the same permission broker — pointed at the
+  // Mac's own apps instead of a browser pane. Off until a space turns it on; see the safety model on
+  // `createComputerAgentProvider`.
+  mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker }));
   // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
   // One extractor for the process: PDF text is memoized across every session's searches.
   const extractor = new TextExtractor();

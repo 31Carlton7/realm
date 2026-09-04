@@ -1,4 +1,4 @@
-import { MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { COMPUTER_PROVIDER_NAME, MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { liveCheck, type McpTestResult } from "./live-check";
 import type { SettingsStore } from "../store/settings";
@@ -33,6 +33,19 @@ const allowedToolsKey = (spaceId: string, serverId: string): string => `mcp.allo
 /** The *disabled* Realm-native provider names for a space — inverted vs `enabledKey` because providers
  *  default ON; see `providerEnabled`. */
 const providersDisabledKey = (spaceId: string): string => `mcp.providersDisabled:${spaceId}`;
+/** The *enabled* provider names for a space, for the opt-in providers only — see `OPT_IN_PROVIDERS`. */
+const providersEnabledKey = (spaceId: string): string => `mcp.providersEnabled:${spaceId}`;
+
+/**
+ * Providers that are OFF until a space turns them on, inverting the default the others get.
+ *
+ * `realm-computer` is the only one, and the reason is its blast radius rather than its
+ * trustworthiness. Every other provider acts inside Realm — a browser pane Realm owns, the space's
+ * own folder — so shipping it IS the opt-in. Computer use reaches every application on the Mac,
+ * including ones the user has never mentioned to Realm, and a capability like that should be
+ * something a space was given rather than something it woke up holding.
+ */
+const OPT_IN_PROVIDERS = new Set<string>([COMPUTER_PROVIDER_NAME]);
 
 
 /** What `mcp.add` / `mcp.update` accept, before the transport decides which half of it is meaningful. */
@@ -281,20 +294,26 @@ export class McpService {
   }
 
   /**
-   * Realm-native gateway providers (`realm-browser`) — per-space disableable like any server, but
-   * default ON where server rows default OFF, so the settings key stores the *disabled* set (the
-   * skills rationale, not the servers one: a provider is Realm's own code operating under Realm's own
-   * permission flow, not a process or URL the user configured — presence in the product IS the opt-in,
-   * and the per-space switch exists to turn it off).
+   * Realm-native gateway providers (`realm-browser`, `realm-agent`, `realm-docs`) — per-space
+   * disableable like any server, but default ON where server rows default OFF, so the settings key
+   * stores the *disabled* set (the skills rationale, not the servers one: a provider is Realm's own
+   * code operating under Realm's own permission flow, not a process or URL the user configured —
+   * presence in the product IS the opt-in, and the per-space switch exists to turn it off).
+   *
+   * `OPT_IN_PROVIDERS` invert that, storing an *enabled* set instead. The switch the user sees is the
+   * same one either way; only which side of it is the resting state differs.
    */
   providerEnabled(spaceId: string, name: string): boolean {
+    if (OPT_IN_PROVIDERS.has(name)) return this.d.settings.getIds(providersEnabledKey(spaceId)).includes(name);
     return !this.d.settings.getIds(providersDisabledKey(spaceId)).includes(name);
   }
 
   setProviderEnabled(spaceId: string, name: string, enabled: boolean): void {
-    const key = providersDisabledKey(spaceId);
+    // An opt-in provider records the names that are ON; every other records the names that are OFF.
+    const optIn = OPT_IN_PROVIDERS.has(name);
+    const key = optIn ? providersEnabledKey(spaceId) : providersDisabledKey(spaceId);
     const names = new Set(this.d.settings.getIds(key));
-    if (enabled) names.delete(name); else names.add(name);
+    if (enabled === optIn) names.add(name); else names.delete(name);
     this.d.settings.set(key, [...names].sort());
   }
 

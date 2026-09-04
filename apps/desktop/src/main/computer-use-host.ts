@@ -46,7 +46,7 @@ export class ComputerUseHost {
         const raw = await this.d.request<Omit<ComputerSnapshotResult, "text">>("snapshot", {
           ...(typeof params.bundleId === "string" ? { bundleId: params.bundleId } : {}),
           ...(typeof params.pid === "number" ? { pid: params.pid } : {}),
-          screenshot: params.screenshot !== false,
+          screenshot: params.screenshot === true,
         });
         return { ...raw, text: renderElements(raw.elements) } satisfies ComputerSnapshotResult;
       }

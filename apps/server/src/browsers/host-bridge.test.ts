@@ -99,6 +99,6 @@ describe("BrowserHostBridge", () => {
     const { ws, rpc } = fakeHost();
     const bridge = new BrowserHostBridge({ rpc });
     bridge.register(ws);
-    await expect(bridge.call("format-disk" as never, {})).rejects.toThrow(/unknown browser host op/);
+    await expect(bridge.call("format-disk" as never, {})).rejects.toThrow(/unknown host op/);
   });
 });

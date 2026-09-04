@@ -367,3 +367,38 @@ describe("scoping (W2) — profile vs space defining scope", () => {
     expect(() => svc.demote(B1, a.id)).toThrow(RpcError);      // B1 is not in PA
   });
 });
+
+/**
+ * Provider enablement, and the one provider whose default is inverted. The mutants that matter:
+ * `realm-computer` defaulting ON, a space's answer leaking to another space, and the two storage
+ * keys interfering — turning computer use on must not appear to turn the browser tools off.
+ */
+describe("provider enablement", () => {
+  it("defaults Realm's ordinary providers to on", () => {
+    expect(mcp.providerEnabled(WORK, "realm-browser")).toBe(true);
+    expect(mcp.providerEnabled(WORK, "realm-docs")).toBe(true);
+  });
+
+  it("defaults realm-computer to OFF — it reaches every app on the Mac", () => {
+    expect(mcp.providerEnabled(WORK, "realm-computer")).toBe(false);
+  });
+
+  it("turns computer use on and off again for one space", () => {
+    mcp.setProviderEnabled(WORK, "realm-computer", true);
+    expect(mcp.providerEnabled(WORK, "realm-computer")).toBe(true);
+    mcp.setProviderEnabled(WORK, "realm-computer", false);
+    expect(mcp.providerEnabled(WORK, "realm-computer")).toBe(false);
+  });
+
+  it("keeps one space's answer out of another's", () => {
+    mcp.setProviderEnabled(WORK, "realm-computer", true);
+    expect(mcp.providerEnabled(SCHOOL, "realm-computer")).toBe(false);
+  });
+
+  it("keeps the two storage keys from interfering", () => {
+    mcp.setProviderEnabled(WORK, "realm-computer", true);
+    mcp.setProviderEnabled(WORK, "realm-browser", false);
+    expect(mcp.providerEnabled(WORK, "realm-computer")).toBe(true);
+    expect(mcp.providerEnabled(WORK, "realm-browser")).toBe(false);
+  });
+});
