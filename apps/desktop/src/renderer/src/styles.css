@@ -711,6 +711,9 @@ button.panel-title:hover { background: var(--rl-hover); }
    toast: the native view composites over anything inside its rectangle, so a toast there would be
    invisible (W2's no-overlay invariant). Its height comes out of the view's, which the pane's
    ResizeObserver already syncs. */
+/* The element picker, while armed. The button is the ONLY thing that says so on Realm's side of the
+   glass — the highlight the user follows is Chrome's own overlay, drawn inside the native view. */
+.icon-btn[data-active] { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); color: var(--rl-accent); }
 .browser-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--rl-hairline); background: var(--rl-hover); }
 .browser-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--rl-text-dim); }
 .browser-notice-text strong { font-weight: var(--fw-title); color: var(--rl-text-bright); }

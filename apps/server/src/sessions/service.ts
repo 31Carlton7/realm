@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type ElementChip, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -60,6 +60,13 @@ type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean 
  * Every adapter event (except deltas) is persisted with a global, monotonically increasing seq (unique across sessions;
  * clients page per session with `afterSeq`) and broadcast as `session.event`.
  */
+/**
+ * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
+ * as chips: they never enter the transcript (which keeps what the user typed, chips and all) and are
+ * appended, fenced, to the text the ADAPTER sees — the same split mentions already follow.
+ */
+export type SendMessage = { text: string; attachments: { path: string; mime: string }[]; mentions?: string[]; elements?: ElementChip[] };
+
 export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
@@ -146,7 +153,7 @@ export class SessionService {
   }
 
   /** Emits `user_message` (persisted + broadcast) and hands the message to the adapter, starting it if needed. */
-  async send(id: string, msg: { text: string; attachments: { path: string; mime: string }[]; mentions?: string[] }): Promise<void> {
+  async send(id: string, msg: SendMessage): Promise<void> {
     // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
     // back off the row, so this is the only place the (async) allocation has to happen.
     await this.ensurePorts(id);
@@ -176,13 +183,13 @@ export class SessionService {
    * agent has an injection route at all, and THIS live session was started with the library — a
    * `/realm:` prepend into a session that never loaded the plugin invokes nothing.
    */
-  private resolveMentions(id: string, msg: { text: string; attachments: { path: string; mime: string }[]; mentions?: string[] }): UserMessage {
+  private resolveMentions(id: string, msg: SendMessage): UserMessage {
     const declared = [...new Set(msg.mentions ?? [])].filter((m) => SkillIdSchema.safeParse(m).success);
-    const base = { text: msg.text, attachments: msg.attachments };
+    const base = { text: msg.text + elementContext(msg.elements ?? []), attachments: msg.attachments };
     if (declared.length === 0) return base;
     const tokens = scanMentions(msg.text, declared);
     if (tokens.length === 0) return base;
-    const text = stripMentionAts(msg.text, tokens);
+    const text = stripMentionAts(msg.text, tokens) + elementContext(msg.elements ?? []);
     const s = this.get(id);
     let skill: SkillMention | undefined;
     if (AGENT_SKILL_SUPPORT[s.agentKind] === "injected" && this.live.get(id)?.skillsInjected) {

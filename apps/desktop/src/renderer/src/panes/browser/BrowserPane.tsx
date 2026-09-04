@@ -5,6 +5,7 @@ import type { StoreApi } from "zustand";
 import type { PaneProps } from "../registry";
 import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
 import { cancelViewDestroy, getBrowserBridges, scheduleViewDestroy } from "./browser-client";
+import { sessionForPick } from "./pick-target";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
 
 /** How long after the last main→renderer state change the url/title persist to the server. Debounced:
@@ -86,6 +87,54 @@ function useBlockedDownloads(browserId: string, spaceId: string) {
 }
 
 /**
+ * The element picker's pane-side half.
+ *
+ * The picker is armed and disarmed here, but nothing about it is drawn here: the highlight is
+ * Chrome's own overlay, inside the view, which is the only way to point at something in a rectangle
+ * React cannot paint into (W2's no-overlay invariant). All this owns is the toolbar button's lit
+ * state and where the result goes.
+ *
+ * The result goes into a SESSION's composer, chosen structurally by `sessionForPick` — a pick that
+ * lands nowhere says so rather than being quietly dropped, because the user's evidence that it
+ * worked is a chip appearing in a pane they may not be looking at.
+ */
+function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
+  const [armed, setArmed] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  // Only when armed: a pane that never picked has nothing to take down, and main would be answering
+  // a cancel for a view it holds no pick on. Through a ref so the effect does not re-run — and so
+  // does not disarm — every time the button lights up.
+  const armedRef = useRef(false);
+  armedRef.current = armed;
+  useEffect(() => () => { if (armedRef.current) void getBrowserBridges().host.cancelPick(browserId); }, [browserId]);
+
+  const toggle = async () => {
+    if (armed) {
+      setArmed(false);
+      await getBrowserBridges().host.cancelPick(browserId);
+      return;
+    }
+    setArmed(true);
+    setNote(null);
+    const picked = await getBrowserBridges().host.pickElement(browserId);
+    setArmed(false);
+    if (!picked) return; // cancelled, navigated, or the pane went away — nothing to say
+    const state = store?.getState();
+    const sessionId = state ? sessionForPick(state.items, state.layout, state.focusedLeafId) : null;
+    if (!sessionId || !state) {
+      setNote("Nothing to send this to — open a session pane in this group first.");
+      return;
+    }
+    // The store answers with the label it actually used, which is not always the one this element
+    // would produce on its own — a second identical button gets disambiguated on the way in.
+    setNote(`Added ${state.addElementChip(sessionId, picked)} to the prompter.`);
+  };
+
+  return { armed, note, toggle, clearNote: () => setNote(null) };
+}
+
+/**
  * The browser pane (Plan 11 W1): DOM chrome ABOVE a native `WebContentsView` that Electron main owns.
  * The view composites over everything in its rectangle (wontfix), so every control here is an INLINE
  * toolbar button — no dropdowns, no menus, nothing that would ever need to open "over" the view.
@@ -113,6 +162,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const hasUrl = url !== "";
   const { actions, driving } = useAgentWatch(store, browserId);
   const downloads = useBlockedDownloads(browserId, item.spaceId);
+  const picker = useElementPicker(browserId, store);
   const lastAction = actions.length > 0 ? actions[actions.length - 1]! : null;
 
   useEffect(() => {
@@ -247,6 +297,13 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
             <Icon name="reload" size={14} />
           </button>
         )}
+        {/* Inline, like every other control here: the native view composites over this pane's
+            rectangle, so a picker that opened a panel would open it underneath the page. */}
+        <button className="icon-btn" aria-label="Pick an element" aria-pressed={picker.armed}
+          title="Pick an element to send to the prompter" data-active={picker.armed || undefined}
+          disabled={!hasUrl} onClick={() => { void picker.toggle(); }}>
+          <Icon name="target" size={14} />
+        </button>
         <form className="browser-address" data-loading={state?.loading || undefined}
           onSubmit={(e) => { e.preventDefault(); void submit(); }}>
           <input ref={inputRef} aria-label="Address" placeholder="Enter a URL"
@@ -299,6 +356,15 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           )}
           <button type="button" className="icon-btn" aria-label="Dismiss"
             onClick={() => { if (downloads.top) downloads.dismiss(downloads.top.id); else downloads.clearNote(); }}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
+      {picker.note && (
+        <div className="browser-notice" role="status">
+          <Icon name="target" size={13} />
+          <span className="browser-notice-text">{picker.note}</span>
+          <button type="button" className="icon-btn" aria-label="Dismiss" onClick={picker.clearNote}>
             <Icon name="close" size={12} />
           </button>
         </div>

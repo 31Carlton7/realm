@@ -4,10 +4,10 @@ import {
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
-  AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
+  AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, elementContext, formatAttachmentSize, keepLiveChips, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type BrowserCredential, type DelegatedRun, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
+  type AgentKind, type Attachment, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -185,7 +185,7 @@ export type Api = {
   memorySources(sessionId: string): Promise<MemorySources>;
   /** `mentions` are the skill ids the draft's `@`-tokens were recognised as; the server re-validates
    *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
-  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[]): Promise<void>;
+  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[]): Promise<void>;
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
@@ -646,6 +646,11 @@ export type AppState = {
    *  text — which is what lets a skill disabled or DELETED after typing still degrade to plain text at
    *  send (the server strips the `@`) instead of going out as a literal `@name`. */
   draftMentions: Record<string, string[]>;
+  /** Elements the draft's `@[…]` chips stand for, per session. The sidecar to `drafts` that
+   *  `draftMentions` is for `@id`, and maintained the same way by `setDraft`: an entry lives exactly
+   *  as long as its token survives in the text, so deleting a chip forgets what it named. The draft
+   *  itself stays a plain string — a chip is paint over a token, not a node. */
+  draftElements: Record<string, ElementChip[]>;
   /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
    *  skills-capable session opens and on `skills.changed`. */
   spaceSkills: Record<string, Skill[]>;
@@ -1009,6 +1014,9 @@ export type AppState = {
    *  offers the command, the user presses Return. Nothing here ever runs an installer. */
   prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
+  /** Drop an element picked in a browser pane into a session's composer, as a chip. Answers the
+   *  label the chip went in under, so the browser pane can name what it just sent. */
+  addElementChip(sessionId: string, element: BrowserPickedElement): string;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
   /** Fetch the scan sources into `spaceSkillSources`. Separate from `refreshSkills` because the panel
@@ -1788,7 +1796,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -2154,7 +2162,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
           const { [it.refId]: _at, ...pendingAttachments } = get().pendingAttachments;
           const { [it.refId]: _dm, ...draftMentions } = get().draftMentions; // part of the draft, dropped with it
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, planReturn, sessionSpace, terminalPanel, sessionTerminals });
+          const { [it.refId]: _de, ...draftElements } = get().draftElements; // likewise
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, planReturn, sessionSpace, terminalPanel, sessionTerminals });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -2470,7 +2479,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // with it `draftMentions`) behind this call. The raw text goes as written; the server owns the
         // rewrite, so the transcript shows the `@` and the wire never does.
         const mentions = mentionIds(text, new Set([...(get().draftMentions[id] ?? []), ...mentionableIds(id)]));
-        await api.sendMessage(id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions);
+        // Same synchronous read, same reason: the prompter clears the draft behind this call, and the
+        // sidecar goes with it. Re-derived from the FINAL text so a chip deleted before send does not
+        // still hand the agent the element it named.
+        const elements = keepLiveChips(text, get().draftElements[id] ?? []);
+        await api.sendMessage(id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements);
         // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
         // chip row would leave the user with no record of what they had attached, and a file dragged in
         // while the request was in flight was never part of this message.
@@ -2494,6 +2507,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const pending = get().pendingAttachments[sessionId] ?? [];
         // Read synchronously BEFORE anything clears — sendMessage's own idiom, same reason.
         const mentions = mentionIds(text, new Set([...(get().draftMentions[sessionId] ?? []), ...mentionableIds(sessionId)]));
+        const elements = keepLiveChips(text, get().draftElements[sessionId] ?? []);
         const { session, itemId } = await api.createSession({
           spaceId: source.spaceId, agentKind: source.agentKind, environmentId: source.environmentId,
           model: source.model, effort: source.effort, permissionMode: source.permissionMode,
@@ -2502,12 +2516,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (isSpace(source.spaceId)) mergeSession(session);
         // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
         // surfaces the reason), exactly as a failed normal send would.
-        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions);
+        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements);
         const sent = new Set(pending.map((a) => a.path));
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => !sent.has(a.path));
         set({
           drafts: { ...get().drafts, [sessionId]: "" },
           draftMentions: { ...get().draftMentions, [sessionId]: [] },
+          draftElements: { ...get().draftElements, [sessionId]: [] },
           pendingAttachments: { ...get().pendingAttachments, [sessionId]: left },
         });
         // The new pane arrives beside, quietly. Items are refetched first (the server created the
@@ -2687,7 +2702,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // the token is edited away. Nothing here is fuzzy — `mentionIds` only ever exact-matches.
         const prev = get().draftMentions[sessionId] ?? [];
         const mentions = mentionIds(text, new Set([...mentionableIds(sessionId), ...prev]));
-        set({ drafts: { ...get().drafts, [sessionId]: text }, draftMentions: { ...get().draftMentions, [sessionId]: mentions } });
+        const elements = keepLiveChips(text, get().draftElements[sessionId] ?? []);
+        set({
+          drafts: { ...get().drafts, [sessionId]: text },
+          draftMentions: { ...get().draftMentions, [sessionId]: mentions },
+          draftElements: { ...get().draftElements, [sessionId]: elements },
+        });
+      },
+      addElementChip(sessionId, element) {
+        const draft = get().drafts[sessionId] ?? "";
+        const chips = get().draftElements[sessionId] ?? [];
+        const label = elementChipLabel(element, chips.map((c) => c.label));
+        // Appended at the end rather than at the caret: the pick happened in a DIFFERENT pane, so
+        // there is no caret here to speak of — the composer this lands in may never have been focused.
+        const lead = draft === "" || /\s$/.test(draft) ? "" : " ";
+        set({ draftElements: { ...get().draftElements, [sessionId]: [...chips, { label, element }] } });
+        get().setDraft(sessionId, `${draft}${lead}${elementChipToken(label)} `);
+        return label;
       },
       async refreshSkills(spaceId) {
         const { root, skills } = await api.listSkills(spaceId);

@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, firstLeaf, sessionEvent, PAGE_REF_IDS, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { allItems, findLeafOfItem, firstLeaf, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
@@ -2286,6 +2286,82 @@ describe("@-mentions in the draft (Plan 8 W4)", () => {
     expect(store.getState().draftMentions.se1).toEqual(["mac"]);
     await store.getState().deleteItem("i2");
     expect(store.getState().draftMentions.se1).toBeUndefined();
+  });
+});
+
+/**
+ * Element chips in the draft. The sidecar is `draftMentions`' twin and follows the same one rule — an
+ * entry lives exactly as long as its token does — but it answers a different question at send: what
+ * the agent is told ABOUT the thing the user pointed at.
+ */
+describe("element chips in the draft", () => {
+  const PICKED: BrowserPickedElement = {
+    ref: 42, url: "https://example.com/login", title: "Sign in",
+    rect: { x: 4, y: 8, w: 90, h: 32 },
+    selector: "#submit", tag: "button", role: "button", name: "Sign in",
+    text: "Sign in", html: '<button id="submit">Sign in</button>',
+  };
+  const ready = async () => {
+    const a = fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
+      sessions: [session("se1", "s1", { agentKind: "claude" })],
+    });
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openSession("se1");
+    return { a, store };
+  };
+
+  it("appends a chip token to the draft and keeps the element beside it", () => {
+    const store = createAppStore(fakeApi());
+    expect(store.getState().addElementChip("se1", PICKED)).toBe('button "Sign in"');
+    expect(store.getState().drafts.se1).toBe('@[button "Sign in"] ');
+    expect(store.getState().draftElements.se1).toEqual([{ label: 'button "Sign in"', element: PICKED }]);
+  });
+
+  it("lands after what the user has already typed, without gluing itself to the last word", () => {
+    const store = createAppStore(fakeApi());
+    store.getState().setDraft("se1", "make this blue:");
+    store.getState().addElementChip("se1", PICKED);
+    expect(store.getState().drafts.se1).toBe('make this blue: @[button "Sign in"] ');
+  });
+
+  it("forgets an element the moment its token leaves the text", () => {
+    const store = createAppStore(fakeApi());
+    store.getState().addElementChip("se1", PICKED);
+    store.getState().setDraft("se1", "make this blue");
+    expect(store.getState().draftElements.se1).toEqual([]);
+  });
+
+  it("sends the picked elements alongside the raw text the transcript will keep", async () => {
+    const { a, store } = await ready();
+    store.getState().addElementChip("se1", PICKED);
+    const text = store.getState().drafts.se1!.trim();
+    await store.getState().sendMessage("se1", text);
+    expect(a.sent[0]).toEqual({
+      id: "se1", text: '@[button "Sign in"]', attachments: [],
+      elements: [{ label: 'button "Sign in"', element: PICKED }],
+    });
+  });
+
+  it("a draft with no chips puts NOTHING extra on the wire — the shape older tests assert on is untouched", async () => {
+    const { a, store } = await ready();
+    await store.getState().sendMessage("se1", "plain");
+    expect(a.sent[0]).toEqual({ id: "se1", text: "plain", attachments: [] });
+  });
+
+  it("an element whose chip was deleted before send does not go — the final text decides, not the sidecar", async () => {
+    const { a, store } = await ready();
+    store.getState().addElementChip("se1", PICKED);
+    await store.getState().sendMessage("se1", "never mind");
+    expect(a.sent[0]).toEqual({ id: "se1", text: "never mind", attachments: [] });
+  });
+
+  it("deleting the session's item drops its picked elements with the draft", async () => {
+    const { store } = await ready();
+    store.getState().addElementChip("se1", PICKED);
+    await store.getState().deleteItem("i2");
+    expect(store.getState().draftElements.se1).toBeUndefined();
   });
 });
 

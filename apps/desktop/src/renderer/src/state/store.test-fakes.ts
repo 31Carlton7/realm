@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
+import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { ModelInfo, SearchResults, UsageBudget, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -243,7 +243,7 @@ export type FakeApi = Api & {
   disposed: string[];
   /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
    *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
-  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[];
+  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[] }[];
   /** Every `mcp.add`/`mcp.update` input exactly as sent — what the secrecy tests read: an update that
    *  should have omitted `env` is caught here, not inferred from state. */
   mcpWrites: (AddMcpServerInput | UpdateMcpServerInput)[];
@@ -635,9 +635,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`createSession:${input.agentKind}`);
       return { session: s, itemId: it.id };
     },
-    sendMessage: async (id, text, attachments, mentions) => {
+    sendMessage: async (id, text, attachments, mentions, elements) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
-      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}) });
+      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}) });
     },
     forkSession: async (checkpointId) => {
       calls.push(`forkSession:${checkpointId}`);

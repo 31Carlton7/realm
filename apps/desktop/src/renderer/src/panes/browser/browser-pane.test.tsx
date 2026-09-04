@@ -6,6 +6,7 @@ import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge,
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
+import { gridPreset } from "@realm/contracts";
 
 type StateMsg = BrowserViewState;
 
@@ -62,12 +63,12 @@ function fakeBridges(row: Partial<Browser> = {}) {
 const state = (s: Partial<StateMsg>) => s;
 const browserItem = () => item("i1", "s1", { kind: "browser", refId: "b1", title: "Browser" });
 
-/** Flush the mount's async row/allowlist fetch + create, then the settle timer. */
-async function settle() {
-  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 20); });
-}
-
-describe("BrowserPane", () => {
+/**
+ * What a pane test needs before it can render, in one place: fake timers for the mount settle and the
+ * persist debounce, a stub ResizeObserver (jsdom has none), and a fixed rect — jsdom has no layout, so
+ * without one the bounds sync reports zeros and `shouldShowView` is exercised against nothing.
+ */
+function paneTestEnv(): void {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
@@ -80,6 +81,15 @@ describe("BrowserPane", () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
+}
+
+/** Flush the mount's async row/allowlist fetch + create, then the settle timer. */
+async function settle() {
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 20); });
+}
+
+describe("BrowserPane", () => {
+  paneTestEnv();
 
   it("chrome is inline-only: back/forward/reload buttons and an address input, nothing with a popup", async () => {
     const f = fakeBridges();
@@ -281,18 +291,7 @@ describe("isRealmItemDrag", () => {
 });
 
 describe("action ticker + driving dot (W4)", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(
-      { x: 10, y: 40, width: 600, height: 400, top: 40, left: 10, right: 610, bottom: 440, toJSON: () => ({}) } as DOMRect);
-  });
-  afterEach(() => {
-    setBrowserBridgesForTests(null);
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-    vi.useRealTimers();
-  });
+  paneTestEnv();
 
   const mountWithStore = (f: ReturnType<typeof fakeBridges>) => {
     setBrowserBridgesForTests(f.bridges);
@@ -445,5 +444,103 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
 
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dismiss" })); });
     expect(screen.getByRole("status")).toHaveTextContent("first.pdf");
+  });
+});
+
+/**
+ * The element picker. What these pin is the round trip a user actually makes: press the button, click
+ * something in a rectangle React cannot see into, and find a chip waiting in a composer that may be
+ * in another pane entirely. Nothing here asserts on the highlight — that is Chrome's overlay, drawn
+ * inside the native view, and the pane deliberately draws nothing of its own.
+ */
+describe("BrowserPane — element picker", () => {
+  paneTestEnv();
+
+  const PICKED: BrowserPickedElement = {
+    ref: 42, url: "https://example.com/login", title: "Sign in",
+    rect: { x: 4, y: 8, w: 90, h: 32 },
+    selector: "#submit", tag: "button", role: "button", name: "Sign in",
+    text: "Sign in", html: '<button id="submit">Sign in</button>',
+  };
+  const sessionItem = item("i2", "s1", { kind: "session", refId: "se1", title: "Session" });
+
+  const mount = async (over: { withSession?: boolean } = {}) => {
+    const f = fakeBridges({ url: "https://example.com/login" });
+    setBrowserBridgesForTests(f.bridges);
+    const store = createAppStore(fakeApi());
+    const items = over.withSession === false ? [browserItem()] : [browserItem(), sessionItem];
+    store.setState({ items, layout: gridPreset("two-col", items.map((i) => i.id)), focusedLeafId: null });
+    const { unmount } = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    await settle();
+    return { f, store, unmount };
+  };
+
+  const press = async () => { await act(async () => { fireEvent.click(screen.getByLabelText("Pick an element")); }); };
+
+  it("has no page, has nothing to pick from", async () => {
+    const f = fakeBridges();
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    expect(screen.getByLabelText("Pick an element")).toBeDisabled();
+  });
+
+  it("arms on press and disarms on a second press, without waiting for a pick", async () => {
+    const { f } = await mount();
+    await press();
+    expect(screen.getByLabelText("Pick an element")).toHaveAttribute("aria-pressed", "true");
+    expect(f.calls).toContain("pick:b1");
+    await press();
+    expect(screen.getByLabelText("Pick an element")).toHaveAttribute("aria-pressed", "false");
+    expect(f.calls).toContain("cancel-pick:b1");
+  });
+
+  it("lands the picked element in the session's composer as a chip, with the element kept beside it", async () => {
+    const { f, store } = await mount();
+    await press();
+    await act(async () => { f.settlePick(PICKED); });
+    expect(store.getState().drafts.se1).toBe('@[button "Sign in"] ');
+    expect(store.getState().draftElements.se1).toEqual([{ label: 'button "Sign in"', element: PICKED }]);
+    expect(screen.getByLabelText("Pick an element")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("says where the pick went — the chip appears in a pane the user may not be looking at", async () => {
+    const { f } = await mount();
+    await press();
+    await act(async () => { f.settlePick(PICKED); });
+    expect(screen.getByRole("status")).toHaveTextContent('Added button "Sign in" to the prompter.');
+  });
+
+  it("a pick with nowhere to go says so rather than being dropped", async () => {
+    const { f, store } = await mount({ withSession: false });
+    await press();
+    await act(async () => { f.settlePick(PICKED); });
+    expect(screen.getByRole("status")).toHaveTextContent("open a session pane in this group first");
+    expect(store.getState().drafts).toEqual({});
+  });
+
+  it("a cancelled pick says nothing at all", async () => {
+    const { f } = await mount();
+    await press();
+    await act(async () => { f.settlePick(null); });
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByLabelText("Pick an element")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("two picks of the same control become two distinguishable chips", async () => {
+    const { f, store } = await mount();
+    await press();
+    await act(async () => { f.settlePick(PICKED); });
+    await press();
+    await act(async () => { f.settlePick({ ...PICKED, ref: 43 }); });
+    expect(store.getState().drafts.se1).toBe('@[button "Sign in"] @[button "Sign in" 2] ');
+    expect(store.getState().draftElements.se1!.map((c) => c.element.ref)).toEqual([42, 43]);
+  });
+
+  it("closing the pane takes the picker down with it, rather than leaving the page eating clicks", async () => {
+    const { f, unmount } = await mount();
+    await press();
+    await act(async () => { unmount(); });
+    expect(f.calls).toContain("cancel-pick:b1");
   });
 });

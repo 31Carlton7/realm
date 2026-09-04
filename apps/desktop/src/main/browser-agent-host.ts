@@ -5,7 +5,7 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
 import { armElementPick, buildSnapshot, describeElement, describePick, disarmElementPick, highlightTargetRef, performAct, performFillCredential, readPageText, showActionHighlight, type CdpSend, type SnapshotIndex } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 
@@ -135,7 +135,10 @@ export class BrowserAgentHost {
     if (!picked) return null;
     // url/title come from the webContents, never from the page — they are the only fields of a picked
     // element a prompt can rely on, and the reason the rest can be quoted as untrusted data.
-    return { ...picked, url: state?.url ?? "", title: state?.title ?? "" };
+    // Clipped here rather than at the schema: a page controls its own title and can make it as long
+    // as it likes, and this is the last point that knows the difference between "too long" and "not
+    // from the picker".
+    return { ...picked, url: (state?.url ?? "").slice(0, PICK_URL_MAX), title: (state?.title ?? "").slice(0, PICK_TITLE_MAX) };
   }
 
   /** Take the picker down without a pick. The armed promise resolves null and the caller un-arms. */

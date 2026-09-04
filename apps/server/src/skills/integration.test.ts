@@ -183,12 +183,69 @@ describe("skills over rpc", () => {
   });
 });
 
-describe("@-mention resolution at send (W4)", () => {
-  /** A skill whose frontmatter name DIFFERS from its directory id — the divergence the wire must respect. */
-  const named = (dir: string, id: string, name: string) => {
-    mkdirSync(join(dir, id), { recursive: true });
-    writeFileSync(join(dir, id, "SKILL.md"), `---\nname: ${name}\ndescription: does ${id}.\n---\n\n# ${id}\n`);
+/** A skill whose frontmatter name DIFFERS from its directory id — the divergence the wire must respect. */
+const named = (dir: string, id: string, name: string) => {
+  mkdirSync(join(dir, id), { recursive: true });
+  writeFileSync(join(dir, id, "SKILL.md"), `---\nname: ${name}\ndescription: does ${id}.\n---\n\n# ${id}\n`);
+};
+
+/**
+ * Element chips at send. The split they have to hold is the same one mentions hold, in the other
+ * direction: the transcript keeps exactly what the user typed, and the ADAPTER gets more than that.
+ */
+describe("picked elements at send", () => {
+  const PICKED = {
+    ref: 42, url: "https://example.com/login", title: "Sign in",
+    rect: { x: 4, y: 8, w: 90, h: 32 },
+    selector: "#submit", tag: "button", role: "button", name: "Sign in",
+    text: "Sign in", html: '<button id="submit">Sign in</button>',
   };
+  const chip = { label: 'button "Sign in"', element: PICKED };
+  const userText = async (c: Any, id: string) =>
+    (await c.call("sessions.events", { id })).result.find((e: Any) => e.event.type === "user_message").event.payload.text;
+
+  it("reaches the adapter as fenced page data, and the transcript keeps only what the user typed", async () => {
+    const { c, sp, claude } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    await c.call("sessions.send", { id: session.id, text: 'make @[button "Sign in"] blue', elements: [chip] });
+    await waitFor(() => claude.sent.length === 1);
+    const wire = claude.sent[0]!.text;
+    // The chip itself is the user's own words and stays where they put it.
+    expect(wire.startsWith('make @[button "Sign in"] blue')).toBe(true);
+    // The page's account of itself is below, fenced. The named mutant: page markup entering a prompt
+    // unfenced, where a button labelled "ignore previous instructions" would be read as one.
+    expect(wire).toMatch(/untrusted-[0-9a-f]{16}/);
+    expect(wire).toContain("selector: #submit");
+    expect(wire).toContain('html: <button id="submit">Sign in</button>');
+    // …and the url, which the page cannot author, stays outside it.
+    expect(wire).toContain('@[button "Sign in"] — https://example.com/login');
+    expect(await userText(c, session.id)).toBe('make @[button "Sign in"] blue');
+    c.close();
+  });
+
+  it("a message with no elements reaches the adapter byte for byte, as it always did", async () => {
+    const { c, sp, claude } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    await c.call("sessions.send", { id: session.id, text: "plain" });
+    await waitFor(() => claude.sent.length === 1);
+    expect(claude.sent[0]).toEqual({ text: "plain", attachments: [] });
+    c.close();
+  });
+
+  it("a mention and a chip in one message: the @ still goes, and the block still lands after", async () => {
+    const { c, sp, home, claude } = await boot();
+    named(join(home, "skills"), "mac", "mac-skill");
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    await c.call("sessions.send", { id: session.id, text: '@mac look at @[button "Sign in"]', mentions: ["mac"], elements: [chip] });
+    await waitFor(() => claude.sent.length === 1);
+    expect(claude.sent[0]!.text.startsWith('mac look at @[button "Sign in"]')).toBe(true);
+    expect(claude.sent[0]!.text).toContain("selector: #submit");
+    expect(claude.sent[0]!.skill).toEqual({ id: "mac", name: "mac-skill", path: realpathSync(join(home, "skills", "mac", "SKILL.md")) });
+    c.close();
+  });
+});
+
+describe("@-mention resolution at send (W4)", () => {
   const send = (c: Any, id: string, text: string, mentions: string[]) => c.call("sessions.send", { id, text, mentions });
 
   it("resolves a declared mention: the wire loses the @, the skill carries id + FRONTMATTER name + SKILL.md path, and the transcript keeps what the user wrote", async () => {

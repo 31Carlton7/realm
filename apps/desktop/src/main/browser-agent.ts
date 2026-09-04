@@ -838,8 +838,8 @@ export async function describePick(send: CdpSend, backendNodeId: number): Promis
   ]);
   return {
     ref: backendNodeId,
-    tag: identity.tag,
-    role: identity.role,
+    tag: clip(identity.tag, PICK_NAME_MAX),
+    role: clip(identity.role, PICK_NAME_MAX),
     name: clip(identity.name, PICK_NAME_MAX),
     ...detail,
   };

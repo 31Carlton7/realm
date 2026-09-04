@@ -17,6 +17,8 @@ export * from "./session-events";
 export * from "./notifications";
 export * from "./review";
 export * from "./browser-agent";
+export * from "./fence";
+export * from "./chips";
 export * from "./computer-use";
 export * from "./delegation";
 export * from "./search";

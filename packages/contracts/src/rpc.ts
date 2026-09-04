@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema } from "./entities";
 
+import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
@@ -915,8 +916,12 @@ export const Methods = {
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */
   /** `text` may be empty ONLY when attachments carry the message (Plan 14 W5 — attachment-only
-   *  sends). A message with neither is nothing at all and is refused here, not by an adapter. */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]) })
+   *  sends). A message with neither is nothing at all and is refused here, not by an adapter.
+   *
+   *  `elements` is OPTIONAL rather than defaulted, and the prompter omits the key outright when the
+   *  draft has no element chips — so a message that never touched a browser pane puts exactly the
+   *  bytes on this wire that it always has. */
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional() })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** `answers` rides along only for question-shaped tools (AskUserQuestion): question text -> chosen

@@ -72,7 +72,11 @@ export const liveApi = (): Api => ({
   setMemory: (spaceId, doc) => rpc().call("memory.set", { spaceId, doc }),
   setAgentsFile: (spaceId, enabled) => rpc().call("memory.setAgentsFile", { spaceId, enabled }),
   memorySources: (sessionId) => rpc().call("memory.sources", { sessionId }),
-  sendMessage: async (id, text, attachments, mentions) => { await rpc().call("sessions.send", { id, text, attachments, mentions }); },
+  // `elements` is omitted rather than sent empty: a message with no element chips must put exactly
+  // the bytes on this wire that it did before chips existed.
+  sendMessage: async (id, text, attachments, mentions, elements) => {
+    await rpc().call("sessions.send", { id, text, attachments, mentions, ...(elements?.length ? { elements } : {}) });
+  },
   interruptSession: async (id) => { await rpc().call("sessions.interrupt", { id }); },
   respondPermission: async (id, requestId, decision, answers) => { await rpc().call("sessions.respondPermission", { id, requestId, decision, ...(answers ? { answers } : {}) }); },
   setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),

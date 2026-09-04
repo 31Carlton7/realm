@@ -356,3 +356,6 @@ export const PICK_SELECTOR_MAX = 200;
 export const PICK_NAME_MAX = 120;
 export const PICK_TEXT_MAX = 240;
 export const PICK_HTML_MAX = 1200;
+/** And for the two fields main vouches for: a page controls its own title and can make it enormous. */
+export const PICK_URL_MAX = 2048;
+export const PICK_TITLE_MAX = 300;
