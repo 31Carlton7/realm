@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, firstLeaf, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { allItems, findLeafOfItem, firstLeaf, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
@@ -2364,6 +2364,15 @@ describe("element chips in the draft", () => {
     expect(a.sent[0]).toMatchObject({ text: '@[button "Sign in"]', elements: [{ label: 'button "Sign in"', element: PICKED }] });
     expect(a.sent[0]!.id).not.toBe("se1"); // the dispatch went to the NEW session
     expect(store.getState().draftElements.se1).toEqual([]);
+  });
+
+  it("refuses the chip that would make the message unsendable, rather than letting the wire refuse it", () => {
+    const store = createAppStore(fakeApi());
+    for (let i = 0; i < MAX_ELEMENT_CHIPS; i++) expect(store.getState().addElementChip("se1", PICKED)).not.toBeNull();
+    expect(store.getState().addElementChip("se1", PICKED)).toBeNull();
+    expect(store.getState().draftElements.se1).toHaveLength(MAX_ELEMENT_CHIPS);
+    // …and the refused pick left no half-chip behind in the text.
+    expect(scanElementChips(store.getState().drafts.se1!)).toHaveLength(MAX_ELEMENT_CHIPS);
   });
 
   it("deleting the session's item drops its picked elements with the draft", async () => {

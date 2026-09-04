@@ -4,7 +4,7 @@ import {
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
-  AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, elementContext, formatAttachmentSize, keepLiveChips, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
+  AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, elementContext, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   type AgentKind, type Attachment, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
@@ -1014,9 +1014,10 @@ export type AppState = {
    *  offers the command, the user presses Return. Nothing here ever runs an installer. */
   prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
-  /** Drop an element picked in a browser pane into a session's composer, as a chip. Answers the
-   *  label the chip went in under, so the browser pane can name what it just sent. */
-  addElementChip(sessionId: string, element: BrowserPickedElement): string;
+  /** Drop an element picked in a browser pane into a session's composer, as a chip. Answers the label
+   *  the chip went in under, so the browser pane can name what it just sent — or null when the draft
+   *  is already carrying `MAX_ELEMENT_CHIPS`. */
+  addElementChip(sessionId: string, element: BrowserPickedElement): string | null;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
   /** Fetch the scan sources into `spaceSkillSources`. Separate from `refreshSkills` because the panel
@@ -2715,6 +2716,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       addElementChip(sessionId, element) {
         const draft = get().drafts[sessionId] ?? "";
         const chips = get().draftElements[sessionId] ?? [];
+        // Refused HERE rather than at the wire schema, which also caps at this number: a draft that
+        // grew a ninth chip would look fine in the composer and then bounce on send, with the user
+        // holding a message they cannot post and no idea which pick did it.
+        if (chips.length >= MAX_ELEMENT_CHIPS) return null;
         const label = elementChipLabel(element, chips.map((c) => c.label));
         // Appended at the end rather than at the caret: the pick happened in a DIFFERENT pane, so
         // there is no caret here to speak of — the composer this lands in may never have been focused.

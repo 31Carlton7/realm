@@ -129,7 +129,10 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
     // Named twice over, because neither name is guessable from here: the store answers with the label
     // it actually used (a second identical button is disambiguated on the way in), and the session is
     // said out loud because with two open the chip lands in a prompter the user is not looking at.
-    setNote(`Added ${state.addElementChip(target.refId, picked)} to ${target.title}.`);
+    const label = state.addElementChip(target.refId, picked);
+    setNote(label === null
+      ? `${target.title} is already carrying as many picked elements as one message can.`
+      : `Added ${label} to ${target.title}.`);
   };
 
   return { armed, note, toggle, clearNote: () => setNote(null) };
