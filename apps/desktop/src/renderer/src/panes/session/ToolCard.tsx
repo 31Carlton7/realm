@@ -3,7 +3,7 @@ import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
 import { clip, editStat, prettyJson, toolSummary } from "./tool-summary";
-import { formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
+import { flattenRun, formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
 import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
@@ -68,14 +68,14 @@ function Well({ label, text, error = false, rich = null }: { label: string; text
  *
  *  Memoized because a streaming answer re-renders the whole transcript around it. The reducer rebuilds
  *  the block ARRAY on each update but keeps every settled block's object, so a card whose call has
- *  landed compares equal on all three props and is skipped — a 300-call transcript stops re-deriving
+ *  landed compares equal on all four props and is skipped — a 300-call transcript stops re-deriving
  *  300 summaries and edit stats behind an assistant message that is still typing. `enter` is stable
  *  for a key's whole life (transcript-enter.ts), so memoizing cannot strand a card mid-animation. */
 export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = false, nested }: {
   block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean;
-  /** The calls a sub-agent made under this one (`groupTranscript`). Undefined on every card but a
-   *  Task/Agent one whose child actually did something — and undefined rather than `[]` so the
-   *  memo above still holds for the other 299 cards. */
+  /** The calls a sub-agent made under this one (`groupTranscript`). Empty for every card but a
+   *  Task/Agent one whose child did some work — and empty via `withEnter`'s shared array, which is
+   *  what keeps the memo above holding for the other 299 cards. */
   nested?: readonly ToolStep[];
 }) {
   const [open, setOpen] = useState(false);
@@ -170,16 +170,23 @@ export function ToolGroup({ steps, sessionStatus, subagent = false }: {
 }) {
   const [manual, setManual] = useState<boolean | null>(null);
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
-  const working = live && steps.some((s) => !s.block.result);
+  // The whole subtree, not the top level: a run whose only unfinished work is inside a sub-agent is
+  // still working, and a ledger that counted only the parent's own calls would under-report the run
+  // AND end its clock at the moment the Task was CALLED — the row would shrink from 5m to <1s on
+  // settle, having just spent five minutes ticking upward.
+  const blocks = flattenRun(steps);
+  const working = live && blocks.some((b) => !b.result);
   const open = manual ?? working;
-  const summary = summarizeToolRun(steps.map((s) => s.block));
-  const workedFor = useWorkedFor(working, steps[0]!.block.ts, summary.durationMs);
+  const summary = summarizeToolRun(blocks);
+  // The run's first call really is its earliest: blocks arrive in order, and a sub-agent's calls
+  // postdate the one that spawned them. Only the END of the span needs looking for (summarizeToolRun).
+  const workedFor = useWorkedFor(working, blocks[0]!.ts, summary.durationMs);
   return (
     <div className="tool-group" data-subagent={subagent || undefined} data-open={open || undefined} data-working={working || undefined}>
       {/* Plan 9 W2: the row wears ThinkingState's header treatment — while the run is live the label
           shimmers (BUI's working treatment); the label itself stays the kept Ara decision,
           `Worked for <duration>`, ticking live and freezing on settle. */}
-      <button className="tool-group-row" aria-expanded={open} aria-label={`${steps.length} ${subagent ? "sub-agent " : ""}tool calls`}
+      <button className="tool-group-row" aria-expanded={open} aria-label={`${blocks.length} ${subagent ? "sub-agent " : ""}tool calls`}
         title={formatToolRun(summary)} onClick={() => setManual(!open)}>
         <span className="tool-group-summary">{subagent ? "Sub-agent worked for" : "Worked for"} {workedFor}</span>
         <Icon name="chevronRight" size={12} className="tool-chevron" />

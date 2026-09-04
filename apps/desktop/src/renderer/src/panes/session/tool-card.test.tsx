@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup, within, act } from "@testing-librar
 import { ToolCard, ToolGroup, RESULT_CLAMP } from "./ToolCard";
 import { editStat } from "./tool-summary";
 import * as summaryModule from "./tool-summary";
-import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock, type ToolNode } from "./tool-group";
+import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
@@ -155,6 +155,26 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
     // walking the tree to mark enter flags recurses until the stack goes.
     expect(items.map((i) => i.key)).toEqual(["tool:ping"]);
     expect(items[0]!.kind === "block" && items[0]!.nested.map((n) => n.key)).toEqual(["tool:pong"]);
+  });
+
+  it("counts the sub-agent's calls in the run that spawned them, over the run's real span", () => {
+    // The child outlives the parent's own next call, which is the ordinary shape: they run
+    // concurrently, so the LAST call in tree order is not the last one to happen.
+    const items = groupTranscript([
+      tool("t1", "Read", { file_path: "/a.ts" }, 1_000),
+      tool("task1", "Task", { description: "audit" }, 2_000),
+      tool("t2", "Read", { file_path: "/c.ts" }, 5_000),
+      sub("s1", "task1", "Read", { file_path: "/b.ts" }, 302_000),
+    ]);
+    const group = items[0]!;
+    render(<ToolGroup steps={withEnter(group.kind === "group" ? group.steps : [], () => false)} sessionStatus="idle" />);
+    // TWO MUTANTS. Summarize the top-level steps alone: nesting took the child's call out of the run,
+    // so the counts under-report it and the span ends when the parent stopped, not when the work did.
+    // Or keep first→last instead of min→max: tree order ends on `t2` at 5s, and a row that ticked
+    // upward for five minutes would freeze at "3s" the instant it settled.
+    const row = screen.getByRole("button", { name: "4 tool calls" });
+    expect(row).toHaveTextContent("Worked for 5m 1s");
+    expect(row).toHaveAttribute("title", "4 tools · 3 files · 5m 1s");
   });
 
   it("draws the sub-agent's steps under its Task row, labelled as the sub-agent's own work", () => {

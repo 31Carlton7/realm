@@ -155,7 +155,6 @@ function MemoryTab({ spaceId }: { spaceId: string }) {
   );
 }
 
-
 /** The Sessions tab: this space's sessions from the existing store data, newest first; each row opens
  *  the session's pane. Status dots ride the same `sessionStatus` plumbing as the sidebar rows.
  *

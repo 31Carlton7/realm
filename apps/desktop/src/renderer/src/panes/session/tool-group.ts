@@ -23,6 +23,18 @@ const COMMAND_TOOLS = new Set(["Bash", "exec_command"]);
  *  from ids rather than another fold over runs. */
 export type ToolNode = { key: string; block: ToolBlock; nested: ToolNode[] };
 
+/** The shape `flattenRun` walks — `ToolNode` before the renderer marks it, `ToolStep` after. */
+type ToolTree = { block: ToolBlock; nested: readonly ToolTree[] };
+
+/** Every call a run made, the sub-agents' included, in tree order.
+ *
+ *  The collapsed ledger counts what the RUN did. A sub-agent's calls stopped being top-level when
+ *  they were nested under the Task that spawned them, and leaving them out would have the one line
+ *  the reader sees under-report the work it claims to summarize. */
+export function flattenRun(nodes: readonly ToolTree[]): ToolBlock[] {
+  return nodes.flatMap((n) => [n.block, ...flattenRun(n.nested)]);
+}
+
 /** A `ToolNode` marked with §6's enter flag, which only the renderer can decide. */
 export type ToolStep = { key: string; block: ToolBlock; enter: boolean; nested: readonly ToolStep[] };
 
@@ -31,11 +43,12 @@ export type ToolStep = { key: string; block: ToolBlock; enter: boolean; nested: 
 const NO_STEPS: readonly ToolStep[] = [];
 
 export type TranscriptItem =
-  /** `nested` is empty for everything but a tool call whose sub-agent did some work of its own. */
-  | { kind: "block"; key: string; block: Block; nested: ToolNode[] }
+  /** `nested` is empty for everything but a tool call whose sub-agent did some work of its own.
+   *  Readonly because every childless entry is handed the SAME empty array — see `NO_NESTED`. */
+  | { kind: "block"; key: string; block: Block; nested: readonly ToolNode[] }
   | { kind: "group"; key: string; steps: ToolNode[] };
 
-const NO_NESTED: ToolNode[] = [];
+const NO_NESTED: readonly ToolNode[] = [];
 
 /** Blocks in render order: sub-agent calls hung off the call that spawned them, and runs of
  *  GROUP_MIN+ consecutive tool calls among what is left folded into one group.
@@ -51,30 +64,27 @@ export function groupTranscript(blocks: readonly Block[]): TranscriptItem[] {
   // that spawned it) and it is also what makes a cycle unrepresentable: a malformed pair of ids
   // would otherwise nest into each other, vanish from the render, and recurse until the stack went.
   const nodes = new Map<string, ToolNode>();
-  const top: { key: string; block: Block; nested: ToolNode[] }[] = [];
+  /** `node` is null for everything that is not a tool call, and IS the node otherwise — carried
+   *  rather than rebuilt so a card's `nested` keeps its identity across renders. */
+  const top: { key: string; block: Block; node: ToolNode | null }[] = [];
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i]!;
-    if (b.kind !== "tool") { top.push({ key: blockKey(b, i), block: b, nested: NO_NESTED }); continue; }
+    if (b.kind !== "tool") { top.push({ key: blockKey(b, i), block: b, node: null }); continue; }
     const parent = b.parentToolUseId === undefined ? undefined : nodes.get(b.parentToolUseId);
     const node: ToolNode = { key: blockKey(b, i), block: b, nested: [] };
     nodes.set(b.toolUseId, node);
     // A parent this transcript does not hold leaves the call where it is. An id Realm cannot resolve
     // is still work the agent did, and hiding it would lose the call rather than nest it.
-    if (parent) parent.nested.push(node); else top.push(node);
+    if (parent) parent.nested.push(node); else top.push({ key: node.key, block: b, node });
   }
 
   const out: TranscriptItem[] = [];
   let i = 0;
   while (i < top.length) {
     const e = top[i]!;
-    if (e.block.kind !== "tool") { out.push({ kind: "block", key: e.key, block: e.block, nested: NO_NESTED }); i++; continue; }
+    if (!e.node) { out.push({ kind: "block", key: e.key, block: e.block, nested: NO_NESTED }); i++; continue; }
     const steps: ToolNode[] = [];
-    while (i < top.length) {
-      const s = top[i]!;
-      if (s.block.kind !== "tool") break;
-      steps.push({ key: s.key, block: s.block, nested: s.nested });
-      i++;
-    }
+    for (let n = top[i]?.node; n; n = top[i]?.node) { steps.push(n); i++; }
     // Keyed on the run's first tool: a run only ever grows at its tail, so the group keeps its
     // identity — and the user's expand/collapse choice — as more tools land in it.
     if (steps.length >= GROUP_MIN) out.push({ kind: "group", key: `group:${steps[0]!.key}`, steps });
@@ -101,8 +111,11 @@ export function summarizeToolRun(blocks: readonly ToolBlock[]): ToolRunSummary {
     if (FILE_TOOLS.has(b.name)) { const p = toolSummary(b.name, b.input); if (p) files.add(p); }
     if (COMMAND_TOOLS.has(b.name)) commands++;
   }
-  const first = blocks[0], last = blocks[blocks.length - 1];
-  return { tools: blocks.length, files: files.size, commands, durationMs: first && last ? Math.max(0, last.ts - first.ts) : 0 };
+  // The span is min→max rather than first→last: a sub-agent's calls are counted in here and they
+  // ran CONCURRENTLY with the parent's, so the last call in tree order is not the last to happen.
+  let lo = Infinity, hi = -Infinity;
+  for (const b of blocks) { lo = Math.min(lo, b.ts); hi = Math.max(hi, b.ts); }
+  return { tools: blocks.length, files: files.size, commands, durationMs: blocks.length ? Math.max(0, hi - lo) : 0 };
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
