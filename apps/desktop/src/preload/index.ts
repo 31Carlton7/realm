@@ -11,6 +11,10 @@ export type ScrollPhaseMessage = { phase: string; momentum: string; dx: number; 
 export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean };
 contextBridge.exposeInMainWorld("realm", {
   port: port === undefined ? NaN : Number(port), home: arg("realm-home") ?? "",
+  /** Which OS this is, for the one preference that only exists on one of them: macOS is the only
+   *  platform where the window has a material behind it, so the sidebar's transparency has nothing
+   *  to reveal anywhere else (main/index.ts gives Windows and Linux an opaque backgroundColor). */
+  platform: process.platform,
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),

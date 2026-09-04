@@ -6,6 +6,9 @@ interface PickedFile { path: string; mime: string; name: string; size: number }
 interface Window {
   realm: {
     port: number; home: string;
+    /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
+     *  to treat "unknown" as "no window material" rather than guessing macOS. */
+    platform?: string;
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;

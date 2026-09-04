@@ -454,10 +454,31 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".app[data-sidebar-collapsed] .main > .group-bar:first-child").join(" ")).toContain("min-height: 40px");
   });
 
-  it("the sidebar keeps its vibrancy: BUI --page at 82%, one mode-agnostic rule", () => {
-    expect(bodiesFor(".sidebar").join(" ")).toContain("color-mix(in srgb, var(--page) 82%, transparent)");
+  it("the sidebar keeps its vibrancy, and it is the app's ONE adjustable ground", () => {
+    // The intent this pins moved: the sidebar used to be --page at a literal 82%, and is now the
+    // composed --sidebar-ground, because the number is the user's. What has NOT moved is which
+    // surface is translucent — exactly one, so text on a pane never renders over the desktop.
+    expect(bodiesFor(".sidebar").join(" ")).toContain("background: var(--sidebar-ground)");
     // The old per-mode rgba override is gone — --page flips with data-mode on its own.
     expect(css).not.toContain("rgba(244,244,244,.82)");
+    // THE second-ground mutant: give .main or a pane a color-mix over --page too. The window looks
+    // better on a nice wallpaper and every pane's body text starts depending on it.
+    const translucent = RULES.filter((r) => /background:[^;]*var\(--sidebar-ground\)/.test(r.body)).flatMap((r) => r.selectors);
+    expect(translucent).toEqual([".sidebar"]);
+  });
+
+  it("the ground's alpha is driven, defaulted opaque in CSS, and overridden by reduced transparency", () => {
+    // The default 82 lives in packages/ui/src/theme.ts and nowhere else; what the stylesheet states
+    // is the no-JS fallback, which is deliberately the OPPOSITE — a renderer that never ran should
+    // leave an opaque sidebar, not a see-through one.
+    expect(tokens).toContain("--ground-alpha: 100%;");
+    expect(tokens).toContain("--sidebar-ground: color-mix(in srgb, var(--page) var(--ground-alpha), transparent);");
+    expect(tokens).not.toMatch(/--ground-alpha:\s*82%/);
+    // THE inline-composition mutant: compose --sidebar-ground in applyTheme instead. An inline
+    // custom property beats every stylesheet rule, so the media query below would stop working and
+    // Reduce Transparency would silently do nothing for the one surface it exists for.
+    const reduced = tokens.slice(tokens.indexOf("@media (prefers-reduced-transparency: reduce)"));
+    expect(reduced).toContain("--sidebar-ground: var(--page)");
   });
 
   it("Inter and JetBrains Mono are self-hosted with Inter leading the UI stack", () => {

@@ -522,3 +522,31 @@ a {
    * Identical to `--surface` here, because the shipped palette IS the validated one. */
   --chart-surface: var(--surface);
 }
+
+/* ══ THE ADJUSTABLE GROUND ═════════════════════════════════════════════════════
+ * macOS paints a material behind the window and the sidebar is the one surface thin enough to show
+ * it (main/index.ts asks for `vibrancy: "sidebar"`; every pane paints opaque so text never renders
+ * over the desktop). How much of it shows through is the user's, and this is the one place the two
+ * halves of that meet.
+ *
+ * `--ground-alpha` is written on :root by applyTheme; the 100% here is what the sidebar falls back
+ * to if the renderer never gets that far, which is the honest failure — an opaque sidebar rather
+ * than a see-through one. The DEFAULT is 82, and it lives in packages/ui/src/theme.ts, because a
+ * number in both places is a number that drifts.
+ *
+ * `--sidebar-ground` is composed HERE rather than inline for one specific reason: an inline custom
+ * property beats every stylesheet rule, so composing it in JavaScript would put it out of reach of
+ * the media query below — and the codebase already honours prefers-reduced-transparency in its fade
+ * bands. Under that preference the ground goes fully opaque no matter where the slider is, which is
+ * what the preference asks for; the slider still records its value and applies again when it is off.
+ *
+ * No `setVibrancy()` and no IPC hop. The material is always on under the window on macOS, and at
+ * 100% the sidebar simply covers it — visually identical to not having asked for it. */
+:root {
+  --ground-alpha: 100%;
+  --sidebar-ground: color-mix(in srgb, var(--page) var(--ground-alpha), transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root { --sidebar-ground: var(--page); }
+}

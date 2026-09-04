@@ -48,6 +48,29 @@ export function spaceColor(hex: string, mode: Mode): string {
     : { h: h.h, s, l: Math.min(55, Math.max(35, h.l)) });
 }
 
+/** How much of the window ground the sidebar paints over the macOS material, as a percentage. 82 is
+ *  the value the sidebar has always used and the one the design was calibrated on; it lives here
+ *  rather than in the stylesheet so there is exactly one of it. tokens.css declares 100% for the case
+ *  where this module never runs, which is a different fact — a renderer that failed to boot should
+ *  show an opaque sidebar, not a see-through one. */
+export const DEFAULT_GROUND_ALPHA = 82;
+
+/** Fully opaque at the top — which is what "off" means, since covering the material is the same as
+ *  not having asked for it. The floor is where the ground stops carrying the sidebar's own text:
+ *  screenshotting the built app over a bright desktop, the nav labels wash out somewhere below 55%,
+ *  because past that point their legibility is a property of the user's wallpaper rather than of the
+ *  palette. Apple's own sidebars go all the way to bare material and stay readable, so this is a
+ *  judgement about Realm's denser sidebar and not a limit of the material — but it is a floor,
+ *  because a control that can make the app's navigation unreadable is not a preference.
+ *
+ *  It cannot be checked automatically: the material is composited by the window server BELOW the web
+ *  contents, so a CDP screenshot never sees it (see transparency-live.mjs). This number came from
+ *  looking. */
+export const GROUND_ALPHA_RANGE = { min: 55, max: 100 } as const;
+
+export const clampGroundAlpha = (pct: number): number =>
+  Math.round(Math.min(GROUND_ALPHA_RANGE.max, Math.max(GROUND_ALPHA_RANGE.min, pct)));
+
 /** Writes the runtime tokens and stamps the mode and theme on the root. `data-mode` is what flips the
  *  CSS token blocks (and Tailwind's `dark:` variant, remapped onto it) between the dark and light BUI
  *  ramps; `data-theme` is a label for the stylesheet and the live checks to read, never a selector
@@ -57,9 +80,22 @@ export function spaceColor(hex: string, mode: Mode): string {
  *  blocks in tokens.css without a third block or a generated stylesheet. The default theme states
  *  none, so choosing `realm` clears the whole set and the app is back on the static CSS it has always
  *  been. Every name in THEME_VARS is cleared before the new set is written, or the properties a
- *  theme happens not to state would still be pointing at the theme before it. */
-export function applyTheme(space: string, mode: Mode, theme: ThemeName = "realm", root: HTMLElement = document.documentElement): void {
+ *  theme happens not to state would still be pointing at the theme before it.
+ *
+ *  `--ground-alpha` rides along rather than getting a writer of its own: `:root` has one owner, and
+ *  the transparency and the palette change together often enough (every theme switch repaints the
+ *  ground the alpha is applied to) that two writers would be two chances to leave them disagreeing.
+ *  Note what it does NOT write: `--sidebar-ground`, the composed value the stylesheet actually reads.
+ *  That composition stays in CSS so `prefers-reduced-transparency` can override it — an inline
+ *  property would beat any media query, and the app already honours that preference in its fade
+ *  bands. */
+export function applyTheme(
+  { space, mode, theme = "realm", groundAlpha = DEFAULT_GROUND_ALPHA }:
+    { space: string; mode: Mode; theme?: ThemeName; groundAlpha?: number },
+  root: HTMLElement = document.documentElement,
+): void {
   root.style.setProperty("--rl-space", spaceColor(space, mode));
+  root.style.setProperty("--ground-alpha", `${clampGroundAlpha(groundAlpha)}%`);
   root.dataset.mode = mode;
   root.dataset.theme = theme;
   const vars = themeVars(theme, mode);

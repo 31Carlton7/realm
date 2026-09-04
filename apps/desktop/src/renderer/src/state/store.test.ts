@@ -246,6 +246,32 @@ describe("app store", () => {
     expect(set.filter((k) => k.startsWith("ui.theme="))).toEqual([]);
   });
 
+  it("groundAlpha persists once per gesture, and boot clamps whatever it reads back", async () => {
+    const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
+    await store.getState().boot();
+    expect(store.getState().groundAlpha).toBe(82);
+    // A drag is many calls; the window follows each one and only the last is written.
+    for (const v of [80, 74, 68, 62]) await store.getState().setGroundAlpha(v);
+    expect(store.getState().groundAlpha).toBe(62);
+    await vi.waitFor(() => expect(set).toContain("ui.groundAlpha=62"));
+    expect(set.filter((k) => k.startsWith("ui.groundAlpha="))).toEqual(["ui.groundAlpha=62"]);
+
+    // THE unclamped-setter mutant: store whatever the caller passed. The slider's min/max cannot be
+    // the guard — this is the store's API, and a 5 written here is a sidebar nobody can read a
+    // control off to undo it with.
+    await store.getState().setGroundAlpha(5);
+    expect(store.getState().groundAlpha).toBe(55);
+    await vi.waitFor(() => expect(set).toContain("ui.groundAlpha=55"));
+
+    const read = async (v: unknown) => {
+      const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.groundAlpha" ? v : null) });
+      await s.getState().boot(); return s.getState().groundAlpha;
+    };
+    expect(await read(64)).toBe(64);
+    expect(await read(0)).toBe(55);   // clamped on the way in, not only on the way out
+    expect(await read("very")).toBe(82);
+  });
+
   it("boot reads the palette; garbage and an unknown name both fall back to realm", async () => {
     const named = async (v: unknown) => {
       const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.themeName" ? v : null) });

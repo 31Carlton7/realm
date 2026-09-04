@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { GROUND_ALPHA_RANGE } from "@realm/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
@@ -33,6 +34,8 @@ async function mount(overrides: FakeData = {}) {
   const r = render(<StoreContext.Provider value={store}><SettingsPage item={pageItem} visible /></StoreContext.Provider>);
   return { store, api, ...r };
 }
+
+afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("the Settings page (Plan 12 W6)", () => {
   it("wears the page pattern: head, an Engines · Usage · App · Sign-ins · Permissions rail, Engines first", async () => {
@@ -163,6 +166,31 @@ describe("App tab", () => {
     expect(screen.getByText(/Monokai has no light variant/)).toBeInTheDocument();
     // Still operable: the preference it records applies again under a two-faced palette.
     expect(screen.getByRole("radio", { name: "Light" })).not.toBeDisabled();
+  });
+
+  it("background transparency runs the way its label reads and persists the ground's opacity", async () => {
+    // The bridge is what says this platform has a material; jsdom has none, so the mac case is
+    // stubbed rather than assumed. An unstubbed renderer must not guess macOS.
+    vi.stubGlobal("realm", { platform: "darwin" });
+    const { store, api } = await openApp();
+    const slider = screen.getByRole("slider", { name: "Background transparency" });
+    expect(slider).not.toBeDisabled();
+    // Stored 82% opaque shows as 18% transparent, and the thumb sits at the complement.
+    expect(screen.getByText("18%")).toBeInTheDocument();
+    // Dragging to the transparent end has to land on the OPAQUE end of the stored range.
+    fireEvent.change(slider, { target: { value: String(GROUND_ALPHA_RANGE.max) } });
+    // THE inverted-slider mutant: drop the flip on one side only. Dragging right would then make
+    // the sidebar MORE opaque while the readout says more transparent.
+    await waitFor(() => expect(store.getState().groundAlpha).toBe(GROUND_ALPHA_RANGE.min));
+    expect(screen.getByText(`${100 - GROUND_ALPHA_RANGE.min}%`)).toBeInTheDocument();
+    await waitFor(() => expect(api.calls).toContain(`setSetting:ui.groundAlpha=${GROUND_ALPHA_RANGE.min}`));
+  });
+
+  it("off macOS the control is inert and says why, rather than appearing and doing nothing", async () => {
+    vi.stubGlobal("realm", { platform: "win32" });
+    await openApp();
+    expect(screen.getByRole("slider", { name: "Background transparency" })).toBeDisabled();
+    expect(screen.getByText(/Windows has no window material/)).toBeInTheDocument();
   });
 
   it("submit key defaults to Enter and can switch to ⌘/Ctrl+Enter, writing ui.submitKey", async () => {

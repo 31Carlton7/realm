@@ -142,10 +142,12 @@ kbd { font: 11px var(--font-mono); }
 /* position: relative for the collapsed corner below, which is the only thing in the shell that is
    placed against the WINDOW rather than flowed. */
 .app { position: relative; display: flex; height: 100%; background: transparent; }
-/* §5 + Plan 9 W1: the sidebar paints the BUI window ground (--page) at ~0.82 so the macOS
-   vibrancy material shows through; --page flips with data-mode, so one rule serves both themes. */
+/* §5 + Plan 9 W1: the sidebar paints the BUI window ground (--page) over the macOS vibrancy material
+   — the app's one adjustable ground, composed in tokens.css so the user's setting and
+   prefers-reduced-transparency both reach it. --page flips with data-mode, so one rule serves both
+   themes and every palette. */
 .sidebar { width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
-  background: color-mix(in srgb, var(--page) 82%, transparent); border-right: 1px solid var(--rl-hairline); -webkit-app-region: drag; }
+  background: var(--sidebar-ground); border-right: 1px solid var(--rl-hairline); -webkit-app-region: drag; }
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
 /* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
    sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
@@ -2821,6 +2823,14 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    the tile already has the ring and the rounding, and a second frame around it would read as a
    different kind of thing. */
 .msg-user-file-open { display: block; padding: 0; border: none; background: none; cursor: zoom-in; }
+
+/* ——— Settings → App: the background transparency slider ——————————————————————
+   A native range on the app's accent, with the value beside it in tabular figures so the number does
+   not jitter as the thumb moves. Disabled off macOS, where the window has no material behind it. */
+.ground-alpha { display: flex; align-items: center; gap: 10px; }
+.ground-alpha input { flex: 1; min-width: 0; max-width: 260px; accent-color: var(--rl-accent); }
+.ground-alpha input:disabled { cursor: default; opacity: .45; }
+.ground-alpha-value { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 
 /* ——— Settings → App: the palette picker ——————————————————————————————————————
    Each card is painted in the theme it names, so the row is a set of previews rather than a list of

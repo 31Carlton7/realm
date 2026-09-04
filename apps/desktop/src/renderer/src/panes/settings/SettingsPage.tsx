@@ -3,12 +3,12 @@ import {
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
 } from "@realm/contracts";
-import { Icon, THEMES, resolveMode, themeSwatches } from "@realm/ui";
+import { GROUND_ALPHA_RANGE, Icon, THEMES, resolveMode, themeSwatches } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
-import { useSystemMode, type ThemePref } from "../../theme/useTheme";
+import { hasWindowMaterial, useSystemMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
 
@@ -164,6 +164,13 @@ const THEME_CHOICES: { pref: ThemePref; label: string }[] = [
   { pref: "system", label: "System" }, { pref: "light", label: "Light" }, { pref: "dark", label: "Dark" },
 ];
 
+/** Opacity ⇄ transparency across the allowed range. Its own involution, so one function serves the
+ *  read and the write and the two can never disagree about which end is which. */
+const flip = (pct: number): number => GROUND_ALPHA_RANGE.min + GROUND_ALPHA_RANGE.max - pct;
+
+/** Only for the sentence explaining why the transparency control is inert; nothing branches on it. */
+const PLATFORM_NAMES: Record<string, string> = { win32: "Windows", linux: "Linux" };
+
 const SUBMIT_KEY_CHOICES: { pref: SubmitKey; label: string }[] = [
   { pref: "enter", label: "Enter" }, { pref: "cmdEnter", label: "⌘/Ctrl+Enter" },
 ];
@@ -186,6 +193,8 @@ function AppTab() {
   const setThemePref = useApp((s) => s.setThemePref);
   const themeName = useApp((s) => s.themeName);
   const setThemeName = useApp((s) => s.setThemeName);
+  const groundAlpha = useApp((s) => s.groundAlpha);
+  const setGroundAlpha = useApp((s) => s.setGroundAlpha);
   const submitKey = useApp((s) => s.submitKey);
   const setSubmitKey = useApp((s) => s.setSubmitKey);
   const prefs = useApp((s) => s.settingsPrefs);
@@ -215,6 +224,7 @@ function AppTab() {
   const effective = resolveMode(themeName, wanted);
   const pinned = effective !== wanted;
   const palette = THEMES.find((t) => t.name === themeName) ?? THEMES[0]!;
+  const material = hasWindowMaterial();
 
   const supported = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_SUPPORTS_PERMISSION_MODES[k]);
   const unsupported = SELECTABLE_AGENT_KINDS.filter((k) => !AGENT_SUPPORTS_PERMISSION_MODES[k]);
@@ -263,6 +273,23 @@ function AppTab() {
           })}
         </fieldset>
         <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
+      </div>
+
+      <div className="field"><span>Background transparency</span>
+        {/* The slider runs the way the label reads — right is MORE transparent — while the stored
+            value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is
+            the one place the two meet.
+            step 1, not a coarser grid: the range spans an odd number of points, so any step above 1
+            leaves one of its two ends unreachable — including 100%, which is how this is turned off. */}
+        <div className="ground-alpha">
+          <input type="range" aria-label="Background transparency" disabled={!material}
+            min={GROUND_ALPHA_RANGE.min} max={GROUND_ALPHA_RANGE.max} step={1}
+            value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
+          <span className="ground-alpha-value">{100 - groundAlpha}%</span>
+        </div>
+        <p className="settings-hint">{material
+          ? "The sidebar is the one surface thin enough to show the desktop behind the window. Panes stay opaque on purpose — at any setting where a pane looked translucent, text on it would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting: with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
+          : `${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — the window is opaque, so there is nothing behind the sidebar to reveal. The setting is kept and applies on a Mac.`}</p>
       </div>
 
       <div className="field"><span>Send message with</span>

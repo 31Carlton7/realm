@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ThemeName } from "@realm/ui";
-import { suppressTransitions, useApplyTheme, type ThemePref } from "./useTheme";
+import { hasWindowMaterial, suppressTransitions, useApplyTheme, type ThemePref } from "./useTheme";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); document.documentElement.removeAttribute("data-theme-switching"); document.documentElement.removeAttribute("style"); });
 
@@ -92,5 +92,30 @@ describe("theme and mode compose", () => {
     // theme change that skipped the fence would tween the hovered row and snap everything else.
     rerender({ theme: "one" });
     expect(root().hasAttribute("data-theme-switching")).toBe(true);
+  });
+});
+
+describe("the adjustable ground reaches :root", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("carries the user's value, and a change to it repaints without a mode or theme change", () => {
+    const { rerender } = renderHook(
+      ({ alpha }) => useApplyTheme("#7c6cff", "dark" as ThemePref, "realm", alpha),
+      { initialProps: { alpha: 82 } },
+    );
+    expect(document.documentElement.style.getPropertyValue("--ground-alpha")).toBe("82%");
+    // THE missing-dependency mutant: leave groundAlpha out of the layout effect's deps. The slider
+    // moves, the store updates, and the window does not change until something else forces a
+    // re-apply — which for most users is never.
+    rerender({ alpha: 60 });
+    expect(document.documentElement.style.getPropertyValue("--ground-alpha")).toBe("60%");
+  });
+
+  it("an unknown platform is not macOS — a bridgeless renderer must not guess a material it may not have", () => {
+    expect(hasWindowMaterial()).toBe(false);
+    vi.stubGlobal("realm", { platform: "linux" });
+    expect(hasWindowMaterial()).toBe(false);
+    vi.stubGlobal("realm", { platform: "darwin" });
+    expect(hasWindowMaterial()).toBe(true);
   });
 });

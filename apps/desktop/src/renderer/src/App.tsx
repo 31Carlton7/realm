@@ -54,7 +54,8 @@ function ThemeBridge() {
   const color = useApp((s) => s.activeSpace()?.color ?? null);
   const pref = useApp((s) => s.themePref);
   const theme = useApp((s) => s.themeName);
-  useApplyTheme(color, pref, theme);
+  const groundAlpha = useApp((s) => s.groundAlpha);
+  useApplyTheme(color, pref, theme, groundAlpha);
   return null;
 }
 

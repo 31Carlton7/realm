@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyTheme, hexToHsl, hslToHex, spaceColor } from "./theme";
 import { THEME_VARS } from "./themes";
+import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE, clampGroundAlpha } from "./theme";
 
 /** Plan 9 W1 re-scope: the ink-grayscale palette generator is gone — surfaces, text tiers, accent,
  *  semantic colours and shadows are the Beautiful UI token set, static CSS in the renderer
@@ -55,7 +56,7 @@ describe("applyTheme (runtime writes: --rl-space, the two attributes, and a cust
   it("writes the clamped space colour to --rl-space and stamps data-mode", () => {
     for (const mode of ["dark", "light"] as const) {
       const { root, props, dataset } = fakeRoot();
-      applyTheme("#3ddc97", mode, "realm", root);
+      applyTheme({ space: "#3ddc97", mode: mode, theme: "realm" }, root);
       expect(props["--rl-space"]).toBe(spaceColor("#3ddc97", mode));
       expect(dataset.mode).toBe(mode);
     }
@@ -67,24 +68,53 @@ describe("applyTheme (runtime writes: --rl-space, the two attributes, and a cust
     // a validated chart palette; a mechanism that "re-derived" them would silently repaint the app
     // for every user who never asked for a theme.
     const { root, props } = fakeRoot();
-    applyTheme("#7c6cff", "dark", "realm", root);
-    expect(Object.keys(props)).toEqual(["--rl-space"]);
+    applyTheme({ space: "#7c6cff", mode: "dark", theme: "realm" }, root);
+    expect(Object.keys(props).sort()).toEqual(["--ground-alpha", "--rl-space"]);
   });
 
   it("a custom theme writes its whole palette inline, and returning to the default clears every one", () => {
     const { root, props } = fakeRoot();
-    applyTheme("#7c6cff", "dark", "one", root);
+    applyTheme({ space: "#7c6cff", mode: "dark", theme: "one" }, root);
     for (const name of THEME_VARS) expect(props[name], name).toMatch(/^oklch\(/);
-    applyTheme("#7c6cff", "dark", "realm", root);
+    applyTheme({ space: "#7c6cff", mode: "dark", theme: "realm" }, root);
     // THE stale-palette mutant: drop the removeProperty branch and this keeps One Dark's inline
     // values, which beat both token blocks in tokens.css — the app would be stuck on the last theme
     // chosen with no way back short of a reload.
-    expect(Object.keys(props)).toEqual(["--rl-space"]);
+    expect(Object.keys(props).sort()).toEqual(["--ground-alpha", "--rl-space"]);
   });
 
   it("stamps the theme on the root so the stylesheet and the live checks can name it", () => {
     const { root, dataset } = fakeRoot();
-    applyTheme("#7c6cff", "dark", "one", root);
+    applyTheme({ space: "#7c6cff", mode: "dark", theme: "one" }, root);
     expect(dataset.theme).toBe("one");
+  });
+});
+
+describe("the adjustable ground", () => {
+  it("is written as a percentage on every apply, defaulting to the value the sidebar always had", () => {
+    const props: Record<string, string> = {};
+    const root = { style: { setProperty: (k: string, v: string) => { props[k] = v; }, removeProperty: () => {} }, dataset: {} } as unknown as HTMLElement;
+    applyTheme({ space: "#7c6cff", mode: "dark" }, root);
+    expect(props["--ground-alpha"]).toBe(`${DEFAULT_GROUND_ALPHA}%`);
+    expect(DEFAULT_GROUND_ALPHA).toBe(82);
+  });
+
+  it("clamps, so no stored or hand-edited value can make the sidebar unreadable or negative", () => {
+    // THE unclamped mutant: pass the stored number straight through. `ui.groundAlpha` is a settings
+    // row like any other — a 0 in it would make the app's own navigation a window onto the desktop,
+    // with no control on screen able to explain what happened.
+    expect(clampGroundAlpha(0)).toBe(GROUND_ALPHA_RANGE.min);
+    expect(clampGroundAlpha(-40)).toBe(GROUND_ALPHA_RANGE.min);
+    expect(clampGroundAlpha(1000)).toBe(GROUND_ALPHA_RANGE.max);
+    expect(clampGroundAlpha(63.4)).toBe(63);
+    expect(GROUND_ALPHA_RANGE.min).toBe(55);
+    expect(GROUND_ALPHA_RANGE.max).toBe(100); // fully opaque has to be reachable — that is "off"
+  });
+
+  it("does not compose the ground itself — that stays in CSS, where a media query can reach it", () => {
+    const props: Record<string, string> = {};
+    const root = { style: { setProperty: (k: string, v: string) => { props[k] = v; }, removeProperty: () => {} }, dataset: {} } as unknown as HTMLElement;
+    applyTheme({ space: "#7c6cff", mode: "dark", groundAlpha: 60 }, root);
+    expect(props["--sidebar-ground"]).toBeUndefined();
   });
 });

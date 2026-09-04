@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { applyTheme, resolveMode, type Mode, type ThemeName } from "@realm/ui";
+import { DEFAULT_GROUND_ALPHA, applyTheme, resolveMode, type Mode, type ThemeName } from "@realm/ui";
 
 export type ThemePref = "system" | "light" | "dark";
 
@@ -37,14 +37,21 @@ export function suppressTransitions(root: HTMLElement, ms = SETTLE_MS): () => vo
  *
  *  The PREFERENCE is deliberately not clamped here, only the resolved mode: choosing Monokai pins
  *  the window dark, and choosing a two-faced theme afterwards must find "system" where it left it. */
-export function useApplyTheme(color: string | null, pref: ThemePref, theme: ThemeName = "realm"): Mode {
+export function useApplyTheme(color: string | null, pref: ThemePref, theme: ThemeName = "realm",
+  groundAlpha: number = DEFAULT_GROUND_ALPHA): Mode {
   const sys = useSystemMode();
   const mode = resolveMode(theme, pref === "system" ? sys : pref);
   // Layout effect so the first paint already carries the mode (no flash of default vars).
   useLayoutEffect(() => {
     const done = suppressTransitions(document.documentElement);
-    applyTheme(color ?? "#7c6cff", mode, theme);
+    applyTheme({ space: color ?? "#7c6cff", mode, theme, groundAlpha });
     return done;
-  }, [color, mode, theme]);
+  }, [color, mode, theme, groundAlpha]);
   return mode;
 }
+
+/** macOS is the only platform with a material behind the window, so it is the only one where the
+ *  sidebar's transparency reveals anything. An unknown platform answers false: this gates a control
+ *  that would otherwise do nothing visible, and a control that appears and does nothing is worse
+ *  than one that explains why it is not there. */
+export const hasWindowMaterial = (): boolean => window.realm?.platform === "darwin";
