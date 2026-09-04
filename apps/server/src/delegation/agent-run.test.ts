@@ -560,11 +560,16 @@ describe("cancellation, budgets, and the one-run rule", () => {
  * block, and only elapsed time tells you.
  */
 describe("agent_start / agent_wait — several agents at once", () => {
-  it("runs children CONCURRENTLY — three starts finish in about one child's time, not three", async () => {
-    // Each child emits two chunks at 300ms apiece, so one child is ~600ms of work. Sequential would
-    // be ~1800ms. THE MUTANT: make `start` await `run.settled` (i.e. quietly re-block) and the elapsed
-    // time crosses 1500ms while every other assertion in this file still passes.
-    const { spaceId, parentId } = await boot({ delayMs: 300, caps: { perParent: 4 } });
+  it("runs children CONCURRENTLY — all three are still going after the last one starts", async () => {
+    // The evidence is OVERLAP, not elapsed time. An absolute wall-clock threshold measures spawn
+    // setup (session create, worktree resolve, adapter boot — ~1s for three) as much as it measures
+    // waiting, so it flakes on a slow machine and proves little on a fast one.
+    //
+    // Each child here is 21 steps x 100ms = ~2.1s of work, comfortably longer than the setup for
+    // three. So on the parallel path all three are still running when the third start returns.
+    // THE MUTANT: make `start` await `run.settled` (quietly re-block) and the first two children have
+    // already finished by then — `running` collapses and `finished` is non-zero.
+    const { spaceId, parentId } = await boot({ script: longScript(20), delayMs: 100, caps: { perParent: 4 } });
     const t0 = Date.now();
     const handles: string[] = [];
     for (const goal of ["one", "two", "three"]) {
@@ -573,18 +578,21 @@ describe("agent_start / agent_wait — several agents at once", () => {
       handles.push(handleIn(text(r)));
     }
     const startedBy = Date.now() - t0;
-    expect(startedBy).toBeLessThan(600); // starting is not waiting
+    const afterStarts = text(app.agentRuns.status({ sessionId: parentId, spaceId }));
+    expect(afterStarts).toContain("3 running, 0 finished");
+    for (const h of handles) expect(afterStarts).toContain(`${h}: running`);
 
-    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles });
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles, timeoutMs: 60_000 });
     const elapsed = Date.now() - t0;
     expect(collected.isError).toBe(false);
-    expect(elapsed).toBeLessThan(1500);
-    // All three reports came back, each attributed to its own child.
+    // Three children overlapping cost roughly one child's time, not three. The bound is loose on
+    // purpose — it is a sanity check on the structural assertion above, not the proof itself.
+    expect(elapsed).toBeLessThan(startedBy + 3 * 2_100);
     for (const h of handles) expect(text(collected)).toContain(h);
     expect(text(collected)).toContain("All 3 delegated agents finished");
-    expect(text(collected).match(/FINAL: wrote the file, all done/g)).toHaveLength(3);
+    expect(text(collected).match(/step 19/g)).toHaveLength(3);
     expect(app.sessions.list(spaceId)).toHaveLength(4); // parent + 3
-  }, 20_000);
+  }, 60_000);
 
   it("collects an already-finished agent instantly, and SPENDS the handle", async () => {
     const { spaceId, parentId } = await boot();
