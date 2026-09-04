@@ -71,6 +71,12 @@ describe("chips in the user message bubble", () => {
     expect(bubble().textContent).toBe("write to carlton@mac about it");
   });
 
+  it("a skill switched off is not a chip — the composer does not paint it either", async () => {
+    await mount("try @web instead");
+    expect(chips()).toEqual([]);
+    expect(bubble().textContent).toBe("try @web instead");
+  });
+
   it("a skill that no longer exists goes back to being the text the user typed", async () => {
     await mount("use @mac now", { skills: [] });
     expect(chips()).toEqual([]);
