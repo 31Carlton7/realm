@@ -732,6 +732,7 @@ private final class Helper {
     try refuseForbidden(bundleId: snapshot.bundleId, pid: snapshot.pid)
 
     let element = try (params["index"] as? Int).map { try snapshots.resolve(snapshotId: snapshotId, index: $0) }
+    if let element { try refuseSecureField(element, kind: kind) }
 
     // setValue and the AX actions go through the accessibility API rather than through synthetic
     // input, so they neither need nor take the app's focus. Everything below them does.
@@ -784,6 +785,21 @@ private final class Helper {
     default:
       throw HelperError("unknown act kind \"\(kind)\"")
     }
+  }
+
+  /// Realm never puts characters into a password field, in any mode — the same rule the browser
+  /// tools apply, for the same reason: no per-action prompt can describe what a secret entering an
+  /// unknown app means, and there is no mode in which getting it wrong is recoverable.
+  ///
+  /// The role is re-read from the LIVE element rather than taken from the snapshot. A snapshot's
+  /// role is a claim about the past, and the sign-in sheet that replaced the form since then is
+  /// exactly the case worth catching. Clicking a secure field is still allowed: giving it focus is
+  /// how the user gets to type into it themselves.
+  private func refuseSecureField(_ element: Element, kind: String) throws {
+    guard ["type", "key", "setValue"].contains(kind) else { return }
+    let liveRole = axString(element.handle, kAXRoleAttribute as String) ?? element.role
+    guard liveRole == "AXSecureTextField" else { return }
+    throw HelperError("refused: that is a password field. Realm never types into one — tell the user what to enter and let them type it", code: "secure_field")
   }
 
   private func setValue(_ element: Element, _ text: String) throws -> [String: Any] {

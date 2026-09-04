@@ -27,7 +27,24 @@ export const BROWSER_HOST_OPS = [
    *  the page never influences one. */
   "download",
 ] as const;
-export type BrowserHostOp = (typeof BROWSER_HOST_OPS)[number];
+
+/**
+ * The computer-use ops, relayed over the SAME socket. There is one main↔server connection and one
+ * registered executor, so a second bridge would be a parallel copy of this file's reconnect,
+ * timeout and supersede handling for no gain — but the two op families are named separately because
+ * they answer to different hosts in main and have nothing else in common.
+ */
+export const COMPUTER_HOST_OPS = [
+  /** Both TCC grants, queried without prompting for either. */
+  "computerGrants",
+  "computerListApps",
+  "computerSnapshot",
+  "computerAct",
+] as const;
+
+export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS] as const;
+/** Every op the bridge will relay, of either family. */
+export type HostOp = (typeof HOST_OPS)[number];
 
 /** How long one op may run before the bridge gives up on it. Snapshot fuses four CDP calls plus a
  *  listener sweep; a heavy page can take seconds — but a minute means the view is gone or the page is
@@ -45,6 +62,10 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; time
  * tool's CDP work travels out as a targeted `browserHost.op` event and comes back as a
  * `browserHost.result` call. One host at a time — a second register supersedes the first (an Electron
  * main that restarted), failing whatever the old one still owed.
+ *
+ * It carries the computer-use ops too (`COMPUTER_HOST_OPS`), which have nothing to do with browser
+ * panes but travel the same one main↔server socket to the same one registered executor. The name is
+ * the browser's because that is what first needed a bridge; the machinery was never browser-specific.
  */
 export class BrowserHostBridge {
   private host: WebSocket | null = null;
@@ -82,8 +103,8 @@ export class BrowserHostBridge {
 
   /** Run one op on the registered host. Rejects (never hangs) when no host is connected, when the
    *  socket drops mid-op, and after `OP_TIMEOUT_MS`. */
-  call(op: BrowserHostOp, params: Record<string, unknown>): Promise<unknown> {
-    if (!(BROWSER_HOST_OPS as readonly string[]).includes(op)) return Promise.reject(new Error(`unknown browser host op "${op}"`));
+  call(op: HostOp, params: Record<string, unknown>): Promise<unknown> {
+    if (!(HOST_OPS as readonly string[]).includes(op)) return Promise.reject(new Error(`unknown host op "${op}"`));
     const host = this.host;
     if (!host) return Promise.reject(new Error("the Realm app is not connected — browser tools need the desktop app running"));
     const callId = randomBytes(9).toString("base64url");

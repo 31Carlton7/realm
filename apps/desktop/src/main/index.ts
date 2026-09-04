@@ -13,6 +13,8 @@ import type { BrowserPaneHost, ViewRect } from "./browser-host";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
+import { ComputerUseHelper, axHelperPath } from "./computer-use-helper";
+import { ComputerUseHost } from "./computer-use-host";
 import {
   MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
@@ -43,6 +45,20 @@ let browserPane: BrowserPane | null = null;
  *  whichever window's views exist, and honestly reports "pane not open" between windows. */
 let agentHost: BrowserAgentHost | null = null;
 let agentBridge: { stop(): void } | null = null;
+/**
+ * Computer use (the `realm-computer` tools): the native accessibility helper and the executor over
+ * it. App-scoped and window-independent — unlike the browser executor there are no views involved,
+ * and an op is answered the same whether a Realm window happens to be open.
+ *
+ * The helper CHILD is not spawned here. `ComputerUseHelper` starts it on the first op and gives it
+ * up when it exits, so a process that can read other apps' windows and post synthetic input exists
+ * only while an agent is driving something.
+ */
+const computerHelper = new ComputerUseHelper({ helperPath: axHelperPath, onLog: (line) => console.error(line) });
+const computerHost = new ComputerUseHost({
+  available: () => computerHelper.available,
+  request: (method, params) => computerHelper.request(method, params),
+});
 /** The encrypted secret store (safeStorage + the OS Keychain). App-scoped, not per-window: the
  *  bridge asks it for the `oauth` key at registration, and Settings enrolls into it. Built lazily
  *  because it needs `realmHome`, which arrives with the server's ready line. */
@@ -538,6 +554,9 @@ app.whenReady().then(async () => {
         // asks for it the instant it registers. `exportOauthKey` is the ONE key that leaves main;
         // there is deliberately no sibling op for the credential key.
         if (op === "oauthKey") return Promise.resolve({ key: secrets()?.exportOauthKey() ?? null });
+        // Computer-use ops share this socket but not the browser executor: they need no window and
+        // no view, so they are answered before the window check below.
+        if (op.startsWith("computer")) return computerHost.handleOp(op, params);
         const host = agentHost;
         if (!host) return Promise.reject(new Error("the Realm window is not open — browser tools need it"));
         return host.handleOp(op, params);
@@ -555,6 +574,7 @@ app.on("window-all-closed", () => app.quit());
  *  child (SIGTERM — the server's own handler closes ptys and the DB). Idempotent: quitAndInstall
  *  paths can arrive here twice (`before-quit-for-update`, then the ordinary quit machinery). */
 function shutdownForQuit() {
+  computerHelper.stop();
   agentBridge?.stop();
   agentBridge = null;
   serverChild?.kill("SIGTERM");
