@@ -56,8 +56,8 @@ export class DelegationEngine {
     /** Called with a parent whose live set just changed — a run began, settled, or was collected.
      *  The engine announces the CHANGE and nothing else: the listener reads the new set back off
      *  `liveRuns`, so there is still exactly one description of who is waiting on what, and nobody
-     *  can be handed a snapshot the registry has already moved past. Optional, because settling must
-     *  not depend on anyone listening. */
+     *  can be handed a snapshot the registry has already moved past. Optional, and its failures are
+     *  swallowed (`announce`), because a delegation must not be abortable by whoever is watching. */
     onChange?: (parentSessionId: string) => void;
   }) {
     this.maxPerParent = d.caps?.perParent ?? MAX_RUNS_PER_PARENT;
@@ -84,6 +84,13 @@ export class DelegationEngine {
    *  result, not a machine, so it is not counted against the cap and is not listed here. */
   running(parentSessionId: string): ActiveRun[] {
     return this.list(parentSessionId).filter((r) => r.done === null);
+  }
+
+  /** A listener's failure is its own. `begin` is called on the delegation's happy path and `watch`'s
+   *  settle runs unobserved in the background: a throw from either would abort a real run over a
+   *  notification nobody needed. */
+  private announce(parentSessionId: string): void {
+    try { this.d.onChange?.(parentSessionId); } catch { /* the registry is unaffected; the listener resyncs */ }
   }
 
   /** The parent's live runs as the renderer reads them (`DelegatedRunSchema`). Derived here rather
@@ -137,7 +144,7 @@ export class DelegationEngine {
       detached: opts.detached ?? false, done: null, settled: null,
     };
     this.runs.set(parentSessionId, [...this.list(parentSessionId), run]);
-    this.d.onChange?.(parentSessionId);
+    this.announce(parentSessionId);
     return run;
   }
 
@@ -150,11 +157,15 @@ export class DelegationEngine {
    * a sibling's `finally` can never evict a detached run whose report has not been collected yet.
    */
   end(parentSessionId: string, run?: ActiveRun): void {
-    if (!run) { this.runs.delete(parentSessionId); this.d.onChange?.(parentSessionId); return; }
-    const rest = this.list(parentSessionId).filter((r) => r !== run);
+    const held = this.list(parentSessionId);
+    // `release` (the parent session was deleted) reaches here for EVERY session, almost none of
+    // which ever delegated. Nothing changed, so nothing is announced.
+    if (held.length === 0) return;
+    if (!run) { this.runs.delete(parentSessionId); this.announce(parentSessionId); return; }
+    const rest = held.filter((r) => r !== run);
     if (rest.length === 0) this.runs.delete(parentSessionId);
     else this.runs.set(parentSessionId, rest);
-    this.d.onChange?.(parentSessionId);
+    this.announce(parentSessionId);
   }
 
   /** The PARENT was interrupted: ALL its delegated runs are cancelled and their children interrupted
@@ -185,7 +196,7 @@ export class DelegationEngine {
    * which never stops the child.
    */
   watch(run: ActiveRun, childId: string, fromSeq: number, deadline: number, pollMs: number): void {
-    run.settled = this.drain(childId, fromSeq, run, deadline, pollMs).then((s) => { run.done = s; this.d.onChange?.(run.parentSessionId); return s; });
+    run.settled = this.drain(childId, fromSeq, run, deadline, pollMs).then((s) => { run.done = s; this.announce(run.parentSessionId); return s; });
     // drain resolves for every outcome rather than throwing, but an unobserved promise that somehow
     // did reject would take the process down — and a detached run is unobserved by construction.
     void run.settled.catch(() => { /* surfaced through run.done / the awaiting tool */ });

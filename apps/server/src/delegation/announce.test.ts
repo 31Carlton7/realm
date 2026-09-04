@@ -69,6 +69,15 @@ describe("delegation.changed — the parent's live runs, straight off the regist
     expect(sent).toHaveLength(3);
   });
 
+  it("says nothing when a session that never delegated is released", () => {
+    const { engine, sent } = wired();
+    engine.end(PARENT);
+    // `release` reaches `end` for every session the user deletes, virtually none of which ever
+    // delegated. THE MUTANT: announce unconditionally, and clearing out fifty old sessions sends
+    // fifty broadcasts to every open window to report that nothing changed.
+    expect(sent).toEqual([]);
+  });
+
   it("says nothing for a reviewer the user started from a diff pane", () => {
     const { engine, sent } = wired();
     // `review.ts` begins those under a synthetic key so they are still capped and cancellable.
