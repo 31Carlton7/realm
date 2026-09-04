@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
 import { clip, editStat, prettyJson, toolSummary } from "./tool-summary";
@@ -61,6 +61,27 @@ function Well({ label, text, error = false, rich = null }: { label: string; text
   );
 }
 
+/**
+ * Opening a card with ⌥ held opens every card in the same transcript — Finder's gesture on a
+ * disclosure triangle, and the modifier this app already spells "the other way to do this" on a
+ * sidebar row. Nothing advertises it; a plain click is untouched.
+ *
+ * The siblings are driven through their OWN rows rather than by lifting `open` into shared state: a
+ * long transcript holds hundreds of cards, and a subscription each would be a standing cost paid by
+ * every reader who never finds this. A synthetic click carries no `altKey`, so one press cannot
+ * cascade. Only rows that DISAGREE with the target are pressed, so they end up matching the card you
+ * opened instead of each flipping to its own opposite.
+ *
+ * Returns `next` so the caller's own state moves whether or not the modifier was held.
+ */
+function expand(e: ReactMouseEvent<HTMLButtonElement>, next: boolean): boolean {
+  if (!e.altKey) return next;
+  const self = e.currentTarget;
+  for (const row of self.closest(".transcript-col")?.querySelectorAll<HTMLButtonElement>(".tool-row") ?? [])
+    if (row !== self && (row.getAttribute("aria-expanded") === "true") !== next) row.click();
+  return next;
+}
+
 /** A tool call the agent made: BUI ThinkingState's coding-row shape (Plan 9 W2) — a leading status
  *  glyph whose spinner→muted-check progression is the block's REAL settled state (result present),
  *  never a clock; the tool name; the target as a mono chip (ToolChips' chip language); measured
@@ -99,7 +120,7 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
   const work = state === "running" ? mediaWorkFor(block.name, block.input) : null;
   return (
     <div className="tool-card" data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
-      <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={() => setOpen((o) => !o)}>
+      <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={(e) => setOpen(expand(e, !open))}>
         <span className="tool-status" aria-label={state === "running" ? "running" : state === "ok" ? "done" : state === "error" ? "failed" : "no result"}>
           {/* 16, not the 14 the settled glyphs use: the orb fills the status slot, and 40 dots at
               0.12–1 opacity carry far less weight than a 1.5px stroke, so it reads lighter even so. */}

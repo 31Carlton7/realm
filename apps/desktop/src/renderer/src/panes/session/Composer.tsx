@@ -625,7 +625,23 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   return (
     <div className="composer-dock">
       {hero && (
-        <div className="hero-greeting">
+        /* Click the emphasised word — your name, or the space's — and the line nods back. Nothing
+           announces it, nothing reaches it by keyboard, and nothing depends on it having happened.
+           The mark goes on the element and comes off when the animation ends, so there is no state,
+           no timer and nothing to clean up. Taking it off and putting it straight back would replay
+           nothing — the browser only sees the value it holds at the end of the frame — so the read
+           of `offsetWidth` between the two forces the removal to land first. Under
+           prefers-reduced-motion the global kill means no animation runs and no `animationend`
+           arrives, which is the correct outcome: the greeting simply does not nod. */
+        <div className="hero-greeting"
+          onClick={(e) => {
+            if (!(e.target instanceof HTMLElement) || e.target.tagName !== "EM") return;
+            const line = e.currentTarget;
+            line.removeAttribute("data-nod");
+            void line.offsetWidth;
+            line.setAttribute("data-nod", "");
+          }}
+          onAnimationEnd={(e) => e.currentTarget.removeAttribute("data-nod")}>
           {greeting.map((part, i) => (part.em ? <em key={i}>{part.text}</em> : <Fragment key={i}>{part.text}</Fragment>))}
         </div>
       )}

@@ -272,6 +272,15 @@ describe("§6 motion table", () => {
     expect(bodiesFor('.strip-badge[data-status="waiting_permission"]').join(" ")).toContain("rl-pulse 0.9s ease-in-out infinite");
   });
 
+  it("the greeting's nod is on the ladder like everything else, and the preference takes it away", () => {
+    // An unadvertised flourish is still motion, and gets no exemption from either rule: it reaches
+    // for a rung rather than inventing a tempo, and it is an ordinary element rule, so the global
+    // `* { animation: none }` reaches it without the pseudo-element carve-out the ping needed.
+    expect(bodiesFor(".hero-greeting[data-nod]").join(" ")).toContain(`animation: rl-nod ${dur("--dur-move")} var(--ease-in-out-strong)`);
+    expect(blockAfter("@keyframes rl-nod")).toContain("transform: none");
+    expect(RULES.some((r) => r.selectors.some((sel) => sel.includes("::") && sel.includes("hero-greeting")))).toBe(false);
+  });
+
   it("`will-change` is reserved for the swiper track (§6 performance note)", () => {
     const owners = RULES.filter((r) => r.body.includes("will-change")).flatMap((r) => r.selectors);
     expect(owners).toEqual([".swiper-track"]);

@@ -16,6 +16,48 @@ const resultWell = () => document.querySelector<HTMLElement>(".tool-section:last
 
 afterEach(() => cleanup());
 
+/** ⌥-click on a disclosure, Finder's gesture, applied to the ledger. It is unadvertised, so the
+ *  thing to hold is that it stays out of the way: a plain click must be exactly what it was, and one
+ *  press must not cascade into a second round of presses. */
+describe("⌥-click opens the whole ledger", () => {
+  // Prose between the calls, because a run of GROUP_MIN folds into a ToolGroup and the cards inside a
+  // closed one are not rendered at all. Three cards standing on their own is the shape under test.
+  const three = (): TranscriptModel => ({
+    blocks: (["a", "b", "c"].flatMap((id, i) => [
+      { kind: "tool", toolUseId: id, name: "Bash", input: { command: id }, result: { content: id, isError: false }, ts: i * 2 },
+      { kind: "assistant", messageId: `m${i}`, text: "and then", streaming: false, ts: i * 2 + 1 },
+    ]) as Block[]),
+    pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null,
+  });
+  const rows = () => screen.getAllByRole("button", { name: /tool call/ });
+  const openStates = () => rows().map((r) => r.getAttribute("aria-expanded"));
+
+  it("a plain click still opens only the card it landed on", () => {
+    render(<Transcript transcript={three()} sessionStatus="idle" onDecide={() => {}} />);
+    fireEvent.click(rows()[0]!);
+    expect(openStates()).toEqual(["true", "false", "false"]);
+  });
+
+  it("⌥-click carries every other card to the SAME state, rather than flipping each to its own", () => {
+    render(<Transcript transcript={three()} sessionStatus="idle" onDecide={() => {}} />);
+    fireEvent.click(rows()[1]!); // one card already open, so a blind toggle-all would close it
+    fireEvent.click(rows()[0]!, { altKey: true });
+    expect(openStates()).toEqual(["true", "true", "true"]);
+    fireEvent.click(rows()[0]!, { altKey: true });
+    expect(openStates()).toEqual(["false", "false", "false"]);
+  });
+
+  it("does not cascade: the clicks it sends carry no modifier of their own", () => {
+    // Each synthetic press re-enters the same handler, so a press that inherited `altKey` would send
+    // its own round — quadratic on a transcript that runs to hundreds of cards.
+    render(<Transcript transcript={three()} sessionStatus="idle" onDecide={() => {}} />);
+    const presses = vi.spyOn(HTMLElement.prototype, "click");
+    fireEvent.click(rows()[0]!, { altKey: true });
+    expect(presses).toHaveBeenCalledTimes(2); // the two siblings, and nothing they went on to press
+    presses.mockRestore();
+  });
+});
+
 describe("ToolCard output clamp (A-M2)", () => {
   it("a result at exactly the clamp limit renders in full with no expander", () => {
     mount("x".repeat(RESULT_CLAMP));

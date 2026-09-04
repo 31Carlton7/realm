@@ -1430,6 +1430,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .hero-greeting { position: absolute; bottom: calc(100% + 20px); left: 0; right: 0; text-align: center;
   font-size: 30px; font-weight: var(--fw-title); letter-spacing: -0.02em; color: var(--rl-text-bright); text-wrap: balance; }
 .hero-greeting em { font-style: normal; }
+/* The greeting nods when its emphasised word is clicked (Composer.tsx sets the mark). Pivoting on
+   the baseline, so the line dips on the ruler it sits on rather than swinging around its middle;
+   the whole line moves rather than the word alone, because a transform needs a block box and giving
+   the inline <em> one would stop a long space name wrapping. */
+.hero-greeting[data-nod] { animation: rl-nod var(--dur-move) var(--ease-in-out-strong); transform-origin: 50% 100%; }
+@keyframes rl-nod { 45% { transform: rotate(-1.5deg) translateY(2px); } to { transform: none; } }
 
 /* Suggested prompts (Ara refresh §3): a single-column LIST at full prompter width under the card —
    transparent rows, hover fill, one 14px title line behind a faint leading glyph. */
