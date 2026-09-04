@@ -532,6 +532,9 @@ describe("SessionService over rpc", () => {
       { type: "permission_request", payload: { requestId: "r-extra" } },
       { type: "permission_response", payload: { requestId: req, decision: "deny" } },
       { type: "permission_response", payload: { requestId: "r-extra", decision: "deny" } },
+      // boot also closes the run the crash left open — see the dedicated test below for why it is dated
+      // at the last real event rather than at boot time.
+      { type: "status", payload: { status: "idle" } },
     ]);
     expect(got.lastEventSeq).toBe(replayed.at(-1).seq);
     expect(app.sessions.isLive(session.id)).toBe(false);
@@ -543,6 +546,42 @@ describe("SessionService over rpc", () => {
     expect(after.map((s: Any) => s.event.type)).toContain("user_message");
     expect(after[0].seq).toBeGreaterThan(replayed.at(-1).seq);
     c2.close();
+  });
+
+  it("boot closes the run a crash left open, dated at the last real event — not at boot time", async () => {
+    const { home, c, sp } = await boot(new FakeAdapter({ script: [] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    c.close(); await app.close();
+
+    // The log a crash leaves behind: a turn that started and never settled. Written by hand rather than
+    // driven through the adapter, so this stays a test of boot repair and not of the fake's script.
+    const raw = new (await import("node:sqlite")).DatabaseSync(join(home, "realm.db"));
+    const crashedAt = Date.now() - 60 * 60 * 1000;
+    const ins = raw.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)");
+    ins.run(session.id, crashedAt - 1000, "user_message", JSON.stringify({ text: "go" }));
+    ins.run(session.id, crashedAt, "status", JSON.stringify({ status: "running" }));
+    const seq = (raw.prepare("SELECT MAX(seq) AS s FROM session_events WHERE session_id = ?").get(session.id) as { s: number }).s;
+    raw.prepare("UPDATE sessions SET status = 'running', last_event_seq = ? WHERE id = ?").run(seq, session.id);
+    raw.close();
+
+    // The renderer rebuilds the transcript by replaying this log, so without a close the run stays open
+    // forever and the NEXT turn's settle reports a span reaching back across the downtime.
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) } });
+    const c2 = await client(app.port);
+    const events = (await c2.call("sessions.events", { id: session.id })).result;
+    expect(events.at(-2).event).toMatchObject({ type: "status", payload: { status: "running" } });
+    expect(events.at(-1).event).toMatchObject({ type: "status", payload: { status: "idle" } });
+    // The whole point: the close is dated at the crashed event, so the run reads as an hour of downtime
+    // that cost nothing — not as an hour of work. `Date.now()` here would bill the downtime to the run.
+    expect(events.at(-1).event.ts).toBe(crashedAt);
+    expect((await c2.call("sessions.get", { id: session.id })).result.lastEventSeq).toBe(events.at(-1).seq);
+
+    // Idempotent: a second boot sees `idle` as the log's last word and has nothing left to close.
+    c2.close(); await app.close();
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) } });
+    const c3 = await client(app.port);
+    expect((await c3.call("sessions.events", { id: session.id })).result.length).toBe(events.length);
+    c3.close();
   });
 
   it("boot: `ended` stays terminal without a providerSessionId, becomes idle with one; error is kept", async () => {

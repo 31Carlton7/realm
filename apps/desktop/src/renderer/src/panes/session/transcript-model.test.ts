@@ -77,3 +77,56 @@ describe("transcript model", () => {
     expect(a.blocks).toHaveLength(0); expect(b.blocks).toHaveLength(1);
   });
 });
+
+describe("how long the run worked", () => {
+  const status = (s: "idle" | "running" | "waiting_permission" | "error" | "ended", ts: number) => sessionEvent("status", { status: s }, ts);
+  const runBlocks = (t: ReturnType<typeof emptyTranscript>) => t.blocks.filter((b) => b.kind === "run");
+
+  it("banks a run block when the run settles, spanning running→idle", () => {
+    const t = reduceAll([status("running", 1_000), status("idle", 13_500)]);
+    expect(runBlocks(t)).toEqual([{ kind: "run", ms: 12_500, startedAt: 1_000, ts: 13_500 }]);
+    expect(t.run).toBeNull();
+  });
+
+  it("subtracts the time the run sat on a permission prompt", () => {
+    // Wall clock says 100s. The user was away for 90 of them with an Allow button on screen, and
+    // "Cooked for 1m 40s" would be crediting the agent with the user's coffee break.
+    const t = reduceAll([
+      status("running", 0), status("waiting_permission", 5_000), status("running", 95_000), status("idle", 100_000),
+    ]);
+    expect(runBlocks(t)).toMatchObject([{ ms: 10_000 }]);
+  });
+
+  it("does not restart the clock when a second `running` lands inside an open run", () => {
+    // The adapter re-announces `running` when the last pending permission clears, and again when the
+    // user queues another message mid-run. Either one restarting the span would report only the tail.
+    const t = reduceAll([status("running", 0), status("running", 30_000), status("idle", 40_000)]);
+    expect(runBlocks(t)).toMatchObject([{ ms: 40_000, startedAt: 0 }]);
+  });
+
+  it("keeps the label seed on the block so the settled line can name the same verb", () => {
+    const t = reduceAll([status("running", 777), status("idle", 1_777)]);
+    expect(runBlocks(t)).toMatchObject([{ startedAt: 777 }]);
+  });
+
+  it("reports nothing for a status that closes no run", () => {
+    // An adapter says `idle` when it boots and `ended` after the idle that closed the last turn.
+    // Both would otherwise bank a run dated from the epoch.
+    const boot = reduceAll([status("idle", 500), status("ended", 900)]);
+    expect(boot.blocks).toEqual([]);
+    const after = reduceAll([status("running", 0), status("idle", 1_000), status("ended", 2_000)]);
+    expect(runBlocks(after)).toHaveLength(1);
+  });
+
+  it("settles on error and on ended, not only on idle", () => {
+    expect(runBlocks(reduceAll([status("running", 0), status("error", 3_000)]))).toMatchObject([{ ms: 3_000 }]);
+    expect(runBlocks(reduceAll([status("running", 0), status("ended", 3_000)]))).toMatchObject([{ ms: 3_000 }]);
+  });
+
+  it("counts a run the crash left open only from its own start, once the log terminates it", () => {
+    // markStaleOnBoot backdates a synthetic idle to the last event the log has. Without it the next
+    // turn's settle would report a span reaching back across however long the app was shut down.
+    const t = reduceAll([status("running", 1_000), status("idle", 2_000), status("running", 9_000_000), status("idle", 9_004_000)]);
+    expect(runBlocks(t)).toMatchObject([{ ms: 1_000 }, { ms: 4_000 }]);
+  });
+});

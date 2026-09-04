@@ -9,7 +9,13 @@ export type Block =
   | { kind: "assistant"; messageId: string; text: string; streaming: boolean; ts: number }
   | { kind: "thinking"; messageId: string; text: string; ts: number }
   | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; result: { content: string; isError: boolean } | null; ts: number }
-  | { kind: "error"; message: string; ts: number };
+  | { kind: "error"; message: string; ts: number }
+  /** A finished run, banked where it finished. `ms` is how long the agent actually worked — the time
+   *  the run sat parked on a permission prompt is subtracted, because a run the user left waiting on
+   *  an Allow button for twenty minutes did not work for twenty minutes. `startedAt` rides along as
+   *  the label's seed, so the settled line says "Cooked for 2m" under the "Cooking…" the reader was
+   *  just watching (see run-label.ts). */
+  | { kind: "run"; ms: number; startedAt: number; ts: number };
 
 export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string };
 export type Usage = { costUsd: number; inputTokens: number; outputTokens: number; numTurns: number };
@@ -21,6 +27,9 @@ export type Transcript = {
   /** `availableModes`: the agent's OWN session modes as the init event carried them (Plan 14 W3) —
    *  undefined when the agent named none. Per-session ground truth for the ACP Build/Plan chip. */
   init: { model: string; tools: string[]; providerSessionId: string; availableModes?: AcpSessionMode[] } | null;
+  /** The run in flight: when it started, and the permission-prompt time to take off its clock.
+   *  `waitingSince` is the open half of that accounting. Null between runs. */
+  run: { startedAt: number; waitedMs: number; waitingSince: number | null } | null;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -28,7 +37,7 @@ export type Transcript = {
  *  replaced in place (a streaming assistant block becomes its final self at the same index). */
 export const blockKey = (b: Block, i: number): string => (b.kind === "tool" ? `tool:${b.toolUseId}` : `${b.kind}:${i}`);
 
-export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null });
+export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null });
 
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
 
@@ -68,7 +77,29 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
     case "error": blocks.push({ kind: "error", message: e.payload.message, ts: e.ts }); return { ...t, blocks };
     case "usage": return { ...t, usage: e.payload };
     case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId, ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}) } };
-    case "status": return t;
+    case "status": {
+      const run = t.run;
+      switch (e.payload.status) {
+        // A second `running` inside an open run is ordinary — the user queued another message, or the
+        // adapter re-announced it as the last permission cleared — and must NOT restart the clock.
+        case "running":
+          if (!run) return { ...t, run: { startedAt: e.ts, waitedMs: 0, waitingSince: null } };
+          if (run.waitingSince === null) return t;
+          return { ...t, run: { ...run, waitedMs: run.waitedMs + (e.ts - run.waitingSince), waitingSince: null } };
+        case "waiting_permission":
+          if (!run || run.waitingSince !== null) return t;
+          return { ...t, run: { ...run, waitingSince: e.ts } };
+        // idle / error / ended all settle the run. Each also arrives with no run open — an adapter
+        // announces `idle` when it boots and `ended` after the `idle` that closed the last turn — and
+        // there the event is nothing: no clock was started, so there is no span to report.
+        default: {
+          if (!run) return t;
+          const waited = run.waitedMs + (run.waitingSince === null ? 0 : e.ts - run.waitingSince);
+          blocks.push({ kind: "run", ms: Math.max(0, e.ts - run.startedAt - waited), startedAt: run.startedAt, ts: e.ts });
+          return { ...t, blocks, run: null };
+        }
+      }
+    }
   }
 }
 

@@ -162,6 +162,15 @@ export class SessionEventsStore {
     return p.success ? p.data : null;
   }
 
+  /** The timestamp of the session's newest persisted event, or null when it has none. Boot-time
+   *  repairs date their synthetic events here rather than at `Date.now()`, so a log written before a
+   *  crash does not gain an event stamped hours later. */
+  lastTs(sessionId: string): number | null {
+    const r = this.db.prepare("SELECT ts FROM session_events WHERE session_id = ? ORDER BY seq DESC LIMIT 1")
+      .get(sessionId) as Pick<EventRow, "ts"> | undefined;
+    return r ? r.ts : null;
+  }
+
   /**
    * The session's SPOKEN transcript — user/assistant text only — up to `upToTs`, ascending (Plan 16
    * W3's fork context). The cut is by event timestamp against the checkpoint's `createdAt`: a turn

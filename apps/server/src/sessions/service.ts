@@ -456,6 +456,16 @@ export class SessionService {
       }
       const resumable = s.status === "running" || s.status === "waiting_permission" || (s.status === "ended" && s.providerSessionId !== null);
       if (resumable) this.d.sessions.update({ id: s.id, status: "idle" });
+      // Resetting the ROW is not enough: the transcript is rebuilt by replaying the event log, and on a
+      // crash that log's last word is still `running`. Nothing would ever close that run, so the next
+      // turn's settle would report a span reaching back across the restart. Close it here, dated at the
+      // last event the log actually has — not `Date.now()`, which would bill the downtime to the run.
+      const lastStatus = this.d.events.lastOfType(s.id, "status");
+      const open = lastStatus?.type === "status" && (lastStatus.payload.status === "running" || lastStatus.payload.status === "waiting_permission");
+      if (open) {
+        const at = this.d.events.lastTs(s.id);
+        if (at !== null) this.persist(s.id, sessionEvent("status", { status: "idle" }, at));
+      }
     }
   }
 
