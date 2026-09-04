@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { BlockedDownload, Browser, BrowserDownloadResult } from "@realm/contracts";
+import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserPickedElement } from "@realm/contracts";
 import { BrowserPane } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
@@ -19,6 +19,8 @@ function fakeBridges(row: Partial<Browser> = {}) {
   let allowlist: string[] | null = null;
   let downloadDir: string | null = "/tmp/proj/downloads";
   let saveResult: BrowserDownloadResult = { ok: true, name: "week-3.pdf", bytes: 2048, relPath: "downloads/week-3.pdf" };
+  /** The armed pick's resolver — the real bridge stays pending until the user clicks in the view. */
+  let pickResolve: ((el: BrowserPickedElement | null) => void) | null = null;
   const host: BrowserHostBridge = {
     create: async (id, url, list) => { calls.push(`create:${id}:${url}:${JSON.stringify(list)}`); },
     destroy: async (id) => { calls.push(`destroy:${id}`); },
@@ -27,6 +29,8 @@ function fakeBridges(row: Partial<Browser> = {}) {
     setAllowlist: async () => {},
     setBounds: (id, rect, dpr, visible) => { bounds.push({ id, rect, dpr, visible }); },
     onState: (cb) => { cbs.add(cb); return () => cbs.delete(cb); },
+    pickElement: (id) => { calls.push(`pick:${id}`); return new Promise((resolve) => { pickResolve = resolve; }); },
+    cancelPick: async (id) => { calls.push(`cancel-pick:${id}`); pickResolve?.(null); pickResolve = null; },
     blockedDownloads: async () => [],
     saveDownload: async (id, blockedId, dir) => { calls.push(`save:${id}:${blockedId}:${dir}`); return saveResult; },
     dismissDownload: async (id, blockedId) => { calls.push(`dismiss:${id}:${blockedId}`); },
@@ -44,6 +48,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     setAllowlist: (l: string[] | null) => { allowlist = l; },
     setDownloadDir: (d: string | null) => { downloadDir = d; },
     setSaveResult: (r: BrowserDownloadResult) => { saveResult = r; },
+    settlePick: (el: BrowserPickedElement | null) => { pickResolve?.(el); pickResolve = null; },
     blockDownload: (blocked: BlockedDownload, browserId = "b1") => {
       for (const cb of blockedCbs) cb({ browserId, blocked });
     },

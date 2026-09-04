@@ -1,4 +1,4 @@
-import type { BlockedDownload, Browser, BrowserDownloadResult } from "@realm/contracts";
+import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserPickedElement } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 
 /** The per-space origin allowlist's settings key — stored like MCP enablement (`mcp.enabled:<spaceId>`),
@@ -55,6 +55,10 @@ export type BrowserHostBridge = {
   setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
   setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
   onState(cb: (s: BrowserViewState) => void): () => void;
+  /** Arms the picker; resolves when the user clicks an element, or null if the pick did not happen.
+   *  Stays pending for as long as the user takes to aim. */
+  pickElement(id: string): Promise<BrowserPickedElement | null>;
+  cancelPick(id: string): Promise<void>;
   blockedDownloads(id: string): Promise<BlockedDownload[]>;
   saveDownload(id: string, blockedId: string, dir: string): Promise<BrowserDownloadResult>;
   dismissDownload(id: string, blockedId: string): Promise<void>;

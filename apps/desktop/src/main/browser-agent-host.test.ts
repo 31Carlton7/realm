@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PICK_HTML_MAX, PICK_TEXT_MAX } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 
@@ -313,5 +314,122 @@ describe("BrowserAgentHost — download", () => {
     // cannot identify never gets as far as a click.
     expect(grants).toHaveLength(0);
     expect(calls).toHaveLength(0);
+  });
+});
+
+/**
+ * The USER's element picker. Every test here is about the promise's lifetime rather than the payload:
+ * `pickElement` is the one browser call that stays pending until a person acts, and every way it can
+ * fail to settle leaves the pane's toolbar button lit over a view that is still eating clicks.
+ */
+const PICKED = {
+  "DOM.describeNode": { node: { nodeName: "BUTTON", attributes: ["id", "submit", "class", "btn"] } },
+  "Accessibility.getPartialAXTree": { nodes: [{ role: { value: "button" }, name: { value: "Sign in" } }] },
+  "DOM.resolveNode": { object: { objectId: "obj-1" } },
+  "Runtime.callFunctionOn": {
+    result: { value: { selector: "#submit", text: "Sign in", html: '<button id="submit">Sign in</button>', rect: { x: 4, y: 8, w: 90, h: 32 } } },
+  },
+};
+const overlayCalls = (calls: { method: string; params?: Record<string, unknown> }[]) =>
+  calls.filter((c) => c.method.startsWith("Overlay.")).map((c) => `${c.method}${c.params?.mode ? ` ${String(c.params.mode)}` : ""}`);
+
+describe("BrowserAgentHost — element picking", () => {
+  it("resolves with the element the user clicked, named by AX and located by a url the page cannot author", async () => {
+    const { host, emitEvent } = setup({ responses: PICKED });
+    const pending = host.pickElement("b1");
+    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    expect(await pending).toEqual({
+      ref: 42, url: "https://example.com/x", title: "Example",
+      tag: "button", role: "button", name: "Sign in",
+      selector: "#submit", text: "Sign in", html: '<button id="submit">Sign in</button>',
+      rect: { x: 4, y: 8, w: 90, h: 32 },
+    });
+  });
+
+  it("arms Chrome's own inspect mode and disarms after the pick — Chrome does not clear it itself", async () => {
+    const { host, calls, emitEvent } = setup({ responses: PICKED });
+    const pending = host.pickElement("b1");
+    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    await pending;
+    expect(overlayCalls(calls)).toEqual([
+      "Overlay.enable", "Overlay.setInspectMode searchForNode", "Overlay.setInspectMode none", "Overlay.disable",
+    ]);
+  });
+
+  it("cancelPick settles the armed pick empty and takes inspect mode down", async () => {
+    const { host, calls, emitEvent } = setup({ responses: PICKED });
+    const pending = host.pickElement("b1");
+    host.cancelPick("b1");
+    expect(await pending).toBeNull();
+    expect(overlayCalls(calls)).toContain("Overlay.setInspectMode none");
+    // And the view is no longer picking: a late event has nothing left to settle.
+    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+  });
+
+  it("a main-frame navigation settles the pick empty — it resets the overlay agent and the picker is dead", async () => {
+    const { host, emitEvent } = setup({ responses: PICKED });
+    const pending = host.pickElement("b1");
+    emitEvent("Page.frameNavigated", { frame: { id: "f1", url: "https://example.com/next" } });
+    expect(await pending).toBeNull();
+  });
+
+  it("a SUBFRAME navigation leaves the pick armed — an ad iframe reloading is not the user's page changing", async () => {
+    const { host, emitEvent } = setup({ responses: PICKED });
+    const pending = host.pickElement("b1");
+    emitEvent("Page.frameNavigated", { frame: { id: "f2", parentId: "f1", url: "https://ads.example/x" } });
+    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 7 });
+    expect((await pending)?.ref).toBe(7);
+  });
+
+  it("closing the pane settles the armed pick instead of leaving the toolbar button lit forever", async () => {
+    const { host } = setup({ responses: PICKED });
+    const pending = host.pickElement("b1");
+    host.release("b1");
+    expect(await pending).toBeNull();
+  });
+
+  it("re-arming settles the previous pick, so a double press leaves exactly one live promise", async () => {
+    const { host, emitEvent } = setup({ responses: PICKED });
+    const first = host.pickElement("b1");
+    const second = host.pickElement("b1");
+    expect(await first).toBeNull();
+    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 9 });
+    expect((await second)?.ref).toBe(9);
+  });
+
+  it("a superseded pick does not disarm on its way out — it would switch off the picker just re-armed", async () => {
+    const { host, calls, emitEvent } = setup({ responses: PICKED });
+    const first = host.pickElement("b1");
+    const second = host.pickElement("b1");
+    await first;
+    expect(overlayCalls(calls)).not.toContain("Overlay.setInspectMode none");
+    expect(overlayCalls(calls)).not.toContain("Overlay.disable");
+    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 9 });
+    await second;
+  });
+
+  it("a pick on a pane that is not open answers null rather than throwing at the toolbar", async () => {
+    const { host } = setup();
+    expect(await host.pickElement("nope")).toBeNull();
+  });
+
+  it("an element whose page-side read fails is still picked — the AX identity alone is a usable chip", async () => {
+    const { host, emitEvent } = setup({ responses: { ...PICKED, "DOM.resolveNode": {} } });
+    const pending = host.pickElement("b1");
+    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    expect(await pending).toMatchObject({ ref: 42, role: "button", name: "Sign in", selector: "", html: "" });
+  });
+
+  it("clips the page-authored markup — a picked element is headed for a prompt, not a document", async () => {
+    const html = `<div>${"x".repeat(5000)}</div>`;
+    const { host, emitEvent } = setup({
+      responses: { ...PICKED, "Runtime.callFunctionOn": { result: { value: { selector: "#a", text: "y".repeat(900), html, rect: { x: 0, y: 0, w: 1, h: 1 } } } } },
+    });
+    const pending = host.pickElement("b1");
+    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    const picked = (await pending)!;
+    expect(picked.html).toHaveLength(PICK_HTML_MAX);
+    expect(picked.text).toHaveLength(PICK_TEXT_MAX);
+    expect(picked.html.endsWith("…")).toBe(true);
   });
 });

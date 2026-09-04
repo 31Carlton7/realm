@@ -5,7 +5,7 @@
  * live runs. Executed in Electron MAIN (the process that owns `webContents.debugger`); realm-server
  * reaches it over the browserHost bridge.
  */
-import { normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserRefusal, type BrowserSnapshotResult } from "@realm/contracts";
+import { normalizeOrigin, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal, type BrowserSnapshotResult } from "@realm/contracts";
 
 export type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -669,4 +669,178 @@ export async function showActionHighlight(send: CdpSend, backendNodeId: number):
     } catch (e) {} })()`;
     await send("Runtime.evaluate", { expression });
   } catch { /* the ring is decoration; the act must proceed untouched */ }
+}
+
+/* ------------------------------------ describe ------------------------------------ */
+
+/**
+ * An element's identity as Realm names it everywhere a human reads one: the permission cards, the
+ * action ticker, and a picked element's chip. AX role and name come first because they are what the
+ * page MEANS rather than how it is built (`<div role=button>` is a button here); the tag and the
+ * label-ish attributes are the fallback for nodes the AX tree ignores.
+ */
+export type ElementIdentity = { role: string; name: string; tag: string; inputType: string | null };
+
+export async function describeElement(send: CdpSend, backendNodeId: number): Promise<ElementIdentity> {
+  const { node } = (await send("DOM.describeNode", { backendNodeId })) as { node?: { nodeName?: string; attributes?: string[] } };
+  const attrs: Record<string, string> = {};
+  const flat = node?.attributes ?? [];
+  for (let i = 0; i + 1 < flat.length; i += 2) attrs[flat[i]!.toLowerCase()] = flat[i + 1]!;
+  let role = "";
+  let name = "";
+  const ax = (await send("Accessibility.getPartialAXTree", { backendNodeId, fetchRelatives: false }).catch(() => null)) as { nodes?: AxNode[] } | null;
+  const axNode = ax?.nodes?.[0];
+  if (axNode) { role = String(axNode.role?.value ?? ""); name = String(axNode.name?.value ?? ""); }
+  return {
+    role: role || (node?.nodeName ?? "").toLowerCase(),
+    name: name || attrs["aria-label"] || attrs.placeholder || attrs.title || "",
+    tag: (node?.nodeName ?? "").toLowerCase(),
+    inputType: attrs.type ?? null,
+  };
+}
+
+/* ------------------------------------ element picking ------------------------------------ */
+
+/**
+ * The USER's element picker, over CDP's `Overlay` domain.
+ *
+ * `Overlay.setInspectMode("searchForNode")` is the mechanism behind DevTools' own inspect button, and
+ * every reason to prefer it here over injecting a click listener with `Runtime.addBinding` +
+ * `Page.addScriptToEvaluateOnNewDocument` is something an injected listener cannot do:
+ *
+ *   - Chrome CONSUMES the picking click. It never reaches the page, so picking a link does not
+ *     navigate and picking a submit button does not submit. An injected listener can only try to
+ *     `preventDefault` in the capture phase, and loses to any page that registered its own capture
+ *     listener on `window` first — which is most of the pages worth picking from.
+ *   - the hit test is the browser's own, so it is right through shadow roots, cross-origin iframes
+ *     and `pointer-events`, none of which `document.elementFromPoint` reports correctly from a
+ *     single world.
+ *   - the highlight is drawn by the overlay layer, not by page DOM. Nothing is appended to the page,
+ *     so there is no second `HIGHLIGHT_ATTR` to hold in step across the snapshot filter and the
+ *     pre-capture sweep, and the page can neither see nor restyle the marker saying it is inspected.
+ *   - nothing is injected into an untrusted page at all, and no script has to be re-established
+ *     after a navigation.
+ *
+ * The cost is the look: this is DevTools' box-model highlight with its tag/size tooltip, not Realm's
+ * action ring. For a picker that is the better trade — the tooltip names what the box IS, which is
+ * the one thing someone choosing an element needs to read before they commit.
+ */
+const INSPECT_HIGHLIGHT = {
+  showInfo: true,
+  contentColor: { r: 76, g: 141, b: 255, a: 0.24 },
+  paddingColor: { r: 76, g: 141, b: 255, a: 0.1 },
+  borderColor: { r: 76, g: 141, b: 255, a: 0.36 },
+  marginColor: { r: 246, g: 178, b: 107, a: 0.2 },
+};
+
+/** Arm inspect mode. The caller listens for `Overlay.inspectNodeRequested`, whose `backendNodeId` is
+ *  a ref of exactly the kind every other op takes. */
+export async function armElementPick(send: CdpSend): Promise<void> {
+  await send("Overlay.enable");
+  await send("Overlay.setInspectMode", { mode: "searchForNode", highlightConfig: INSPECT_HIGHLIGHT });
+}
+
+/**
+ * Disarm — after a pick, on cancel, and on navigation.
+ *
+ * Emitting `inspectNodeRequested` does NOT take Chrome out of inspect mode; in DevTools it is the
+ * frontend that turns the button off afterwards. A picker that does not disarm therefore keeps
+ * swallowing the user's clicks after it has already delivered an element. Both halves are
+ * best-effort because the ordinary way to reach this path is a view that just died.
+ */
+export async function disarmElementPick(send: CdpSend): Promise<void> {
+  await send("Overlay.setInspectMode", { mode: "none" }).catch(() => {});
+  await send("Overlay.disable").catch(() => {});
+}
+
+/**
+ * The page-side half of a pick: a CSS path, the collapsed text, the markup and the live rect, read
+ * off the node in one round trip.
+ *
+ * The path prefers a test hook, then an id, and otherwise walks up composing `:nth-of-type` segments
+ * — checking `querySelectorAll(...).length === 1` at every level so it stops at the shortest path
+ * that is actually unambiguous, and only reaching the document element when nothing shorter is. A
+ * class-based path was rejected: CSS-in-JS class names are content-hashed, so a selector built from
+ * them names this build of the page rather than the element.
+ *
+ * Evaluated in the page's own world, like `readPageText` and the action ring. A page that has
+ * replaced `querySelectorAll` can lie about all of it, which is why the result is treated as page
+ * text everywhere downstream and why `ref` — which the page cannot influence — stays the handle
+ * anything acts through.
+ */
+const PICK_DETAIL_JS = `function () {
+  const unique = (sel) => { try { return document.querySelectorAll(sel).length === 1; } catch (e) { return false; } };
+  const esc = (v) => (self.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/[^\\w-]/g, (c) => "\\\\" + c));
+  const hook = (node) => {
+    for (const a of ["data-testid", "data-test-id", "data-test", "data-cy"]) {
+      const v = node.getAttribute(a);
+      if (v) return "[" + a + '="' + v.replace(/["\\\\]/g, "\\\\$&") + '"]';
+    }
+    return node.id ? "#" + esc(node.id) : null;
+  };
+  const segment = (node) => {
+    const parent = node.parentElement;
+    if (!parent) return node.localName;
+    let total = 0, index = 0;
+    for (const sib of parent.children) if (sib.localName === node.localName) { total++; if (sib === node) index = total; }
+    return total > 1 ? node.localName + ":nth-of-type(" + index + ")" : node.localName;
+  };
+  const parts = [];
+  let selector = "";
+  for (let node = this; node && node.nodeType === 1; node = node.parentElement) {
+    const anchor = hook(node);
+    if (anchor && unique(anchor)) { parts.unshift(anchor); selector = parts.join(" > "); break; }
+    parts.unshift(segment(node));
+    selector = parts.join(" > ");
+    if (unique(selector)) break;
+  }
+  const box = this.getBoundingClientRect();
+  return {
+    selector,
+    text: (this.innerText || this.textContent || "").replace(/\\s+/g, " ").trim(),
+    html: this.outerHTML || "",
+    rect: { x: box.x, y: box.y, w: box.width, h: box.height },
+  };
+}`;
+
+type PickDetail = { selector: string; text: string; html: string; rect: { x: number; y: number; w: number; h: number } };
+
+const NO_DETAIL: PickDetail = { selector: "", text: "", html: "", rect: { x: 0, y: 0, w: 0, h: 0 } };
+
+async function pickDetail(send: CdpSend, backendNodeId: number): Promise<PickDetail> {
+  const resolved = (await send("DOM.resolveNode", { backendNodeId })) as { object?: { objectId?: string } };
+  const objectId = resolved.object?.objectId;
+  if (!objectId) return NO_DETAIL;
+  try {
+    const result = (await send("Runtime.callFunctionOn", {
+      objectId, functionDeclaration: PICK_DETAIL_JS, returnByValue: true,
+    })) as { result?: { value?: Partial<PickDetail> } };
+    const value = result.result?.value;
+    if (!value || typeof value !== "object") return NO_DETAIL;
+    return {
+      selector: clip(String(value.selector ?? ""), PICK_SELECTOR_MAX),
+      text: clip(String(value.text ?? ""), PICK_TEXT_MAX),
+      html: clip(String(value.html ?? ""), PICK_HTML_MAX),
+      rect: value.rect ?? NO_DETAIL.rect,
+    };
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+/** A picked ref → everything the prompt carries about it, minus the url/title only main can vouch
+ *  for. AX identity comes from `describeElement` — the same read the permission cards use, so a
+ *  picked element and an acted-on element are named the same way. */
+export async function describePick(send: CdpSend, backendNodeId: number): Promise<Omit<BrowserPickedElement, "url" | "title">> {
+  const [identity, detail] = await Promise.all([
+    describeElement(send, backendNodeId),
+    pickDetail(send, backendNodeId).catch(() => NO_DETAIL),
+  ]);
+  return {
+    ref: backendNodeId,
+    tag: identity.tag,
+    role: identity.role,
+    name: clip(identity.name, PICK_NAME_MAX),
+    ...detail,
+  };
 }

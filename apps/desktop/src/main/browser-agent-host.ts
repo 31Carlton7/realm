@@ -5,8 +5,8 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, type BrowserReadKind } from "@realm/contracts";
-import { buildSnapshot, highlightTargetRef, performAct, performFillCredential, readPageText, showActionHighlight, type CdpSend, type SnapshotIndex } from "./browser-agent";
+import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { armElementPick, buildSnapshot, describeElement, describePick, disarmElementPick, highlightTargetRef, performAct, performFillCredential, readPageText, showActionHighlight, type CdpSend, type SnapshotIndex } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 
 /** The thin CDP surface browser-pane.ts implements over `webContents.debugger`. `onEvent`'s
@@ -74,6 +74,10 @@ type Attached = {
   network: Map<string, { method: string; url: string; status?: number; mimeType?: string; failed?: string }>;
   networkOrder: string[];
   lastSnapshot: SnapshotIndex | null;
+  /** Resolver for the pick currently armed on this view, if any — see `pickElement`. */
+  pick: ((ref: number | null) => void) | null;
+  /** Bumped by every `pickElement`, so a superseded call can tell it no longer owns inspect mode. */
+  pickGen: number;
 };
 
 export class BrowserAgentHost {
@@ -91,7 +95,57 @@ export class BrowserAgentHost {
   /** The pane's view is gone — drop its attachment and buffers. Snapshot indexes die with the view:
    *  a fresh view is a fresh page, and stale [new] markers would lie about it. */
   release(browserId: string): void {
+    // A pick armed on a view that just died resolves EMPTY rather than hanging: the renderer awaits
+    // this promise to un-arm its button, and a pane closed mid-pick would otherwise leave the button
+    // lit for a view that no longer exists.
+    this.attached.get(browserId)?.pick?.(null);
     this.attached.delete(browserId);
+  }
+
+  /**
+   * Arm the element picker on this view and resolve with what the USER clicked — or null if they
+   * cancelled, the page navigated out from under them, or the pane closed first.
+   *
+   * Deliberately NOT a `handleOp` case, and so deliberately not on `BROWSER_HOST_OPS`: every op on
+   * that bridge is something an agent asked realm-server for, and this is the opposite direction —
+   * a human pointing at something on their own screen. Routing it through the agent bridge would
+   * have put "take over the user's cursor and consume their next click" one allowlist entry away
+   * from a tool call. It reaches main over the pane's plain IPC instead, the same channel (and for
+   * the same reason) as `saveDownload`: a call arriving there is consent the page cannot forge.
+   *
+   * One pick at a time per view — re-arming settles the previous one empty, so a double-press of the
+   * toolbar button leaves exactly one live promise rather than two racing for the same click.
+   */
+  async pickElement(browserId: string): Promise<BrowserPickedElement | null> {
+    if (!this.d.hasView(browserId)) return null;
+    const entry = this.ensure(browserId);
+    const gen = ++entry.pickGen;
+    entry.pick?.(null);
+    const ref = await new Promise<number | null>((resolve) => {
+      entry.pick = resolve;
+      void armElementPick(entry.binding.send).catch(() => this.settlePick(entry, null));
+    });
+    // A later `pickElement` has taken the view over — it owns inspect mode now, and disarming from
+    // here would switch off the picker the user has just re-armed.
+    if (entry.pickGen !== gen) return null;
+    await disarmElementPick(entry.binding.send);
+    if (ref === null) return null;
+    const state = this.d.pageState(browserId);
+    const picked = await describePick(entry.binding.send, ref).catch(() => null);
+    if (!picked) return null;
+    // url/title come from the webContents, never from the page — they are the only fields of a picked
+    // element a prompt can rely on, and the reason the rest can be quoted as untrusted data.
+    return { ...picked, url: state?.url ?? "", title: state?.title ?? "" };
+  }
+
+  /** Take the picker down without a pick. The armed promise resolves null and the caller un-arms. */
+  cancelPick(browserId: string): void {
+    const entry = this.attached.get(browserId);
+    if (!entry) return;
+    const resolve = entry.pick;
+    entry.pick = null;
+    resolve?.(null);
+    void disarmElementPick(entry.binding.send);
   }
 
   /** One bridge op. Throws with an agent-readable message on failure; the bridge relays it. */
@@ -242,7 +296,7 @@ export class BrowserAgentHost {
     if (!this.d.hasView(browserId)) throw new Error(`browser ${browserId}'s pane is not open in the app — the user must open (or reopen) the browser pane before tools can drive it`);
     const binding = this.d.attach(browserId);
     if (!binding) throw new Error(`could not attach the debugger to browser ${browserId}`);
-    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], lastSnapshot: null };
+    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], lastSnapshot: null, pick: null, pickGen: 0 };
     binding.onEvent((method, rawParams) => this.onCdpEvent(entry, method, rawParams));
     this.attached.set(browserId, entry);
     // Enable the event domains the buffers feed on. Fire-and-forget: an enable that fails costs a
@@ -279,28 +333,27 @@ export class BrowserAgentHost {
     } else if (method === "Network.loadingFailed") {
       const row = entry.network.get(String(p.requestId ?? ""));
       if (row) row.failed = String(p.errorText ?? "failed");
+    } else if (method === "Overlay.inspectNodeRequested") {
+      // The user clicked. Chrome hands over a backendNodeId and nothing else — the same kind of ref
+      // every act takes — and does NOT leave inspect mode on its own; `pickElement` disarms.
+      const ref = Number((p as { backendNodeId?: unknown }).backendNodeId);
+      this.settlePick(entry, Number.isInteger(ref) && ref > 0 ? ref : null);
+    } else if (method === "Page.frameNavigated" && (p.frame as { parentId?: string } | undefined)?.parentId === undefined) {
+      // A main-frame navigation resets the overlay agent, so an armed picker silently stops picking.
+      // Settling it empty is what keeps the toolbar button from staying lit over a page it can no
+      // longer pick from; the user presses it again on the new page.
+      this.settlePick(entry, null);
     }
   }
 
   private describeElement(browserId: string, ref: number): Promise<BrowserDescribeResult["element"]> {
-    const entry = this.ensure(browserId);
-    return (async () => {
-      const { node } = (await entry.binding.send("DOM.describeNode", { backendNodeId: ref })) as { node?: { nodeName?: string; attributes?: string[] } };
-      const attrs: Record<string, string> = {};
-      const flat = node?.attributes ?? [];
-      for (let i = 0; i + 1 < flat.length; i += 2) attrs[flat[i]!.toLowerCase()] = flat[i + 1]!;
-      let role = "";
-      let name = "";
-      const ax = (await entry.binding.send("Accessibility.getPartialAXTree", { backendNodeId: ref, fetchRelatives: false }).catch(() => null)) as { nodes?: { role?: { value?: unknown }; name?: { value?: unknown } }[] } | null;
-      const axNode = ax?.nodes?.[0];
-      if (axNode) { role = String(axNode.role?.value ?? ""); name = String(axNode.name?.value ?? ""); }
-      return {
-        role: role || (node?.nodeName ?? "").toLowerCase(),
-        name: name || attrs["aria-label"] || attrs.placeholder || attrs.title || "",
-        tag: (node?.nodeName ?? "").toLowerCase(),
-        inputType: attrs.type ?? null,
-      };
-    })();
+    return describeElement(this.ensure(browserId).binding.send, ref);
+  }
+
+  private settlePick(entry: Attached, ref: number | null): void {
+    const resolve = entry.pick;
+    entry.pick = null;
+    resolve?.(ref);
   }
 
   private formatNetwork(entry: Attached): string {

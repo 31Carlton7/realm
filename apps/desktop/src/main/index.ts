@@ -196,6 +196,15 @@ ipcMain.handle("browser:set-allowlist", (_e, id: string, allowlist: string[] | n
 ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { browserHost?.setBounds(id, rect, dpr, visible); });
 
 /**
+ * The user's element picker. `browser:pick-element` does not resolve until the user clicks something
+ * in the view (or the pick is cancelled), so it is the one browser invoke that is expected to stay
+ * pending for as long as a person takes to aim. Kept off the agent bridge on purpose — see
+ * `BrowserAgentHost.pickElement`.
+ */
+ipcMain.handle("browser:pick-element", (_e, id: string) => agentHost?.pickElement(String(id)) ?? null);
+ipcMain.handle("browser:cancel-pick", (_e, id: string) => { agentHost?.cancelPick(String(id)); });
+
+/**
  * The secret store, built on first use. Null only before realm-server has announced its home.
  *
  * Note what this does NOT branch on: `safeStorage.isEncryptionAvailable()`. The store checks that

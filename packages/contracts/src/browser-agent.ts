@@ -313,3 +313,46 @@ export function downloadExtensionAllowed(filename: string): boolean {
   if (dot <= 0 || dot === base.length - 1) return false;
   return (DOWNLOAD_ALLOWED_EXTENSIONS as readonly string[]).includes(base.slice(dot + 1));
 }
+
+/* ------------------------------------ element picking ------------------------------------ */
+
+/**
+ * One element the USER picked out of a browser pane, on its way into a prompt.
+ *
+ * Everything below `rect` is PAGE-AUTHORED. A page chooses its own ids, classes and text, and the
+ * selector is computed by script evaluated in the page's own world — where the page could have
+ * replaced `querySelectorAll` or `Element.prototype.cloneNode` and lied about the answer. The clamps
+ * are the only reason a hostile page cannot make a picked element arbitrarily large; they are not a
+ * reason to believe it, and nothing downstream may read these fields as instructions.
+ *
+ * `url` and `title` are the exception: main fills them from `webContents`, which the page cannot
+ * author, so they are the one trustworthy statement of *where* the element was picked.
+ *
+ * `ref` is a CDP backendNodeId like every other ref here, and carries the same caveat: it names the
+ * node for as long as the node lives, and a reload invalidates it. It travels so that a follow-up
+ * `browser_act` can address the element the user pointed at without re-snapshotting.
+ */
+export type BrowserPickedElement = {
+  ref: number;
+  url: string;
+  title: string;
+  rect: { x: number; y: number; w: number; h: number };
+  /** CSS path that resolved to exactly this node when it was picked, verified unique in the page. */
+  selector: string;
+  tag: string;
+  role: string;
+  /** Accessible name, or the first attribute that stands in for one — may be empty. */
+  name: string;
+  /** Collapsed `innerText`. */
+  text: string;
+  /** `outerHTML`, truncated rather than elided so what is shown is exactly what is there. */
+  html: string;
+};
+
+/** Clamps for the page-authored halves of a `BrowserPickedElement`. A picked element is headed for a
+ *  prompt, where every character is paid for twice — once in the composer's width and once in the
+ *  agent's context — so the markup budget is a paragraph, not a document. */
+export const PICK_SELECTOR_MAX = 200;
+export const PICK_NAME_MAX = 120;
+export const PICK_TEXT_MAX = 240;
+export const PICK_HTML_MAX = 1200;

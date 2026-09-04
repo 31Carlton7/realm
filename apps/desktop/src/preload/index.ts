@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, MediaFile } from "@realm/contracts";
+import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile } from "@realm/contracts";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
@@ -135,6 +135,13 @@ contextBridge.exposeInMainWorld("realm", {
      * arriving here is consent the page could not have forged. `dir` comes from the server
      * (`browsers.downloadDir`), never from the page and never composed here.
      */
+    /**
+     * Arm the element picker and resolve with what the user clicked, or null if they cancelled, the
+     * page navigated, or the pane closed. This promise stays pending for as long as the user takes
+     * to aim — every other member here settles immediately.
+     */
+    pickElement: (id: string): Promise<BrowserPickedElement | null> => ipcRenderer.invoke("browser:pick-element", id),
+    cancelPick: (id: string): Promise<void> => ipcRenderer.invoke("browser:cancel-pick", id),
     blockedDownloads: (id: string): Promise<BlockedDownload[]> => ipcRenderer.invoke("browser:blocked-downloads", id),
     saveDownload: (id: string, blockedId: string, dir: string): Promise<BrowserDownloadResult> =>
       ipcRenderer.invoke("browser:save-download", id, blockedId, dir),
