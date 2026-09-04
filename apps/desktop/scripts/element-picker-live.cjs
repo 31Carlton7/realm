@@ -35,6 +35,9 @@ const ok = (label, cond, detail = "") => {
   if (!cond) failures += 1;
 };
 const log = (line) => console.log(`[live] ${line}`);
+/** Every exit path removes the scratch dir, including the timeout — a run that hung is exactly the
+ *  run nobody comes back to clean up after. */
+const cleanup = () => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function esbuild() {
@@ -159,7 +162,7 @@ async function main() {
 }
 
 app.whenReady().then(async () => {
-  const bail = setTimeout(() => { console.error("[live] TIMEOUT"); process.exit(2); }, OVERALL_TIMEOUT_MS);
+  const bail = setTimeout(() => { console.error("[live] TIMEOUT"); cleanup(); process.exit(2); }, OVERALL_TIMEOUT_MS);
   try {
     await main();
   } catch (e) {
@@ -170,6 +173,6 @@ app.whenReady().then(async () => {
   log("results:");
   for (const r of results) console.log(r);
   log(failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`);
-  try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ }
+  cleanup();
   process.exit(failures === 0 ? 0 : 1);
 });
