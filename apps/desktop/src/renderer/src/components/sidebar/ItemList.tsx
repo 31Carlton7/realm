@@ -7,50 +7,44 @@ import { useItemContextMenu } from "./ItemContextMenu";
 
 const STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
 
-/** Depth-first leaves of a layout (including empty ones) — used only as a fallback when deriving the
- *  glyph's approximate quadrant on deep/irregular trees. */
-function leavesOf(l: Layout): Layout[] {
-  return l.type === "leaf" ? [l] : l.children.flatMap(leavesOf);
-}
+/** Past four the bars fall under a device pixel at the glyph's 12px and it reads as a smudge rather
+ *  than as slots. gridPreset's widest split is three, so nothing reachable is turned away today. */
+const MAX_GLYPH_SLOTS = 4;
 
 /**
- * A glanceable "which pane is this in" hint for the sidebar's 2x2 glyph — deliberately approximate, not a
- * faithful map of the layout. For the common case (the layout root is a two-way split), returns which side
- * of that split holds the item: 0 for the first child's subtree, 1 for the second. The caller pairs this
- * with the split's direction to light a whole column (row split) or row (col split) of the glyph.
- * For anything else — a single leaf (no split at all), or a root with more than two children — falls back
- * to the item's position in depth-first leaf order, modulo 4, so every layout still gets *some* cell lit.
- * Returns null only when there's no split at all, or the item isn't open anywhere in the tree.
+ * How many slots the layout's top-level split has, which one holds this item, and which way the
+ * split runs — the three facts the sidebar's glyph draws.
+ *
+ * Only the TOP level is read, and that is the design rather than a shortcut: the glyph is 12px wide,
+ * a nested tree drawn into it is mush, and "which half am I in" is the question a row in a split is
+ * actually asked. So a two-way root answers by which child's SUBTREE holds the item, never by
+ * depth-first leaf order — an item three levels down the first child is still in the first half.
+ *
+ * Returns null whenever there is nothing it can say truthfully: no split at all, the item is not
+ * open in this tree, or the root has more slots than the glyph can draw. What used to fill that gap
+ * was depth-first leaf index modulo 4, which was not an approximation but a wrong answer — under a
+ * three-column layout (gridPreset makes them, and the command palette offers them) a pane at the far
+ * right of a single row lit the bottom-left quadrant of a grid that had no bottom row. The glyph is
+ * read by someone who cannot otherwise tell two rows apart, so pointing them at the wrong pane costs
+ * more than saying nothing.
  */
-export function leafPositionOf(layout: Layout, itemId: string): 0 | 1 | 2 | 3 | null {
-  if (layout.type === "leaf") return null;
-  if (layout.children.length === 2) {
-    const idx = layout.children.findIndex((c) => allItems(c).includes(itemId));
-    if (idx === 0 || idx === 1) return idx;
-  }
-  const leaves = leavesOf(layout);
-  const idx = leaves.findIndex((l) => l.type === "leaf" && l.itemId === itemId);
-  return idx === -1 ? null : ((idx % 4) as 0 | 1 | 2 | 3);
+export function paneSlotOf(layout: Layout, itemId: string): { index: number; count: number; dir: "row" | "col" } | null {
+  if (layout.type !== "split") return null;
+  const count = layout.children.length;
+  if (count < 2 || count > MAX_GLYPH_SLOTS) return null;
+  const index = layout.children.findIndex((c) => allItems(c).includes(itemId));
+  return index === -1 ? null : { index, count, dir: layout.dir };
 }
 
-/** Which of the glyph's 4 cells (row-major: 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right) get
- *  data-on, given leafPositionOf's resolved position and the layout's shape. A two-way split root lights a
- *  whole column (row split) or row (col split); anything else lights just the single resolved cell. */
-function glyphCellsOn(layout: Layout, pos: 0 | 1 | 2 | 3): number[] {
-  if (layout.type === "split" && layout.children.length === 2) {
-    if (layout.dir === "row") return pos === 0 ? [0, 2] : [1, 3];
-    return pos === 0 ? [0, 1] : [2, 3];
-  }
-  return [pos];
-}
-
+/** One bar per slot of the top-level split, laid out along that split's own axis, with this item's
+ *  slot lit. The bar count and direction come from the layout, so the mark is a small picture of the
+ *  arrangement rather than a fixed grid the arrangement has to be squeezed into. */
 export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
-  const pos = leafPositionOf(layout, itemId);
-  if (pos === null) return null;
-  const on = new Set(glyphCellsOn(layout, pos));
+  const slot = paneSlotOf(layout, itemId);
+  if (!slot) return null;
   return (
-    <span className="item-glyph" aria-hidden="true">
-      {[0, 1, 2, 3].map((i) => <span key={i} data-on={on.has(i) || undefined} />)}
+    <span className="item-glyph" data-dir={slot.dir} aria-hidden="true">
+      {Array.from({ length: slot.count }, (_, i) => <span key={i} data-on={i === slot.index || undefined} />)}
     </span>
   );
 }

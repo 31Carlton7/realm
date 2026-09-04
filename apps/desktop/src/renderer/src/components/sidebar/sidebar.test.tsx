@@ -6,7 +6,7 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { leafPositionOf } from "./ItemList";
+import { paneSlotOf } from "./ItemList";
 
 /** The five rungs of Icon.tsx's ladder — card, tile, row, control, inline. */
 const RUNGS = new Set([20, 18, 16, 14, 12]);
@@ -450,7 +450,7 @@ describe("Arc sidebar", () => {
     expect(l.type === "leaf" && l.itemId).not.toBe("i1");
   });
 
-  it("during a row split, OPEN rows render the quadrant glyph lighting the correct column", async () => {
+  it("during a row split, OPEN rows draw one bar per slot along the split's axis, lighting their own", async () => {
     const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
       { type: "leaf", id: "L1", itemId: "i1" },
       { type: "leaf", id: "L2", itemId: "i2" },
@@ -460,11 +460,15 @@ describe("Arc sidebar", () => {
       items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
     });
     await mount(api);
-    expect(onCells(glyphOf("Alpha"))).toEqual([0, 2]); // left child -> left column
-    expect(onCells(glyphOf("Beta"))).toEqual([1, 3]); // right child -> right column
+    // Two slots, two bars — not four cells with a column lit. The glyph draws the split it is
+    // describing, so the bar count is the pane count and `data-dir` is the axis CSS lays them along.
+    expect(glyphOf("Alpha")).toHaveAttribute("data-dir", "row");
+    expect(glyphOf("Alpha").querySelectorAll("span")).toHaveLength(2);
+    expect(onCells(glyphOf("Alpha"))).toEqual([0]);
+    expect(onCells(glyphOf("Beta"))).toEqual([1]);
   });
 
-  it("during a col split, OPEN rows render the quadrant glyph lighting the correct row", async () => {
+  it("during a col split, the same bars run down instead of across", async () => {
     const layout: Layout = { type: "split", id: "root", dir: "col", sizes: [50, 50], children: [
       { type: "leaf", id: "L1", itemId: "i1" },
       { type: "leaf", id: "L2", itemId: "i2" },
@@ -474,8 +478,26 @@ describe("Arc sidebar", () => {
       items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
     });
     await mount(api);
-    expect(onCells(glyphOf("Alpha"))).toEqual([0, 1]); // top child -> top row
-    expect(onCells(glyphOf("Beta"))).toEqual([2, 3]); // bottom child -> bottom row
+    expect(glyphOf("Alpha")).toHaveAttribute("data-dir", "col");
+    expect(onCells(glyphOf("Alpha"))).toEqual([0]);
+    expect(onCells(glyphOf("Beta"))).toEqual([1]);
+  });
+
+  it("a three-column layout gets three bars — the case the old 2x2 could only answer wrongly", async () => {
+    // gridPreset("three-col") builds exactly this, and the command palette offers it. The old glyph
+    // had no third column to light, so it lit the bottom-left quadrant of a grid with no bottom row.
+    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [34, 33, 33], children: [
+      { type: "leaf", id: "L1", itemId: "i1" },
+      { type: "leaf", id: "L2", itemId: "i2" },
+      { type: "leaf", id: "L3", itemId: "i3" },
+    ] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" }), item("i3", "s1", { title: "Gamma" })] },
+    });
+    await mount(api);
+    expect(glyphOf("Gamma").querySelectorAll("span")).toHaveLength(3);
+    expect(onCells(glyphOf("Gamma"))).toEqual([2]);
   });
 
   it("in a split, data-active marks only the focused leaf's row, not every open row; clicking the other OPEN row moves the highlight", async () => {
@@ -556,45 +578,46 @@ function onCells(glyph: Element): number[] {
     .filter((x): x is number => x !== null);
 }
 
-describe("leafPositionOf", () => {
+describe("paneSlotOf", () => {
   const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
   const split = (dir: "row" | "col", children: Layout[]): Layout =>
     ({ type: "split", id: "root", dir, sizes: children.map(() => 100 / children.length), children });
 
-  it("returns null for a single-leaf layout (no split at all)", () => {
-    expect(leafPositionOf(leaf("L1", "i1"), "i1")).toBeNull();
+  it("returns null for a single-leaf layout — there is no split to describe", () => {
+    expect(paneSlotOf(leaf("L1", "i1"), "i1")).toBeNull();
   });
 
   it("returns null when the item isn't open anywhere in the tree", () => {
-    expect(leafPositionOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "i3")).toBeNull();
+    expect(paneSlotOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "i3")).toBeNull();
   });
 
-  it("returns the child index (0/1) for a two-way split root", () => {
+  it("reports the slot, the slot count and the axis of the top-level split", () => {
     const l = split("row", [leaf("L1", "i1"), leaf("L2", "i2")]);
-    expect(leafPositionOf(l, "i1")).toBe(0);
-    expect(leafPositionOf(l, "i2")).toBe(1);
+    expect(paneSlotOf(l, "i1")).toEqual({ index: 0, count: 2, dir: "row" });
+    expect(paneSlotOf(l, "i2")).toEqual({ index: 1, count: 2, dir: "row" });
   });
 
-  it("falls back to depth-first leaf index modulo 4 for a root with more than two children", () => {
+  it("counts every slot of a three-way root, so the third pane is the third bar", () => {
+    // The behaviour this replaces: depth-first index modulo 4, which answered 2 here and drew that as
+    // the bottom-left of a 2x2 — a quadrant of a layout that has one row. The count travels with the
+    // index now, so the mark cannot claim a shape the layout does not have.
     const l = split("row", [leaf("L1", "i1"), leaf("L2", "i2"), leaf("L3", "i3")]);
-    expect(leafPositionOf(l, "i1")).toBe(0);
-    expect(leafPositionOf(l, "i2")).toBe(1);
-    expect(leafPositionOf(l, "i3")).toBe(2);
+    expect(paneSlotOf(l, "i3")).toEqual({ index: 2, count: 3, dir: "row" });
   });
 
-  it("a >2-child root with a nested split still takes the DF fallback, not the two-way branch", () => {
-    // root has 3 children (not two-way), so the two-way branch never applies here even though one of
-    // those children is itself a two-way split. DF leaf order is a, b, c, d — "c" is index 2.
-    const l = split("row", [leaf("L1", "a"), split("col", [leaf("L2", "b"), leaf("L3", "c")]), leaf("L4", "d")]);
-    expect(leafPositionOf(l, "c")).toBe(2);
+  it("says nothing at all once the root has more slots than the glyph can draw", () => {
+    // Five 2px bars inside 12px is a smudge, and a smudge that looks like a reading is worse than a
+    // row with no mark on it. Nothing gridPreset builds reaches this, but a future preset could.
+    const l = split("row", Array.from({ length: 5 }, (_, i) => leaf(`L${i}`, `i${i}`)));
+    expect(paneSlotOf(l, "i0")).toBeNull();
   });
 
-  it("a two-way root resolves by which top-level child's subtree holds the item, not DF order (the documented contract)", () => {
-    // The root IS two-way, so the two-way branch applies: "b" lives inside child 0's subtree -> 0.
-    // A DF-fallback implementation would instead see leaves [a, b, d] and answer 1 for "b" — wrong.
+  it("resolves by which top-level child's SUBTREE holds the item, not by leaf order", () => {
+    // "b" lives three levels down the first child, and is still in the first half. A depth-first
+    // implementation would see leaves [a, b, d] and answer 1 for "b" — the wrong half.
     const inner = split("col", [leaf("L1", "a"), leaf("L2", "b")]);
     const l = split("row", [inner, leaf("L3", "d")]);
-    expect(leafPositionOf(l, "b")).toBe(0);
+    expect(paneSlotOf(l, "b")).toEqual({ index: 0, count: 2, dir: "row" });
   });
 });
 

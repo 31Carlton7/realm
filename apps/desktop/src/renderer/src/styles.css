@@ -203,11 +203,25 @@ kbd { font: 11px var(--font-mono); }
 .item[data-active] .item-row { color: var(--rl-text-bright); }
 .item-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px; font-weight: var(--fw-medium); color: var(--rl-text-dim); border-radius: var(--r-ctl); }
 .item:hover .item-row { color: var(--rl-text-bright); }
-.item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item-status { margin-left: auto; width: 6px; height: 6px; }
-.item-glyph { margin-left: auto; width: 10px; height: 10px; flex: none; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; opacity: .7; }
+/* One elastic column, and it is the title. The status dot and the glyph both used to carry
+   `margin-left: auto`, which splits the free space BETWEEN them: a session that was both running and
+   open parked its dot near the row's middle with the glyph jammed against it, and no two rows agreed
+   where either mark sat. The page rows had the same bug and this is the same fix — the title grows,
+   and nothing after it may claim free space. */
+.item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-row > svg { flex: none; } /* …and the leading kind glyph is not a shrinkable column either */
+.item-status { width: 6px; height: 6px; }
+/* A small picture of the layout's top-level split with this row's pane lit: one bar per slot, laid
+   out along the split's own axis. Not a fixed 2x2 — that could only draw halves and quarters, so a
+   three-column layout had no truthful cell to light and lit a wrong one instead. Bars also buy back
+   width: two slots are 5.5px across here against 4.5px in the old grid, at 12px instead of 10px.
+   No blanket opacity: the contrast between a lit bar and an unlit one IS the message, and dimming
+   the whole mark flattened precisely that. */
+.item-glyph { width: 12px; height: 12px; flex: none; display: grid; gap: 1px; }
+.item-glyph[data-dir="row"] { grid-auto-flow: column; grid-auto-columns: 1fr; }
+.item-glyph[data-dir="col"] { grid-auto-flow: row; grid-auto-rows: 1fr; }
 .item-glyph span { background: var(--rl-line-strong); border-radius: 1px; }
-/* Glyph cells are neutral; the focused pane's row lifts them to ink (accent = ink now, V-C1 kept). */
+/* Glyph bars are neutral; the focused pane's row lifts them to ink (accent = ink now, V-C1 kept). */
 .item-glyph span[data-on] { background: var(--rl-text-dim); }
 .item[data-active] .item-glyph span[data-on] { background: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
 .item-close, .item-shelf { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
