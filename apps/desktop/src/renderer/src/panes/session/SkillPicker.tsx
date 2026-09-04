@@ -90,7 +90,7 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
   const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const pos = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
+  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
 
   const shown = useMemo(() => filterSkills(skills, query), [skills, query]);
   const groups = useMemo(() => groupSkills(shown), [shown]);

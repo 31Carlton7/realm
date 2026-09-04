@@ -14,6 +14,11 @@ const RUNGS = new Set([20, 18, 16, 14, 12]);
    under jsdom) never comes into it. */
 const SIDEBAR_SOURCES = import.meta.glob("./*.tsx", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 
+/** §6's popover exit keeps a dismissed menu or picker mounted for `--dur-press` and tells its parent
+ *  at the end of it, so anything that closes one and then opens (or asserts the absence of) another
+ *  has to let the first one leave. */
+const exited = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+
 async function mount(api = fakeApi()) {
   const store = createAppStore(api); await store.getState().boot();
   const r = render(<StoreContext.Provider value={store}><Sidebar /></StoreContext.Provider>);
@@ -151,6 +156,7 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /Terminal/ })).toHaveAttribute("data-tile", "true"));
     expect(store.getState().items[0]?.pinned).toBe(true);
     // i1 is unopened (default layout is null), so Close should not even be offered here.
+    await exited();
     fireEvent.contextMenu(screen.getByRole("button", { name: /Terminal/ }));
     expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
@@ -839,11 +845,13 @@ describe("archiving a session", () => {
     fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
     expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
+    await exited();
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
     await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(true));
     expand();
+    await exited();
     fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
     expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Unarchive" }));

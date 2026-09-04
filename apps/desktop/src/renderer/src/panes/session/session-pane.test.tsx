@@ -36,6 +36,11 @@ async function mountKind(agentKind: "codex" | "acp:cursor") {
 /** Opens the prompter's combined model picker (agent + model in one popover). */
 const openPicker = () => fireEvent.click(screen.getByRole("button", { name: "Model" }));
 
+/** §6's popover exit keeps a dismissed menu or picker mounted for `--dur-press` and tells its parent
+ *  at the end of it, so anything that closes one and then opens (or asserts the absence of) another
+ *  has to let the first one leave. */
+const exited = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+
 describe("SessionPane", () => {
   it("renders transcript blocks, shows permission card, and sends composer text", async () => {
     const { api } = await mount();
@@ -173,6 +178,7 @@ describe("SessionPane", () => {
     expect(chip).not.toHaveAttribute("data-warning");
     // Plan is no longer one of these: it is its own axis, on its own chip.
     expect(screen.queryByRole("menuitemcheckbox", { name: "Plan" })).toBeNull();
+    await exited();
     fireEvent.click(chip);
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Full access" }));
     fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
@@ -249,6 +255,7 @@ describe("SessionPane", () => {
     await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("high"));
     expect(store.getState().sessions.se1?.model).toBeNull(); // the effort edit set effort, not model
     expect(store.getState().sessions.se1?.permissionMode).toBe("default"); // …and not permission either
+    await exited();
     expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull(); // picking closes the picker
     expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("High"); // the suffix wears it
   });
@@ -681,6 +688,7 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
       const perms = screen.getByRole("group", { name: "Permissions" });
       fireEvent.click(within(perms).getByRole("button", { name: "Accept edits" }));
       await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
+      await exited();
       expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull(); // picking closes the menu
     });
 
@@ -881,7 +889,8 @@ async function mountKindFresh(agentKind: "codex" | "acp:cursor") {
 describe("prompter mode chip (Build / Plan)", () => {
   const modeChip = () => screen.getByRole("button", { name: "Mode" });
   const permissionChip = () => screen.queryByRole("button", { name: "Permission mode" });
-  const setMode = (label: "Build" | "Plan") => {
+  const setMode = async (label: "Build" | "Plan") => {
+    await exited();
     fireEvent.click(modeChip());
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: label }));
   };
@@ -889,7 +898,7 @@ describe("prompter mode chip (Build / Plan)", () => {
   it("starts on Build and moves the session onto the plan permission mode", async () => {
     const { store } = await mountFresh();
     expect(modeChip()).toHaveTextContent("Build");
-    setMode("Plan");
+    await setMode("Plan");
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
     expect(modeChip()).toHaveTextContent("Plan");
   });
@@ -899,9 +908,9 @@ describe("prompter mode chip (Build / Plan)", () => {
     // would otherwise silently demote Full access to Ask.
     const { store } = await mountFresh({ permissionMode: "bypassPermissions" });
     expect(permissionChip()).toHaveTextContent("Full access");
-    setMode("Plan");
+    await setMode("Plan");
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
-    setMode("Build");
+    await setMode("Build");
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
     expect(permissionChip()).toHaveTextContent("Full access");
     expect(store.getState().planReturn.se1).toBeUndefined(); // the park is spent, not left behind
@@ -909,17 +918,17 @@ describe("prompter mode chip (Build / Plan)", () => {
 
   it("survives a pane remount — the parked mode lives in the store, not the component", async () => {
     const { store, unmount } = await mountFresh({ permissionMode: "acceptEdits" });
-    setMode("Plan");
+    await setMode("Plan");
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
     unmount();
     render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" })} visible /></StoreContext.Provider>);
-    setMode("Build");
+    await setMode("Build");
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
   });
 
   it("names what Build will restore while in Plan, and stops offering a picker that would do nothing", async () => {
     const { store } = await mountFresh({ permissionMode: "acceptEdits" });
-    setMode("Plan");
+    await setMode("Plan");
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
     // Plan is read-only regardless of permission mode, so the control is a label, not a menu.
     expect(permissionChip()).toBeNull();
@@ -1056,6 +1065,7 @@ describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
     expect(store.getState().planReturn.se1).toBeUndefined(); // no park for an agent with no permission axis
     expect(screen.getByRole("button", { name: "Mode" })).toHaveTextContent("Plan");
+    await exited();
     fireEvent.click(screen.getByRole("button", { name: "Mode" }));
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Build" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("default"));
@@ -1280,6 +1290,7 @@ describe("prompter model picker", () => {
       openPicker();
       fireEvent.click(screen.getByRole("option", { name: /gpt-5.3-codex/ }));
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("gpt-5.3-codex[reasoning=medium,fast=false]"));
+      await exited();
       openPicker();
       // "Auto" is a REAL id in Cursor's catalog (set_model accepts `default[]`, rejects `auto`):
       // picking it transmits that id — it is never rewritten to null or to a literal "auto".

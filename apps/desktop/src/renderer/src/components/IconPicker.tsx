@@ -49,7 +49,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
   onClose: () => void; onPick: (icon: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const pos = useAnchoredPopover({ ref, anchorRef, onClose });
+  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, onClose, exit: true });
   const [tab, setTab] = useState<Tab>("default");
   const [query, setQuery] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -89,7 +89,8 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
   return createPortal(
     <div ref={ref} className="icon-picker" role="dialog" aria-label="Choose an icon"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
-        visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top left" }}>
+        visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top left" }}
+      data-closing={closing || undefined} inert={closing}>
       <div className="ip-tabs" role="tablist" aria-label="Icon source">
         {TABS.map((t) => (
           <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className="ip-tab"

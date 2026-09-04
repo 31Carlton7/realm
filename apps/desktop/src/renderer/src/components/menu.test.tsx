@@ -13,6 +13,10 @@ function mount(items: MenuItem[], over: Partial<Parameters<typeof Menu>[0]> = {}
 
 const plain = (label: string, onSelect = () => {}): MenuItem => ({ label, onSelect });
 
+/** §6's popover exit keeps a dismissed menu in the DOM for `--dur-press` and tells its parent at the
+ *  end of it, so anything asserting on the menu being GONE has to let that run. */
+const exited = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+
 describe("Menu placement", () => {
   const rect = (top: number, height: number, left = 100, width = 50) =>
     ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
@@ -183,6 +187,97 @@ describe("Menu dismissal by its own trigger (I6)", () => {
     await armed();
     expect(screen.getByRole("menu")).toBeInTheDocument();
     fireEvent.pointerDown(document.body);
+    // The exit holds it for a beat, so "closed" is asserted on the mark rather than on absence…
+    expect(screen.getByRole("menu")).toHaveAttribute("data-closing");
+    await exited();
+    expect(screen.queryByRole("menu")).toBeNull(); // …and then it is really gone
+  });
+});
+
+/** §6's popover exit. React unmounts a `{open && <Menu/>}` child the instant its parent says so, so
+ *  the surface holds ITSELF for the length of the animation and tells the parent afterwards. The
+ *  failure mode is a leaked popover — invisible in a screenshot, fatal to the app behind it — so
+ *  everything here is about the surface really going away, and about it being harmless while it
+ *  has not. */
+describe("popover exit (§6)", () => {
+  afterEach(() => vi.restoreAllMocks());
+  function Harness({ onClose }: { onClose?: () => void } = {}) {
+    const btn = useRef<HTMLButtonElement>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button ref={btn} onClick={() => setOpen((v) => !v)}>Trigger</button>
+        {open && <Menu items={[plain("A")]} onClose={() => { setOpen(false); onClose?.(); }} anchorRef={btn} label="Exit menu" />}
+      </>
+    );
+  }
+  /** Opened the way a pointer opens it, because the hook captures its focus-restore target at mount:
+   *  a menu that was already open on the first render has nowhere to hand focus back to. */
+  /** The hook arms its outside-pointerdown listener on a 0ms timeout, so the opening click cannot
+   *  immediately close what it opened. Nothing below reaches that listener until this has run. */
+  const listening = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  const open = async () => {
+    const trigger = screen.getByRole("button", { name: "Trigger" });
+    trigger.focus(); fireEvent.click(trigger);
+    await listening();
+    return trigger;
+  };
+  /** Select the focused item — the commonest way a menu closes. */
+  const select = () => fireEvent.keyDown(screen.getByRole("menu"), { key: "Enter" });
+
+  it("holds the menu for the exit, then removes it — and it is inert and pointer-dead in between", async () => {
+    render(<Harness />);
+    const trigger = await open();
+    select();
+    const menu = screen.getByRole("menu");
+    expect(menu).toHaveAttribute("data-closing");
+    // `inert` is what stops a fading menu from being tabbed into, read out, or clicked. Without it
+    // the exit would trade a visual nicety for a surface the app behind cannot get past.
+    expect(menu).toHaveAttribute("inert");
+    // Focus goes home with the gesture, not with the unmount: a keystroke landing on <body> for the
+    // length of the exit is exactly the "in the way" this must not be.
+    expect(trigger).toHaveFocus();
+    await exited();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("leaves nothing behind when it is opened and closed faster than the exit runs", async () => {
+    render(<Harness />);
+    const trigger = await open();
+    for (let i = 0; i < 6; i++) {
+      select();
+      // A real press is pointerdown then click: the first commits the exit that is still running,
+      // the second reopens. Two menus overlapping here — one fading, one arriving — is the leak.
+      fireEvent.pointerDown(trigger);
+      fireEvent.click(trigger);
+      expect(document.querySelectorAll(".menu")).toHaveLength(1);
+      await listening();
+    }
+    select();
+    await exited();
+    expect(document.querySelectorAll(".menu")).toHaveLength(0);
+  });
+
+  it("does not call onClose after the parent has already unmounted it mid-exit", async () => {
+    const onClose = vi.fn();
+    const { unmount } = render(<Harness onClose={onClose} />);
+    await open();
+    onClose.mockClear(); // the open itself does not close anything; only what follows counts
+    select();
+    unmount();
+    await exited();
+    // The armed timer has to die with the surface; firing it would drive a parent that has moved on.
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("under prefers-reduced-motion there is no exit to skip — the menu is gone the same tick", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((q) =>
+      ({ matches: q.includes("prefers-reduced-motion"), media: q, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
+    render(<Harness />);
+    await open();
+    select();
+    // Not "instant but still mounted": the global `animation: none` would leave a fully painted,
+    // inert menu sitting there for 120ms, which is the opposite of what the preference asks for.
     expect(screen.queryByRole("menu")).toBeNull();
   });
 });
@@ -210,12 +305,13 @@ describe("Menu keyboard (U-M10/A-H3)", () => {
     expect(screen.getByRole("menuitem", { name: "A" })).toHaveFocus();
   });
 
-  it("Enter and Space select the focused item and close the menu", () => {
+  it("Enter and Space select the focused item and close the menu", async () => {
     const picked: string[] = [];
     const { onClose } = mount([plain("A", () => picked.push("A")), plain("B", () => picked.push("B"))]);
     fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Enter" });
     expect(picked).toEqual(["B"]);
+    await exited(); // the parent is told once the exit has run, not on the keystroke
     expect(onClose).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowUp" });
     fireEvent.keyDown(screen.getByRole("menu"), { key: " " });

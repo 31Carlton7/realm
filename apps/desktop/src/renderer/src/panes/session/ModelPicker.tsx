@@ -94,8 +94,7 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
   overflow?: OverflowGroup[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => onClose(), [onClose]);
-  const pos = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose: close });
+  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose, exit: true });
   const [query, setQuery] = useState("");
   const [activeKey, setActiveKey] = useState<string | null>(null);
   /** The harness the user has chosen for a given row, when they have overridden the resolved one.
@@ -171,7 +170,7 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
     // model is `claude-fable-5-1` to the Claude CLI and `claude-fable-5-1` through Cursor's ACP only
     // by luck, and a foreign id is rejected on the wire.
     onPick(target, modelIdOn(row, target) ?? null);
-    onClose();
+    close();
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -199,7 +198,8 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
-        visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" }}>
+        visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" }}
+      data-closing={closing || undefined} inert={closing}>
       <div className="mp-search">
         <Icon name="search" size={14} />
         {/* Autofocused because the picker opens for typing — the same bargain the command palette
@@ -282,7 +282,7 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
         {activeRow && route && (
           <ModelDetail row={activeRow} route={route} info={info}
             onRoute={(h) => setRoutes({ ...routes, [activeRow.key]: h })}
-            onUse={() => pick(activeRow, route)} effortItems={effortItems} overflow={overflow} onClose={onClose} />
+            onUse={() => pick(activeRow, route)} effortItems={effortItems} overflow={overflow} onClose={close} />
         )}
       </div>
     </div>,

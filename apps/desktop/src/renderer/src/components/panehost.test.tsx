@@ -138,17 +138,24 @@ describe("PaneHost", () => {
     expect(panel("L2").querySelectorAll(".panel-actions .icon-btn")).toHaveLength(2); // ⋯ menu + ×
   });
 
-  it("⋯ menu: Split right/down call onSplit with the pane's own leaf and direction; Close calls onClose", () => {
+  it("⋯ menu: Split right/down call onSplit with the pane's own leaf and direction; Close calls onClose", async () => {
     const { props, unmount } = renderHost();
-    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
+    // A selected menu runs §6's exit before it tells the pane to unmount it, and a bare `click`
+    // carries no pointerdown to commit that early — so each round trip waits the exit out.
+    const exited = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+    const openMenu = () => fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
+    openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: /Split right/ }));
     expect(props.onSplit).toHaveBeenCalledExactlyOnceWith("L2", "row");
-    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
+    await exited();
+    openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: /Split down/ }));
     expect(props.onSplit).toHaveBeenLastCalledWith("L2", "col");
-    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
+    await exited();
+    openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: /Close/ }));
     expect(props.onClose).toHaveBeenCalledExactlyOnceWith("B");
+    await exited();
     unmount();
   });
 

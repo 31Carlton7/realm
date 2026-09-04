@@ -104,6 +104,32 @@ describe("§6 motion table", () => {
     expect(blockAfter("@keyframes rl-menu-in")).toContain("scale(.97)");
   });
 
+  it("popovers leave the way they arrived: the exit reverses the enter on the press rung, and holds nothing behind", () => {
+    for (const sel of [".menu[data-closing]", ".model-picker[data-closing]", ".icon-picker[data-closing]"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain(`animation: rl-menu-out ${dur("--dur-press")} var(--ease-out-strong) forwards`);
+      // A surface that is on its way out must not still be catching clicks. `inert` is the real
+      // guard (Menu.tsx sets it) — this is the half that holds for the frame before the attribute.
+      expect(body, sel).toContain("pointer-events: none");
+    }
+    // The exit is the enter played backwards, not a second idea about what a popover does.
+    expect(blockAfter("@keyframes rl-menu-out")).toContain("scale(.97)");
+    // No half-pairs. A surface that only animates while you are trying to get rid of it is worse
+    // than one that never animates, so an exit may only exist where the matching enter already does
+    // — which rules the @-mention typeahead and the skill picker out, both of which appear instantly.
+    const listOf = (decl: string) => RULES.filter((r) => r.body.includes(decl)).flatMap((r) => r.selectors);
+    const enters = new Set(listOf("rl-menu-in"));
+    for (const sel of listOf("rl-menu-out")) expect(enters, sel).toContain(sel.replace("[data-closing]", ""));
+  });
+
+  it("the DOM hold and the CSS exit are the same number", () => {
+    // `use-anchored-popover.ts` keeps a dismissed popover mounted on a timer; the stylesheet fades it
+    // on an animation. Nothing in either file can notice the two drifting apart — a short timer clips
+    // the fade, a long one parks a finished surface on screen — so they are pinned to each other here.
+    const hook = readFileSync(repoFile("apps/desktop/src/renderer/src/components/use-anchored-popover.ts"), "utf8");
+    expect(Number(hook.match(/const EXIT_MS = (\d+);/)?.[1])).toBe(LADDER["--dur-press"]);
+  });
+
   it("the model picker is a popover and enters on the same rule as menus, not one of its own", () => {
     // It shares `.menu`'s declaration rather than carrying a copy: §6 gives every popover one timing,
     // and a second animation here is how the prompter's picker drifts away from every other surface.

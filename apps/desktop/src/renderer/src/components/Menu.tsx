@@ -27,7 +27,7 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
   align?: "left" | "right"; placement?: "down" | "up"; label?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const pos = useAnchoredPopover({ ref, anchorRef, at, align, placement, onClose, returnFocusRef });
+  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, at, align, placement, onClose, returnFocusRef, exit: true });
 
   // Focus-in on open. The hook already captured the restore target at mount, so the roving focus
   // this moves into the menu never becomes the thing focus returns to.
@@ -56,15 +56,20 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
 
   const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
     visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top left" };
+  // `inert` is the whole safety story for the exit: for the beat the menu spends fading it is out of
+  // the tab order, out of the accessibility tree, and un-hit-testable, so the app behind it behaves
+  // as though the menu had already gone. The stylesheet takes its pointer events away as well, for
+  // the browsers that paint the fade before they honour the attribute.
   return createPortal(
-    <div ref={ref} role="menu" aria-label={label} className="menu" style={style} onKeyDown={onKeyDown}>
+    <div ref={ref} role="menu" aria-label={label} className="menu" style={style} onKeyDown={onKeyDown}
+      data-closing={closing || undefined} inert={closing}>
       {items.map((it, i) => it.kind === "separator"
         ? <div key={i} className="menu-sep" role="separator" />
         : (
           <button key={i} role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"}
             disabled={it.disabled} title={it.title} aria-checked={it.checked !== undefined ? it.checked : undefined}
             className={(it.checked ? "checked" : "") + (it.danger ? " danger" : "")}
-            onClick={() => { it.onSelect(); if (!it.keepOpen) onClose(); }}>
+            onClick={() => { it.onSelect(); if (!it.keepOpen) close(); }}>
             <span className="menu-label">{it.label}</span>
             {it.kbd && <kbd className="menu-kbd">{it.kbd}</kbd>}
             {it.checked && <Icon name="check" size={13} className="menu-check" />}

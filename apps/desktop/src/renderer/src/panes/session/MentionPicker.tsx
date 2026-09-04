@@ -57,7 +57,9 @@ export function MentionPicker({ skills, activeIndex, anchorRef, onPick, onHover,
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const pos = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
+  // No exit, because this one is driven by typing: it opens and closes between keystrokes, and a
+  // ghost of it trailing the caret while the sentence carries on is noise rather than motion.
+  const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
   const active = Math.min(activeIndex, skills.length - 1);
   return createPortal(
     <div ref={ref} id="mention-list" className="mention-picker" role="listbox" aria-label="Skills"
