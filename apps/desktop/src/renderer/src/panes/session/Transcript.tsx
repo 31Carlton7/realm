@@ -8,7 +8,7 @@ import { PermissionCard } from "./PermissionCard";
 import { PlanCard, PlanDecision, isPlanDecision } from "./PlanCard";
 import { QuestionCard, questionCardFor } from "./QuestionCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
-import { formatDuration, groupTranscript } from "./tool-group";
+import { formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, type Transcript as TranscriptModel } from "./transcript-model";
 import { runLabelFor } from "./run-label";
 import { useEnterTracker } from "./transcript-enter";
@@ -160,8 +160,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
             // The group container itself never animates in: when a run crosses the grouping
             // threshold the cards it swallows are already on screen, and wrapping them in a fresh
             // entrance would replay motion for items the reader has been watching.
-            return <ToolGroup key={it.key} sessionStatus={sessionStatus}
-              steps={it.steps.map((s) => ({ ...s, enter: isEntering(s.key) }))} />;
+            return <ToolGroup key={it.key} sessionStatus={sessionStatus} steps={withEnter(it.steps, isEntering)} />;
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
             case "user": return (
@@ -183,7 +182,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
-            case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} />;
+            case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter} />;
             case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
             // The shimmer the reader was watching, settled: same verb, past tense, with the wait it

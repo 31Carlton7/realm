@@ -3,7 +3,7 @@ import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
 import { clip, editStat, prettyJson, toolSummary } from "./tool-summary";
-import { formatDuration, formatToolRun, summarizeToolRun, type ToolBlock } from "./tool-group";
+import { formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
 import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
@@ -70,7 +70,13 @@ function Well({ label, text, error = false, rich = null }: { label: string; text
  *  landed compares equal on all three props and is skipped — a 300-call transcript stops re-deriving
  *  300 summaries and edit stats behind an assistant message that is still typing. `enter` is stable
  *  for a key's whole life (transcript-enter.ts), so memoizing cannot strand a card mid-animation. */
-export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = false }: { block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean }) {
+export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = false, nested }: {
+  block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean;
+  /** The calls a sub-agent made under this one (`groupTranscript`). Undefined on every card but a
+   *  Task/Agent one whose child actually did something — and undefined rather than `[]` so the
+   *  memo above still holds for the other 299 cards. */
+  nested?: readonly ToolStep[];
+}) {
   const [open, setOpen] = useState(false);
   const everOpened = useRef(false);
   everOpened.current ||= open;
@@ -116,6 +122,10 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
           happens, and a canvas the reader has to open a card to find would be a spinner with extra
           steps. It leaves of its own accord when the result lands. */}
       {work && <GeneratingCanvas kind={work.kind} label={work.label} detail={work.detail} aspect={work.aspect} />}
+      {/* The sub-agent's own ledger, hanging off the call that spawned it and ABOVE the expander:
+          what the child is doing is the thing worth seeing, and burying it under the raw input and
+          result wells would make it something the reader has to go looking for. */}
+      {nested && nested.length > 0 && <ToolGroup steps={nested} sessionStatus={sessionStatus} subagent />}
       {/* §6 expands the row by transitioning grid-template-rows 0fr→1fr, which only animates if the
           content is in the DOM on both sides of the flip. So the body is built on first open and
           stays built: collapsing animates too, and re-opening is instant. `inert` keeps the hidden
@@ -157,8 +167,11 @@ function useWorkedFor(working: boolean, firstTs: number, settledMs: number): str
  *  of sight is the one thing this treatment must not do — and a manual toggle then wins for good.
  *  The collapsed row reads `Worked for <duration> ›` (Ara refresh §4); the counts line the ledger
  *  still computes ("3 tools · 1 file · 2 commands") survives as the row's tooltip. */
-export function ToolGroup({ steps, sessionStatus }: {
-  steps: { key: string; block: ToolBlock; enter: boolean }[]; sessionStatus: SessionStatus;
+export function ToolGroup({ steps, sessionStatus, subagent = false }: {
+  steps: readonly ToolStep[]; sessionStatus: SessionStatus;
+  /** These steps are a sub-agent's, not a run of the agent's own calls. Sitting directly under a
+   *  Task row, an unqualified "Worked for 42s" would read as that Task's own elapsed time. */
+  subagent?: boolean;
 }) {
   const [manual, setManual] = useState<boolean | null>(null);
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
@@ -167,18 +180,18 @@ export function ToolGroup({ steps, sessionStatus }: {
   const summary = summarizeToolRun(steps.map((s) => s.block));
   const workedFor = useWorkedFor(working, steps[0]!.block.ts, summary.durationMs);
   return (
-    <div className="tool-group" data-open={open || undefined} data-working={working || undefined}>
+    <div className="tool-group" data-subagent={subagent || undefined} data-open={open || undefined} data-working={working || undefined}>
       {/* Plan 9 W2: the row wears ThinkingState's header treatment — while the run is live the label
           shimmers (BUI's working treatment); the label itself stays the kept Ara decision,
           `Worked for <duration>`, ticking live and freezing on settle. */}
-      <button className="tool-group-row" aria-expanded={open} aria-label={`${steps.length} tool calls`}
+      <button className="tool-group-row" aria-expanded={open} aria-label={`${steps.length} ${subagent ? "sub-agent " : ""}tool calls`}
         title={formatToolRun(summary)} onClick={() => setManual(!open)}>
-        <span className="tool-group-summary">Worked for {workedFor}</span>
+        <span className="tool-group-summary">{subagent ? "Sub-agent worked for" : "Worked for"} {workedFor}</span>
         <Icon name="chevronRight" size={12} className="tool-chevron" />
       </button>
       {open && (
         <div className="tool-group-steps">
-          {steps.map((s) => <ToolCard key={s.key} block={s.block} sessionStatus={sessionStatus} enter={s.enter} />)}
+          {steps.map((s) => <ToolCard key={s.key} block={s.block} sessionStatus={sessionStatus} enter={s.enter} nested={s.nested} />)}
         </div>
       )}
     </div>

@@ -1046,9 +1046,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Open, the row is the card's head rather than a free-standing control: it keeps the card's top
    corners and squares off against the body's divider. Rounding all four corners left the hover
    fill curving away from the hairline at both ends — two dark notches sitting on the divider. */
-.tool-card[data-open] .tool-row { border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
+.tool-card[data-open] > .tool-row { border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
 .tool-chevron { color: var(--rl-text-faint); transition: transform var(--dur-base) var(--ease-in-out-strong); flex: none; margin-left: auto; }
-.tool-card[data-open] .tool-chevron, .tool-group[data-open] .tool-chevron { transform: rotate(90deg); }
+/* Direct children throughout: a card now contains its sub-agent's cards, and a descendant selector
+   would have opening the parent rotate every chevron and unfold every body beneath it. */
+.tool-card[data-open] > .tool-row > .tool-chevron, .tool-group[data-open] > .tool-group-row > .tool-chevron { transform: rotate(90deg); }
 .tool-name { font-size: 12.5px; font-weight: var(--fw-label); flex: none; }
 /* Measured counts (editStat): green adds, red deletes, mono tabular — BUI's `+74 −41`. */
 .tool-stat { flex: none; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -1058,9 +1060,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* §6 tool-row expand: height animates via grid-template-rows 0fr→1fr over 200ms, content fades at
    120ms. .tool-body-clip is the overflow container the 0fr row needs to clip against. */
 .tool-body-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
-.tool-card[data-open] .tool-body-wrap { grid-template-rows: 1fr; }
+.tool-card[data-open] > .tool-body-wrap { grid-template-rows: 1fr; }
 .tool-body-clip { overflow: hidden; min-height: 0; }
-.tool-card[data-open] .tool-body { opacity: 1; }
+.tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
 /* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
    `Worked for <duration> ›` at 13/500 — shimmering (BUI's working treatment) while the run is live,
@@ -1077,6 +1079,9 @@ button.panel-title:hover { background: var(--rl-hover); }
   background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: shimmer-text 1.4s linear infinite; }
 .tool-group-steps { margin-left: 15px; padding-left: 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+/* A sub-agent's ledger hangs off the Task call that spawned it. 24px sets its label under the tool
+   NAME rather than under the status glyph, so the rail reads as belonging to that row. */
+.tool-group[data-subagent] { margin-left: 24px; }
 /* The target chip: ToolChips' field-fill chip — mono 11.5, hairline ring, truncating. */
 .tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2);
   font: 11.5px var(--font-mono); font-variant-numeric: tabular-nums; background: var(--field); box-shadow: var(--shadow-hairline);

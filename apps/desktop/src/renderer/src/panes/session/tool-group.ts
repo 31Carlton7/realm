@@ -15,29 +15,79 @@ export const GROUP_MIN = 2;
 const FILE_TOOLS = new Set(["Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"]);
 const COMMAND_TOOLS = new Set(["Bash", "exec_command"]);
 
-export type TranscriptItem =
-  | { kind: "block"; key: string; block: Block }
-  | { kind: "group"; key: string; steps: { key: string; block: ToolBlock }[] };
+/** A tool call together with the calls a sub-agent made underneath it.
+ *
+ *  A sub-agent's calls arrive INTERLEAVED with the parent's own — the harness runs them
+ *  concurrently and the transcript is one stream in arrival order — so nothing about position
+ *  separates them. The only thing that does is `parentToolUseId`, which is why this is a tree built
+ *  from ids rather than another fold over runs. */
+export type ToolNode = { key: string; block: ToolBlock; nested: ToolNode[] };
 
-/** Blocks in render order, with runs of GROUP_MIN+ consecutive tool calls folded into one group.
- *  Every item — grouped or not — keeps the key it would have had ungrouped, so a run crossing the
- *  threshold neither remounts its cards nor re-triggers their enter animation. */
+/** A `ToolNode` marked with §6's enter flag, which only the renderer can decide. */
+export type ToolStep = { key: string; block: ToolBlock; enter: boolean; nested: readonly ToolStep[] };
+
+/** One array, shared by every childless node. `withEnter` runs on each render, and handing each of
+ *  a 300-call transcript its own fresh `[]` would fail ToolCard's memo on all of them. */
+const NO_STEPS: readonly ToolStep[] = [];
+
+export type TranscriptItem =
+  /** `nested` is empty for everything but a tool call whose sub-agent did some work of its own. */
+  | { kind: "block"; key: string; block: Block; nested: ToolNode[] }
+  | { kind: "group"; key: string; steps: ToolNode[] };
+
+const NO_NESTED: ToolNode[] = [];
+
+/** Blocks in render order: sub-agent calls hung off the call that spawned them, and runs of
+ *  GROUP_MIN+ consecutive tool calls among what is left folded into one group.
+ *
+ *  Every item — grouped, nested or neither — keeps the key it would have had ungrouped, so a run
+ *  crossing the threshold neither remounts its cards nor re-triggers their enter animation.
+ *
+ *  Lifting a sub-agent's calls out of the top level closes the gaps they left, so a parent's own
+ *  calls that were only separated by its child's now group as the one run they always were. */
 export function groupTranscript(blocks: readonly Block[]): TranscriptItem[] {
+  const nodes = new Map<string, ToolNode>();
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]!;
+    if (b.kind === "tool") nodes.set(b.toolUseId, { key: blockKey(b, i), block: b, nested: [] });
+  }
+
+  const top: { key: string; block: Block; nested: ToolNode[] }[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]!;
+    if (b.kind !== "tool") { top.push({ key: blockKey(b, i), block: b, nested: NO_NESTED }); continue; }
+    const node = nodes.get(b.toolUseId)!;
+    const parent = b.parentToolUseId === undefined ? undefined : nodes.get(b.parentToolUseId);
+    // A parent this transcript does not contain leaves the call where it is. An id Realm cannot
+    // resolve is still work the agent did, and hiding it would lose the call rather than nest it.
+    if (parent && parent !== node) parent.nested.push(node); else top.push(node);
+  }
+
   const out: TranscriptItem[] = [];
   let i = 0;
-  while (i < blocks.length) {
-    const b = blocks[i]!;
-    if (b.kind !== "tool") { out.push({ kind: "block", key: blockKey(b, i), block: b }); i++; continue; }
-    let end = i;
-    while (end < blocks.length && blocks[end]!.kind === "tool") end++;
-    const steps = blocks.slice(i, end).map((s, k) => ({ key: blockKey(s, i + k), block: s as ToolBlock }));
+  while (i < top.length) {
+    const e = top[i]!;
+    if (e.block.kind !== "tool") { out.push({ kind: "block", key: e.key, block: e.block, nested: NO_NESTED }); i++; continue; }
+    const steps: ToolNode[] = [];
+    while (i < top.length) {
+      const s = top[i]!;
+      if (s.block.kind !== "tool") break;
+      steps.push({ key: s.key, block: s.block, nested: s.nested });
+      i++;
+    }
     // Keyed on the run's first tool: a run only ever grows at its tail, so the group keeps its
     // identity — and the user's expand/collapse choice — as more tools land in it.
     if (steps.length >= GROUP_MIN) out.push({ kind: "group", key: `group:${steps[0]!.key}`, steps });
-    else for (const s of steps) out.push({ kind: "block", key: s.key, block: s.block });
-    i = end;
+    else for (const s of steps) out.push({ kind: "block", key: s.key, block: s.block, nested: s.nested });
   }
   return out;
+}
+
+/** Marks a tool tree with the enter flags the transcript's tracker just decided (transcript-enter).
+ *  Recursive because a sub-agent's cards animate in on arrival exactly as the agent's own do. */
+export function withEnter(nodes: readonly ToolNode[], isEntering: (key: string) => boolean): readonly ToolStep[] {
+  if (nodes.length === 0) return NO_STEPS;
+  return nodes.map((n) => ({ key: n.key, block: n.block, enter: isEntering(n.key), nested: withEnter(n.nested, isEntering) }));
 }
 
 export type ToolRunSummary = { tools: number; files: number; commands: number; durationMs: number };

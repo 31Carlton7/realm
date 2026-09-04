@@ -68,6 +68,19 @@ describe("a plan the agent proposed", () => {
   });
 });
 
+describe("a tool call a sub-agent made", () => {
+  it("carries `parentToolUseId` onto the block, and leaves it absent for a call the agent made itself", () => {
+    let t = emptyTranscript();
+    t = reduceTranscript(t, sessionEvent("tool_call", { toolUseId: "t1", name: "Task", input: {}, parentToolUseId: null }));
+    // Absence is the ordinary case, and the adapters that report no hierarchy send null forever.
+    expect(t.blocks.at(-1)).not.toHaveProperty("parentToolUseId");
+    t = reduceTranscript(t, sessionEvent("tool_call", { toolUseId: "t2", name: "Read", input: {}, parentToolUseId: "t1" }));
+    // Kills the reducer dropping the field: the pane then has nothing to nest by and renders the
+    // sub-agent's calls flat among the agent's own, which is what it did before.
+    expect(t.blocks.at(-1)).toMatchObject({ kind: "tool", toolUseId: "t2", parentToolUseId: "t1" });
+  });
+});
+
 describe("transcript model", () => {
   it("builds blocks: user, assistant (deltas then final), tool with result, permission pending→resolved", () => {
     let t = emptyTranscript();

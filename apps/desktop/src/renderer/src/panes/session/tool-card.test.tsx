@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup, within, act } from "@testing-librar
 import { ToolCard, ToolGroup, RESULT_CLAMP } from "./ToolCard";
 import { editStat } from "./tool-summary";
 import * as summaryModule from "./tool-summary";
-import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock } from "./tool-group";
+import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, type ToolBlock, type ToolNode } from "./tool-group";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
@@ -88,6 +88,81 @@ describe("tool-run grouping (§5: group consecutive tools under a collapsed summ
   });
 });
 
+/** A tool call a sub-agent made: same shape, plus the Task call it was made under. */
+const sub = (id: string, parent: string, name: string, input: Record<string, unknown>, ts = 0, done = true): ToolBlock =>
+  ({ ...tool(id, name, input, ts, done), parentToolUseId: parent });
+
+describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
+  it("hangs a sub-agent's calls off the Task call that spawned them instead of leaving them in the stream", () => {
+    const items = groupTranscript([
+      tool("task1", "Task", { description: "audit the mapper" }),
+      sub("s1", "task1", "Read", { file_path: "/a.ts" }),
+      sub("s2", "task1", "Grep", { pattern: "foo" }),
+    ]);
+    // Kills "ignore parentToolUseId and keep folding by position": that renders three sibling cards
+    // in one run, and the reader cannot tell which two the sub-agent made.
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind === "block" && items[0]!.block.kind === "tool" && items[0]!.block.name).toBe("Task");
+    expect(items[0]!.kind === "block" && items[0]!.nested.map((n) => n.key)).toEqual(["tool:s1", "tool:s2"]);
+  });
+
+  it("closes the gap the lifted calls leave: the parent's own calls either side of them become one run", () => {
+    const items = groupTranscript([
+      tool("t1", "Read", { file_path: "/a" }),
+      sub("s1", "task1", "Read", { file_path: "/x" }),
+      tool("t2", "Read", { file_path: "/b" }),
+    ]);
+    // s1 names a parent this transcript does not hold, so it stays top-level and splits the run.
+    expect(items.map((i) => i.kind)).toEqual(["group"]);
+    expect(items[0]!.kind === "group" && items[0]!.steps.map((x) => x.key)).toEqual(["tool:t1", "tool:s1", "tool:t2"]);
+
+    const withParent = groupTranscript([
+      tool("task1", "Task", { description: "go" }),
+      tool("t1", "Read", { file_path: "/a" }),
+      sub("s1", "task1", "Read", { file_path: "/x" }),
+      tool("t2", "Read", { file_path: "/b" }),
+    ]);
+    // Kills "lift the child but leave a hole where it was": t1 and t2 were one run all along, and a
+    // hole would have them read as two separate stretches of work.
+    expect(withParent.map((i) => i.kind)).toEqual(["group"]);
+    expect(withParent[0]!.kind === "group" && withParent[0]!.steps.map((x) => x.key)).toEqual(["tool:task1", "tool:t1", "tool:t2"]);
+  });
+
+  it("nests recursively, and never loses a call to an id it cannot resolve", () => {
+    const flatKeys = (ns: readonly ToolNode[]): string[] => ns.flatMap((n) => [n.key, ...flatKeys(n.nested)]);
+    const items = groupTranscript([
+      tool("task1", "Task", { description: "outer" }),
+      sub("task2", "task1", "Task", { description: "inner" }),
+      sub("s1", "task2", "Bash", { command: "ls" }),
+      sub("orphan", "gone", "Read", { file_path: "/o" }),
+      // A call naming itself would otherwise nest into itself and leave the transcript entirely.
+      sub("selfie", "selfie", "Read", { file_path: "/s" }),
+    ]);
+    expect(items).toHaveLength(1);
+    const group = items[0]!;
+    // Kills "drop any call whose parent cannot be resolved", which silently swallows work the agent
+    // really did — and kills losing a self-referential id down its own hole.
+    expect(group.kind === "group" && group.steps.map((x) => x.key)).toEqual(["tool:task1", "tool:orphan", "tool:selfie"]);
+    expect(group.kind === "group" && flatKeys(group.steps[0]!.nested)).toEqual(["tool:task2", "tool:s1"]);
+  });
+
+  it("draws the sub-agent's steps under its Task row, labelled as the sub-agent's own work", () => {
+    const nested = [
+      { key: "tool:s1", block: sub("s1", "task1", "Read", { file_path: "/a.ts" }), enter: false, nested: [] },
+      { key: "tool:s2", block: sub("s2", "task1", "Bash", { command: "pnpm test" }, 0, false), enter: false, nested: [] },
+    ];
+    render(<ToolCard sessionStatus="running" nested={nested}
+      block={{ kind: "tool", toolUseId: "task1", name: "Task", input: { description: "audit the mapper" }, result: null, ts: 0 }} />);
+    // Named apart from the agent's own runs: directly under a Task row, a bare "Worked for" reads as
+    // the Task's elapsed time rather than the child's.
+    const row = screen.getByRole("button", { name: "2 sub-agent tool calls" });
+    expect(row).toHaveTextContent("Sub-agent worked for");
+    // Open while the child is still working — the one thing this treatment must not do is collapse
+    // live activity out of sight.
+    expect(cards().map((c) => c.querySelector(".tool-name")!.textContent)).toEqual(["Task", "Read", "Bash"]);
+  });
+});
+
 describe("tool-run summary line", () => {
   it("counts distinct files, not file touches — reading one file four times edited one file", () => {
     const s = summarizeToolRun([
@@ -168,7 +243,7 @@ describe("editStat (Plan 9 W2: ThinkingState's measured +/− counts)", () => {
   });
 });
 
-const steps = (blocks: ToolBlock[]) => blocks.map((b) => ({ key: b.toolUseId, block: b, enter: false }));
+const steps = (blocks: ToolBlock[]) => blocks.map((b) => ({ key: b.toolUseId, block: b, enter: false, nested: [] }));
 const cards = () => [...document.querySelectorAll<HTMLElement>(".tool-card")];
 const bodyOf = (card: HTMLElement) => card.querySelector(".tool-body");
 

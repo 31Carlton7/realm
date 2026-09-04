@@ -10,7 +10,11 @@ export type Block =
   | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; ts: number }
   | { kind: "assistant"; messageId: string; text: string; streaming: boolean; ts: number }
   | { kind: "thinking"; messageId: string; text: string; ts: number }
-  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; result: { content: string; isError: boolean } | null; ts: number }
+  /** `parentToolUseId` is the Task/Agent call this one was made UNDER — Claude's
+   *  `parent_tool_use_id`, set only on a sub-agent's own calls. Absent is the ordinary case: the
+   *  agent made the call itself, and every adapter that reports no hierarchy at all leaves it
+   *  absent throughout, so those transcripts nest nothing and read exactly as before. */
+  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; ts: number }
   | { kind: "error"; message: string; ts: number }
   /** A plan the agent proposed. `text` is prose, `steps` a checklist, and at least one is present —
    *  which of them depends on the protocol, not on the agent's mood (see the `plan` event). A revised
@@ -68,7 +72,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       return { ...t, blocks };
     }
     case "thinking": blocks.push({ kind: "thinking", messageId: e.payload.messageId, text: e.payload.text, ts: e.ts }); return { ...t, blocks };
-    case "tool_call": blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, result: null, ts: e.ts }); return { ...t, blocks };
+    case "tool_call": blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}), result: null, ts: e.ts }); return { ...t, blocks };
     case "tool_result": {
       const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
       const b = i >= 0 ? blocks[i] : undefined;

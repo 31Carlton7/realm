@@ -147,7 +147,7 @@ describe("§6 motion table", () => {
   it("the tool row expands by animating grid-template-rows over 200ms, with the content fading at 120ms", () => {
     expect(bodiesFor(".tool-body-wrap").join(" ")).toContain(`transition: grid-template-rows ${dur("--dur-base")} var(--ease-in-out-strong)`);
     expect(bodiesFor(".tool-body-wrap").join(" ")).toContain("grid-template-rows: 0fr");
-    expect(bodiesFor(".tool-card[data-open] .tool-body-wrap").join(" ")).toContain("grid-template-rows: 1fr");
+    expect(bodiesFor(".tool-card[data-open] > .tool-body-wrap").join(" ")).toContain("grid-template-rows: 1fr");
     expect(bodiesFor(".tool-body").join(" ")).toContain(`transition: opacity ${dur("--dur-press")} ease`);
   });
 
@@ -509,8 +509,16 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(bodiesFor(".tool-row").join(" ")).toContain("border-radius: var(--r-ctl)");
     // Open, the bottom two stop rounding: a curve there pulls the hover fill away from the
     // hairline and leaves a notch at each end of the divider.
-    expect(bodiesFor(".tool-card[data-open] .tool-row").join(" "))
+    expect(bodiesFor(".tool-card[data-open] > .tool-row").join(" "))
       .toContain("border-radius: var(--r-ctl) var(--r-ctl) 0 0");
+  });
+
+  it("an open card's rules reach its own row and body only — the cards inside it are a sub-agent's", () => {
+    for (const sel of [".tool-card[data-open] > .tool-row", ".tool-card[data-open] > .tool-body-wrap",
+      ".tool-card[data-open] > .tool-row > .tool-chevron", ".tool-group[data-open] > .tool-group-row > .tool-chevron"]) bodiesFor(sel);
+    // A descendant selector here reaches the whole sub-tree: opening one Task card would rotate every
+    // chevron beneath it and unfold every nested body along with its own.
+    expect(RULES.flatMap((r) => r.selectors).filter((s) => /^\.tool-(card|group)\[data-open\] [^>]/.test(s))).toEqual([]);
   });
 
   it("fenced code is CodeBlock's editor panel: surface + hairline ring, a language header, 12.5/1.65 mono body", () => {
