@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createAppStore } from "./store";
 import { fakeApi, item, notification, session } from "./store.test-fakes";
-import { NOTIFICATIONS_DESKTOP_KEY } from "@realm/contracts";
+import { allItems, navEntry, NOTIFICATIONS_DESKTOP_KEY } from "@realm/contracts";
 
 const boot = async (overrides: Parameters<typeof fakeApi>[0] = {}) => {
   const api = fakeApi(overrides);
@@ -211,5 +211,76 @@ describe("store — the desktop (OS) hop", () => {
   it("…and a click on a row that no longer exists is a quiet no-op, never a throw", async () => {
     const { store } = await boot();
     await expect(store.getState().activateDesktopNotification("gone")).resolves.toBeUndefined();
+  });
+
+  it("THE any-permission mutant: a permission toast lands on the session ITS row names, not on whichever one is waiting", async () => {
+    // Both sessions are waiting, and one of them is in the space already on screen — which is exactly
+    // the session an argument-less jumpToPermission would prefer. The row names the other one.
+    const { store } = await boot({
+      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "S" })], s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "T" })] },
+      sessions: [session("se1", "s1", { status: "waiting_permission" }), session("se2", "s2", { status: "waiting_permission" })],
+      notifications: [notification("p1", { category: "permission", sessionId: "se2", spaceId: "s2", refId: "req1", actedAt: null })],
+    });
+    await store.getState().refreshAllSessions();
+    expect(store.getState().activeSpaceId).toBe("s1");
+    await store.getState().activateDesktopNotification("p1");
+    expect(store.getState().activeSpaceId).toBe("s2");
+    const pane = store.getState().items.find((i) => i.refId === "se2")!;
+    // The FOCUSED pane holds it — which is the half that surfaces the card, not just the space switch.
+    expect(navEntry(store.getState().paneHistory, store.getState().focusedLeafId!)).toEqual({ itemId: pane.id, view: null });
+  });
+
+  it("a row with no session opens the FEED with that row selected — an mcp_health toast has no pane to land on", async () => {
+    const { api, store } = await boot({
+      notifications: [notification("h1", { category: "mcp_health", sessionId: null, refId: "srv1", title: "srv1 stopped answering", actedAt: null })],
+    });
+    await store.getState().activateDesktopNotification("h1");
+    const page = store.getState().items.find((i) => i.kind === "notifications-page");
+    expect(page).toBeTruthy();
+    expect(allItems(store.getState().layout!)).toContain(page!.id);
+    expect(store.getState().notificationsSelectedId).toBe("h1");
+    expect(api.calls).toContain("markNotificationsRead:h1");
+  });
+
+  it("…and that landing is a STOP on the pane's trail, so the arrows retrace it like an in-page click", async () => {
+    const { store } = await boot({ notifications: [notification("b1", { category: "budget", sessionId: null, refId: "2026-09:0.8" })] });
+    await store.getState().activateDesktopNotification("b1");
+    const leaf = store.getState().focusedLeafId!;
+    await store.getState().stepPaneNav(leaf, -1);
+    expect(store.getState().notificationsSelectedId).toBeNull(); // back to the bare list
+    await store.getState().stepPaneNav(leaf, 1);
+    expect(store.getState().notificationsSelectedId).toBe("b1");
+  });
+
+  it("a session row whose pane no longer exists falls back to the feed rather than a space switch that opens nothing", async () => {
+    const { store } = await boot({
+      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "S" })], s2: [] },
+      sessions: [session("se1", "s1"), session("se2", "s2")],
+      notifications: [notification("d1", { category: "session_done", sessionId: "se2", spaceId: "s2" })],
+    });
+    await store.getState().refreshAllSessions();
+    await store.getState().activateDesktopNotification("d1");
+    expect(store.getState().activeSpaceId).toBe("s2");
+    expect(store.getState().notificationsSelectedId).toBe("d1");
+  });
+
+  it("THE read-after-the-jump mutant: the row is stamped read BEFORE the app goes anywhere", async () => {
+    const { api, store } = await boot({ notifications: [notification("a1", { category: "agent_probe", sessionId: null, refId: "claude" })] });
+    await store.getState().activateDesktopNotification("a1");
+    // The row is read because the user clicked it, not because the landing below turned out to be
+    // reachable — so the read lands before the page the jump has to create.
+    const order = api.calls.filter((c) => c === "markNotificationsRead:a1" || c.startsWith("createItem:"));
+    expect(order).toHaveLength(2);
+    expect(order[0]).toBe("markNotificationsRead:a1");
+  });
+
+  it("…and a row whose feed page is ALREADY open is selected in it, rather than opening a second one", async () => {
+    const { store } = await boot({
+      notifications: [notification("h2", { category: "mcp_health", sessionId: null, refId: "srv2", actedAt: null })],
+    });
+    await store.getState().openDestinationPage("notifications-page");
+    await store.getState().activateDesktopNotification("h2");
+    expect(store.getState().items.filter((i) => i.kind === "notifications-page")).toHaveLength(1);
+    expect(store.getState().notificationsSelectedId).toBe("h2");
   });
 });

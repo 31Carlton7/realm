@@ -881,13 +881,17 @@ export type AppState = {
   refreshSessions(): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
-  /** Jump to a waiting_permission session anywhere: switch space if needed, open its item, focus it. */
-  jumpToPermission(): Promise<void>;
+  /** Put a waiting_permission session's pane in front of the user — switching space if needed — which
+   *  is what surfaces its card, since Transcript autofocuses the first pending permission of a focused
+   *  pane. With no argument it chooses one (the active space first); a permission notification passes
+   *  the session its own row names. False when there was nothing to land on. */
+  jumpToPermission(sessionId?: string | null): Promise<boolean>;
   /** Load (or catch up) a session's transcript: fetch events after the last known seq and reduce them. */
   /** Bring a session's pane to the front, switching space first when it lives in another one.
    *  Shared by the notifications feed and the Usage tab's leaderboard so "go to session" means the
-   *  same thing from both — including the space switch, which is the half that is easy to forget. */
-  revealSession(sessionId: string, spaceId: string | null): Promise<void>;
+   *  same thing from both — including the space switch, which is the half that is easy to forget.
+   *  False when the space holds no item for that session, so a caller with a fallback can take it. */
+  revealSession(sessionId: string, spaceId: string | null): Promise<boolean>;
   openSession(id: string): Promise<void>;
   /** Persisted events apply at once; ephemeral `assistant_delta`s are buffered and land on the next
    *  painted frame — see `pendingDeltas` for why that is where the app's power goes. */
@@ -1169,8 +1173,12 @@ export type AppState = {
    *  the held feed, and auto-reads a `session_done` for the session pane the user is looking at (the
    *  renderer is the one honest holder of focus — see the server service's doc comment). */
   applyNotificationsChanged(payload: { notification: Notification | null; unread: number }): void;
-  /** The row's jump affordance: land on the notification's session (switching space if needed) and
-   *  mark it read — it has, by definition, been seen. */
+  /** Land on the thing the notification is ABOUT, and mark the row read — it has, by definition, been
+   *  seen. A row naming a session lands on that session's pane (a `permission` through
+   *  jumpToPermission, whose focus move is what pops the card); every other row — an MCP server, a
+   *  probe, a budget ceiling — has no pane of its own, so it lands on the feed page with the row
+   *  selected, which is also where a session whose item is gone ends up. Either way the landing is a
+   *  stop on the pane's trail, exactly as clicking the row inside the page would leave it. */
   openNotificationTarget(n: Notification): Promise<void>;
   /** A clicked OS toast, by row id (main knows nothing but the id). Resolves the row from the held
    *  feed — refetching once if the page was never opened — and lands on it like any other jump. */
@@ -2271,16 +2279,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; }
         set({ sessionSpace, sessionStatus });
       },
-      async jumpToPermission() {
+      async jumpToPermission(sessionId = null) {
+        const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;
+        // Two callers with two different amounts of knowledge. The palette's "Respond to pending
+        // permission" names nothing and has to CHOOSE: one in the active space first, so answering a
+        // question does not drag the user out of the space they are working in. A permission
+        // notification names its own session and skips the choice entirely — including when that
+        // session is no longer waiting, because a row whose question was answered in another window
+        // still belongs on its own pane rather than on whichever session happens to be waiting now.
         const waiting = Object.entries(get().sessionStatus).filter(([, st]) => st === "waiting_permission").map(([id]) => id);
-        if (waiting.length === 0) return;
-        // Prefer one in the active space (no context switch); otherwise the first known anywhere.
         const active = get().activeSpaceId;
-        const sid = waiting.find((id) => (get().sessionSpace[id] ?? get().sessions[id]?.spaceId) === active) ?? waiting[0]!;
-        const spaceId = get().sessionSpace[sid] ?? get().sessions[sid]?.spaceId;
-        if (spaceId && spaceId !== get().activeSpaceId) await get().selectSpace(spaceId);
-        const item = get().items.find((i) => i.kind === "session" && i.refId === sid);
-        if (item) await get().openItem(item.id); // opens into the focused leaf and focuses it
+        const sid = sessionId ?? waiting.find((id) => spaceOf(id) === active) ?? waiting[0] ?? null;
+        if (!sid) return false;
+        // Landing the pane in the FOCUSED leaf is what surfaces the card: Transcript autofocuses the
+        // first pending permission of a focused pane (U-H4). There is nothing further to open.
+        return get().revealSession(sid, spaceOf(sid));
       },
       async openSession(id) {
         if (loading.has(id)) return;
@@ -3117,11 +3130,32 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const target = get().sessionSpace[sessionId] ?? spaceId;
         if (target && target !== get().activeSpaceId) await get().selectSpace(target);
         const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
-        if (item) await get().openItem(item.id);
+        // A session with no item in the space it claims has no pane to be brought forward — the space
+        // switch above already happened, so callers need to hear that the jump did NOT land rather
+        // than leave the user somewhere new with nothing opened.
+        if (!item) return false;
+        await get().openItem(item.id);
+        return true;
       },
       async openNotificationTarget(n) {
-        if (n.sessionId) await get().revealSession(n.sessionId, n.spaceId);
+        // Read first, before anything moves: the row is read because the user clicked it, not because
+        // a landing turned out to be reachable. selectNotification below then finds it already read
+        // and has nothing left to stamp, so one click is one markRead however many surfaces it
+        // passes through.
         if (n.readAt === null) await get().markNotificationsRead([n.id]);
+        // A row that names a session is about that session's pane; `permission` goes through
+        // jumpToPermission because putting the pane in the focused leaf is what pops its card open.
+        const landed = n.sessionId !== null && (n.category === "permission"
+          ? await get().jumpToPermission(n.sessionId)
+          : await get().revealSession(n.sessionId, n.spaceId));
+        if (landed) return;
+        // Everything else — an MCP server that fell over, a probe that stopped answering, a budget
+        // ceiling — has no pane of its own, and neither does a session whose item is gone. For those
+        // the feed row IS the thing the notification is about, so the click lands on the page with the
+        // row selected: selectNotification is the in-page click's own path, which is what makes this
+        // landing a stop on the pane's trail rather than a jump the arrows cannot retrace.
+        const pageItemId = await get().openDestinationPage("notifications-page");
+        if (pageItemId) await get().selectNotification(pageItemId, n.id);
       },
       async activateDesktopNotification(id) {
         // Main hands back an id and nothing else. The feed may never have been loaded — a toast is
