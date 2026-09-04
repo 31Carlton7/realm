@@ -323,6 +323,25 @@ describe("Ara refresh §3/§4 geometry", () => {
      under: same font, same size, same line-height, same padding box, same wrapping. Nothing in jsdom
      can notice a drift here — there is no layout — so the stylesheet is the only place to catch a
      stray padding tweak that would slide every painted glyph off the caret above it. */
+  /**
+   * The rule `draft-format.ts` states, enforced against the stylesheet rather than trusted to review.
+   * Every `.ch-*` run is painted UNDER a textarea whose caret positions itself by the textarea's own
+   * metrics, so a chip that grows padding, a border or a heavier face moves the mirror's glyphs and
+   * nothing moves the caret to match. `box-shadow` and `border-radius` are the exceptions that make
+   * a pill possible: both paint outside the run's box without the box growing.
+   */
+  it("no chip run changes a metric — the caret under the mirror belongs to the textarea", () => {
+    const chips = RULES.filter((r) => r.selectors.some((sel) => /^\.ch-[a-z-]+$/.test(sel)));
+    expect(chips.length, "no .ch-* rules in styles.css").toBeGreaterThan(0);
+    for (const rule of chips) {
+      for (const decl of rule.body.split(";").map((d) => d.trim()).filter(Boolean)) {
+        const prop = decl.split(":")[0]!.trim();
+        expect(["color", "background", "background-color", "border-radius", "box-shadow", "text-decoration", "text-underline-offset", "text-decoration-color"],
+          `${rule.selectors.join(",")} { ${decl} }`).toContain(prop);
+      }
+    }
+  });
+
   it("the highlight mirror matches the textarea's text metrics exactly", () => {
     const mirror = bodiesFor(".composer-highlight").join(" ");
     const input = bodiesFor(".composer-input").join(" ");

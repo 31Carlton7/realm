@@ -70,6 +70,41 @@ describe("the prompter's rich-text mirror", () => {
 
   /* The mirror is decoration over the real control. If it ever became the source of truth, this is
      the test that would notice: the sent text and the declared mentions come from the draft alone. */
+  it("paints an element chip the picker dropped in, without touching what is sent", async () => {
+    const { api, store } = await mount();
+    store.getState().addElementChip("se1", {
+      ref: 42, url: "https://example.com/login", title: "Sign in", rect: { x: 0, y: 0, w: 1, h: 1 },
+      selector: "#submit", tag: "button", role: "button", name: "Sign in",
+      text: "Sign in", html: '<button id="submit">Sign in</button>',
+    });
+    typeAt(`${store.getState().drafts.se1}make it blue`);
+    expect(painted()).toEqual([["ch-element", '@[button "Sign in"]']]);
+    fireEvent.keyDown(box(), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    // The chip is paint over a token; the token is what travels, byte for byte, and the element
+    // rides beside it rather than being spliced into the text.
+    expect(api.sent[0]!.text).toBe('@[button "Sign in"] make it blue');
+  });
+
+  it("Backspace behind an element chip takes the whole token, and one keystroke does it", async () => {
+    const { store } = await mount();
+    typeAt('make @[button "Sign in"] blue');
+    const el = box();
+    el.setSelectionRange(24, 24); // just past the closing bracket
+    fireEvent.keyDown(el, { key: "Backspace" });
+    expect(store.getState().drafts.se1).toBe("make  blue");
+  });
+
+  it("Backspace inside the chip's label is an ordinary Backspace — the browser handles it", async () => {
+    const { store } = await mount();
+    typeAt("@[abc]");
+    const el = box();
+    el.setSelectionRange(4, 4);
+    fireEvent.keyDown(el, { key: "Backspace" });
+    // Not consumed: the draft is untouched here because jsdom does not apply the default action.
+    expect(store.getState().drafts.se1).toBe("@[abc]");
+  });
+
   it("changes nothing about what is sent", async () => {
     const { api } = await mount();
     type("see https://x.dev and use @mac");

@@ -1,4 +1,4 @@
-import { scanMentions } from "@realm/contracts";
+import { scanElementChips, scanMentions } from "@realm/contracts";
 
 /**
  * The prompter's rich-text layer, as pure functions over the draft string.
@@ -30,7 +30,9 @@ export type SegmentKind =
    *  bolded here without the mirror's glyphs drifting off the textarea's caret. */
   | "punct"
   /** A backticked span. Tinted, never re-typefaced — a monospace run here would shift the caret. */
-  | "code";
+  | "code"
+  /** An `@[…]` token standing for an element the user picked in a browser pane. */
+  | "element";
 
 export type Segment = { text: string; kind: SegmentKind | null };
 
@@ -39,7 +41,7 @@ type Span = { start: number; end: number; kind: SegmentKind; rank: number };
 
 /* Rank breaks ties when two spans start together, and decides who wins when they overlap: a URL
    inside backticks is code, an `@` inside a URL is neither. Lower wins. */
-const RANK = { marker: 0, punct: 1, code: 2, link: 3, mention: 4 } as const;
+const RANK = { element: 0, marker: 1, punct: 2, code: 3, link: 4, mention: 5 } as const;
 
 /** `http(s)://…` and bare `www.…`, up to whitespace. Trailing punctuation is trimmed below — a URL
  *  ending a sentence must not swallow the full stop, and a URL in parentheses must not eat the `)`. */
@@ -72,6 +74,9 @@ function urlEnd(text: string, start: number, raw: string): number {
  */
 export function highlightSegments(text: string, liveIds: Iterable<string>, staleIds: Iterable<string> = []): Segment[] {
   const spans: Span[] = [];
+  // First claim, highest rank: an element chip's label is arbitrary page text, so a URL or a backtick
+  // inside it must not cut the token in half. Nothing else can legitimately overlap it.
+  for (const c of scanElementChips(text)) spans.push({ start: c.start, end: c.end, kind: "element", rank: RANK.element });
   for (const t of scanMentions(text, liveIds)) spans.push({ start: t.start, end: t.end, kind: "mention", rank: RANK.mention });
   for (const t of scanMentions(text, staleIds)) spans.push({ start: t.start, end: t.end, kind: "mention-stale", rank: RANK.mention });
   for (const m of text.matchAll(CODE_RE)) spans.push({ start: m.index, end: m.index + m[0].length, kind: "code", rank: RANK.code });
@@ -248,4 +253,24 @@ export function toggleList(text: string, selStart: number, selEnd: number, order
   }
   const start = Math.max(lineRange(text, selStart)[0], selStart + startShift);
   return { text: out + text.slice(prev), start, end: Math.max(start, selEnd + endShift) };
+}
+
+// ── Chip editing ───────────────────────────────────────────────────────────
+
+/**
+ * Backspace at the trailing edge of an element chip deletes the whole token.
+ *
+ * Element chips only, and the asymmetry is the point. `@[button "Sign in"]` is syntax the user never
+ * types through: `@[` is not something a hand produces by accident, and half of it — `@[button "Sign`
+ * — is neither a chip nor anything an agent can use. A mention is the opposite: `@mac` is a valid
+ * chip that a hand passes THROUGH on its way to typing `@mac-cli`, so an atomic backspace there would
+ * eat four characters at the one moment the user is mid-word.
+ *
+ * Null for everything else, including a non-empty selection: a selection is already the user saying
+ * exactly what to delete, and overriding it would be the editor arguing.
+ */
+export function deleteElementChipBefore(text: string, caret: number): DraftEdit | null {
+  const chip = scanElementChips(text).find((c) => c.end === caret);
+  if (!chip) return null;
+  return { text: text.slice(0, chip.start) + text.slice(chip.end), start: chip.start, end: chip.start };
 }

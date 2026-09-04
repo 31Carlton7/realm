@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scanMentions, stripMentionAts } from "@realm/contracts";
-import { continueList, highlightSegments, indentList, listItemAt, toggleList, type Segment } from "./draft-format";
+import { continueList, deleteElementChipBefore, highlightSegments, indentList, listItemAt, toggleList, type Segment } from "./draft-format";
 
 /** A compact readout of the runs that carry a class — plain text is the uninteresting majority. */
 const painted = (segs: Segment[]) => segs.filter((s) => s.kind).map((s) => [s.kind, s.text]);
@@ -16,9 +16,32 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
       "- one\n- two\n\n> quote\n# head\n1. first",
       "trailing newline\n", "\n\n", "  - indented @mac https://x.dev/a?b=1 end",
       "*", "**", "``", "@", "- ", "https://",
+      '@[button "Sign in"]', 'a @[div#hero] b', "@[", "@[]", '@[link https://x.dev] tail', "@[a\nb]",
     ]) {
       expect(rejoin(highlightSegments(text, ["mac"])), JSON.stringify(text)).toBe(text);
     }
+  });
+
+  it("paints an element chip as one run, brackets included", () => {
+    expect(painted(highlightSegments('make @[button "Sign in"] blue', []))).toEqual([
+      ["element", '@[button "Sign in"]'],
+    ]);
+  });
+
+  it("a URL inside a chip's label does not cut the token in half", () => {
+    // The label is arbitrary page text. A link span winning here would paint half a chip and leave
+    // the closing bracket looking like prose.
+    expect(painted(highlightSegments("@[link https://x.dev]", []))).toEqual([["element", "@[link https://x.dev]"]]);
+  });
+
+  it("an unclosed chip is plain text, not a chip that eats the rest of the draft", () => {
+    expect(painted(highlightSegments("@[button and more", []))).toEqual([]);
+  });
+
+  it("paints an element chip and a mention in the same draft", () => {
+    expect(painted(highlightSegments("@mac look at @[div#hero]", ["mac"]))).toEqual([
+      ["mention", "@mac"], ["element", "@[div#hero]"],
+    ]);
   });
 
   it("paints URLs, and stops where the URL does", () => {
@@ -189,5 +212,34 @@ describe("toggleList — ⌘⇧8 / ⌘⇧7", () => {
   it("turns off only when every filled line is already that kind", () => {
     // One plain line among bullets means the gesture still means "make these a list".
     expect(toggleList("- a\nplain", 0, 9, false).text).toBe("- a\n- plain");
+  });
+});
+
+describe("deleteElementChipBefore", () => {
+  const draft = 'make @[button "Sign in"] blue';
+  const chipEnd = draft.indexOf("]") + 1;
+
+  it("takes the whole token when the caret sits at its trailing edge", () => {
+    expect(deleteElementChipBefore(draft, chipEnd)).toEqual({ text: "make  blue", start: 5, end: 5 });
+  });
+
+  it("leaves the caret where the chip was, so the next keystroke lands in its place", () => {
+    const edit = deleteElementChipBefore(draft, chipEnd)!;
+    expect(edit.text.slice(0, edit.start)).toBe("make ");
+  });
+
+  it("does nothing anywhere else in the token, or in the prose around it", () => {
+    for (const caret of [0, 5, 6, chipEnd - 1, chipEnd + 1, draft.length])
+      expect(deleteElementChipBefore(draft, caret), String(caret)).toBeNull();
+  });
+
+  it("does nothing to a mention — a hand types straight through `@mac` on its way to `@mac-cli`", () => {
+    expect(deleteElementChipBefore("use @mac", 8)).toBeNull();
+  });
+
+  it("picks the chip that actually ends at the caret when a draft holds several", () => {
+    const two = "@[a] @[bb]";
+    expect(deleteElementChipBefore(two, two.length)).toEqual({ text: "@[a] ", start: 5, end: 5 });
+    expect(deleteElementChipBefore(two, 4)).toEqual({ text: " @[bb]", start: 0, end: 0 });
   });
 });
