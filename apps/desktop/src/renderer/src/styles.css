@@ -359,7 +359,7 @@ kbd { font: 11px var(--font-mono); }
 .mention-picker { z-index: 100; width: min(380px, 80vw); max-height: min(40vh, 280px); overflow-y: auto; padding: 6px;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
 .mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
-  transition: background-color 100ms ease; }
+  transition: background-color var(--dur-hover) ease; }
 .mention-row[data-active] { background: var(--hover); }
 .mention-row-id { flex: none; font-family: var(--font-mono); font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .mention-row-desc { flex: 1; min-width: 0; font-size: 11.5px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -382,7 +382,7 @@ kbd { font: 11px var(--font-mono); }
 .skill-picker-group-label { padding: 5px 8px 3px; font-size: 10.5px; font-weight: var(--fw-title); letter-spacing: .04em;
   text-transform: uppercase; color: var(--rl-text-faint); }
 .skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
-  transition: background-color 100ms ease; }
+  transition: background-color var(--dur-hover) ease; }
 .skill-picker-row[data-active] { background: var(--hover); }
 .skill-picker-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .skill-picker-row-id { font-family: var(--font-mono); font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-bright);
@@ -390,7 +390,7 @@ kbd { font: 11px var(--font-mono); }
 .skill-picker-row-desc { font-size: 11.5px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-picker-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
 .skill-picker-manage { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); text-align: left;
-  font-size: 12px; color: var(--rl-text-dim); transition: color 100ms ease; }
+  font-size: 12px; color: var(--rl-text-dim); transition: color var(--dur-hover) ease; }
 .skill-picker-manage:hover { color: var(--rl-text-bright); }
 
 /* ── Skills settings: search/filter bar and the per-source groups ── */
@@ -427,7 +427,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-group-label { padding: 5px 8px 3px; font-size: 10px; font-weight: var(--fw-title); letter-spacing: .06em;
   text-transform: uppercase; color: var(--rl-text-faint); }
 .mp-row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
-  transition: background-color 100ms ease, color 100ms ease; }
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-row[data-active] { background: var(--hover); }
 /* Unavailable, not hidden: dimmed and non-interactive, but still readable and still explaining
    itself in the detail pane beside it. */
@@ -449,7 +449,7 @@ kbd { font: 11px var(--font-mono); }
 /* The star holds its column on every row — hollow when unstarred, so the list keeps one alignment
    instead of shifting text as rows are favourited. It only brightens on hover or when it is on. */
 .mp-star { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-chip);
-  color: var(--rl-text-faint); opacity: .5; transition: opacity 100ms ease, color 100ms ease, background-color 100ms ease; }
+  color: var(--rl-text-faint); opacity: .5; transition: opacity var(--dur-hover) ease, color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .mp-row:hover .mp-star, .mp-row[data-active] .mp-star { opacity: 1; }
 .mp-star:hover { background: var(--hover-2); color: var(--rl-text-bright); }
 .mp-star[aria-pressed="true"] { opacity: 1; color: var(--rl-accent); }
@@ -477,7 +477,7 @@ kbd { font: 11px var(--font-mono); }
    a segmented control: the set is 1…3 wide and grows with the harnesses that can run this model. */
 .mp-route { display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px;
   border: 1px solid var(--rl-line); background: none; color: var(--rl-text-dim); font: inherit; font-size: 11.5px;
-  cursor: pointer; transition: border-color 100ms ease, background-color 100ms ease, color 100ms ease; }
+  cursor: pointer; transition: border-color var(--dur-hover) ease, background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-route:hover:not(:disabled) { color: var(--rl-text-bright); background: var(--hover); }
 .mp-route[aria-pressed="true"] { color: var(--rl-text-bright); border-color: color-mix(in oklab, var(--rl-accent) 60%, transparent);
   background: color-mix(in oklab, var(--rl-accent) 14%, transparent); }
@@ -497,7 +497,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-seg { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px;
   padding: 2px; border-radius: var(--r-ctl); background: var(--hover); }
 .mp-seg-opt { padding: 3px 4px; border-radius: calc(var(--r-ctl) - 2px); border: 0; background: none; font: inherit;
-  font-size: 11px; color: var(--rl-text-dim); cursor: pointer; transition: background-color 100ms ease, color 100ms ease; }
+  font-size: 11px; color: var(--rl-text-dim); cursor: pointer; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
 .mp-use { align-self: flex-end; margin-top: 3px; padding: 6px 13px; border: 0; border-radius: var(--r-ctl);
@@ -509,7 +509,7 @@ kbd { font: 11px var(--font-mono); }
   border: 1px solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-dim); align-self: flex-start; }
 .icon-picker-trigger:hover { color: var(--rl-text-bright); }
 .icon-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); animation: rl-menu-in 140ms var(--ease-out-strong); }
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); animation: rl-menu-in var(--dur-pop) var(--ease-out-strong); }
 .ip-tabs { display: flex; border-bottom: 1px solid var(--rl-hairline); }
 /* Radius on the top corners only: the tab meets the header's bottom hairline flush, so rounding
    all four would float the selected underline off its own tab. */
@@ -572,7 +572,7 @@ kbd { font: 11px var(--font-mono); }
 .archived-head { padding-top: 14px; }
 .archived-toggle { display: flex; align-items: center; gap: 6px; }
 .archived-toggle:hover { color: var(--rl-text-dim); }
-.archived-caret { display: grid; place-items: center; transition: transform 140ms var(--ease-out-strong); }
+.archived-caret { display: grid; place-items: center; transition: transform var(--dur-pop) var(--ease-out-strong); }
 .archived-caret[data-open] { transform: rotate(90deg); }
 .archived-count { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .group-new { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; padding: 4px 8px; border-radius: var(--r-ctl);
@@ -651,7 +651,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Empty-terminal hint (V-F3): floats centered until the first output, then fades out. Fixed light
    colours, not text tokens — the terminal interior stays dark in both app modes. */
 .terminal-hint { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; justify-items: center; gap: 4px;
-  text-align: center; pointer-events: none; user-select: none; opacity: 1; transition: opacity .25s var(--ease); }
+  text-align: center; pointer-events: none; user-select: none; opacity: 1; transition: opacity var(--dur-slow) var(--ease); }
 .terminal-hint[data-hidden] { opacity: 0; }
 .terminal-hint-path { font: 12px var(--font-mono); color: rgba(255,255,255,.55); }
 .terminal-hint-keys { font-size: 11px; color: rgba(255,255,255,.32); }
@@ -1020,7 +1020,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    corners and squares off against the body's divider. Rounding all four corners left the hover
    fill curving away from the hairline at both ends — two dark notches sitting on the divider. */
 .tool-card[data-open] .tool-row { border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
-.tool-chevron { color: var(--rl-text-faint); transition: transform 200ms var(--ease-in-out-strong); flex: none; margin-left: auto; }
+.tool-chevron { color: var(--rl-text-faint); transition: transform var(--dur-base) var(--ease-in-out-strong); flex: none; margin-left: auto; }
 .tool-card[data-open] .tool-chevron, .tool-group[data-open] .tool-chevron { transform: rotate(90deg); }
 .tool-name { font-size: 12.5px; font-weight: var(--fw-label); flex: none; }
 /* Measured counts (editStat): green adds, red deletes, mono tabular — BUI's `+74 −41`. */
@@ -1030,7 +1030,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* §6 tool-row expand: height animates via grid-template-rows 0fr→1fr over 200ms, content fades at
    120ms. .tool-body-clip is the overflow container the 0fr row needs to clip against. */
-.tool-body-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 200ms var(--ease-in-out-strong); }
+.tool-body-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
 .tool-card[data-open] .tool-body-wrap { grid-template-rows: 1fr; }
 .tool-body-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] .tool-body { opacity: 1; }
@@ -1059,11 +1059,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
 .tool-card[data-state="running"] .tool-status { color: var(--ink-2); } /* §3: nothing running-related uses accent */
 .tool-body { border-top: 1px solid var(--rl-hairline); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
-  opacity: 0; transition: opacity 120ms ease; }
+  opacity: 0; transition: opacity var(--dur-press) ease; }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ (§6 icon swap): both glyphs stacked in one grid cell, cross-fading with scale + blur. */
 .tool-copy .copy-icon, .tool-copy .copied-icon { grid-area: 1 / 1;
-  transition: opacity 160ms var(--ease-out-strong), transform 160ms var(--ease-out-strong), filter 160ms var(--ease-out-strong); }
+  transition: opacity var(--dur-swap) var(--ease-out-strong), transform var(--dur-swap) var(--ease-out-strong), filter var(--dur-swap) var(--ease-out-strong); }
 .tool-copy .copied-icon { color: var(--rl-success); }
 .tool-copy:not([data-copied]) .copied-icon, .tool-copy[data-copied] .copy-icon { opacity: 0; transform: scale(.25); filter: blur(4px); }
 .tool-label { display: flex; align-items: center; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-dim); margin-bottom: 4px; }
@@ -1181,7 +1181,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .todo-track { height: 3px; border-radius: 2px; background: var(--rl-line); overflow: hidden; }
 /* The one bar in the app that fills with the accent: it is progress, not state — §3 reserves colour
    for state, and reserves the accent for "the thing that is happening". */
-.todo-fill { height: 100%; border-radius: 2px; background: var(--rl-accent); transition: width 240ms var(--ease-out-strong); }
+.todo-fill { height: 100%; border-radius: 2px; background: var(--rl-accent); transition: width var(--dur-slow) var(--ease-out-strong); }
 .todo-list { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
 .todo-list li { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .todo-dot { flex: none; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%;
@@ -1348,7 +1348,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    transcript passes UNDER the prompter, never over it. */
 .composer-dock { position: relative; z-index: 2; flex: none; width: min(var(--prompter-w), 100% - 48px);
   margin: 8px auto max(12px, env(safe-area-inset-bottom));
-  transition: transform 320ms var(--ease-in-out-strong); }
+  transition: transform var(--dur-move) var(--ease-in-out-strong); }
 /* Hero (§4): card centered at ~38% pane height. It stays bottom-anchored in flow and is lifted by
    transform only — translateY % is own-height, cqh is pane height. The max() keeps the card from
    crossing ~60px below the pane top in short panes. */
@@ -1377,7 +1377,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .suggestion-chip:hover .suggestion-title { color: var(--rl-text-bright); }
 /* Stagger-in (§6): 220ms ease-out, 8px rise, 40ms steps — first render of a session's hero only
    (the data-animate guard is set from a module-level seen-set, so tab-backs never replay). */
-.suggestions[data-animate] .suggestion-chip { animation: rl-chip-in 220ms var(--ease-out-strong) backwards; animation-delay: calc(var(--i) * 40ms); }
+.suggestions[data-animate] .suggestion-chip { animation: rl-chip-in var(--dur-rise) var(--ease-out-strong) backwards; animation-delay: calc(var(--i) * 40ms); }
 @keyframes rl-chip-in { from { opacity: 0; transform: translateY(8px); } }
 
 /* The card (Plan 9 W3 — BUI PromptBar): a surface field on shadow-card (the hairline ring is part
@@ -1439,7 +1439,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    file, not a control. It stays for keyboard focus, which has no hover to trade on. */
 .attach-remove { position: absolute; top: 2px; right: 2px; display: grid; place-items: center;
   width: 16px; height: 16px; border-radius: 50%; color: #fff; background: rgb(0 0 0 / .62);
-  box-shadow: var(--shadow-btn); opacity: 0; transition: opacity 100ms ease; }
+  box-shadow: var(--shadow-btn); opacity: 0; transition: opacity var(--dur-hover) ease; }
 .attach-tile:hover .attach-remove, .attach-remove:focus-visible { opacity: 1; }
 .attach-remove:hover { background: rgb(0 0 0 / .82); }
 /* The honesty row: what THIS agent does with these files, named before the message goes. */
@@ -1552,7 +1552,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-send:hover:not(:disabled) { background: var(--accent-ink); }
 .composer-send:disabled { background: var(--line-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
 .composer-send svg { grid-area: 1 / 1;
-  transition: opacity 160ms var(--ease-out-strong), transform 160ms var(--ease-out-strong), filter 160ms var(--ease-out-strong); }
+  transition: opacity var(--dur-swap) var(--ease-out-strong), transform var(--dur-swap) var(--ease-out-strong), filter var(--dur-swap) var(--ease-out-strong); }
 .composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon { opacity: 0; transform: scale(.25); filter: blur(4px); }
 /* ── Under-strip (§4 + Plan 12 W1): machine label + workspace selector, one size quieter than the
    control row (11px on faint vs 12px on dim), on a frame fill sliding out from beneath the card
@@ -1693,26 +1693,26 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ── Motion (§6): the whole easing/duration table, applied app-wide ───────── */
 /* A leaf's item changing IS content entering, not the "pane focus switching" §6 keeps instant — the
    animation is keyed to item.id in PaneHost, so moving focus between panes never replays it. */
-.panel-body .pane-slot { animation: rl-settle 150ms var(--ease-out-strong); }
+.panel-body .pane-slot { animation: rl-settle var(--dur-fast) var(--ease-out-strong); }
 @keyframes rl-settle { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 /* Menus / popovers (§6): 140ms, opacity + scale .97→1, origin-aware — Menu.tsx sets
    transform-origin to the corner the menu grew from, so it appears to unfold out of its trigger. */
-.menu, .model-picker { animation: rl-menu-in 140ms var(--ease-out-strong); }
+.menu, .model-picker { animation: rl-menu-in var(--dur-pop) var(--ease-out-strong); }
 @keyframes rl-menu-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
 
 /* Sheets (§6): enter 240ms, scale .96 + fade, origin center; the scrim fades on its own at 160ms.
    One rule for every sheet — W4b's `.sheet.onboarding` carve-out is gone. */
-.sheet { animation: rl-sheet-in 240ms var(--ease-out-strong); }
+.sheet { animation: rl-sheet-in var(--dur-slow) var(--ease-out-strong); }
 @keyframes rl-sheet-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
-.sheet-backdrop { animation: rl-fade-in 160ms var(--ease-out-strong); }
+.sheet-backdrop { animation: rl-fade-in var(--dur-swap) var(--ease-out-strong); }
 @keyframes rl-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Transcript items (§6): 180ms, translateY 6px + fade, NEW items only. Transcript.tsx marks a block
    with data-enter the first time it is seen after mount and never takes the mark away — so a
    re-render, a scroll, or coming back to the session cannot replay (or abort) an entrance, and a
    restored history animates nothing at all. */
-.transcript-col > [data-enter], .tool-group-steps > [data-enter] { animation: rl-msg-in 180ms var(--ease-out-strong); }
+.transcript-col > [data-enter], .tool-group-steps > [data-enter] { animation: rl-msg-in var(--dur-enter) var(--ease-out-strong); }
 @keyframes rl-msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* §6 "do NOT animate": the command palette is a 100×/day action (Raycast rule) — it appears and
@@ -1722,25 +1722,25 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* The overview is the opposite case to the palette above: an occasional, deliberate "show me
    everything" that covers the window, so it enters on the sheet's own timings rather than snapping. */
-.spaces-overview { animation: rl-sheet-in 240ms var(--ease-out-strong); }
-.spaces-backdrop { animation: rl-fade-in 160ms var(--ease-out-strong); }
+.spaces-overview { animation: rl-sheet-in var(--dur-slow) var(--ease-out-strong); }
+.spaces-backdrop { animation: rl-fade-in var(--dur-swap) var(--ease-out-strong); }
 
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
    never `all`, never geometry. */
 .item-row, .item-close, .item-shelf, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy,
 .strip-space, .strip-profile, .space-card, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
-  transition: background-color 100ms ease, color 100ms ease;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 /* Press (§6): 120ms to scale .97 on every pressable — buttons, chips, send, permission options.
    Full-width rows (.tool-row, .item-row) are left out: a wide surface shrinking reads as a glitch. */
 .btn, .icon-btn, .ghost-chip, .suggestion-chip, .composer-send, .permission-option, .tool-copy {
-  transition: background-color 100ms ease, color 100ms ease, transform 120ms var(--ease-out-strong);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, transform var(--dur-press) var(--ease-out-strong);
 }
 .btn:active:not(:disabled), .icon-btn:active:not(:disabled), .ghost-chip:active:not(:disabled),
 .suggestion-chip:active:not(:disabled), .composer-send:active:not(:disabled),
 .permission-option:active:not(:disabled), .tool-copy:active:not(:disabled) { transform: scale(.97); }
-.drop-zone { transition: opacity 80ms linear; }
+.drop-zone { transition: opacity var(--dur-drag) linear; }
 
 /* §6 "do NOT animate: theme/mode switching". useTheme sets this for a beat around a palette rewrite;
    without it the surfaces carrying a hover transition would tween to the new theme while the rest of
@@ -2016,8 +2016,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .settings-agent-note code { font: 10.5px var(--font-mono); }
 
 /* One switch idiom for every per-space toggle: a native checkbox drawn as a 30×17 pill. */
-.switch { appearance: none; flex: none; width: 30px; height: 17px; margin: 2px 0 0; border-radius: 999px; background: var(--rl-line-strong); position: relative; cursor: pointer; transition: background 120ms var(--ease-out-strong); }
-.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--surface); transition: translate 120ms var(--ease-out-strong); }
+.switch { appearance: none; flex: none; width: 30px; height: 17px; margin: 2px 0 0; border-radius: 999px; background: var(--rl-line-strong); position: relative; cursor: pointer; transition: background var(--dur-press) var(--ease-out-strong); }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--surface); transition: translate var(--dur-press) var(--ease-out-strong); }
 .switch:checked { background: var(--rl-accent); }
 .switch:checked::after { translate: 13px 0; }
 .switch:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
@@ -2353,7 +2353,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   border-bottom: 1px solid var(--rl-line); flex: 0 0 auto; scrollbar-width: thin; overflow-y: hidden;
 }
 .documents-tab { display: flex; align-items: center; border-radius: var(--r-ctl); flex: 0 0 auto;
-  transition: background-color 100ms ease, color 100ms ease; }
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .documents-tab:hover { background: var(--rl-hover); }
 .documents-tab[data-active] { background: var(--rl-active); }
 .documents-tab-label {
@@ -2385,7 +2385,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   min-width: 0; max-width: 340px; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip);
   font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  transition: background-color 100ms ease, color 100ms ease;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .documents-name:hover { background: var(--rl-hover); }
 .documents-name-input {
@@ -2401,7 +2401,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   border-radius: var(--r-ctl); background: var(--field); box-shadow: var(--shadow-hairline); }
 .documents-modes button {
   padding: 3px 9px; border-radius: var(--r-chip); font-size: 11.5px; color: var(--rl-text-dim);
-  transition: background-color 100ms ease, color 100ms ease;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .documents-modes button:hover { color: var(--rl-text-bright); }
 .documents-modes button[aria-pressed="true"] { background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--shadow-btn); }
@@ -2429,7 +2429,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .documents-picker {
   position: absolute; z-index: 30; top: calc(100% + 4px); left: 12px; right: 12px; max-height: 60vh;
   overflow: auto; padding: 4px; border-radius: var(--r-panel); background: var(--surface);
-  box-shadow: var(--shadow-overlay); animation: rl-menu-in 140ms var(--ease-out-strong);
+  box-shadow: var(--shadow-overlay); animation: rl-menu-in var(--dur-pop) var(--ease-out-strong);
 }
 .documents-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 4px 6px 6px 10px; font-family: var(--font-mono); }
@@ -2437,7 +2437,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .documents-picker-list button {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; text-align: left;
   border-radius: var(--r-chip); color: var(--rl-text-bright); font-size: 12.5px;
-  transition: background-color 100ms ease, color 100ms ease;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .documents-picker-list button > svg { flex: none; color: var(--rl-text-faint); }
 .documents-picker-list button:hover:not(:disabled) { background: var(--hover); }
@@ -2525,7 +2525,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .lecture-row {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl);
   background: none; color: var(--rl-text-bright); font: inherit; text-align: left;
-  transition: background-color 100ms ease, color 100ms ease;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .lecture-row:hover:not(:disabled) { background: var(--rl-hover); }
 .lecture-row:disabled { opacity: 0.6; cursor: default; }
@@ -2568,7 +2568,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   position: absolute; inset: 0; margin: auto; width: 52px; height: 52px; display: grid; place-items: center;
   border: none; border-radius: var(--r-pill); color: #fff; background: rgb(0 0 0 / .55);
   backdrop-filter: blur(8px); cursor: pointer;
-  transition: transform 160ms var(--ease-out-strong), background-color 160ms var(--ease-out-strong);
+  transition: transform var(--dur-swap) var(--ease-out-strong), background-color var(--dur-swap) var(--ease-out-strong);
 }
 .media-play:hover { transform: scale(1.06); background: rgb(0 0 0 / .7); }
 
@@ -2578,7 +2578,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 7px;
   padding: 8px 10px; color: #fff;
   background: linear-gradient(to top, rgb(0 0 0 / .72), rgb(0 0 0 / 0));
-  opacity: 0; transition: opacity 160ms var(--ease-out-strong);
+  opacity: 0; transition: opacity var(--dur-swap) var(--ease-out-strong);
 }
 .media-video:not([data-playing]) .media-controls,
 .media-video:hover .media-controls,
@@ -2586,7 +2586,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .media-btn {
   display: grid; place-items: center; width: 22px; height: 22px; flex: none;
   border: none; border-radius: var(--r-chip); background: none; color: inherit; cursor: pointer;
-  transition: background-color 100ms ease;
+  transition: background-color var(--dur-hover) ease;
 }
 .media-btn:hover { background: rgb(255 255 255 / .18); }
 .media-time { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; flex: none; opacity: .85; }
@@ -2601,7 +2601,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 }
 .media-scrub::-webkit-slider-thumb {
   appearance: none; width: 11px; height: 11px; border-radius: var(--r-pill); background: #fff; border: none;
-  transition: transform 120ms var(--ease-out-strong);
+  transition: transform var(--dur-press) var(--ease-out-strong);
 }
 .media-scrub:hover::-webkit-slider-thumb { transform: scale(1.2); }
 .media-scrub:disabled { cursor: default; }
@@ -2619,7 +2619,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto;
   padding: 2px 5px; border: none; border-radius: var(--r-chip); background: none;
   color: var(--rl-text-faint); font: inherit; font-size: 11px; cursor: pointer;
-  transition: background-color 100ms ease, color 100ms ease;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .media-action + .media-action { margin-left: 0; }
 .media-action:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -2634,7 +2634,7 @@ button.panel-title:hover { background: var(--rl-hover); }
      in the stacking order and wins hit-testing — so a transcript video showed straight through the
      dim. Verified by sampling the composited screenshot, not by eye (scripts/media-live.mjs). */
   background: oklch(0.13 0 0 / 0.97);
-  animation: rl-fade-in 160ms var(--ease-out-strong);
+  animation: rl-fade-in var(--dur-swap) var(--ease-out-strong);
 }
 .media-stage { max-width: min(1200px, 100%); max-height: calc(100vh - 120px); display: flex; }
 .media-stage .media-video, .media-stage .media-image { box-shadow: var(--rl-shadow); background: transparent; }
@@ -2725,7 +2725,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .seg-opt {
   padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
   border-radius: var(--r-chip); cursor: pointer; white-space: nowrap;
-  transition: background-color 100ms ease, color 100ms ease;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
 .seg-opt:hover { color: var(--rl-text-bright); }
@@ -2768,7 +2768,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* The bar carries the series colour and nothing else: no stroke. Separation between touching
    segments is the 2px surface gap `stackSegments` subtracts, not a border — a border adds ink that
    is not data. */
-.chart-bar { transition: opacity 100ms ease; }
+.chart-bar { transition: opacity var(--dur-hover) ease; }
 .chart-crosshair { fill: var(--rl-hover); }
 [data-active] .chart-bar { opacity: 1; }
 .chart-empty { margin: 0; padding: 28px 0; text-align: center; font-size: 12px; color: var(--rl-text-faint); }
@@ -2848,7 +2848,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .budget-thresholds legend { float: left; margin-right: 8px; padding: 0; font-size: 11.5px; color: var(--rl-text-dim); }
 .budget-threshold { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11.5px;
   color: var(--rl-text-dim); border: 1px solid var(--rl-line); border-radius: var(--r-pill); cursor: pointer;
-  transition: background-color 100ms ease, color 100ms ease; }
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .budget-threshold input { position: absolute; opacity: 0; pointer-events: none; }
 .budget-threshold[data-selected] { background: var(--rl-hover); color: var(--rl-text-bright); }
 .budget-threshold:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 1px; }

@@ -356,12 +356,34 @@ a {
   --line-strong: var(--overlay-lighten-400);
   --line-soft: var(--overlay-lighten-200);
 
-  /* Motion, tembo's four steps. `--dur-press` is deliberately shorter than
-   * `--dur-fast`: a press has to resolve inside the gesture that caused it. */
-  --dur-press: 0.14s;
-  --dur-fast: 0.15s;
-  --dur-base: 0.2s;
-  --dur-slow: 0.3s;
+  /* ── The motion ladder ───────────────────────────────────────────────────
+   * One rung per KIND of change, and the kind is the reason the number is
+   * what it is. Tembo's four steps are the spine; the rest are the durations
+   * §6's motion table already assigns, which used to be written out as
+   * literals at 41 call sites — a ladder nothing stands on is documentation,
+   * not a system, and `--dur-press` and `--dur-slow` had no users at all.
+   *
+   * A caveat worth knowing before adding to it: 140 / 150 / 160 are three
+   * rungs inside 20ms, which is finer than anyone can hold apart. They are
+   * three because §6 assigns those three numbers to three different kinds of
+   * change and the guardrail suite pins each one. Collapsing them is a
+   * RETUNE, not a rename — worth doing, but deliberately and on its own. */
+  --dur-drag: 80ms;   /* the drop target appearing mid-drag: fast enough not to read as motion */
+  --dur-hover: 100ms; /* a fill or an ink step answering the pointer */
+  --dur-press: 120ms; /* a control resolving inside the gesture that caused it — the .97 press, the switch throw */
+  --dur-pop: 140ms;   /* a popover unfolding out of its trigger */
+  --dur-fast: 150ms;  /* a fade with no gesture behind it: a tip arriving, a panel dimming to refetch */
+  --dur-swap: 160ms;  /* one thing replacing another, and the scrims that come and go with them */
+  --dur-enter: 180ms; /* an item arriving in a list that is already on screen */
+  --dur-base: 200ms;  /* a box changing SIZE */
+  --dur-rise: 220ms;  /* a staggered entrance */
+  --dur-slow: 240ms;  /* a surface arriving over the window, and the bars that fill at that pace */
+  --dur-move: 320ms;  /* something travelling across the pane */
+  /* Deliberately NOT on the ladder: the ambient loop periods (the 0.9s/1.4s
+   * pulses, the 3.6s orb, the shimmer, the generating canvas) and the 40ms
+   * stagger STEP. A loop period is a tempo and a step is a delay; neither is
+   * the duration of a change, and filing them here would invite picking one
+   * for a transition. */
   /* Drawers and sheets travel on their own curve — a long flat tail, so a panel
    * arrives rather than snaps. (The out-strong / in-out-strong pair above
    * already matches tembo's `--ease-out` / `--ease-in-out` exactly.) */

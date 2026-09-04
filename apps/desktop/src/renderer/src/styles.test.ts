@@ -48,9 +48,46 @@ function blocksAfter(prelude: string): string[] {
 }
 const blockAfter = (prelude: string): string => blocksAfter(prelude).join("\n");
 
+/** The motion ladder, read straight out of tokens.css: rung → milliseconds. §6's table is pinned
+ *  through it rather than against literals, so each timing below is now two facts — the rule reaches
+ *  for the right RUNG, and that rung is still the millisecond value §6 specified. Either one can
+ *  break on its own, and they fail with different messages. */
+const LADDER: Record<string, number> = Object.fromEntries(
+  [...readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8")
+    .matchAll(/(--dur-[a-z]+):\s*(\d+)ms/g)].map((m) => [m[1]!, Number(m[2])]),
+);
+/** `var(--dur-x)`, and a hard failure if the rung does not exist — a typo'd token in an assertion
+ *  would otherwise quietly pin a string nothing in the stylesheet can ever match. */
+const dur = (rung: string): string => {
+  expect(LADDER[rung], `${rung} is not a rung of the ladder in tokens.css`).toBeGreaterThan(0);
+  return `var(${rung})`;
+};
+
+describe("§6 motion ladder", () => {
+  it("is the one place a duration is written, and these are its rungs", () => {
+    expect(LADDER).toEqual({
+      "--dur-drag": 80, "--dur-hover": 100, "--dur-press": 120, "--dur-pop": 140, "--dur-fast": 150,
+      "--dur-swap": 160, "--dur-enter": 180, "--dur-base": 200, "--dur-rise": 220, "--dur-slow": 240,
+      "--dur-move": 320,
+    });
+  });
+
+  it("no component writes a duration of its own", () => {
+    // The failure mode this closes is the one the ladder was built to end: four tokens existed, two
+    // of them with no users at all, while 41 `transition:` declarations wrote their own literals —
+    // so the ladder documented a system the stylesheet was not on.
+    const bare = new Set([...css.replace(/\/\*[\s\S]*?\*\//g, "")
+      .matchAll(/(?:transition|animation)[^;{}]*?(?<![\d.])([\d.]+m?s)\b/g)].map((m) => m[1]!));
+    // Loop PERIODS are a tempo, not the duration of a change, and the stagger step is a delay
+    // between siblings rather than a duration at all. Neither belongs on the ladder.
+    for (const period of ["0.9s", "1.4s", "3.6s", "5s", "40ms"]) bare.delete(period);
+    expect([...bare].sort()).toEqual([]);
+  });
+});
+
 describe("§6 motion table", () => {
   it("sheets enter at 240ms ease-out-strong with a .96 scale — one rule for every sheet, no per-sheet carve-out", () => {
-    expect(bodiesFor(".sheet").join(" ")).toContain("animation: rl-sheet-in 240ms var(--ease-out-strong)");
+    expect(bodiesFor(".sheet").join(" ")).toContain(`animation: rl-sheet-in ${dur("--dur-slow")} var(--ease-out-strong)`);
     expect(blockAfter("@keyframes rl-sheet-in")).toContain("scale(.96)");
     // W4b scoped 240ms to onboarding alone; W5's whole job was to hoist it. If the override comes
     // back, the shared sheet has silently regressed to something else.
@@ -58,73 +95,76 @@ describe("§6 motion table", () => {
   });
 
   it("the sheet scrim fades on its own at 160ms", () => {
-    expect(bodiesFor(".sheet-backdrop").join(" ")).toContain("animation: rl-fade-in 160ms");
+    expect(bodiesFor(".sheet-backdrop").join(" ")).toContain(`animation: rl-fade-in ${dur("--dur-swap")}`);
   });
 
   it("menus enter at 140ms ease-out-strong, scale .97→1, from an origin the component supplies", () => {
-    expect(bodiesFor(".menu").join(" ")).toContain("animation: rl-menu-in 140ms var(--ease-out-strong)");
+    expect(bodiesFor(".menu").join(" ")).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--ease-out-strong)`);
     expect(blockAfter("@keyframes rl-menu-in")).toContain("scale(.97)");
   });
 
   it("the model picker is a popover and enters on the same rule as menus, not one of its own", () => {
     // It shares `.menu`'s declaration rather than carrying a copy: §6 gives every popover one timing,
     // and a second animation here is how the prompter's picker drifts away from every other surface.
-    expect(bodiesFor(".model-picker").join(" ")).toContain("animation: rl-menu-in 140ms var(--ease-out-strong)");
+    expect(bodiesFor(".model-picker").join(" ")).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--ease-out-strong)`);
     // Its interactive rows honour the hover rule — background/colour only, never geometry.
+    const hover = `transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`;
     for (const sel of [".mp-row", ".mp-seg-opt"]) {
-      expect(bodiesFor(sel).join(" "), sel).toContain("transition: background-color 100ms ease, color 100ms ease");
+      expect(bodiesFor(sel).join(" "), sel).toContain(hover);
       expect(bodiesFor(sel).join(" "), sel).not.toContain("transform");
     }
     // The route pills animate their border too — they carry the selected state on the outline rather
     // than on a fill — but still nothing geometric.
-    expect(bodiesFor(".mp-route").join(" ")).toContain("transition: border-color 100ms ease, background-color 100ms ease, color 100ms ease");
+    expect(bodiesFor(".mp-route").join(" ")).toContain(
+      `transition: border-color ${dur("--dur-hover")} ease, background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
     expect(bodiesFor(".mp-route").join(" ")).not.toContain("transform");
   });
 
   it("transcript items enter at 180ms with a 6px rise, gated on the data-enter mark Transcript.tsx sets", () => {
-    expect(bodiesFor(".transcript-col > [data-enter]").join(" ")).toContain("animation: rl-msg-in 180ms var(--ease-out-strong)");
+    expect(bodiesFor(".transcript-col > [data-enter]").join(" ")).toContain(`animation: rl-msg-in ${dur("--dur-enter")} var(--ease-out-strong)`);
     expect(blockAfter("@keyframes rl-msg-in")).toContain("translateY(6px)");
   });
 
   it("hover fills run 100ms on plain `ease` and touch background/colour only — never geometry", () => {
     const hover = bodiesFor(".item-row").join(" ");
-    expect(hover).toContain("transition: background-color 100ms ease, color 100ms ease");
+    expect(hover).toContain(`transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
     expect(hover).not.toContain("transform");
   });
 
   it("pressables scale to .97 over 120ms", () => {
     const press = bodiesFor(".ghost-chip").join(" ");
-    expect(press).toContain("transform 120ms var(--ease-out-strong)");
+    expect(press).toContain(`transform ${dur("--dur-press")} var(--ease-out-strong)`);
     for (const sel of [".btn:active:not(:disabled)", ".icon-btn:active:not(:disabled)", ".composer-send:active:not(:disabled)"])
       expect(bodiesFor(sel).join(" "), sel).toContain("transform: scale(.97)");
   });
 
   it("the send↔stop icon swap cross-fades over 160ms with opacity, scale and blur", () => {
     const swap = bodiesFor(".composer-send svg").join(" ");
-    for (const prop of ["opacity 160ms", "transform 160ms", "filter 160ms"]) expect(swap, prop).toContain(prop);
+    for (const prop of ["opacity", "transform", "filter"]) expect(swap, prop).toContain(`${prop} ${dur("--dur-swap")}`);
     expect(bodiesFor('.composer-send[data-state="send"] .stop-icon').join(" ")).toContain("blur(4px)");
   });
 
   it("the tool row expands by animating grid-template-rows over 200ms, with the content fading at 120ms", () => {
-    expect(bodiesFor(".tool-body-wrap").join(" ")).toContain("transition: grid-template-rows 200ms var(--ease-in-out-strong)");
+    expect(bodiesFor(".tool-body-wrap").join(" ")).toContain(`transition: grid-template-rows ${dur("--dur-base")} var(--ease-in-out-strong)`);
     expect(bodiesFor(".tool-body-wrap").join(" ")).toContain("grid-template-rows: 0fr");
     expect(bodiesFor(".tool-card[data-open] .tool-body-wrap").join(" ")).toContain("grid-template-rows: 1fr");
-    expect(bodiesFor(".tool-body").join(" ")).toContain("transition: opacity 120ms ease");
+    expect(bodiesFor(".tool-body").join(" ")).toContain(`transition: opacity ${dur("--dur-press")} ease`);
   });
 
   it("the copy ✓ swap uses the same 160ms opacity/scale/blur cross-fade as send↔stop", () => {
     const swap = bodiesFor(".tool-copy .copy-icon").join(" ");
-    for (const prop of ["opacity 160ms", "transform 160ms", "filter 160ms"]) expect(swap, prop).toContain(prop);
+    for (const prop of ["opacity", "transform", "filter"]) expect(swap, prop).toContain(`${prop} ${dur("--dur-swap")}`);
     expect(bodiesFor(".tool-copy:not([data-copied]) .copied-icon").join(" ")).toContain("blur(4px)");
   });
 
   it("W2's prompter hero→docked move keeps its 320ms ease-in-out-strong (§6 assigns that easing to on-screen movement)", () => {
-    expect(bodiesFor(".composer-dock").join(" ")).toContain("transition: transform 320ms var(--ease-in-out-strong)");
+    expect(bodiesFor(".composer-dock").join(" ")).toContain(`transition: transform ${dur("--dur-move")} var(--ease-in-out-strong)`);
   });
 
   it("W2's suggestion-chip stagger keeps §6's 220ms / 40ms steps / 8px rise", () => {
     const stagger = bodiesFor(".suggestions[data-animate] .suggestion-chip").join(" ");
-    expect(stagger).toContain("rl-chip-in 220ms var(--ease-out-strong)");
+    expect(stagger).toContain(`rl-chip-in ${dur("--dur-rise")} var(--ease-out-strong)`);
+    // The step stays a literal: it is a delay BETWEEN siblings, not the duration of one of them.
     expect(stagger).toContain("calc(var(--i) * 40ms)");
     expect(blockAfter("@keyframes rl-chip-in")).toContain("translateY(8px)");
   });
