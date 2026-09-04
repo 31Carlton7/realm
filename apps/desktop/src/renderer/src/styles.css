@@ -1796,7 +1796,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
   /* page panes */
-  .cp-list, .activity-list, .task-detail-result, .notif-list, .notif-detail, .notif-split,
+  .cp-list, .activity-list, .task-detail-result, .notif-list, .notif-detail, .notif-split, .delegation-list,
   .lecture-list, .install-cmd code,
   /* documents */
   .documents-tabs, .documents-picker, .documents-rich-surface, .documents-rich .tiptap, .documents-raw
