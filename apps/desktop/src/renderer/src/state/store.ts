@@ -7,7 +7,7 @@ import {
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type BrowserCredential, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
+  type AgentKind, type Attachment, type BrowserCredential, type DelegatedRun, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -348,6 +348,10 @@ export type Api = {
   getReview(environmentId: string): Promise<{ review: ReviewResult | null }>;
   /** `review.dismiss` — clear the persisted verdict (server-side, so every window's pane hears it). */
   dismissReview(environmentId: string): Promise<void>;
+  /** `delegation.running` — the sessions this one is waiting on right now. The server's registry is
+   *  in memory, so this is the only way a pane mounted mid-run learns about it; from then on
+   *  `delegation.changed` carries every change. */
+  listDelegatedRuns(sessionId: string): Promise<DelegatedRun[]>;
 };
 
 /** The two narrowing dimensions Activity's chips apply — `undefined` means "not filtering by this". */
@@ -692,6 +696,10 @@ export type AppState = {
   /** The selected run's attempt log, by run id. Fetched on selection (`runs.get`); the list rows
    *  carry the run itself, so this holds only what a row cannot. */
   runAttempts: Record<string, RunAttempt[]>;
+  /** What each session is waiting on right now, by DELEGATING session id — the server's in-memory
+   *  delegation registry, mirrored. A session waiting on nothing holds no entry rather than an empty
+   *  array, so the map stays the size of the delegation actually happening. */
+  delegatedRuns: Record<string, DelegatedRun[]>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -1106,6 +1114,12 @@ export type AppState = {
   /** The `review.changed` handler: apply the payload directly (no refetch race) and clear the
    *  in-flight flag. */
   applyReviewChanged(payload: { environmentId: string; review: ReviewResult | null }): void;
+  /** Fetch what this session is waiting on (session pane mount). Covers the runs that began before
+   *  this window connected — every later change arrives as `delegation.changed`. */
+  refreshDelegatedRuns(sessionId: string): Promise<void>;
+  /** The `delegation.changed` handler. The payload is the WHOLE set, so it replaces rather than
+   *  merges; an empty one drops the key instead of parking an empty array nobody will clear. */
+  applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
   /** Open the space's PAGE (Plan 12 W3) — a `space-page` item whose refId is the space id, one per
    *  space (the diff pane's dedup precedent). `tab` lands the page on a section — the plus-menu's
    *  "Manage connections…" passes "connections"; omitted keeps whatever tab the page last showed. */
@@ -1759,7 +1773,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
       machineName: "", userName: "", connectors: {}, browserAllowlists: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -2943,6 +2957,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       applyReviewChanged({ environmentId, review }) {
         const { [environmentId]: _done, ...reviewing } = get().reviewing;
         set({ reviews: { ...get().reviews, [environmentId]: review }, reviewing });
+      },
+      async refreshDelegatedRuns(sessionId) {
+        get().applyDelegationChanged({ sessionId, running: await api.listDelegatedRuns(sessionId) });
+      },
+      applyDelegationChanged({ sessionId, running }) {
+        const { [sessionId]: _idle, ...rest } = get().delegatedRuns;
+        set({ delegatedRuns: running.length === 0 ? rest : { ...rest, [sessionId]: running } });
       },
       async openSpacePage(spaceId, tab) {
         // The tab lands even when the page item already exists — "Manage connections…" on an

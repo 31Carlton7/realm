@@ -25,6 +25,7 @@ import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
 import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAME } from "./browsers/browser-agent";
 import { DelegationEngine } from "./delegation/engine";
+import { announceDelegation } from "./delegation/announce";
 import { AgentRunService } from "./delegation/agent-run";
 import { ReviewService } from "./delegation/review";
 import { AskService } from "./delegation/ask";
@@ -402,7 +403,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // `realm-agent` provider serving `browser_agent_run` + `agent_run`. A delegated child is a REAL
   // session whose specialization all rides existing seams — see each service's class doc comment,
   // including the bypass-is-never-inherited rule both tools carry.
-  const delegationEngine = new DelegationEngine({ sessions, caps: opts.agentRun?.caps });
+  const delegationEngine: DelegationEngine = new DelegationEngine({
+    sessions, caps: opts.agentRun?.caps,
+    onChange: (parentSessionId) => announceDelegation(rpc, delegationEngine, parentSessionId),
+  });
   browserAgents = new BrowserAgentService({ settings, sessions, rpc, engine: delegationEngine, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
   agentRuns = new AgentRunService({ settings, sessions, rpc, engine: delegationEngine, environments: envService, skills, otherDelegation: browserAgents,
     fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts, maxDepth: opts.agentRun?.maxDepth });
@@ -478,7 +482,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify, delegation: delegationEngine,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();

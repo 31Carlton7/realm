@@ -10,6 +10,7 @@ import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
+import { DelegatedRunSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
@@ -842,6 +843,11 @@ export const Methods = {
   /** Dismiss the environment's persisted verdict (the diff-pane section's ✕). Server-side so every
    *  window's pane hears the `review.changed` that follows. */
   "review.dismiss": { params: z.object({ environmentId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /** The delegated runs this session is waiting on right now. The registry is in memory and dies
+   *  with the process, so this is a read of live state, not of a table — a pane opened after a run
+   *  began has no other way to learn about it, and `delegation.changed` carries it from then on. */
+  "delegation.running": { params: z.object({ sessionId: IdSchema }), result: z.object({ running: z.array(DelegatedRunSchema) }) },
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   /**
@@ -1039,6 +1045,13 @@ export const Events = {
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */
   "review.changed": z.object({ environmentId: IdSchema, review: ReviewResultSchema.nullable() }),
+  /** The set of runs a session is waiting on changed — one began, settled, or was collected. Carries
+   *  the WHOLE fresh set rather than a delta: the engine's registry is the only copy of this fact,
+   *  and a renderer that had to accumulate deltas would drift out of step with it after one dropped
+   *  frame. An empty `running` means the session is waiting on nothing, which is the resting state.
+   *  Never sent for a reviewer the user started from the diff pane: that run has no delegating
+   *  session, so there is no transcript for it to appear in. */
+  "delegation.changed": z.object({ sessionId: IdSchema, running: z.array(DelegatedRunSchema) }),
   /** A mutating browser tool call SETTLED on this browser (Plan 11 W4) — the pane chrome's action
    *  ticker appends it. `text` is the same attributed description the permission card showed (page
    *  text only ever inside the `the page labels "…"` framing — never laundered into Realm's voice);

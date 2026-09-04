@@ -236,6 +236,10 @@ export function App() {
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
+    // The set of sessions a session is waiting on. Applied in every window and gated on
+    // nothing: the delegating session's pane may be open in any of them, and the payload is a
+    // handful of ids — the store drops the key when the set is empty.
+    const offDel = rpc().on("delegation.changed", (p) => store.getState().applyDelegationChanged(p));
     // No payload — `mcp.changed` just means "something about some server changed". Only worth a refetch
     // while a space page's Connections tab is actually mounted on a space's server list (Plan 12 W3:
     // the settings sheet is gone; `mcpPanelSpaceId` is McpSection's mounted-for-which-space record).
@@ -263,7 +267,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offSh(); offRun(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offDN?.(); offR(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offSh(); offRun(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

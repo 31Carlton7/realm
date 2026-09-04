@@ -151,4 +151,5 @@ export const liveApi = (): Api => ({
   requestReview: (environmentId) => rpc().call("review.request", { environmentId }),
   getReview: (environmentId) => rpc().call("review.get", { environmentId }),
   dismissReview: async (environmentId) => { await rpc().call("review.dismiss", { environmentId }); },
+  listDelegatedRuns: async (sessionId) => (await rpc().call("delegation.running", { sessionId })).running,
 });

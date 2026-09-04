@@ -7,6 +7,7 @@ import { formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type T
 import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
+import { useElapsed } from "./use-elapsed";
 
 type ToolState = "running" | "ok" | "error" | "none";
 
@@ -152,14 +153,8 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
  *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's
  *  first→last span — the same duration the counts line has always computed. */
 function useWorkedFor(working: boolean, firstTs: number, settledMs: number): string {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!working) return;
-    setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [working]);
-  return formatDuration(working ? Math.max(0, now - firstTs) : settledMs);
+  const elapsed = useElapsed(firstTs, working);
+  return formatDuration(working ? elapsed : settledMs);
 }
 
 /** §2.8/§5: a run of consecutive tool calls, folded behind one ledger line with a dashed connector.

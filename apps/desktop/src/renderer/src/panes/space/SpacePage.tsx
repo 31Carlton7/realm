@@ -1,8 +1,9 @@
-import { AGENT_META, SPACE_COLORS, isRunTerminal, type Checkpoint, type DispatchKind, type Environment, type Run, type RunAttemptOutcome, type RunState, type Session, type Ship } from "@realm/contracts";
+import { AGENT_META, SPACE_COLORS, isRunTerminal, type Checkpoint, type Environment, type Run, type RunAttemptOutcome, type RunState, type Session, type Ship } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { useApp, type SpacePageTab } from "../../state/store";
 import { relativeTime } from "../../components/CheckpointsSheet";
+import { ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
 import { McpSection } from "../../components/sidebar/McpSection";
 import { BrowserOrigins } from "../../components/sidebar/BrowserOrigins";
 import { IconPicker } from "../../components/IconPicker";
@@ -154,7 +155,6 @@ function MemoryTab({ spaceId }: { spaceId: string }) {
   );
 }
 
-const SESSION_STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
 
 /** The Sessions tab: this space's sessions from the existing store data, newest first; each row opens
  *  the session's pane. Status dots ride the same `sessionStatus` plumbing as the sidebar rows.
@@ -202,18 +202,6 @@ function SessionsTab({ spaceId }: { spaceId: string }) {
     </ul>
   );
 }
-
-/** Origin glyph + words per dispatch kind (Plan 13 W2). The agent kinds carry a parent-session link
- *  in the row; `user-dispatch` has no parent by definition. */
-const ORIGIN_META: Record<DispatchKind, { icon: string; label: string }> = {
-  "user-dispatch": { icon: "send", label: "Dispatched (⌘⇧↵)" },
-  agent_run: { icon: "bot", label: "Delegated via agent_run" },
-  browser_agent_run: { icon: "browser", label: "Browser agent" },
-  review: { icon: "diff", label: "Reviewer" },
-  fork: { icon: "branch", label: "Forked from a checkpoint" },
-  import: { icon: "download", label: "Imported from an agent CLI" },
-  run: { icon: "bot", label: "Durable run" },
-};
 
 /** How a run's state reads in the lens. Deliberately not the raw state word: `blocked` is the one
  *  the user has to ACT on, so it says so. */

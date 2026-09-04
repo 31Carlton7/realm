@@ -9,6 +9,7 @@ import type { PaneProps } from "../registry";
 import { Composer } from "./Composer";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
+import { DelegatedRuns } from "./DelegatedRuns";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
 
@@ -294,6 +295,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
         sends={sends}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))} />
+      {/* Between the log and the prompter, not inside the scroller: a delegated child running RIGHT
+          NOW is not history, and it must not scroll away from the reader who went back to re-read
+          something. It draws nothing at all when this session is waiting on no one. */}
+      <DelegatedRuns sessionId={id} />
       {blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))} />

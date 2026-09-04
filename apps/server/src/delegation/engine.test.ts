@@ -30,7 +30,7 @@ function engineOver(batches: StoredSessionEvent[][]) {
   return { engine, interrupted };
 }
 
-const run = (): ActiveRun => ({ childSessionId: "peer", cancelled: false, interruptOnCancel: false, detached: false, settled: null, done: null });
+const run = (): ActiveRun => ({ parentSessionId: "asker", childSessionId: "peer", cancelled: false, startedAt: 0, interruptOnCancel: false, detached: false, settled: null, done: null });
 const wait = (engine: DelegationEngine, r = run(), answer: { text: string | null } = { text: null }, deadlineMs = 2000) =>
   engine.awaitAnswer({ targetId: "peer", fromSeq: 0, run: r, answer, deadline: Date.now() + deadlineMs, pollMs: 1 });
 

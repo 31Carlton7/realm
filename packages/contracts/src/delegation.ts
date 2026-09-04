@@ -56,3 +56,25 @@ export type AgentRunConstraints = z.infer<typeof AgentRunConstraintsSchema>;
  * human's ship decision can rely on, and that is a safety line, not a budget.
  */
 export const MAX_DELEGATION_DEPTH = 2;
+
+/**
+ * A run the delegation engine is holding open for a parent session, as the renderer reads it.
+ *
+ * Deliberately thin. The child is a REAL session, so its title, agent, status and space already
+ * reach the renderer through the session row and the ordinary status stream; copying any of that
+ * here would put a second description of the same thing on the wire, free to drift. What is left is
+ * exactly what only the engine's in-memory registry knows — that this parent is waiting on this
+ * session, since when, and under which of the two waits.
+ */
+export const DelegatedRunSchema = z.object({
+  sessionId: IdSchema,
+  startedAt: z.number().int(),
+  /** True while the parent is free to keep working — an `agent_start` it has not collected yet.
+   *  False means the parent is blocked inside the delegation call at this moment. */
+  detached: z.boolean(),
+  /** False when the target is a PEER the parent merely asked a question of (`agent_ask`) rather than
+   *  a child it spawned. A peer was doing its own work before the question and is not the parent's
+   *  to stop, so calling it a sub-agent would be wrong in both directions. */
+  owned: z.boolean(),
+});
+export type DelegatedRun = z.infer<typeof DelegatedRunSchema>;

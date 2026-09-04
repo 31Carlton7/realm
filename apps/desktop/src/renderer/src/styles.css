@@ -1011,6 +1011,28 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Plan 9 W2 — BUI LoadingState's shimmer label replaces the spinner+text pair; under
    prefers-reduced-motion the global animation kill leaves a static, readable gradient. */
 .msg-working { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+
+/* The delegated-runs dock: what this session is waiting on, between the log and the prompter. It
+   sits on the transcript's own rails (the 680px column's 16px gutter) rather than the composer's
+   card, because it belongs to the reading side — it is the last thing above the fold, and the
+   composer's surface would make it read as another control. */
+.delegation-dock { flex: none; padding: 0 16px 6px; display: flex; flex-direction: column; gap: 2px; }
+.delegation-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px;
+  border-radius: var(--r-ctl); text-align: left; font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.delegation-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.delegation-row[aria-expanded="true"] .tool-chevron { transform: rotate(90deg); }
+.delegation-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.delegation-elapsed { flex: none; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+/* The trace rail the grouped tool run wears, for the same reason: these rows hang off the line above. */
+/* Bounded like every other drawn surface: the per-parent cap is four, but peers asked a question
+   are not capped, and a dock that grew without limit would push the prompter off its own pane. */
+.delegation-list { margin-left: 15px; padding-left: 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px;
+  max-height: 132px; overflow-y: auto; }
+.delegation-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 26px; padding: 3px 8px;
+  border-radius: var(--r-ctl); text-align: left; font-size: 12px; color: var(--ink); }
+.delegation-item:hover { background: var(--rl-hover); }
+.delegation-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.delegation-dim { flex: none; font-size: 11.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 /* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
    these down a long session does not jitter as the digits change. */
@@ -1823,6 +1845,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
    never `all`, never geometry. */
 .item-row, .item-close, .item-shelf, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy,
+.delegation-row, .delegation-item,
 .strip-space, .strip-profile, .space-card, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;

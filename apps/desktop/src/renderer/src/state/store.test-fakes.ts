@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { ModelInfo, SearchResults, UsageBudget, UsageSummary, UsageTotals } from "@realm/contracts";
 
@@ -225,6 +225,8 @@ export type FakeData = {
   notifications?: Notification[];
   /** Persisted review verdicts by environment id (Plan 13 W3) — what `review.get` answers. */
   reviews?: Record<string, ReviewResult | null>;
+  /** The delegation engine's live registry by delegating session id — what `delegation.running` answers. */
+  delegatedRuns?: Record<string, DelegatedRun[]>;
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
    *  Delay it with `delays["search"]` to hold results in flight. */
   searchResults?: SearchResults;
@@ -355,6 +357,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     documentFiles: overrides.documentFiles ?? {},
     notifications: overrides.notifications ?? [],
     reviews: overrides.reviews ?? {},
+    delegatedRuns: overrides.delegatedRuns ?? {},
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     iconAssets: overrides.iconAssets ?? {},
     pickIconImage: overrides.pickIconImage ?? null,
@@ -1132,6 +1135,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     getReview: async (environmentId) => { calls.push(`getReview:${environmentId}`); return { review: data.reviews[environmentId] ?? null }; },
     dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
+    listDelegatedRuns: async (sessionId) => { calls.push(`listDelegatedRuns:${sessionId}`); return data.delegatedRuns[sessionId] ?? []; },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

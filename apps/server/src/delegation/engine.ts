@@ -1,4 +1,4 @@
-import type { StoredSessionEvent } from "@realm/contracts";
+import type { DelegatedRun, StoredSessionEvent } from "@realm/contracts";
 
 /**
  * The delegation engine (Plan 13 W1) — the one settle/drain implementation behind BOTH delegation
@@ -53,6 +53,12 @@ export class DelegationEngine {
     };
     /** Tests tighten these to one and two so a cap is reachable without spawning four fake agents. */
     caps?: { perParent?: number; total?: number };
+    /** Called with a parent whose live set just changed — a run began, settled, or was collected.
+     *  The engine announces the CHANGE and nothing else: the listener reads the new set back off
+     *  `liveRuns`, so there is still exactly one description of who is waiting on what, and nobody
+     *  can be handed a snapshot the registry has already moved past. Optional, because settling must
+     *  not depend on anyone listening. */
+    onChange?: (parentSessionId: string) => void;
   }) {
     this.maxPerParent = d.caps?.perParent ?? MAX_RUNS_PER_PARENT;
     this.maxTotal = d.caps?.total ?? MAX_RUNS_TOTAL;
@@ -78,6 +84,15 @@ export class DelegationEngine {
    *  result, not a machine, so it is not counted against the cap and is not listed here. */
   running(parentSessionId: string): ActiveRun[] {
     return this.list(parentSessionId).filter((r) => r.done === null);
+  }
+
+  /** The parent's live runs as the renderer reads them (`DelegatedRunSchema`). Derived here rather
+   *  than at either call site, so the broadcast and the fetch cannot describe the registry
+   *  differently and nothing outside this class has to know what "live" counts as. */
+  liveRuns(parentSessionId: string): DelegatedRun[] {
+    return this.running(parentSessionId).map((r) => ({
+      sessionId: r.childSessionId, startedAt: r.startedAt, detached: r.detached, owned: r.interruptOnCancel,
+    }));
   }
 
   /** Every run of this parent the registry still holds, settled ones included — `agent_status`'s
@@ -117,11 +132,12 @@ export class DelegationEngine {
    */
   begin(parentSessionId: string, targetSessionId: string, opts: { interruptOnCancel?: boolean; detached?: boolean } = {}): ActiveRun {
     const run: ActiveRun = {
-      childSessionId: targetSessionId, cancelled: false,
+      parentSessionId, childSessionId: targetSessionId, cancelled: false, startedAt: Date.now(),
       interruptOnCancel: opts.interruptOnCancel ?? true,
       detached: opts.detached ?? false, done: null, settled: null,
     };
     this.runs.set(parentSessionId, [...this.list(parentSessionId), run]);
+    this.d.onChange?.(parentSessionId);
     return run;
   }
 
@@ -134,10 +150,11 @@ export class DelegationEngine {
    * a sibling's `finally` can never evict a detached run whose report has not been collected yet.
    */
   end(parentSessionId: string, run?: ActiveRun): void {
-    if (!run) { this.runs.delete(parentSessionId); return; }
+    if (!run) { this.runs.delete(parentSessionId); this.d.onChange?.(parentSessionId); return; }
     const rest = this.list(parentSessionId).filter((r) => r !== run);
     if (rest.length === 0) this.runs.delete(parentSessionId);
     else this.runs.set(parentSessionId, rest);
+    this.d.onChange?.(parentSessionId);
   }
 
   /** The PARENT was interrupted: ALL its delegated runs are cancelled and their children interrupted
@@ -168,7 +185,7 @@ export class DelegationEngine {
    * which never stops the child.
    */
   watch(run: ActiveRun, childId: string, fromSeq: number, deadline: number, pollMs: number): void {
-    run.settled = this.drain(childId, fromSeq, run, deadline, pollMs).then((s) => { run.done = s; return s; });
+    run.settled = this.drain(childId, fromSeq, run, deadline, pollMs).then((s) => { run.done = s; this.d.onChange?.(run.parentSessionId); return s; });
     // drain resolves for every outcome rather than throwing, but an unobserved promise that somehow
     // did reject would take the process down — and a detached run is unobserved by construction.
     void run.settled.catch(() => { /* surfaced through run.done / the awaiting tool */ });
@@ -318,8 +335,15 @@ export class DelegationEngine {
  * `done === null` and `agent_status` reads both.
  */
 export type ActiveRun = {
+  /** The registry's key, carried on the run as well. `watch` resolves in the background holding only
+   *  the run, and a settle nobody can attribute to a parent is a settle nobody can be told about.
+   *  `begin` is the only place a run is built, so the two cannot disagree. */
+  parentSessionId: string;
   childSessionId: string;
   cancelled: boolean;
+  /** When `begin` registered the run — wall clock, because its only reader is a human watching a
+   *  duration tick up in a pane. */
+  startedAt: number;
   interruptOnCancel: boolean;
   detached: boolean;
   settled: Promise<SettledRun> | null;

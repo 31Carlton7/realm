@@ -30,6 +30,7 @@ import type { UsageService } from "../usage/service";
 import type { GraphifyService } from "../graphify/service";
 import type { RunService } from "../runs/service";
 import type { ReviewService } from "../delegation/review";
+import type { DelegationEngine } from "../delegation/engine";
 import type { SearchService } from "../search/service";
 import type { ForkService } from "../sessions/fork";
 import type { ImportService } from "../import/service";
@@ -50,6 +51,7 @@ export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
   profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
+  delegation: DelegationEngine;
 };
 
 export function registerMethods(d: Deps): void {
@@ -495,6 +497,9 @@ export function registerMethods(d: Deps): void {
   reg("review.request", (p) => d.reviews.request(p.environmentId));
   reg("review.get", (p) => ({ review: d.reviews.get(p.environmentId) }));
   reg("review.dismiss", (p) => { d.reviews.dismiss(p.environmentId); return { ok: true as const }; });
+  // Live registry state, not a table: the engine holds it in memory and it dies with the process, so
+  // a pane mounting mid-run has no other way to learn what its session is waiting on.
+  reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
 
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
   reg("models.catalog", async (p) => ({ rows: await d.modelCatalog.list({ force: p.force }) }));
