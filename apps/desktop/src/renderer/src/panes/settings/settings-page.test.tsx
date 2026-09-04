@@ -144,6 +144,27 @@ describe("App tab", () => {
     expect(api.calls).toContain("setSetting:ui.theme=dark");
   });
 
+  it("the palette is a card per theme; choosing one writes ui.themeName and not ui.theme", async () => {
+    const { store, api } = await openApp();
+    expect(screen.getByRole("radio", { name: "Realm" })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: "One" }));
+    await waitFor(() => expect(store.getState().themeName).toBe("one"));
+    expect(api.calls).toContain("setSetting:ui.themeName=one");
+    // THE conflated-axis mutant: have the picker set the mode too. The light/dark preference is the
+    // user's and a palette choice is not permission to overwrite it.
+    expect(api.calls.filter((c) => c.startsWith("setSetting:ui.theme="))).toEqual([]);
+    expect(store.getState().themePref).toBe("system");
+  });
+
+  it("a one-faced palette says so rather than leaving the mode control looking broken", async () => {
+    const { store } = await openApp();
+    fireEvent.click(screen.getByRole("radio", { name: "Monokai" }));
+    await waitFor(() => expect(store.getState().themeName).toBe("monokai"));
+    expect(screen.getByText(/Monokai has no light variant/)).toBeInTheDocument();
+    // Still operable: the preference it records applies again under a two-faced palette.
+    expect(screen.getByRole("radio", { name: "Light" })).not.toBeDisabled();
+  });
+
   it("submit key defaults to Enter and can switch to ⌘/Ctrl+Enter, writing ui.submitKey", async () => {
     const { store, api } = await openApp();
     expect(screen.getByRole("radio", { name: "Enter" })).toBeChecked();

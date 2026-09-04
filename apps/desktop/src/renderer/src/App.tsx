@@ -53,7 +53,8 @@ export function AppShell() {
 function ThemeBridge() {
   const color = useApp((s) => s.activeSpace()?.color ?? null);
   const pref = useApp((s) => s.themePref);
-  useApplyTheme(color, pref);
+  const theme = useApp((s) => s.themeName);
+  useApplyTheme(color, pref, theme);
   return null;
 }
 

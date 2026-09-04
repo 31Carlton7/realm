@@ -3,12 +3,12 @@ import {
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
 } from "@realm/contracts";
-import { Icon } from "@realm/ui";
+import { Icon, THEMES, resolveMode, themeSwatches } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
-import type { ThemePref } from "../../theme/useTheme";
+import { useSystemMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
 
@@ -184,6 +184,8 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string 
 function AppTab() {
   const themePref = useApp((s) => s.themePref);
   const setThemePref = useApp((s) => s.setThemePref);
+  const themeName = useApp((s) => s.themeName);
+  const setThemeName = useApp((s) => s.setThemeName);
   const submitKey = useApp((s) => s.submitKey);
   const setSubmitKey = useApp((s) => s.setSubmitKey);
   const prefs = useApp((s) => s.settingsPrefs);
@@ -195,6 +197,7 @@ function AppTab() {
   const setDesktopNotifications = useApp((s) => s.setDesktopNotifications);
   const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
   const run = useApp((s) => s.run);
+  const sys = useSystemMode();
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
   // bypassPermissions must never be a one-click slip, HERE least of all — this is every future
   // session at once. Same two-step as the composer chip (U-M7): arm for 5s, apply only on the
@@ -206,6 +209,13 @@ function AppTab() {
     return () => clearTimeout(t);
   }, [confirmBypass]);
 
+  // The mode the preference resolves to before the palette has its say, and what it becomes after.
+  // Both are needed: the cards preview against what the user ASKED for, the hint explains the gap.
+  const wanted = themePref === "system" ? sys : themePref;
+  const effective = resolveMode(themeName, wanted);
+  const pinned = effective !== wanted;
+  const palette = THEMES.find((t) => t.name === themeName) ?? THEMES[0]!;
+
   const supported = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_SUPPORTS_PERMISSION_MODES[k]);
   const unsupported = SELECTABLE_AGENT_KINDS.filter((k) => !AGENT_SUPPORTS_PERMISSION_MODES[k]);
   const labels = (ks: readonly AgentKind[]) => ks.map((k) => AGENT_META[k].label).join(", ");
@@ -213,7 +223,11 @@ function AppTab() {
   return (
     <div className="form">
       <div className="field"><span>Theme</span>
-        <fieldset className="settings-tabs" aria-label="Theme">
+        {/* `data-pinned` when the chosen palette has only one face. The radios stay LIVE — the
+            preference is still recorded and still applies the moment a two-faced palette is chosen —
+            but a control that cannot change what is on screen right now has to say so rather than
+            look broken. */}
+        <fieldset className="settings-tabs" aria-label="Theme" data-pinned={pinned || undefined}>
           {THEME_CHOICES.map((t) => (
             <label key={t.pref} className="settings-tab" data-selected={themePref === t.pref || undefined}>
               <input type="radio" name="settings-theme" value={t.pref} checked={themePref === t.pref}
@@ -222,9 +236,33 @@ function AppTab() {
             </label>
           ))}
         </fieldset>
+        {pinned && <p className="settings-hint">{`${palette.label} has no ${wanted} variant, so the window stays ${effective} while it is chosen. Your preference is kept.`}</p>}
         {/* One line, not a switch (Plan 14 W5): the OS setting is the control, and styles.css's global
             prefers-reduced-motion kill is what makes this sentence true. */}
         <p className="settings-hint">Realm follows the system's Reduce Motion setting everywhere — with it on, animations and transitions are disabled app-wide.</p>
+      </div>
+
+      <div className="field"><span>Palette</span>
+        {/* Each card is painted in the palette it names, in the mode that palette would actually
+            resolve to — the swatches are the same derivation the app runs, so what is on the card is
+            what the window becomes. */}
+        <fieldset className="theme-grid" aria-label="Palette">
+          {THEMES.map((t) => {
+            const [page, surface, accent, string] = themeSwatches(t.name, wanted);
+            return (
+              <label key={t.name} className="theme-card" data-selected={themeName === t.name || undefined}
+                style={{ background: page, borderColor: surface }}>
+                <input type="radio" name="settings-palette" value={t.name} checked={themeName === t.name}
+                  onChange={() => run(() => setThemeName(t.name))} />
+                <span className="theme-card-swatches" aria-hidden>
+                  {[surface, accent, string].map((c, i) => <span key={i} style={{ background: c }} />)}
+                </span>
+                <span className="theme-card-name" style={{ color: accent }}>{t.label}</span>
+              </label>
+            );
+          })}
+        </fieldset>
+        <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
       </div>
 
       <div className="field"><span>Send message with</span>

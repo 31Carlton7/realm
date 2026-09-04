@@ -1,3 +1,5 @@
+import { THEME_VARS, themeVars, type ThemeName } from "./themes";
+
 export type Mode = "light" | "dark";
 export type Hsl = { h: number; s: number; l: number };
 
@@ -46,10 +48,24 @@ export function spaceColor(hex: string, mode: Mode): string {
     : { h: h.h, s, l: Math.min(55, Math.max(35, h.l)) });
 }
 
-/** Writes the one runtime token (`--rl-space`) and stamps the mode on the root. `data-mode` is what
- *  flips the CSS token blocks (and Tailwind's `dark:` variant, remapped onto it) between the dark
- *  and light BUI ramps — the rest of the theme never touches JavaScript. */
-export function applyTheme(space: string, mode: Mode, root: HTMLElement = document.documentElement): void {
+/** Writes the runtime tokens and stamps the mode and theme on the root. `data-mode` is what flips the
+ *  CSS token blocks (and Tailwind's `dark:` variant, remapped onto it) between the dark and light BUI
+ *  ramps; `data-theme` is a label for the stylesheet and the live checks to read, never a selector
+ *  the palette hangs off.
+ *
+ *  A custom theme is a set of INLINE custom properties, which is what lets it win over both token
+ *  blocks in tokens.css without a third block or a generated stylesheet. The default theme states
+ *  none, so choosing `realm` clears the whole set and the app is back on the static CSS it has always
+ *  been. Every name in THEME_VARS is cleared before the new set is written, or the properties a
+ *  theme happens not to state would still be pointing at the theme before it. */
+export function applyTheme(space: string, mode: Mode, theme: ThemeName = "realm", root: HTMLElement = document.documentElement): void {
   root.style.setProperty("--rl-space", spaceColor(space, mode));
   root.dataset.mode = mode;
+  root.dataset.theme = theme;
+  const vars = themeVars(theme, mode);
+  for (const name of THEME_VARS) {
+    const value = vars[name];
+    if (value === undefined) root.style.removeProperty(name);
+    else root.style.setProperty(name, value);
+  }
 }

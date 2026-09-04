@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { applyTheme, type Mode } from "@realm/ui";
+import { applyTheme, resolveMode, type Mode, type ThemeName } from "@realm/ui";
 
 export type ThemePref = "system" | "light" | "dark";
 
@@ -30,17 +30,21 @@ export function suppressTransitions(root: HTMLElement, ms = SETTLE_MS): () => vo
   return () => { clearTimeout(id); root.removeAttribute("data-theme-switching"); };
 }
 
-/** Resolves the effective mode from the user preference and stamps it (plus the space colour) on
- *  `:root`. The palette itself is static CSS now (Plan 9 W1: BUI tokens in theme/tokens.css keyed
- *  on `data-mode`) — the only runtime writes left are `--rl-space` and the mode attribute. */
-export function useApplyTheme(color: string | null, pref: ThemePref): Mode {
+/** Resolves the effective mode from the two axes — the user's light/dark preference and the theme,
+ *  which may only have one face — and stamps it (plus the space colour and the theme's palette) on
+ *  `:root`. On the default theme the palette is still static CSS (BUI tokens in theme/tokens.css
+ *  keyed on `data-mode`) and the only runtime writes are `--rl-space` and the two attributes.
+ *
+ *  The PREFERENCE is deliberately not clamped here, only the resolved mode: choosing Monokai pins
+ *  the window dark, and choosing a two-faced theme afterwards must find "system" where it left it. */
+export function useApplyTheme(color: string | null, pref: ThemePref, theme: ThemeName = "realm"): Mode {
   const sys = useSystemMode();
-  const mode: Mode = pref === "system" ? sys : pref;
+  const mode = resolveMode(theme, pref === "system" ? sys : pref);
   // Layout effect so the first paint already carries the mode (no flash of default vars).
   useLayoutEffect(() => {
     const done = suppressTransitions(document.documentElement);
-    applyTheme(color ?? "#7c6cff", mode);
+    applyTheme(color ?? "#7c6cff", mode, theme);
     return done;
-  }, [color, mode]);
+  }, [color, mode, theme]);
   return mode;
 }

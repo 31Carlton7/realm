@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyTheme, hexToHsl, hslToHex, spaceColor } from "./theme";
+import { THEME_VARS } from "./themes";
 
 /** Plan 9 W1 re-scope: the ink-grayscale palette generator is gone — surfaces, text tiers, accent,
  *  semantic colours and shadows are the Beautiful UI token set, static CSS in the renderer
@@ -38,28 +39,52 @@ describe("spaceColor (the one identity pixel, clamp rules unchanged from spec 20
   });
 });
 
-describe("applyTheme (runtime writes: --rl-space and data-mode, nothing else)", () => {
+describe("applyTheme (runtime writes: --rl-space, the two attributes, and a custom theme's palette)", () => {
   const fakeRoot = () => {
     const props: Record<string, string> = {};
     const root = {
-      style: { setProperty: (k: string, v: string) => { props[k] = v; } },
+      style: {
+        setProperty: (k: string, v: string) => { props[k] = v; },
+        removeProperty: (k: string) => { delete props[k]; },
+      },
       dataset: {} as Record<string, string>,
     } as unknown as HTMLElement;
-    return { root, props };
+    return { root, props, dataset: (root as unknown as { dataset: Record<string, string> }).dataset };
   };
 
   it("writes the clamped space colour to --rl-space and stamps data-mode", () => {
     for (const mode of ["dark", "light"] as const) {
-      const { root, props } = fakeRoot();
-      applyTheme("#3ddc97", mode, root);
+      const { root, props, dataset } = fakeRoot();
+      applyTheme("#3ddc97", mode, "realm", root);
       expect(props["--rl-space"]).toBe(spaceColor("#3ddc97", mode));
-      expect((root as unknown as { dataset: Record<string, string> }).dataset.mode).toBe(mode);
+      expect(dataset.mode).toBe(mode);
     }
   });
 
-  it("writes no other custom property — the BUI tokens are CSS truth, not runtime writes", () => {
+  it("the default theme writes no other custom property — the BUI tokens are CSS truth, not runtime writes", () => {
+    // THE default-theme mutant: make `realm` derive a palette like any other theme and this goes red.
+    // Realm's own colours are 85 properties of hand-tuned static CSS with per-mode shadow stacks and
+    // a validated chart palette; a mechanism that "re-derived" them would silently repaint the app
+    // for every user who never asked for a theme.
     const { root, props } = fakeRoot();
-    applyTheme("#7c6cff", "dark", root);
+    applyTheme("#7c6cff", "dark", "realm", root);
     expect(Object.keys(props)).toEqual(["--rl-space"]);
+  });
+
+  it("a custom theme writes its whole palette inline, and returning to the default clears every one", () => {
+    const { root, props } = fakeRoot();
+    applyTheme("#7c6cff", "dark", "one", root);
+    for (const name of THEME_VARS) expect(props[name], name).toMatch(/^oklch\(/);
+    applyTheme("#7c6cff", "dark", "realm", root);
+    // THE stale-palette mutant: drop the removeProperty branch and this keeps One Dark's inline
+    // values, which beat both token blocks in tokens.css — the app would be stuck on the last theme
+    // chosen with no way back short of a reload.
+    expect(Object.keys(props)).toEqual(["--rl-space"]);
+  });
+
+  it("stamps the theme on the root so the stylesheet and the live checks can name it", () => {
+    const { root, dataset } = fakeRoot();
+    applyTheme("#7c6cff", "dark", "one", root);
+    expect(dataset.theme).toBe("one");
   });
 });

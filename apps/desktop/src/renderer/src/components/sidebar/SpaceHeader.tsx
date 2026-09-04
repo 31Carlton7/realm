@@ -1,4 +1,4 @@
-import { Icon } from "@realm/ui";
+import { Icon, THEMES } from "@realm/ui";
 import { useCallback, useRef, useState } from "react";
 import type { Space } from "@realm/contracts";
 import { useApp } from "../../state/store";
@@ -6,12 +6,14 @@ import { Menu } from "../Menu";
 import { SpaceIcon } from "../SpaceIcon";
 import type { ThemePref } from "../../theme/useTheme";
 
-const THEMES: { pref: ThemePref; label: string }[] = [{ pref: "system", label: "System" }, { pref: "light", label: "Light" }, { pref: "dark", label: "Dark" }];
+const MODES: { pref: ThemePref; label: string }[] = [{ pref: "system", label: "System" }, { pref: "light", label: "Light" }, { pref: "dark", label: "Dark" }];
 
 export function SpaceHeader({ space }: { space: Space }) {
   const profile = useApp((s) => s.profiles.find((p) => p.id === space.profileId));
   const themePref = useApp((s) => s.themePref);
   const setThemePref = useApp((s) => s.setThemePref);
+  const themeName = useApp((s) => s.themeName);
+  const setThemeName = useApp((s) => s.setThemeName);
   const swipeInvert = useApp((s) => s.swipeInvert);
   const setSwipeInvert = useApp((s) => s.setSwipeInvert);
   const openSpacePage = useApp((s) => s.openSpacePage);
@@ -43,7 +45,9 @@ export function SpaceHeader({ space }: { space: Space }) {
               // deliberate choice — it makes a branch — so it lives behind the menu.
               { label: "New session in a worktree", onSelect: () => run(() => newSessionInWorktree()) },
               { kind: "separator" },
-              ...THEMES.map((t) => ({ label: `Theme: ${t.label}`, checked: themePref === t.pref, onSelect: () => run(() => setThemePref(t.pref)) })),
+              ...MODES.map((t) => ({ label: `Theme: ${t.label}`, checked: themePref === t.pref, onSelect: () => run(() => setThemePref(t.pref)) })),
+              { kind: "separator" as const },
+              ...THEMES.map((t) => ({ label: `Palette: ${t.label}`, checked: themeName === t.name, onSelect: () => run(() => setThemeName(t.name)) })),
               { kind: "separator" as const },
               { label: "Invert swipe direction", checked: swipeInvert, onSelect: () => run(() => setSwipeInvert(!swipeInvert)) },
           ]} />

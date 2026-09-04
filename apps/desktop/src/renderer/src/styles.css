@@ -995,7 +995,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .md-code { margin: 6px 0 8px; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--shadow-hairline); overflow: hidden; }
 .md-code-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); }
 .md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
-.md-code pre { margin: 0; padding: 10px 12px; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
+.md-code pre { margin: 0; padding: 10px 12px; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.65; color: var(--syn-fg); }
 .md a { color: var(--rl-accent); text-decoration: underline; text-underline-offset: 2px; } /* Ara refresh §4: ink underline, no hue */
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
 /* A 1px low-alpha outline keeps an image's edge legible on any surface it lands on. Pure white in
@@ -1143,16 +1143,20 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Syntax colours (highlight.js token classes; rich/highlight.ts emits them). One muted, six-hue
    ramp shared by fenced code, file previews and the composer's code chips — deliberately quieter
    than an editor theme, because a transcript is prose with code in it rather than an editor. */
-.hljs { color: var(--ink-2); }
-.hljs-comment, .hljs-quote { color: var(--ink-3); font-style: italic; }
-.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-name { color: var(--accent); }
-.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string { color: var(--green); }
-.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-template-variable, .hljs-variable { color: var(--orange); }
-.hljs-title, .hljs-section, .hljs-title.class_, .hljs-title.function_, .hljs-selector-id { color: var(--ink); font-weight: var(--fw-title); }
-.hljs-type, .hljs-built_in, .hljs-class .hljs-title, .hljs-params { color: var(--ink); }
-.hljs-attr, .hljs-selector-attr, .hljs-selector-class, .hljs-property { color: var(--ink-2); }
-.hljs-meta, .hljs-comment .hljs-doctag { color: var(--ink-3); }
-.hljs-deletion { color: var(--red); }
+/* Every colour here is a `--syn-*` role, not a palette token: a code theme is half of what makes
+   Monokai Monokai, so the mapping has to be somewhere a theme can repaint in seven values rather
+   than thirty. tokens.css defines the roles against the ramps these rules used to name inline, so
+   the default palette highlights exactly as before. */
+.hljs { color: var(--syn-fg); }
+.hljs-comment, .hljs-quote { color: var(--syn-comment); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-name { color: var(--syn-keyword); }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string { color: var(--syn-string); }
+.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-template-variable, .hljs-variable { color: var(--syn-number); }
+.hljs-title, .hljs-section, .hljs-title.class_, .hljs-title.function_, .hljs-selector-id { color: var(--syn-title); font-weight: var(--fw-title); }
+.hljs-type, .hljs-built_in, .hljs-class .hljs-title, .hljs-params { color: var(--syn-type); }
+.hljs-attr, .hljs-selector-attr, .hljs-selector-class, .hljs-property { color: var(--syn-attr); }
+.hljs-meta, .hljs-comment .hljs-doctag { color: var(--syn-meta); }
+.hljs-deletion { color: var(--syn-deleted); }
 .hljs-emphasis { font-style: italic; } .hljs-strong { font-weight: var(--fw-strong); }
 
 /* A file, with a line-number rail (rich/ToolViews.tsx CodeBlock). The rail is its own column and
@@ -2818,6 +2822,28 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    different kind of thing. */
 .msg-user-file-open { display: block; padding: 0; border: none; background: none; cursor: zoom-in; }
 
+/* ——— Settings → App: the palette picker ——————————————————————————————————————
+   Each card is painted in the theme it names, so the row is a set of previews rather than a list of
+   words. auto-fill rather than a fixed column count: this field sits in a settings pane whose width
+   is whatever the user left the split at. */
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; }
+.theme-card {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px; cursor: pointer;
+  border: 1px solid; border-radius: var(--r-panel); box-shadow: var(--shadow-card-lift);
+  transition: box-shadow var(--dur-hover) ease;
+}
+.theme-card input { position: absolute; opacity: 0; pointer-events: none; }
+/* The selection ring is the APP's accent, not the card's: it belongs to the control the user is
+   operating, and a card whose own accent happened to match its ground would show no ring at all. */
+.theme-card[data-selected] { box-shadow: 0 0 0 2px var(--rl-accent), var(--shadow-card-lift); }
+.theme-card:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.theme-card-swatches { display: flex; gap: 4px; }
+.theme-card-swatches span { width: 14px; height: 14px; border-radius: 999px; }
+.theme-card-name { font-size: 12px; font-weight: var(--fw-label); }
+/* A mode control the palette has overruled. Dimmed, never disabled — it still records a preference
+   that applies again the moment a two-faced palette is chosen. */
+.settings-tabs[data-pinned] { opacity: .5; }
+
 /* ——— Settings → Usage ————————————————————————————————————————————————————————
    Spend, tokens and activity. The palette itself lives in tokens.css (`--series-1..8`, validated as
    a set against Realm's own chart surface in both modes); everything here is chrome, and chrome's
@@ -2849,9 +2875,12 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 
 /* ——— stat tiles ——— */
 .usage-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+/* --chart-surface, not --rl-raised: the sparkline in this tile is drawn in the same eight series
+   colours the plots below use, and those are validated against a ground of a particular lightness
+   (tokens.css). On the shipped palette the two are the same value. */
 .stat-tile {
   display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px;
-  border: 1px solid var(--rl-line); border-radius: var(--r-panel); background: var(--rl-raised);
+  border: 1px solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface);
 }
 .stat-label { font-size: 11.5px; color: var(--rl-text-dim); }
 /* Proportional figures, deliberately: `tabular-nums` gives every digit a zero's width, which makes
@@ -2865,7 +2894,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* ——— cards ——— */
 .usage-card {
   display: flex; flex-direction: column; gap: 10px; padding: 14px;
-  border: 1px solid var(--rl-line); border-radius: var(--r-panel); background: var(--rl-raised);
+  border: 1px solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface);
 }
 .usage-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .usage-card-head h3 { margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }

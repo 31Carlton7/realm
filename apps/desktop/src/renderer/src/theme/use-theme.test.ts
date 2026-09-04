@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import type { ThemeName } from "@realm/ui";
 import { suppressTransitions, useApplyTheme, type ThemePref } from "./useTheme";
 
-afterEach(() => { cleanup(); vi.useRealTimers(); document.documentElement.removeAttribute("data-theme-switching"); });
+afterEach(() => { cleanup(); vi.useRealTimers(); document.documentElement.removeAttribute("data-theme-switching"); document.documentElement.removeAttribute("style"); });
 
 /** §6's do-NOT-animate list includes theme/mode switching. Rewriting the palette changes every
  *  colour at once; the surfaces carrying a 100ms hover transition would tween to the new theme
@@ -45,5 +46,51 @@ describe("theme switching is not animated (§6)", () => {
     expect(marked()).toBe(true);
     unmount();
     expect(marked()).toBe(false);
+  });
+});
+
+/** The palette is a second axis over light/dark, so the interesting cases are the ones where the two
+ *  disagree: a theme with no light face, and the trip back out of it. */
+describe("theme and mode compose", () => {
+  const root = () => document.documentElement;
+
+  it("a one-faced palette pins the effective mode, and the preference survives it", () => {
+    const { result, rerender } = renderHook(
+      ({ theme }) => useApplyTheme("#7c6cff", "light" as ThemePref, theme),
+      { initialProps: { theme: "monokai" as ThemeName } },
+    );
+    expect(result.current).toBe("dark");
+    expect(root().dataset.mode).toBe("dark");
+    expect(root().dataset.theme).toBe("monokai");
+    // THE pinning-by-preference mutant: implement this by writing "dark" into themePref. The window
+    // looks identical and the user's "light" is gone — this rerender would then still say dark.
+    rerender({ theme: "one" });
+    expect(result.current).toBe("light");
+    expect(root().dataset.mode).toBe("light");
+  });
+
+  it("a custom palette paints inline and the default palette scrubs it off again", () => {
+    const { rerender } = renderHook(
+      ({ theme }) => useApplyTheme("#7c6cff", "dark" as ThemePref, theme),
+      { initialProps: { theme: "one" as ThemeName } },
+    );
+    expect(root().style.getPropertyValue("--page")).toMatch(/^oklch\(/);
+    rerender({ theme: "realm" });
+    expect(root().style.getPropertyValue("--page")).toBe("");
+    expect(root().dataset.theme).toBe("realm");
+  });
+
+  it("switching palette is fenced by the no-transition mark, exactly like switching mode", () => {
+    vi.useFakeTimers();
+    const { rerender } = renderHook(
+      ({ theme }) => useApplyTheme("#7c6cff", "dark" as ThemePref, theme),
+      { initialProps: { theme: "realm" as ThemeName } },
+    );
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(root().hasAttribute("data-theme-switching")).toBe(false);
+    // Repainting 34 custom properties at once is the same smear §6 fenced mode switching for; a
+    // theme change that skipped the fence would tween the hovered row and snap everything else.
+    rerender({ theme: "one" });
+    expect(root().hasAttribute("data-theme-switching")).toBe(true);
   });
 });

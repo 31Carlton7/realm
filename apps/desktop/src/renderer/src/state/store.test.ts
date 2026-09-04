@@ -235,6 +235,29 @@ describe("app store", () => {
     expect(store.getState().themePref).toBe("dark"); expect(set).toContain("ui.theme=dark");
   });
 
+  it("themeName persists under its own key, leaving the mode preference untouched", async () => {
+    // THE compound-key mutant: fold the palette into ui.theme as "dark:monokai". It reads back fine
+    // here and an older build finds a mode it cannot parse where it used to find "dark".
+    const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
+    await store.getState().boot(); await store.getState().setThemeName("one");
+    expect(store.getState().themeName).toBe("one");
+    expect(store.getState().themePref).toBe("system");
+    expect(set).toContain("ui.themeName=one");
+    expect(set.filter((k) => k.startsWith("ui.theme="))).toEqual([]);
+  });
+
+  it("boot reads the palette; garbage and an unknown name both fall back to realm", async () => {
+    const named = async (v: unknown) => {
+      const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.themeName" ? v : null) });
+      await s.getState().boot(); return s.getState().themeName;
+    };
+    expect(await named("one")).toBe("one");
+    // A home written by a build that shipped a theme this one does not have must not leave the app
+    // with a palette it cannot derive.
+    expect(await named("cobalt")).toBe("realm");
+    expect(await named({ mode: "x" })).toBe("realm");
+  });
+
   it("updateItem merges the returned item (pin/rename)", async () => {
     const store = createAppStore(api); await store.getState().boot();
     await store.getState().updateItem({ id: "i1", pinned: true, title: "GitHub" });

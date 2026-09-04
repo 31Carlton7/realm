@@ -11,6 +11,7 @@ import {
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
+import { isThemeName, type ThemeName } from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
@@ -417,6 +418,10 @@ export type SubmitKey = "enter" | "cmdEnter";
 export const PERSIST_DEBOUNCE_MS = 300;
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
 export const SETTING_THEME = "ui.theme";
+/** The palette, which is a second axis from `ui.theme`'s light/dark: one says which mode, the other
+ *  says what the colours are in it. Its own key rather than a compound value in `ui.theme`, so an
+ *  older build reading `ui.theme` still finds a mode it understands. */
+export const SETTING_THEME_NAME = "ui.themeName";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
@@ -490,6 +495,9 @@ export type AppState = {
   /** All spaces across profiles, in user sort order. Exactly one is active at a time. */
   spaces: Space[]; activeSpaceId: string | null;
   themePref: ThemePref;
+  /** The palette. Orthogonal to `themePref`: a theme with only one face pins the effective mode
+   *  while it is selected, and leaves the preference alone (see `useApplyTheme`). */
+  themeName: ThemeName;
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
   submitKey: SubmitKey;
@@ -789,6 +797,7 @@ export type AppState = {
   deleteSpace(id: string): Promise<void>;
   reorderSpaces(ids: string[]): Promise<void>;
   setThemePref(pref: ThemePref): Promise<void>;
+  setThemeName(name: ThemeName): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
   /** Flip the sidebar between full column and top rail, and persist it. */
   toggleSidebar(): Promise<void>;
@@ -1765,7 +1774,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeName: "realm", swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
@@ -1787,15 +1796,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, system] = await Promise.all([
-          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
+        const [profiles, spaces, saved, theme, themeName, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, system] = await Promise.all([
+          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_THEME_NAME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_TERMINAL_PANEL),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
           api.systemInfo().catch(() => ({ machineName: "", userName: "" })),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
-        set({ profiles, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true,
+        set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeName: isThemeName(themeName) ? themeName : "realm", swipeInvert: swipeInvert === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true, lastAgentKind: agent.success ? agent.data : null,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
@@ -1952,6 +1961,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setThemePref(pref) {
         set({ themePref: pref });
         await api.setSetting(SETTING_THEME, pref);
+      },
+      async setThemeName(name) {
+        set({ themeName: name });
+        await api.setSetting(SETTING_THEME_NAME, name);
       },
       async setSwipeInvert(v) {
         set({ swipeInvert: v });

@@ -98,9 +98,9 @@
    * dashing reads as "projected" or "threshold" when it is only a grid. */
   --chart-grid: oklch(1 0 0 / 0.08);
   --chart-axis: oklch(1 0 0 / 0.14);
-  /* The 2px gap and ring that separate touching marks. It is the SURFACE showing through, not a
-   * stroke: a border around a mark adds ink that is not data. */
-  --chart-gap: var(--surface);
+  /* The 2px gap and ring that separate touching marks. It is the CHART SURFACE showing through, not
+   * a stroke: a border around a mark adds ink that is not data. */
+  --chart-gap: var(--chart-surface);
 
   /* shadows — hairline ring + layered stacks. Elevation rings go to a subtle *light* hairline in
    * dark mode: the ring paints over the surface behind the element, so a low-alpha white edge
@@ -162,7 +162,7 @@
   --series-8: #e34948;
   --chart-grid: oklch(0 0 0 / 0.07);
   --chart-axis: oklch(0 0 0 / 0.13);
-  --chart-gap: var(--surface);
+  --chart-gap: var(--chart-surface);
 
   /* Light-mode shadow stacks are restated in the TEMBO ALIGNMENT block below. */
 }
@@ -486,4 +486,39 @@ a {
   --radius-card: 12px;
   --radius-window: 16px;
   --radius-pill: 999px;
+}
+
+/* ══ SYNTAX AND THE CHART GROUND ══════════════════════════════════════════════
+ * Two token sets a custom theme repaints and the shipped palette does not.
+ *
+ * `--syn-*` is the highlight.js mapping, named by ROLE rather than by class so a theme states seven
+ * hues instead of thirty selectors. The values here are the mapping styles.css used to write inline
+ * — accent for keywords, green for strings, orange for numbers, the ink ramp for everything
+ * structural — so the default theme renders code exactly as it always has. `--syn-fg` is the ink
+ * ramp's second step because code body IS body text; `--syn-meta` shares the comment colour and
+ * `--syn-deleted` the red, which is what the old block did by writing those tokens twice.
+ *
+ * These are declared once rather than per mode: every one of them resolves through a token that
+ * already flips on `data-mode`, so a second block would be a second copy of the same mapping. */
+:root {
+  --syn-fg: var(--ink-2);
+  --syn-comment: var(--ink-3);
+  --syn-keyword: var(--accent);
+  --syn-string: var(--green);
+  --syn-number: var(--orange);
+  --syn-title: var(--ink);
+  --syn-type: var(--ink);
+  --syn-attr: var(--ink-2);
+  --syn-meta: var(--ink-3);
+  --syn-deleted: var(--red);
+
+  /* The ground the Usage cards paint, and the only thing about a chart a theme is allowed to move.
+   * The eight `--series-*` above are validated AS A SET against a surface of a particular lightness;
+   * a theme that repainted them would break a colour-vision-deficiency guarantee that has nothing to
+   * do with its mood, and a theme that simply let them land on its own lighter `--surface` would
+   * break the same guarantee more quietly — every dark theme in the set fails slot 6 (#008300) on a
+   * ground lighter than #232427. So the series stay put and the CARD moves, carrying the theme's hue
+   * at a lightness clamped back into the validated band (packages/ui/src/themes.ts, `chartL`).
+   * Identical to `--surface` here, because the shipped palette IS the validated one. */
+  --chart-surface: var(--surface);
 }

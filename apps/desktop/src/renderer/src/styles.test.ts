@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { themeSwatches } from "@realm/ui";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
  *  itself — jsdom has no layout, no compositor and no CSSOM for a raw file, so nothing else in the
@@ -1197,17 +1198,72 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
       expect(bodiesFor(sel).join(" "), `${sel} must cap its height`).toMatch(/max-height: \d+px/);
   });
 
-  it("syntax colour is the ink ramp plus four hues — a transcript is prose with code in it", () => {
+  it("syntax colour is ten named roles and nothing else — a code theme has to be repaintable", () => {
     // `color:` only. A .hljs rule may also reach for the weight ladder (a title is 560, strong is
     // 600) and those are not hues — folding them in would make this assert the ladder twice and
     // fail the moment a rung is used where a bare weight used to be.
+    //
+    // THE re-inlined mutant: put `var(--accent)` back on `.hljs-keyword`. Every default-theme
+    // screenshot is identical, and Monokai's keywords come out Realm blue — because `--accent` is a
+    // theme's chrome hue and a code palette's keyword colour is a different decision that only
+    // happens to coincide in the palette this mapping was written for.
     const hues = new Set(RULES.filter((r) => r.selectors.some((s) => s.startsWith(".hljs")))
       .flatMap((r) => [...r.body.matchAll(/(?:^|[;{]|\s)color:\s*var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]!)));
-    expect([...hues].sort()).toEqual(["--accent", "--green", "--ink", "--ink-2", "--ink-3", "--orange", "--red"]);
+    expect([...hues].sort()).toEqual(SYNTAX_ROLES);
   });
 
   it("the todo bar is the one accent fill, and finished items are struck through rather than dropped", () => {
     expect(bodiesFor(".todo-fill").join(" ")).toContain("background: var(--rl-accent)");
     expect(bodiesFor('.todo-list li[data-status="completed"] .todo-text').join(" ")).toContain("line-through");
+  });
+});
+
+/** Custom themes. The palette a theme writes is inline custom properties (packages/ui/src/themes.ts,
+ *  pinned by its own suite there); what has to hold HERE is that the stylesheet reads those
+ *  properties at all — a token nothing reaches for is a theme that repaints nothing. */
+const SYNTAX_ROLES = [
+  "--syn-attr", "--syn-comment", "--syn-deleted", "--syn-fg", "--syn-keyword",
+  "--syn-meta", "--syn-number", "--syn-string", "--syn-title", "--syn-type",
+];
+
+describe("custom themes", () => {
+  const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+
+  it("the default palette defines every syntax role in terms of the ramps the old block wrote inline", () => {
+    // Byte-for-byte the mapping styles.css used to carry, so introducing the roles cannot have
+    // changed how the shipped theme highlights code. A drift here is a silent restyle of every
+    // transcript for every user who never chose a theme.
+    for (const [role, source] of [
+      ["--syn-fg", "var(--ink-2)"], ["--syn-comment", "var(--ink-3)"], ["--syn-keyword", "var(--accent)"],
+      ["--syn-string", "var(--green)"], ["--syn-number", "var(--orange)"], ["--syn-title", "var(--ink)"],
+      ["--syn-type", "var(--ink)"], ["--syn-attr", "var(--ink-2)"], ["--syn-meta", "var(--ink-3)"],
+      ["--syn-deleted", "var(--red)"],
+    ] as const) {
+      expect(tokens, role).toContain(`${role}: ${source};`);
+    }
+    // One block, not one per mode: every source above already flips on data-mode, so a second copy
+    // under `[data-mode="light"]` would be a mapping that has to be kept in sync with itself.
+    for (const role of SYNTAX_ROLES) {
+      expect(tokens.split(`${role}:`).length - 1, `${role} is declared more than once in tokens.css`).toBe(1);
+    }
+  });
+
+  it("the chart ground is its own token, and the Usage cards are what paints it", () => {
+    // THE chart-drift mutant: point .usage-card back at --rl-raised. The card follows the theme's
+    // surface, which for every dark theme in the set is lighter than the one the eight series were
+    // validated against, and slot 6 quietly stops being distinguishable from its neighbours.
+    expect(tokens).toContain("--chart-surface: var(--surface);");
+    expect(tokens).toContain("--chart-gap: var(--chart-surface);");
+    for (const sel of [".usage-card", ".stat-tile"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("background: var(--chart-surface)");
+    }
+  });
+
+  it("the picker's copy of Realm's own colours has not drifted from tokens.css", () => {
+    // themeSwatches cannot read the live values — under any other theme they are that theme's — so
+    // it carries four literals. This is the pin that keeps the copy honest.
+    for (const mode of ["dark", "light"] as const) {
+      for (const value of themeSwatches("realm", mode)) expect(tokens, `${mode} ${value}`).toContain(value);
+    }
   });
 });

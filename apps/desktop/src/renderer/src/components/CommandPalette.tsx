@@ -1,4 +1,4 @@
-import { Icon } from "@realm/ui";
+import { Icon, THEMES, resolveMode } from "@realm/ui";
 import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type DestinationPageKind, type Item, type PresetName, type SearchResults, type SearchSnippet } from "@realm/contracts";
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
@@ -72,7 +72,7 @@ export function relTime(ts: number, now = Date.now()): string {
   return `${Math.floor(d / 365)}y`;
 }
 
-const THEMES: ThemePref[] = ["system", "light", "dark"];
+const MODES: ThemePref[] = ["system", "light", "dark"];
 
 /** The palette's CSS width (styles.css `.palette`); the no-overlay path needs the number. */
 const PALETTE_WIDTH = 560;
@@ -106,6 +106,8 @@ function PaletteBody() {
   const sessions = useApp((s) => s.sessions);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const themePref = useApp((s) => s.themePref);
+  const themeName = useApp((s) => s.themeName);
+  const setThemeName = useApp((s) => s.setThemeName);
   const selectSpace = useApp((s) => s.selectSpace);
   const openItem = useApp((s) => s.openItem);
   const newTerminal = useApp((s) => s.newTerminal);
@@ -289,15 +291,24 @@ function PaletteBody() {
       ...(activeSpaceId ? PRESETS.map((p) => act(`layout-${p}`, `Layout: ${PRESET_LABELS[p]}`, "layout", () => run(() => applyPreset(p)))) : []),
     ];
 
-    const themes = THEMES.map<Entry>((t) => ({
+    const themes = MODES.map<Entry>((t) => ({
       id: `theme:${t}`, label: `Theme: ${t[0]!.toUpperCase()}${t.slice(1)}`, hint: themePref === t ? "current" : undefined,
       icon: <Icon name={t === "dark" ? "moon" : "sun"} size={15} />, section: "Theme", run: () => run(() => setThemePref(t)),
     }));
 
-    return [...open, ...activeRest, ...others, ...actions, ...themes];
-  }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, drafts, dispatchDraft,
+    // The palette axis, in the same section: light/dark and which colours are the same question to
+    // anyone reaching for ⌘K. A one-faced theme says so in the hint rather than surprising the user
+    // by pinning the mode on select.
+    const palettes = THEMES.map<Entry>((t) => ({
+      id: `palette:${t.name}`, label: `Palette: ${t.label}`, section: "Theme",
+      hint: themeName === t.name ? "current" : t.dark && t.light ? undefined : `${resolveMode(t.name, "light")} only`,
+      icon: <Icon name="paintBucket" size={15} />, run: () => run(() => setThemeName(t.name)),
+    }));
+
+    return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
+  }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeName, drafts, dispatchDraft,
       selectSpace, openItem, newTerminal, newBrowser, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
-      interruptSession, jumpToPermission, applyPreset, setThemePref, openSheet, openSpacePage, openDestinationPage, destinationPageElsewhere, openProfilePage, openActivity, setSpacesOpen, run,
+      interruptSession, jumpToPermission, applyPreset, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, destinationPageElsewhere, openProfilePage, openActivity, setSpacesOpen, run,
       groups, zoomedLeaf, activatePaneGroup, newPaneGroup, toggleFocusPane]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked
