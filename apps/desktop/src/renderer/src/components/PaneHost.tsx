@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
-import { findLeaf, type Item, type Layout, type LayoutSplit } from "@realm/contracts";
+import { findLeaf, firstLeaf, type Item, type Layout, type LayoutSplit } from "@realm/contracts";
 import type { DropEdge } from "../state/store";
 import { PanelBar } from "./PanelBar";
 import { PaneFor } from "../panes/registry";
@@ -111,13 +111,19 @@ export function PaneHost(p: PaneHostProps) {
   // A focused pane renders ALONE — not a `display:none` on its siblings, which would keep every other
   // pane mounted and (for terminals and browser views) fighting for size behind the one on screen.
   const zoomed = p.zoomedLeafId ? findLeaf(p.layout, p.zoomedLeafId) : null;
-  return <div className="panehost" data-zoomed={zoomed ? true : undefined}>{renderNode(zoomed ?? p.layout)}</div>;
+  const root = zoomed ?? p.layout;
+  // The leaf at the host's top-left, which is the first one depth-first for both split directions.
+  // With the sidebar collapsed its bar is what sits under the macOS traffic lights, and it is the
+  // only pane that has to leave room for them — a fact about where a pane IS, which CSS cannot ask.
+  const firstLeafId = firstLeaf(root).id;
+  return <div className="panehost" data-zoomed={zoomed ? true : undefined}>{renderNode(root)}</div>;
 
   function renderNode(n: Layout): JSX.Element {
     if (n.type === "leaf") {
       const item = n.itemId ? byId.get(n.itemId) ?? null : null;
       return (
         <div className="panel" data-leaf-id={n.id} data-focused={n.id === p.focusedLeafId || undefined}
+          data-first-leaf={n.id === firstLeafId || undefined}
           data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
           {item && <PanelBar item={item} leafId={n.id} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
             zoomed={n.id === p.zoomedLeafId} onZoom={p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={p.onUnzoom} />}

@@ -131,7 +131,9 @@ kbd { font: 11px var(--font-mono); }
 .panel ::selection { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); }
 
 /* ── Sidebar (one step darker than the content ground, behind a 1px divider) ── */
-.app { display: flex; height: 100%; background: transparent; }
+/* position: relative for the collapsed corner below, which is the only thing in the shell that is
+   placed against the WINDOW rather than flowed. */
+.app { position: relative; display: flex; height: 100%; background: transparent; }
 /* §5 + Plan 9 W1: the sidebar paints the BUI window ground (--page) at ~0.82 so the macOS
    vibrancy material shows through; --page flips with data-mode, so one rule serves both themes. */
 .sidebar { width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
@@ -142,14 +144,33 @@ kbd { font: 11px var(--font-mono); }
    the 48px of head room the sidebar had before, so nothing below it moves. */
 .sb-head { flex: none; height: 40px; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px 0 16px; }
 .sb-top { padding: 0 16px 8px; display: flex; flex-direction: column; gap: 8px; }
-/* Collapsed: the app stacks, so the rail spans the window above the content. padding-left clears the
-   traffic lights (main sets them at x:12 and they run ~52px wide), which puts the toggle immediately
-   right of them — the same vertical band it occupies inside .sb-head, so collapsing reads as the
-   button moving rather than as one control being swapped for another. */
-.app[data-sidebar-collapsed] { flex-direction: column; }
-.sb-rail { flex: none; height: 38px; display: flex; align-items: center; padding-left: 76px;
-  background: color-mix(in srgb, var(--page) 82%, transparent); -webkit-app-region: drag; }
-.sb-rail button { -webkit-app-region: no-drag; }
+/* Collapsed: the 280px column goes and nothing takes its place. The rail that used to stand in for it
+   spent 38px of window HEIGHT, full width, for a strip whose entire content was one button — a
+   permanent tax on every pane, paid so the traffic lights would not land on pane chrome. The lights
+   land on pane chrome now, on purpose: the corner is an overlay, so it costs no height, and the strip
+   underneath reserves the width they need. Still a drag region, so the window is still draggable by
+   its own top-left corner.
+   padding-left clears the lights — main places them at x:12 and the three run to about 66px — which
+   leaves the toggle immediately right of them, the same vertical band it occupies inside .sb-head, so
+   collapsing reads as the button moving rather than as one control being swapped for another. */
+/* 76 to clear the lights, 26 for the toggle, then 16 so the first pane's leading control is not
+   touching it — .panel-nav opens with a -8px margin, so the gap has to be budgeted at 16 to land
+   as 8 on screen. */
+.app[data-sidebar-collapsed] { --corner-w: 118px; }
+.sb-corner { position: absolute; top: 0; left: 0; z-index: 5; height: 40px; display: flex; align-items: center;
+  padding-left: 76px; -webkit-app-region: drag; }
+.sb-corner button { -webkit-app-region: no-drag; }
+/* Whichever strip is first in the main column is the one under the lights, so it is the one that
+   reserves them. `:first-child` on each candidate keeps the three mutually exclusive — an error bar
+   pushes the others down, and only the bar actually at the top should be indented.
+   The lights themselves never move: main places them once at y:14, which centres a ~14px control in a
+   40px strip, and .sb-head, .panel-bar and the collapsed group bar are all 40px. Changing any of
+   those heights leaves the lights off-centre in that one state. */
+.app[data-sidebar-collapsed] .main > .error-bar:first-child,
+.app[data-sidebar-collapsed] .main > .group-bar:first-child,
+.app[data-sidebar-collapsed] .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar { padding-left: var(--corner-w); }
+/* The group bar is 34px at rest and takes the panel bar's 40px when it is the strip under the lights. */
+.app[data-sidebar-collapsed] .main > .group-bar:first-child { min-height: 40px; }
 /* ink-3 → ink-2 on hover, matching .search: the glyph itself IS the state, no fill change. */
 .sb-toggle { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
   border-radius: var(--r-ctl); color: var(--rl-text-faint); }

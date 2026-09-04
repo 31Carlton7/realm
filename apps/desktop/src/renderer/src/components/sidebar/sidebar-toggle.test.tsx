@@ -20,7 +20,7 @@ describe("sidebar collapse toggle", () => {
     const { store } = await mountShell();
     // Open: the sidebar is mounted and the button offers to hide it.
     expect(document.querySelector(".sidebar")).not.toBeNull();
-    expect(document.querySelector(".sb-rail")).toBeNull();
+    expect(document.querySelector(".sb-corner")).toBeNull();
     expect(toggle()).toHaveAccessibleName("Hide sidebar (⌘B)");
     expect(toggle()).toHaveAttribute("aria-expanded", "true");
     // Kills a mutation that renders the toggle only in the open branch: after collapsing, the
@@ -28,7 +28,7 @@ describe("sidebar collapse toggle", () => {
     fireEvent.click(toggle());
     await waitFor(() => expect(store.getState().sidebarCollapsed).toBe(true));
     expect(document.querySelector(".sidebar")).toBeNull();
-    expect(document.querySelector(".sb-rail")).not.toBeNull();
+    expect(document.querySelector(".sb-corner")).not.toBeNull();
     expect(screen.getAllByRole("button", { name: /(Hide|Show) sidebar/ })).toHaveLength(1);
     expect(toggle()).toHaveAccessibleName("Show sidebar (⌘B)");
     expect(toggle()).toHaveAttribute("aria-expanded", "false");
@@ -38,16 +38,23 @@ describe("sidebar collapse toggle", () => {
     expect(document.querySelector(".sidebar")).not.toBeNull();
   });
 
-  it("moves the toggle from the sidebar's head row into the top rail", async () => {
+  it("moves the toggle from the sidebar's head row into the window's corner", async () => {
     const { store } = await mountShell();
-    // Open: inside the sidebar, in its head row (the traffic-light band), NOT in a rail.
+    // Open: inside the sidebar, in its head row (the traffic-light band), NOT in the corner.
     expect(toggle().closest(".sb-head")).not.toBeNull();
     expect(toggle().closest(".sidebar")).not.toBeNull();
     await act(async () => { await store.getState().toggleSidebar(); });
-    // Collapsed: same button, now in the rail. Kills a mutation that leaves it parented to the
-    // sidebar subtree (where it would be unmounted with it) or drops the rail wrapper.
-    expect(toggle().closest(".sb-rail")).not.toBeNull();
+    // Collapsed: same button, now in the corner overlay. Kills a mutation that leaves it parented to
+    // the sidebar subtree (where it would be unmounted with it) or drops the corner wrapper.
+    const corner = toggle().closest(".sb-corner");
+    expect(corner).not.toBeNull();
     expect(toggle().closest(".sb-head")).toBeNull();
+    // After .main, not before it: panes are positioned, so a corner earlier in the DOM would be
+    // painted over by the first pane's bar however the z-index reads.
+    expect(corner!.previousElementSibling).toHaveClass("main");
+    // …and no rail: the whole point is that collapsing costs no height any more. Whether the lights
+    // actually clear the bar underneath is measured in sidebar-collapsed-live.mjs.
+    expect(document.querySelector(".sb-rail")).toBeNull();
     expect(document.querySelector(".app")).toHaveAttribute("data-sidebar-collapsed");
   });
 

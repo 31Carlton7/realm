@@ -91,6 +91,11 @@ app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 async function createWindow(info: { port: number; home: string }) {
   const win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
+    // y:14 centres the ~14px lights in a 40px strip, and the renderer keeps every strip they can land
+    // in at 40px for exactly that reason: .sb-head with the sidebar open, and with it collapsed the
+    // first pane's .panel-bar (or the group bar, which is raised to 40px in that one state). One
+    // placement serves both, so nothing here has to be moved at runtime when the sidebar collapses —
+    // but shortening any of those strips leaves the lights sitting off-centre in that state.
     titleBarStyle: "hiddenInset", trafficLightPosition: { x: 12, y: 14 },
     // Ara refresh §5: macOS gets sidebar vibrancy behind a fully transparent window paint; the
     // renderer keeps every surface EXCEPT the sidebar opaque, so only the sidebar column shows the

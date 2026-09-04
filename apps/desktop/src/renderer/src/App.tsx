@@ -23,12 +23,18 @@ import "./panes";
 /**
  * The sidebar column and the content beside it — or, collapsed, a top rail and the content below it.
  *
- * The two states are one flex container that changes axis (`.app[data-sidebar-collapsed]` goes
- * column), not two layouts. Collapsed, the rail exists for exactly two reasons: it holds the toggle,
- * and it keeps the macOS traffic lights off the first pane's panel bar — with the 280px sidebar gone
- * there is nothing else between them and pane chrome, and they would land on top of a pane title.
- * That is why collapsing buys back 280px of width at the cost of 38px of height rather than being
- * free: the alternative is lights sitting on someone's content.
+ * The two states are one row, not two layouts: collapsed, the 280px column is gone and the
+ * content takes the whole window. What is left to place is the macOS traffic lights, which have no
+ * sidebar to sit in any more and would otherwise land on the first pane's title.
+ *
+ * They land on the first pane's BAR, and the corner that holds them is an overlay — absolutely
+ * positioned, no height of its own — so collapsing buys back 280px of width and costs nothing. It
+ * used to cost a 38px full-width rail whose only content was this one button, which is a strip of
+ * chrome across every pane forever in exchange for a corner. The strip beneath the lights reserves
+ * their width instead (see --corner-w in styles.css).
+ *
+ * The corner is rendered AFTER main and carries a z-index: panes are positioned elements, so DOM
+ * order alone would put the first pane's bar on top of it.
  *
  * Lives under the store provider so it can read `sidebarCollapsed`. Exported for the shell tests.
  */
@@ -36,8 +42,9 @@ export function AppShell() {
   const collapsed = useApp((s) => s.sidebarCollapsed);
   return (
     <div className="app" data-sidebar-collapsed={collapsed || undefined}>
-      {collapsed ? <div className="sb-rail"><SidebarToggle /></div> : <Sidebar />}
+      {!collapsed && <Sidebar />}
       <main className="main"><Main /></main>
+      {collapsed && <div className="sb-corner"><SidebarToggle /></div>}
     </div>
   );
 }

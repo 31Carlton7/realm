@@ -352,6 +352,42 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
   });
 
+  it("collapsing costs no height: no rail, and a corner overlay that clears the lights", () => {
+    // The rail spent 38px of window HEIGHT, full width, to hold one button — a permanent strip across
+    // every pane bought so the traffic lights would not land on pane chrome. Its return is the
+    // regression this pins; sidebar-collapsed-live.mjs measures that the panes really start at y=0.
+    expect(RULES.some((r) => r.selectors.some((s) => s.includes(".sb-rail")))).toBe(false);
+    // …and the shell no longer changes axis: collapsed is the same row with the column taken out.
+    expect(bodiesFor(".app[data-sidebar-collapsed]").join(" ")).not.toContain("flex-direction");
+    const corner = bodiesFor(".sb-corner").join(" ");
+    expect(corner).toContain("position: absolute");
+    expect(corner).toContain("height: 40px");      // the band trafficLightPosition y:14 centres in
+    expect(corner).toContain("padding-left: 76px"); // clears the lights before the toggle starts
+    // The window must still be draggable by its own top-left, and the toggle still clickable inside it.
+    expect(corner).toContain("-webkit-app-region: drag");
+    expect(bodiesFor(".sb-corner button").join(" ")).toContain("-webkit-app-region: no-drag");
+    // An absolutely positioned corner is only in the window's corner if the shell is its containing block.
+    expect(bodiesFor(".app").join(" ")).toContain("position: relative");
+  });
+
+  it("exactly one strip reserves the lights — whichever is at the top of the main column", () => {
+    // :first-child on each candidate is what keeps the three mutually exclusive: an error bar pushes
+    // the others down, and only the strip actually under the lights may be indented.
+    const owners = RULES.filter((r) => r.body.includes("padding-left: var(--corner-w)")).flatMap((r) => r.selectors);
+    expect(owners).toEqual([
+      ".app[data-sidebar-collapsed] .main > .error-bar:first-child",
+      ".app[data-sidebar-collapsed] .main > .group-bar:first-child",
+      ".app[data-sidebar-collapsed] .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar",
+    ]);
+    // One declaration of the width, or the corner and the space reserved for it drift apart.
+    expect(RULES.filter((r) => r.body.includes("--corner-w:")).flatMap((r) => r.selectors)).toEqual([".app[data-sidebar-collapsed]"]);
+    // Every strip the lights can land in is 40px. main places them once at y:14 and never moves them,
+    // which only works while that is true of all of them (see the comment on trafficLightPosition).
+    expect(bodiesFor(".sb-head").join(" ")).toContain("height: 40px");
+    expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
+    expect(bodiesFor(".app[data-sidebar-collapsed] .main > .group-bar:first-child").join(" ")).toContain("min-height: 40px");
+  });
+
   it("the sidebar keeps its vibrancy: BUI --page at 82%, one mode-agnostic rule", () => {
     expect(bodiesFor(".sidebar").join(" ")).toContain("color-mix(in srgb, var(--page) 82%, transparent)");
     // The old per-mode rgba override is gone — --page flips with data-mode on its own.
