@@ -129,8 +129,40 @@ describe("§6 motion table", () => {
     expect(blockAfter("@keyframes rl-chip-in")).toContain("translateY(8px)");
   });
 
-  it("the waiting status dot keeps the 0.9s pulse — §6's only looping motion at rest", () => {
-    expect(bodiesFor('.status-dot[data-status="waiting_permission"]').join(" ")).toContain("rl-pulse 0.9s ease-in-out infinite");
+  it("the three in-flight states share one ping, and its ring survives prefers-reduced-motion", () => {
+    // Only the ring moves; the core is untouched, so the row's dot column cannot jitter.
+    const ring = bodiesFor('.status-dot[data-status="running"]::after').join(" ");
+    expect(ring).toContain("animation: rl-ping var(--ring-rate)");
+    // Authored at full strength with NO transform: the un-animated form has to be a steady halo, not
+    // a half-scaled ghost. This one line is the whole reason the state is still legible when the
+    // preference takes the motion away — a `transform: scale(...)` here silently breaks that.
+    expect(ring).not.toContain("transform");
+    expect(ring).toContain("inset: -3px");
+    // …and the keyframe resolves to that same authored box, so the moving and still forms are one shape.
+    expect(blockAfter("@keyframes rl-ping")).toContain("scale(1)");
+    // Colour AND rate, never rate alone. waiting_permission is the one that needs a human, so it is
+    // the loudest in BOTH modes: fastest ping with motion, warning tone against success without it.
+    const waiting = bodiesFor('.status-dot[data-status="waiting_permission"]::after').join(" ");
+    expect(ring).toContain("--ring-rate: 1.8s");
+    expect(waiting).toContain("--ring-rate: 0.9s");
+    expect(ring).toContain("--ring: var(--rl-success)"); // never accent — that is reserved for `driving`
+    expect(waiting).toContain("--ring: var(--rl-warning)");
+    // `*` does not match pseudo-elements, so without a rule naming these three the ping would be the
+    // one animation on the page that ignores the preference.
+    const reduced = blockAfter("@media (prefers-reduced-motion: reduce)").replace(/\s+/g, " ");
+    for (const s of ["running", "waiting_permission", "driving"])
+      expect(reduced, s).toContain(`.status-dot[data-status="${s}"]::after`);
+    // The whole-dot opacity throb is gone from every state that now pings: two idioms for one thing
+    // is how these drifted apart in the first place.
+    for (const s of ["running", "waiting_permission", "driving"])
+      expect(bodiesFor(`.status-dot[data-status="${s}"]`).join(" "), s).not.toContain("rl-pulse");
+  });
+
+  it("the space strip's badge stays still — presence, not a summons", () => {
+    // Deliberately NOT the status dot's ping: this is a rollup for a space nobody is looking at, and
+    // only "waiting on you" asks anyone to go there. A running agent elsewhere needs no attention.
+    expect(bodiesFor('.strip-badge[data-status="running"]').join(" ")).not.toContain("animation");
+    expect(bodiesFor('.strip-badge[data-status="waiting_permission"]').join(" ")).toContain("rl-pulse 0.9s ease-in-out infinite");
   });
 
   it("`will-change` is reserved for the swiper track (§6 performance note)", () => {

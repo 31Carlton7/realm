@@ -251,6 +251,12 @@ kbd { font: 11px var(--font-mono); }
 .strip-space[data-active] { color: var(--rl-space); background: var(--rl-active); }
 .strip-space[data-drag-over] { box-shadow: inset 2px 0 0 var(--rl-accent); }
 /* Cross-space agent status (U-H3): waiting > error > running, resolved in spaceBadge. */
+/* This badge does NOT take the .status-dot ping, and the divergence is the point. A status dot says
+   what one session on screen is doing; this says whether anything is happening in a space you are
+   not looking at, and the only answer that asks you to go there is "waiting on you". Running
+   elsewhere needs nothing from anyone, so it is presence and gets colour alone. The geometry agrees:
+   the badge is notched into the corner of a 30px square in a rail of them, and a ring expanding from
+   it would have to cross the square's edge into its neighbour. So waiting alone keeps the blink. */
 .strip-badge { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--rl-frame); }
 .strip-badge[data-status="running"] { background: var(--rl-success); }
 .strip-badge[data-status="waiting_permission"] { background: var(--rl-warning); animation: rl-pulse 0.9s ease-in-out infinite; }
@@ -732,21 +738,60 @@ button.panel-title:hover { background: var(--rl-hover); }
    Deliberately not animated: opening it is a resize, and §6 does not animate those. */
 .session-split { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .session-split > [data-panel] { display: flex; min-width: 0; }
-.status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--rl-text-faint); flex: none; }
+/* position: relative so the in-flight ring below has something to hang off; the dot itself is the
+   only box in the row's trailing column, and the ring is absolute, so nothing here changes layout. */
+.status-dot { position: relative; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--rl-text-faint); flex: none; }
 /* §3 session status: colour = state, never chrome. Running is success (nothing running-related uses accent). */
-.status-dot[data-status="running"] { background: var(--rl-success); animation: rl-pulse 1.4s ease-in-out infinite; }
-.status-dot[data-status="waiting_permission"] { background: var(--rl-warning); animation: rl-pulse 0.9s ease-in-out infinite; }
+.status-dot[data-status="running"] { background: var(--rl-success); }
+.status-dot[data-status="waiting_permission"] { background: var(--rl-warning); }
 .status-dot[data-status="error"] { background: var(--rl-danger); }
 .status-dot[data-status="idle"] { background: var(--rl-line-strong); } /* idle is a state, not a verdict (V-C5) */
 .status-dot[data-status="ended"] { background: var(--rl-text-faint); opacity: .6; }
 /* W4: an agent act is in flight on a browser. Accent, not success — this is "Realm is acting here,
    watch", a pointer to activity, not a session verdict. */
-.status-dot[data-status="driving"] { background: var(--rl-accent); animation: rl-pulse 0.9s ease-in-out infinite; }
+.status-dot[data-status="driving"] { background: var(--rl-accent); }
 /* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
-   for "running"/"waiting on the user", so they get the same success/danger treatment. */
+   for "running"/"waiting on the user", so they get the same success/danger treatment. Connected is
+   RESTING, though — the server is up, nothing is in flight — so it stays a plain dot. */
 .status-dot[data-status="connected"] { background: var(--rl-success); }
 .status-dot[data-status="circuit_open"] { background: var(--rl-danger); animation: rl-pulse 0.9s ease-in-out infinite; }
 @keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+
+/* The three states that mean "something is in flight" — a session running, a session waiting on the
+   user, an agent driving a browser — share one idiom: a solid core inside a ring that pings outward
+   from it. Only the ring moves; the core is untouched, so the row's dot column never jitters.
+   Replaces a whole-dot opacity throb that was doing no work. Frozen it was an ordinary dot, and
+   running it was a 6px circle changing brightness by a third — nothing an eye finds without being
+   told where to look, which is the opposite of what a live indicator is for.
+   The ring is authored at full strength with NO transform, so its un-animated form is a steady halo,
+   not a half-scaled ghost: the state still reads as hot when the animation is taken away.
+   `circuit_open` is deliberately not in this family. A tripped breaker is a fault that is PERSISTING,
+   not an act in progress, and the alarm idiom for that is a blink. */
+.status-dot[data-status="running"]::after,
+.status-dot[data-status="waiting_permission"]::after,
+.status-dot[data-status="driving"]::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--ring) 60%, transparent);
+  animation: rl-ping var(--ring-rate) var(--ease-out-strong) infinite;
+}
+/* Told apart by colour AND rate, never by rate alone — 1.8s against 0.9s of the same motion is not a
+   distinction anyone makes at a glance, but success-slow against warning-fast is. waiting_permission
+   is the one that needs a human, so it is the loudest in BOTH motion modes: fastest ping with motion,
+   and without it the warning-toned halo still outranks the success-toned one. */
+.status-dot[data-status="running"]::after { --ring: var(--rl-success); --ring-rate: 1.8s; }
+.status-dot[data-status="waiting_permission"]::after { --ring: var(--rl-warning); --ring-rate: 0.9s; }
+.status-dot[data-status="driving"]::after { --ring: var(--rl-accent); --ring-rate: 0.9s; }
+/* Ends at scale(1) rather than growing past the authored box: the halo the reduced-motion reader
+   sees is the same 13px circle the ping resolves to, so the two forms are the same shape. */
+@keyframes rl-ping { from { transform: scale(.45); opacity: .85; } 70%, to { transform: scale(1); opacity: 0; } }
+/* The global reduced-motion block uses `*`, which does NOT match pseudo-elements — without this the
+   ping would be the one animation on the page that survives the preference. Only the motion goes;
+   the halo stays painted, because that is what carries the state with no motion left to carry it. */
+@media (prefers-reduced-motion: reduce) {
+  .status-dot[data-status="running"]::after,
+  .status-dot[data-status="waiting_permission"]::after,
+  .status-dot[data-status="driving"]::after { animation: none; }
+}
 /* The one loading spinner — the G5 "Idling" orb (components/Spinner.tsx builds the dots and their
    nine poses). Nothing here rotates: each dot walks its own pre-projected pose table, so the whole
    animation is transform + opacity. `--orb-k` scales the 28px stage geometry to the caller's size,
