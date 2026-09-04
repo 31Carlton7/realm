@@ -40,8 +40,10 @@ export type Segment = { text: string; kind: SegmentKind | null };
 type Span = { start: number; end: number; kind: SegmentKind; rank: number };
 
 /* Rank breaks ties when two spans start together, and decides who wins when they overlap: a URL
-   inside backticks is code, an `@` inside a URL is neither. Lower wins. */
-const RANK = { element: 0, marker: 1, punct: 2, code: 3, link: 4, mention: 5 } as const;
+   inside backticks is code, an `@` inside a URL is neither. Lower wins. `element` shares marker's 0
+   because its rank never decides anything: no other span here can begin at `@[`, so an element chip
+   is never in a tie. */
+const RANK = { element: 0, marker: 0, punct: 1, code: 2, link: 3, mention: 4 } as const;
 
 /** `http(s)://…` and bare `www.…`, up to whitespace. Trailing punctuation is trimmed below — a URL
  *  ending a sentence must not swallow the full stop, and a URL in parentheses must not eat the `)`. */
@@ -74,8 +76,9 @@ function urlEnd(text: string, start: number, raw: string): number {
  */
 export function highlightSegments(text: string, liveIds: Iterable<string>, staleIds: Iterable<string> = []): Segment[] {
   const spans: Span[] = [];
-  // First claim, highest rank: an element chip's label is arbitrary page text, so a URL or a backtick
-  // inside it must not cut the token in half. Nothing else can legitimately overlap it.
+  // An element chip's label is arbitrary page text, so a URL or a backtick inside it must not cut the
+  // token in half. What protects it is that it starts first: the `@[` is always left of anything the
+  // label contains, and a span starting inside an already-emitted one is dropped whole.
   for (const c of scanElementChips(text)) spans.push({ start: c.start, end: c.end, kind: "element", rank: RANK.element });
   for (const t of scanMentions(text, liveIds)) spans.push({ start: t.start, end: t.end, kind: "mention", rank: RANK.mention });
   for (const t of scanMentions(text, staleIds)) spans.push({ start: t.start, end: t.end, kind: "mention-stale", rank: RANK.mention });
