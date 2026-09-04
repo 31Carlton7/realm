@@ -2305,6 +2305,8 @@ describe("element chips in the draft", () => {
     const a = fakeApi({
       items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
       sessions: [session("se1", "s1", { agentKind: "claude" })],
+      // A live `mac` in the library, so the label-sanitising test below is testing something.
+      skills: { s1: [skillRow("mac")] },
     });
     const store = createAppStore(a);
     await store.getState().boot();
@@ -2364,6 +2366,17 @@ describe("element chips in the draft", () => {
     expect(a.sent[0]).toMatchObject({ text: '@[button "Sign in"]', elements: [{ label: 'button "Sign in"', element: PICKED }] });
     expect(a.sent[0]!.id).not.toBe("se1"); // the dispatch went to the NEW session
     expect(store.getState().draftElements.se1).toEqual([]);
+  });
+
+  it("does not let a page's own name for a button declare a skill mention the user never typed", async () => {
+    const { a, store } = await ready();
+    // A page can call its button whatever it likes. `hi @mac` in a label would otherwise be scanned
+    // as a live mention at send, resolved by the server, and prepended to the turn as /realm:mac.
+    store.getState().addElementChip("se1", { ...PICKED, name: "hi @mac" });
+    const text = store.getState().drafts.se1!.trim();
+    expect(text).toBe('@[button "hi mac"]');
+    await store.getState().sendMessage("se1", text);
+    expect(a.sent[0]!.mentions).toBeUndefined();
   });
 
   it("refuses the chip that would make the message unsendable, rather than letting the wire refuse it", () => {

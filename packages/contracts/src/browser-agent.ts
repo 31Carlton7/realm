@@ -325,8 +325,10 @@ export function downloadExtensionAllowed(filename: string): boolean {
  * are the only reason a hostile page cannot make a picked element arbitrarily large; they are not a
  * reason to believe it, and nothing downstream may read these fields as instructions.
  *
- * `url` and `title` are the exception: main fills them from `webContents`, which the page cannot
- * author, so they are the one trustworthy statement of *where* the element was picked.
+ * `url` and `title` are only PARTLY better. Main fills them from `webContents` rather than from the
+ * page's own words, and script cannot move a webContents off its origin — so the origin of `url` is
+ * a fact. Everything after it is not: `history.pushState` writes the path and query, and `title` is
+ * `document.title` outright. `elementContext` fences accordingly.
  *
  * `ref` is a CDP backendNodeId like every other ref here, and carries the same caveat: it names the
  * node for as long as the node lives, and a reload invalidates it. It travels so that a follow-up
@@ -356,6 +358,7 @@ export const PICK_SELECTOR_MAX = 200;
 export const PICK_NAME_MAX = 120;
 export const PICK_TEXT_MAX = 240;
 export const PICK_HTML_MAX = 1200;
-/** And for the two fields main vouches for: a page controls its own title and can make it enormous. */
+/** And for the two fields main reads off the webContents: a page controls its own title, and its own
+ *  path via `pushState`, and can make either enormous. */
 export const PICK_URL_MAX = 2048;
 export const PICK_TITLE_MAX = 300;

@@ -1,4 +1,4 @@
-import type { BlockedDownload } from "@realm/contracts";
+import type { BlockedDownload, BrowserPickedElement } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { StoreApi } from "zustand";
@@ -107,18 +107,27 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
   // does not disarm — every time the button lights up.
   const armedRef = useRef(false);
   armedRef.current = armed;
-  useEffect(() => () => { if (armedRef.current) void getBrowserBridges().host.cancelPick(browserId); }, [browserId]);
+  useEffect(() => () => { if (armedRef.current) void getBrowserBridges().host.cancelPick(browserId).catch(() => {}); }, [browserId]);
 
   const toggle = async () => {
     if (armed) {
       setArmed(false);
-      await getBrowserBridges().host.cancelPick(browserId);
+      await getBrowserBridges().host.cancelPick(browserId).catch(() => {});
       return;
     }
     setArmed(true);
     setNote(null);
-    const picked = await getBrowserBridges().host.pickElement(browserId);
-    setArmed(false);
+    // `finally`, because main throws rather than answering when the debugger will not attach (DevTools
+    // already has it). Without this the rejection crosses the IPC, nothing catches it, and the button
+    // stays lit over a view that is not picking — the one failure this whole path exists to avoid.
+    let picked: BrowserPickedElement | null = null;
+    try {
+      picked = await getBrowserBridges().host.pickElement(browserId);
+    } catch {
+      setNote("Realm could not take control of this page — is DevTools open on it?");
+    } finally {
+      setArmed(false);
+    }
     if (!picked) return; // cancelled, navigated, or the pane went away — nothing to say
     const state = store?.getState();
     const target = state ? sessionForPick(state.items, state.layout, state.focusedLeafId) : null;

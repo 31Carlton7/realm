@@ -133,11 +133,11 @@ export class BrowserAgentHost {
     const state = this.d.pageState(browserId);
     const picked = await describePick(entry.binding.send, ref).catch(() => null);
     if (!picked) return null;
-    // url/title come from the webContents, never from the page — they are the only fields of a picked
-    // element a prompt can rely on, and the reason the rest can be quoted as untrusted data.
-    // Clipped here rather than at the schema: a page controls its own title and can make it as long
-    // as it likes, and this is the last point that knows the difference between "too long" and "not
-    // from the picker".
+    // url/title come from the webContents rather than from the page's own words. That makes the URL's
+    // ORIGIN trustworthy and nothing else about either: `pushState` writes the path, `document.title`
+    // writes the title. What they are not is unbounded, which is what the clip below is for.
+    // Clipped here rather than at the schema, which rejects: this is the last point that knows the
+    // difference between "a page made its title enormous" and "this did not come from the picker".
     return { ...picked, url: (state?.url ?? "").slice(0, PICK_URL_MAX), title: (state?.title ?? "").slice(0, PICK_TITLE_MAX) };
   }
 

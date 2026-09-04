@@ -537,6 +537,18 @@ describe("BrowserPane — element picker", () => {
     expect(store.getState().draftElements.se1!.map((c) => c.element.ref)).toEqual([42, 43]);
   });
 
+  it("a pick main refuses outright un-arms the button — a lit picker over a view that is not picking", async () => {
+    const f = fakeBridges({ url: "https://example.com/login" });
+    f.bridges.host.pickElement = async () => { throw new Error("could not attach the debugger to browser b1"); };
+    setBrowserBridgesForTests(f.bridges);
+    const store = createAppStore(fakeApi());
+    render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    await settle();
+    await press();
+    expect(screen.getByLabelText("Pick an element")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("status")).toHaveTextContent(/could not take control of this page/i);
+  });
+
   it("closing the pane takes the picker down with it, rather than leaving the page eating clicks", async () => {
     const { f, unmount } = await mount();
     await press();

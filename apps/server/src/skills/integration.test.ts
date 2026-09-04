@@ -217,8 +217,10 @@ describe("picked elements at send", () => {
     expect(wire).toMatch(/untrusted-[0-9a-f]{16}/);
     expect(wire).toContain("selector: #submit");
     expect(wire).toContain('html: <button id="submit">Sign in</button>');
-    // …and the url, which the page cannot author, stays outside it.
-    expect(wire).toContain('@[button "Sign in"] — https://example.com/login');
+    // Outside it, only the origin: script can rewrite the path with `pushState` but cannot move the
+    // webContents off its origin, so that is the one part of the address worth stating unfenced.
+    expect(wire).toContain('@[button "Sign in"] — https://example.com');
+    expect(wire.slice(0, wire.indexOf("Everything between"))).not.toContain("/login");
     expect(await userText(c, session.id)).toBe('make @[button "Sign in"] blue');
     c.close();
   });

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement } from "./browser-agent";
+import { normalizeOrigin, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement } from "./browser-agent";
 import { fenceUntrusted } from "./fence";
 import { scanMentions } from "./mentions";
 
@@ -68,10 +68,18 @@ export const ElementChipSchema = z.object({
  *  the point where naming a ninth helps, and the cap bounds the fenced block's size at the schema. */
 export const MAX_ELEMENT_CHIPS = 8;
 
-/** A label may not contain a bracket or a newline: either would end the token early and split one
- *  chip into a chip and some debris. Whitespace collapses so a multi-line element reads as one run. */
+/**
+ * A label may not contain a bracket, a newline or an `@`.
+ *
+ * The first two would end the token early and split one chip into a chip and some debris. The `@` is
+ * the one that matters: a label is PAGE-AUTHORED, and a page that names its button `hi @mac` would
+ * otherwise put a live mention token inside the user's draft — recognised by the send-time scan,
+ * resolved by the server, and prepended to the agent's turn as `/realm:mac`, none of it visible to
+ * the user, whose composer paints the whole token as one chip. Whitespace collapses so a multi-line
+ * element still reads as one run.
+ */
 export function chipLabel(raw: string): string {
-  const flat = raw.replace(/[[\]\n\r]/g, " ").replace(/\s+/g, " ").trim();
+  const flat = raw.replace(/[[\]@\n\r]/g, " ").replace(/\s+/g, " ").trim();
   return flat.length > CHIP_LABEL_MAX ? `${flat.slice(0, CHIP_LABEL_MAX - 1)}…` : flat;
 }
 
@@ -91,12 +99,18 @@ export function scanElementChips(text: string): Chip[] {
 
 /**
  * Every chip in a draft, in text order and never overlapping. Mentions are scanned against `ids`
- * exactly as the send path scans them, so what is painted and what goes out can never disagree; an
- * element chip cannot overlap a mention because its `[` ends any mention candidate before it starts.
+ * exactly as the send path scans them, so what is painted and what goes out can never disagree.
+ *
+ * A mention INSIDE an element chip is dropped. `chipLabel` already keeps `@` out of a label the
+ * picker writes, so this covers a token typed or pasted by hand — and it has to, because overlapping
+ * runs break `chipRuns`' partition and put characters on screen twice.
  */
 export function scanChips(text: string, ids: Iterable<string>): Chip[] {
-  const mentions: Chip[] = scanMentions(text, ids).map((t) => ({ kind: "mention", label: t.id, start: t.start, end: t.end }));
-  return [...mentions, ...scanElementChips(text)].sort((a, b) => a.start - b.start);
+  const elements = scanElementChips(text);
+  const mentions: Chip[] = scanMentions(text, ids)
+    .filter((t) => !elements.some((e) => t.start >= e.start && t.start < e.end))
+    .map((t) => ({ kind: "mention", label: t.id, start: t.start, end: t.end }));
+  return [...mentions, ...elements].sort((a, b) => a.start - b.start);
 }
 
 /** A chip label for a picked element, unique among `taken` so two identical buttons in one draft do
@@ -110,10 +124,18 @@ export function elementChipLabel(el: BrowserPickedElement, taken: Iterable<strin
   const base = chipLabel(named ? `${noun} "${named}"` : tail || noun);
   const used = new Set(taken);
   if (!used.has(base)) return base;
-  for (let n = 2; ; n++) {
-    const candidate = chipLabel(`${base} ${n}`);
+  // Room for the suffix is MADE, never hoped for. `chipLabel` clips to `CHIP_LABEL_MAX`, so appending
+  // to an already-clipped base and re-clipping hands the base straight back — and a base is clipped
+  // whenever the accessible name runs long, which `PICK_NAME_MAX` allows up to 120 characters. The
+  // re-clipping form was an unbounded loop on the second such pick, on the click path, in the renderer.
+  for (let n = 2; n <= MAX_ELEMENT_CHIPS + 1; n++) {
+    const suffix = ` ${n}`;
+    const candidate = `${base.slice(0, CHIP_LABEL_MAX - suffix.length)}${suffix}`;
     if (!used.has(candidate)) return candidate;
   }
+  // Unreachable while the composer refuses a chip past `MAX_ELEMENT_CHIPS`. A collision here points
+  // two tokens at one sidecar entry, which is a wrong prompt — strictly better than a hang.
+  return base;
 }
 
 /**
@@ -124,20 +146,23 @@ export function elementChipLabel(el: BrowserPickedElement, taken: Iterable<strin
  * with no element chips gets no block at all, so the bytes on the wire are unchanged for every
  * message that never touched a browser pane.
  *
- * `url` sits outside the fence because main reads it off the webContents and a page cannot author it;
- * everything under the fence is the page's own account of itself.
+ * Only the ORIGIN sits outside the fence. That much is the browser's own — script cannot move a
+ * webContents off its origin — but the path and query after it follow `history.pushState`, and the
+ * title is `document.title` outright, so both are page-authored and both belong under the fence with
+ * the markup.
  */
 export function elementContext(chips: readonly ElementChip[]): string {
   if (chips.length === 0) return "";
   const detail = chips.map((c) => [
     elementChipToken(c.label),
+    `url: ${c.element.url}`,
     `selector: ${c.element.selector || "(none found)"}`,
     `role: ${c.element.role}`,
     `tag: ${c.element.tag}`,
     ...(c.element.text ? [`text: ${c.element.text}`] : []),
     ...(c.element.html ? [`html: ${c.element.html}`] : []),
   ].join("\n")).join("\n\n");
-  const index = chips.map((c) => `  ${elementChipToken(c.label)} — ${c.element.url}`).join("\n");
+  const index = chips.map((c) => `  ${elementChipToken(c.label)} — ${normalizeOrigin(c.element.url) ?? "(no ordinary web origin)"}`).join("\n");
   return `\n\nElements the user picked in Realm's browser pane, one per chip above:\n${index}\n\n${fenceUntrusted(detail)}`;
 }
 
