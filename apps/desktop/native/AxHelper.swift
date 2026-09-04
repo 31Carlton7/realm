@@ -80,6 +80,15 @@ private let CAPTURE_TIMEOUT_S = 4.0
 /// hands out secrets in plain text. None of these are things a permission prompt could sensibly
 /// describe, so they are not prompts — they are refusals.
 private let FORBIDDEN_BUNDLE_IDS: Set<String> = [
+  // Realm itself, named statically as well as derived from the process ancestry.
+  //
+  // The ancestry check answers "which app is hosting me", and under `pnpm dev` or a live-check script
+  // that is Electron rather than Realm — so a SEPARATE Realm.app running alongside would not match it
+  // and was, before this line, listed as driveable. Any Realm window is a window permission cards
+  // appear in, whichever process drew it, so the identity that matters is the product's and not this
+  // process tree's. Caught by scripts/computer-use-live.cjs, which asserts the exclusion rather than
+  // assuming it.
+  "co.charmtechnologies.realm",
   "com.apple.systempreferences",       // System Settings (and its System Preferences ancestor)
   "com.apple.SecurityAgent",           // the password / Touch ID modal
   "com.apple.security.pboxd",          // Powerbox — the file-grant dialog TCC drives
