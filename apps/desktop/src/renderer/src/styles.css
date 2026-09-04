@@ -971,6 +971,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 .msg-user-row:first-child { margin-top: 0; }
 /* Ara refresh §4: the user's message is a raised card on the column's RIGHT edge — radius 14,
    14px 16px padding, 85% max. */
+/* A chip in a sent message. Unlike the composer's, this one may have a shape: nothing in a bubble
+   shares a box with a caret, so padding and a border cost nothing here. `vertical-align: baseline`
+   with a line-height of 1 keeps a chip from stretching the line it sits in. */
+.msg-chip { display: inline-flex; align-items: center; vertical-align: baseline; line-height: 1;
+  padding: 2px 6px; border-radius: var(--r-ctl); font-size: 0.88em;
+  color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 26%, transparent); }
+.msg-chip[data-kind="element"] { color: var(--rl-text-bright); background: var(--inset);
+  box-shadow: inset 0 0 0 1px var(--rl-hairline); }
 .msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: left;
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Plan 20: a message another SESSION delivered. An attribution line plus a muted accent ring, so it

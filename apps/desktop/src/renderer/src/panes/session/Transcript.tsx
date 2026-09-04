@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { basenameOf, isPlayablePath, mediaCandidatesIn, type MediaFile, type SessionStatus } from "@realm/contracts";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { basenameOf, chipRuns, isPlayablePath, mediaCandidatesIn, type MediaFile, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
@@ -25,6 +25,40 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
     <div className="msg-thinking" data-enter={enter || undefined}>
       <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={13} /><span>Thinking…</span></button>
       {open && <Markdown text={text} className="thinking-body" />}
+    </div>
+  );
+}
+
+const NO_MENTIONS: readonly string[] = [];
+
+/**
+ * A user message's text, with its chips drawn as chips.
+ *
+ * This is the one surface where a chip can be what a chip should be. The composer's chips are paint
+ * over a textarea whose caret they must not move, so they get a background and nothing else; nothing
+ * in a bubble shares a box with a caret, so here a chip is a real pill with padding and a border.
+ *
+ * The runs between chips stay PLAIN TEXT, not markdown. The transcript's job is to show what the user
+ * typed — markers and all — and parsing it as markdown would change the words in the record. Chips
+ * are the exception that proves it: `chipRuns` partitions rather than rewrites, so every character
+ * the user sent is still on screen, in order.
+ *
+ * A mention is recognised against the LIVE library, exactly as the composer recognises it. A skill
+ * deleted since the message was sent stops reading as a chip and goes back to being the `@name` the
+ * user typed — which is also what the agent was told, since the server could not resolve it either.
+ */
+function UserText({ text, mentionIds }: { text: string; mentionIds: readonly string[] }) {
+  const runs = useMemo(() => chipRuns(text, mentionIds), [text, mentionIds]);
+  return (
+    <div className="msg-user">
+      {runs.map((r, i) => (r.chip
+        // A mention shows the characters the user typed, `@` included: the sigil is part of what they
+        // wrote and part of what the agent was told. An element chip shows its label alone, because
+        // `@[` and `]` are delimiters rather than content — the full token stays on the title.
+        ? <span key={i} className="msg-chip" data-kind={r.chip.kind} title={r.text}>
+            {r.chip.kind === "mention" ? r.text : r.chip.label}
+          </span>
+        : r.text))}
     </div>
   );
 }
@@ -92,7 +126,7 @@ function AssistantMessage({ text, streaming, enter, cwd }: { text: string; strea
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, visible = true, focused = false, cwd = null, sends = 0 }: {
+export function Transcript({ transcript, sessionStatus, onDecide, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
@@ -104,6 +138,10 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
    *  scrolled to — and because the pin is `atBottom` itself, it holds across the RPC until the
    *  `user_message` block lands, which is what stops a send answering itself with the pill. */
   sends?: number;
+  /** Skill ids the space currently offers — what a user bubble's `@name` is recognised against, by
+   *  the same scan the composer uses. Empty means nothing chips, which is the honest state for a
+   *  session whose agent Realm cannot inject skills into at all. */
+  mentionIds?: readonly string[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -178,7 +216,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
                 {b.attachments && <UserAttachments attachments={b.attachments} />}
                 {/* An attachment-only message has no text at all, and an empty bubble would read as a
                     send that lost its words rather than one that carried only files. */}
-                {b.text && <div className="msg-user">{b.text}</div>}
+                {b.text && <UserText text={b.text} mentionIds={mentionIds} />}
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;

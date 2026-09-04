@@ -141,6 +141,26 @@ export function elementContext(chips: readonly ElementChip[]): string {
   return `\n\nElements the user picked in Realm's browser pane, one per chip above:\n${index}\n\n${fenceUntrusted(detail)}`;
 }
 
+/** One run of a message: either a chip, or the plain text between two of them. */
+export type ChipRun = { chip: Chip | null; text: string };
+
+/**
+ * Split text into chips and the plain runs around them. Concatenating every `text` reproduces the
+ * input exactly — the property that lets a surface render chips WITHOUT ever changing the words in
+ * the record, which is the whole reason the transcript can afford to draw them.
+ */
+export function chipRuns(text: string, ids: Iterable<string>): ChipRun[] {
+  const runs: ChipRun[] = [];
+  let at = 0;
+  for (const chip of scanChips(text, ids)) {
+    if (chip.start > at) runs.push({ chip: null, text: text.slice(at, chip.start) });
+    runs.push({ chip, text: text.slice(chip.start, chip.end) });
+    at = chip.end;
+  }
+  if (at < text.length) runs.push({ chip: null, text: text.slice(at) });
+  return runs;
+}
+
 /** The sidecar entries a draft still refers to. An entry lives exactly as long as its token survives
  *  in the text — the same rule `draftMentions` follows, so deleting a chip forgets what it named. */
 export function keepLiveChips(text: string, chips: readonly ElementChip[]): ElementChip[] {

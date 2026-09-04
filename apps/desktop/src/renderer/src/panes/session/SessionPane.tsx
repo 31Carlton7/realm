@@ -196,6 +196,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
   );
+  // The transcript recognises a sent message's `@name` against this same live set, so a bubble's
+  // chips and the composer's agree about what is a skill and what is just an address.
+  const liveMentionIds = useMemo(() => mentionSkills.map((k) => k.id), [mentionSkills]);
   // The "+ → Skills" picker's source: the same space list, unfiltered by enabled — the picker's whole
   // job is to show what is NOT on yet. Still gated on the agent, because a Cursor session cannot be
   // handed a skills directory at all and a picker there would promise something that never arrives.
@@ -294,6 +297,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
         sends={sends}
+        mentionIds={liveMentionIds}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))} />
       {/* Between the log and the prompter, not inside the scroller: a delegated child running RIGHT
           NOW is not history, and it must not scroll away from the reader who went back to re-read

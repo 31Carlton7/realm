@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CHIP_LABEL_MAX, chipLabel, ElementChipSchema, elementChipLabel, elementChipToken, elementContext,
-  keepLiveChips, PICK_HTML_MAX, scanChips, scanElementChips, type BrowserPickedElement,
+  chipRuns, keepLiveChips, PICK_HTML_MAX, scanChips, scanElementChips, type BrowserPickedElement,
 } from "./index";
 
 const picked = (over: Partial<BrowserPickedElement> = {}): BrowserPickedElement => ({
@@ -122,5 +122,26 @@ describe("ElementChipSchema", () => {
 
   it("refuses a label longer than a chip can show, so the composer and the wire agree on one", () => {
     expect(ElementChipSchema.safeParse({ label: "x".repeat(CHIP_LABEL_MAX + 1), element: picked() }).success).toBe(false);
+  });
+});
+
+describe("chipRuns", () => {
+  const rejoin = (text: string, ids: string[]) => chipRuns(text, ids).map((r) => r.text).join("");
+
+  it("partitions the text — every rendering of chips still shows exactly what was typed", () => {
+    for (const text of [
+      "", "@mac", "@mac go", "go @mac", "a @mac b @[button] c", "@[button]", "@", "@[", "@[]",
+      "carlton@mac", "@nonesuch", "line\n@mac\nline", "@mac@mac",
+    ]) expect(rejoin(text, ["mac"])).toBe(text);
+  });
+
+  it("marks the chips and leaves everything else plain", () => {
+    expect(chipRuns('use @mac on @[button "Go"] now', ["mac"]).map((r) => [r.chip?.kind ?? "text", r.text])).toEqual([
+      ["text", "use "], ["mention", "@mac"], ["text", " on "], ["element", '@[button "Go"]'], ["text", " now"],
+    ]);
+  });
+
+  it("is one plain run for text with no chips at all", () => {
+    expect(chipRuns("just words", ["mac"])).toEqual([{ chip: null, text: "just words" }]);
   });
 });
