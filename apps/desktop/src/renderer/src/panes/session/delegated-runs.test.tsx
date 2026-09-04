@@ -29,7 +29,7 @@ async function mount(delegatedRuns: Record<string, DelegatedRun[]> = {}) {
   return { api, store, ...r };
 }
 
-const dock = () => screen.queryByRole("button", { name: /agents? Parent is waiting on/ });
+const dock = () => screen.queryByRole("button", { name: /agents? in flight for Parent/ });
 
 afterEach(() => cleanup());
 
@@ -58,6 +58,19 @@ describe("the delegating session's dock", () => {
     // it — the registry has already forgotten the run.
     await waitFor(() => expect(dock()).toBeNull());
     expect(store.getState().delegatedRuns).not.toHaveProperty("se1");
+  });
+
+  it("refetches when the socket comes back, because the registry may have died with the server", async () => {
+    const scripted: Record<string, DelegatedRun[]> = { se1: [KID] };
+    const { store } = await mount(scripted);
+    await waitFor(() => expect(dock()).not.toBeNull());
+    delete scripted["se1"]; // the server restarted while we were away: it is holding nothing now
+    store.getState().applyConnectionState("reconnecting");
+    store.getState().applyConnectionState("connected");
+    // THE MUTANT: leave delegation out of the reconnect refetch. Every other kind of stale state
+    // that gap covers is backed by a table the server can re-read; this one is not backed by
+    // anything, so nothing will ever arrive to correct it and the dock names agents that are gone.
+    await waitFor(() => expect(dock()).toBeNull());
   });
 
   it("replaces the set rather than accumulating: the payload is the whole truth", async () => {

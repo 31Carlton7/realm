@@ -1023,9 +1023,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .delegation-row[aria-expanded="true"] .tool-chevron { transform: rotate(90deg); }
 .delegation-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .delegation-elapsed { flex: none; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
-/* The trace rail the grouped tool run wears, for the same reason: these rows hang off the line above. */
-/* Bounded like every other drawn surface: the per-parent cap is four, but peers asked a question
-   are not capped, and a dock that grew without limit would push the prompter off its own pane. */
+/* The trace rail the grouped tool run wears, for the same reason: these rows hang off the line
+   above. Bounded like every other drawn surface — the delegation caps keep this list short, but the
+   prompter is below it and must not be pushed off the pane by a list that got long anyway. */
 .delegation-list { margin-left: 15px; padding-left: 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px;
   max-height: 132px; overflow-y: auto; }
 .delegation-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 26px; padding: 3px 8px;

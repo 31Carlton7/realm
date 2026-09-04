@@ -11,7 +11,7 @@ import { useElapsed } from "./use-elapsed";
 const ASKED_META = { icon: "session", label: "Asked a question (agent_ask)" };
 
 /**
- * What this session is waiting on, docked between its transcript and its prompter.
+ * The agents this session has in flight, docked between its transcript and its prompter.
  *
  * A delegated child has always been a real session with a pane of its own, but the parent's
  * transcript said nothing at all while it worked — the child's report arrives as one MCP tool result
@@ -48,10 +48,12 @@ function Dock({ sessionId, running }: { sessionId: string; running: readonly Del
   const [open, setOpen] = useState(true);
   const rows = [...running].sort((a, b) => a.startedAt - b.startedAt);
   const since = rows[0]!.startedAt;
+  // Always ticking: this component only exists while the engine is holding runs open, so the clock
+  // stops by unmounting rather than by a flag. One clock for every row too — reading `Date.now()`
+  // per row instead would have them disagree with the header by however long the render took.
   const elapsed = useElapsed(since, true);
-  /** One clock for every row, off the ticking value rather than a fresh `Date.now()` per render —
-   *  otherwise the rows disagree with the header by however long the render took. */
   const now = since + elapsed;
+  const count = rows.length === 1 ? "1 agent" : `${rows.length} agents`;
   const title = sessions[sessionId]?.title ?? "this session";
 
   const jump = (childId: string) => {
@@ -64,10 +66,13 @@ function Dock({ sessionId, running }: { sessionId: string; running: readonly Del
 
   return (
     <div className="delegation-dock">
+      {/* "running", not "waiting on": an `agent_start` the parent deliberately backgrounded is in
+          this list too, and that parent is not blocked on anything. Everything here has an
+          unsettled drain, which is precisely what "still running" means. */}
       <button type="button" className="delegation-row" aria-expanded={open} onClick={() => setOpen((o) => !o)}
-        aria-label={`${rows.length === 1 ? "1 agent" : `${rows.length} agents`} ${title} is waiting on`}>
+        aria-label={`${count} in flight for ${title}`}>
         <Icon name="bot" size={13} />
-        <span className="delegation-summary">Waiting on {rows.length === 1 ? "1 agent" : `${rows.length} agents`}</span>
+        <span className="delegation-summary">{count} running</span>
         <span className="delegation-elapsed">{formatDuration(elapsed)}</span>
         <Icon name="chevronRight" size={12} className="tool-chevron" />
       </button>

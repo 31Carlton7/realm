@@ -2259,6 +2259,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions()]));
         // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
+        // The delegation registry lives in the server's MEMORY, so it is the one thing here with no
+        // table behind it: if the socket dropped because the server went away, every run being
+        // mirrored died with it and no `delegation.changed` will ever say so. Both key sets, because
+        // a run can have ENDED under a session being mirrored and BEGUN under one that was not.
+        for (const id of new Set([...Object.keys(get().delegatedRuns), ...Object.keys(get().transcripts)])) {
+          get().run(() => get().refreshDelegatedRuns(id));
+        }
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
       setPaletteOpen(open) { set(open ? { paletteOpen: true, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false }); },
