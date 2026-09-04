@@ -309,7 +309,6 @@ kbd { font: 11px var(--font-mono); }
    where there is something under it, so a strip that fits reads as untouched. */
 .strip-spaces { flex: 1; display: flex; align-items: center; justify-content: safe center; gap: 2px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
   mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%); }
-.strip-spaces::-webkit-scrollbar { display: none; }
 .strip-side { flex: none; }
 /* The profile chip: which profile the strip below is scoped to, and the door to the others. One
    square the size of a space button, wearing the profile's own icon and colour — spelling the name
@@ -540,7 +539,6 @@ kbd { font: 11px var(--font-mono); }
   border-bottom: 1px solid var(--rl-hairline); background: var(--rl-panel); -webkit-app-region: drag; }
 .group-bar button, .group-bar input { -webkit-app-region: no-drag; }
 .group-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.group-tabs::-webkit-scrollbar { display: none; }
 .group-tab { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--r-ctl);
   font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; }
 .group-tab:hover { background: var(--rl-hover); }
@@ -1482,7 +1480,6 @@ button.panel-title:hover { background: var(--rl-hover); }
    text box and NOT from the mirror's, which would misalign every wrapped line under it. Scrolling
    itself is untouched — wheel, drag-select and the caret's own scroll-into-view all still work. */
 .composer-input { scrollbar-width: none; }
-.composer-input::-webkit-scrollbar { display: none; }
 /* The palette (§4). Links wear the transcript's own link treatment, so a URL looks the same being
    typed as it will once sent. A resolving @mention is filled, not just tinted — it is the one run
    here that is a THING (a skill that will be handed over) rather than formatting. */
@@ -1684,11 +1681,46 @@ button.panel-title:hover { background: var(--rl-hover); }
 .agent-hint-text { font-size: 11px; color: var(--rl-text-dim); } .agent-hint-text code { font: 11px var(--font-mono); }
 .agent-name { font-weight: var(--fw-label); } .agent-hint { margin-left: auto; font-size: 11px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 
-/* ── Scrollbars: thin + on-theme in the few containers that actually scroll ───── */
-.transcript, .diff-list, .commit-message, .space-body, .palette-list, .menu, .tool-well, .sheet, .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
-.transcript::-webkit-scrollbar, .diff-list::-webkit-scrollbar, .commit-message::-webkit-scrollbar, .space-body::-webkit-scrollbar, .palette-list::-webkit-scrollbar, .menu::-webkit-scrollbar, .tool-well::-webkit-scrollbar, .sheet::-webkit-scrollbar, .terminal-pane .xterm-viewport::-webkit-scrollbar { width: 10px; }
-.transcript::-webkit-scrollbar-thumb, .diff-list::-webkit-scrollbar-thumb, .commit-message::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .menu::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb, .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
-.transcript::-webkit-scrollbar-track, .diff-list::-webkit-scrollbar-track, .commit-message::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .menu::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track, .terminal-pane .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+/* ── Scrollbars: one thumb, no track, everywhere ──────────────────────────────
+   The ask was to stop drawing tracks — in the model picker, the skill picker and everywhere else.
+   The mechanism that makes "everywhere" true rather than a list to keep up with is inheritance:
+   `scrollbar-color` is an inherited property, so stating it once on the root hides the track in every
+   scroller in the app, including ones added after this line is written. `scrollbar-width` does NOT
+   inherit, so the scrollers that should be thin rather than default-width are named below.
+
+   The thumb is quiet at rest and steps up under the pointer. `:hover` is deliberately bare: hover
+   matches up the ancestor chain, so a scroller lights its own thumb the moment the pointer is inside
+   it, with no second copy of the list. `:focus-within` cannot join it for the same reason in reverse
+   — it would match <body> whenever anything in the app had focus, which is always.
+
+   What this replaces was four rules, and three of them had been dead since Chromium 121: setting
+   either standard property makes the browser ignore `::-webkit-scrollbar` entirely, and every
+   selector those rules targeted also set `scrollbar-width: thin`. Measured on this runtime — a
+   scroller with only the pseudo-element rules reserves the 24px they ask for, one with both reserves
+   the 11px the standard property asks for. The 10px width, the thumb colour and the transparent
+   track were all already coming from the line above them. */
+:root { scrollbar-color: var(--rl-line) transparent; }
+:hover { scrollbar-color: var(--rl-line-strong) transparent; }
+:where(
+  /* chrome and navigation */
+  .space-body, .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
+  .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content,
+  /* the transcript and everything it draws inside itself */
+  .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
+  .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
+  /* the diff pane */
+  .diff-list, .diff-hunks, .diff-review-body, .commit-message,
+  /* page panes */
+  .cp-list, .activity-list, .task-detail-result, .notif-list, .notif-detail, .notif-split,
+  .lecture-list, .install-cmd code,
+  /* documents */
+  .documents-tabs, .documents-picker, .documents-rich-surface, .documents-rich .tiptap, .documents-raw
+) { scrollbar-width: thin; }
+/* xterm keeps an explicit treatment rather than inheriting the app's. It owns this element: it
+   measures the viewport to decide the terminal's column count, and its interior is a dark world in
+   both app modes (`color-scheme: dark` on .terminal-pane), so the thumb here answers to the terminal
+   rather than to whatever the rule above becomes next. */
+.terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
 
 /* ── Motion (§6): the whole easing/duration table, applied app-wide ───────── */
 /* A leaf's item changing IS content entering, not the "pane focus switching" §6 keeps instant — the
@@ -2084,7 +2116,6 @@ button.panel-title:hover { background: var(--rl-hover); }
      refuses to shrink under the width of all its tabs laid out in a row, and scrolls nothing. */
   .page-rail { flex-direction: row; width: auto; min-width: 0; align-self: stretch; gap: 4px;
     overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-  .page-rail::-webkit-scrollbar { display: none; }
   .page-rail .settings-tab { white-space: nowrap; }
   .page-content { max-width: none; padding-right: 0; }
   /* The `1fr auto` row grid, stood up: the actions keep their own width and the path/name column
@@ -2350,7 +2381,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 .documents-tabs {
   display: flex; align-items: center; gap: 2px; padding: 6px 8px; overflow-x: auto;
-  border-bottom: 1px solid var(--rl-line); flex: 0 0 auto; scrollbar-width: thin; overflow-y: hidden;
+  border-bottom: 1px solid var(--rl-line); flex: 0 0 auto; overflow-y: hidden;
 }
 .documents-tab { display: flex; align-items: center; border-radius: var(--r-ctl); flex: 0 0 auto;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }

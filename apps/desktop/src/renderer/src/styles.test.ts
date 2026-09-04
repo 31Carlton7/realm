@@ -533,7 +533,9 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // Inheriting the composer's `scrollbar-width: none` hid the only sign a message runs on.
     expect(bodiesFor(".commit-message").join(" ")).not.toContain("scrollbar-width: none");
     expect(bodiesFor(".commit-message").join(" ")).not.toContain("max-height");
-    expect(bodiesFor(".commit-message").some((b) => b.includes("scrollbar-width: thin"))).toBe(true);
+    // It takes its bar from the shared scroller list rather than a rule of its own now, so
+    // membership of that list is what the guarantee rests on.
+    expect(SCROLLERS).toContain(".commit-message");
   });
 
   it("the changes list clears the whole fade, and reads its height from the same --fade-h the ramp does", () => {
@@ -690,6 +692,46 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
  *  checkable here is everything around the shape: that the fallback survives, that the two halves of
  *  the card shadow cannot drift apart, and that the three files involved still agree on the names
  *  they pass between them. */
+/** The shared scroller list, read out of the `:where(...)` block it is written in. */
+const SCROLLERS = (css.match(/:where\(([^)]*)\)\s*\{\s*scrollbar-width: thin/)?.[1] ?? "")
+  .split(",").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+/** The element that actually scrolls is the last compound of the selector: `.permission-preview
+ *  .fd-file` is `.fd-file` doing the scrolling, in a place that gives it a height to overflow. */
+const leaf = (sel: string): string => sel.split(" ").pop()!;
+
+describe("scrollbars", () => {
+  it("the track is hidden by INHERITANCE, so a scroller written tomorrow is covered too", () => {
+    // The whole point of putting it on :root: `scrollbar-color` inherits, and a list is a thing to
+    // keep up with. The transparent second value is the track.
+    expect(bodiesFor(":root").join(" ")).toContain("scrollbar-color: var(--rl-line) transparent");
+    expect(bodiesFor(":hover").join(" ")).toContain("scrollbar-color: var(--rl-line-strong) transparent");
+  });
+
+  it("the legacy ::-webkit-scrollbar rules are gone, not merely overridden", () => {
+    // They had been inert since Chromium 121 — setting either standard property makes the browser
+    // ignore the pseudo-elements outright, and every selector they targeted also set
+    // `scrollbar-width: thin`. Re-adding one would read as styling that does nothing.
+    expect(css).not.toContain("::-webkit-scrollbar");
+  });
+
+  it("every scroller in the stylesheet has had a deliberate decision made about its bar", () => {
+    // The regression this closes is how the app got here: nine containers were styled by hand and
+    // every scroller added afterwards shipped with the default bar and a visible track.
+    const covered = new Set(SCROLLERS.map(leaf));
+    // Left out on purpose. The horizontal strips hide their bar entirely (they fade at the edges or
+    // are short tab rows, and a bar under them would be the tallest thing in the row) and say so with
+    // `scrollbar-width: none` in their own rule, which is why they are filtered rather than listed.
+    // xterm is the one exception that keeps an explicit treatment: it measures this element to decide
+    // the terminal's column count, and its interior is dark in both app modes.
+    const exempt = new Set([".xterm-viewport"]);
+    const uncovered = RULES
+      .filter((r) => /overflow(-[xy])?:\s*(auto|scroll)/.test(r.body) && !/scrollbar-width:\s*none/.test(r.body))
+      .flatMap((r) => r.selectors)
+      .filter((sel) => !covered.has(leaf(sel)) && !exempt.has(leaf(sel)));
+    expect([...new Set(uncovered)].sort()).toEqual([]);
+  });
+});
+
 describe("squircle surfaces", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
   const worklet = readFileSync(repoFile("apps/desktop/src/renderer/public/squircle-paint.js"), "utf8");
