@@ -347,8 +347,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const canAsk = isAcpKind ? acpAsk !== null : AGENT_SUPPORTS_ASK_MODE[kind];
   const acpModesPending = isAcpKind && acpModes === null && !canSwitchAgent && status !== "error" && status !== "ended";
   const mode = sessionModeOf(session.permissionMode);
-  // Both Plan and Ask replace the permission axis rather than sitting beside it, so both turn the
-  // permission control into a label naming what Build will restore.
+  // Plan and Ask both REPLACE the permission axis rather than sitting beside it.
   const inReadOnly = mode !== "build";
   // bypassPermissions must never be a one-click slip (U-M7): selecting it arms an inline confirm chip
   // for 5s while the chip simply stays on the current mode; only the explicit confirm applies it.

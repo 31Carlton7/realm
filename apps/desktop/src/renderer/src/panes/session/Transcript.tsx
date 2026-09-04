@@ -187,8 +187,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
           }
         })}
         {permissions.map((p, i) => {
-          // A question-shaped tool call gets the question card and a plan gets its approve/reject
-          // row; everything else really is a permission and keeps the Allow / Allow always / Deny gate.
+          // Only what really is a permission keeps the Allow / Allow always / Deny gate.
           const questions = questionCardFor(p);
           if (questions) return <QuestionCard key={p.requestId} questions={questions} autoFocus={focused && i === 0}
             enter={isEntering(permKey(p.requestId))}

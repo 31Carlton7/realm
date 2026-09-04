@@ -12,6 +12,24 @@ describe("FakeAdapter", () => {
     expect(got.indexOf("permission_request")).toBeLessThan(got.indexOf("tool_result"));
     await h.dispose();
   });
+  it("scripts a plan and its revision on one id, so the dev prompter can reach the plan card", async () => {
+    // The `plan` event is drawn by a card of its own, and the scripted adapter is what UI development
+    // runs against — without this step that card is unreachable offline.
+    const a = new FakeAdapter({ script: [{ on: "plan", emit: [
+      { kind: "plan", planId: "p1", steps: [{ text: "A", status: "in_progress" }] },
+      { kind: "plan", planId: "p1", text: "## A", steps: [{ text: "A", status: "completed" }] },
+    ] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const evs: { type: string; payload: unknown }[] = [];
+    const c = (async () => { for await (const e of h.events) { evs.push(e); if (e.type === "status" && e.payload.status === "idle" && evs.some((x) => x.type === "plan")) break; } })();
+    h.send({ text: "plan it", attachments: [] }); await c;
+    const plans = evs.filter((e) => e.type === "plan").map((e) => e.payload);
+    expect(plans).toEqual([
+      { planId: "p1", steps: [{ text: "A", status: "in_progress" }] },
+      { planId: "p1", text: "## A", steps: [{ text: "A", status: "completed" }] },
+    ]);
+    await h.dispose();
+  });
   it("deny skips tool result and reports error text", async () => {
     const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "tool", name: "Bash", input: {}, needsPermission: true, result: "never" }] }] });
     const h = a.start({ cwd: "/tmp", mcpServers: [] }); const types: string[] = [];

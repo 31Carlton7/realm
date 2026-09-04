@@ -1,6 +1,5 @@
 import type { AcpSessionMode, SessionEvent, SessionEventPayload } from "@realm/contracts";
 
-/** One step of a checklist-shaped plan, exactly as the `plan` event carries it. */
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
 export type Block =

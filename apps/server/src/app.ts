@@ -170,7 +170,17 @@ export function defaultAdapters(): AdapterRegistry {
       loginHint: "Run `fx login` to sign in with Vercel, `fx setup` for an AI Gateway API key, or set AI_GATEWAY_API_KEY.",
     }),
   };
-  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ script: [], delayMs: 15 });
+  // The offline-dev script: enough to reach the surfaces that only exist for one event type. A plan
+  // is here because it is drawn by a card of its own, and without a scripted one the fake agent —
+  // whose whole purpose is UI development — can never produce it. Revised in place, since a plan that
+  // updates is the behaviour worth looking at.
+  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [{ on: "plan", emit: [
+    { kind: "text", text: "Here is how I would go about it." },
+    { kind: "plan", planId: "fake-plan", text: "## Rework the mapper\n\n1. Carry the plan as its own event.\n2. Draw it as a plan.", steps: [
+      { text: "Carry the plan as its own event", status: "in_progress" }, { text: "Draw it as a plan", status: "pending" }] },
+    { kind: "plan", planId: "fake-plan", text: "## Rework the mapper\n\n1. Carry the plan as its own event.\n2. Draw it as a plan.", steps: [
+      { text: "Carry the plan as its own event", status: "completed" }, { text: "Draw it as a plan", status: "in_progress" }] },
+  ] }] });
   return reg;
 }
 

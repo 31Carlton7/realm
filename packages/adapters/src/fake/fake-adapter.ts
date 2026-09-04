@@ -5,6 +5,10 @@ import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartO
 export type FakeStep =
   | { kind: "text"; text: string }
   | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; result: string }
+  /** A plan, in either shape the `plan` event carries. Re-using a `planId` revises that plan in
+   *  place, which is what the real agents do and the one plan behaviour a script must be able to
+   *  reproduce. */
+  | { kind: "plan"; planId: string; text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }
   | { kind: "throw"; message: string };
 export type FakeScript = { on: string; emit: FakeStep[] }[];
 
@@ -43,6 +47,7 @@ export class FakeAdapter implements AgentAdapter {
         if (interrupted) break; // like the real adapter: interrupt stops the turn; the turn's natural end still emits usage + idle
         await sleep();
         if (st.kind === "throw") throw new Error(st.message);
+        if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
         if (st.kind === "text") {
           const id = newId();
           for (const ch of st.text) q.push(sessionEvent("assistant_delta", { messageId: id, delta: ch }));
