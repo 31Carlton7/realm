@@ -503,8 +503,73 @@ const TCC_STATE_LABEL = { granted: "Granted", denied: "Not granted", unknown: "C
 function PermissionsTab() {
   return (
     <div className="form">
+      <ComputerAccessSection />
       <MacAccessSection />
       <RealmAccessSection />
+    </div>
+  );
+}
+
+/**
+ * "Computer control" — the two grants the `realm-computer` tools need, and the only rows on this
+ * page whose buttons can raise a prompt for Realm ITSELF (the "Apps on this Mac" rows prompt on the
+ * `mac` CLI's behalf; "Realm's own access" only ever reads).
+ *
+ * The button says "Ask macOS", not "Grant", because that is all it can do: for both of these macOS
+ * shows a dialog that only deep-links to System Settings, and the state does not change until the
+ * user flips the switch there. Saying otherwise would make the page look broken when the row stays
+ * red after a click.
+ */
+function ComputerAccessSection() {
+  const status = useApp((s) => s.computerAccess);
+  const requesting = useApp((s) => s.computerRequesting);
+  const refreshComputerAccess = useApp((s) => s.refreshComputerAccess);
+  const requestComputerAccess = useApp((s) => s.requestComputerAccess);
+  const openComputerAccessPane = useApp((s) => s.openComputerAccessPane);
+  const run = useApp((s) => s.run);
+  useEffect(() => { void run(() => refreshComputerAccess()); }, [run, refreshComputerAccess]);
+
+  return (
+    <div className="field computer-access-field"><span>Computer control</span>
+      <p className="settings-hint">
+        What agents need to read and drive other apps on this Mac. Off until you switch it on for a space, and every
+        action against an app asks you first.
+      </p>
+      {status === null ? <p className="env-empty">Checking…</p> : (
+        <>
+          {!status.helperAvailable && (
+            <p className="settings-hint">This build has no accessibility helper, so computer control is unavailable whatever macOS has granted.</p>
+          )}
+          {!status.packaged && (
+            <p className="settings-hint">Running from source: macOS will attribute these grants to “{status.hostName}”, not to Realm.app — they will not carry into a packaged build.</p>
+          )}
+          <ul className="settings-list">
+            {status.rows.map((r) => (
+              <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`}>
+                <div className="settings-row-main">
+                  <span className="settings-row-name">{r.label}</span>
+                  <span className="tcc-state" data-state={r.state}>
+                    {r.state === "granted" && <Icon name="check" size={12} />}
+                    {TCC_STATE_LABEL[r.state]}
+                  </span>
+                  <span className="settings-row-desc">{r.detail}</span>
+                </div>
+                <div className="mac-row-actions">
+                  {r.canPrompt && (
+                    <button type="button" className="btn-quiet" disabled={requesting !== null}
+                      onClick={() => run(() => requestComputerAccess(r.id))}>
+                      {requesting === r.id ? "Waiting for macOS…" : "Ask macOS"}
+                    </button>
+                  )}
+                  {r.needsSettings && (
+                    <button type="button" className="btn-quiet" onClick={() => run(() => openComputerAccessPane(r.id))}>Open System Settings</button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

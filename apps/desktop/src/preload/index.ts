@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "ele
 import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, MediaFile } from "@realm/contracts";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
+import type { ComputerAccessStatus } from "../main/computer-access";
 import type { UpdateStatus } from "../main/updater";
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
 const port = arg("realm-port");
@@ -60,6 +61,15 @@ contextBridge.exposeInMainWorld("realm", {
     openSettings: (id: string): Promise<void> => ipcRenderer.invoke("mac:open-settings", id),
     /** Select the .app in Finder — Full Disk Access has no prompt, only a list to drag it into. */
     revealApp: (): Promise<void> => ipcRenderer.invoke("mac:reveal-app"),
+  },
+  /** Computer control's two grants (Permissions tab). `status` never prompts — it is the same
+   *  prompt-free query `permissions.probe` uses. `request` DOES prompt, on purpose and only from a
+   *  click on that row, which is why it lives here rather than behind `permissions` (tcc.ts's
+   *  no-prompt rule). All three take a ROW id validated in main against a closed set. */
+  computerAccess: {
+    status: (): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:status"),
+    request: (id: string): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:request", id),
+    openSettings: (id: string): Promise<void> => ipcRenderer.invoke("computer:open-settings", id),
   },
   /** Settings→App "Updates" row (Plan 15 W1). The gate lives in main (updater.ts): `check` on a
    *  gated build answers the same honest disabled state `status` does — never a fake spinner. */

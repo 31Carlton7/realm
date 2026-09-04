@@ -15,6 +15,7 @@ import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import { ComputerUseHelper, axHelperPath } from "./computer-use-helper";
 import { ComputerUseHost } from "./computer-use-host";
+import { computerAccessRows, isComputerAccessId, type ComputerAccessStatus } from "./computer-access";
 import {
   MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
@@ -329,6 +330,48 @@ ipcMain.handle("tcc:probe", (): TccRow[] => probeTcc({
 ipcMain.handle("tcc:open-settings", (_e, pane: unknown) => {
   if (!isTccPermissionId(pane)) throw new Error(`unknown permissions pane: ${String(pane)}`);
   void shell.openExternal(TCC_SETTINGS_URLS[pane]);
+});
+
+// ── Computer control (the `realm-computer` tools' two grants) ───────────────────────────────────
+// The one place in the app that may raise a TCC prompt, and only from a click on this row. Reading
+// stays prompt-free and uses the same queries `tcc:probe` does; the decisions live in
+// computer-access.ts, only the Electron/helper legs are here.
+
+/** Both grants, queried without prompting for either. Screen Recording's status read comes from
+ *  Electron rather than the helper so it answers on a build that has no helper at all. */
+function computerGrantState() {
+  return {
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false),
+    screenRecording: systemPreferences.getMediaAccessStatus("screen") === "granted",
+  };
+}
+
+function computerAccessStatus(): ComputerAccessStatus {
+  const bundlePath = appBundlePath(app.getPath("exe"));
+  return {
+    rows: computerAccessRows(computerGrantState(), { helperAvailable: computerHelper.available }),
+    hostName: macHostName({ appName: app.getName(), bundlePath, packaged: app.isPackaged }),
+    packaged: app.isPackaged,
+    helperAvailable: computerHelper.available,
+  };
+}
+
+ipcMain.handle("computer:status", (): ComputerAccessStatus => computerAccessStatus());
+
+/** Raise the real macOS prompt for one row. The renderer names a ROW, validated against
+ *  computer-access.ts's closed set — it can never name an arbitrary method for the helper to run. */
+ipcMain.handle("computer:request", async (_e, id: unknown): Promise<ComputerAccessStatus> => {
+  if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
+  // Both prompts are raised by the helper, so macOS attributes them to the same bundle that will
+  // later use the grant. Failures are swallowed: the status returned below is the real answer, and a
+  // helper that could not start has already reported itself unavailable.
+  try { await computerHelper.request("requestTrust", { what: id }); } catch { /* status tells the truth */ }
+  return computerAccessStatus();
+});
+
+ipcMain.handle("computer:open-settings", (_e, id: unknown) => {
+  if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
+  void shell.openExternal(TCC_SETTINGS_URLS[id]);
 });
 
 // ── The `mac` CLI's access (Permissions tab, "Apps on this Mac") ────────────────────────────────

@@ -624,7 +624,7 @@ private final class Helper {
   func handle(method: String, params: [String: Any]) throws -> [String: Any] {
     switch method {
     case "ping": return ping()
-    case "requestTrust": return requestTrust()
+    case "requestTrust": return requestTrust(params)
     case "listApps": return try listApps()
     case "snapshot": return try snapshot(params)
     case "act": return try act(params)
@@ -641,20 +641,29 @@ private final class Helper {
     ["accessibility": AXIsProcessTrusted(), "screenRecording": CGPreflightScreenCaptureAccess()]
   }
 
-  /// Raise the real macOS Accessibility prompt. The ONLY method here that can produce a system
-  /// dialog, called only from an explicit click in Realm's Settings.
+  /// Raise a real macOS consent prompt. The ONLY method here that can produce a system dialog, and
+  /// it is reached only from an explicit click in Realm's Settings — never from a tool call.
   ///
-  /// It returns immediately with the CURRENT state, which will be false: macOS shows a
-  /// non-blocking dialog that only deep-links to System Settings, and the grant does not land until
-  /// the user toggles it there. There is no callback and no way to wait — the caller re-probes.
-  private func requestTrust() -> [String: Any] {
-    let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-    let trusted = AXIsProcessTrustedWithOptions(options)
-    // Screen Recording's prompt is raised by the first real capture attempt, not by a request API;
-    // `CGRequestScreenCaptureAccess` is the closest thing and is safe to call — it prompts once and
-    // is a no-op afterwards.
-    let screen = CGRequestScreenCaptureAccess()
-    return ["accessibility": trusted, "screenRecording": screen]
+  /// One grant per call (`what`), because the two are asked for from separate rows and raising both
+  /// dialogs at once stacks them on top of each other.
+  ///
+  /// It returns the state as it stands immediately afterwards, which for Accessibility will still be
+  /// false: macOS shows a non-blocking dialog whose only button deep-links to System Settings, and
+  /// the grant does not land until the user flips the switch there. There is no callback and nothing
+  /// to await — the caller re-probes.
+  private func requestTrust(_ params: [String: Any]) -> [String: Any] {
+    switch params["what"] as? String {
+    case "accessibility":
+      let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+      _ = AXIsProcessTrustedWithOptions(options)
+    case "screenRecording":
+      // There is no "ask" API for Screen Recording. This one prompts the first time and is a silent
+      // no-op ever after, so a user who has already refused sees nothing and must use Settings.
+      _ = CGRequestScreenCaptureAccess()
+    default:
+      break
+    }
+    return ping()
   }
 
   /// Deliberately NOT behind `requireTrust`. Enumerating running apps is `NSWorkspace`, not the

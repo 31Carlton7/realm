@@ -245,6 +245,12 @@ export type Api = {
   macAccessOpenSettings(id: string): Promise<void>;
   /** Select Realm's .app in Finder — the start of the drag into Full Disk Access. */
   macAccessRevealApp(): Promise<void>;
+  /** Computer control's two grants — a prompt-free read. */
+  computerAccessStatus(): Promise<ComputerAccessStatus>;
+  /** Raise ONE grant's macOS prompt, then re-read. Like `macAccessGrant` this may sit pending while
+   *  the dialog is up. Takes a ROW id; main owns what is asked. */
+  computerAccessRequest(id: string): Promise<ComputerAccessStatus>;
+  computerAccessOpenSettings(id: string): Promise<void>;
   /** The Updates row's state (Plan 15 W1) — main-process IPC. The gate lives in main (updater.ts):
    *  a gated build answers `disabled` with its reason, and `checkUpdates` on such a build returns
    *  that same state rather than pretending to check. */
@@ -599,6 +605,11 @@ export type AppState = {
    *  time), or null. Drives the row spinner AND the interlock that stops a second prompt racing the
    *  first — macOS shows one consent dialog at a time, and two in flight lose an answer. */
   macGranting: string | null;
+  /** Computer control's grants; null until the Permissions tab first asks. */
+  computerAccess: ComputerAccessStatus | null;
+  /** The row whose macOS dialog is up right now, or null — the same one-dialog-at-a-time interlock
+   *  the mac rows need, for the same reason. */
+  computerRequesting: string | null;
   /** The ids a "Grant all" run still has to reach, so the page can say "3 of 11" honestly rather
    *  than showing an unattributed spinner. Empty when no run is in flight. */
   macGrantQueue: string[];
@@ -1154,6 +1165,11 @@ export type AppState = {
   grantAllMacAccess(): Promise<void>;
   openMacAccessPane(id: string): Promise<void>;
   revealRealmApp(): Promise<void>;
+  refreshComputerAccess(): Promise<void>;
+  /** Raise ONE computer-control grant's macOS prompt. A no-op while another prompt is up, and on any
+   *  row that cannot be prompted. */
+  requestComputerAccess(id: string): Promise<void>;
+  openComputerAccessPane(id: string): Promise<void>;
   /** Fetch the Updates row's current state from main's gated updater into `updateStatus`. */
   refreshUpdateStatus(): Promise<void>;
   /** Run a real update check (or receive the disabled state unchanged — main's gate decides).
@@ -1738,7 +1754,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -3060,6 +3076,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async openMacAccessPane(id) { await api.macAccessOpenSettings(id); },
       async revealRealmApp() { await api.macAccessRevealApp(); },
+
+      async refreshComputerAccess() { set({ computerAccess: await api.computerAccessStatus() }); },
+      async requestComputerAccess(id) {
+        // Same interlock as the mac rows: macOS shows one consent dialog at a time.
+        if (get().computerRequesting !== null) return;
+        if (!get().computerAccess?.rows.find((r) => r.id === id)?.canPrompt) return;
+        set({ computerRequesting: id });
+        try { set({ computerAccess: await api.computerAccessRequest(id) }); }
+        finally { set({ computerRequesting: null }); }
+      },
+      async openComputerAccessPane(id) { await api.computerAccessOpenSettings(id); },
       async refreshUpdateStatus() { set({ updateStatus: await api.updateStatus() }); },
       async checkForUpdates() {
         const held = get().updateStatus;

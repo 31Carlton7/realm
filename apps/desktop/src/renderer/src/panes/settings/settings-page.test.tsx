@@ -339,6 +339,66 @@ describe("Permissions tab (macOS TCC)", () => {
     expect(document.querySelectorAll('.realm-access-field .tcc-state[data-state="granted"]')).toHaveLength(0);
   });
 
+  /**
+   * The "Computer control" section — the only rows on this page that can raise a prompt for Realm
+   * itself. Queries are scoped to `.computer-access-field` because the TCC section above renders rows
+   * with the same two labels, and a bare label lookup would be ambiguous the moment the fixtures agree.
+   */
+  const computerRow = (label: string) => {
+    const rows = [...document.querySelectorAll(".computer-access-field .settings-row")];
+    const row = rows.find((r) => r.querySelector(".settings-row-name")?.textContent === label);
+    if (!row) throw new Error(`no computer-control row "${label}" (have: ${rows.map((r) => r.querySelector(".settings-row-name")?.textContent).join(", ")})`);
+    return row as HTMLElement;
+  };
+
+  it("offers to ask only for the grant that is missing", async () => {
+    const { api } = await openPermissions();
+    await waitFor(() => expect(api.calls).toContain("computerAccessStatus"));
+    // Accessibility is not granted in the fixture, so it can be asked for.
+    expect(within(computerRow("Accessibility")).getByRole("button", { name: "Ask macOS" })).toBeInTheDocument();
+    // Screen Recording already is, so there is nothing to ask and no button to press.
+    expect(within(computerRow("Screen Recording")).queryByRole("button", { name: "Ask macOS" })).toBeNull();
+  });
+
+  it("asking does not turn the row green — macOS only deep-links, the switch is in System Settings", async () => {
+    const { api } = await openPermissions();
+    await waitFor(() => expect(api.calls).toContain("computerAccessStatus"));
+    fireEvent.click(within(computerRow("Accessibility")).getByRole("button", { name: "Ask macOS" }));
+    await waitFor(() => expect(api.calls).toContain("computerAccessRequest:accessibility"));
+    // The named mutant: an optimistic grant. The row must still read as not granted.
+    await waitFor(() => expect(computerRow("Accessibility").querySelector('.tcc-state[data-state="denied"]')).not.toBeNull());
+  });
+
+  it("shows the grant once the user has actually flipped the switch", async () => {
+    const { api } = await openPermissions({ computerGrantAnswers: { accessibility: "granted" } });
+    await waitFor(() => expect(api.calls).toContain("computerAccessStatus"));
+    fireEvent.click(within(computerRow("Accessibility")).getByRole("button", { name: "Ask macOS" }));
+    await waitFor(() => expect(computerRow("Accessibility").querySelector('.tcc-state[data-state="granted"]')).not.toBeNull());
+  });
+
+  it("deep-links by ROW ID, never a URL from the renderer", async () => {
+    const { api } = await openPermissions();
+    await waitFor(() => expect(api.calls).toContain("computerAccessStatus"));
+    fireEvent.click(within(computerRow("Accessibility")).getByRole("button", { name: "Open System Settings" }));
+    await waitFor(() => expect(api.calls).toContain("computerAccessOpenSettings:accessibility"));
+  });
+
+  it("says computer control is unavailable when the build has no helper", async () => {
+    await openPermissions({ computerAccess: {
+      hostName: "Realm", packaged: true, helperAvailable: false,
+      rows: [{ id: "accessibility", label: "Accessibility", state: "granted", detail: "Granted.", canPrompt: false, needsSettings: false }],
+    } });
+    expect(await screen.findByText(/no accessibility helper/)).toBeInTheDocument();
+  });
+
+  it("warns that a dev build's grants attach to Electron, not Realm.app", async () => {
+    await openPermissions({ computerAccess: {
+      hostName: "Electron", packaged: false, helperAvailable: true,
+      rows: [{ id: "accessibility", label: "Accessibility", state: "denied", detail: "Required.", canPrompt: true, needsSettings: true }],
+    } });
+    expect(await screen.findByText(/attribute these grants to .Electron./)).toBeInTheDocument();
+  });
+
   it("does not glue a v onto a version that already names its product (codex-cli 0.146.0)", () => {
     // Live-pass finding: "vcodex-cli 0.146.0". The v is for bare numbers only.
     expect(engineVersionLabel("codex-cli 0.146.0")).toBe("codex-cli 0.146.0");

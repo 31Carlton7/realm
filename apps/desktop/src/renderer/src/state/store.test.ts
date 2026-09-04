@@ -2480,3 +2480,52 @@ describe("refreshMcpServers guard (space page era)", () => {
     expect(store.getState().mcpPanelSpaceId).toBeNull();
   });
 });
+
+/**
+ * Computer control's two grants. The behaviour worth pinning is that ASKING IS NOT GRANTING: macOS's
+ * Accessibility dialog only deep-links to System Settings, so the row must stay as it was unless the
+ * user actually went and flipped the switch. A store that optimistically marked it granted would show
+ * a green check over a capability that still refuses every call.
+ */
+describe("computer access", () => {
+  let api: FakeApi;
+  beforeEach(() => { api = fakeApi(); });
+
+  it("asking leaves the row exactly as it was", async () => {
+    const store = createAppStore(api);
+    await store.getState().refreshComputerAccess();
+    await store.getState().requestComputerAccess("accessibility");
+    expect(store.getState().computerAccess?.rows.find((r) => r.id === "accessibility")?.state).toBe("denied");
+    expect(api.calls).toContain("computerAccessRequest:accessibility");
+  });
+
+  it("reflects the grant once the user has flipped the switch", async () => {
+    api = fakeApi({ computerGrantAnswers: { accessibility: "granted" } });
+    const store = createAppStore(api);
+    await store.getState().refreshComputerAccess();
+    await store.getState().requestComputerAccess("accessibility");
+    const row = store.getState().computerAccess?.rows.find((r) => r.id === "accessibility");
+    expect(row).toMatchObject({ state: "granted", canPrompt: false });
+  });
+
+  it("never asks for a row that cannot be prompted", async () => {
+    const store = createAppStore(api);
+    await store.getState().refreshComputerAccess();
+    // Screen Recording is already granted in the fixture, so there is nothing to ask for.
+    await store.getState().requestComputerAccess("screenRecording");
+    expect(api.calls).not.toContain("computerAccessRequest:screenRecording");
+  });
+
+  it("does not put up a second dialog while one is still open", async () => {
+    const store = createAppStore(api);
+    await store.getState().refreshComputerAccess();
+    // macOS shows one consent dialog at a time; a second request in flight loses an answer.
+    api.delays["computerAccessRequest:accessibility"] = 20;
+    const first = store.getState().requestComputerAccess("accessibility");
+    expect(store.getState().computerRequesting).toBe("accessibility");
+    await store.getState().requestComputerAccess("accessibility");
+    await first;
+    expect(api.calls.filter((c) => c === "computerAccessRequest:accessibility")).toHaveLength(1);
+    expect(store.getState().computerRequesting).toBeNull();
+  });
+});

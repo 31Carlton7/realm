@@ -190,6 +190,12 @@ export type FakeData = {
    *  named here is answered Allow — the fake's default is the happy path, and a test that cares
    *  about a refusal says so. */
   macGrantAnswers?: Record<string, "granted" | "denied">;
+  /** Computer control's two grants. Defaults to the state a fresh install is really in: Accessibility
+   *  not granted (Realm has never asked for it), Screen Recording already granted. */
+  computerAccess?: ComputerAccessStatus;
+  /** Whether the user actually went to System Settings and switched a row on after being asked.
+   *  Unnamed rows stay as they were, which is what asking alone does. */
+  computerGrantAnswers?: Record<string, "granted">;
   /** What main's gated updater reports (Plan 15 W1). Defaults to today's shipped truth: a packaged
    *  local build is unsigned, so the row is disabled as "unsigned". Mutate between calls to script
    *  an enabled build's states. */
@@ -329,6 +335,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       ],
     },
     macGrantAnswers: overrides.macGrantAnswers ?? {},
+    computerGrantAnswers: overrides.computerGrantAnswers ?? {},
+    computerAccess: overrides.computerAccess ?? {
+      hostName: "Realm", packaged: true, helperAvailable: true,
+      rows: [
+        { id: "accessibility", label: "Accessibility", state: "denied", detail: "Required.", canPrompt: true, needsSettings: true },
+        { id: "screenRecording", label: "Screen Recording", state: "granted", detail: "Optional.", canPrompt: false, needsSettings: false },
+      ],
+    },
     updateStatus: overrides.updateStatus ?? { version: "0.0.1", state: { kind: "disabled", reason: "unsigned" } },
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
@@ -803,6 +817,19 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return structuredClone(data.macAccess);
     },
     macAccessOpenSettings: async (id) => { calls.push(`macAccessOpenSettings:${id}`); },
+    computerAccessStatus: async () => { calls.push("computerAccessStatus"); return structuredClone(data.computerAccess); },
+    /** Models the real thing: asking cannot itself grant — macOS only deep-links to System Settings —
+     *  so the row comes back UNCHANGED unless the fixture says the user went and flipped the switch. */
+    computerAccessRequest: async (id) => {
+      calls.push(`computerAccessRequest:${id}`);
+      await wait(`computerAccessRequest:${id}`);
+      if (data.computerGrantAnswers[id] === "granted") {
+        const rows = data.computerAccess.rows.map((r) => (r.id === id ? { ...r, state: "granted" as const, canPrompt: false, needsSettings: false } : r));
+        data.computerAccess = { ...data.computerAccess, rows };
+      }
+      return structuredClone(data.computerAccess);
+    },
+    computerAccessOpenSettings: async (id) => { calls.push(`computerAccessOpenSettings:${id}`); },
     macAccessRevealApp: async () => { calls.push("macAccessRevealApp"); },
     updateStatus: async () => { calls.push("updateStatus"); return { ...data.updateStatus }; },
     // Mirrors main's gate: a disabled updater answers its state unchanged — the fake never checks.

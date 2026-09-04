@@ -45,6 +45,14 @@ interface Window {
       openSettings(id: string): Promise<void>;
       revealApp(): Promise<void>;
     };
+    /** Computer control's two grants (Permissions tab). `status` never prompts; `request`
+     *  deliberately does, from a click on that row — see computer-access.ts for why asking lives
+     *  apart from checking. */
+    computerAccess: {
+      status(): Promise<ComputerAccessStatus>;
+      request(id: string): Promise<ComputerAccessStatus>;
+      openSettings(id: string): Promise<void>;
+    };
     /** Settings→App Updates row (Plan 15 W1). The gate lives in main: on a gated build `check`
      *  answers the same disabled state `status` does — the renderer can't start a check main won't run. */
     updates: {
@@ -122,6 +130,28 @@ interface MacAccessStatus {
   /** The app macOS attributes the grants to. Under `pnpm dev` that is Electron, not Realm — the
    *  page says so, because grants made in dev do not carry into the packaged app. */
   host: { name: string; bundlePath: string; packaged: boolean };
+}
+/** Mirrors ComputerAccessRow/ComputerAccessStatus in main/computer-access.ts — the two grants the
+ *  computer-control tools need. Only two states here, unlike the mac doctor rows: macOS answers both
+ *  of these definitively, though it cannot tell "refused" from "never asked" for Accessibility. */
+interface ComputerAccessRow {
+  id: "accessibility" | "screenRecording";
+  label: string;
+  state: "granted" | "denied" | "unknown";
+  detail: string;
+  /** Realm has a way to raise the real prompt for this row. */
+  canPrompt: boolean;
+  /** The switch that actually grants it lives in System Settings — true whenever it is missing. */
+  needsSettings: boolean;
+}
+interface ComputerAccessStatus {
+  rows: ComputerAccessRow[];
+  /** The app macOS attributes the grants to — "Electron" under `pnpm dev`. */
+  hostName: string;
+  packaged: boolean;
+  /** False when this build has no compiled accessibility helper: computer control is unavailable
+   *  whatever macOS has granted. */
+  helperAvailable: boolean;
 }
 /** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */
 interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }
