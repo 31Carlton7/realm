@@ -33,6 +33,17 @@ describe("BrowserPermissionBroker.gate", () => {
     expect(events).toEqual([]);
   });
 
+  it("ask mode refuses the same way plan does, and says which mode it is", async () => {
+    // The mutant: leaving the gate on `mode === "plan"`. An Ask session would then drive the browser
+    // — clicking, typing, submitting — under a mode whose whole promise is that it changes nothing.
+    const { broker, events } = setup("ask");
+    const r = await broker.gate("s1", "browser_act", "Click X", {});
+    expect(r.allowed).toBe(false);
+    expect(!r.allowed && r.reason).toMatch(/read-only/);
+    expect(!r.allowed && r.reason).toContain("Ask");
+    expect(events).toEqual([]);
+  });
+
   it("default mode emits permission_request + waiting status, then resolves on allow", async () => {
     const { broker, events } = setup();
     const gate = broker.gate("s1", "browser_act", "Click *Submit* on example.com", { ref: 7 });
@@ -152,6 +163,13 @@ describe("BrowserPermissionBroker.gate — alwaysPrompt (credential fills)", () 
 
   it("still refuses in plan mode — a read-only session fills nothing", async () => {
     const { broker, events } = setup("plan");
+    const r = await broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
+    expect(r.allowed).toBe(false);
+    expect(events).toEqual([]);
+  });
+
+  it("refuses a credential fill in ask mode too", async () => {
+    const { broker, events } = setup("ask");
     const r = await broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
     expect(r.allowed).toBe(false);
     expect(events).toEqual([]);

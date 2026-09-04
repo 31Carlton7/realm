@@ -25,7 +25,10 @@ export const AgentRunConstraintsSchema = z.object({
   agentKind: AgentKindSchema.optional(),
   environmentId: IdSchema.optional(),
   newWorktree: z.union([z.boolean(), z.string().min(1).max(80)]).optional(),
-  permissionMode: z.enum(["plan", "default", "acceptEdits", "bypassPermissions"]).optional(),
+  /** Both read-only modes are requestable: they are the two most restrictive things a parent can ask
+   *  a child to be, and leaving one out of the enum refuses the constraint outright rather than
+   *  tightening. `MODE_RANK` ranks them equal — see `agent-run.ts`. */
+  permissionMode: z.enum(["plan", "ask", "default", "acceptEdits", "bypassPermissions"]).optional(),
   maxTurns: z.number().int().min(1).max(200).optional(),
   timeoutMs: z.number().int().min(5_000).max(3_600_000).optional(),
   skills: z.array(SkillIdSchema).max(50).optional(),

@@ -1055,6 +1055,52 @@ describe("app store", () => {
       return store;
     };
 
+    /** A Claude session on a chosen permission mode — the axis Plan and Ask have to preserve. */
+    const onFullAccess = async () => {
+      api = fakeApi({
+        items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "s" })] },
+        sessions: [session("se1", "s1", { agentKind: "claude", permissionMode: "bypassPermissions" })],
+      });
+      const store = createAppStore(api); await store.getState().boot();
+      return store;
+    };
+    const modeOf = (store: Awaited<ReturnType<typeof onFullAccess>>) => store.getState().sessions.se1?.permissionMode;
+
+    it("carries the chosen permission through a trip via Plan AND Ask, and back", async () => {
+      // The mutant: parking on every entry rather than only on the way in from Build. Plan → Ask would
+      // overwrite the parked "bypassPermissions" with "plan", and the user would come out of the round
+      // trip silently demoted to "Ask each time" — the exact failure the park exists to prevent.
+      const store = await onFullAccess();
+      await store.getState().setSessionMode("se1", "plan");
+      expect(modeOf(store)).toBe("plan");
+      expect(store.getState().planReturn.se1).toBe("bypassPermissions");
+      await store.getState().setSessionMode("se1", "ask");
+      expect(modeOf(store)).toBe("ask");
+      expect(store.getState().planReturn.se1).toBe("bypassPermissions");
+      await store.getState().setSessionMode("se1", "build");
+      expect(modeOf(store)).toBe("bypassPermissions");
+      expect(store.getState().planReturn.se1).toBeUndefined();
+    });
+
+    it("goes straight from Ask to Plan without passing through Build", async () => {
+      // The mutant: treating "not plan" as "leave", which would restore the permission mode on the way
+      // to Ask and leave the session building under bypassPermissions.
+      const store = await onFullAccess();
+      await store.getState().setSessionMode("se1", "ask");
+      await store.getState().setSessionMode("se1", "plan");
+      expect(modeOf(store)).toBe("plan");
+      expect(store.getState().planReturn.se1).toBe("bypassPermissions");
+    });
+
+    it("does nothing when the session is already in the mode asked for", async () => {
+      const store = await onFullAccess();
+      await store.getState().setSessionMode("se1", "ask");
+      const before = api.calls.length;
+      await store.getState().setSessionMode("se1", "ask");
+      expect(api.calls.length).toBe(before);
+      expect(store.getState().planReturn.se1).toBe("bypassPermissions");
+    });
+
     it("approving the plan leaves Plan and restores the permission mode it was holding", async () => {
       // The mutant: dropping the setSessionMode call from respondPermission. The agent acts on the
       // approval at once and Realm never hears about it, so the chip goes on claiming Plan over a

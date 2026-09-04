@@ -1,5 +1,5 @@
-import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, PLAN_PERMISSION_MODE, SESSION_MODES, acpPlanMode, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
-import { Icon } from "@realm/ui";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
@@ -106,6 +106,10 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
 }
 
 const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id)?.label ?? id;
+const MODE_LABEL: Record<SessionMode, string> = { build: "Build", plan: "Plan", ask: "Ask" };
+/** `search` for Ask, not the session bubble: the mode is reading and searching, and the bubble is
+ *  already what a session row is. */
+const MODE_ICON: Record<SessionMode, IconName> = { build: "tool", plan: "plan", ask: "search" };
 
 /** An environment's display name (under-strip selector, Plan 12 W1): the space's own name for the
  *  primary (the folder IS the space), the branch for a worktree, the folder's basename otherwise. */
@@ -223,14 +227,24 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, connectors, 
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
 /**
- * What Plan MEANS for this agent — the chip title's honesty clause (Plan 14 W3). Claude and Codex have
- * Realm-transmitted plan semantics; an ACP agent's Plan is its OWN mode, described in its own words
- * where it offered any.
+ * What the current mode MEANS for this agent — the chip title's honesty clause (Plan 14 W3).
+ *
+ * Claude and Codex have Realm-transmitted semantics and each is described in its OWN terms, because
+ * they are not the same guarantee: Codex's Plan can be talked out of the sandbox by approving a
+ * prompt, and its Ask cannot. An ACP agent's Plan or Ask is its own mode, described in its own words
+ * where it offered any — Realm does not paraphrase an agent's mode into Realm's vocabulary.
  */
-function planMeaning(kind: AgentKind, acpPlan: AcpSessionMode | null): string {
-  if (acpPlan) {
-    const label = AGENT_META[kind].label;
-    return acpPlan.description ? `Plan is ${label}'s own ${acpPlan.name} mode: ${acpPlan.description}` : `Plan is ${label}'s own ${acpPlan.name} mode`;
+function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMode: AcpSessionMode | null): string {
+  const label = AGENT_META[kind].label;
+  const name = MODE_LABEL[mode];
+  if (acpMode) {
+    return acpMode.description
+      ? `${name} is ${label}'s own ${acpMode.name} mode: ${acpMode.description}`
+      : `${name} is ${label}'s own ${acpMode.name} mode`;
+  }
+  if (mode === "ask") {
+    if (kind === "codex") return "Ask runs the turn read-only with approvals disabled — there is no prompt through which to escalate, and a mid-session switch applies when the session next starts";
+    return "Ask is read-only: the agent may read and search, and every edit or command is refused before it runs";
   }
   if (kind === "codex") return "Plan runs the turn read-only under an untrusted approval policy — the agent proposes, but does not edit";
   return "Plan means the agent researches and proposes, but does not edit";
@@ -326,9 +340,16 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // than promising a mapping that may not exist. A fresh session shows nothing at all.
   const isAcpKind = kind.startsWith("acp:");
   const acpPlan = isAcpKind ? acpPlanMode(acpModes) : null;
+  const acpAsk = isAcpKind ? acpAskMode(acpModes) : null;
   const canPlan = isAcpKind ? acpPlan !== null : AGENT_SUPPORTS_PLAN_MODE[kind];
+  // Asked separately from Plan and answered separately: Cursor advertises both, opencode neither, and
+  // an agent offering one is not offering the other.
+  const canAsk = isAcpKind ? acpAsk !== null : AGENT_SUPPORTS_ASK_MODE[kind];
   const acpModesPending = isAcpKind && acpModes === null && !canSwitchAgent && status !== "error" && status !== "ended";
-  const inPlan = session.permissionMode === PLAN_PERMISSION_MODE;
+  const mode = sessionModeOf(session.permissionMode);
+  // Both Plan and Ask replace the permission axis rather than sitting beside it, so both turn the
+  // permission control into a label naming what Build will restore.
+  const inReadOnly = mode !== "build";
   // bypassPermissions must never be a one-click slip (U-M7): selecting it arms an inline confirm chip
   // for 5s while the chip simply stays on the current mode; only the explicit confirm applies it.
   const [confirmBypass, setConfirmBypass] = useState(false);
@@ -546,9 +567,19 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // chip's gray suffix names the level, and this list is the picker's permanent Effort section.
   // Deliberately narrow (no `MenuItem[]`): OverflowGroup's item shape, which has no separator arm.
   const effortItems = EFFORT_LEVELS.map((l) => ({ label: formatEffort(l), checked: session.effort === l, onSelect: () => onOptions({ effort: l }) }));
-  const modeItems: MenuItem[] = SESSION_MODES.map((m) => ({
-    label: m.label, checked: (m.id === "plan") === inPlan, onSelect: () => onMode(m.id),
-  }));
+  // Only the modes this agent can actually be put INTO. Build is always offered — it is the absence
+  // of the other two, not a capability — and a menu row for a mode nothing would enforce is the lie
+  // the per-kind tables exist to prevent.
+  const modeItems: MenuItem[] = SESSION_MODES
+    .filter((m) => (m.id === "plan" ? canPlan : m.id === "ask" ? canAsk : true))
+    .map((m) => ({ label: m.label, checked: m.id === mode, onSelect: () => onMode(m.id) }));
+
+  // While IN a read-only mode the title says what that mode is doing; from Build it says what each
+  // offered mode WOULD do, because Build is where the choice is made and the per-agent guarantee is
+  // exactly what the user needs before making it.
+  const modeTitle = `Mode: ${MODE_LABEL[mode]}. ` + (mode === "build"
+    ? [canPlan ? modeMeaning("plan", kind, acpPlan) : null, canAsk ? modeMeaning("ask", kind, acpAsk) : null].filter(Boolean).join(". ")
+    : modeMeaning(mode, kind, mode === "ask" ? acpAsk : acpPlan));
 
   // Built HERE rather than inside ModelPicker so the harness chip and the model list are the same
   // rows: the chip resolves a switch through `modelIdOn`, and two independent `modelRows` calls
@@ -588,7 +619,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   });
   // In Plan the permission control is a read-only label (see below) and stays on the row — only
   // the MENU collapses.
-  const overflow: OverflowGroup[] | undefined = collapsed && canSetPermissionMode && !inPlan
+  const overflow: OverflowGroup[] | undefined = collapsed && canSetPermissionMode && !inReadOnly
     ? [{ label: "Permissions", items: permissionItems }]
     : undefined;
 
@@ -664,27 +695,27 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               onManageConnections={() => onManageConnections?.()} btnRef={plusRef} />
             {/* Left group order (prompter rework): "+" · permission · mode · branch. The permission
                 and mode chips sit against the attach button; the git chip trails them. */}
-            {/* In Plan the permission mode is not in effect — Claude's `plan` replaces it outright and
-                Codex forces read-only — so the control becomes a LABEL naming what Build will restore.
+            {/* In Plan and in Ask the permission mode is not in effect — Claude's `plan` replaces it
+                outright, Realm's own gate refuses in Ask, and Codex forces read-only either way — so
+                the control becomes a LABEL naming what Build will restore.
                 Offering a picker whose selection changes nothing is the lie this split exists to end;
                 hiding it instead would lose the answer to "what happens when I go back?". */}
             {canSetPermissionMode && (
-              inPlan
+              inReadOnly
                 ? <ChipMenu ariaLabel="Permission mode" items={[]}
-                    title={`Plan is read-only — returning to Build restores ${permissionLabel(planReturn ?? "default")}`}
+                    title={`${MODE_LABEL[mode]} is read-only — returning to Build restores ${permissionLabel(planReturn ?? "default")}`}
                     label={permissionLabel(planReturn ?? "default")} />
                 : !collapsed && <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
                     label={permissionLabel(session.permissionMode)} items={permissionItems} />
             )}
-            {canPlan && (
-              <ChipMenu ariaLabel="Mode" title={`Mode: ${inPlan ? "Plan" : "Build"}. ${planMeaning(kind, acpPlan)}`}
-                icon={inPlan ? "plan" : "tool"} label={inPlan ? "Plan" : "Build"} items={modeItems} />
+            {(canPlan || canAsk) && (
+              <ChipMenu ariaLabel="Mode" title={modeTitle} icon={MODE_ICON[mode]} label={MODE_LABEL[mode]} items={modeItems} />
             )}
             {/* The materialize-honestly window: the session is live but the agent has not named its
                 modes yet. Disabled (a static label, out of the tab order) rather than absent, so the
                 chip does not pop into a row the user is already aiming at — and rather than enabled,
                 because offering Plan before the agent has said it exists would be a guess. */}
-            {!canPlan && acpModesPending && (
+            {!canPlan && !canAsk && acpModesPending && (
               <ChipMenu ariaLabel="Mode" title="Waiting for the agent's modes" icon="tool" label="Build" items={[]} />
             )}
             <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />

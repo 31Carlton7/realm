@@ -702,6 +702,30 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
+  it("translates Ask onto the agent's own `ask` id, and back out to `agent`", async () => {
+    const { handle, evs } = await booted();
+    await handle.setOptions({ permissionMode: "ask" });
+    await handle.setOptions({ permissionMode: "plan" });
+    // Plan → Ask → Build, all three on the agent's own ids. The mutant: routing anything that is not
+    // "plan" to acpBuildMode, which would send `agent` for Ask and leave the session building.
+    await handle.setOptions({ permissionMode: "ask" });
+    await handle.setOptions({ permissionMode: "acceptEdits" });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: { modeId?: string } }[] };
+    expect(journal.calls.filter((c) => c.method === "session/set_mode").map((c) => c.params.modeId)).toEqual(["ask", "plan", "ask", "agent"]);
+    await handle.dispose();
+  });
+
+  it("boots straight into Ask when the session was persisted there", async () => {
+    // A row carrying `ask` must reach the agent's own mode at boot, not on the first setOptions —
+    // the first turn is the one most likely to want to edit something.
+    const { handle, evs } = await booted({ permissionMode: "ask" });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: { modeId?: string } }[] };
+    expect(journal.calls.filter((c) => c.method === "session/set_mode").map((c) => c.params.modeId)).toEqual(["ask"]);
+    await handle.dispose();
+  });
+
   it("sends NOTHING to session/set_mode when the agent advertises no plan-equivalent", async () => {
     // The named mutant: forwarding Realm's id would collide with Cursor's `plan` by luck today and be
     // a foreign-id rejection (or an accidental match) on any other agent.

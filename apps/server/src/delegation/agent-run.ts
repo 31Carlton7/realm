@@ -74,8 +74,13 @@ type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown
  *  effectively has, and `bypassPermissions` is unreachable through this table because a requested
  *  bypass is degraded to `default` before ranking and a bypass PARENT is capped to `default` first
  *  (the browser agent's rule, verbatim). An unranked mode (an adapter-specific string) ranks as
- *  `default` — capping math over an unknown mode should fail toward asking, not toward access. */
-const MODE_RANK: Record<string, number> = { plan: 0, default: 1, acceptEdits: 2, bypassPermissions: 3 };
+ *  `default` — capping math over an unknown mode should fail toward asking, not toward access.
+ *
+ *  `ask` TIES with `plan` rather than sitting beside it. They are two different read-only modes, not
+ *  two rungs of one ladder: neither lets the child change anything, so capping a child of one to the
+ *  other is safe in both directions, and giving either a lower number would claim an ordering between
+ *  them that does not exist. */
+const MODE_RANK: Record<string, number> = { plan: 0, ask: 0, default: 1, acceptEdits: 2, bypassPermissions: 3 };
 const rank = (mode: string): number => MODE_RANK[mode] ?? 1;
 
 /**
@@ -494,7 +499,7 @@ function spawnInputSchema(): Tool["inputSchema"] {
           agentKind: { type: "string", enum: [...AgentKindSchema.options], description: "Agent for the child. Omitted: the caller's own kind (with a claude fallback when that kind cannot take Realm's skills)." },
           environmentId: { type: "string", description: "Run in this EXISTING environment of the caller's space. Mutually exclusive with newWorktree." },
           newWorktree: { type: ["boolean", "string"], description: "Create a fresh git worktree for the child: true titles it from the goal, a string titles it verbatim. Mutually exclusive with environmentId. Give PARALLEL agents separate worktrees — several agents editing one checkout will clobber each other." },
-          permissionMode: { type: "string", enum: ["plan", "default", "acceptEdits", "bypassPermissions"], description: "Requested mode; granted = min(parent's, requested). bypassPermissions is NEVER granted (degrades to default)." },
+          permissionMode: { type: "string", enum: ["plan", "ask", "default", "acceptEdits", "bypassPermissions"], description: "Requested mode; granted = min(parent's, requested). `plan` and `ask` are both read-only. bypassPermissions is NEVER granted (degrades to default)." },
           maxTurns: { type: "number", description: "Scales the child's time budget (default 20; there is no per-turn counter — this is a time scale)." },
           timeoutMs: { type: "number", description: "Absolute time budget in ms (5s–1h); overrides maxTurns scaling." },
           skills: { type: "array", items: { type: "string" }, description: "Narrow the child to this SUBSET of the space's enabled skills. An id not enabled in the space refuses the call." },

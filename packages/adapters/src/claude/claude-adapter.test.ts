@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeMcpServers } from "./claude-adapter";
+import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode } from "./claude-adapter";
 import type { SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { tmpdir } from "node:os"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -23,10 +23,13 @@ type FakeOpts = {
   abortable?: boolean;
   /** record each user message pulled off the prompt stream (content-shape assertions) */
   capture?: unknown[];
+  /** record the Options object the adapter handed `query` (start-time option assertions) */
+  captureOptions?: Record<string, unknown>[];
 };
 function fakeQuery(opts: FakeOpts, calls: string[] = []) {
   return ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: Record<string, unknown> }) => {
     const gen = (async function* () {
+      opts.captureOptions?.push(options);
       for (const l of opts.stderr ?? []) (options.stderr as (d: string) => void)(l);
       const it = prompt[Symbol.asyncIterator](); const first = await it.next();
       if (first.done) return;
@@ -59,6 +62,71 @@ const collectUntil = (events: AsyncIterable<SessionEvent>, stop: (e: SessionEven
   (async () => { const all: SessionEvent[] = []; for await (const e of events) { all.push(e); onEach?.(e); if (stop(e, all)) break; } return all; })();
 const types = (evs: SessionEvent[]) => evs.map((e) => e.type);
 const statuses = (evs: SessionEvent[]) => evs.flatMap((e) => (e.type === "status" ? [e.payload.status] : []));
+
+describe("Ask — read-only, enforced by the adapter", () => {
+  const gateway = { name: "realm", transport: "http", url: "http://localhost:1/mcp", headers: {} } as const;
+
+  it("allows reading and searching, and nothing that changes anything", () => {
+    const allowed = claudeAskTools([]);
+    for (const t of ["Read", "Glob", "Grep", "NotebookRead", "WebFetch", "WebSearch", "TodoWrite", "AskUserQuestion"]) {
+      expect(allowed.has(t), t).toBe(true);
+    }
+    // Bash is the named mutant. Nothing can tell from a command string whether it mutates, and
+    // `git log` and `git reset --hard` are the same shape — admitting it makes the mode advisory.
+    for (const t of ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Task", "Agent", "ExitPlanMode"]) {
+      expect(allowed.has(t), t).toBe(false);
+    }
+  });
+
+  it("admits the read-only browser tools by deriving them from the same list the adapter pre-allows", () => {
+    const allowed = claudeAskTools([gateway]);
+    // Not a second hand-written list: Ask and `allowedTools` cannot disagree about what is read-only.
+    for (const t of claudeAllowedTools([gateway])) expect(allowed.has(t), t).toBe(true);
+    expect(allowed.has("mcp__realm__realm-browser__browser_act")).toBe(false);
+  });
+
+  it("sends the SDK `default`, because that is the only mode under which its own gate runs", () => {
+    // The mutant: passing "ask" through. The SDK's PermissionMode union has no such member; passing
+    // acceptEdits or bypassPermissions instead would hand the gate its own bypass.
+    expect(claudeSdkPermissionMode("ask")).toBe("default");
+    expect(claudeSdkPermissionMode("plan")).toBe("plan");
+    expect(claudeSdkPermissionMode("bypassPermissions")).toBe("bypassPermissions");
+    expect(claudeSdkPermissionMode(undefined)).toBe("default");
+  });
+
+  it("refuses a mutating tool outright — no prompt the user could answer `allow` to", async () => {
+    const captureOptions: Record<string, unknown>[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Edit", captureOptions }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "ask" });
+    const c = collectUntil(h.events, () => false);
+    await h.send({ text: "hi", attachments: [] }); await h.dispose(); const got = await c;
+    // Denied before it ran, and never put to the user: a prompt here would make Ask advisory.
+    expect(types(got)).not.toContain("permission_request");
+    expect(statuses(got)).not.toContain("waiting_permission");
+    expect(captureOptions[0]!.permissionMode).toBe("default");
+  });
+
+  it("still routes a READ through the ordinary permission channel", async () => {
+    // Ask narrows what may run; it does not take over deciding the calls that are allowed to.
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read" }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "ask" });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    expect(types(got)).toContain("permission_request");
+  });
+
+  it("holds on a session switched into Ask mid-flight, not only on one that started there", async () => {
+    // The mutant: reading the mode off `options` instead of tracking it. `Options` is consulted once
+    // at start, so a live switch would leave the gate open for the rest of the session.
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Edit" }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+    await h.setOptions({ permissionMode: "ask" });
+    const c = collectUntil(h.events, () => false);
+    await h.send({ text: "hi", attachments: [] }); await h.dispose(); const got = await c;
+    expect(types(got)).not.toContain("permission_request");
+  });
+});
 
 describe("ClaudeAdapter", () => {
   it("streams normalized events for a turn and marks idle at result", async () => {

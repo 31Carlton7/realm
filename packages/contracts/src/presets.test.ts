@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has at least 8 colors and a lot more icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(50); });
@@ -84,10 +84,20 @@ describe("PERMISSION_MODES", () => {
     expect(PERMISSION_MODES.map((m) => m.id)).toEqual(["default", "acceptEdits", "bypassPermissions"]);
     expect(PERMISSION_MODES.map((m) => m.id)).not.toContain(PLAN_PERMISSION_MODE);
   });
-  it("still names Plan's wire value, which the adapters read off `permissionMode`", () => {
+  it("still names Plan's and Ask's wire values, which the adapters read off `permissionMode`", () => {
     // Splitting the axes was a UI change; the transport did not move.
     expect(PLAN_PERMISSION_MODE).toBe("plan");
-    expect(SESSION_MODES.map((m) => m.id)).toEqual(["build", "plan"]);
+    expect(ASK_PERMISSION_MODE).toBe("ask");
+    expect(SESSION_MODES.map((m) => m.id)).toEqual(["build", "plan", "ask"]);
+    expect(PERMISSION_MODES.map((m) => m.id)).not.toContain(ASK_PERMISSION_MODE);
+  });
+  it("calls the `default` rung `Ask each time`, so it cannot be mistaken for the Ask MODE", () => {
+    // The mutant: relabelling it back to "Ask". Two controls in the same row would then both offer
+    // something called Ask, meaning two unrelated things — per-action prompting, and read-only Q&A.
+    const labels = PERMISSION_MODES.map((m) => m.label);
+    expect(labels).not.toContain("Ask");
+    expect(labels).toContain("Ask each time");
+    expect(SESSION_MODES.map((m) => m.label)).toContain("Ask");
   });
 });
 
@@ -151,7 +161,46 @@ describe("SELECTABLE_AGENT_KINDS", () => {
       // the generic AcpAdapter, so its permission/plan/skills/memory answers must match Cursor's.
       expect(AGENT_SUPPORTS_PERMISSION_MODES[k], k).toBe(false);
       expect(AGENT_SUPPORTS_PLAN_MODE[k], k).toBe(false);
+      expect(AGENT_SUPPORTS_ASK_MODE[k], k).toBe(false);
     }
+  });
+});
+
+describe("AGENT_SUPPORTS_ASK_MODE", () => {
+  it("has an entry for every agent kind, so a new kind cannot be silently offered Ask", () => {
+    expect(Object.keys(AGENT_SUPPORTS_ASK_MODE).sort()).toEqual(Object.keys(AGENT_META).sort());
+  });
+  it("claims Ask only where an adapter actually refuses the call", () => {
+    // Claude denies in canUseTool, Codex runs read-only with approvals disabled. Every ACP kind is
+    // false as the pre-handshake floor — acpAskMode answers per session.
+    expect(AGENT_SUPPORTS_ASK_MODE.claude).toBe(true);
+    expect(AGENT_SUPPORTS_ASK_MODE.codex).toBe(true);
+    for (const k of Object.keys(AGENT_SUPPORTS_ASK_MODE)) {
+      if (k.startsWith("acp:")) expect(AGENT_SUPPORTS_ASK_MODE[k as keyof typeof AGENT_SUPPORTS_ASK_MODE], k).toBe(false);
+    }
+  });
+});
+
+describe("the mode axis on the permissionMode wire", () => {
+  it("round-trips every mode through the field it travels on", () => {
+    for (const m of SESSION_MODES) {
+      const wire = modeWireValue(m.id);
+      // Build is the ABSENCE of a wire value; the other two are their own strings.
+      expect(sessionModeOf(wire ?? "default")).toBe(m.id);
+    }
+    expect(modeWireValue("build")).toBeNull();
+  });
+  it("reads a permission as Build, so a session on `acceptEdits` is not in some mode of its own", () => {
+    for (const p of PERMISSION_MODES) expect(sessionModeOf(p.id)).toBe("build");
+    expect(sessionModeOf("some-adapter-string")).toBe("build");
+  });
+  it("calls exactly Plan and Ask read-only", () => {
+    // The mutant: dropping `ask` from isReadOnlyMode. Every gate that refuses mutations in Plan —
+    // the browser broker above all — would let an Ask session through, which is the one failure a
+    // read-only mode cannot have.
+    expect(isReadOnlyMode(PLAN_PERMISSION_MODE)).toBe(true);
+    expect(isReadOnlyMode(ASK_PERMISSION_MODE)).toBe(true);
+    for (const p of PERMISSION_MODES) expect(isReadOnlyMode(p.id), p.id).toBe(false);
   });
 });
 
@@ -180,13 +229,34 @@ describe("acpPlanMode / acpBuildMode (Plan 14 W3)", () => {
     // …even when the session booted elsewhere: `agent` is the mode Build claims to be.
     expect(acpBuildMode(CURSOR, "ask")?.id).toBe("agent");
   });
-  it("falls back to the boot mode, but never to the plan mode itself", () => {
-    const noAgent: AcpSessionMode[] = [{ id: "chat", name: "Chat" }, { id: "plan", name: "Plan" }];
+  it("falls back to the boot mode, but never to a read-only mode itself", () => {
+    const noAgent: AcpSessionMode[] = [{ id: "chat", name: "Chat" }, { id: "plan", name: "Plan" }, { id: "ask", name: "Ask" }];
     expect(acpBuildMode(noAgent, "chat")?.id).toBe("chat");
     // Booted in plan with no `agent` id: leaving Plan has nowhere honest to go.
     expect(acpBuildMode(noAgent, "plan")).toBeNull();
+    // The mutant: excluding only plan. A session that booted in Ask would "leave" Ask by being sent
+    // straight back into it, and the chip would flip to Build over a session that never moved.
+    expect(acpBuildMode(noAgent, "ask")).toBeNull();
     expect(acpBuildMode(noAgent, null)).toBeNull();
     expect(acpBuildMode(null, "agent")).toBeNull();
+  });
+
+  it("finds Cursor's ask mode by the agent's own id, and refuses a name that merely sounds like it", () => {
+    expect(acpAskMode(CURSOR)?.id).toBe("ask");
+    expect(acpAskMode(CURSOR)?.description).toContain("no edits or command execution");
+    expect(acpAskMode([{ id: "chat", name: "Ask" }, { id: "agent", name: "Agent" }])).toBeNull();
+    expect(acpAskMode([{ id: "agent", name: "Agent" }, { id: "plan", name: "Plan" }])).toBeNull();
+    expect(acpAskMode(null)).toBeNull();
+  });
+
+  it("reads the spec URI form of ask, the way Copilot reports plan", () => {
+    const uri = "https://agentclientprotocol.com/protocol/session-modes#ask";
+    expect(acpWellKnownMode(uri, "ask")).toBe(true);
+    expect(acpAskMode([{ id: uri, name: "Ask" }])?.id).toBe(uri);
+    // Plan and Ask must never resolve to each other.
+    expect(acpWellKnownMode(uri, "plan")).toBe(false);
+    expect(acpAskMode([{ id: "plan", name: "Plan" }])).toBeNull();
+    expect(acpPlanMode([{ id: "ask", name: "Ask" }])).toBeNull();
   });
 });
 

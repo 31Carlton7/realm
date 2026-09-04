@@ -198,6 +198,21 @@ describe("permission cap — min(parent, requested), bypass never granted", () =
     const second = app.sessions.list(spaceId).find((s) => s.id !== parentId && s.id !== first.id)!;
     expect(second.permissionMode).toBe("plan");
   });
+
+  it("grants a requested `ask`, because ask is a TIGHTENING of the parent's default", async () => {
+    // The mutant: leaving `ask` out of MODE_RANK. It falls to the unknown-mode fallback and ranks as
+    // `default`, so it stops counting as tighter — the constraint is silently ignored and the child
+    // that asked to be read-only is handed a mode that writes.
+    const { spaceId, parentId } = await boot({ parentMode: "default", script: [...CHILD_SCRIPT] });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go", constraints: { permissionMode: "ask" } });
+    expect(childOf(spaceId, parentId).permissionMode).toBe("ask");
+  });
+
+  it("caps a child of an Ask parent at Ask, however much it asks for", async () => {
+    const { spaceId, parentId } = await boot({ parentMode: "ask", script: [...CHILD_SCRIPT] });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go", constraints: { permissionMode: "acceptEdits" } });
+    expect(childOf(spaceId, parentId).permissionMode).toBe("ask");
+  });
 });
 
 describe("the depth budget — a wall replaced by a countdown, enforced server-side", () => {

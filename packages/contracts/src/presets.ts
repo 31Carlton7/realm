@@ -172,8 +172,13 @@ export const AGENT_CONVERSATION_REWIND = {
  * `plan` is deliberately NOT here. It used to sit in this list, which conflated two different axes:
  * "how freely may the agent act" and "is the agent building or thinking". Plan is now its own chip
  * (see `AGENT_SUPPORTS_PLAN_MODE`), and the two are chosen independently.
+ *
+ * `default` is labelled "Ask each time" rather than "Ask", which is what it used to say. Ask is now a
+ * MODE on the other chip — read-only Q&A — and two controls in one row both offering something called
+ * Ask, meaning two unrelated things, is a question the user cannot answer. The longer label is also
+ * the more accurate one: this rung is about being asked per action, not about a way of working.
  */
-export const PERMISSION_MODES = [{ id: "default", label: "Ask" }, { id: "acceptEdits", label: "Accept edits" }, { id: "bypassPermissions", label: "Full access" }] as const;
+export const PERMISSION_MODES = [{ id: "default", label: "Ask each time" }, { id: "acceptEdits", label: "Accept edits" }, { id: "bypassPermissions", label: "Full access" }] as const;
 
 /**
  * Settings key for the permission mode NEW sessions start in (Plan 12 W6) — consumed server-side by
@@ -195,9 +200,44 @@ export const DEFAULT_PERMISSION_MODE_KEY = "sessions.defaultPermissionMode";
  * chose, so leaving Plan has to put it back rather than resetting to `default`.
  */
 export const PLAN_PERMISSION_MODE = "plan";
-/** Build/Plan, the mode axis. Build is the absence of Plan, not a value Realm ever transmits. */
-export const SESSION_MODES = [{ id: "build", label: "Build" }, { id: "plan", label: "Plan" }] as const;
+
+/**
+ * The wire value for Ask: a read-only Q&A mode — the agent may read and search the repo, and may not
+ * edit a file or run a command.
+ *
+ * It rides the `permissionMode` field for the same reason Plan does, and like Plan it is a MODE and
+ * not a permission rung: a session in Ask is not storing the permission the user chose, so leaving
+ * Ask has to put it back.
+ *
+ * Unlike Plan, no backend has a mode of this name, so every adapter enforces it in its own terms and
+ * the string itself is never transmitted anywhere:
+ *
+ *  - **Claude** — the SDK's `PermissionMode` union has no "ask", so `ClaudeAdapter` sends `default`
+ *    and refuses everything outside `claudeAskTools` in `canUseTool` before the call runs.
+ *  - **Codex** — `codexPolicyFor` maps it onto `approvalPolicy: "never"` + `sandbox: "read-only"`:
+ *    read-only, with no approval to escalate through. Strictly tighter than Plan, whose `untrusted`
+ *    policy can be answered "yes" and let a write out of the sandbox.
+ *  - **ACP** — the agent's OWN `ask` mode when it advertises one (`acpAskMode`), and no chip at all
+ *    when it does not.
+ */
+export const ASK_PERMISSION_MODE = "ask";
+
+/** Build/Plan/Ask, the mode axis. Build is the absence of the other two, not a value Realm transmits. */
+export const SESSION_MODES = [{ id: "build", label: "Build" }, { id: "plan", label: "Plan" }, { id: "ask", label: "Ask" }] as const;
 export type SessionMode = (typeof SESSION_MODES)[number]["id"];
+
+/** The wire value a mode travels on, or null for Build — which is the absence of one. */
+export const modeWireValue = (mode: SessionMode): string | null =>
+  mode === "plan" ? PLAN_PERMISSION_MODE : mode === "ask" ? ASK_PERMISSION_MODE : null;
+
+/** The mode a session's stored `permissionMode` puts it in. Anything else is a permission, so Build. */
+export const sessionModeOf = (permissionMode: string): SessionMode =>
+  permissionMode === PLAN_PERMISSION_MODE ? "plan" : permissionMode === ASK_PERMISSION_MODE ? "ask" : "build";
+
+/** Modes in which the agent must not change anything — no edits, no commands, no page mutations.
+ *  The one predicate every read-only gate asks, so widening the axis can never leave one behind. */
+export const isReadOnlyMode = (permissionMode: string): boolean =>
+  permissionMode === PLAN_PERMISSION_MODE || permissionMode === ASK_PERMISSION_MODE;
 
 /**
  * Agent kinds that can actually be put into Plan.
@@ -269,6 +309,36 @@ export const AGENT_SUPPORTS_PLAN_MODE = {
   fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
+/**
+ * Agent kinds whose adapter can actually ENFORCE Ask.
+ *
+ * Read-only is the whole feature: a mode that says the agent cannot edit and then lets it edit is
+ * worse than no mode, so an entry is `true` only where the adapter refuses the call itself and never
+ * because the agent can be asked nicely to behave.
+ *
+ * - `claude` — `canUseTool` denies anything outside `claudeAskTools` before it runs. The SDK's own
+ *   `Options.tools` is deliberately NOT the lever: it restricts the base set of BUILT-IN tools, so
+ *   an MCP server's mutating tool would walk straight past it, and it cannot be changed on a live
+ *   query (`Query` exposes `setPermissionMode` and `setModel` and nothing else) — a session that
+ *   started in Ask would be left without its tools until a restart after leaving it.
+ * - `codex` — `sandbox: "read-only"` refuses writes in the kernel (verified: a write under
+ *   `codex sandbox -c sandbox_mode='"read-only"'` fails "Operation not permitted"), and
+ *   `approvalPolicy: "never"` means there is no prompt through which to escalate out of it.
+ * - `acp:*` — false as the pre-handshake floor, exactly as for Plan: the answer is per session, and
+ *   `acpAskMode` gives it once THIS session's `session/new` has named its modes. Cursor advertises
+ *   `ask` ("no edits or command execution"); an agent that advertises none is offered nothing.
+ * - `fake` — the scripted adapter, so the development prompter shows the same controls as a real one.
+ */
+export const AGENT_SUPPORTS_ASK_MODE = {
+  claude: true, codex: true, "acp:cursor": false, "acp:gemini": false,
+  "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false,
+  // dsh-acp advertises no modes and no config options, so the handshake has nothing to raise this
+  // with — the one ACP kind where `false` is the final answer rather than a floor.
+  "acp:deepseek": false,
+  fake: true,
+} as const satisfies Record<import("./entities").AgentKind, boolean>;
+
 /** One advertised ACP session mode, as `session/new`'s `modes.availableModes` carries it. */
 export type AcpSessionMode = { id: string; name: string; description?: string };
 
@@ -287,6 +357,20 @@ export function acpPlanMode(modes: readonly AcpSessionMode[] | null | undefined)
 }
 
 /**
+ * The advertised mode Realm treats as Ask-equivalent, or null when the agent offers none.
+ *
+ * Same standard as `acpPlanMode` and the same refusal of fuzzy name matching: the agent's own id has
+ * to BE the well-known `"ask"`. Verified live against cursor-agent 2026.07.25, whose modes are
+ * `agent` / `plan` / `ask` with `ask` described as "no edits or command execution" — which is Ask's
+ * definition, arrived at independently. An agent that advertises no `ask` gets no Ask chip; there is
+ * nothing to fall back to, because a read-only mode Realm cannot name is a read-only mode Realm
+ * cannot enforce.
+ */
+export function acpAskMode(modes: readonly AcpSessionMode[] | null | undefined): AcpSessionMode | null {
+  return modes?.find((m) => acpWellKnownMode(m.id, "ask")) ?? null;
+}
+
+/**
  * The advertised mode Build maps back onto: the agent's `agent` mode when it has one (Cursor's
  * default), else the mode the session BOOTED in — provided that is not the plan mode itself.
  * Null means leaving Plan has nowhere honest to go, and the adapter sends nothing.
@@ -296,7 +380,9 @@ export function acpBuildMode(modes: readonly AcpSessionMode[] | null | undefined
   const agent = modes.find((m) => acpWellKnownMode(m.id, "agent"));
   if (agent) return agent;
   const boot = modes.find((m) => m.id === bootModeId);
-  return boot && !acpWellKnownMode(boot.id, "plan") ? boot : null;
+  // Neither read-only mode can stand in for Build: a session that BOOTED in Plan or Ask would
+  // otherwise "leave" it by being sent straight back into it.
+  return boot && !acpWellKnownMode(boot.id, "plan") && !acpWellKnownMode(boot.id, "ask") ? boot : null;
 }
 
 /**
@@ -309,7 +395,7 @@ export function acpBuildMode(modes: readonly AcpSessionMode[] | null | undefined
  */
 const ACP_MODE_URI_PREFIX = "https://agentclientprotocol.com/protocol/session-modes#";
 /** True when `id` is the bare well-known id or its spec URI form. */
-export function acpWellKnownMode(id: string, wellKnown: "plan" | "agent"): boolean {
+export function acpWellKnownMode(id: string, wellKnown: "plan" | "agent" | "ask"): boolean {
   return id === wellKnown || id === `${ACP_MODE_URI_PREFIX}${wellKnown}`;
 }
 

@@ -1,7 +1,7 @@
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { acpBuildMode, acpPlanMode, acpSessionConfig, PLAN_PERMISSION_MODE, sessionEvent, type AcpSessionMode, type AgentKind, type SessionEvent } from "@realm/contracts";
+import { acpAskMode, acpBuildMode, acpPlanMode, acpSessionConfig, ASK_PERMISSION_MODE, PLAN_PERMISSION_MODE, sessionEvent, type AcpSessionMode, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
@@ -210,6 +210,19 @@ export function acpBootFailureMessage(e: unknown, spec: Pick<AcpAgentSpec, "labe
  * Unlike Codex's multiplexed app-server, an ACP session belongs to its connection, so this spawns **one child
  * per session** and `dispose()` takes that child down.
  */
+/**
+ * The agent's own mode for a Realm mode wire value, or null when it advertises none.
+ *
+ * The one place Realm's ids are turned into the agent's, so the boot path and the live path can never
+ * disagree about what Plan or Ask means on THIS session. Build is `acpBuildMode`, which needs the
+ * mode the session booted in to fall back to.
+ */
+function acpModeFor(permissionMode: string, modes: readonly AcpSessionMode[], bootModeId: string | null): AcpSessionMode | null {
+  if (permissionMode === PLAN_PERMISSION_MODE) return acpPlanMode(modes);
+  if (permissionMode === ASK_PERMISSION_MODE) return acpAskMode(modes);
+  return acpBuildMode(modes, bootModeId);
+}
+
 export class AcpAdapter implements AgentAdapter {
   readonly kind: AgentKind;
 
@@ -458,16 +471,18 @@ export class AcpAdapter implements AgentAdapter {
           ...(availableModes.length ? { availableModes } : {}),
         }));
         events.push(sessionEvent("status", { status: "idle" }));
-        // A session persisted in Plan resumes in Plan (the row's permissionMode carries the Realm-side
-        // record of the mode axis; see PLAN_PERMISSION_MODE). Only ever the AGENT'S OWN id, and only
-        // when it advertised one — with no plan-equivalent the session honestly stays in its default
-        // mode and the prompter shows no Plan chip either. Best-effort like setOptions: a refusal is
-        // a log line, not a boot failure.
-        const bootPlan = opts.permissionMode === PLAN_PERMISSION_MODE ? acpPlanMode(availableModes) : null;
-        if (bootPlan && bootPlan.id !== bootModeId) {
+        // A session persisted in Plan or Ask resumes there (the row's permissionMode carries the
+        // Realm-side record of the mode axis; see PLAN_PERMISSION_MODE). Only ever the AGENT'S OWN
+        // id, and only when it advertised one — with no equivalent the session honestly stays in its
+        // default mode and the prompter shows no chip for that mode either. Best-effort like
+        // setOptions: a refusal is a log line, not a boot failure.
+        const bootMode = opts.permissionMode === PLAN_PERMISSION_MODE || opts.permissionMode === ASK_PERMISSION_MODE
+          ? acpModeFor(opts.permissionMode, availableModes, bootModeId)
+          : null;
+        if (bootMode && bootMode.id !== bootModeId) {
           const [method, params] = modeConfigId
-            ? ["session/set_config_option", { sessionId: id, configId: modeConfigId, value: bootPlan.id }] as const
-            : ["session/set_mode", { sessionId: id, modeId: bootPlan.id }] as const;
+            ? ["session/set_config_option", { sessionId: id, configId: modeConfigId, value: bootMode.id }] as const
+            : ["session/set_mode", { sessionId: id, modeId: bootMode.id }] as const;
           try { await ask(method, params, INITIALIZE_TIMEOUT_MS); }
           catch (e) { log(`${method} at boot failed: ${message(e)}`); }
         }
@@ -539,13 +554,13 @@ export class AcpAdapter implements AgentAdapter {
         if (o.permissionMode !== undefined) {
           // The mode axis, translated (Plan 14 W3): Realm's plan wire value maps onto the agent's own
           // plan-equivalent, anything else onto its Build mode. NEVER `o.permissionMode` itself — ACP
-          // mode ids are agent-defined, and `session/set_mode` with a Realm id ("plan" happens to
-          // collide on Cursor today, "acceptEdits" never would) is a foreign-id rejection at best and
-          // an accidental match at worst. No equivalent advertised → nothing is sent at all.
-          const target = o.permissionMode === PLAN_PERMISSION_MODE ? acpPlanMode(availableModes) : acpBuildMode(availableModes, bootModeId);
+          // mode ids are agent-defined, and `session/set_mode` with a Realm id ("plan" and "ask"
+          // happen to collide on Cursor today, "acceptEdits" never would) is a foreign-id rejection
+          // at best and an accidental match at worst. No equivalent advertised → nothing is sent.
+          const target = acpModeFor(o.permissionMode, availableModes, bootModeId);
           if (target && modeConfigId) await attempt("session/set_config_option", { sessionId, configId: modeConfigId, value: target.id });
           else if (target) await attempt("session/set_mode", { sessionId, modeId: target.id });
-          else log(`no advertised mode maps onto ${o.permissionMode === PLAN_PERMISSION_MODE ? "Plan" : "Build"}; nothing sent`);
+          else log(`no advertised mode maps onto ${o.permissionMode === PLAN_PERMISSION_MODE ? "Plan" : o.permissionMode === ASK_PERMISSION_MODE ? "Ask" : "Build"}; nothing sent`);
         }
         if (o.model !== undefined) {
           if (modelConfigId) await attempt("session/set_config_option", { sessionId, configId: modelConfigId, value: o.model });

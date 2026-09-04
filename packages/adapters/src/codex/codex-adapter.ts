@@ -1,4 +1,4 @@
-import { sessionEvent, type SessionEvent } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, type JsonRpcId } from "../jsonrpc/stdio";
 import { CodexConnection, type ThreadListener } from "./connection";
@@ -80,9 +80,19 @@ export function pickCodexDecision(decision: PermissionDecision, availableDecisio
   return prefs.find((p) => offered.has(p)) ?? prefs[prefs.length - 1]!;
 }
 
-/** Realm's permission modes onto Codex's two independent knobs. Both are `thread/start` params. */
+/**
+ * Realm's permission modes onto Codex's two independent knobs. Both are `thread/start` params.
+ *
+ * Ask and Plan are BOTH read-only and they are not the same rung. Plan keeps `untrusted`, so a write
+ * the sandbox refuses raises an approval the user can answer "yes" to — that escalation is what makes
+ * a plan revisable in place. Ask disables approvals outright, so there is no answer that lets a write
+ * through: Codex's own config validator describes exactly this pairing as "read-only permissions with
+ * approvals disabled". The sandbox does the refusing in the kernel — a write under
+ * `codex sandbox -c sandbox_mode='"read-only"'` fails with "Operation not permitted".
+ */
 export function codexPolicyFor(permissionMode: string | undefined): { approvalPolicy: string; sandbox: string } {
   if (permissionMode === "plan") return { approvalPolicy: "untrusted", sandbox: "read-only" };
+  if (permissionMode === ASK_PERMISSION_MODE) return { approvalPolicy: "never", sandbox: "read-only" };
   if (permissionMode === "bypassPermissions") return { approvalPolicy: "never", sandbox: "danger-full-access" };
   return { approvalPolicy: "on-request", sandbox: "workspace-write" };
 }

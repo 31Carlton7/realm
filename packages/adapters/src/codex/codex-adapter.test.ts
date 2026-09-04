@@ -128,6 +128,16 @@ describe("codexPolicyFor", () => {
   it("maps bypassPermissions to never/danger-full-access", () => {
     expect(codexPolicyFor("bypassPermissions")).toEqual({ approvalPolicy: "never", sandbox: "danger-full-access" });
   });
+  it("maps ask to read-only with approvals DISABLED — strictly tighter than plan", () => {
+    // The mutant: giving Ask plan's `untrusted`. A write the sandbox refuses would then raise an
+    // approval the user can answer "yes" to, and the escalation puts the write through — which is
+    // the one thing a mode advertised as read-only must not allow.
+    expect(codexPolicyFor("ask")).toEqual({ approvalPolicy: "never", sandbox: "read-only" });
+    expect(codexPolicyFor("ask").sandbox).toBe(codexPolicyFor("plan").sandbox);
+    expect(codexPolicyFor("ask").approvalPolicy).not.toBe(codexPolicyFor("plan").approvalPolicy);
+    // …and `never` is only ever paired with read-only here, never with the bypass sandbox by accident.
+    expect(codexPolicyFor("ask").sandbox).not.toBe("danger-full-access");
+  });
   it("maps everything else to on-request/workspace-write", () => {
     for (const m of ["default", "acceptEdits", undefined, "", "nonsense"]) {
       expect(codexPolicyFor(m)).toEqual({ approvalPolicy: "on-request", sandbox: "workspace-write" });
@@ -262,6 +272,7 @@ describe("CodexAdapter", () => {
     const cases = [
       ["plan", { approvalPolicy: "untrusted", sandbox: "read-only" }],
       ["bypassPermissions", { approvalPolicy: "never", sandbox: "danger-full-access" }],
+      ["ask", { approvalPolicy: "never", sandbox: "read-only" }],
       ["default", { approvalPolicy: "on-request", sandbox: "workspace-write" }],
     ] as const;
     for (const [permissionMode, expected] of cases) {

@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -44,6 +44,50 @@ export function claudeAllowedTools(servers: readonly McpServerConfig[]): string[
   return servers.flatMap((s) => BROWSER_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__realm-browser__${t}`));
 }
 
+/**
+ * The BUILT-IN tools an Ask session may run — read and search, and nothing that changes anything.
+ *
+ * An allow-list, never a deny-list. Ask's whole value is that it is enforced, and a deny-list fails
+ * open: the next tool the CLI ships, and every tool of every MCP server a space adds, would be
+ * allowed by default until somebody remembered to name it.
+ *
+ * `Bash` is absent and that is the point. Nothing can decide from a command string whether it
+ * mutates — `git log` and `git reset --hard` are the same shape, and a shell can write a file
+ * through a hundred spellings. Guessing is exactly the lie this mode exists to avoid, and Cursor's
+ * own `ask` mode draws the line in the same place: "no edits or command execution".
+ *
+ * `Task` is absent for the same fail-closed reason: whether the SDK routes a subagent's tool calls
+ * back through this `canUseTool` is not something Realm can assert from the published types, and a
+ * subagent that edits is an edit.
+ *
+ * `TodoWrite` and `AskUserQuestion` are in: one writes the agent's own checklist and the other asks
+ * the user a question. Neither touches the repo.
+ */
+const CLAUDE_ASK_BUILTINS = ["Read", "Glob", "Grep", "NotebookRead", "WebFetch", "WebSearch", "TodoWrite", "AskUserQuestion"] as const;
+
+/**
+ * Every tool name an Ask session may run, for a session with these MCP servers.
+ *
+ * The MCP half is `claudeAllowedTools` itself rather than a second list: those are the read-only
+ * `realm-browser` tools, they are already pre-allowed for every session, and deriving them here
+ * means Ask can never disagree with what the rest of the adapter calls read-only.
+ */
+export function claudeAskTools(servers: readonly McpServerConfig[]): Set<string> {
+  return new Set<string>([...CLAUDE_ASK_BUILTINS, ...claudeAllowedTools(servers)]);
+}
+
+/**
+ * Realm's mode onto the SDK's `PermissionMode`, whose union is
+ * `default | acceptEdits | bypassPermissions | plan | dontAsk | auto` and has no "ask".
+ *
+ * Ask becomes `default` because that is the mode under which `canUseTool` is consulted for every
+ * call, and `canUseTool` is where Ask is enforced. `acceptEdits` and `bypassPermissions` let calls
+ * through without asking, so sending either would hand the mode's one gate its own bypass.
+ */
+export function claudeSdkPermissionMode(mode: string | null | undefined): string {
+  return mode === ASK_PERMISSION_MODE || !mode ? "default" : mode;
+}
+
 const STDERR_TAIL_LINES = 50;
 const DISPOSE_TIMEOUT_MS = 3000;
 
@@ -63,6 +107,10 @@ export class ClaudeAdapter implements AgentAdapter {
     const mapper = createSdkMapper();
     const stderrTail: string[] = [];
     let q: Query | null = null;
+    // Tracked rather than read off `options`, because Ask has to hold on a LIVE session: the mode can
+    // change mid-turn and `Options` is only ever read at start.
+    let permissionMode = opts.permissionMode ?? "default";
+    const askTools = claudeAskTools(opts.mcpServers);
     let running = false;
     let sawResult = false;
     let disposed = false;
@@ -92,6 +140,12 @@ export class ClaudeAdapter implements AgentAdapter {
     // Several tools may ask at once (parallel tool calls): status flips to waiting_permission on the first open request
     // and back only when the last one is answered.
     const canUseTool: NonNullable<Options["canUseTool"]> = async (toolName, toolInput, o) => {
+      // Ask, enforced: refused here, before the tool runs, and never put to the user — a prompt the
+      // user could answer "allow" to would make the mode advisory. The message names what IS
+      // available, so the model re-plans within the mode instead of retrying the same call.
+      if (permissionMode === ASK_PERMISSION_MODE && !askTools.has(toolName)) {
+        return { behavior: "deny", message: `This session is in Ask mode: read-only. ${toolName} cannot run. Reading, searching (Grep, Glob) and web lookups are available; to change files or run commands, the user has to leave Ask.` };
+      }
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
       if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
@@ -112,7 +166,7 @@ export class ClaudeAdapter implements AgentAdapter {
       cwd: opts.cwd,
       model: opts.model ?? undefined,
       effort: (opts.effort ?? undefined) as Options["effort"],
-      permissionMode: (opts.permissionMode ?? "default") as Options["permissionMode"],
+      permissionMode: claudeSdkPermissionMode(opts.permissionMode) as Options["permissionMode"],
       canUseTool,
       includePartialMessages: true,
       abortController: abort,
@@ -222,7 +276,12 @@ export class ClaudeAdapter implements AgentAdapter {
       },
       setOptions: async (o) => {
         if (o.model) await q?.setModel(o.model);
-        if (o.permissionMode) await q?.setPermissionMode(o.permissionMode as never);
+        if (o.permissionMode) {
+          // Realm's own record moves FIRST: it is what the gate above reads, and it must hold even
+          // if the SDK call throws.
+          permissionMode = o.permissionMode;
+          await q?.setPermissionMode(claudeSdkPermissionMode(o.permissionMode) as never);
+        }
       },
       dispose: async () => {
         if (disposed) return;

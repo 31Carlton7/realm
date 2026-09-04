@@ -1,6 +1,6 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
+  allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
@@ -644,9 +644,11 @@ export type AppState = {
   iconAssets: Record<string, IconAsset[]>;
   /** `memory.sources` by session id — fetched when the memory panel asks about a session. */
   sessionMemorySources: Record<string, MemorySources>;
-  /** The permission mode a session was on when it entered Plan, by session id — see `setSessionMode`.
-   *  Not persisted: after a restart a session already in Plan returns to `default`, which is the safe
-   *  direction to be wrong in. */
+  /** The permission mode a session was on when it left Build for a read-only mode (Plan or Ask), by
+   *  session id — see `setSessionMode`. One entry per session, not one per mode: a trip through both
+   *  is still one absence from Build, and the permission to come back to is the same either way.
+   *  Not persisted: after a restart a session already in Plan or Ask returns to `default`, which is
+   *  the safe direction to be wrong in. */
   planReturn: Record<string, string>;
   /** Git working-tree summaries by cwd; null = known non-repo. Refreshed event-driven only (session
    *  status transitions to idle/error, space activation, session open) — never polled. */
@@ -2475,34 +2477,42 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
       /**
-       * Build ⇄ Plan.
+       * Build ⇄ Plan ⇄ Ask.
        *
-       * Build and Plan are their own axis in the prompter, but Plan still travels on the wire as
-       * `permissionMode: "plan"` (the only channel Claude and Codex read it on). So a session in Plan
-       * has nowhere left to hold the permission the user actually chose — entering Plan parks it here,
-       * and leaving Plan puts it back.
+       * The three are one axis in the prompter, but Plan and Ask still travel on the wire as
+       * `permissionMode` (the only channel the adapters read the axis on). So a session in either has
+       * nowhere left to hold the permission the user actually chose — entering one parks it here, and
+       * leaving puts it back.
        *
-       * Without the park, every round trip through Plan would quietly demote a session from
-       * "Full access" to "Ask", or strand it on a `permissionMode` the picker can no longer name.
-       * `default` is the fallback only when there is nothing parked (a session that was already in
-       * Plan when the app started).
+       * Written as "what is parked" rather than "am I in Plan", because with three modes the binary
+       * is wrong in both directions: Plan → Ask is not a return to Build, so it must NOT restore, and
+       * it must not overwrite the parked permission with `"plan"` either — the permission the user
+       * chose has to survive a trip through both modes and come back at the end of it. So the park is
+       * written only on the way IN from Build, and consumed only on the way OUT to Build.
+       *
+       * Without it, every round trip would quietly demote a session from "Full access" to "Ask each
+       * time", or strand it on a `permissionMode` the picker can no longer name. `default` is the
+       * fallback only when there is nothing parked (a session that was already in Plan or Ask when
+       * the app started).
        */
       async setSessionMode(id, mode) {
         const s = get().sessions[id];
         if (!s) return;
-        const inPlan = s.permissionMode === PLAN_PERMISSION_MODE;
-        // The park is for agents whose Plan REPLACES a real permission axis (Claude, Codex — the
-        // kinds Realm can set a permission mode on at all). An ACP agent's Plan is its own mode
-        // (Plan 14 W3): there is no chosen permission to preserve, so leaving Plan simply returns
-        // the row to its resting "default" — parking would fabricate Claude-shaped semantics on an
-        // agent that never had them.
+        const from = sessionModeOf(s.permissionMode);
+        if (from === mode) return;
+        // The park is for agents whose read-only modes REPLACE a real permission axis (Claude, Codex —
+        // the kinds Realm can set a permission mode on at all). An ACP agent's Plan and Ask are its
+        // own modes: there is no chosen permission to preserve, so leaving returns the row to its
+        // resting "default" — parking would fabricate Claude-shaped semantics on an agent that never
+        // had them.
         const parks = AGENT_SUPPORTS_PERMISSION_MODES[s.agentKind];
-        if (mode === "plan") {
-          if (inPlan) return;
-          if (parks) set({ planReturn: { ...get().planReturn, [id]: s.permissionMode } });
-          await get().setSessionOptions(id, { permissionMode: PLAN_PERMISSION_MODE });
+        const wire = modeWireValue(mode);
+        if (wire !== null) {
+          // Only from Build is `s.permissionMode` a permission; from the other read-only mode it is
+          // that mode's own wire value, and parking it would lose the real one.
+          if (parks && from === "build") set({ planReturn: { ...get().planReturn, [id]: s.permissionMode } });
+          await get().setSessionOptions(id, { permissionMode: wire });
         } else {
-          if (!inPlan) return;
           const back = parks ? get().planReturn[id] ?? "default" : "default";
           const { [id]: _used, ...planReturn } = get().planReturn;
           set({ planReturn });

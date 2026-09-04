@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { sessionEvent, type SessionEvent } from "@realm/contracts";
+import { isReadOnlyMode, sessionEvent, type SessionEvent } from "@realm/contracts";
 import type { PermissionDecision } from "@realm/adapters";
 
 /** Distinguishes broker-owned requestIds from adapter-owned ones in `sessions.respondPermission` —
@@ -114,7 +114,7 @@ export class BrowserPermissionBroker {
    */
   async gate(sessionId: string, toolKey: string, title: string, input: Record<string, unknown>, toolName: string = toolKey, opts: GateOptions = {}): Promise<GateResult> {
     const mode = this.d.permissionMode(sessionId);
-    if (mode === "plan") return { allowed: false, reason: "this session is in Plan (read-only) mode — mutating tools are refused; switch modes to act" };
+    if (isReadOnlyMode(mode)) return { allowed: false, reason: `this session is in ${mode === "plan" ? "Plan" : "Ask"} (read-only) mode — mutating tools are refused; switch modes to act` };
     if (!opts.alwaysPrompt) {
       // `allow_always` is consulted BEFORE the mode, so a `promptUnderBypass` gate the user has
       // already answered "always" to stops asking. For every other caller the two orders agree:

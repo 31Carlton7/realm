@@ -202,7 +202,7 @@ describe("App tab", () => {
   it("default permission mode: reads the stored key, and a plain choice (Accept edits) writes it immediately", async () => {
     const { api } = await openApp({ settings: { [DEFAULT_PERMISSION_MODE_KEY]: "acceptEdits" } });
     expect(await screen.findByRole("radio", { name: "Accept edits" })).toBeChecked();
-    fireEvent.click(screen.getByRole("radio", { name: "Ask" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Ask each time" }));
     await waitFor(() => expect(api.data.settings[DEFAULT_PERMISSION_MODE_KEY]).toBe("default"));
   });
 
@@ -211,7 +211,7 @@ describe("App tab", () => {
     fireEvent.click(await screen.findByRole("radio", { name: "Full access" }));
     // Nothing written yet, and the control still shows the current mode.
     expect(api.data.settings[DEFAULT_PERMISSION_MODE_KEY]).toBeUndefined();
-    expect(screen.getByRole("radio", { name: "Ask" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Ask each time" })).toBeChecked();
     const confirm = screen.getByRole("button", { name: /run tools and edit files without asking first/ });
     fireEvent.click(confirm);
     await waitFor(() => expect(api.data.settings[DEFAULT_PERMISSION_MODE_KEY]).toBe("bypassPermissions"));
@@ -230,11 +230,12 @@ describe("App tab", () => {
     expect(ignored.textContent).not.toContain("Claude,  Codex");
   });
 
-  it("junk under either key degrades safely: unknown categories dropped, an unlisted mode renders as Ask", async () => {
+  it("junk under either key degrades safely: unknown categories dropped, an unlisted mode renders as Ask each time", async () => {
     await openApp({ settings: { [NOTIFICATIONS_DISABLED_KEY]: ["nonsense", "permission"], [DEFAULT_PERMISSION_MODE_KEY]: "plan" } });
     expect(await screen.findByRole("switch", { name: "Permission requests" })).not.toBeChecked();
-    // "plan" is a mode axis, not a permission — the server would refuse it, so the page must not show it.
-    expect(screen.getByRole("radio", { name: "Ask" })).toBeChecked();
+    // "plan" is a mode axis, not a permission — the server would refuse it, so the page must not show
+    // it. "ask" is the same, and is why the `default` rung is no longer LABELLED "Ask".
+    expect(screen.getByRole("radio", { name: "Ask each time" })).toBeChecked();
   });
 });
 

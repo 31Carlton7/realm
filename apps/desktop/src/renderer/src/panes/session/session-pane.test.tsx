@@ -1013,15 +1013,32 @@ describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
     expect(chip).toHaveTextContent("Build");
     expect(chip.title).toContain("Cursor's own Plan mode");
     expect(chip.title).toContain("Read-only mode for planning and designing before implementation");
+    // Cursor advertises `ask` in the same handshake, so the chip describes that too — from Build the
+    // title is what the user reads before choosing.
+    expect(chip.title).toContain("Cursor's own Ask mode");
     expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
   });
 
-  it("shows NO chip for a session whose modes lack a plan-equivalent", async () => {
+  it("shows NO chip for a session whose modes carry neither a plan- nor an ask-equivalent", async () => {
     // The named mutant: a chip here would drive session/set_mode toward a mode that does not exist.
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }),
-      initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "ask", name: "Ask", description: "d" }])]);
+      initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "review", name: "Review", description: "d" }])]);
     expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
     expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
+  });
+
+  it("offers Ask alone when the agent advertises `ask` but no plan-equivalent", async () => {
+    await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }),
+      initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "ask", name: "Ask", description: "Q&A mode - no edits or command execution" }])]);
+    const chip = screen.getByRole("button", { name: "Mode" });
+    // The mutant: gating the whole chip on `canPlan`. An agent that offers only Ask would show no
+    // mode control at all, and its one read-only mode would be unreachable.
+    expect(chip).toHaveTextContent("Build");
+    expect(chip.title).toContain("Cursor's own Ask mode");
+    expect(chip.title).toContain("no edits or command execution");
+    fireEvent.click(chip);
+    // …and the menu offers exactly Build and Ask: Plan has nothing to map onto here.
+    expect(screen.getAllByRole("menuitemcheckbox").map((r) => r.textContent)).toEqual(["Build", "Ask"]);
   });
 
   it("shows NO chip when the agent named no modes at all", async () => {
