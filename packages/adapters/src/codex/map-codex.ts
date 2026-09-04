@@ -43,6 +43,19 @@ function toolOutputFor(item: Bag): string {
   }
 }
 
+/** Realm's plan-step status from Codex's `TurnPlanStepStatus` — `"pending" | "inProgress" |
+ *  "completed"` (`codex app-server generate-ts`, codex 0.146.0). Anything else reads as `pending`:
+ *  a status Realm does not recognise must never render as work already done. */
+const planStatus = (v: unknown): "pending" | "in_progress" | "completed" =>
+  v === "completed" ? "completed" : v === "inProgress" ? "in_progress" : "pending";
+
+/** `turn/plan/updated`'s `plan: TurnPlanStep[]`, each `{step, status}`. Steps with no text are
+ *  dropped rather than rendered as blank rows; an empty result means there is no plan to show. */
+function planSteps(raw: unknown): { text: string; status: "pending" | "in_progress" | "completed" }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((e) => ({ text: str(obj(e).step), status: planStatus(obj(e).status) })).filter((e) => e.text !== "");
+}
+
 /**
  * Pure, stateful mapper from `codex app-server` notifications to Realm SessionEvents.
  *
@@ -59,6 +72,8 @@ export function createCodexMapper() {
   /** Delta text accumulated for message and reasoning items still awaiting item/completed. */
   const openText = new Map<string, string>();
   const openThought = new Map<string, string>();
+  /** Delta text accumulated for `plan` items still awaiting item/completed — see flushOpenRuns. */
+  const openPlan = new Map<string, string>();
   let numTurns = 0;
 
   /**
@@ -72,8 +87,14 @@ export function createCodexMapper() {
     const out: SessionEvent[] = [];
     for (const [id, text] of openText) if (text) out.push(sessionEvent("assistant_text", { messageId: id, text }));
     for (const [id, text] of openThought) if (text) out.push(sessionEvent("thinking", { messageId: id, text }));
+    // The plan an interrupt cut short. `item/plan/delta` is flagged EXPERIMENTAL and its own doc
+    // comment says clients must not assume concatenated deltas match the completed item — but an
+    // item that never completes has no completed content to differ from, and the concatenation is
+    // the only record there will be. That is why these deltas are never emitted live.
+    for (const [id, text] of openPlan) if (text) out.push(sessionEvent("plan", { planId: id, text }));
     openText.clear();
     openThought.clear();
+    openPlan.clear();
     return out;
   };
 
@@ -90,6 +111,7 @@ export function createCodexMapper() {
           // No Realm event of their own, but the run has to be open before its first delta can be kept.
           if (type === "agentMessage") { openText.set(id, ""); return out; }
           if (type === "reasoning") { openThought.set(id, ""); return out; }
+          if (type === "plan") { openPlan.set(id, ""); return out; }
           const name = toolNameFor(item);
           if (name) { openTools.add(id); out.push(sessionEvent("tool_call", { toolUseId: id, name, input: toolInputFor(item), parentToolUseId: null })); }
           return out; // userMessage starts carry no Realm event
@@ -101,6 +123,14 @@ export function createCodexMapper() {
           const type = str(item.type);
           // Clearing the run is what keeps the flush from persisting a normal message a second time.
           if (type === "agentMessage") { openText.delete(id); out.push(sessionEvent("assistant_text", { messageId: id, text: str(item.text) })); return out; }
+          // The `plan` ThreadItem is `{id, text}` — prose, not the step list `turn/plan/updated`
+          // carries. Both are plans and neither is derived from the other, so each gets its own card.
+          if (type === "plan") {
+            openPlan.delete(id);
+            const text = str(item.text);
+            if (text) out.push(sessionEvent("plan", { planId: id, text }));
+            return out;
+          }
           if (type === "reasoning") {
             openThought.delete(id);
             const summary = Array.isArray(item.summary) ? (item.summary as unknown[]).map(str) : [];
@@ -130,6 +160,21 @@ export function createCodexMapper() {
           const id = str(p.itemId);
           openThought.set(id, (openThought.get(id) ?? "") + str(p.delta));
           return [];
+        }
+
+        case "item/plan/delta": {
+          // Accumulated, never emitted: see flushOpenRuns for why the completed item is the truth.
+          const id = str(p.itemId);
+          openPlan.set(id, (openPlan.get(id) ?? "") + str(p.delta));
+          return [];
+        }
+
+        case "turn/plan/updated": {
+          // Keyed on the TURN, not the notification: Codex re-sends the whole plan every time a step
+          // moves, so a revision has to replace the card already drawn. `plan:` keeps that id out of
+          // the item-id space the prose plans above use.
+          const steps = planSteps(p.plan);
+          return steps.length ? [sessionEvent("plan", { planId: `plan:${str(p.turnId)}`, steps })] : [];
         }
 
         case "item/commandExecution/outputDelta":

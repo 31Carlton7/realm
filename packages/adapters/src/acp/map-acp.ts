@@ -32,6 +32,22 @@ function renderToolContent(content: unknown): string {
   }).filter(Boolean).join("\n");
 }
 
+
+/** ACP's `plan` entries — `{content, priority, status}` with status `pending | in_progress |
+ *  completed` (docs/dev/acp-protocol.md:182), which is already Realm's spelling. An unrecognised
+ *  status reads as `pending`: it must never render as work already done. `priority` is carried by
+ *  the protocol and deliberately not by Realm — the card is an ordered checklist, and a field only
+ *  one agent in ten ever sets would be blank everywhere else.
+ *
+ *  Entries with no content are dropped rather than drawn as blank rows. */
+function planSteps(raw: unknown): { text: string; status: "pending" | "in_progress" | "completed" }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((e) => {
+    const status = str(obj(e).status);
+    return { text: str(obj(e).content), status: status === "completed" ? "completed" as const : status === "in_progress" ? "in_progress" as const : "pending" as const };
+  }).filter((e) => e.text !== "");
+}
+
 /** The merged state of one ACP tool call. `input`/`kind` feed §4 permission-card rendering. */
 export type AcpCall = { title: string; kind: string; input: Record<string, unknown>; done: boolean };
 
@@ -51,6 +67,10 @@ export function createAcpMapper() {
   const calls = new Map<string, AcpCall>();
   let msg: { id: string; text: string } | null = null;
   let thought: { id: string; text: string } | null = null;
+  /** Identity for THIS turn's plan. ACP's plan "is not incremental: replace the whole list each
+   *  time", so every update inside a turn has to land on the same card; a new turn gets a new one,
+   *  because overwriting the last turn's plan would erase what the agent set out to do. */
+  let planId: string | null = null;
 
   // At most one of `msg`/`thought` is ever open: each chunk branch cross-flushes the other before opening its own
   // run, so the order of the two blocks below is unobservable — they never both fire in the same call.
@@ -113,12 +133,23 @@ export function createAcpMapper() {
         return out;
       }
 
-      // plan / available_commands_update / current_mode_update / user_message_chunk are parsed and dropped in v1.
+      if (kind === "plan") {
+        const steps = planSteps(u.entries);
+        if (!steps.length) return out;
+        planId ??= newId();
+        out.push(sessionEvent("plan", { planId, steps }));
+        return out;
+      }
+
+      // available_commands_update / current_mode_update / user_message_chunk are parsed and dropped.
       return out;
     },
 
-    /** Flush any open text runs — call on prompt resolution, cancellation, and dispose. */
-    flush(): SessionEvent[] { return flushRuns(); },
+    /** Flush any open text runs — call on prompt resolution, cancellation, and dispose.
+     *  Also ends the turn's plan: the NEXT turn's plan is a new card, not an overwrite of this one.
+     *  Deliberately not in `flushRuns`, which every non-chunk update calls — resetting there would
+     *  give a plan a fresh card for every tool call between its revisions. */
+    flush(): SessionEvent[] { const out = flushRuns(); planId = null; return out; },
 
     /** Close any tool call still open, e.g. when the child dies mid-turn. */
     closeOpenCalls(reason: string): SessionEvent[] {

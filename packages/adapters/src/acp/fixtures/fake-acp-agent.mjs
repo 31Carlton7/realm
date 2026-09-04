@@ -172,6 +172,18 @@ async function runTurn(id, sessionId, prompt) {
   else if (text.includes("REVEAL")) message(sessionId, JSON.stringify(journal));
   else if (text.includes("PERMIT2")) await Promise.all([permitTurn(sessionId, 0), permitTurn(sessionId, 1)]);
   else if (text.includes("PERMIT")) await permitTurn(sessionId, 0);
+  else if (text.includes("PLAN")) {
+    // ACP's plan is a FULL replacement each time (§3.1), so the second send is a revision of the
+    // first and must land on the same card. A tool call between them is what a naive "reset the plan
+    // whenever anything else arrives" would trip over.
+    update(sessionId, { sessionUpdate: "plan", entries: [
+      { content: "Read the spec", priority: "high", status: "in_progress" },
+      { content: "Write the code", priority: "medium", status: "pending" }] });
+    update(sessionId, { sessionUpdate: "tool_call", toolCallId: `call_${nextCallN++}`, title: "Read spec", kind: "read", status: "completed" });
+    update(sessionId, { sessionUpdate: "plan", entries: [
+      { content: "Read the spec", priority: "high", status: "completed" },
+      { content: "Write the code", priority: "medium", status: "in_progress" }] });
+  }
   else if (text.includes("READFILE")) await readFileTurn(sessionId, text);
   else if (text.includes("WRITEFILE")) await writeFileTurn(sessionId, text);
   else if (text.includes("ODDBALL")) await oddballTurn(sessionId);

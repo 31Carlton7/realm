@@ -44,6 +44,50 @@ async function booted(o: Partial<StartOptions> = {}) {
   return { adapter, handle, evs, done };
 }
 
+describe("plans", () => {
+  it("carries BOTH of Codex's plan shapes, each as its own card", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "PLAN it", attachments: [] });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    const plans = of(evs, "plan");
+    // The mutant: reinstating `toolNameFor`'s `default: return null` for `plan` and the notification
+    // switch's `default: return []`. Both plans vanish and the turn reads as if nothing was proposed.
+    const prose = plans.filter((e) => e.payload.text !== undefined);
+    const steps = plans.filter((e) => e.payload.steps !== undefined);
+    expect(prose).toHaveLength(1);
+    expect(prose[0]!.payload.text).toBe("## Ship it\n\nRewrite the mapper first.");
+    // Prose carries no steps and the step list carries no prose: neither is synthesised from the other.
+    expect(prose[0]!.payload.steps).toBeUndefined();
+    expect(steps.every((e) => e.payload.text === undefined)).toBe(true);
+    expect(steps.at(-1)!.payload.steps).toEqual([
+      { text: "Read the spec", status: "completed" }, { text: "Write the code", status: "in_progress" }]);
+  });
+
+  it("keys every revision of the step list on the turn, so the card is replaced and not repeated", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "PLAN it", attachments: [] });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    const stepPlans = of(evs, "plan").filter((e) => e.payload.steps !== undefined);
+    expect(stepPlans).toHaveLength(2);
+    // One id for both sends. The mutant — a fresh id per notification — leaves the reader with one
+    // card per step transition, all saying nearly the same thing.
+    expect(new Set(stepPlans.map((e) => e.payload.planId)).size).toBe(1);
+    expect(stepPlans[0]!.payload.steps![0]!.status).toBe("in_progress");
+  });
+
+  it("never emits the experimental plan deltas live, and salvages them only when the item never completes", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "PLANOPEN now", attachments: [] });
+    await waitFor(() => expect(of(evs, "plan").some((e) => e.payload.steps !== undefined)).toBe(true));
+    // `item/plan/delta` is EXPERIMENTAL and its own doc comment forbids assuming the concatenation
+    // matches the completed item, so nothing prose-shaped may appear while the item is still open.
+    expect(of(evs, "plan").filter((e) => e.payload.text !== undefined)).toEqual([]);
+    await handle.interrupt();
+    // Now there is no completed content to differ from, and the concatenation is the only record.
+    await waitFor(() => expect(of(evs, "plan").filter((e) => e.payload.text !== undefined).map((e) => e.payload.text)).toEqual(["## Ship it"]));
+  });
+});
+
 describe("pickCodexDecision", () => {
   // The live capture offered ["accept", {acceptWithExecpolicyAmendment:…}, "cancel"] — no "decline" at all.
   const LIVE = ["accept", { acceptWithExecpolicyAmendment: { execpolicy_amendment: {} } }, "cancel"];

@@ -64,6 +64,34 @@ const ALLOW_ONLY = [
 ];
 const FULL = [...ALLOW_ONLY, { optionId: "r1", name: "Reject", kind: "reject_once" }, { optionId: "r2", name: "Always reject", kind: "reject_always" }];
 
+describe("plans", () => {
+  it("keeps a full-replacement plan on ONE card for the whole turn, across the tool calls between revisions", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "PLAN it", attachments: [] });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    const plans = of(evs, "plan");
+    // The mutant: `plan` back in the parsed-and-dropped list. ACP's plan is the only plan a Cursor or
+    // Gemini session ever produces, so dropping it means those agents can never show one at all.
+    expect(plans).toHaveLength(2);
+    expect(new Set(plans.map((e) => e.payload.planId)).size).toBe(1);
+    expect(plans.at(-1)!.payload.steps).toEqual([
+      { text: "Read the spec", status: "completed" }, { text: "Write the code", status: "in_progress" }]);
+    // Entries carry no prose, and none is invented for them.
+    expect(plans.every((e) => e.payload.text === undefined)).toBe(true);
+  });
+
+  it("gives the NEXT turn its own plan card rather than overwriting the last turn's", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "PLAN one", attachments: [] });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await handle.send({ text: "PLAN two", attachments: [] });
+    await waitFor(() => expect(of(evs, "plan")).toHaveLength(4));
+    // The mutant: never clearing the id on flush. The second turn's plan would land on the first
+    // turn's card and erase what the agent set out to do the first time.
+    expect(new Set(of(evs, "plan").map((e) => e.payload.planId)).size).toBe(2);
+  });
+});
+
 describe("pickAcpOption", () => {
   it("prefers allow_once for allow and falls back to allow_always", () => {
     expect(pickAcpOption("allow", FULL)).toBe("a1");

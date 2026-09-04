@@ -14,6 +14,8 @@
  *
  *   HANG      opens a command item and never finishes the turn        (interrupt / steer tests)
  *   PARTIAL   streams message deltas and never finishes the item      (partial-text flush tests)
+ *   PLAN      sends both plan shapes, the step list twice (revised)    (plan mapping tests)
+ *   PLANOPEN  (modifier) leaves the prose plan item unfinished         (plan salvage on interrupt)
  *   SLOW      (modifier) delays the turn's notifications by 60ms      (turn-id-from-response tests)
  *   GHOST     opens a turn the server does not register as steerable  (turn/steer -> turn/start fallback)
  *   APPROVE   runs one command that needs an approval decision
@@ -84,6 +86,27 @@ function endTurn(threadId, turnId, status = "completed") {
   activeTurns.delete(threadId);
   notify("thread/status/changed", { threadId, status: { type: "idle" } });
   notify("turn/completed", { threadId, turn: { id: turnId, itemsView: "summary", items: [], status, error: null } });
+}
+
+/**
+ * Both of Codex's plan shapes in one turn: the prose `plan` ThreadItem (streamed as `item/plan/delta`,
+ * settled by `item/completed`) and the `turn/plan/updated` step list, sent twice so the second is a
+ * revision of the first. Shapes are `codex app-server generate-ts`'s: `TurnPlanStep {step, status}`
+ * with status `pending | inProgress | completed`.
+ */
+async function streamPlanTurn(threadId, turnId, text) {
+  await openTurn(threadId, turnId, text);
+  const itemId = `plan_${nextItemN++}`;
+  notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: { type: "plan", id: itemId, text: "" } });
+  notify("item/plan/delta", { threadId, turnId, itemId, delta: "## Ship " });
+  notify("item/plan/delta", { threadId, turnId, itemId, delta: "it" });
+  notify("turn/plan/updated", { threadId, turnId, explanation: null, plan: [
+    { step: "Read the spec", status: "inProgress" }, { step: "Write the code", status: "pending" }] });
+  if (text.includes("PLANOPEN")) return; // the item never completes: an interrupt has something to salvage
+  notify("item/completed", { threadId, turnId, completedAtMs: Date.now(), item: { type: "plan", id: itemId, text: "## Ship it\n\nRewrite the mapper first." } });
+  notify("turn/plan/updated", { threadId, turnId, explanation: "revised", plan: [
+    { step: "Read the spec", status: "completed" }, { step: "Write the code", status: "inProgress" }] });
+  endTurn(threadId, turnId);
 }
 
 function agentMessage(threadId, turnId, text) {
@@ -301,6 +324,7 @@ function handleRequest(id, method, params) {
       // Dies with a tool card still open, so the crash has something to force-close.
       if (text.includes("CRASH")) { void streamHangTurn(params.threadId, turnId, text); setTimeout(() => process.exit(9), 25); return; }
       if (text.includes("GHOST")) { void openTurn(params.threadId, turnId, text); return; }
+      if (text.includes("PLAN")) { void streamPlanTurn(params.threadId, turnId, text); return; }
       if (text.includes("PARTIAL")) { void streamPartialTurn(params.threadId, turnId, text); return; }
       if (text.includes("HANG")) { void streamHangTurn(params.threadId, turnId, text); return; }
       if (text.includes("APPROVE2")) { void streamTwoApprovalsTurn(params.threadId, turnId, text); return; }
