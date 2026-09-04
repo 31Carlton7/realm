@@ -226,6 +226,10 @@ const SpaceBody = memo(function SpaceBody({ items, groups }: { items: Item[]; gr
         <ItemList items={rest} variant="space" />
         {archived.length > 0 && <ArchivedSection items={archived} />}
       </div>
+      {/* A SIBLING of the scroller, never a child: a backdrop-filter inside the scrolling box would
+          scroll with the content it is meant to be blurring. .space-body's bottom padding is what
+          keeps the last row clear of the band — see --fade-h in styles.css. */}
+      <div className="space-fade" aria-hidden="true" />
     </>
   );
 });

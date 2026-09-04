@@ -569,6 +569,20 @@ describe("Arc sidebar", () => {
   });
 });
 
+describe("the list's bottom fade", () => {
+  it("is a SIBLING of the scroller, not a child of it", async () => {
+    // The one structural fact the stylesheet cannot state: a backdrop-filter nested inside the
+    // scrolling box scrolls with the content it is supposed to be blurring, which looks correct at
+    // scrollTop 0 and wrong everywhere else. Its height and the padding that clears it are pinned in
+    // styles.test.ts; how much it actually blurs, in sidebar-fade-live.mjs.
+    await mount();
+    const fade = document.querySelector(".space-fade")!;
+    expect(fade).not.toBeNull();
+    expect(fade.closest(".space-body")).toBeNull();
+    expect(fade.previousElementSibling).toHaveClass("space-body");
+  });
+});
+
 function glyphOf(title: string): Element {
   return screen.getByRole("button", { name: title }).querySelector(".item-glyph")!;
 }

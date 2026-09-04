@@ -164,8 +164,45 @@ kbd { font: 11px var(--font-mono); }
 
 .swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
 .swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; }
-.space-page { flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 16px 8px; overflow: hidden; }
-.space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px; }
+/* position: relative so the bottom fade below hangs off the PAGE rather than off the scroller — a
+   backdrop-filter nested inside the scrolling box would ride along with the content it blurs. */
+.space-page { position: relative; flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 16px 8px; overflow: hidden;
+  --fade-h: 44px; }
+/* A full band of bottom padding, not a fraction of one, for the reason the diff list needs the same:
+   these are 32px rows of dense text, so a row that ends inside the ramp is a session you scrolled
+   down to read and then cannot. Scrolled to the end, the last row sits entirely clear of the band and
+   the blur has only empty gutter under it. The scroller and the ramp read the one --fade-h so they
+   cannot drift apart. */
+.space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px;
+  padding-bottom: var(--fade-h); }
+/* The same progressive blur the transcript uses (two backdrop layers behind masks that start at
+   different heights, so the blur RAMPS rather than stepping — one flat band shows its own top edge),
+   with one deliberate difference: no colour wash. The transcript washes to --rl-panel because it
+   docks a card at its bottom and the gap above that card has to be solid pane. Nothing docks here —
+   below is the space strip, its own row — and this column is macOS vibrancy, not an opaque panel, so
+   a wash to any fixed colour would paint a band the material shows straight through as a tonal seam.
+   The blur alone is the dissolve; the masks live on the blurring layers, never on the parent, since a
+   masked ancestor becomes a backdrop root and its children would blur an empty backdrop.
+   It spans the page's full width, past the rows' 16px rails: a band that stopped where the text does
+   would draw two vertical edges of its own. */
+.space-fade { position: absolute; inset: auto 0 0 0; height: var(--fade-h); pointer-events: none; z-index: 1; }
+.space-fade::before, .space-fade::after { content: ""; position: absolute; inset: 0; }
+.space-fade::before { backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 60%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 60%); }
+.space-fade::after { backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px);
+  mask-image: linear-gradient(to bottom, transparent 30%, #000 78%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 30%, #000 78%); }
+/* Asked for less translucency. Dropping the blur the way the transcript does would leave this fade
+   with nothing at all — it has no wash to fall back on — and the hard cut it exists to prevent would
+   come straight back. So the dissolve changes medium instead of going away: macOS renders the
+   vibrancy material opaque under this preference, which is the one condition where a ramp to a fixed
+   tone composites cleanly over this column. */
+@media (prefers-reduced-transparency: reduce) {
+  .space-fade::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .space-fade::after { backdrop-filter: none; -webkit-backdrop-filter: none;
+    background: linear-gradient(to bottom, transparent 0, var(--page) 88%); }
+}
 
 .space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0 8px; }
 .space-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: var(--fw-title); min-width: 0; letter-spacing: -0.01em; }
