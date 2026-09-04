@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { themeSwatches } from "@realm/ui";
+import { deriveVars, oklchToHex, themeSwatches } from "@realm/ui";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
  *  itself — jsdom has no layout, no compositor and no CSSOM for a raw file, so nothing else in the
@@ -1277,6 +1277,55 @@ describe("custom themes", () => {
     expect(tokens).toContain("--chart-gap: var(--chart-surface);");
     for (const sel of [".usage-card", ".stat-tile"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("background: var(--chart-surface)");
+    }
+  });
+
+  it("the ramp reproduces the palette it was measured from", () => {
+    // packages/ui/src/themes.ts derives every theme from twelve seeds using ramp constants its
+    // comments claim were measured off THIS file. That claim is only worth anything if something
+    // re-measures it, so: take the seeds out of tokens.css, run them through the same derivation
+    // every theme goes through, and require that what comes back IS tokens.css.
+    //
+    // THE drifted-ramp mutant: nudge any offset in DARK or LIGHT — the ΔL of --hover, an ink
+    // exponent, the tooltip's inversion. Every theme still clears every contrast floor, because the
+    // floors are about legibility and this is about SHAPE; only this notices that the derived
+    // palettes have stopped being the same system as the one they sit beside.
+    const L = (name: string, block: string): number => {
+      const m = new RegExp(`${name}: oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)`).exec(block);
+      expect(m, `${name} is not a plain oklch value in tokens.css`).not.toBeNull();
+      return Number(m![1]);
+    };
+    const hex = (name: string, block: string): string => {
+      const m = new RegExp(`${name}: oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)`).exec(block)!;
+      return oklchToHex({ l: Number(m[1]), c: Number(m[2]), h: Number(m[3]) });
+    };
+    const derivedL = (v: string): number => Number(/^oklch\(([\d.]+)/.exec(v)![1]);
+
+    for (const mode of ["dark", "light"] as const) {
+      const at = tokens.indexOf(mode === "dark" ? ":root {\n  color-scheme: dark" : ':root[data-mode="light"] {');
+      expect(at, `no ${mode} token block in tokens.css`).toBeGreaterThan(-1);
+      const block = tokens.slice(at, tokens.indexOf("\n}", at));
+      // The seeds are read back out of the palette rather than written here, so this cannot drift
+      // by someone updating tokens.css and the copy in the test to match each other.
+      const derived = deriveVars({
+        bg: hex("--page", block), ink: hex("--ink", block), accent: hex("--accent", block),
+        green: hex("--green", block), orange: hex("--orange", block), red: hex("--red", block),
+        // The same role mapping the base --syn-* block states, so the seeds are Realm's own.
+        syntax: { comment: hex("--ink-3", block), keyword: hex("--accent", block), string: hex("--green", block),
+          number: hex("--orange", block), title: hex("--ink", block), type: hex("--ink", block), attr: hex("--ink-2", block) },
+      }, mode);
+
+      // The surface ladder and the tooltip chip are pure geometry off the seed: they have to land on
+      // the shipped lightness to finer than a display can resolve.
+      for (const token of ["--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field",
+        "--stripe-bg", "--tooltip-bg", "--tooltip-border", "--tooltip-fg"]) {
+        expect(derivedL(derived[token]!), `${mode} ${token}`).toBeCloseTo(L(token, block), 3);
+      }
+      // The ink ramp is placed by CONTRAST rather than by lightness, so it lands within one step of
+      // the walk that places it (0.002) rather than exactly on the shipped value.
+      for (const token of ["--ink-2", "--ink-3", "--tooltip-muted"]) {
+        expect(Math.abs(derivedL(derived[token]!) - L(token, block)), `${mode} ${token}`).toBeLessThan(0.004);
+      }
     }
   });
 

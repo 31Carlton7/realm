@@ -77,7 +77,7 @@ export type ThemeName = "realm" | "one" | "monokai" | "dracula" | "nord" | "sola
  * little chroma as they climb, while light surfaces mostly sink below the page and hold the paper's
  * tint. Changing a number here retunes every theme at once, which is the point — there is no
  * per-theme surface ladder to drift. */
-type SurfaceStep = "canvas" | "surface" | "inset" | "hover" | "hover-2" | "field" | "stripe-bg" | "tooltip-bg" | "tooltip-border";
+type SurfaceStep = "canvas" | "surface" | "inset" | "hover" | "hover-2" | "field" | "stripe-bg";
 
 type Ramp = {
   /** Lightness offsets from `bg`, in OKLCH L. */
@@ -95,35 +95,51 @@ type Ramp = {
    *  copying its CONTRAST structure reproduces what the ramp is for. */
   ink2: number;
   ink3: number;
+  /** The tooltip chip, which is the one surface that does not sit on the ladder. Dark mode recesses
+   *  it below the page and writes the theme's own ink on it; light mode INVERTS it into a dark chip
+   *  with light text — a different construction, not different numbers, which is why this is a
+   *  function and not two more rows of the table above. Written as rows, whichever mode did not need
+   *  a given entry would carry a zero nothing ever reads. */
+  tooltip: (p: { bg: Oklch; ink: Oklch; ink2: Oklch }) => Record<"bg" | "fg" | "muted" | "border", Oklch>;
   /** `--accent-ink` (links, accent text on a surface): a step from the accent towards the ink, with
    *  its chroma pulled back so a hyperlink is not louder than the button it sits beside. */
   accentInk: { step: number; chroma: number };
-  /** The 8% wash behind an accent chip. Dark tints are the hue at low alpha over the surface; light
-   *  tints are the hue at PAPER lightness, because alpha over near-white washes out to nothing. */
+  /** The wash behind a chip. Dark tints are the hue at 15% over whatever surface it lands on; light
+   *  tints are the hue at PAPER lightness with its chroma cut to a tenth, because alpha over a
+   *  near-white ground washes out to nothing. Both are the mean of the four the shipped palette
+   *  states (its own spread is 14–16% dark, L .956–.964 light), rather than four seeds per theme for
+   *  a difference no one can see. */
   tint: { alpha: number } | { lightness: number; chroma: number };
   /** Chart ground clamp — see `--chart-surface` below. */
   chartL: { min: number; max: number };
 };
 
 const DARK: Ramp = {
-  surfaces: { canvas: 0.022, surface: 0.051, inset: 0.034, hover: 0.08, "hover-2": 0.109, field: 0.084, "stripe-bg": 0.017, "tooltip-bg": -0.027, "tooltip-border": 0.099 },
-  chroma: { surface: 0.002, hover: 0.002, "hover-2": 0.003, field: 0.002, "tooltip-border": 0.002 },
-  ink2: 0.66,
-  ink3: 0.37,
+  surfaces: { canvas: 0.022, surface: 0.051, inset: 0.034, hover: 0.08, "hover-2": 0.109, field: 0.084, "stripe-bg": 0.017 },
+  chroma: { surface: 0.002, hover: 0.002, "hover-2": 0.003, field: 0.002 },
+  ink2: 0.7,
+  ink3: 0.427,
+  tooltip: ({ bg, ink, ink2 }) => ({ bg: step(bg, -0.027), fg: ink, muted: ink2, border: step(bg, 0.099, 0.002) }),
   accentInk: { step: 0.38, chroma: 0.65 },
   tint: { alpha: 0.15 },
   chartL: { min: 0, max: 0.245 },
 };
 
 const LIGHT: Ramp = {
-  surfaces: { canvas: -0.024, surface: 0.015, inset: -0.006, hover: -0.015, "hover-2": -0.052, field: -0.024, "stripe-bg": -0.015, "tooltip-bg": 0, "tooltip-border": 0 },
-  chroma: {},
+  surfaces: { canvas: -0.024, surface: 0.015, inset: -0.006, hover: -0.015, "hover-2": -0.052, field: -0.024, "stripe-bg": -0.015 },
+  chroma: { canvas: 0.001, inset: 0.001, hover: 0.001, "hover-2": 0.002 },
   ink2: 0.62,
-  ink3: 0.33,
+  ink3: 0.333,
+  // The inversion: the chip is built off the INK, and the light text on it is the page.
+  tooltip: ({ bg, ink }) => ({
+    bg: step(ink, 0.025, 0.002), fg: step(bg, -0.009),
+    muted: { l: 0.731, c: ink.c, h: ink.h }, border: step(ink, 0.109, 0.001),
+  }),
   accentInk: { step: 0.185, chroma: 0.91 },
   tint: { lightness: 0.959, chroma: 0.105 },
   chartL: { min: 0.97, max: 1 },
 };
+
 
 /** The contrast every derived colour is held to, and the roles they belong to. These are WCAG
  *  numbers, not Realm's: the shipped palette clears all of them with room (its worst pairing is
@@ -215,7 +231,13 @@ export const THEME_VARS = [
  *  generated CSS file would have to be regenerated, checked in, and then checked for staleness. */
 export function themeVars(name: ThemeName, mode: Mode): Record<string, string> {
   const seed = seedFor(name, mode);
-  if (!seed) return {};
+  return seed ? deriveVars(seed, mode) : {};
+}
+
+/** The derivation itself, on a bare seed. Exported so the guardrail can feed it the seeds tokens.css
+ *  was built from and check that what comes out IS tokens.css — the ramp constants above are only
+ *  "measured off the shipped palette" for as long as something re-measures them. */
+export function deriveVars(seed: ThemeSeed, mode: Mode): Record<string, string> {
   const r = mode === "dark" ? DARK : LIGHT;
   const bg = hexToOklch(seed.bg);
   const ink = hexToOklch(seed.ink);
@@ -258,12 +280,14 @@ export function themeVars(name: ThemeName, mode: Mode): Record<string, string> {
    *  breaks a promise about colour-vision deficiency that has nothing to do with taste. What moves
    *  instead is the ground: the Usage cards take a chart surface that carries the theme's hue but is
    *  clamped back into the band the palette was validated in. Without the clamp every theme here
-   *  fails slot 6 (#008300 needs a ground at or below Realm's own #232427 to clear 3:1), which is a
-   *  property of the series, not of the themes. */
+   *  fails slot 6: #008300 clears 3:1 on Realm's own #232427 (L 0.26) by 0.14, so the clamp sits a
+   *  little under it at L 0.245 to leave the margin a theme's chroma can eat. That is a property of
+   *  the series, not of the themes. */
   const chart = { ...surface, l: clamp(surface.l, r.chartL.min, r.chartL.max) };
 
   const ink2 = inkStep(ink, worst(["canvas", "surface", "inset", "hover"]), r.ink2, CONTRAST_FLOOR.ink2);
   const ink3 = inkStep(ink, worst(["canvas", "surface", "inset"]), r.ink3, CONTRAST_FLOOR.ink3);
+  const tip = r.tooltip({ bg, ink, ink2 });
 
   /** Chrome and syntax are stated as hues and corrected as lightnesses. Every one of these lands on
    *  `--surface` — semantic text and chips on a card, code inside `.md-code` — so that is the ground
@@ -300,12 +324,12 @@ export function themeVars(name: ThemeName, mode: Mode): Record<string, string> {
     "--red": css(red),
     "--red-tint": tint(red),
 
-    /* A tooltip is an inverted chip in light mode and a recessed one in dark — the shipped palette's
-     * own asymmetry, kept: in light mode the chip is the INK colour with the page written on it. */
-    "--tooltip-bg": mode === "dark" ? css(surf("tooltip-bg")) : css(step(ink, 0.025)),
-    "--tooltip-fg": mode === "dark" ? css(ink) : css(step(bg, -0.009)),
-    "--tooltip-muted": mode === "dark" ? css(ink2) : css({ l: 0.731, c: ink.c, h: ink.h }),
-    "--tooltip-border": mode === "dark" ? css(surf("tooltip-border")) : css(step(ink, 0.109)),
+    /* A recessed chip in dark and an inverted one in light — the shipped palette's own asymmetry,
+     * kept, and constructed by the ramp rather than branched on here. */
+    "--tooltip-bg": css(tip.bg),
+    "--tooltip-fg": css(tip.fg),
+    "--tooltip-muted": css(tip.muted),
+    "--tooltip-border": css(tip.border),
 
     "--chart-surface": css(chart),
 
