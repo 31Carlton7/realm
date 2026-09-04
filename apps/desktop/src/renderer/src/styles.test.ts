@@ -732,6 +732,53 @@ describe("scrollbars", () => {
   });
 });
 
+describe("dividers", () => {
+  /** The table-list idiom: a rule drawn between every pair of adjacent rows. */
+  const ADJACENT = /^(\.[a-z-]+) \+ \1$/;
+  const drawsALine = (body: string): boolean =>
+    /border(-top|-bottom)?:\s*1px/.test(body) || /box-shadow:\s*inset 0 1px 0 var\(--line/.test(body);
+
+  it("no list draws an unconditional rule between its rows", () => {
+    // Six of these carried the app's divider weight — the diff files, checkpoints, checkouts, the
+    // activity log, the settings rows and the engines — and every one of them sat on rows that
+    // already separated themselves with a hover fill, a rounded row or plain spacing. A hairline on
+    // top of that says the same thing twice, which is most of what made the app read as ruled.
+    const offenders = RULES
+      .filter((r) => drawsALine(r.body))
+      .flatMap((r) => r.selectors)
+      .filter((sel) => ADJACENT.test(sel));
+    expect(offenders.sort()).toEqual([]);
+  });
+
+  it("the diff list draws a seam only under an OPEN file", () => {
+    // The exception that proves the rule, and the reason the check above says "unconditional": an
+    // expanded file's patch panel really would run into the next filename, so a seam there is doing
+    // work rather than decorating. Between two collapsed rows it is not.
+    expect(bodiesFor(".diff-file[data-open] + .diff-file").join(" ")).toContain("border-top: 1px solid");
+  });
+
+  it("the seams where content passes under a fixed edge are kept", () => {
+    // These are the ones that stop being decoration the moment anything scrolls: a pane's own bar, a
+    // sticky head over a list, a card's head over its body, a popover's search field over its rows.
+    for (const sel of [".panel-bar", ".diff-head", ".fd-head", ".md-code-head", ".mp-search", ".palette-input", ".spaces-search"])
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/border-bottom: 1px solid/);
+    // Footers hold their place while the body scrolls past them.
+    for (const sel of [".permission-footer", ".question-footer", ".spaces-foot", ".mp-detail-foot"])
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/border-top: 1px solid/);
+    // A table's rules ARE its structure, and the sidebar's edge is the app's one column boundary.
+    expect(bodiesFor(".md th").join(" ")).toContain("border-bottom: 1px solid");
+    expect(bodiesFor(".usage-table th").join(" ")).toContain("border-bottom: 1px solid");
+    expect(bodiesFor(".sidebar").join(" ")).toContain("border-right: 1px solid");
+  });
+
+  it("the two option lists in the transcript separate their rows the same way", () => {
+    // A permission and a question are the same card asking a different question; one of them used to
+    // rule its rows and the other did not.
+    for (const sel of [".permission-options", ".question-options"])
+      expect(bodiesFor(sel).join(" "), sel).toContain("gap: 1px");
+  });
+});
+
 describe("squircle surfaces", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
   const worklet = readFileSync(repoFile("apps/desktop/src/renderer/public/squircle-paint.js"), "utf8");
