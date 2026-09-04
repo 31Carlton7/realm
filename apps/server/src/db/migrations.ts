@@ -404,4 +404,20 @@ export const migrations: string[] = [
     started_at INTEGER NOT NULL, settled_at INTEGER);
   CREATE UNIQUE INDEX run_attempts_run_n ON run_attempts(run_id, n);
   `,
+  // v21 — the Settings → Usage tab's one index. `session_events` is the biggest table Realm has (every
+  // message, thought and tool round of every transcript), and the usage page's questions are all "the
+  // `usage` rows in this time window" — a predicate the existing `(session_id, seq)` index cannot
+  // serve at all, so each answer was a full scan of every transcript ever written.
+  //
+  // PARTIAL, on the `type` predicate: a session writes one `usage` row per turn against a `tool_call`
+  // and a `tool_result` per tool and an `assistant_text` per message, so the index covers a small
+  // fraction of the table and its write cost on the append path stays negligible. A plain `(type, ts)`
+  // index would carry an entry for every tool result ever stored to earn the same lookups.
+  //
+  // `session_id` rides along as a second column so the per-session grouping the aggregator needs is
+  // covered by the index rather than by a row fetch per event.
+  //
+  // Index-only, no schema change: nothing to backfill, nothing that can fail on an existing home, and
+  // the migration is a no-op for correctness — every query it speeds up returns the same rows without it.
+  `CREATE INDEX session_events_usage ON session_events(ts, session_id) WHERE type = 'usage';`,
 ];

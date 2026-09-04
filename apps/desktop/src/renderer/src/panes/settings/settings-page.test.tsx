@@ -35,13 +35,23 @@ async function mount(overrides: FakeData = {}) {
 }
 
 describe("the Settings page (Plan 12 W6)", () => {
-  it("wears the page pattern: head, an Engines · App · Sign-ins · Permissions rail, Engines first", async () => {
+  it("wears the page pattern: head, an Engines · Usage · App · Sign-ins · Permissions rail, Engines first", async () => {
     await mount();
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Engines" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "App" })).not.toBeChecked();
-    expect(screen.getByRole("radio", { name: "Sign-ins" })).not.toBeChecked();
-    expect(screen.getByRole("radio", { name: "Permissions" })).not.toBeChecked();
+    for (const tab of ["Usage", "App", "Sign-ins", "Import", "Permissions"]) {
+      expect(screen.getByRole("radio", { name: tab }), tab).not.toBeChecked();
+    }
+  });
+
+  it("opens the Usage tab without the rest of Settings paying for it", async () => {
+    // The panel reads a whole time range on mount, so it must not run for someone who came here to
+    // check an engine version — which is what tabbing rather than stacking buys.
+    const { api } = await mount();
+    expect(api.calls.some((c) => c.startsWith("usageSummary:"))).toBe(false);
+    fireEvent.click(screen.getByRole("radio", { name: "Usage" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("usageSummary:"))).toBe(true));
+    expect(await screen.findByText("Spend in range")).toBeInTheDocument();
   });
 });
 

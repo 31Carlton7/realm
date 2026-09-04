@@ -1,4 +1,4 @@
-import { AGENT_META, NOTIFICATIONS_DISABLED_KEY, type McpServerStatus, type Notification, type NotificationCategory, type Session, type SessionEvent } from "@realm/contracts";
+import { AGENT_META, NOTIFICATIONS_DISABLED_KEY, formatUsd, type McpServerStatus, type Notification, type NotificationCategory, type Session, type SessionEvent } from "@realm/contracts";
 import type { ProbeResult } from "@realm/adapters";
 import type { RpcServer } from "../rpc/server";
 import type { SettingsStore } from "../store/settings";
@@ -182,6 +182,29 @@ export class NotificationsService {
   runDone(input: { spaceId: string; sessionId: string | null; runId: string; title: string; body: string | null }): void {
     this.notify({ category: "run_done", spaceId: input.spaceId, sessionId: input.sessionId, refId: input.runId,
       title: input.title, body: input.body, acted: true });
+  }
+
+  /**
+   * This month's agent spend crossed one of the user's budget thresholds (`UsageService`).
+   *
+   * Born acted, like every other "this happened" row: a ceiling being crossed is news, and there is
+   * no action the feed can offer for it. `refId` is `<YYYY-MM>:<threshold>`, which makes the dedup
+   * rule do the "don't tell me again" work — the same 80% announces itself once in September and
+   * again, legitimately, in October. Not scoped to a space: the budget is a fact about the machine,
+   * and attributing it to whichever space happened to run the turn that tipped it would be a lie.
+   *
+   * The body says WHICH dollars these are, because for every engine but Claude they are estimated
+   * from catalog list prices (see usage.ts) — a budget alert that read as a bank statement would be
+   * overclaiming.
+   */
+  budgetCrossed(input: { threshold: number; spendUsd: number; budgetUsd: number; monthKey: string }): void {
+    const pct = Math.round(input.threshold * 100);
+    this.notify({
+      category: "budget", spaceId: null, sessionId: null, refId: `${input.monthKey}:${input.threshold}`,
+      title: `Agent spend passed ${pct}% of your monthly budget`,
+      body: `${formatUsd(input.spendUsd)} of ${formatUsd(input.budgetUsd)} this month. Reported where the engine states a price, estimated from list prices otherwise.`,
+      acted: true,
+    });
   }
 
   /** The stale-ack refusal hook (EnvironmentService.removeWorktree / CheckpointService.restore): the

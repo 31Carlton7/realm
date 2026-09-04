@@ -354,10 +354,14 @@ function v8McpFixture(path: string): { serverId: string } {
   db.exec(V8_MCP_SERVERS);
   // The fixture is deliberately minimal — only the tables LATER migrations touch. v14 ALTERs
   // sessions and v15 reads items/session_events and writes settings and v17 alters spaces, so stubs of those must exist
-  // for the v9..v15 replay to run; their real v1/v3 shapes are exercised by the v4/v5 fixtures above.
+  // for the v9..v21 replay to run; their real v1/v3 shapes are exercised by the v4/v5 fixtures above.
   db.exec("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY)");
   db.exec("CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '')");
-  db.exec("CREATE TABLE IF NOT EXISTS session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT)");
+  // session_events carries its real v3 COLUMNS, not just `seq`: v21 indexes (ts, session_id) on a
+  // `type` predicate, so a stub with one column cannot reach v21 at all. A real v8 home has had all
+  // four of these since v3 — the stub was under-specified, and the first migration to read a column
+  // rather than merely require the table is what found it.
+  db.exec("CREATE TABLE IF NOT EXISTS session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL)");
   db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL)");
   db.exec("CREATE TABLE IF NOT EXISTS spaces (id TEXT PRIMARY KEY, layout_json TEXT)");
   for (const v of [1, 2, 3, 4, 5, 6, 7, 8]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());

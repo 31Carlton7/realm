@@ -10,19 +10,21 @@ import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import type { ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
+import { UsagePanel } from "./usage/UsagePanel";
 
-type SettingsTab = "engines" | "app" | "signins" | "import" | "permissions";
+type SettingsTab = "engines" | "usage" | "app" | "signins" | "import" | "permissions";
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: "engines", label: "Engines" }, { id: "app", label: "App" }, { id: "signins", label: "Sign-ins" },
-  { id: "import", label: "Import" }, { id: "permissions", label: "Permissions" },
+  { id: "engines", label: "Engines" }, { id: "usage", label: "Usage" }, { id: "app", label: "App" },
+  { id: "signins", label: "Sign-ins" }, { id: "import", label: "Import" }, { id: "permissions", label: "Permissions" },
 ];
 
 /**
  * The Settings page (Plan 12 W6, Universe screenshot 5) — a `settings-page` destination on W4's
- * sentinel convention, reached from the bottom-left gear and the palette. Four tabs down the
- * `.page-rail`: Engines (the agent probe, rendered), App (theme, notification switches, the default
- * permission mode for new sessions), Import (transcripts, memory and skills out of the agent CLIs'
- * own stores), Permissions (macOS TCC, honest states only).
+ * sentinel convention, reached from the bottom-left gear and the palette. Tabs down the
+ * `.page-rail`: Engines (the agent probe, rendered), Usage (spend, tokens and activity over a range,
+ * plus the monthly budget), App (theme, notification switches, the default permission mode for new
+ * sessions), Import (transcripts, memory and skills out of the agent CLIs' own stores), Permissions
+ * (macOS TCC, honest states only).
  *
  * The pane's `item` goes unused like the Notifications page's: nothing here has a per-space vantage —
  * engines, app preferences and TCC grants are facts about the machine and the app, not a space.
@@ -42,7 +44,7 @@ export function SettingsPage(_props: PaneProps) {
         <span className="page-glyph"><Icon name="settings-page" size={20} /></span>
         <div className="page-title">
           <h1>Settings</h1>
-          <span className="page-sub">Engines, app preferences, saved sign-ins, importing from the agent CLIs, and what macOS lets Realm do.</span>
+          <span className="page-sub">Engines, spend and usage, app preferences, saved sign-ins, importing from the agent CLIs, and what macOS lets Realm do.</span>
         </div>
       </header>
       <div className="page-body">
@@ -57,6 +59,7 @@ export function SettingsPage(_props: PaneProps) {
         </fieldset>
         <div className="page-content">
           {tab === "engines" && <EnginesTab />}
+          {tab === "usage" && <UsagePanel />}
           {tab === "app" && <AppTab />}
           {tab === "signins" && <SignInsTab />}
           {tab === "import" && <ImportPanel />}
@@ -175,6 +178,7 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string 
   review_done: { label: "Reviews finishing", desc: "A requested review landed its verdict on the diff pane." },
   run_blocked: { label: "Runs needing you", desc: "An unattended run stopped and asked for a person." },
   run_done: { label: "Runs finishing", desc: "A durable run reached a final state." },
+  budget: { label: "Spend thresholds", desc: "This month's agent spend passed one of your budget thresholds." },
 };
 
 function AppTab() {

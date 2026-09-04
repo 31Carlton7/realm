@@ -73,6 +73,36 @@
   --tooltip-muted: oklch(0.731 0.008 260.731);
   --tooltip-border: oklch(0.308 0.006 258.354);
 
+  /* ── categorical chart palette (Settings → Usage) ───────────────────────────
+   * Eight hues in a FIXED order, because the order is the colour-vision-deficiency safety mechanism
+   * rather than a mood: series take slots 1..8 in sequence and a ninth series is never a generated
+   * hue, it is folded into "Other" (USAGE_SERIES_CAP).
+   *
+   * These are the dataviz reference palette's dark steps, validated against Realm's OWN chart surface
+   * (`--surface`, #232427) rather than the reference's: all eight inside the dark lightness band
+   * L 0.48–0.67, all above the 0.1 chroma floor, worst adjacent pair ΔE 8.4 under simulated protanopia
+   * (target ≥ 8), worst adjacent normal-vision ΔE 19.3 (floor ≥ 15), all eight ≥ 3:1 on the surface.
+   * Do not hand-edit a step: re-run the validator on the whole set, in both modes, or the guarantee
+   * that any two neighbouring stack segments stay distinguishable is silently gone.
+   *
+   * Realm's own `--accent` was tried in slot 1 and REJECTED by the band check (L 0.68, just over the
+   * dark ceiling); slot 1 here is the same blue family one step down. */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  /* Gridlines and axis rules: one step off the surface, solid hairlines, recessive. Never dashed —
+   * dashing reads as "projected" or "threshold" when it is only a grid. */
+  --chart-grid: oklch(1 0 0 / 0.08);
+  --chart-axis: oklch(1 0 0 / 0.14);
+  /* The 2px gap and ring that separate touching marks. It is the SURFACE showing through, not a
+   * stroke: a border around a mark adds ink that is not data. */
+  --chart-gap: var(--surface);
+
   /* shadows — hairline ring + layered stacks. Elevation rings go to a subtle *light* hairline in
    * dark mode: the ring paints over the surface behind the element, so a low-alpha white edge
    * dissolves into the shadow as one continuous stroke, graduated by how far the surface floats.
@@ -114,6 +144,26 @@
   --tooltip-fg: oklch(0.976 0.002 247.839);
   --tooltip-muted: oklch(0.731 0.008 260.731);
   --tooltip-border: oklch(0.356 0.007 264.474);
+
+  /* The same eight hues, stepped for the light surface (#ffffff) and validated as a set there — a
+   * selected palette, not an automatic flip of the dark one. Worst adjacent CVD ΔE 9.1, worst
+   * adjacent normal-vision ΔE 19.6.
+   *
+   * Three slots (3 aqua 2.82:1, 4 yellow 2.17:1, 5 magenta 2.69:1) sit below 3:1 on white. That is a
+   * WARN with a standing obligation, not a dismissable one: the Usage tab ships the breakdown TABLE
+   * beside every chart, so no value is reachable only by distinguishing one of those fills. Remove
+   * the table and these three steps stop being legal. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --chart-grid: oklch(0 0 0 / 0.07);
+  --chart-axis: oklch(0 0 0 / 0.13);
+  --chart-gap: var(--surface);
 
   /* Light-mode shadow stacks are restated in the TEMBO ALIGNMENT block below. */
 }

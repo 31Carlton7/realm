@@ -11,6 +11,7 @@ import type { EnvironmentService } from "../environments/service";
 import type { CheckpointService } from "../checkpoints/service";
 import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
+import type { ModelCatalogService } from "../models/catalog";
 import type { SkillsService } from "../skills/service";
 import type { McpService } from "../mcp/service";
 import type { McpHub } from "../mcp/hub";
@@ -25,6 +26,7 @@ import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
 import type { NotificationsService } from "../notifications/service";
+import type { UsageService } from "../usage/service";
 import type { RunService } from "../runs/service";
 import type { ReviewService } from "../delegation/review";
 import type { SearchService } from "../search/service";
@@ -44,8 +46,8 @@ type Params<M extends MethodName> = z.infer<(typeof Methods)[M]["params"]>;
 type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
-  rpc: RpcServer; home: string; version: string; machineName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService;
+  rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
 };
 
@@ -54,7 +56,7 @@ export function registerMethods(d: Deps): void {
   const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
-  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName }));
+  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName }));
 
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
   reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
@@ -494,6 +496,15 @@ export function registerMethods(d: Deps): void {
   reg("review.dismiss", (p) => { d.reviews.dismiss(p.environmentId); return { ok: true as const }; });
 
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
+  reg("models.catalog", async (p) => ({ rows: await d.modelCatalog.list({ force: p.force }) }));
+
+  // Settings → Usage. Space-checked like every other scoped read: a typo'd id should say so rather
+  // than answering an empty page for a space that is not there (the `ships.list` posture).
+  reg("usage.summary", (p) => {
+    if (p.spaceId && !d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.usage.summary(p);
+  });
+  reg("usage.setBudget", (p) => d.usage.setBudget(p));
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
   reg("sessions.listAll", () => d.sessions.listAll());
   reg("sessions.get", (p) => d.sessions.get(p.id));

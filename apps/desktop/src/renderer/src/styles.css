@@ -326,36 +326,44 @@ kbd { font: 11px var(--font-mono); }
 .skills-origin-label { padding: 0 0 4px; font-size: 10.5px; font-weight: var(--fw-title); letter-spacing: .04em;
   text-transform: uppercase; color: var(--rl-text-faint); }
 
-/* ── Model picker (prompter): search + provider rail + (agent, model) rows ── */
-.model-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
+/* ── Model picker (prompter): search, grouped model list, and a detail pane ── */
+/* Wide enough for two columns because the popover now answers three questions, not one: which model,
+   what it is for and what it costs, and which harness runs it. 620px is the width at which the list
+   keeps a full model name on one line AND the detail pane fits a price pair side by side. */
+.model-picker { z-index: 100; width: 620px; display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
-.mp-search { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
+.mp-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
-.mp-body { display: flex; min-height: 0; }
-/* The rail is a ROW of tabs across the top, above the search it scopes. Selection reads as an
-   underline rather than a filled chip: these are tabs over one list, not toggles in a toolbar, and
-   the hairline they sit on is the same one the search field hangs from. */
-.mp-rail { flex: none; display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--rl-hairline); }
-.mp-rail-btn { display: grid; place-items: center; width: 32px; height: 30px; border-radius: var(--r-chip) var(--r-chip) 0 0;
-  color: var(--rl-text-faint); border-bottom: 2px solid transparent; margin-bottom: -1px;
-  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease; }
-.mp-rail-btn:hover { background: var(--hover); color: var(--rl-text-bright); }
-.mp-rail-btn[aria-pressed="true"] { color: var(--rl-text-bright); border-bottom-color: var(--rl-text-bright); }
-.mp-list { flex: 1; min-width: 0; max-height: min(46vh, 320px); overflow-y: auto; padding: 6px; }
-.mp-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
+/* The two columns share ONE height, set here rather than on either child: the detail pane grows with
+   whatever the highlighted model has to say, and a list that capped itself independently would leave
+   the divider hanging in mid-air below it. `stretch` then makes the shorter column fill. */
+.mp-body { display: flex; min-height: 0; max-height: min(52vh, 420px); align-items: stretch; }
+/* The list keeps its own scroll and a fixed share of the width, so highlighting a row can never
+   reflow the column the eye is reading down. */
+.mp-list { width: 306px; flex: none; overflow-y: auto; padding: 6px;
+  border-right: 1px solid var(--rl-hairline); }
+.mp-group + .mp-group { margin-top: 6px; }
+/* Section headings for the harness groups: the quietest thing on the surface, because they label
+   rows rather than competing with them. */
+.mp-group-label { padding: 5px 8px 3px; font-size: 10px; font-weight: var(--fw-title); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--rl-text-faint); }
+.mp-row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
   transition: background-color 100ms ease, color 100ms ease; }
 .mp-row[data-active] { background: var(--hover); }
-/* Unavailable, not hidden: dimmed and non-interactive, but still readable and still explaining itself
-   through its title and the footer line. */
+/* Unavailable, not hidden: dimmed and non-interactive, but still readable and still explaining
+   itself in the detail pane beside it. */
 .mp-row[data-blocked] { opacity: .45; cursor: default; }
 .mp-row[data-blocked][data-active] { background: none; }
+.mp-row-mark { flex: none; }
 .mp-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.mp-row-name { font-size: 12.5px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mp-row-provider { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--rl-text-dim); overflow: hidden; white-space: nowrap; }
+.mp-row-name { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-row-sub { font-size: 11px; color: var(--rl-text-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .mp-note { color: var(--rl-warning); }
 .mp-check { flex: none; color: var(--rl-accent); }
-.mp-blocked { flex: none; color: var(--rl-text-faint); }
+/* One price per row — the OUTPUT rate, which is what an agent's bill is made of. Tabular so the
+   column reads as a column, and faint so it never outranks the model's name. */
+.mp-row-price { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 /* The ⌘-digit badge: quiet until the row is under the cursor, because it labels a shortcut for the
    row you are already looking at rather than competing with the model's name. */
 .mp-kbd { flex: none; padding: 1px 5px; border-radius: var(--r-chip); background: var(--hover-2); color: var(--rl-text-faint);
@@ -371,6 +379,52 @@ kbd { font: 11px var(--font-mono); }
    rule beats the pack's own fill="none" presentation attribute, and no second icon set is needed. */
 .mp-star[aria-pressed="true"] svg * { fill: currentColor; }
 .mp-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
+
+/* The detail pane: what the highlighted model is for, what it costs, and how it would run. */
+.mp-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 13px 14px; overflow: hidden; }
+/* Only the prose and the stats scroll. The footer holds its place, so the button this pane exists to
+   lead to is never the part that falls off the bottom edge. */
+.mp-detail-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.mp-detail-head { display: flex; align-items: center; gap: 8px; }
+.mp-detail-head h3 { margin: 0; font-size: 14.5px; font-weight: var(--fw-title); letter-spacing: -.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-detail-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
+.mp-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 14px; }
+.mp-stat { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.mp-stat-k { font-size: 9.5px; font-weight: var(--fw-title); letter-spacing: .05em; text-transform: uppercase; color: var(--rl-text-faint); }
+.mp-stat-v { font-size: 12.5px; color: var(--rl-text-bright); font-variant-numeric: tabular-nums; }
+.mp-routes { display: flex; flex-direction: column; gap: 6px; }
+.mp-route-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Route pills read as a choice among equals — outlined, with the chosen one carrying the accent. Not
+   a segmented control: the set is 1…3 wide and grows with the harnesses that can run this model. */
+.mp-route { display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--rl-line); background: none; color: var(--rl-text-dim); font: inherit; font-size: 11.5px;
+  cursor: pointer; transition: border-color 100ms ease, background-color 100ms ease, color 100ms ease; }
+.mp-route:hover:not(:disabled) { color: var(--rl-text-bright); background: var(--hover); }
+.mp-route[aria-pressed="true"] { color: var(--rl-text-bright); border-color: color-mix(in oklab, var(--rl-accent) 60%, transparent);
+  background: color-mix(in oklab, var(--rl-accent) 14%, transparent); }
+.mp-route:disabled { cursor: default; opacity: .5; }
+.mp-harness-note { margin: 2px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-dim); }
+.mp-harness-billing { margin: 0; font-size: 11px; line-height: 1.45; color: var(--rl-text-faint); }
+/* A structural limit of the harness — what it cannot do at all, in the warning tone the attachment
+   notes already use, so "answers arrive whole" reads the same way "will be ignored" does. */
+.mp-harness-limits { display: flex; align-items: flex-start; gap: 5px; margin: 0; font-size: 11px; line-height: 1.45; color: var(--rl-warning); }
+.mp-harness-limits svg { flex: none; margin-top: 2px; }
+.mp-detail-foot { flex: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rl-hairline);
+  display: flex; flex-direction: column; gap: 7px; }
+.mp-seg-group { display: flex; align-items: center; gap: 9px; }
+.mp-seg-label { flex: none; width: 62px; font-size: 10px; font-weight: var(--fw-title); letter-spacing: .05em; text-transform: uppercase; color: var(--rl-text-faint); }
+/* One row, always: the old effort strip wrapped its five levels onto a second line at this width,
+   which read as a layout bug. Equal columns keep them on one. */
+.mp-seg { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px;
+  padding: 2px; border-radius: var(--r-ctl); background: var(--hover); }
+.mp-seg-opt { padding: 3px 4px; border-radius: calc(var(--r-ctl) - 2px); border: 0; background: none; font: inherit;
+  font-size: 11px; color: var(--rl-text-dim); cursor: pointer; transition: background-color 100ms ease, color 100ms ease; }
+.mp-seg-opt:hover { color: var(--rl-text-bright); }
+.mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
+.mp-use { align-self: flex-end; margin-top: 3px; padding: 6px 13px; border: 0; border-radius: var(--r-ctl);
+  background: var(--rl-accent); color: var(--rl-accent-contrast); font: inherit; font-size: 12px; font-weight: var(--fw-label); cursor: pointer; }
+.mp-use:disabled { opacity: .45; cursor: default; }
 
 /* ── Space icon picker (SpacePage's General tab): trigger + tabbed popover ── */
 .icon-picker-trigger { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r-ctl);
@@ -399,17 +453,6 @@ kbd { font: 11px var(--font-mono); }
   background: var(--rl-panel); color: var(--rl-text-bright); font: inherit; font-size: 12.5px; }
 .ip-generate .ip-grid { padding: 0; border-top: 1px solid var(--rl-hairline); padding-top: 10px; }
 .ip-error { color: var(--rl-warning); font-size: 11.5px; }
-/* Overflow home (Ara refresh §3): when the prompter's control row cannot fit its chips, effort +
-   permission live here — labelled option groups under the model list, whole (never search-filtered). */
-.mp-overflow { border-top: 1px solid var(--rl-hairline); padding: 8px 11px; display: flex; flex-direction: column; gap: 6px; }
-.mp-overflow-group { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.mp-overflow-label { flex: none; font-size: 11px; color: var(--rl-text-faint); min-width: 68px; }
-.mp-overflow-opts { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
-.mp-overflow-opt { padding: 3px 8px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim);
-  transition: background-color 100ms ease, color 100ms ease; }
-.mp-overflow-opt:hover { background: var(--hover); color: var(--rl-text-bright); }
-.mp-overflow-opt[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
-.mp-foot { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); font-size: 11px; color: var(--rl-text-faint); }
 
 /* ── Pane groups: the conditional strip above the host (GroupBar.tsx) ──
    The app has no topbar by design; this appears only when a space has more than one group or a pane
@@ -742,23 +785,29 @@ button.panel-title:hover { background: var(--rl-hover); }
    starts lower, so the blur RAMPS instead of stepping (one flat band would show its own top edge).
    The masks live on the blurring layers themselves, never on their parent: a masked ancestor becomes
    a backdrop root and its children would blur an empty backdrop. */
-/* Right inset = the 10px scrollbar below: the thumb is chrome, not transcript, and a thumb that
+/* Worn by both scrollers that dock a card at their bottom; --fade-h is the only difference, since a
+   dense file list needs a shorter ramp than prose to stop reading as a smudge. The scroller sets it
+   (see .diff-list-wrap) so the ramp and the bottom padding that clears it cannot drift apart. */
+/* Right inset = the 10px scrollbar below: the thumb is chrome, not content, and a thumb that
    dissolved halfway down would read as a scrollbar that stops short. */
-.transcript-fade { position: absolute; inset: auto 10px 0 0; height: 68px; pointer-events: none; z-index: 1; }
-.transcript-fade::before, .transcript-fade::after { content: ""; position: absolute; inset: 0; }
-.transcript-fade::before { backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+.transcript-fade, .diff-fade { position: absolute; inset: auto 10px 0 0; height: var(--fade-h, 68px); pointer-events: none; z-index: 1; }
+.transcript-fade::before, .transcript-fade::after, .diff-fade::before, .diff-fade::after { content: ""; position: absolute; inset: 0; }
+.transcript-fade::before, .diff-fade::before { backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
   mask-image: linear-gradient(to bottom, transparent 0, #000 60%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 60%); }
 /* The wash ends fully opaque: the band's last pixels are pure panel, so the gap above the card has
    nothing left to cut off. */
-.transcript-fade::after { backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px);
+.transcript-fade::after, .diff-fade::after { backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px);
   background: linear-gradient(to bottom, transparent 0, var(--rl-panel) 88%);
   mask-image: linear-gradient(to bottom, transparent 30%, #000 78%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 30%, #000 78%); }
+/* Hero: the transcript is empty by definition, so the band has nothing to dissolve — two live
+   backdrop-filter layers repainting behind the card for no visible result. */
+.session-pane[data-composer="hero"] .transcript-fade { display: none; }
 /* Asked for less translucency: keep the fade (it is what stops the hard cut), drop the blur. */
 @media (prefers-reduced-transparency: reduce) {
-  .transcript-fade::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .transcript-fade::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .transcript-fade::before, .diff-fade::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .transcript-fade::after, .diff-fade::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
 /* A column, always: a sent message is up to three stacked pieces — the attribution line, the
@@ -809,11 +858,6 @@ button.panel-title:hover { background: var(--rl-hover); }
    dark mode / pure black in light — a tinted neutral would pick up the ground and read as dirt. */
 .md img { max-width: 100%; border-radius: var(--r-chip); outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
 :root[data-mode="light"] .md img { outline-color: rgba(0, 0, 0, 0.1); }
-/* Plan 9 W2 — BUI StreamText's caret: a 2px ink bar, SOLID while streaming (BUI's .is-streaming
-   kills the blink; the caret only exists while the delta stream is live, so it never blinks at
-   all). The old pulsing accent ▍ glyph is gone. The text itself is never re-revealed: deltas pace
-   the stream, so a re-render shows exactly what has arrived — no reveal timer to replay. */
-.md-caret { display: inline-block; width: 2px; height: 1.05em; margin-left: 1.5px; border-radius: 1px; background: var(--ink); vertical-align: text-bottom; }
 .msg-thinking { font-size: 12px; }
 .thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); }
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
@@ -823,6 +867,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Plan 9 W2 — BUI LoadingState's shimmer label replaces the spinner+text pair; under
    prefers-reduced-motion the global animation kill leaves a static, readable gradient. */
 .msg-working { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+/* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
+   than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
+   these down a long session does not jitter as the digits change. */
+.msg-run { font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
@@ -851,6 +899,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-card[data-open] { background: var(--rl-panel); box-shadow: var(--rl-edge); }
 .tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px; border-radius: var(--r-ctl); text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
+/* Open, the row is the card's head rather than a free-standing control: it keeps the card's top
+   corners and squares off against the body's divider. Rounding all four corners left the hover
+   fill curving away from the hairline at both ends — two dark notches sitting on the divider. */
+.tool-card[data-open] .tool-row { border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
 .tool-chevron { color: var(--rl-text-faint); transition: transform 200ms var(--ease-in-out-strong); flex: none; margin-left: auto; }
 .tool-card[data-open] .tool-chevron, .tool-group[data-open] .tool-chevron { transform: rotate(90deg); }
 .tool-name { font-size: 12.5px; font-weight: var(--fw-label); flex: none; }
@@ -1173,7 +1225,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ── The prompter (§4): one floating card, two states, one element moving ─ */
 /* The dock carries geometry + position for BOTH states; greeting/suggestions/thinking hang off it
    absolutely so the hero→docked move is a single transform transition (§6: 320ms, interruptible). */
-.composer-dock { position: relative; flex: none; width: min(var(--prompter-w), 100% - 48px);
+/* z-index: the hero transform below makes the dock a stacking context, which traps .composer's own
+   z-index inside it and drops the whole dock to layer 0 — under .transcript-fade (layer 1), whose
+   blur band then cut across the middle of the hero card. The dock outranks the fade instead: the
+   transcript passes UNDER the prompter, never over it. */
+.composer-dock { position: relative; z-index: 2; flex: none; width: min(var(--prompter-w), 100% - 48px);
   margin: 8px auto max(12px, env(safe-area-inset-bottom));
   transition: transform 320ms var(--ease-in-out-strong); }
 /* Hero (§4): card centered at ~38% pane height. It stays bottom-anchored in flow and is lifted by
@@ -1380,18 +1436,20 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-send svg { grid-area: 1 / 1;
   transition: opacity 160ms var(--ease-out-strong), transform 160ms var(--ease-out-strong), filter 160ms var(--ease-out-strong); }
 .composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon { opacity: 0; transform: scale(.25); filter: blur(4px); }
-/* Under-strip (§4): "Thinking…" shimmer tucked under the card's bottom edge while streaming —
-   frame fill sliding out from beneath the card (z-index 1 on .composer keeps the card on top). */
-.composer-thinking { margin: -10px 10px 0; padding: 14px 14px 5px; background: var(--rl-frame);
-  border-radius: 0 0 var(--r-panel) var(--r-panel); font-size: 11px; color: var(--rl-text-dim); }
-/* Plan 9 W3: the label shimmers (BUI LoadingState), not pulses — same gradient as .shimmer-text. */
-.composer-thinking span { display: inline-block; }
-/* ── Under-strip (Plan 12 W1): machine label + workspace selector, one size quieter than the
-   control row (11px on faint vs 12px on dim). In normal flow inside .composer-dock, so the
-   hero→docked transform carries it and the absolutely-hung suggestions land below it. ── */
-.composer-understrip { display: flex; align-items: center; gap: 2px; margin-top: 6px; padding: 0 10px; min-width: 0; }
+/* ── Under-strip (§4 + Plan 12 W1): machine label + workspace selector, one size quieter than the
+   control row (11px on faint vs 12px on dim), on a frame fill sliding out from beneath the card
+   (z-index 1 on .composer keeps the card on top). Drawn unconditionally — where a session runs is
+   standing context, not a streaming state. In normal flow inside .composer-dock, so the hero→docked
+   transform carries it and the absolutely-hung suggestions land below it. ── */
+.composer-understrip { display: flex; align-items: center; gap: 2px; min-width: 0;
+  margin: -10px 10px 0; padding: 12px 6px 6px; background: var(--rl-frame);
+  border-radius: 0 0 var(--r-panel) var(--r-panel); }
 .composer-understrip .ghost-chip { height: 24px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
+/* "Thinking…" hangs off the strip's far end, so arriving mid-stream costs the chips no motion. */
+.composer-thinking { margin-left: auto; padding: 0 8px; font-size: 11px; color: var(--rl-text-dim); }
+/* Plan 9 W3: the label shimmers (BUI LoadingState), not pulses — same gradient as .shimmer-text. */
+.composer-thinking span { display: inline-block; }
 /* The "+" menu (Plan 12 W1): the in-place Connectors submenu's header rows and health dots. */
 .plus-submenu-label { display: inline-flex; align-items: center; gap: 6px; }
 .plus-submenu-label .plus-submenu-caret { color: var(--rl-text-faint); }
@@ -1456,10 +1514,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .agent-name { font-weight: var(--fw-label); } .agent-hint { margin-left: auto; font-size: 11px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 
 /* ── Scrollbars: thin + on-theme in the few containers that actually scroll ───── */
-.transcript, .space-body, .palette-list, .menu, .tool-well, .sheet, .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
-.transcript::-webkit-scrollbar, .space-body::-webkit-scrollbar, .palette-list::-webkit-scrollbar, .menu::-webkit-scrollbar, .tool-well::-webkit-scrollbar, .sheet::-webkit-scrollbar, .terminal-pane .xterm-viewport::-webkit-scrollbar { width: 10px; }
-.transcript::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .menu::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb, .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
-.transcript::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .menu::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track, .terminal-pane .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.transcript, .diff-list, .commit-message, .space-body, .palette-list, .menu, .tool-well, .sheet, .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
+.transcript::-webkit-scrollbar, .diff-list::-webkit-scrollbar, .commit-message::-webkit-scrollbar, .space-body::-webkit-scrollbar, .palette-list::-webkit-scrollbar, .menu::-webkit-scrollbar, .tool-well::-webkit-scrollbar, .sheet::-webkit-scrollbar, .terminal-pane .xterm-viewport::-webkit-scrollbar { width: 10px; }
+.transcript::-webkit-scrollbar-thumb, .diff-list::-webkit-scrollbar-thumb, .commit-message::-webkit-scrollbar-thumb, .space-body::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb, .menu::-webkit-scrollbar-thumb, .tool-well::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb, .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb { background: var(--rl-line-strong); border-radius: 5px; }
+.transcript::-webkit-scrollbar-track, .diff-list::-webkit-scrollbar-track, .commit-message::-webkit-scrollbar-track, .space-body::-webkit-scrollbar-track, .palette-list::-webkit-scrollbar-track, .menu::-webkit-scrollbar-track, .tool-well::-webkit-scrollbar-track, .sheet::-webkit-scrollbar-track, .terminal-pane .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 
 /* ── Motion (§6): the whole easing/duration table, applied app-wide ───────── */
 /* A leaf's item changing IS content entering, not the "pane focus switching" §6 keeps instant — the
@@ -1537,7 +1595,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rl-hairline); }
 .diff-head-count { font-size: 11.5px; color: var(--rl-text-dim); }
 .diff-head-spacer { flex: 1; }
-.diff-list { flex: 1; overflow: auto; min-height: 0; }
+/* A full band of bottom padding, not a fraction of one: scrolled to the end, the last row has to sit
+   clear of the ramp entirely. Rows are 30px of dense text with no internal padding, so a row that
+   ends inside the blur is a filename you scrolled down to read and then cannot. */
+.diff-list-wrap { position: relative; flex: 1; min-height: 0; display: flex; --fade-h: 44px; }
+.diff-list { flex: 1; overflow: auto; min-height: 0; padding-bottom: var(--fade-h); }
 .diff-empty { padding: 32px 16px; text-align: center; font-size: 12.5px; color: var(--rl-text-faint); }
 .diff-note { padding: 8px 12px; font-size: 11.5px; color: var(--rl-text-faint); }
 .diff-loading { padding: 8px 12px; font-size: 11.5px; color: var(--rl-text-faint); }
@@ -1561,7 +1623,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .diff-row:hover .diff-actions, .diff-row:focus-within .diff-actions { opacity: 1; }
 /* Quiet inline action: a text button, not a control with a box (§3 ghost tier). */
 .btn-quiet { height: 22px; padding: 0 7px; border-radius: var(--r-chip); font-size: 11.5px; color: var(--rl-text-dim); background: transparent; }
-.btn-quiet:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.btn-quiet:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
 .btn-quiet.danger { color: var(--rl-danger); }
 .diff-body { padding: 0 0 6px 26px; }
 .diff-side { padding: 4px 8px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
@@ -1594,20 +1656,30 @@ button.panel-title:hover { background: var(--rl-hover); }
 .diff-review-dim { color: var(--rl-text-faint); }
 .diff-review-body { overflow-y: auto; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 
-/* Commit dock: raised, hairline above, primary action bottom-right (§5 sheets/footer pattern). */
-.diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--rl-raised); border-top: 1px solid var(--rl-hairline); }
-.commit-message { border: none; outline: none; resize: none; background: var(--rl-hover); border-radius: var(--r-ctl); color: var(--rl-text-bright);
-  font: inherit; font-size: 12.5px; line-height: 1.5; padding: 8px 10px; caret-color: var(--rl-accent); }
+/* Commit dock: the prompter's card (§4), one size down. No fill behind it and no rule above it —
+   the list already dissolves into the dock through the fade, and a divider would draw that seam a
+   second time. Unlike .composer-input this textarea has no auto-resize behind it, so it keeps its
+   scrollbar: at a fixed two rows that bar is the only sign the message runs on. */
+.diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 6px 12px 12px; }
+.commit-card { display: flex; flex-direction: column; border-radius: calc(var(--r-float) + 4px); corner-shape: squircle;
+  background: var(--surface); box-shadow: var(--shadow-card); }
+.commit-card:focus-within { box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
+.commit-message { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright);
+  font: inherit; font-size: 14px; line-height: 1.5; padding: 12px 14px 4px; caret-color: var(--rl-accent); }
 .commit-message::placeholder { color: var(--rl-text-faint); }
-.commit-message:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
-.diff-commit-bar { display: flex; align-items: center; gap: 8px; }
-.diff-staged-count { flex: 1; font-size: 11.5px; color: var(--rl-text-faint); }
+.diff-commit-bar { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px 8px; }
+.diff-staged-count { flex: 1; min-width: 0; padding-left: 6px; font-size: 11.5px; color: var(--rl-text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Narrow: the branch and the file count keep the first line, the buttons take their own. The spacer
    becoming a full-width break is what forces the split — left to itself the buttons would wrap one
    at a time and leave a ragged half-row. */
 @container (max-width: 560px) {
   .diff-head { flex-wrap: wrap; row-gap: 6px; }
   .diff-head-spacer { flex-basis: 100%; }
+}
+/* The commit row holds two controls to the head's five, so it wraps later; at the head's own
+   threshold it spent a whole row on white space in every pane between 380 and 560. */
+@container (max-width: 380px) {
   .diff-commit-bar { flex-wrap: wrap; row-gap: 6px; }
   .diff-staged-count { flex-basis: 100%; }
 }
@@ -2292,3 +2364,345 @@ button.panel-title:hover { background: var(--rl-hover); }
 .lecture-action { flex: 0 0 auto; font-size: 11px; color: var(--rl-accent); }
 .plynn-result p { margin: 0 0 8px; font-size: 12.5px; }
 .plynn-paths { margin: 0 0 8px; padding-left: 18px; font-size: 12px; }
+
+/* ── Inline media: playback and the generating canvas ──────────────────────
+   Media is the one thing in the transcript that is genuinely the subject rather than a report about
+   the subject, so it gets the column's full width, a hairline ring and nothing else — no card, no
+   shadow, no label above it. The frame IS the content; chrome around it would only compete.
+   Everything sits on `--rl-frame`, the sunken well the transcript already uses for code, so a
+   picture with transparency reads against the same ground as everything else. */
+.media-strip { list-style: none; margin: 10px 0 2px; padding: 0; display: grid; gap: 10px; }
+/* One file takes the column. Several become a wrapped grid: three mockups side by side is the
+   comparison the reader came for, and stacking them full-width puts two off the bottom. */
+.media-strip[data-count="many"] { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.media-item { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.media-video, .media-image, .media-audio {
+  position: relative; display: block; width: 100%; padding: 0; border: none; overflow: hidden;
+  border-radius: var(--r-row); background: var(--rl-frame); box-shadow: var(--shadow-hairline);
+}
+/* A picture's frame hugs the picture. A video's fills the column — it has a transport to hold and a
+   poster that reads better large — but blowing a small image up to 680px is how an icon becomes a
+   smear, so the image frame is fit-content and the picture keeps its own size. */
+.media-image { width: fit-content; max-width: 100%; cursor: zoom-in; line-height: 0; }
+.media-image:disabled { cursor: default; }
+/* A tall render must not become a column-height wall; the cap is generous enough that a 9:16 phone
+   mockup is still watchable in place and short enough that the prose after it stays reachable. */
+.media-el { display: block; max-width: 100%; max-height: 420px; object-fit: contain; background: var(--rl-frame); }
+.media-video .media-el { width: 100%; cursor: pointer; }
+
+/* The pre-roll button. It is on the frame rather than beside it because the frame is what the eye is
+   already on, and it leaves once the video is running — a permanent overlay would sit on top of the
+   one thing the reader came to look at. */
+.media-play {
+  position: absolute; inset: 0; margin: auto; width: 52px; height: 52px; display: grid; place-items: center;
+  border: none; border-radius: var(--r-pill); color: #fff; background: rgb(0 0 0 / .55);
+  backdrop-filter: blur(8px); cursor: pointer;
+  transition: transform 160ms var(--ease-out-strong), background-color 160ms var(--ease-out-strong);
+}
+.media-play:hover { transform: scale(1.06); background: rgb(0 0 0 / .7); }
+
+/* The transport rides ON the video, revealed by hover or focus — while the video is paused it is
+   always up, because a paused frame with no visible controls looks like a picture. */
+.media-controls {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 7px;
+  padding: 8px 10px; color: #fff;
+  background: linear-gradient(to top, rgb(0 0 0 / .72), rgb(0 0 0 / 0));
+  opacity: 0; transition: opacity 160ms var(--ease-out-strong);
+}
+.media-video:not([data-playing]) .media-controls,
+.media-video:hover .media-controls,
+.media-video:focus-within .media-controls { opacity: 1; }
+.media-btn {
+  display: grid; place-items: center; width: 22px; height: 22px; flex: none;
+  border: none; border-radius: var(--r-chip); background: none; color: inherit; cursor: pointer;
+  transition: background-color 100ms ease;
+}
+.media-btn:hover { background: rgb(255 255 255 / .18); }
+.media-time { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; flex: none; opacity: .85; }
+.media-duration { opacity: .65; }
+
+/* The scrubber is a real range input, so arrow keys seek for free. The filled half is painted from
+   --media-progress rather than by a second element: one box means the knob can never drift out of
+   register with the fill. */
+.media-scrub {
+  appearance: none; flex: 1 1 auto; min-width: 0; height: 3px; border-radius: var(--r-pill); cursor: pointer;
+  background: linear-gradient(to right, #fff var(--media-progress, 0%), rgb(255 255 255 / .3) var(--media-progress, 0%));
+}
+.media-scrub::-webkit-slider-thumb {
+  appearance: none; width: 11px; height: 11px; border-radius: var(--r-pill); background: #fff; border: none;
+  transition: transform 120ms var(--ease-out-strong);
+}
+.media-scrub:hover::-webkit-slider-thumb { transform: scale(1.2); }
+.media-scrub:disabled { cursor: default; }
+
+.media-audio { display: flex; align-items: center; gap: 10px; padding: 9px 11px; }
+.media-audio-name { font-size: 12px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-audio .media-el { width: auto; flex: 1 1 auto; min-width: 0; }
+
+/* The footer names the file and offers the two things a reader wants from one they can see but not
+   touch. Muted and small: the picture above it has already answered the question. */
+.media-meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; color: var(--rl-text-dim); }
+.media-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; }
+.media-detail { flex: none; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.media-action {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto;
+  padding: 2px 5px; border: none; border-radius: var(--r-chip); background: none;
+  color: var(--rl-text-faint); font: inherit; font-size: 11px; cursor: pointer;
+  transition: background-color 100ms ease, color 100ms ease;
+}
+.media-action + .media-action { margin-left: 0; }
+.media-action:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+
+/* Full-window viewer. A portal to <body>, so the transcript's own stacking context and its
+   backdrop-filter fade cannot clip it. */
+.media-lightbox {
+  position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 12px;
+  align-items: center; justify-content: center; padding: 32px;
+  /* Opaque, and deliberately NOT backdrop-filter. A <video> is composited on its own layer, and
+     Chromium paints that layer over a backdrop-filtered overlay even though the overlay is above it
+     in the stacking order and wins hit-testing — so a transcript video showed straight through the
+     dim. Verified by sampling the composited screenshot, not by eye (scripts/media-live.mjs). */
+  background: oklch(0.13 0 0 / 0.97);
+  animation: rl-fade-in 160ms var(--ease-out-strong);
+}
+.media-stage { max-width: min(1200px, 100%); max-height: calc(100vh - 120px); display: flex; }
+.media-stage .media-video, .media-stage .media-image { box-shadow: var(--rl-shadow); background: transparent; }
+/* The in-transcript height cap does not apply here — the whole point of the lightbox is the file at
+   the size the window can give it. */
+.media-stage .media-el { max-height: calc(100vh - 120px); max-width: min(1200px, 100%); width: auto; background: transparent; }
+/* A video in the stage still fills what it is given — the cap above is what bounds it. */
+.media-stage .media-video { width: min(1200px, 100%); }
+/* The transcript's own frames are hidden while the lightbox is up, and this is load-bearing rather
+   than tidiness: a <video> is composited on its own layer and Chromium paints that layer OVER the
+   overlay, even opaque, even promoted — translateZ, isolation, will-change and contain were each
+   measured and none of them reorder it. Sampling the composited screenshot showed the video adding
+   ~44 levels of brightness straight through the dim (scripts/media-live.mjs). Hiding the frames is
+   the only thing that actually works, and it costs nothing: they are behind a full-window overlay. */
+body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
+.media-lightbox-bar { display: flex; align-items: center; gap: 10px; max-width: 100%; color: #fff; }
+.media-lightbox-bar .media-name, .media-lightbox-bar .media-detail { color: rgb(255 255 255 / .72); }
+.media-lightbox-bar .media-action { color: rgb(255 255 255 / .72); }
+.media-lightbox-bar .media-action:hover { background: rgb(255 255 255 / .14); color: #fff; }
+
+/* An embedded ![](…) sits in the prose that referred to it, so it keeps a paragraph's rhythm rather
+   than the strip's. The placeholder span is display:block for the same reason — it holds a frame. */
+.md-media-ref { display: block; margin: 10px 0; }
+.tool-media { margin-top: 6px; }
+
+/* ── The generating canvas (aicss.dev/components/image-generation) ─────────
+   A placeholder the SHAPE of the thing being made, not a spinner. The difference is the whole
+   point: a spinner says something is happening, a canvas of the right proportions says the picture
+   is being drawn and it will land here. Two decorative layers over a sunken well — a slow sweeping
+   glow and a fine dot grid — plus the kind's glyph, so a canvas is legible as image-or-video before
+   the caption is read. */
+.gen-wrap { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
+/* No max-width/max-height pair here: `aspect-ratio` clamps each side independently against them and
+   stops preserving the ratio, which turned a 9:16 canvas square. The width is computed from the
+   ratio in `genWidthPx`; `max-width` alone lets a narrow column shrink it with the shape intact. */
+.gen-canvas {
+  position: relative; max-width: 100%; overflow: hidden;
+  display: grid; place-items: center;
+  border-radius: var(--r-row); background: var(--rl-frame); box-shadow: var(--shadow-hairline);
+}
+.gen-glow {
+  position: absolute; inset: -40%;
+  background: conic-gradient(from 0deg, transparent 0deg, var(--rl-accent) 60deg, transparent 140deg);
+  opacity: .16; animation: gen-sweep 3.6s linear infinite;
+}
+.gen-dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle at center, var(--ink-3) 0.5px, transparent 0.5px);
+  background-size: 9px 9px; opacity: .28; animation: gen-drift 5s linear infinite;
+}
+.gen-glyph { position: relative; color: var(--rl-text-faint); }
+@keyframes gen-sweep { to { transform: rotate(1turn); } }
+@keyframes gen-drift { to { background-position: 9px 9px; } }
+.gen-meta { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 11.5px; }
+.gen-label { flex: none; }
+.gen-detail { color: var(--rl-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The global kill above stops the sweep and the drift. A frozen conic gradient reads as a
+     rendering artefact rather than as work in progress, so the glow goes entirely and the dot grid
+     stays as a static, legible "nothing here yet". */
+  .gen-glow { display: none; }
+}
+/* A media attachment's tile is a button; a non-media one is not. The button adds no box of its own —
+   the tile already has the ring and the rounding, and a second frame around it would read as a
+   different kind of thing. */
+.msg-user-file-open { display: block; padding: 0; border: none; background: none; cursor: zoom-in; }
+
+/* ——— Settings → Usage ————————————————————————————————————————————————————————
+   Spend, tokens and activity. The palette itself lives in tokens.css (`--series-1..8`, validated as
+   a set against Realm's own chart surface in both modes); everything here is chrome, and chrome's
+   whole job on a chart is to recede. Hairline grid, no fills behind plots, no dashes. */
+.usage-panel { gap: 16px; }
+/* Refetch keeps the frame: the previous render holds at reduced opacity rather than collapsing to a
+   skeleton, so nothing jumps and the reader never loses their place mid-comparison. */
+.usage-panel[data-loading] > * { opacity: .55; transition: opacity var(--dur-fast) ease; }
+
+.usage-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.usage-refresh { margin-left: auto; }
+.usage-scope select {
+  height: 26px; padding: 0 8px; font: inherit; font-size: 12px; color: var(--rl-text-bright);
+  background: var(--rl-raised); border: 1px solid var(--rl-line); border-radius: var(--r-ctl);
+}
+
+/* A segmented control: one row of radios wearing a shared track. */
+.seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: 1px solid var(--rl-line);
+  border-radius: var(--r-ctl); background: var(--rl-frame); }
+.seg-opt {
+  padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
+  border-radius: var(--r-chip); cursor: pointer; white-space: nowrap;
+  transition: background-color 100ms ease, color 100ms ease;
+}
+.seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.seg-opt:hover { color: var(--rl-text-bright); }
+.seg-opt[data-selected] { background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--shadow-btn); }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
+
+/* ——— stat tiles ——— */
+.usage-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.stat-tile {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px;
+  border: 1px solid var(--rl-line); border-radius: var(--r-panel); background: var(--rl-raised);
+}
+.stat-label { font-size: 11.5px; color: var(--rl-text-dim); }
+/* Proportional figures, deliberately: `tabular-nums` gives every digit a zero's width, which makes
+   a value like 121 look loose at display size. Tabular is for the tables below. */
+.stat-value { font-size: 22px; font-weight: var(--fw-title); letter-spacing: -0.02em; color: var(--rl-text-bright); }
+.stat-value-hero { font-size: 34px; line-height: 1.1; }
+.stat-hero { grid-column: span 2; }
+.stat-delta { font-size: 11.5px; color: var(--rl-text-faint); }
+.sparkline { width: 100%; height: 24px; margin-top: 6px; opacity: .8; }
+
+/* ——— cards ——— */
+.usage-card {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px;
+  border: 1px solid var(--rl-line); border-radius: var(--r-panel); background: var(--rl-raised);
+}
+.usage-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.usage-card-head h3 { margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.usage-card-head .usage-card-sub { font-size: 11.5px; color: var(--rl-text-faint); }
+.usage-card-head .seg { margin-left: auto; }
+
+/* ——— the plot ——— */
+.chart-wrap { position: relative; }
+.chart { display: block; width: 100%; height: 240px; overflow: visible; }
+/* Solid hairlines, one step off the surface. Never dashed — a dashed grid reads as a projection or
+   a threshold when it is only a grid. */
+.chart-grid-line { stroke: var(--chart-grid); stroke-width: 1; }
+.chart-axis-line { stroke: var(--chart-axis); stroke-width: 1; }
+.chart-tick { fill: var(--rl-text-faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+/* The bar carries the series colour and nothing else: no stroke. Separation between touching
+   segments is the 2px surface gap `stackSegments` subtracts, not a border — a border adds ink that
+   is not data. */
+.chart-bar { transition: opacity 100ms ease; }
+.chart-crosshair { fill: var(--rl-hover); }
+[data-active] .chart-bar { opacity: 1; }
+.chart-empty { margin: 0; padding: 28px 0; text-align: center; font-size: 12px; color: var(--rl-text-faint); }
+/* One focusable proxy for the whole plot: keyboard readers walk the same columns the pointer snaps
+   to. Zero-size but focusable, so it never takes layout from the chart it stands in for. */
+.chart-kbd { position: absolute; inset: 0; outline: none; }
+.chart-kbd:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; border-radius: var(--r-ctl); }
+
+.chart-tip {
+  position: absolute; z-index: 2; pointer-events: none; min-width: 132px; max-width: 240px;
+  padding: 8px 10px; border-radius: var(--r-ctl);
+  background: var(--tooltip-bg); color: var(--tooltip-fg); border: 1px solid var(--tooltip-border);
+  box-shadow: var(--rl-shadow); font-size: 11.5px;
+}
+.chart-tip-title { margin-bottom: 4px; color: var(--tooltip-muted); }
+.chart-tip-row, .chart-tip-total { display: flex; align-items: center; gap: 6px; line-height: 17px; }
+.chart-tip-total { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--tooltip-border); }
+/* A short stroke, not a filled box: at tooltip density a box is data-weight ink doing a label's job. */
+.chart-tip-key { flex: none; width: 10px; height: 2px; border-radius: 1px; }
+/* Values lead, labels follow — the legend's hierarchy inverted, because here the reader already has
+   the series and wants the number. */
+.chart-tip-val { font-variant-numeric: tabular-nums; color: var(--tooltip-fg); }
+.chart-tip-label { color: var(--tooltip-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-tip-total .chart-tip-val { font-weight: var(--fw-title); }
+
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none;
+  font-size: 11.5px; color: var(--rl-text-dim); }
+.chart-legend li { display: flex; align-items: center; gap: 6px; }
+/* The legend mirrors the mark it stands for: a rect for bars and areas. */
+.chart-legend-swatch { width: 9px; height: 9px; border-radius: 2px; }
+
+/* ——— breakdown bars ——— */
+.bd-bars { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.bd-bar-row { display: grid; grid-template-columns: minmax(90px, 1.2fr) minmax(80px, 3fr) auto auto;
+  align-items: center; gap: 10px; font-size: 12px; }
+.bd-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.bd-bar-track { height: 10px; border-radius: var(--r-sm); background: var(--rl-hover); overflow: hidden; }
+/* Rounded at the data end only, square at the baseline. */
+.bd-bar-fill { display: block; height: 100%; border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  transition: width var(--dur-base) var(--ease-out-strong); }
+.bd-bar-value { font-variant-numeric: tabular-nums; color: var(--rl-text-bright); }
+.bd-bar-caption { font-size: 11px; color: var(--rl-text-faint); white-space: nowrap; }
+
+/* ——— tables: every chart's twin, and the relief channel the light palette owes ——— */
+.usage-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.usage-table caption { text-align: left; }
+.usage-table th, .usage-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--rl-line); }
+.usage-table thead th { font-weight: var(--fw-medium); font-size: 11px; color: var(--rl-text-faint); }
+.usage-table tbody th { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.usage-table td { color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.usage-table tbody tr:last-child th, .usage-table tbody tr:last-child td { border-bottom: none; }
+.usage-swatch { display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 2px; vertical-align: baseline; }
+.usage-session-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30ch; }
+.usage-session-space, .usage-session-model { display: block; font-size: 11px; color: var(--rl-text-faint); }
+
+/* ——— budget ——— */
+.budget-meter { --budget-hue: var(--rl-accent); }
+.budget-meter[data-state="warn"] { --budget-hue: var(--rl-warning); }
+.budget-meter[data-state="over"] { --budget-hue: var(--rl-danger); }
+.budget-track { position: relative; height: 12px; border-radius: var(--r-pill); overflow: hidden;
+  /* The unfilled track is a lighter step of the SAME ramp, so state reads across the whole bar
+     rather than only where the fill happens to stop. */
+  background: color-mix(in srgb, var(--budget-hue) 16%, transparent); }
+.budget-fill { height: 100%; border-radius: var(--r-pill); background: var(--budget-hue);
+  transition: width var(--dur-base) var(--ease-out-strong); }
+/* A projection is a thin rule, not a second fill: drawing it as area would state it as spend that
+   has already happened. */
+.budget-projection { position: absolute; top: -2px; bottom: -2px; width: 2px; border-radius: 1px;
+  background: var(--rl-text-dim); }
+.budget-line { margin: 0; font-size: 11.5px; color: var(--rl-text-dim); }
+.budget-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.budget-input { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--rl-text-dim); }
+.budget-input input { width: 130px; height: 26px; padding: 0 8px; font: inherit; font-size: 12px;
+  color: var(--rl-text-bright); background: var(--rl-frame); border: 1px solid var(--rl-line);
+  border-radius: var(--r-ctl); font-variant-numeric: tabular-nums; }
+.budget-thresholds { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: none; }
+.budget-thresholds legend { float: left; margin-right: 8px; padding: 0; font-size: 11.5px; color: var(--rl-text-dim); }
+.budget-threshold { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11.5px;
+  color: var(--rl-text-dim); border: 1px solid var(--rl-line); border-radius: var(--r-pill); cursor: pointer;
+  transition: background-color 100ms ease, color 100ms ease; }
+.budget-threshold input { position: absolute; opacity: 0; pointer-events: none; }
+.budget-threshold[data-selected] { background: var(--rl-hover); color: var(--rl-text-bright); }
+.budget-threshold:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
+.budget-note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); max-width: 78ch; }
+
+/* ——— activity ——— */
+.usage-activity { display: flex; flex-wrap: wrap; gap: 12px; }
+.usage-activity-stats { flex: 1 1 320px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.usage-activity-lists { flex: 1 1 300px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.usage-toplist h4 { margin: 0 0 6px; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.usage-toplist ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.usage-toplist li { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.usage-toplist-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--rl-text-dim); }
+.usage-toplist-note { flex: none; font-size: 11px; color: var(--rl-danger); }
+.usage-toplist-value { flex: none; font-variant-numeric: tabular-nums; color: var(--rl-text-bright); }
+
+/* ——— caveats: why a number is missing, named rather than left as a puzzle ——— */
+.usage-caveats { display: flex; flex-direction: column; gap: 6px; }
+.usage-caveats p { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--rl-text-faint); max-width: 88ch; }
+.usage-caveats strong { font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.usage-caveats svg { vertical-align: -2px; }
+
+@container (max-width: 640px) {
+  .stat-hero { grid-column: span 1; }
+  .bd-bar-row { grid-template-columns: minmax(70px, 1fr) minmax(60px, 2fr) auto; }
+  .bd-bar-caption { display: none; }
+}

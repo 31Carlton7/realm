@@ -2,7 +2,23 @@
 import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import type { SearchResults } from "@realm/contracts";
+import type { ModelInfo, SearchResults, UsageBudget, UsageSummary, UsageTotals } from "@realm/contracts";
+
+/** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
+export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
+  ({ costUsd: 0, reportedUsd: 0, estimatedUsd: 0, inputTokens: 0, outputTokens: 0, turns: 0, sessions: 0, unmeasuredSessions: 0, ...extra });
+
+/** A summary with nothing in it — the "no agent has run yet" answer, which is what a fresh home
+ *  really returns and therefore what the panel's empty state must be tested against. */
+export const emptyUsageSummary = (extra: Partial<UsageSummary> = {}): UsageSummary => ({
+  from: 0, to: 0, bucket: "day", buckets: [], totals: usageTotals(), series: [],
+  breakdowns: { agent: [], model: [], space: [], environment: [] },
+  sessions: [],
+  activity: { toolCalls: 0, userMessages: 0, errors: 0, mcpCalls: 0, mcpFailures: 0, mcpMedianMs: 0, topTools: [], topMcpServers: [] },
+  budget: { budget: { monthlyUsd: null, thresholds: [0.5, 0.8, 1], includeEstimated: true }, monthSpendUsd: 0, monthStart: 0, projectedUsd: null },
+  unmeasuredKinds: [], unpricedModels: [],
+  ...extra,
+});
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
   ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
@@ -106,6 +122,7 @@ export type FakeData = {
   settings?: Record<string, unknown>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
   importScan?: ImportScan; importResult?: ImportResult;
+  usageSummary?: UsageSummary;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -153,6 +170,7 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
+  modelCatalog?: ModelInfo[];
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
   tccRows?: TccRow[];
@@ -278,11 +296,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    // The model catalog the picker's detail pane reads. Empty by default because that is the state
+    // every test but a catalog test wants: prices are additive, and a fixture that invented them
+    // would put numbers into snapshots that have nothing to do with what is being tested.
+    modelCatalog: overrides.modelCatalog ?? [],
     credentials: overrides.credentials ?? [],
     credentialStatus: overrides.credentialStatus ?? { available: true, canPromptTouchID: true, presenceTtlMs: 0 },
     lectures: overrides.lectures ?? {},
     plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
     guideProgress: overrides.guideProgress ?? {},
+    usageSummary: overrides.usageSummary ?? emptyUsageSummary(),
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
@@ -549,7 +572,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     deleteItem: async (id) => { calls.push(`deleteItem:${id}`); for (const k of Object.keys(data.items)) data.items[k] = data.items[k]!.filter((i) => i.id !== id); },
     getSetting: async (key) => { calls.push(`getSetting:${key}`); return data.settings[key] ?? null; },
     setSetting: async (key, value) => { calls.push(`setSetting:${key}=${String(value)}`); data.settings[key] = value; },
-    machineName: async () => { calls.push("machineName"); return "Carlton's M4 MacBook Pro"; },
+    systemInfo: async () => { calls.push("systemInfo"); return { machineName: "Carlton's M4 MacBook Pro", userName: "Carlton" }; },
     pickFolder: async () => "/tmp/picked-repo",
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
@@ -802,6 +825,23 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");
       return data.agentProbe;
+    },
+    modelCatalog: async (force) => {
+      calls.push(`modelCatalog:${force}`);
+      await wait("modelCatalog");
+      return data.modelCatalog;
+    },
+    usageSummary: async (p) => {
+      calls.push(`usageSummary:${p.bucket}:${p.spaceId ?? "*"}`);
+      await wait("usageSummary");
+      return data.usageSummary;
+    },
+    setUsageBudget: async (budget) => {
+      calls.push(`setUsageBudget:${budget.monthlyUsd ?? "off"}`);
+      // Mirrors the server: the STORED budget comes back, and the fake's summary keeps it so a panel
+      // that re-reads after saving sees what it saved rather than the old row.
+      data.usageSummary = { ...data.usageSummary, budget: { ...data.usageSummary.budget, budget } };
+      return budget;
     },
     importScan: async () => { calls.push("importScan"); await wait("importScan"); return data.importScan; },
     importApply: async (selection) => {

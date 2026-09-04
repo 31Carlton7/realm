@@ -13,6 +13,7 @@ import { ReviewResultSchema } from "./review";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
+import { UsageBucketSchema, UsageBudgetSchema, UsageSummarySchema } from "./usage";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
@@ -709,7 +710,7 @@ export const Methods = {
   /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
    *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12
    *  W1): Realm runs agents on this machine and no other, so there is nothing to select. */
-  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string(), machineName: z.string() }) },
+  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string(), machineName: z.string(), userName: z.string() }) },
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
 
@@ -843,6 +844,39 @@ export const Methods = {
   "review.dismiss": { params: z.object({ environmentId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
+  /**
+   * Everything the Settings -> Usage tab draws, for one time range, in ONE call.
+   *
+   * One method rather than a family of them because the page's own rule is that the filter row scopes
+   * every chart below it: a stat tile fetched separately from the chart under it can disagree with it
+   * for a frame, and a reader who spots that stops trusting both. The server reads the range once and
+   * every number on the page is a different grouping of that one read.
+   *
+   * `from`/`to` are absolute epoch ms - the client owns the presets, because "last 7 days" is a fact
+   * about the reader's clock and the server has no business guessing their zone. `spaceId` and
+   * `profileId` narrow the scope; both null is every space this machine has.
+   */
+  "usage.summary": {
+    params: z.object({
+      from: z.number().int(), to: z.number().int(),
+      bucket: UsageBucketSchema.default("day"),
+      spaceId: IdSchema.nullable().default(null),
+      profileId: IdSchema.nullable().default(null),
+    }),
+    result: UsageSummarySchema,
+  },
+  /** Write the monthly ceiling and its alert thresholds. Answers the STORED budget (thresholds
+   *  normalized), so the client renders what was actually saved rather than what it sent. */
+  "usage.setBudget": { params: UsageBudgetSchema, result: UsageBudgetSchema },
+  /** Prices, context windows and reasoning efforts for the model picker, from a public catalog
+   *  (`ModelCatalogService`). Never fails: an unreachable catalog answers with whatever was cached,
+   *  or with `[]`, and the picker simply shows rows without prices. `force` refetches past the TTL —
+   *  the same "check again" gesture `agents.probe` has. */
+  "models.catalog": { params: z.object({ force: z.boolean().default(false) }), result: z.object({ rows: z.array(z.object({
+    key: z.string(), label: z.string(), vendor: z.string(),
+    priceIn: z.number().nullable(), priceOut: z.number().nullable(), context: z.number().nullable(),
+    efforts: z.array(z.string()), blurb: z.string().nullable(),
+  })) }) },
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable(), models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional() })) },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */

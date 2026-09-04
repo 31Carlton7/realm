@@ -1,13 +1,13 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, PLAN_PERMISSION_MODE,
-  lectureWrapUpPrompt, localDateStamp,
+  lectureWrapUpPrompt, localDateStamp, sessionEvent,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, formatAttachmentSize, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon,
+  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type BrowserCredential, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState,
+  type AgentKind, type Attachment, type BrowserCredential, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -124,8 +124,9 @@ export type Api = {
   deleteItem(id: string): Promise<void>;
   getSetting(key: string): Promise<unknown>;
   setSetting(key: string, value: unknown): Promise<void>;
-  /** `system.info.machineName` — the under-strip's display-only machine label (Plan 12 W1). */
-  machineName(): Promise<string>;
+  /** `system.info` — the under-strip's display-only machine label (Plan 12 W1) and the person's
+   *  first name for the hero greeting. One call: boot wants both labels at the same moment. */
+  systemInfo(): Promise<{ machineName: string; userName: string }>;
   /** Native folder picker; resolves null when cancelled. */
   pickFolder(): Promise<string | null>;
   /** Native multi-select file picker; resolves [] when cancelled. */
@@ -205,6 +206,15 @@ export type Api = {
   prefillTerminal(terminalId: string, command: string): Promise<void>;
   /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
   probeAgents(force: boolean): Promise<AgentProbe[]>;
+  /** `models.catalog` — prices, context windows and reasoning efforts for the picker. Never rejects
+   *  on a dead network: the server answers with its cache, or with nothing. */
+  modelCatalog(force: boolean): Promise<ModelInfo[]>;
+  /** `usage.summary` — the whole Usage tab for one range in one call, so no two numbers on the page
+   *  can disagree about which slice they describe. */
+  usageSummary(p: { from: number; to: number; bucket: UsageBucketKind; spaceId: string | null; profileId: string | null }): Promise<UsageSummary>;
+  /** `usage.setBudget`. Answers the STORED budget (thresholds normalized), which is what the panel
+   *  then renders — so a threshold the server dropped never lingers on screen as if it had stuck. */
+  setUsageBudget(budget: UsageBudget): Promise<UsageBudget>;
   /** `import.scan` — everything the agent CLIs have on disk, matched to spaces. A pure read: it
    *  creates nothing, so it is safe to call on mount and on every "Re-scan" click. */
   importScan(): Promise<ImportScan>;
@@ -557,6 +567,11 @@ export type AppState = {
    *  before it loads: unlike the settings page, an unstarred picker is a perfectly honest picker,
    *  so there is nothing to hold back while the read is in flight. */
   modelFavorites: string[];
+  /** The model catalog, keyed by canonical model key — what the picker's detail pane reads for a
+   *  model's price, context window and reasoning efforts. Empty before the first load AND on a dead
+   *  network, which are the same thing as far as the picker is concerned: rows render without
+   *  prices rather than waiting for them. */
+  modelInfo: Record<string, ModelInfo>;
   /** The Permissions tab's TCC rows, exactly as main's prompt-free probe reported them; null until
    *  the tab first probes. Never synthesised client-side — a row with no probe basis says so. */
   tccRows: TccRow[] | null;
@@ -667,6 +682,10 @@ export type AppState = {
    *  agents on this Mac and no other, so there is no selector to back. "" until boot's fetch answers
    *  (the strip renders nothing rather than a wrong name). */
   machineName: string;
+  /** `system.info.userName` — the account's first name, for the hero prompter's greeting. "" when the
+   *  host reports no real name (or before boot's fetch answers), which the greeting reads as "greet
+   *  the space, not the person" rather than as a blank to print. */
+  userName: string;
   /** The prompter's Connectors submenu source (Plan 12 W1), by space id: the same `mcp.list` projection
    *  the settings sheet reads, cached HERE so the menu shows LAST KNOWN state — `mcp.list` reads rows
    *  and the hub's held status, it dials nothing, so refreshing on menu open never probes a server.
@@ -852,8 +871,17 @@ export type AppState = {
   /** Jump to a waiting_permission session anywhere: switch space if needed, open its item, focus it. */
   jumpToPermission(): Promise<void>;
   /** Load (or catch up) a session's transcript: fetch events after the last known seq and reduce them. */
+  /** Bring a session's pane to the front, switching space first when it lives in another one.
+   *  Shared by the notifications feed and the Usage tab's leaderboard so "go to session" means the
+   *  same thing from both — including the space switch, which is the half that is easy to forget. */
+  revealSession(sessionId: string, spaceId: string | null): Promise<void>;
   openSession(id: string): Promise<void>;
+  /** Persisted events apply at once; ephemeral `assistant_delta`s are buffered and land on the next
+   *  painted frame — see `pendingDeltas` for why that is where the app's power goes. */
   applySessionEvent(ev: LiveSessionEvent): void;
+  /** Write every buffered delta into its transcript now. Scheduled per frame by `applySessionEvent`;
+   *  called directly only where a caller must see the stream's current text without waiting. */
+  flushSessionDeltas(): void;
   applySessionStatus(sessionId: string, status: SessionStatus): void;
   /** Create a session in the active space, open its item, and open its transcript. When `edge` is
    *  supplied with a target leaf, use the same split placement as an existing-item drag. */
@@ -908,6 +936,11 @@ export type AppState = {
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
+  /** The Usage tab's read. Returns rather than stores, for the same reason `importScan` does: it is
+   *  a range's worth of rows that only one panel ever looks at, and parking it globally would keep
+   *  it alive for every pane that never opens Settings. */
+  usageSummary(p: { from: number; to: number; bucket: UsageBucketKind; spaceId: string | null; profileId: string | null }): Promise<UsageSummary>;
+  setUsageBudget(budget: UsageBudget): Promise<UsageBudget>;
   /** Scan the agent CLIs' stores. Returns the answer rather than storing it: a scan is hundreds of
    *  candidates the Import panel holds while the user edits targets, and parking that in the global
    *  store would keep it alive for every pane that never opens the panel. */
@@ -1066,6 +1099,9 @@ export type AppState = {
   /** Read `MODEL_FAVORITES_KEY` into `modelFavorites`. Junk in the row — a non-array, a non-string
    *  element — is dropped here rather than surviving into the picker's ordering. */
   refreshModelFavorites(): Promise<void>;
+  /** Read the model catalog into `modelInfo`. Cheap and idempotent: the server holds a day-long
+   *  cache, so every session pane calling this on mount costs one round trip. */
+  refreshModelCatalog(): Promise<void>;
   /** Star or un-star ONE model by canonical key, persisting the whole list. Recomputed from the held
    *  list so a double-click can't write a duplicate, and so only THIS key ever moves. */
   toggleModelFavorite(key: string): Promise<void>;
@@ -1363,6 +1399,13 @@ function dropPatches(patches: Record<string, FileDiff>, cwd: string, paths: stri
   return Object.fromEntries(Object.entries(patches).filter(([k]) => !doomed.has(k)));
 }
 
+/** Run `fn` on the next frame the window actually paints. rAF and not a timer, and the distinction is
+ *  the whole point: a timer keeps firing into a window nobody can see, while Chromium simply stops
+ *  servicing frame callbacks for one that is minimised, on another Space or fully covered. Falls back
+ *  to a timer only where there is no frame clock at all (tests under jsdom). */
+const scheduleFrame = (fn: () => void): number =>
+  typeof requestAnimationFrame === "function" ? requestAnimationFrame(fn) : (setTimeout(fn, 16) as unknown as number);
+
 export function createAppStore(api: Api): StoreApi<AppState> {
   return createStore<AppState>((set, get) => {
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1450,6 +1493,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** In-flight `agents.probe` calls, kept apart by force: a forced probe must never be satisfied by a
      *  cheap one already in flight (that one may predate the install the user just ran). */
     const probing: { plain: Promise<void> | null; forced: Promise<void> | null } = { plain: null, forced: null };
+    // The catalog's in-flight read, collapsed the same way the probe's is — one round trip per tick
+    // however many panes mounted at once.
+    let catalogPending: Promise<void> | null = null;
     /** Flush a pending debounced persist before the active space changes (persist reads the current space). */
     const flushPersist = async () => {
       if (panelTimer) await persistPanels();
@@ -1476,7 +1522,54 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
     const setTranscript = (id: string, entry: TranscriptEntry) => set({ transcripts: { ...get().transcripts, [id]: entry } });
-    const dropTranscript = (id: string) => { const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
+    const dropTranscript = (id: string) => { pendingDeltas.delete(id); const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
+
+    /**
+     * Ephemeral `assistant_delta` text that has arrived but not yet been written to the store, per
+     * session. Deltas are the only ephemeral event type, so this holds strings rather than events.
+     *
+     * Applying a delta the moment it lands is what a naive stream does, and it is the app's single
+     * largest power cost: each one re-runs the transcript reducer, re-renders the pane, re-parses
+     * the whole accumulated message through marked + highlight.js + DOMPurify, rebuilds that
+     * message's DOM, and makes the transcript's follow-the-bottom effect read `scrollHeight` — a
+     * forced synchronous reflow — before the next delta arrives a few milliseconds later. Streaming
+     * one 2.5KB answer that way costs ~36x what rendering the finished answer once costs, per
+     * session, and three agents streaming at once is most of a core.
+     *
+     * So deltas accumulate here and land in ONE store write per animation frame. The frame is the
+     * honest cadence: it is the fastest rate the reader can be shown anything, and no faster.
+     *
+     * The bigger win is what a frame callback does NOT do. Chromium stops servicing rAF for a window
+     * that is minimised, on another Space, or fully covered, so an agent streaming while the user is
+     * in another app costs nothing here at all — the text piles up as a string and is reduced in a
+     * single pass when the window comes back. Dropping the work is safe because deltas are cosmetic:
+     * `assistant_delta` is not persisted, and the `assistant_text` that follows carries the whole
+     * message and replaces the streaming block outright.
+     *
+     * Held as the runs the reducer would have built anyway — consecutive deltas for one message
+     * concatenated, a new message starting a new run — so a flush replays exactly the block sequence
+     * an unbuffered stream produced, and the buffer costs the message's own text rather than one
+     * object per token.
+     */
+    const pendingDeltas = new Map<string, { messageId: string; delta: string; ts: number }[]>();
+    let deltaFrame = 0;
+    const queueDelta = (sessionId: string, messageId: string, delta: string, ts: number) => {
+      let runs = pendingDeltas.get(sessionId);
+      if (!runs) pendingDeltas.set(sessionId, (runs = []));
+      const open = runs.at(-1);
+      if (open && open.messageId === messageId) open.delta += delta;
+      else runs.push({ messageId, delta, ts });
+      if (!deltaFrame) deltaFrame = scheduleFrame(() => { deltaFrame = 0; get().flushSessionDeltas(); });
+    };
+    /** Drain one session's pending deltas into a transcript, without touching the store. The caller
+     *  owns the write, so a persisted event can fold its own deltas into the same `set`. */
+    const drainInto = (sessionId: string, t: Transcript): Transcript => {
+      const runs = pendingDeltas.get(sessionId);
+      if (!runs) return t;
+      pendingDeltas.delete(sessionId);
+      for (const r of runs) t = reduceTranscript(t, sessionEvent("assistant_delta", { messageId: r.messageId, delta: r.delta }, r.ts));
+      return t;
+    };
     /**
      * Append to a session's chip row, refusing anything over the cap and skipping anything already there.
      *
@@ -1619,12 +1712,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
-      machineName: "", connectors: {}, browserAllowlists: {},
+      machineName: "", userName: "", connectors: {}, browserAllowlists: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
@@ -1636,17 +1729,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, machineName] = await Promise.all([
+        const [profiles, spaces, saved, theme, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_TERMINAL_PANEL),
-          // A label, not a dependency: a failure here must not take boot down with it — the strip
-          // simply shows no machine name.
-          api.machineName().catch(() => ""),
+          // Labels, not dependencies: a failure here must not take boot down with it — the strip
+          // simply shows no machine name, and the greeting no name.
+          api.systemInfo().catch(() => ({ machineName: "", userName: "" })),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", swipeInvert: swipeInvert === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true, lastAgentKind: agent.success ? agent.data : null,
-          terminalPanel: parseTerminalPanels(panels), machineName });
+          terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
         // icon can resolve, rather than visibly rendering its folder fallback first.
         await hydrateSpaceIcons(spaces);
@@ -2174,6 +2267,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async openSession(id) {
         if (loading.has(id)) return;
         loading.set(id, []);
+        // Buffered deltas are discarded rather than replayed onto the transcript this rebuilds: the
+        // fetch re-derives it from persisted events, which is the same text those deltas were
+        // spelling out, and deltas arriving DURING the fetch are dropped for exactly that reason.
+        pendingDeltas.delete(id);
         try {
           const prev = get().transcripts[id] ?? { lastSeq: 0, t: emptyTranscript() };
           const fetchAll = async () => {
@@ -2203,9 +2300,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (buf) { if (!ev.ephemeral) buf.push(ev); return; } // deltas are dropped while loading; the final text is persisted anyway
         const cur = get().transcripts[ev.sessionId];
         if (!cur) return; // not opened yet: openSession fetches everything later
-        if (ev.ephemeral) { setTranscript(ev.sessionId, { lastSeq: cur.lastSeq, t: reduceTranscript(cur.t, ev.event) }); return; }
+        // Deltas are buffered and land a frame later; see `pendingDeltas`.
+        if (ev.ephemeral) { if (ev.event.type === "assistant_delta") queueDelta(ev.sessionId, ev.event.payload.messageId, ev.event.payload.delta, ev.event.ts); return; }
         if (ev.seq <= cur.lastSeq) return;
-        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(cur.t, ev.event) });
+        // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
+        // write rather than racing the frame that would have applied them.
+        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event) });
+      },
+      flushSessionDeltas() {
+        if (pendingDeltas.size === 0) return;
+        // One `set` for every streaming session at once: with several agents running, the alternative
+        // is a store notification (and so a render of every subscribed pane) per session per frame.
+        const next = { ...get().transcripts };
+        let wrote = false;
+        for (const sessionId of [...pendingDeltas.keys()]) {
+          const cur = next[sessionId];
+          if (!cur) { pendingDeltas.delete(sessionId); continue; } // closed while its deltas waited
+          next[sessionId] = { lastSeq: cur.lastSeq, t: drainInto(sessionId, cur.t) };
+          wrote = true;
+        }
+        if (wrote) set({ transcripts: next });
       },
       applySessionStatus(sessionId, status) {
         const prev = get().sessionStatus[sessionId];
@@ -2399,6 +2513,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           if (it.kind === "browser") void host.setAllowlist(it.refId, allowlist);
         }
       },
+      usageSummary(p) { return api.usageSummary(p); },
+      setUsageBudget(budget) { return api.setUsageBudget(budget); },
       importScan() { return api.importScan(); },
       async importApply(selection) {
         const result = await api.importApply(selection);
@@ -2814,6 +2930,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const raw = await api.getSetting(MODEL_FAVORITES_KEY);
         set({ modelFavorites: (Array.isArray(raw) ? raw : []).filter((k): k is string => typeof k === "string") });
       },
+      async refreshModelCatalog() {
+        // Same mount-storm shape as probeAgents, for the same reason: a four-pane split asks four
+        // times in one tick. Failures are swallowed — a picker with no prices is the fallback the
+        // whole catalog path is designed around, so there is nothing to report to the user here.
+        if (!catalogPending) {
+          catalogPending = api.modelCatalog(false)
+            .then((rows) => { set({ modelInfo: Object.fromEntries(rows.map((r) => [r.key, r])) }); })
+            .catch(() => {})
+            .finally(() => { catalogPending = null; });
+        }
+        await catalogPending;
+      },
       async toggleModelFavorite(key) {
         const held = get().modelFavorites;
         // Appended rather than inserted: the favourites list is the SHORTCUT order (1…9), so a newly
@@ -2942,14 +3070,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           void get().run(() => get().refreshNotifications());
         }
       },
+      async revealSession(sessionId, spaceId) {
+        // `sessionSpace` is the authority when it has an answer: a session that was MOVED between
+        // spaces leaves the caller's remembered id stale, and switching to the old space would open
+        // nothing and look like a dead button.
+        const target = get().sessionSpace[sessionId] ?? spaceId;
+        if (target && target !== get().activeSpaceId) await get().selectSpace(target);
+        const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
+        if (item) await get().openItem(item.id);
+      },
       async openNotificationTarget(n) {
-        const sid = n.sessionId;
-        if (sid) {
-          const spaceId = get().sessionSpace[sid] ?? n.spaceId;
-          if (spaceId && spaceId !== get().activeSpaceId) await get().selectSpace(spaceId);
-          const item = get().items.find((i) => i.kind === "session" && i.refId === sid);
-          if (item) await get().openItem(item.id);
-        }
+        if (n.sessionId) await get().revealSession(n.sessionId, n.spaceId);
         if (n.readAt === null) await get().markNotificationsRead([n.id]);
       },
       async activateDesktopNotification(id) {

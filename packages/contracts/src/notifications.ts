@@ -25,8 +25,13 @@ import { IdSchema } from "./ids";
  * - `run_done`        — a durable run reached a terminal state. Terminal like `session_done` (born
  *                       acted); `refId` is the RUN, so a retried run reuses its unread row rather
  *                       than double-counting an outcome the user never saw.
+ * - `budget`          — this month's agent spend crossed one of the user's configured thresholds
+ *                       (usage.ts). Terminal (born acted): a ceiling being crossed is news, not a
+ *                       task. `refId` is `<YYYY-MM>:<threshold>`, so each threshold announces itself
+ *                       once per calendar month and the next month starts clean — the dedup key IS
+ *                       the "don't tell me again" rule, rather than a flag stored somewhere else.
  */
-export const NOTIFICATION_CATEGORIES = ["permission", "session_done", "mcp_health", "agent_probe", "worktree_hazard", "review_done", "run_blocked", "run_done"] as const;
+export const NOTIFICATION_CATEGORIES = ["permission", "session_done", "mcp_health", "agent_probe", "worktree_hazard", "review_done", "run_blocked", "run_done", "budget"] as const;
 export const NotificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
 export type NotificationCategory = z.infer<typeof NotificationCategorySchema>;
 
