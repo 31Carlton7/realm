@@ -244,6 +244,8 @@ const SpaceBody = memo(function SpaceBody({ items, groups }: { items: Item[]; gr
  */
 function ArchivedSection({ items }: { items: Item[] }) {
   const [open, setOpen] = useState(false);
+  const everOpened = useRef(false);
+  everOpened.current ||= open;
   return (
     <>
       <div className="group-label group-head archived-head">
@@ -253,7 +255,19 @@ function ArchivedSection({ items }: { items: Item[] }) {
           <span className="archived-count">{items.length}</span>
         </button>
       </div>
-      {open && <ItemList items={items} variant="archived" />}
+      {/* The shelf unfolds on the tool row's technique — grid-template-rows 0fr→1fr, the only way to
+          animate to a height nobody can know in advance — which needs the rows in the DOM on both
+          sides of the flip. So they are built on first open and stay built: folding it back animates
+          too, and re-opening is instant. Built on first open rather than always, because a shelf
+          nobody has asked for should cost nothing; `inert` keeps a folded row's controls out of the
+          tab order and the accessibility tree. */}
+      {everOpened.current && (
+        <div className="archived-wrap" data-open={open || undefined}>
+          <div className="archived-clip" inert={!open || undefined}>
+            <ItemList items={items} variant="archived" />
+          </div>
+        </div>
+      )}
     </>
   );
 }

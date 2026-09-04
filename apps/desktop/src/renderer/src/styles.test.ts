@@ -178,6 +178,19 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".tool-body").join(" ")).toContain(`transition: opacity ${dur("--dur-press")} ease`);
   });
 
+  it("every disclosure in the app opens the same way — one rule, never a second guess at max-height", () => {
+    // The sidebar's archived shelf rides the tool row's declaration rather than carrying a copy.
+    // max-height is the alternative, and it is the wrong one twice over: the number has to be
+    // guessed, and the easing then runs against a height the content does not have, so a short list
+    // snaps and a long one is clipped.
+    for (const sel of [".archived-wrap", ".tool-body-wrap"])
+      expect(bodiesFor(sel).join(" "), sel).toContain(`transition: grid-template-rows ${dur("--dur-base")} var(--ease-in-out-strong)`);
+    expect(bodiesFor(".archived-wrap[data-open]").join(" ")).toContain("grid-template-rows: 1fr");
+    // 0fr only clips against an overflow container; without it the folded rows spill up the sidebar.
+    expect(bodiesFor(".archived-clip").join(" ")).toContain("overflow: hidden");
+    expect(css, "no disclosure may animate max-height").not.toMatch(/transition:[^;]*max-height/);
+  });
+
   it("the copy ✓ swap uses the same 160ms opacity/scale/blur cross-fade as send↔stop", () => {
     const swap = bodiesFor(".tool-copy .copy-icon").join(" ");
     for (const prop of ["opacity", "transform", "filter"]) expect(swap, prop).toContain(`${prop} ${dur("--dur-swap")}`);

@@ -1081,11 +1081,17 @@ button.panel-title:hover { background: var(--rl-hover); }
 .tool-stat-add { color: var(--green); }
 .tool-stat-del { color: var(--red); }
 
-/* §6 tool-row expand: height animates via grid-template-rows 0fr→1fr over 200ms, content fades at
-   120ms. .tool-body-clip is the overflow container the 0fr row needs to clip against. */
-.tool-body-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
-.tool-card[data-open] > .tool-body-wrap { grid-template-rows: 1fr; }
-.tool-body-clip { overflow: hidden; min-height: 0; }
+/* §6 disclosure expand: height animates via grid-template-rows 0fr→1fr over 200ms — the one rung
+   for a box changing SIZE, and the one technique that works when the content's height is unknowable
+   in advance. `.tool-body-clip` is the overflow container the 0fr row needs to clip against; the
+   tool row's content also fades in at 120ms behind it. The sidebar's archived shelf shares this
+   rule rather than reaching for max-height, which would have to guess a number and would ease
+   against a height the list does not have.
+   The tool card's half addresses DIRECT children: a card now contains its sub-agent's cards, and a
+   descendant selector would have opening the parent unfold every body beneath it. */
+.tool-body-wrap, .archived-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
+.tool-card[data-open] > .tool-body-wrap, .archived-wrap[data-open] { grid-template-rows: 1fr; }
+.tool-body-clip, .archived-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
 /* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
