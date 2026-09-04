@@ -219,6 +219,48 @@ export function filterRows(rows: ModelRow[], query: string): ModelRow[] {
     r.harnesses.some((h) => AGENT_META[h].label.toLowerCase().includes(q)));
 }
 
+/**
+ * Who MADE this model, as the catalog attributes it ("Anthropic"), or null where nothing does.
+ *
+ * The vendor and not the harness, deliberately, because the harness is already two of the things
+ * this list does: `groupRows` blocks the rows by it, and `filterRows` matches its name, so typing
+ * "cursor" already answers "what could I run through Cursor". The detail pane carries a horizontal
+ * strip of harnesses of its own, and those buttons mean "run it through this one" — a second
+ * horizontal strip of the same names meaning "show me only these" would be two controls that look
+ * alike and do different things, inches apart.
+ *
+ * A vendor is the axis nothing here could express. One row reached through the Claude CLI and through
+ * Cursor has two routes and exactly one maker, so "show me Anthropic's" is a question about the model
+ * rather than about the way in — the one question the list could not be asked.
+ *
+ * Null is ordinary rather than a failure: every harness's Default row and Cursor's Composer are in no
+ * catalog at all. They belong to no vendor, so choosing one hides them. There is deliberately no
+ * "Other" bucket — a chip collecting the models Realm happens to have no maker for would sort by an
+ * accident of the catalog and teach nobody anything.
+ */
+export function modelVendor(row: ModelRow, info: Record<string, ModelInfo>): string | null {
+  return info[row.key]?.vendor || null;
+}
+
+/** Every vendor present in `rows`, in first-appearance order — which is `modelRows`' order, so the
+ *  makers behind the session's own harness lead. Empty when the catalog never arrived (offline is a
+ *  supported state), which is what makes the strip absent rather than a single useless chip. */
+export function vendorsOf(rows: ModelRow[], info: Record<string, ModelInfo>): string[] {
+  const seen: string[] = [];
+  for (const r of rows) {
+    const v = modelVendor(r, info);
+    if (v && !seen.includes(v)) seen.push(v);
+  }
+  return seen;
+}
+
+/** Narrow to one vendor. Composes with `filterRows` rather than replacing it — the two answer
+ *  different questions, and someone who has picked Anthropic still wants to type "haiku". */
+export function filterVendor(rows: ModelRow[], vendor: string | null, info: Record<string, ModelInfo>): ModelRow[] {
+  if (vendor === null) return rows;
+  return rows.filter((r) => modelVendor(r, info) === vendor);
+}
+
 /** One labelled block of the picker's list. `label: ""` is a group with no heading — what a search
  *  produces, where a heading per harness would be three words of chrome per result. */
 export type RowGroup = { label: string; rows: ModelRow[] };

@@ -201,8 +201,66 @@ async function main() {
   check("the detail pane says what the harness is for and how it bills",
     !!harness.good && !!harness.billing, harness);
 
+  /* ── 6. The provider strip. Live because it is only real with a real catalog: the chips are the
+        MAKERS the catalog attributes the rows to, so offline there is no axis and no strip — a
+        state jsdom can stage but only this can confirm the app actually reaches. */
+  if (priced) {
+    const strip = await evalIn(c, `(() => {
+      const g = document.querySelector('.mp-vendors');
+      if (!g) return null;
+      const r = (n) => { const b = n.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom) }; };
+      const chips = [...g.querySelectorAll('[role="radio"]')];
+      return {
+        labels: chips.map((b) => b.textContent),
+        lit: chips.find((b) => b.getAttribute('aria-checked') === 'true')?.textContent ?? null,
+        rows: [...new Set(chips.map((b) => Math.round(b.getBoundingClientRect().top)))].length,
+        search: r(document.querySelector('.mp-search')), self: r(g), list: r(document.querySelector('.mp-list')),
+        // One tab stop for the strip, the roving-radio way.
+        tabbable: chips.filter((b) => b.tabIndex === 0).map((b) => b.textContent),
+      };
+    })()`);
+    check("a provider strip sits between the search field and the list",
+      strip && strip.self.top >= strip.search.bottom - 1 && strip.self.bottom <= strip.list.top + 1, strip);
+    check("it leads with the way back, on one line, as a single tab stop",
+      strip && strip.labels[0] === "All" && strip.lit === "All" && strip.rows === 1 && strip.tabbable.length === 1,
+      strip && { labels: strip.labels.slice(0, 6), rows: strip.rows, tabbable: strip.tabbable });
+
+    const narrowing = await evalIn(c, `(async () => {
+      const count = () => document.querySelectorAll('.mp-list [role="option"]').length;
+      const chips = [...document.querySelectorAll('.mp-vendors [role="radio"]')];
+      const all = count();
+      const vendor = chips[1];
+      vendor.click();
+      await new Promise((r) => setTimeout(r, 200));
+      const narrowed = count();
+      const lit = document.querySelector('.mp-vendors [aria-checked="true"]')?.textContent ?? null;
+      chips[0].click();
+      await new Promise((r) => setTimeout(r, 200));
+      return { all, narrowed, lit, vendor: vendor.textContent, restored: count() };
+    })()`);
+    check("choosing a provider narrows the list to it, and All brings the rest back",
+      narrowing.narrowed > 0 && narrowing.narrowed < narrowing.all && narrowing.lit === narrowing.vendor
+        && narrowing.restored === narrowing.all, narrowing);
+
+    // The collision the strip was easiest to get wrong: ←/→ already walk the highlighted model's
+    // ROUTES from the search field, and must go on meaning only that.
+    const arrows = await evalIn(c, `(async () => {
+      const input = document.querySelector('.mp-search input');
+      input.focus();
+      const before = document.querySelector('.mp-vendors [aria-checked="true"]')?.textContent ?? null;
+      for (const key of ["ArrowRight", "ArrowRight"]) {
+        input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      }
+      await new Promise((r) => setTimeout(r, 200));
+      return { before, after: document.querySelector('.mp-vendors [aria-checked="true"]')?.textContent ?? null };
+    })()`);
+    check("←/→ in the search field leave the provider alone", arrows.before === arrows.after, arrows);
+  } else {
+    console.log("SKIP the provider strip — no catalog, so there is no vendor axis to draw (offline is a supported state)");
+  }
+
   // CDP's clip takes x/y/width/height only — the rect helper's edges would be rejected outright.
-  // 6. The fx mark actually PAINTS. Its path is lifted from a full lockup, so it starts 166 units
+  // 7. The fx mark actually PAINTS. Its path is lifted from a full lockup, so it starts 166 units
   //    from the origin: with the set's default `0 0 24 24` viewBox the glyph sits entirely
   //    off-canvas and the row renders a blank 15px hole — which no DOM assertion can see, because
   //    the <svg> and its <path> are both present and correct. Count ink instead.

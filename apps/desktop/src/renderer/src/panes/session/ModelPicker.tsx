@@ -1,9 +1,9 @@
 import { AGENT_META, AGENT_NOTES, DEFAULT_MODEL_LABEL, formatContext, formatPrice, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
-import { filterRows, flatten, groupRows, modelDetail, modelIdOn, type ModelRow } from "./model-rows";
+import { filterRows, filterVendor, flatten, groupRows, modelDetail, modelIdOn, modelVendor, vendorsOf, type ModelRow } from "./model-rows";
 
 /** How many favourites get a ⌘-digit shortcut. Nine because ⌘0 is not a tenth — it is a different
  *  key users read as "zero", and a tenth badge nobody can press is worse than no badge. */
@@ -103,8 +103,43 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
    *  at — a route is a property of the choice being made, not a mode the picker is in. */
   const [routes, setRoutes] = useState<Record<string, AgentKind>>({});
 
-  const groups = useMemo(() => groupRows(filterRows(rows, query), { query }), [rows, query]);
+  /** The provider narrowing, or null for all of them. See `modelVendor` for why a provider here is
+   *  the model's VENDOR and not the harness that runs it. */
+  const [vendor, setVendor] = useState<string | null>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  // The chips come from the UNFILTERED rows, so the strip is a fixed set that neither the query nor
+  // a previous pick can reflow out from under the pointer.
+  const vendors = useMemo(() => vendorsOf(rows, info), [rows, info]);
+  const queried = useMemo(() => filterRows(rows, query), [rows, query]);
+  const groups = useMemo(() => groupRows(filterVendor(queried, vendor, info), { query }), [queried, vendor, info, query]);
   const shown = useMemo(() => flatten(groups), [groups]);
+  // What each chip would leave, counted against the TEXT query alone — a chip has to be able to say
+  // "nothing of mine survives what you typed" without that answer depending on which chip is lit.
+  const vendorCounts = useMemo(() => {
+    const n = new Map<string, number>();
+    for (const r of queried) { const v = modelVendor(r, info); if (v) n.set(v, (n.get(v) ?? 0) + 1); }
+    return n;
+  }, [queried, info]);
+  /** `null` is "All", and it leads the strip — the way back is always the first thing in it. */
+  const chips = useMemo((): (string | null)[] => [null, ...vendors], [vendors]);
+  const chooseVendor = (v: string | null) => { setVendor(v); setActiveKey(null); };
+  // Roving focus, the radio-group way: the strip is ONE tab stop, so the arrows have to carry focus
+  // to whichever chip they just lit or the next press would come from a button nobody is on.
+  useLayoutEffect(() => {
+    const el = strip.current;
+    // Only when the strip already had focus: a mouse pick must not pull it out of the search field.
+    if (!el || !el.contains(document.activeElement)) return;
+    el.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+  }, [vendor]);
+  // Bound on the strip and not on the popover, which is what lets these share a keystroke with the
+  // ←/→ that walks the highlighted model's routes: that handler is the search field's, and these keys
+  // mean "next provider" only while focus is in here.
+  const onVendorKey = (e: KeyboardEvent) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const at = chips.indexOf(vendor);
+    chooseVendor(chips[(at + (e.key === "ArrowRight" ? 1 : chips.length - 1)) % chips.length] ?? null);
+  };
   // Numbered by POSITION IN THE LIST, not by when they were starred: a badge column that reads
   // 1,2,3 down the page is legible, and one that reads 3,1,2 because that was the starring order is
   // not. The cost is that starring a model renumbers the ones below it, which is a rare thing the
@@ -174,6 +209,21 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
           role="combobox" aria-expanded aria-controls="mp-list" aria-activedescendant={activeRow ? `mp-${activeRow.key}` : undefined}
           onChange={(e) => { setQuery(e.target.value); setActiveKey(null); }} onKeyDown={onKeyDown} />
       </div>
+      {/* Under the search rather than beside the list, because it narrows what the search searches:
+          the two compose, and reading them top to bottom is the order the question is asked in. */}
+      {vendors.length > 0 && (
+        <div ref={strip} className="mp-vendors" role="radiogroup" aria-label="Provider" onKeyDown={onVendorKey}>
+          {chips.map((v) => (
+            <button key={v ?? "all"} type="button" role="radio" aria-checked={v === vendor} className="mp-vendor"
+              // Dimmed, never disabled: a provider the query has emptied is still worth being able to
+              // land on, and the list says so in words when you do.
+              data-empty={v !== null && (vendorCounts.get(v) ?? 0) === 0 ? "" : undefined}
+              tabIndex={v === vendor ? 0 : -1} onClick={() => chooseVendor(v)}>
+              {v ?? "All"}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mp-body">
         <div className="mp-list" id="mp-list" role="listbox" aria-label="Models">
           {groups.map((g) => (
@@ -218,7 +268,16 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
               })}
             </div>
           ))}
-          {shown.length === 0 && <div className="mp-empty">No models match “{query.trim()}”.</div>}
+          {shown.length === 0 && (
+            <div className="mp-empty">
+              {/* Both constraints get named. With a provider lit, an empty list is as likely to be the
+                  chip's doing as the query's, and "no models match" over a full catalog reads as a bug. */}
+              {query.trim() && vendor ? `No ${vendor} models match “${query.trim()}”.`
+                : vendor ? `Nothing from ${vendor} can run this session.`
+                : `No models match “${query.trim()}”.`}
+              {vendor && <button type="button" className="mp-empty-all" onClick={() => chooseVendor(null)}>Show every provider</button>}
+            </div>
+          )}
         </div>
         {activeRow && route && (
           <ModelDetail row={activeRow} route={route} info={info}

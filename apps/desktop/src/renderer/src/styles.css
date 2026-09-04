@@ -420,6 +420,27 @@ kbd { font: 11px var(--font-mono); }
 .mp-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
+/* Provider filter (Plan: under the search). One horizontal row of the MAKERS behind the rows — see
+   `modelVendor` for why a provider here is the vendor and not the harness. It sits on the frame tint
+   rather than behind a second hairline: the search field above it already draws the one seam this
+   header needs, and two rules 30px apart would say the same thing twice.
+   Scrolls sideways when there are more vendors than fit, with its bar hidden the way the app's other
+   horizontal strips hide theirs — a scrollbar under a 26px row would be the tallest thing in it. */
+.mp-vendors { display: flex; align-items: center; gap: 4px; padding: 7px 12px; background: var(--rl-frame);
+  overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.mp-vendor { flex: none; padding: 3px 9px; border: 0; border-radius: var(--r-chip); background: transparent;
+  font: inherit; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; }
+.mp-vendor:hover { color: var(--rl-text-bright); background: var(--hover); }
+/* The lit chip wears the same raised-on-surface treatment as a chosen effort level, because it is
+   the same kind of answer: one of a set, currently in force. */
+.mp-vendor[aria-checked="true"] { color: var(--rl-text-bright); background: var(--surface); box-shadow: var(--rl-edge); }
+/* Nothing of this vendor's survives what has been typed. Still lit enough to read and still
+   clickable — the list answers in words, and dropping the chip would move the rest under the pointer. */
+.mp-vendor[data-empty] { opacity: .4; }
+/* The way back out of an empty provider, in the one place the user is looking when they need it. */
+.mp-empty-all { display: block; margin: 9px auto 0; padding: 4px 11px; border: 0; border-radius: var(--r-ctl);
+  background: var(--hover); color: var(--rl-text-bright); font: inherit; font-size: 11.5px; cursor: pointer; }
+.mp-empty-all:hover { background: var(--hover-2); }
 /* The two columns share ONE height, set here rather than on either child: the detail pane grows with
    whatever the highlighted model has to say, and a list that capped itself independently would leave
    the divider hanging in mid-air below it. `stretch` then makes the shorter column fill. */
