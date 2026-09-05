@@ -1898,7 +1898,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
   /* page panes */
   .cp-list, .activity-list, .task-detail-result, .notif-list, .notif-detail, .notif-split, .delegation-list,
-  .lecture-list, .install-cmd code,
+  .lecture-list, .install-cmd code, .code-preview,
   /* documents */
   .documents-tabs, .documents-picker, .documents-rich-surface, .documents-rich .tiptap, .documents-raw
 ) { scrollbar-width: thin; }
@@ -2954,6 +2954,51 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .slider-row input:disabled { cursor: default; opacity: .45; }
 /* Tabular so the readout does not shuffle the thumb sideways while it is being dragged. */
 .slider-value { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+
+/* ——— Settings → App: the previews ————————————————————————————————————————————
+   Every preview below paints from CUSTOM PROPERTIES set inline on its own element, not from :root.
+   That is what lets one page show a light window and a dark one at once: the token blocks in
+   tokens.css hang off `data-mode` at the root and cannot be flipped per subtree, so a preview built
+   on them could only ever show the mode already on screen. */
+.mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; max-width: 420px; }
+.mode-card {
+  display: flex; flex-direction: column; gap: 7px; padding: 7px; cursor: pointer;
+  border: 1px solid var(--rl-line); border-radius: var(--r-panel); background: var(--rl-panel);
+  transition: box-shadow var(--dur-hover) ease;
+}
+.mode-card input { position: absolute; opacity: 0; pointer-events: none; }
+.mode-card[data-selected] { box-shadow: 0 0 0 2px var(--rl-accent); }
+.mode-card:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.mode-card-name { font-size: 11.5px; font-weight: var(--fw-label); text-align: center; }
+/* The System card shows both faces side by side, each clipped to half the frame — the choice cannot
+   promise which one you will get, so the card does not pretend to either. */
+.mode-card-preview { display: flex; gap: 0; border-radius: var(--r-chip); overflow: hidden; }
+.mode-card-preview > * { flex: 1; min-width: 0; }
+.mode-card-preview[data-split] .mini-window:first-child { border-right: 1px solid var(--rl-line); }
+
+.mini-window { display: flex; height: 48px; background: var(--page); }
+.mini-sidebar { flex: none; width: 26%; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 4px; background: var(--canvas); }
+.mini-sidebar i { height: 3px; border-radius: 999px; background: var(--ink-3); }
+.mini-sidebar i:first-child { background: var(--accent); width: 70%; }
+.mini-body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 5px; }
+.mini-card { display: flex; align-items: center; gap: 3px; padding: 4px; border-radius: 3px; background: var(--surface); }
+.mini-card i { height: 3px; flex: 1; border-radius: 999px; background: var(--ink-2); }
+.mini-card i.mini-accent { flex: none; width: 22%; background: var(--accent); }
+
+/* A diff in the palette the row above it names. The spans carry highlight.js's own class names, so
+   this is coloured by the same `--syn-*` mapping a real transcript is — a preview with a private
+   colour table would be a preview of nothing. */
+.code-preview {
+  margin: 2px 0 0; padding: 8px 0; border-radius: var(--r-ctl); border: 1px solid var(--rl-line);
+  background: var(--surface); color: var(--syn-fg); overflow-x: auto;
+  font: 11.5px/1.7 var(--font-mono); white-space: pre;
+}
+.code-preview code { display: block; }
+.cp-line { display: block; padding: 0 10px; }
+/* The tint, not the hue: a diff band is a ground, and painting the line in --green would make the
+   added code itself unreadable in every palette whose green is near its surface. */
+.cp-line[data-diff="add"] { background: var(--green-tint); box-shadow: inset 2px 0 0 var(--green); }
+.cp-line[data-diff="del"] { background: var(--red-tint); box-shadow: inset 2px 0 0 var(--red); }
 
 /* ——— Settings → App: the palette picker ——————————————————————————————————————
    Each card is painted in the theme it names, so the row is a set of previews rather than a list of

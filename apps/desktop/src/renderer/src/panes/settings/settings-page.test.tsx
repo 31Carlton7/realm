@@ -233,6 +233,50 @@ describe("App tab", () => {
     expect(await colours("Light").findByText(/Below the contrast Realm holds every palette to.*Foreground/)).toBeInTheDocument();
   });
 
+  it("each mode card shows the window it produces, and System shows both", async () => {
+    // THE decorative-preview mutant: paint the cards from :root's live values. Every card on the page
+    // would then be the mode already on screen, in the palette already on — three identical pictures
+    // claiming to be a choice between three things.
+    await openApp();
+    const frames = (name: string) =>
+      [...screen.getByRole("radio", { name }).closest(".mode-card")!.querySelectorAll(".mini-window")];
+    expect(frames("Light")).toHaveLength(1);
+    expect(frames("Dark")).toHaveLength(1);
+    // "System" cannot promise which face you will get, so its card does not pretend to either.
+    expect(frames("System")).toHaveLength(2);
+    const page = (el: Element) => (el as HTMLElement).style.getPropertyValue("--page");
+    expect(page(frames("Light")[0]!)).not.toBe(page(frames("Dark")[0]!));
+    expect([page(frames("System")[0]!), page(frames("System")[1]!)])
+      .toEqual([page(frames("Light")[0]!), page(frames("Dark")[0]!)]);
+  });
+
+  it("the code preview is the palette on the row, as edited, in the app's own syntax roles", async () => {
+    const { store } = await openApp();
+    const preview = (face: "Light" | "Dark") =>
+      screen.getByRole("group", { name: `${face} theme` }).parentElement!.querySelector(".code-preview") as HTMLElement;
+    // THE private-table mutant: give the preview its own colours instead of the --syn-* roles the
+    // stylesheet maps highlight.js onto. It would look plausible and would stop being a preview of
+    // anything the transcript does.
+    expect(preview("Dark").querySelector(".hljs-keyword")).toBeTruthy();
+    expect(preview("Dark").querySelector(".hljs-string")).toBeTruthy();
+    expect(preview("Dark").style.getPropertyValue("--syn-keyword")).toMatch(/^oklch\(/);
+    expect(preview("Dark").style.getPropertyValue("--page")).not.toBe(preview("Light").style.getPropertyValue("--page"));
+
+    // THE static-preview mutant: derive it once, off the palette's own seeds. Editing a colour would
+    // leave the picture underneath showing the theme before the edit.
+    const before = preview("Dark").style.getPropertyValue("--accent");
+    const field = colours("Dark").getByRole("textbox", { name: "Accent hex" });
+    fireEvent.change(field, { target: { value: "#f92672" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(store.getState().themeOverrides["realm:dark"]).toEqual({ accent: "#f92672" }));
+    expect(preview("Dark").style.getPropertyValue("--accent")).not.toBe(before);
+
+    // ...and it follows the contrast control, which moves the secondary tier the code body is drawn in.
+    const fg = preview("Dark").style.getPropertyValue("--syn-fg");
+    fireEvent.change(screen.getByRole("slider", { name: "Contrast" }), { target: { value: "10" } });
+    await waitFor(() => expect(preview("Dark").style.getPropertyValue("--syn-fg")).not.toBe(fg));
+  });
+
   it("the two faces are chosen independently, and the weight rides the UI face", async () => {
     // THE one-font mutant: a single family for both. Someone who wants the system UI face is not
     // thereby asking for the system mono face, and the two live in different parts of the app.

@@ -5,9 +5,9 @@ import {
 } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
-  exportTheme, importTheme, seedFor, themeModes, themeSwatches,
-  type FontId, type FontWeight, type Mode, type ThemeName } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
+  deriveVars, exportTheme, importTheme, paletteFor, seedFor, themeModes, themeSwatches,
+  type FontId, type FontWeight, type Mode, type ThemeName, type ThemeOverride } from "@realm/ui";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
@@ -193,6 +193,43 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string 
   budget: { label: "Spend thresholds", desc: "This month's agent spend passed one of your budget thresholds." },
 };
 
+/** The palette a face would wear, as VALUES. Realm's own face is the static CSS in tokens.css, which
+ *  a preview nested in the page cannot reach — `data-mode` only flips the token blocks at `:root` —
+ *  so the seeds behind it are derived here like any other palette's. */
+function facePalette(name: ThemeName, face: Mode, override: ThemeOverride | undefined, contrast: number): Record<string, string> {
+  return deriveVars(seedFor(name, face, override ?? {}) ?? REALM_SEED[face], face, contrast);
+}
+
+/** The window, small enough to read at a glance: the ground, the sidebar over it, two cards and the
+ *  accent. Built from the derived palette rather than from swatches, so the thing being previewed is
+ *  the arrangement the app actually is and not four dots in a row. */
+function MiniWindow({ vars }: { vars: Record<string, string> }) {
+  return (
+    <span className="mini-window" style={vars as CSSProperties} aria-hidden>
+      <span className="mini-sidebar"><i /><i /><i /></span>
+      <span className="mini-body"><span className="mini-card"><i /><i className="mini-accent" /></span><span className="mini-card"><i /></span></span>
+    </span>
+  );
+}
+
+/** A diff in the palette on the row above it. The spans carry highlight.js's own class names, which
+ *  styles.css already maps onto the ten `--syn-*` roles — so this themes itself off the scope's
+ *  custom properties exactly as a real transcript does, and cannot drift from one. */
+function CodePreview({ vars }: { vars: Record<string, string> }) {
+  return (
+    <pre className="code-preview" style={vars as CSSProperties} aria-label="Preview">
+      <code>
+        <span className="cp-line"><span className="hljs-comment">{"// resolve the palette for this face"}</span></span>
+        <span className="cp-line"><span className="hljs-keyword">export function</span>{" "}<span className="hljs-title">paletteFor</span>(<span className="hljs-params">selection</span>: <span className="hljs-type">ThemeSelection</span>) {"{"}</span>
+        <span className="cp-line" data-diff="del">  <span className="hljs-keyword">return</span> selection.<span className="hljs-attr">dark</span>;</span>
+        <span className="cp-line" data-diff="add">  <span className="hljs-keyword">const</span> name = selection[<span className="hljs-string">&quot;light&quot;</span>];</span>
+        <span className="cp-line" data-diff="add">  <span className="hljs-keyword">return</span> faces(name).length &gt; <span className="hljs-number">0</span> ? name : <span className="hljs-string">&quot;realm&quot;</span>;</span>
+        <span className="cp-line">{"}"}</span>
+      </code>
+    </pre>
+  );
+}
+
 /** One face's palette picker. A card is painted in the palette it names, in the face this row is
  *  for, off the same derivation the app applies — so what is on the card is what the window becomes.
  *  Only palettes with that face are offered: a palette that cannot dress a lit window has no honest
@@ -201,6 +238,10 @@ function PaletteRow({ face, live, selected, onSelect }:
   { face: Mode; live: boolean; selected: ThemeName; onSelect: (name: ThemeName) => void }) {
   const offered = THEMES.filter((t) => themeModes(t.name).includes(face));
   const palette = offered.find((t) => t.name === selected) ?? THEMES[0]!;
+  // The preview is of the palette AS EDITED, at the contrast in force — a preview of something other
+  // than what the window will do is worse than no preview.
+  const override = useApp((s) => s.themeOverrides[overrideKey(palette.name, face)]);
+  const contrast = useApp((s) => s.contrast);
   return (
     <div className="field" data-live={live || undefined}>
       <span>{face === "light" ? "Light theme" : "Dark theme"}</span>
@@ -221,6 +262,7 @@ function PaletteRow({ face, live, selected, onSelect }:
         })}
       </fieldset>
       <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
+      <CodePreview vars={facePalette(palette.name, face, override, contrast)} />
       <ThemeOverrideEditor name={palette.name} face={face} />
     </div>
   );
@@ -328,6 +370,7 @@ function AppTab() {
   const themePref = useApp((s) => s.themePref);
   const setThemePref = useApp((s) => s.setThemePref);
   const themeNames = useApp((s) => s.themeNames);
+  const themeOverrides = useApp((s) => s.themeOverrides);
   const setThemeName = useApp((s) => s.setThemeName);
   const contrast = useApp((s) => s.contrast);
   const setContrast = useApp((s) => s.setContrast);
@@ -370,12 +413,19 @@ function AppTab() {
   return (
     <div className="form">
       <div className="field"><span>Theme</span>
-        <fieldset className="settings-tabs" aria-label="Theme">
+        {/* A card per choice, each showing the window it produces. "System" shows both faces because
+            that is what choosing it means — the card cannot promise which one you will get. */}
+        <fieldset className="mode-grid" aria-label="Theme">
           {THEME_CHOICES.map((t) => (
-            <label key={t.pref} className="settings-tab" data-selected={themePref === t.pref || undefined}>
+            <label key={t.pref} className="mode-card" data-selected={themePref === t.pref || undefined}>
               <input type="radio" name="settings-theme" value={t.pref} checked={themePref === t.pref}
                 onChange={() => run(() => setThemePref(t.pref))} />
-              {t.label}
+              <span className="mode-card-preview" data-split={t.pref === "system" || undefined}>
+                {(t.pref === "system" ? (["light", "dark"] as const) : [t.pref as Mode]).map((face) => (
+                  <MiniWindow key={face} vars={facePalette(paletteFor(themeNames, face), face, themeOverrides[overrideKey(paletteFor(themeNames, face), face)], contrast)} />
+                ))}
+              </span>
+              <span className="mode-card-name">{t.label}</span>
             </label>
           ))}
         </fieldset>
