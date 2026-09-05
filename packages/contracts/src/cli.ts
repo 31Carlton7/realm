@@ -215,3 +215,15 @@ export type CliStatus = {
   /** Why an available update is not offered as a button. Null whenever there is nothing to explain. */
   refusal: string | null;
 };
+
+/** A running install or update, answered the moment it starts. `command` is the exact string that is
+ *  now running, echoed back so a caller can prove the command it showed is the command it got. */
+export type CliJobStart = { id: string; kind: AgentKind; action: "install" | "update"; command: string };
+
+/** One chunk of a running job's output, stdout and stderr interleaved in the order they arrived. */
+export type CliJobOutput = { id: string; kind: AgentKind; chunk: string };
+
+/** A finished job. `ok` is the only field a UI should branch on; `code` and `error` are what it
+ *  shows. By the time this arrives the probe and version check have already been re-run, so a client
+ *  that refetches on it reads the machine as it is now. */
+export type CliJobEnd = { id: string; kind: AgentKind; ok: boolean; code: number | null; error: string | null };
