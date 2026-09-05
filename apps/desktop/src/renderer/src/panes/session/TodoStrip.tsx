@@ -11,9 +11,9 @@ import type { Todo } from "./rich/tool-view";
  * left has to go hunting back through the run for it. The card keeps its copy — that is what the
  * plan was then — and this is what it is now.
  *
- * The card is not touched. It is closed by default and each one holds the list as written at that
- * point, so there is no second copy on screen unless a reader opens one; and making the newest card
- * draw itself differently from every older one would be a rule nobody could learn from watching.
+ * The TodoWrite card keeps its own copy. It is closed by default and each one holds the list as it
+ * was written at that point, so nothing is doubled on screen unless a reader opens one — and a
+ * newest card that drew itself differently from every older one would be a rule nobody could learn.
  */
 export function TodoStrip({ todos }: { todos: readonly Todo[] }) {
   const done = todos.filter((t) => t.status === "completed").length;

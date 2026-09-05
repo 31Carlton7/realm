@@ -1742,9 +1742,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    Only one of the under-strip's constraints fails to carry. That strip caps its rounding at
    --r-panel because barely 26px of it shows and a corner cannot be rounder than half its box; a list
    is tall enough to take the card's own --r-squircle, so it does.
-   The bottom corners are square because that edge is not an edge — it is 10px behind the card, which
-   paints over it (.composer holds z-index 1). Rounding them would round nothing and the two would
-   still meet flush; leaving them square is what the strip's own painted path has to say.
+   The bottom corners are square because the strip has no bottom edge to round: it sits 10px behind
+   the card, which paints over it (.composer holds z-index 1).
    In normal flow inside .composer-dock, so the hero→docked transform carries it and it grows UPWARD
    into the transcript: the prompter's own controls never leave the bottom edge they sit on. ── */
 .composer-todos { display: flex; flex-direction: column; min-width: 0;
