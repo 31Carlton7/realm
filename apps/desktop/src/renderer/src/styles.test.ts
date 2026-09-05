@@ -331,7 +331,9 @@ describe("Ara refresh §3/§4 geometry", () => {
    * a pill possible: both paint outside the run's box without the box growing.
    */
   it("no chip run changes a metric — the caret under the mirror belongs to the textarea", () => {
-    const chips = RULES.filter((r) => r.selectors.some((sel) => /^\.ch-[a-z-]+$/.test(sel)));
+    // Any rule that reaches a `.ch-*` run at all, not just the bare class: a hover or a state
+    // variant paints the same glyphs on the same layer and is under exactly the same rule.
+    const chips = RULES.filter((r) => r.selectors.some((sel) => /\.ch-[a-z-]+/.test(sel)));
     expect(chips.length, "no .ch-* rules in styles.css").toBeGreaterThan(0);
     for (const rule of chips) {
       for (const decl of rule.body.split(";").map((d) => d.trim()).filter(Boolean)) {
@@ -340,6 +342,14 @@ describe("Ara refresh §3/§4 geometry", () => {
           `${rule.selectors.join(",")} { ${decl} }`).toContain(prop);
       }
     }
+  });
+
+  it("a hovered chip is the same chip lifted, never a new shape", () => {
+    expect(bodiesFor(".ch-element[data-hot]").join(" ")).toContain("background: var(--rl-hover)");
+    expect(bodiesFor(".ch-mention[data-hot]").join(" ")).toContain("var(--rl-accent) 26%");
+    // At rest this run wears no pill, and growing one under the pointer would read as an element
+    // chip — a token that resolves to nothing dressing up as one that resolves to something.
+    expect(bodiesFor(".ch-mention-stale[data-hot]").join(" ")).not.toContain("box-shadow");
   });
 
   it("the highlight mirror matches the textarea's text metrics exactly", () => {

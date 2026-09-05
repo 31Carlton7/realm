@@ -332,3 +332,67 @@ describe("chip interaction in the prompter", () => {
     expect(fireEvent.keyDown(box(), { key: "ArrowRight" })).toBe(true);
   });
 });
+
+/**
+ * Hover is the one chip gesture that cannot be answered in offsets — there is no selection to read —
+ * so the composer asks the mirror's runs for their own boxes. jsdom has no layout, so the runs are
+ * handed the boxes they would have had; what is under test is the mapping from a point to a chip and
+ * the attribute it drives, not the browser's measurement of a glyph.
+ */
+describe("the chip under the pointer", () => {
+  const chipEls = () => Array.from(mirror().querySelectorAll<HTMLElement>("[data-chip]"));
+  const layOut = (...boxes: [number, number][]) => chipEls().forEach((el, i) => {
+    const [left, right] = boxes[i]!;
+    el.getClientRects = () => [{ left, right, top: 0, bottom: 20 }] as unknown as DOMRectList;
+  });
+  const at = (x: number) => fireEvent.mouseMove(box(), { clientX: x, clientY: 10 });
+  const hot = () => chipEls().filter((el) => el.hasAttribute("data-hot")).map((el) => el.textContent);
+
+  it("carries each chip's draft offset, and hangs it on nothing else", async () => {
+    await mount();
+    typeAt("see @mac in `code` now");
+    expect(chipEls().map((el) => [el.dataset.chip, el.textContent])).toEqual([["4", "@mac"]]);
+  });
+
+  it("lights the run the pointer is inside, and only that one", async () => {
+    await mount();
+    typeAt("@[a] @[bb]");
+    layOut([0, 40], [50, 100]);
+    at(70);
+    expect(hot()).toEqual(["@[bb]"]);
+    at(20);
+    expect(hot()).toEqual(["@[a]"]);
+  });
+
+  it("lights nothing in the prose between two chips", async () => {
+    await mount();
+    typeAt("@[a] @[bb]");
+    layOut([0, 40], [50, 100]);
+    at(70);
+    at(45);
+    expect(hot()).toEqual([]);
+  });
+
+  it("goes out when the pointer leaves the box", async () => {
+    await mount();
+    typeAt("@[a]");
+    layOut([0, 40]);
+    at(20);
+    expect(hot()).toEqual(["@[a]"]);
+    fireEvent.mouseLeave(box());
+    expect(hot()).toEqual([]);
+  });
+
+  /* Typing shifts every chip after the caret, and the pointer has not moved. Two chips five
+     characters apart and a five-character insertion put a DIFFERENT chip on the offset that was lit,
+     so without the reset the light would jump to a run the pointer is nowhere near. */
+  it("goes out on the next keystroke, rather than following the offset onto another chip", async () => {
+    await mount();
+    typeAt("@[a] @[bb]");
+    layOut([0, 40], [50, 100]);
+    at(70);
+    expect(hot()).toEqual(["@[bb]"]);
+    typeAt("hello@[a] @[bb]"); // `@[a]` now begins where `@[bb]` did
+    expect(hot()).toEqual([]);
+  });
+});

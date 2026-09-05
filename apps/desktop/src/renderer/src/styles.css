@@ -1595,6 +1595,16 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Declared but no longer resolvable: the `@` goes as plain text. Same warning tone as the note the
    card already shows under it, so the two read as one statement about the same token. */
 .ch-mention-stale { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 12%, transparent); border-radius: 3px; text-decoration: underline dotted; text-underline-offset: 2px; }
+/* A chip a click will take whole says so under the pointer. Everything that normally reads as "this
+   is a target" — a border, padding, a cursor over a hit area — is either a metric this layer may not
+   have or unreachable from a layer that takes no pointer events, so the affordance is a lift in the
+   tint the chip already wears. `data-hot` is set by Composer.tsx from the textarea above. */
+.ch-mention[data-hot] { background: color-mix(in srgb, var(--rl-accent) 26%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 26%, transparent); }
+.ch-element[data-hot] { background: var(--rl-hover); box-shadow: 0 0 0 2px var(--rl-hover), inset 0 0 0 1px var(--rl-line-strong); }
+/* No pill of its own at rest and none on hover: a run that grew a ring only under the pointer would
+   read as an element chip, and this one is going out as plain text. */
+.ch-mention-stale[data-hot] { background: color-mix(in srgb, var(--rl-warning) 24%, transparent); }
 .ch-marker { color: var(--rl-accent); }
 .ch-punct { color: var(--rl-text-faint); }
 .ch-code { color: var(--rl-text-bright); background: var(--inset); border-radius: 3px; }

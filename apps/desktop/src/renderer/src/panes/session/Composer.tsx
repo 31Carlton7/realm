@@ -10,7 +10,7 @@ import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
 import { heroGreeting } from "./greeting";
-import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
+import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 
 // ~10 lines of 15px/1.55 plus the vertical padding (Ara refresh §1 raises the input to 15px; §4:
@@ -419,6 +419,27 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
      already resolved the point to a caret by the time `click` fires, and `selectionStart` is that same
      answer in the coordinate system the chips are already in. */
   const chips = useMemo(() => chipSpans(segments), [segments]);
+  /** Where each painted run begins, so a chip span can carry its own draft offset as an attribute. */
+  const segStarts = useMemo(() => { const out: number[] = []; let at = 0; for (const s of segments) { out.push(at); at += s.text.length; } return out; }, [segments]);
+  /** The chip under the pointer, by start offset. Hover is the one thing here that cannot be answered
+   *  in offsets — there is no selection to read — so it is also the one place the composer asks the
+   *  mirror for real geometry. Asking the runs for their own boxes is cheaper and far more predictable
+   *  than a caret-from-point API: the mirror takes no pointer events, so nothing else has to change. */
+  const [hotChip, setHotChip] = useState<number | null>(null);
+  const onHoverChip = (e: ReactMouseEvent<HTMLTextAreaElement>) => {
+    const m = hl.current;
+    let hit: number | null = null;
+    if (m && chips.length > 0) {
+      for (const el of m.querySelectorAll<HTMLElement>("[data-chip]")) {
+        // A run that wraps has one box per line; the pointer is in the chip if it is in any of them.
+        for (const r of el.getClientRects()) {
+          if (e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom) { hit = Number(el.dataset.chip); break; }
+        }
+        if (hit !== null) break;
+      }
+    }
+    if (hit !== hotChip) setHotChip(hit);
+  };
 
   useLayoutEffect(() => {
     const el = ta.current; if (!el) return;
@@ -705,7 +726,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. */}
         <div className="composer-editor">
           <div ref={hl} className="composer-highlight" aria-hidden="true">
-            {segments.map((s, i) => (s.kind ? <span key={i} className={`ch-${s.kind}`}>{s.text}</span> : s.text))}
+            {segments.map((s, i) => (s.kind
+              ? <span key={i} className={`ch-${s.kind}`}
+                  data-chip={isChipKind(s.kind) ? segStarts[i] : undefined}
+                  data-hot={(isChipKind(s.kind) && segStarts[i] === hotChip) || undefined}>{s.text}</span>
+              : s.text))}
             {/* A draft ending in a newline: the block would drop that last empty line, and the mirror
                 would sit one line short of the textarea from there down. */}
             {draft.endsWith("\n") && "\n"}
@@ -722,9 +747,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             </div>
           )}
           <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : `Ask ${AGENT_META[kind].label} anything…`} rows={1}
-            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); }}
+            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); setHotChip(null); }}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-            onClick={onClickChip}
+            onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={() => setHotChip(null)}
             onKeyDown={onKeyDown} onPaste={onPaste} onScroll={syncScroll}
             aria-describedby={hint ? hintId : undefined}
             aria-controls={mentionOpen ? "mention-list" : undefined}

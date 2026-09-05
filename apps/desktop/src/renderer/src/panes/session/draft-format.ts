@@ -267,6 +267,10 @@ export type ChipSpan = { kind: SegmentKind; start: number; end: number };
  *  a pill, and therefore the runs a gesture may take whole. */
 const CHIP_KINDS: readonly SegmentKind[] = ["mention", "mention-stale", "element"];
 
+/** Whether a painted run is a chip. The mirror asks this to decide which spans carry the offset a
+ *  pointer is matched against, so it and `chipSpans` can never disagree about what a chip is. */
+export const isChipKind = (kind: SegmentKind | null): boolean => kind !== null && CHIP_KINDS.includes(kind);
+
 /**
  * Every chip in the draft, as offsets, read off the SAME segments the mirror paints.
  *
@@ -279,7 +283,7 @@ export function chipSpans(segments: readonly Segment[]): ChipSpan[] {
   const out: ChipSpan[] = [];
   let at = 0;
   for (const s of segments) {
-    if (s.kind && CHIP_KINDS.includes(s.kind)) out.push({ kind: s.kind, start: at, end: at + s.text.length });
+    if (isChipKind(s.kind)) out.push({ kind: s.kind!, start: at, end: at + s.text.length });
     at += s.text.length;
   }
   return out;
