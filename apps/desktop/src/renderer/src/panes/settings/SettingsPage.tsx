@@ -3,12 +3,15 @@ import {
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
 } from "@realm/contracts";
-import { GROUND_ALPHA_RANGE, Icon, THEMES, resolveMode, themeSwatches } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
+  THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
+  paletteFor, seedFor, themeModes, themeSwatches,
+  type FontId, type FontWeight, type Mode, type ThemeName, type ThemeOverride, type ThemeSeed } from "@realm/ui";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
-import { hasWindowMaterial, useSystemMode, type ThemePref } from "../../theme/useTheme";
+import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
 
@@ -190,11 +193,194 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string 
   budget: { label: "Spend thresholds", desc: "This month's agent spend passed one of your budget thresholds." },
 };
 
+/** The seed a face is really wearing. `seedFor` answers null for an untouched Realm, whose whole
+ *  point is to write nothing — but a field showing the current colour and a preview painting it both
+ *  need values, and Realm's own seeds are the only honest ones to show. */
+function faceSeed(name: ThemeName, face: Mode, override: ThemeOverride | undefined): ThemeSeed {
+  return seedFor(name, face, override ?? {}) ?? REALM_SEED[face];
+}
+
+/** ...and as the palette it derives to. Realm's face is the static CSS in tokens.css, which a preview
+ *  nested in the page cannot reach — `data-mode` only flips the token blocks at `:root` — so it is
+ *  derived here like any other palette's. */
+function facePalette(name: ThemeName, face: Mode, override: ThemeOverride | undefined, contrast: number): Record<string, string> {
+  return deriveVars(faceSeed(name, face, override), face, contrast);
+}
+
+/** The window, small enough to read at a glance: the ground, the sidebar over it, two cards and the
+ *  accent. Built from the derived palette rather than from swatches, so the thing being previewed is
+ *  the arrangement the app actually is and not four dots in a row. */
+function MiniWindow({ vars }: { vars: Record<string, string> }) {
+  return (
+    <span className="mini-window" style={vars as CSSProperties} aria-hidden>
+      <span className="mini-sidebar"><i /><i /><i /></span>
+      <span className="mini-body"><span className="mini-card"><i /><i className="mini-accent" /></span><span className="mini-card"><i /></span></span>
+    </span>
+  );
+}
+
+/** A diff in the palette on the row above it. The spans carry highlight.js's own class names, which
+ *  styles.css already maps onto the ten `--syn-*` roles — so this themes itself off the scope's
+ *  custom properties exactly as a real transcript does, and cannot drift from one. */
+function CodePreview({ vars }: { vars: Record<string, string> }) {
+  return (
+    <pre className="code-preview" style={vars as CSSProperties} aria-label="Preview">
+      <code>
+        <span className="cp-line"><span className="hljs-comment">{"// resolve the palette for this face"}</span></span>
+        <span className="cp-line"><span className="hljs-keyword">export function</span>{" "}<span className="hljs-title">paletteFor</span>(<span className="hljs-params">selection</span>: <span className="hljs-type">ThemeSelection</span>) {"{"}</span>
+        <span className="cp-line" data-diff="del">  <span className="hljs-keyword">return</span> selection.<span className="hljs-attr">dark</span>;</span>
+        <span className="cp-line" data-diff="add">  <span className="hljs-keyword">const</span> name = selection[<span className="hljs-string">&quot;light&quot;</span>];</span>
+        <span className="cp-line" data-diff="add">  <span className="hljs-keyword">return</span> faces(name).length &gt; <span className="hljs-number">0</span> ? name : <span className="hljs-string">&quot;realm&quot;</span>;</span>
+        <span className="cp-line">{"}"}</span>
+      </code>
+    </pre>
+  );
+}
+
+/** One face's palette picker. A card is painted in the palette it names, in the face this row is
+ *  for, off the same derivation the app applies — so what is on the card is what the window becomes.
+ *  Only palettes with that face are offered: a palette that cannot dress a lit window has no honest
+ *  card to show in the light row. */
+function PaletteRow({ face, live, selected, onSelect }:
+  { face: Mode; live: boolean; selected: ThemeName; onSelect: (name: ThemeName) => void }) {
+  const offered = THEMES.filter((t) => themeModes(t.name).includes(face));
+  const palette = offered.find((t) => t.name === selected) ?? THEMES[0]!;
+  // The preview is of the palette AS EDITED, at the contrast in force — a preview of something other
+  // than what the window will do is worse than no preview.
+  const override = useApp((s) => s.themeOverrides[overrideKey(palette.name, face)]);
+  const contrast = useApp((s) => s.contrast);
+  return (
+    <div className="field" data-live={live || undefined}>
+      <span>{face === "light" ? "Light theme" : "Dark theme"}</span>
+      <fieldset className="theme-grid" aria-label={face === "light" ? "Light theme" : "Dark theme"}>
+        {offered.map((t) => {
+          const [page, surface, accent, string, line] = themeSwatches(t.name, face);
+          return (
+            <label key={t.name} className="theme-card" data-selected={selected === t.name || undefined}
+              style={{ background: page, borderColor: surface }}>
+              <input type="radio" name={`settings-palette-${face}`} value={t.name} checked={selected === t.name}
+                onChange={() => onSelect(t.name)} />
+              <span className="theme-card-swatches" aria-hidden>
+                {[surface, accent, string].map((c, i) => <span key={i} style={{ background: c, boxShadow: `0 0 0 1px ${line}` }} />)}
+              </span>
+              <span className="theme-card-name" style={{ color: accent }}>{t.label}</span>
+            </label>
+          );
+        })}
+      </fieldset>
+      <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
+      <CodePreview vars={facePalette(palette.name, face, override, contrast)} />
+      <ThemeOverrideEditor name={palette.name} face={face} />
+    </div>
+  );
+}
+
+/** The three seeds that decide what a palette feels like — its paper, its text and its one hue.
+ *  Edits go into the SEED and back through the same derivation a vendored palette goes through, so a
+ *  moved background gets the surface ladder, the ink ramp and the contrast correction rather than a
+ *  raw value written past all three. */
+const OVERRIDE_FIELDS = [
+  { role: "accent", label: "Accent" }, { role: "bg", label: "Background" }, { role: "ink", label: "Foreground" },
+] as const;
+
+function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
+  const override = useApp((s) => s.themeOverrides[overrideKey(name, face)]);
+  const contrast = useApp((s) => s.contrast);
+  const setThemeOverride = useApp((s) => s.setThemeOverride);
+  const resetThemeOverride = useApp((s) => s.resetThemeOverride);
+  const run = useApp((s) => s.run);
+  const [copied, setCopied] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [rejected, setRejected] = useState<string | null>(null);
+  const paste = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1600);
+    return () => clearTimeout(t);
+  }, [copied]);
+  const seed = faceSeed(name, face, override);
+  // Measured at the contrast the app is actually running at, not at the default — the ramp's spread
+  // is one of the things a tier's ratio depends on, and a warning computed against a setting the
+  // user is not using would name the wrong roles.
+  const misses = contrastMisses(seed, face, contrast);
+  const label = THEMES.find((t) => t.name === name)?.label ?? name;
+
+  return (
+    <fieldset className="theme-overrides" aria-label={`${face === "light" ? "Light" : "Dark"} theme colours`}>
+      {OVERRIDE_FIELDS.map(({ role, label }) => (
+        <label key={role} className="theme-override">
+          <span>{label}</span>
+          <input type="color" aria-label={`${label} colour`} value={seed[role]}
+            onChange={(e) => run(() => setThemeOverride(name, face, { [role]: e.target.value }))} />
+          {/* Text as well as a swatch: a hex is a value you paste from somewhere else, and the OS
+              colour picker cannot be typed into. Committed on blur/Enter rather than per keystroke —
+              every prefix of a hex is a different colour, and "#f" would repaint the window red on
+              the way to "#f92672". */}
+          <input type="text" className="hex" aria-label={`${label} hex`} defaultValue={seed[role]} key={seed[role]}
+            spellCheck={false} maxLength={7}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+            onBlur={(e) => {
+              const hex = e.target.value.trim();
+              if (isHexColour(hex)) run(() => setThemeOverride(name, face, { [role]: hex }));
+              else e.target.value = seed[role];
+            }} />
+        </label>
+      ))}
+      {isOverridden(override) && (
+        <button type="button" className="btn-quiet" onClick={() => run(() => resetThemeOverride(name, face))}>
+          Reset to {label}
+        </button>
+      )}
+      {/* Copy emits the face AS EDITED, so what lands on the clipboard is what is on screen — the
+          palette's own seeds under a set of overrides would be a theme the user was not looking at. */}
+      <button type="button" className="btn-quiet"
+        onClick={() => { void navigator.clipboard?.writeText(exportTheme(label, face, seed)); setCopied(true); }}>
+        {copied ? "Copied" : "Copy theme"}
+      </button>
+      <button type="button" className="btn-quiet" aria-expanded={importing}
+        onClick={() => { setImporting((o) => !o); setRejected(null); }}>Import</button>
+      {importing && (
+        // A paste box rather than a button that reads the clipboard: a rejection has to be shown
+        // beside the thing that was rejected, and reaching for the clipboard on a click is a
+        // permission prompt in exchange for one saved keystroke.
+        <div className="theme-import">
+          <textarea aria-label="Theme to import" spellCheck={false} rows={4}
+            placeholder={`{ "realmTheme": 1, "name": …, "mode": "${face}", "seed": { … } }`}
+            onChange={() => setRejected(null)} ref={paste} />
+          <div className="theme-import-actions">
+            <button type="button" className="btn" onClick={() => {
+              const result = importTheme(paste.current?.value ?? "", face);
+              if (!result.ok) { setRejected(result.reason); return; }
+              setRejected(null); setImporting(false);
+              run(() => setThemeOverride(name, face, { ...result.doc.seed }));
+            }}>Apply</button>
+            {rejected && <p className="settings-hint" data-tone="danger">{rejected}</p>}
+          </div>
+        </div>
+      )}
+      {/* Named, not corrected. The ground and the ink are the two seeds nothing lifts — moving them
+          silently to clear a floor hands back a theme the user did not pick — and a hue that misses
+          after its whole lift budget is one this ramp cannot carry. Either way the useful thing to
+          show is which colour, and by how much. */}
+      {misses.length > 0 && (
+        <p className="settings-hint" data-tone="warn">
+          {`Below the contrast Realm holds every palette to: ${misses.map((m) => `${m.role} ${m.ratio.toFixed(1)}:1 (needs ${m.floor}:1)`).join(", ")}.`}
+        </p>
+      )}
+    </fieldset>
+  );
+}
+
 function AppTab() {
   const themePref = useApp((s) => s.themePref);
   const setThemePref = useApp((s) => s.setThemePref);
-  const themeName = useApp((s) => s.themeName);
+  const themeNames = useApp((s) => s.themeNames);
+  const themeOverrides = useApp((s) => s.themeOverrides);
   const setThemeName = useApp((s) => s.setThemeName);
+  const contrast = useApp((s) => s.contrast);
+  const setContrast = useApp((s) => s.setContrast);
+  const fonts = useApp((s) => s.fonts);
+  const setFonts = useApp((s) => s.setFonts);
   const groundAlpha = useApp((s) => s.groundAlpha);
   const setGroundAlpha = useApp((s) => s.setGroundAlpha);
   const submitKey = useApp((s) => s.submitKey);
@@ -208,7 +394,6 @@ function AppTab() {
   const setDesktopNotifications = useApp((s) => s.setDesktopNotifications);
   const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
   const run = useApp((s) => s.run);
-  const sys = useSystemMode();
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
   // bypassPermissions must never be a one-click slip, HERE least of all — this is every future
   // session at once. Same two-step as the composer chip (U-M7): arm for 5s, apply only on the
@@ -220,13 +405,11 @@ function AppTab() {
     return () => clearTimeout(t);
   }, [confirmBypass]);
 
-  // The mode the preference resolves to before the palette has its say, and what it becomes after.
-  // Both are needed: the cards preview against what the user ASKED for, the hint explains the gap.
-  const wanted = themePref === "system" ? sys : themePref;
-  const effective = resolveMode(themeName, wanted);
-  const pinned = effective !== wanted;
-  const palette = THEMES.find((t) => t.name === themeName) ?? THEMES[0]!;
+  // The face on screen. Both slots are always editable — the point of two is that you set the one
+  // you are not looking at — so this only decides which row is marked as the live one.
+  const mode = useResolvedMode(themePref);
   const material = hasWindowMaterial();
+  const translucent = groundAlpha < GROUND_ALPHA_RANGE.max;
 
   const supported = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_SUPPORTS_PERMISSION_MODES[k]);
   const unsupported = SELECTABLE_AGENT_KINDS.filter((k) => !AGENT_SUPPORTS_PERMISSION_MODES[k]);
@@ -235,59 +418,97 @@ function AppTab() {
   return (
     <div className="form">
       <div className="field"><span>Theme</span>
-        {/* `data-pinned` when the chosen palette has only one face. The radios stay LIVE — the
-            preference is still recorded and still applies the moment a two-faced palette is chosen —
-            but a control that cannot change what is on screen right now has to say so rather than
-            look broken. */}
-        <fieldset className="settings-tabs" aria-label="Theme" data-pinned={pinned || undefined}>
+        {/* A card per choice, each showing the window it produces. "System" shows both faces because
+            that is what choosing it means — the card cannot promise which one you will get. */}
+        <fieldset className="mode-grid" aria-label="Theme">
           {THEME_CHOICES.map((t) => (
-            <label key={t.pref} className="settings-tab" data-selected={themePref === t.pref || undefined}>
+            <label key={t.pref} className="mode-card" data-selected={themePref === t.pref || undefined}>
               <input type="radio" name="settings-theme" value={t.pref} checked={themePref === t.pref}
                 onChange={() => run(() => setThemePref(t.pref))} />
-              {t.label}
+              <span className="mode-card-preview" data-split={t.pref === "system" || undefined}>
+                {(t.pref === "system" ? (["light", "dark"] as const) : [t.pref as Mode]).map((face) => (
+                  <MiniWindow key={face} vars={facePalette(paletteFor(themeNames, face), face, themeOverrides[overrideKey(paletteFor(themeNames, face), face)], contrast)} />
+                ))}
+              </span>
+              <span className="mode-card-name">{t.label}</span>
             </label>
           ))}
         </fieldset>
-        {pinned && <p className="settings-hint">{`${palette.label} has no ${wanted} variant, so the window stays ${effective} while it is chosen. Your preference is kept.`}</p>}
         {/* One line, not a switch (Plan 14 W5): the OS setting is the control, and styles.css's global
             prefers-reduced-motion kill is what makes this sentence true. */}
         <p className="settings-hint">Realm follows the system's Reduce Motion setting everywhere — with it on, animations and transitions are disabled app-wide.</p>
       </div>
 
-      <div className="field"><span>Palette</span>
-        {/* Each card is painted in the palette it names, in the mode that palette would actually
-            resolve to — the swatches are the same derivation the app runs, so what is on the card is
-            what the window becomes. */}
-        <fieldset className="theme-grid" aria-label="Palette">
-          {THEMES.map((t) => {
-            const [page, surface, accent, string] = themeSwatches(t.name, wanted);
-            return (
-              <label key={t.name} className="theme-card" data-selected={themeName === t.name || undefined}
-                style={{ background: page, borderColor: surface }}>
-                <input type="radio" name="settings-palette" value={t.name} checked={themeName === t.name}
-                  onChange={() => run(() => setThemeName(t.name))} />
-                <span className="theme-card-swatches" aria-hidden>
-                  {[surface, accent, string].map((c, i) => <span key={i} style={{ background: c }} />)}
-                </span>
-                <span className="theme-card-name" style={{ color: accent }}>{t.label}</span>
-              </label>
-            );
-          })}
-        </fieldset>
-        <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
+      {/* A row per face, both always editable: setting the one you are NOT looking at is the whole
+          reason there are two. `data-live` marks the one on screen so the window and the page agree
+          about which row explains what is in front of you. */}
+      {(["light", "dark"] as const).map((face) => (
+        <PaletteRow key={face} face={face} live={face === mode} selected={themeNames[face]}
+          onSelect={(name) => run(() => setThemeName(face, name))} />
+      ))}
+
+      <div className="field"><span>UI font</span>
+        {/* Two families, not four hundred. Enumerating installed fonts needs a main-process hop and
+            returns mostly faces this layout cannot use — the chrome is set against a four-step weight
+            ladder and tabular figures, and a display face picked out of a long list loses both
+            silently. The bundled faces are guaranteed to be present and to have those axes; the
+            system stack is for someone who would rather Realm looked like the rest of their machine. */}
+        <div className="font-row">
+          <select aria-label="UI font" value={fonts.ui} onChange={(e) => run(() => setFonts({ ui: e.target.value as FontId }))}>
+            {FONT_FACES.ui.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+          <select aria-label="UI font weight" value={fonts.uiWeight}
+            onChange={(e) => run(() => setFonts({ uiWeight: e.target.value as FontWeight }))}>
+            {FONT_WEIGHTS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
+          </select>
+        </div>
       </div>
 
-      <div className="field"><span>Background transparency</span>
-        {/* The slider runs the way the label reads — right is MORE transparent — while the stored
-            value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is
-            the one place the two meet.
-            step 1, not a coarser grid: the range spans an odd number of points, so any step above 1
-            leaves one of its two ends unreachable — including 100%, which is how this is turned off. */}
-        <div className="ground-alpha">
-          <input type="range" aria-label="Background transparency" disabled={!material}
+      <div className="field"><span>Code font</span>
+        <div className="font-row">
+          <select aria-label="Code font" value={fonts.code} onChange={(e) => run(() => setFonts({ code: e.target.value as FontId }))}>
+            {FONT_FACES.code.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+        </div>
+        {/* The asymmetry is a fact about the stylesheet, not a judgement: every mono surface sets its
+            font with the `font:` shorthand, which resets weight by definition, so a code weight would
+            mean editing fifty-odd rules or hiding a weight inside a family name. */}
+        <p className="settings-hint">Code, diffs, terminals and keyboard hints. Weight follows the app's own scale here — the UI weight above is the one control over it. Open terminals change face with the setting; their font size does not follow it.</p>
+      </div>
+
+      <div className="field"><span>Contrast</span>
+        {/* The ink ramp's SPREAD — how far the secondary and hint tiers fall below primary text. It
+            is the only thing in the palette that is a matter of eyes rather than of design: the hues
+            are the palette's identity and the surfaces are its structure, and a slider that moved
+            either would be a repaint wearing the word "contrast". It cannot make anything illegible
+            at any setting, because every tier is floored at WCAG before the ramp is walked. */}
+        <div className="slider-row">
+          <input type="range" aria-label="Contrast"
+            min={CONTRAST_RANGE.min} max={CONTRAST_RANGE.max} step={1}
+            value={contrast} onChange={(e) => run(() => setContrast(Number(e.target.value)))} />
+          <span className="slider-value">{contrast}</span>
+        </div>
+        <p className="settings-hint">How far labels, metadata and hints sit below primary text. Every tier stays above the contrast Realm holds its palettes to, whatever this says — turning it down recedes them, it does not make them unreadable.</p>
+      </div>
+
+      <div className="field"><span>Translucent sidebar</span>
+        {/* A switch and an amount over ONE stored number, not two controls that can disagree: fully
+            opaque IS off, because covering the material completely is the same as not having asked
+            for it. So the switch reads `groundAlpha < max` and writes either the maximum or the
+            default, and the slider is inert while it is off — nothing here can put the app in a
+            state where the switch says one thing and the amount another.
+            The slider runs the way its label reads — right is MORE transparent — while the stored
+            value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is the
+            one place the two meet. step 1, not a coarser grid: the range spans an odd number of
+            points, so any step above 1 leaves one of its two ends unreachable. */}
+        <div className="slider-row">
+          <input type="checkbox" role="switch" className="switch" aria-label="Translucent sidebar"
+            disabled={!material} checked={translucent}
+            onChange={(e) => run(() => setGroundAlpha(e.target.checked ? DEFAULT_GROUND_ALPHA : GROUND_ALPHA_RANGE.max))} />
+          <input type="range" aria-label="Background transparency" disabled={!material || !translucent}
             min={GROUND_ALPHA_RANGE.min} max={GROUND_ALPHA_RANGE.max} step={1}
             value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
-          <span className="ground-alpha-value">{100 - groundAlpha}%</span>
+          <span className="slider-value">{100 - groundAlpha}%</span>
         </div>
         <p className="settings-hint">{material
           ? "The sidebar is the one surface thin enough to show the desktop behind the window. Panes stay opaque on purpose — at any setting where a pane looked translucent, text on it would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting: with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."

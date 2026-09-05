@@ -108,6 +108,7 @@ window.__live = window.__live ?? {
     return true;
   },
   slider() { return document.querySelector('input[aria-label="Background transparency"]'); },
+  toggle() { return document.querySelector('input[aria-label="Translucent sidebar"]'); },
   /** The settings tabs are radio INPUTS inside labels, so the visible word is on the label. */
   tab(name) {
     const hit = [...document.querySelectorAll("label")].find((l) => l.textContent.trim() === name && l.querySelector('input[type="radio"]'));
@@ -125,7 +126,10 @@ window.__live = window.__live ?? {
       sidebar: this.rgba(getComputedStyle(sidebar).backgroundColor),
       pane: this.rgba(getComputedStyle(pane).backgroundColor),
       sliderValue: this.slider()?.value ?? null,
-      readout: document.querySelector(".ground-alpha-value")?.textContent ?? null,
+      // Scoped to THIS slider's row. The readout class is shared with the contrast control, which sits
+      // above this one in the same form — a bare querySelector reads that one instead and passes or
+      // fails on a number belonging to a different setting.
+      readout: this.slider()?.parentElement?.querySelector(".slider-value")?.textContent ?? null,
     };
   },
 };
@@ -218,6 +222,19 @@ async function main() {
   }
 
   // 3. Reduced transparency wins, and does not eat the value.
+  // 3. The switch and the amount are one number. Fully opaque IS off, so the switch has to read the
+  //    ground rather than a boolean of its own — two stored states could disagree, and the pair of
+  //    them sit on the same row where the disagreement would be visible.
+  await evalIn(c, `__live.setInput(__live.slider(), "${MIN_ALPHA}")`);
+  await sleep(300);
+  let t = await evalIn(c, `({ on: __live.toggle().checked, disabled: __live.slider().disabled, token: getComputedStyle(document.documentElement).getPropertyValue("--ground-alpha").trim() })`);
+  check("dragging the amount to nothing turns the switch off — that IS off", t.on === false && t.token === "100%", t);
+  check("...and the amount goes inert rather than showing a value nothing is using", t.disabled === true, t);
+  await evalIn(c, `__live.toggle().click()`);
+  await sleep(300);
+  t = await evalIn(c, `({ on: __live.toggle().checked, disabled: __live.slider().disabled, token: getComputedStyle(document.documentElement).getPropertyValue("--ground-alpha").trim() })`);
+  check("switching it back on restores a translucent ground", t.on === true && t.token === "82%" && t.disabled === false, t);
+
   await evalIn(c, `__live.setInput(__live.slider(), "${MIN_ALPHA + MAX_ALPHA - MIN_ALPHA}")`);
   await sleep(200);
   await c.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-transparency", value: "reduce" }] });

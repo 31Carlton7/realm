@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import type { ThemeName } from "@realm/ui";
+import type { ThemeSelection } from "@realm/ui";
 import { hasWindowMaterial, suppressTransitions, useApplyTheme, type ThemePref } from "./useTheme";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); document.documentElement.removeAttribute("data-theme-switching"); document.documentElement.removeAttribute("style"); });
@@ -32,7 +32,7 @@ describe("theme switching is not animated (§6)", () => {
 
   it("applying a theme fences the write, and switching mode fences it again", () => {
     vi.useFakeTimers();
-    const { rerender } = renderHook(({ pref }) => useApplyTheme("#7c6cff", pref), { initialProps: { pref: "dark" as ThemePref } });
+    const { rerender } = renderHook(({ pref }) => useApplyTheme({ color: "#7c6cff", pref }), { initialProps: { pref: "dark" as ThemePref } });
     expect(marked()).toBe(true); // set by the same layout effect that writes the palette
     act(() => { vi.advanceTimersByTime(100); });
     expect(marked()).toBe(false);
@@ -42,37 +42,50 @@ describe("theme switching is not animated (§6)", () => {
 
   it("leaves no mark behind when the app unmounts mid-swap", () => {
     vi.useFakeTimers();
-    const { unmount } = renderHook(() => useApplyTheme("#7c6cff", "dark"));
+    const { unmount } = renderHook(() => useApplyTheme({ color: "#7c6cff", pref: "dark" }));
     expect(marked()).toBe(true);
     unmount();
     expect(marked()).toBe(false);
   });
 });
 
-/** The palette is a second axis over light/dark, so the interesting cases are the ones where the two
- *  disagree: a theme with no light face, and the trip back out of it. */
+/** The palette is a second axis over light/dark, with a slot per face. The interesting cases are the
+ *  ones where the two axes could disagree: which slot a face reads, and a slot naming a palette that
+ *  has no such face. */
 describe("theme and mode compose", () => {
   const root = () => document.documentElement;
+  const sel = (light: string, dark: string) => ({ light, dark }) as ThemeSelection;
 
-  it("a one-faced palette pins the effective mode, and the preference survives it", () => {
+  it("each face wears its OWN slot, and the mode is the preference and nothing else", () => {
+    // THE one-slot mutant: read a single palette for both faces (`themes.dark` whatever the mode).
+    // Everything below still paints, and the light window silently wears the dark palette.
     const { result, rerender } = renderHook(
-      ({ theme }) => useApplyTheme("#7c6cff", "light" as ThemePref, theme),
-      { initialProps: { theme: "monokai" as ThemeName } },
+      ({ pref }) => useApplyTheme({ color: "#7c6cff", pref, themes: sel("solarized", "one") }),
+      { initialProps: { pref: "light" as ThemePref } },
     );
+    expect(result.current).toBe("light");
+    expect(root().dataset.theme).toBe("solarized");
+    rerender({ pref: "dark" });
     expect(result.current).toBe("dark");
-    expect(root().dataset.mode).toBe("dark");
-    expect(root().dataset.theme).toBe("monokai");
-    // THE pinning-by-preference mutant: implement this by writing "dark" into themePref. The window
-    // looks identical and the user's "light" is gone — this rerender would then still say dark.
-    rerender({ theme: "one" });
+    expect(root().dataset.theme).toBe("one");
+  });
+
+  it("a palette can no longer move the mode — a slot it has no face for falls back instead", () => {
+    // THE pinning mutant: keep the old rule that a one-faced palette resolves the mode to its own
+    // face. With a slot per face that is a control changing the OTHER axis behind the user's back:
+    // asking for light and being handed a dark window because of something stored in a slot the
+    // light window does not read.
+    const { result } = renderHook(() => useApplyTheme({ color: "#7c6cff", pref: "light", themes: sel("monokai", "monokai") }));
     expect(result.current).toBe("light");
     expect(root().dataset.mode).toBe("light");
+    expect(root().dataset.theme).toBe("realm");
+    expect(root().style.getPropertyValue("--page")).toBe("");
   });
 
   it("a custom palette paints inline and the default palette scrubs it off again", () => {
     const { rerender } = renderHook(
-      ({ theme }) => useApplyTheme("#7c6cff", "dark" as ThemePref, theme),
-      { initialProps: { theme: "one" as ThemeName } },
+      ({ theme }) => useApplyTheme({ color: "#7c6cff", pref: "dark", themes: sel("realm", theme) }),
+      { initialProps: { theme: "one" } },
     );
     expect(root().style.getPropertyValue("--page")).toMatch(/^oklch\(/);
     rerender({ theme: "realm" });
@@ -83,8 +96,8 @@ describe("theme and mode compose", () => {
   it("switching palette is fenced by the no-transition mark, exactly like switching mode", () => {
     vi.useFakeTimers();
     const { rerender } = renderHook(
-      ({ theme }) => useApplyTheme("#7c6cff", "dark" as ThemePref, theme),
-      { initialProps: { theme: "realm" as ThemeName } },
+      ({ theme }) => useApplyTheme({ color: "#7c6cff", pref: "dark", themes: sel("realm", theme) }),
+      { initialProps: { theme: "realm" } },
     );
     act(() => { vi.advanceTimersByTime(100); });
     expect(root().hasAttribute("data-theme-switching")).toBe(false);
@@ -95,12 +108,34 @@ describe("theme and mode compose", () => {
   });
 });
 
+describe("the contrast preference reaches :root", () => {
+  it("repaints the ink ramp when it changes, and touches nothing else", () => {
+    // THE decorative-slider mutant: render the control, persist the number, never pass it to
+    // applyTheme. It moves, it survives a restart, and the window never changes — the failure a
+    // settings control is most likely to ship with and least likely to be noticed in.
+    // THE missing-dependency mutant: leave `contrast` out of the layout effect's deps. Same symptom,
+    // until something unrelated forces a re-apply.
+    const root = document.documentElement;
+    const { rerender } = renderHook(
+      ({ contrast }) => useApplyTheme({ color: "#7c6cff", pref: "dark", themes: { light: "one", dark: "one" }, contrast }),
+      { initialProps: { contrast: 60 } },
+    );
+    const at60 = { ink2: root.style.getPropertyValue("--ink-2"), page: root.style.getPropertyValue("--page"), accent: root.style.getPropertyValue("--accent") };
+    expect(at60.ink2).toMatch(/^oklch\(/);
+    rerender({ contrast: 10 });
+    expect(root.style.getPropertyValue("--ink-2")).not.toBe(at60.ink2);
+    // ...and the ground and the hues are untouched, or it is not a contrast control.
+    expect(root.style.getPropertyValue("--page")).toBe(at60.page);
+    expect(root.style.getPropertyValue("--accent")).toBe(at60.accent);
+  });
+});
+
 describe("the adjustable ground reaches :root", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 
   it("carries the user's value, and a change to it repaints without a mode or theme change", () => {
     const { rerender } = renderHook(
-      ({ alpha }) => useApplyTheme("#7c6cff", "dark" as ThemePref, "realm", alpha),
+      ({ alpha }) => useApplyTheme({ color: "#7c6cff", pref: "dark", groundAlpha: alpha }),
       { initialProps: { alpha: 82 } },
     );
     expect(document.documentElement.style.getPropertyValue("--ground-alpha")).toBe("82%");

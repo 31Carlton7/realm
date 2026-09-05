@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyTheme, hexToHsl, hslToHex, spaceColor } from "./theme";
 import { THEME_VARS } from "./themes";
+import { DEFAULT_FONTS, FONT_VARS, fontVars } from "./fonts";
 import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE, clampGroundAlpha } from "./theme";
 
 /** Plan 9 W1 re-scope: the ink-grayscale palette generator is gone — surfaces, text tiers, accent,
@@ -40,7 +41,14 @@ describe("spaceColor (the one identity pixel, clamp rules unchanged from spec 20
   });
 });
 
-describe("applyTheme (runtime writes: --rl-space, the two attributes, and a custom theme's palette)", () => {
+/** What `applyTheme` writes on EVERY apply, whatever the palette. The font stacks are here and the
+ *  palette is not, and the difference is the point: a palette is a second skin over 85 properties of
+ *  hand-tuned static CSS, so the default has to write none of it; the font tokens' static values ARE
+ *  the bundled stacks, so writing them back is a no-op and there is nothing to preserve by staying
+ *  silent. */
+const BASE_PROPS = ["--ground-alpha", "--rl-space", ...FONT_VARS].sort();
+
+describe("applyTheme (runtime writes: --rl-space, the fonts, the two attributes, and a custom theme's palette)", () => {
   const fakeRoot = () => {
     const props: Record<string, string> = {};
     const root = {
@@ -69,7 +77,7 @@ describe("applyTheme (runtime writes: --rl-space, the two attributes, and a cust
     // for every user who never asked for a theme.
     const { root, props } = fakeRoot();
     applyTheme({ space: "#7c6cff", mode: "dark", theme: "realm" }, root);
-    expect(Object.keys(props).sort()).toEqual(["--ground-alpha", "--rl-space"]);
+    expect(Object.keys(props).sort()).toEqual(BASE_PROPS);
   });
 
   it("a custom theme writes its whole palette inline, and returning to the default clears every one", () => {
@@ -80,7 +88,20 @@ describe("applyTheme (runtime writes: --rl-space, the two attributes, and a cust
     // THE stale-palette mutant: drop the removeProperty branch and this keeps One Dark's inline
     // values, which beat both token blocks in tokens.css — the app would be stuck on the last theme
     // chosen with no way back short of a reload.
-    expect(Object.keys(props).sort()).toEqual(["--ground-alpha", "--rl-space"]);
+    expect(Object.keys(props).sort()).toEqual(BASE_PROPS);
+  });
+
+  it("writes the type faces on every apply, default included", () => {
+    // THE clear-on-default mutant: treat fonts like the palette and remove them when they are the
+    // default. Every property here would fall back to the stylesheet's value, which is the same
+    // value — so it would look correct, until someone changed --font-ui in styles.css and the
+    // "default" preference stopped meaning "the bundled face".
+    const { root, props } = fakeRoot();
+    applyTheme({ space: "#7c6cff", mode: "dark" }, root);
+    for (const [name, value] of Object.entries(fontVars(DEFAULT_FONTS))) expect(props[name], name).toBe(value);
+    applyTheme({ space: "#7c6cff", mode: "dark", fonts: { ui: "system", uiWeight: "medium", code: "system" } }, root);
+    expect(props["--font-ui"]).not.toContain("Inter");
+    expect(props["--fw-shift"]).not.toBe("0");
   });
 
   it("stamps the theme on the root so the stylesheet and the live checks can name it", () => {

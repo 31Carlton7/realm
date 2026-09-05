@@ -10,6 +10,7 @@ import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
 import { SpaceOverview, useSpacesHotkey } from "./components/sidebar/SpaceOverview";
 import { PaneHost } from "./components/PaneHost";
+import { getTerminalHub } from "./panes/terminal-hub";
 import { GroupBar } from "./components/GroupBar";
 import { Onboarding } from "./components/Onboarding";
 import { StoreContext, createAppStore, useApp } from "./state/store";
@@ -53,9 +54,16 @@ export function AppShell() {
 function ThemeBridge() {
   const color = useApp((s) => s.activeSpace()?.color ?? null);
   const pref = useApp((s) => s.themePref);
-  const theme = useApp((s) => s.themeName);
+  const themes = useApp((s) => s.themeNames);
+  const overrides = useApp((s) => s.themeOverrides);
+  const contrast = useApp((s) => s.contrast);
+  const fonts = useApp((s) => s.fonts);
   const groundAlpha = useApp((s) => s.groundAlpha);
-  useApplyTheme(color, pref, theme, groundAlpha);
+  useApplyTheme({ color, pref, themes, overrides, contrast, fonts, groundAlpha });
+  // xterm reads its font once, at construction, so a terminal already on screen would keep the old
+  // face. A plain effect, not a layout one: it has to run AFTER useApplyTheme has written
+  // --font-mono, because the hub reads the computed value off :root.
+  useEffect(() => { getTerminalHub().refreshFont(); }, [fonts]);
   return null;
 }
 

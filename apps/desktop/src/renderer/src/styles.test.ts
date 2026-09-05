@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { deriveVars, oklchToHex, themeSwatches } from "@realm/ui";
+import { REALM_SEED, deriveVars, oklchToHex } from "@realm/ui";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
  *  itself — jsdom has no layout, no compositor and no CSSOM for a raw file, so nothing else in the
@@ -472,13 +472,20 @@ describe("Plan 9 W1 — the BUI bridge", () => {
   it("the weight ladder is four named rungs on tembo's values — no bare weight survives in a component rule", () => {
     const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
     // 450/500/560/600. The old 500/550/600/650 spread had two rungs nobody could tell apart.
-    expect(root).toContain("--fw-medium: 450");
-    expect(root).toContain("--fw-label: 500");
-    expect(root).toContain("--fw-title: 560");
-    expect(root).toContain("--fw-strong: 600");
+    // Each rung carries --fw-shift, which is the whole of how the font-weight preference reaches the
+    // app. THE absolute-weight mutant: have the preference write --fw-medium..--fw-strong directly.
+    // Two rungs a user picked "Medium" for would land on the same number and the ladder would stop
+    // being a ladder for exactly the people who asked for heavier text.
+    for (const [rung, base] of [["medium", 450], ["label", 500], ["title", 560], ["strong", 600]] as const) {
+      expect(root, rung).toContain(`--fw-${rung}: calc(${base} + var(--fw-shift))`);
+    }
+    expect(root).toContain("--fw-shift: 0");
     // Everything but the @font-face ranges and the two deliberate 400s goes through the ladder.
     const bare = [...css.matchAll(/font-weight:\s*(\d+)\s*;/g)].map((m) => m[1]);
     expect(bare.filter((w) => w !== "400")).toEqual([]);
+    // ...and body copy is on it too, or the preference would move every label in the app and leave
+    // the prose it sits beside behind. The `font:` shorthand resets weight, so it has to be IN it.
+    expect(bodiesFor("html, body, #root".split(", ")[0]!).join(" ")).toContain("var(--fw-body) 14px/20px");
   });
 
   it("hairlines are half-pixel alpha overlays — one device pixel on retina, and no ground they are painted for", () => {
@@ -495,7 +502,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     for (const decl of ["--text-xs--letter-spacing: -0.2px", "--text-sm--letter-spacing: -0.2px", "--text-base--line-height: 20px"])
       expect(tokens, decl).toContain(decl);
     // The body line box is the 20px the scale asks for, not 1.5×.
-    expect(bodiesFor("html, body, #root".split(", ")[0]!).join(" ")).toContain("font: 14px/20px var(--font-ui)");
+    expect(bodiesFor("html, body, #root".split(", ")[0]!).join(" ")).toContain("font: var(--fw-body) 14px/20px var(--font-ui)");
   });
 
   it("every custom property the stylesheet reads is one it (or tokens.css) actually defines", () => {
@@ -1510,6 +1517,19 @@ const SYNTAX_ROLES = [
 describe("custom themes", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
 
+  /** One mode's declaration block, so a token is read from the ramp that actually states it. */
+  const modeBlock = (mode: "dark" | "light"): string => {
+    const at = tokens.indexOf(mode === "dark" ? ":root {\n  color-scheme: dark" : ':root[data-mode="light"] {');
+    expect(at, `no ${mode} token block in tokens.css`).toBeGreaterThan(-1);
+    return tokens.slice(at, tokens.indexOf("\n}", at));
+  };
+  const oklchIn = (name: string, block: string): { l: number; c: number; h: number } => {
+    const m = new RegExp(`${name}: oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)`).exec(block);
+    expect(m, `${name} is not a plain oklch value in tokens.css`).not.toBeNull();
+    return { l: Number(m![1]), c: Number(m![2]), h: Number(m![3]) };
+  };
+  const hexIn = (name: string, block: string): string => oklchToHex(oklchIn(name, block));
+
   it("the default palette defines every syntax role in terms of the ramps the old block wrote inline", () => {
     // Byte-for-byte the mapping styles.css used to carry, so introducing the roles cannot have
     // changed how the shipped theme highlights code. A drift here is a silent restyle of every
@@ -1550,29 +1570,19 @@ describe("custom themes", () => {
     // exponent, the tooltip's inversion. Every theme still clears every contrast floor, because the
     // floors are about legibility and this is about SHAPE; only this notices that the derived
     // palettes have stopped being the same system as the one they sit beside.
-    const L = (name: string, block: string): number => {
-      const m = new RegExp(`${name}: oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)`).exec(block);
-      expect(m, `${name} is not a plain oklch value in tokens.css`).not.toBeNull();
-      return Number(m![1]);
-    };
-    const hex = (name: string, block: string): string => {
-      const m = new RegExp(`${name}: oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)`).exec(block)!;
-      return oklchToHex({ l: Number(m[1]), c: Number(m[2]), h: Number(m[3]) });
-    };
+    const L = (name: string, block: string): number => oklchIn(name, block).l;
     const derivedL = (v: string): number => Number(/^oklch\(([\d.]+)/.exec(v)![1]);
 
     for (const mode of ["dark", "light"] as const) {
-      const at = tokens.indexOf(mode === "dark" ? ":root {\n  color-scheme: dark" : ':root[data-mode="light"] {');
-      expect(at, `no ${mode} token block in tokens.css`).toBeGreaterThan(-1);
-      const block = tokens.slice(at, tokens.indexOf("\n}", at));
+      const block = modeBlock(mode);
       // The seeds are read back out of the palette rather than written here, so this cannot drift
       // by someone updating tokens.css and the copy in the test to match each other.
       const derived = deriveVars({
-        bg: hex("--page", block), ink: hex("--ink", block), accent: hex("--accent", block),
-        green: hex("--green", block), orange: hex("--orange", block), red: hex("--red", block),
+        bg: hexIn("--page", block), ink: hexIn("--ink", block), accent: hexIn("--accent", block),
+        green: hexIn("--green", block), orange: hexIn("--orange", block), red: hexIn("--red", block),
         // The same role mapping the base --syn-* block states, so the seeds are Realm's own.
-        syntax: { comment: hex("--ink-3", block), keyword: hex("--accent", block), string: hex("--green", block),
-          number: hex("--orange", block), title: hex("--ink", block), type: hex("--ink", block), attr: hex("--ink-2", block) },
+        syntax: { comment: hexIn("--ink-3", block), keyword: hexIn("--accent", block), string: hexIn("--green", block),
+          number: hexIn("--orange", block), title: hexIn("--ink", block), type: hexIn("--ink", block), attr: hexIn("--ink-2", block) },
       }, mode);
 
       // The surface ladder and the tooltip chip are pure geometry off the seed: they have to land on
@@ -1590,10 +1600,23 @@ describe("custom themes", () => {
   });
 
   it("the picker's copy of Realm's own colours has not drifted from tokens.css", () => {
-    // themeSwatches cannot read the live values — under any other theme they are that theme's — so
-    // it carries four literals. This is the pin that keeps the copy honest.
+    // themeSwatches cannot read the live values — under any other theme they are that theme's — and
+    // an override needs a seed to move, so REALM_SEED carries Realm's twelve as hex. This is the pin
+    // that keeps the copy honest: the same read-back the ramp test does above, compared value for
+    // value. THE drifted-seed mutant: repaint --accent in tokens.css and leave REALM_SEED alone —
+    // the picker's Realm card, and every override derived off Realm, keep the old blue.
     for (const mode of ["dark", "light"] as const) {
-      for (const value of themeSwatches("realm", mode)) expect(tokens, `${mode} ${value}`).toContain(value);
+      const block = modeBlock(mode);
+      const want = REALM_SEED[mode];
+      for (const [role, token] of [["bg", "--page"], ["ink", "--ink"], ["accent", "--accent"],
+        ["green", "--green"], ["orange", "--orange"], ["red", "--red"]] as const) {
+        expect(want[role], `${mode} ${role}`).toBe(hexIn(token, block));
+      }
+      // The syntax seeds are the role mapping the base --syn-* block states, resolved through it.
+      for (const [role, token] of [["comment", "--ink-3"], ["keyword", "--accent"], ["string", "--green"],
+        ["number", "--orange"], ["title", "--ink"], ["type", "--ink"], ["attr", "--ink-2"]] as const) {
+        expect(want.syntax[role], `${mode} syntax.${role}`).toBe(hexIn(token, block));
+      }
     }
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { DEFAULT_GROUND_ALPHA, applyTheme, resolveMode, type Mode, type ThemeName } from "@realm/ui";
+import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, applyTheme, overrideKey,
+  paletteFor, type FontPref, type Mode, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
 
 export type ThemePref = "system" | "light" | "dark";
 
@@ -16,6 +17,14 @@ export function useSystemMode(): Mode {
   return mode;
 }
 
+/** The face on screen: the preference, resolved against the OS only where it defers to it. Every
+ *  control that offers "the palette for the mode you are looking at" needs this same answer, and one
+ *  of them computing it differently would set the slot the user is not seeing. */
+export function useResolvedMode(pref: ThemePref): Mode {
+  const sys = useSystemMode();
+  return pref === "system" ? sys : pref;
+}
+
 /** How long the no-transition guard holds. Long enough for the new palette to paint, short enough
  *  that a hover started right after a theme switch still animates. */
 const SETTLE_MS = 60;
@@ -30,23 +39,37 @@ export function suppressTransitions(root: HTMLElement, ms = SETTLE_MS): () => vo
   return () => { clearTimeout(id); root.removeAttribute("data-theme-switching"); };
 }
 
-/** Resolves the effective mode from the two axes — the user's light/dark preference and the theme,
- *  which may only have one face — and stamps it (plus the space colour and the theme's palette) on
- *  `:root`. On the default theme the palette is still static CSS (BUI tokens in theme/tokens.css
- *  keyed on `data-mode`) and the only runtime writes are `--rl-space` and the two attributes.
+/** Resolves the two axes — the user's light/dark preference, and the palette that face wears — and
+ *  stamps the result (plus the space colour) on `:root`. On the default theme the palette is still
+ *  static CSS (BUI tokens in theme/tokens.css keyed on `data-mode`) and the only runtime writes are
+ *  `--rl-space` and the two attributes.
  *
- *  The PREFERENCE is deliberately not clamped here, only the resolved mode: choosing Monokai pins
- *  the window dark, and choosing a two-faced theme afterwards must find "system" where it left it. */
-export function useApplyTheme(color: string | null, pref: ThemePref, theme: ThemeName = "realm",
-  groundAlpha: number = DEFAULT_GROUND_ALPHA): Mode {
-  const sys = useSystemMode();
-  const mode = resolveMode(theme, pref === "system" ? sys : pref);
+ *  The mode is the preference and nothing else. A palette cannot move it: each slot is offered only
+ *  palettes that have its face, so "Monokai, which has no light face" is settled by what the dark
+ *  slot may hold rather than by overruling the other axis at paint time. */
+export type AppliedTheme = {
+  color: string | null;
+  pref: ThemePref;
+  themes?: ThemeSelection;
+  /** Keyed by palette AND face, so the effect's dependency is the ONE override on screen rather than
+   *  every override the user has ever set — editing Gruvbox's accent must not repaint One Dark. */
+  overrides?: ThemeOverrides;
+  contrast?: number;
+  fonts?: FontPref;
+  groundAlpha?: number;
+};
+
+export function useApplyTheme({ color, pref, themes = DEFAULT_SELECTION, overrides = {},
+  contrast = CONTRAST_RANGE.default, fonts = DEFAULT_FONTS, groundAlpha = DEFAULT_GROUND_ALPHA }: AppliedTheme): Mode {
+  const mode = useResolvedMode(pref);
+  const theme = paletteFor(themes, mode);
+  const override = overrides[overrideKey(theme, mode)];
   // Layout effect so the first paint already carries the mode (no flash of default vars).
   useLayoutEffect(() => {
     const done = suppressTransitions(document.documentElement);
-    applyTheme({ space: color ?? "#7c6cff", mode, theme, groundAlpha });
+    applyTheme({ space: color ?? "#7c6cff", mode, theme, override, contrast, fonts, groundAlpha });
     return done;
-  }, [color, mode, theme, groundAlpha]);
+  }, [color, mode, theme, override, contrast, fonts, groundAlpha]);
   return mode;
 }
 

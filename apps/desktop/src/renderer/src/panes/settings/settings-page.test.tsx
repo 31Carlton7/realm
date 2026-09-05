@@ -157,25 +157,228 @@ describe("App tab", () => {
     expect(api.calls).toContain("setSetting:ui.theme=dark");
   });
 
-  it("the palette is a card per theme; choosing one writes ui.themeName and not ui.theme", async () => {
+  const row = (face: "Light" | "Dark") => within(screen.getByRole("group", { name: `${face} theme` }));
+  const colours = (face: "Light" | "Dark") => within(screen.getByRole("group", { name: `${face} theme colours` }));
+
+  it("there is a palette row per face, and each writes only its own key", async () => {
     const { store, api } = await openApp();
-    expect(screen.getByRole("radio", { name: "Realm" })).toBeChecked();
-    fireEvent.click(screen.getByRole("radio", { name: "One" }));
-    await waitFor(() => expect(store.getState().themeName).toBe("one"));
-    expect(api.calls).toContain("setSetting:ui.themeName=one");
+    expect(row("Light").getByRole("radio", { name: "Realm" })).toBeChecked();
+    fireEvent.click(row("Dark").getByRole("radio", { name: "One" }));
+    await waitFor(() => expect(store.getState().themeNames.dark).toBe("one"));
+    expect(api.calls).toContain("setSetting:ui.themeName.dark=one");
+    // THE shared-row mutant: render one picker and point both faces at it. The two rows would move
+    // together and the whole feature would be a relabelled single selection.
+    expect(store.getState().themeNames.light).toBe("realm");
+    expect(row("Light").getByRole("radio", { name: "Realm" })).toBeChecked();
     // THE conflated-axis mutant: have the picker set the mode too. The light/dark preference is the
     // user's and a palette choice is not permission to overwrite it.
     expect(api.calls.filter((c) => c.startsWith("setSetting:ui.theme="))).toEqual([]);
     expect(store.getState().themePref).toBe("system");
   });
 
-  it("a one-faced palette says so rather than leaving the mode control looking broken", async () => {
+  it("a face is offered only palettes that have it", async () => {
+    // THE every-palette mutant: list all of THEMES in both rows. Choosing Monokai for the light face
+    // stores a slot the light window cannot read, and the row's own card would have to preview a
+    // light face Monokai does not have — which is a card that lies about what clicking it does.
+    await openApp();
+    expect(row("Dark").getByRole("radio", { name: "Monokai" })).toBeInTheDocument();
+    expect(row("Light").queryByRole("radio", { name: "Monokai" })).toBeNull();
+    for (const face of ["Light", "Dark"] as const) {
+      for (const name of ["Realm", "One", "Solarized", "Gruvbox"]) {
+        expect(row(face).getByRole("radio", { name }), `${face}/${name}`).toBeInTheDocument();
+      }
+    }
+  });
+
+  it("the override fields show the palette as edited, and a hex commits on blur", async () => {
+    const { store, api } = await openApp();
+    const hex = colours("Dark").getByRole("textbox", { name: "Accent hex" }) as HTMLInputElement;
+    // One Dark's own accent, before anything is edited — the field is a view of the seed, not a blank.
+    expect(hex.value).toBe("#3d9aff"); // Realm dark, the default selection
+    fireEvent.click(row("Dark").getByRole("radio", { name: "One" }));
+    await waitFor(() => expect((colours("Dark").getByRole("textbox", { name: "Accent hex" }) as HTMLInputElement).value).toBe("#61afef"));
+
+    const field = colours("Dark").getByRole("textbox", { name: "Accent hex" });
+    fireEvent.change(field, { target: { value: "#f92672" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(store.getState().themeOverrides["one:dark"]).toEqual({ accent: "#f92672" }));
+    expect(api.calls.some((c) => c.startsWith("setSetting:ui.themeOverrides"))).toBe(true);
+  });
+
+  it("a hex that is not a colour is refused and the field goes back to what is on screen", async () => {
+    // THE trusting-field mutant: commit whatever was typed. "#f" is a valid prefix of a hex and an
+    // invalid colour, and the derivation throws on it — from inside the paint of the next frame.
     const { store } = await openApp();
-    fireEvent.click(screen.getByRole("radio", { name: "Monokai" }));
-    await waitFor(() => expect(store.getState().themeName).toBe("monokai"));
-    expect(screen.getByText(/Monokai has no light variant/)).toBeInTheDocument();
-    // Still operable: the preference it records applies again under a two-faced palette.
-    expect(screen.getByRole("radio", { name: "Light" })).not.toBeDisabled();
+    const field = colours("Light").getByRole("textbox", { name: "Background hex" }) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "not a colour" } });
+    fireEvent.blur(field);
+    expect(store.getState().themeOverrides).toEqual({});
+    expect(field.value).toBe("#fafafb");
+  });
+
+  it("an edited palette offers a way back to the palette itself", async () => {
+    // THE no-reset mutant: leave the button out. An override is per palette and per face, so a user
+    // who dislikes what they did has no path back short of matching the original hex by hand.
+    const { store } = await openApp();
+    expect(colours("Light").queryByRole("button", { name: /Reset to/ })).toBeNull();
+    const field = colours("Light").getByRole("textbox", { name: "Accent hex" });
+    fireEvent.change(field, { target: { value: "#ff0000" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(colours("Light").getByRole("button", { name: "Reset to Realm" })).toBeInTheDocument());
+    fireEvent.click(colours("Light").getByRole("button", { name: "Reset to Realm" }));
+    await waitFor(() => expect(store.getState().themeOverrides).toEqual({}));
+  });
+
+  it("a colour that cannot reach the floor is named rather than quietly corrected", async () => {
+    // The decision: the ground and the ink are never moved for the user, so the app has to SAY what
+    // it did with them. THE silent-warning mutant: drop the line. The window is illegible and the
+    // page that caused it shows the hex the user typed with nothing beside it.
+    const { store } = await openApp();
+    for (const [label, hex] of [["Background", "#282828"], ["Foreground", "#2b2b2b"]] as const) {
+      const field = colours("Light").getByRole("textbox", { name: `${label} hex` });
+      fireEvent.change(field, { target: { value: hex } });
+      fireEvent.blur(field);
+    }
+    await waitFor(() => expect(store.getState().themeOverrides["realm:light"]).toMatchObject({ bg: "#282828", ink: "#2b2b2b" }));
+    expect(await colours("Light").findByText(/Below the contrast Realm holds every palette to.*Foreground/)).toBeInTheDocument();
+  });
+
+  it("each mode card shows the window it produces, and System shows both", async () => {
+    // THE decorative-preview mutant: paint the cards from :root's live values. Every card on the page
+    // would then be the mode already on screen, in the palette already on — three identical pictures
+    // claiming to be a choice between three things.
+    await openApp();
+    const frames = (name: string) =>
+      [...screen.getByRole("radio", { name }).closest(".mode-card")!.querySelectorAll(".mini-window")];
+    expect(frames("Light")).toHaveLength(1);
+    expect(frames("Dark")).toHaveLength(1);
+    // "System" cannot promise which face you will get, so its card does not pretend to either.
+    expect(frames("System")).toHaveLength(2);
+    const page = (el: Element) => (el as HTMLElement).style.getPropertyValue("--page");
+    expect(page(frames("Light")[0]!)).not.toBe(page(frames("Dark")[0]!));
+    expect([page(frames("System")[0]!), page(frames("System")[1]!)])
+      .toEqual([page(frames("Light")[0]!), page(frames("Dark")[0]!)]);
+  });
+
+  it("the code preview is the palette on the row, as edited, in the app's own syntax roles", async () => {
+    const { store } = await openApp();
+    const preview = (face: "Light" | "Dark") =>
+      screen.getByRole("group", { name: `${face} theme` }).parentElement!.querySelector(".code-preview") as HTMLElement;
+    // THE private-table mutant: give the preview its own colours instead of the --syn-* roles the
+    // stylesheet maps highlight.js onto. It would look plausible and would stop being a preview of
+    // anything the transcript does.
+    expect(preview("Dark").querySelector(".hljs-keyword")).toBeTruthy();
+    expect(preview("Dark").querySelector(".hljs-string")).toBeTruthy();
+    expect(preview("Dark").style.getPropertyValue("--syn-keyword")).toMatch(/^oklch\(/);
+    expect(preview("Dark").style.getPropertyValue("--page")).not.toBe(preview("Light").style.getPropertyValue("--page"));
+
+    // THE static-preview mutant: derive it once, off the palette's own seeds. Editing a colour would
+    // leave the picture underneath showing the theme before the edit.
+    const before = preview("Dark").style.getPropertyValue("--accent");
+    const field = colours("Dark").getByRole("textbox", { name: "Accent hex" });
+    fireEvent.change(field, { target: { value: "#f92672" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(store.getState().themeOverrides["realm:dark"]).toEqual({ accent: "#f92672" }));
+    expect(preview("Dark").style.getPropertyValue("--accent")).not.toBe(before);
+
+    // ...and it follows the contrast control, which moves the secondary tier the code body is drawn in.
+    const fg = preview("Dark").style.getPropertyValue("--syn-fg");
+    fireEvent.change(screen.getByRole("slider", { name: "Contrast" }), { target: { value: "10" } });
+    await waitFor(() => expect(preview("Dark").style.getPropertyValue("--syn-fg")).not.toBe(fg));
+  });
+
+  it("the two faces are chosen independently, and the weight rides the UI face", async () => {
+    // THE one-font mutant: a single family for both. Someone who wants the system UI face is not
+    // thereby asking for the system mono face, and the two live in different parts of the app.
+    const { store, api } = await openApp();
+    expect((screen.getByRole("combobox", { name: "UI font" }) as HTMLSelectElement).value).toBe("bundled");
+    fireEvent.change(screen.getByRole("combobox", { name: "UI font" }), { target: { value: "system" } });
+    await waitFor(() => expect(store.getState().fonts).toEqual({ ui: "system", uiWeight: "regular", code: "bundled" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "UI font weight" }), { target: { value: "medium" } });
+    await waitFor(() => expect(store.getState().fonts.uiWeight).toBe("medium"));
+    expect(store.getState().fonts.code).toBe("bundled");
+    fireEvent.change(screen.getByRole("combobox", { name: "Code font" }), { target: { value: "system" } });
+    await waitFor(() => expect(store.getState().fonts.code).toBe("system"));
+    expect(store.getState().fonts.ui).toBe("system");
+    expect(api.calls.some((c) => c.startsWith("setSetting:ui.fonts"))).toBe(true);
+  });
+
+  it("offers no weight for code, and says why rather than leaving a gap", async () => {
+    await openApp();
+    expect(screen.queryByRole("combobox", { name: "Code font weight" })).toBeNull();
+    expect(screen.getByText(/Weight follows the app's own scale here/)).toBeInTheDocument();
+  });
+
+  it("a pasted theme becomes the face's colours; a blob that is not one is refused in place", async () => {
+    const { store } = await openApp();
+    fireEvent.click(colours("Dark").getByRole("button", { name: "Import" }));
+    const box = colours("Dark").getByRole("textbox", { name: "Theme to import" });
+
+    // THE optimistic-apply mutant: apply first and report afterwards. The window repaints off a
+    // half-read document and the message explaining why arrives against colours it caused.
+    fireEvent.change(box, { target: { value: "{ not json" } });
+    fireEvent.click(colours("Dark").getByRole("button", { name: "Apply" }));
+    expect(store.getState().themeOverrides).toEqual({});
+    expect(colours("Dark").getByText(/not JSON/)).toBeInTheDocument();
+    // The box stays open over the thing that was rejected, so the message has something to point at.
+    expect(colours("Dark").getByRole("textbox", { name: "Theme to import" })).toBeInTheDocument();
+
+    const seed = { bg: "#101014", ink: "#e6e6ea", accent: "#7c6cff", green: "#3cbb72", orange: "#f68f3c", red: "#ee5c61",
+      syntax: { comment: "#6c6f75", keyword: "#7c6cff", string: "#3cbb72", number: "#f68f3c", title: "#e6e6ea", type: "#e6e6ea", attr: "#a5a8ad" } };
+    fireEvent.change(box, { target: { value: JSON.stringify({ realmTheme: 1, name: "Night", mode: "dark", seed }) } });
+    fireEvent.click(colours("Dark").getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(store.getState().themeOverrides["realm:dark"]).toEqual(seed));
+    // It lands on the face it was imported into, not the other one.
+    expect(store.getState().themeOverrides["realm:light"]).toBeUndefined();
+  });
+
+  it("copies the face AS EDITED, so what is on the clipboard is what is on screen", async () => {
+    // THE unedited-copy mutant: export the palette's own seeds. Someone who spent a while moving
+    // three colours would hand a colleague the theme they started from.
+    const written: string[] = [];
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: (t: string) => { written.push(t); return Promise.resolve(); } } });
+    const { store } = await openApp();
+    const field = colours("Dark").getByRole("textbox", { name: "Accent hex" });
+    fireEvent.change(field, { target: { value: "#f92672" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(store.getState().themeOverrides["realm:dark"]).toEqual({ accent: "#f92672" }));
+    fireEvent.click(colours("Dark").getByRole("button", { name: "Copy theme" }));
+    expect(JSON.parse(written[0]!)).toMatchObject({ realmTheme: 1, mode: "dark", seed: { accent: "#f92672" } });
+  });
+
+  it("contrast is a slider over the ink ramp, defaulting to the shipped spread", async () => {
+    // What the store does with it. That it reaches the WINDOW is use-theme.test.ts's assertion — the
+    // bridge that writes :root is mounted there, not here.
+    const { store, api } = await openApp();
+    const slider = screen.getByRole("slider", { name: "Contrast" }) as HTMLInputElement;
+    expect(slider.value).toBe("60");
+    expect(slider.min).toBe("0");
+    expect(slider.max).toBe("100");
+    fireEvent.change(slider, { target: { value: "10" } });
+    await waitFor(() => expect(store.getState().contrast).toBe(10));
+    await vi.waitFor(() => expect(api.calls).toContain("setSetting:ui.contrast=10"));
+  });
+
+  it("the switch and the amount are one number, so they cannot disagree", async () => {
+    // THE two-controls mutant: give the switch its own stored boolean. It can then say "on" over a
+    // ground the slider has at 100% — a control claiming a state the window is not in, with the
+    // other control on the same row contradicting it.
+    vi.stubGlobal("realm", { platform: "darwin" });
+    const { store } = await openApp();
+    const sw = screen.getByRole("switch", { name: "Translucent sidebar" });
+    const slider = screen.getByRole("slider", { name: "Background transparency" });
+    expect(sw).toBeChecked();               // 82 by default, which is translucent
+    fireEvent.click(sw);
+    await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
+    expect(screen.getByRole("switch", { name: "Translucent sidebar" })).not.toBeChecked();
+    // Off means opaque, and the amount is inert rather than showing a value nothing is using.
+    expect(screen.getByRole("slider", { name: "Background transparency" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("switch", { name: "Translucent sidebar" }));
+    await waitFor(() => expect(store.getState().groundAlpha).toBe(82));
+    // Dragging the amount to fully opaque turns the switch off, because that IS off.
+    fireEvent.change(slider, { target: { value: "55" } });
+    await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
+    expect(screen.getByRole("switch", { name: "Translucent sidebar" })).not.toBeChecked();
   });
 
   it("background transparency runs the way its label reads and persists the ground's opacity", async () => {

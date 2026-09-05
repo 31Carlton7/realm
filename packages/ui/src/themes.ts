@@ -1,15 +1,15 @@
-import { contrast, css, hexToOklch, luminance, type Oklch } from "./oklch";
+import { contrast, css, emitted, hexToOklch, luminance, parseOklch, type Oklch } from "./oklch";
 import type { Mode } from "./theme";
 
 /** Custom themes.
  *
  *  Realm already had one colour axis — light / dark / system — and a theme is a SECOND axis, not a
  *  replacement for it. `themePref` still says which mode the user wants; a theme says what the
- *  palette looks like in that mode. The two compose through `resolveMode`: a theme that has both
- *  faces takes whichever mode the preference resolves to, and a theme with only a dark face pins the
- *  window dark WITHOUT touching the preference, so switching back to Realm restores "system" intact.
- *  That is why themes carry `dark`/`light` as nullable seeds rather than a single palette and a
- *  boolean — "Monokai has no light variant" is a fact about the theme, and the UI can say it.
+ *  palette looks like in that mode. The two compose through `paletteFor`, over a SLOT PER FACE: the
+ *  light window reads the light slot and the dark window the dark one, so neither axis has to
+ *  overrule the other. That is why themes carry `dark`/`light` as nullable seeds rather than a single
+ *  palette and a boolean — "Monokai has no light variant" is a fact about the theme, and it is what
+ *  keeps Monokai out of the light row rather than something the light row has to cope with.
  *
  *  `realm` is the palette in theme/tokens.css and states NO seeds. Selecting it means writing no
  *  overrides at all, so the default experience is byte-for-byte the static CSS it has always been —
@@ -74,7 +74,8 @@ export type ThemeDef = {
   light: ThemeSeed | null;
 };
 
-export type ThemeName = "realm" | "one" | "monokai" | "dracula" | "nord" | "solarized" | "gruvbox";
+export type ThemeName = "realm" | "one" | "monokai" | "dracula" | "nord" | "solarized" | "gruvbox"
+  | "catppuccin" | "github" | "rosepine";
 
 /* ── how a seed becomes a palette ──────────────────────────────────────────────
  * Every constant below was MEASURED off the shipped palette in theme/tokens.css, so a derived theme
@@ -175,6 +176,48 @@ export const CONTRAST_FLOOR = {
   series: 3,
 } as const;
 
+/** The grounds each ink tier actually lands on, read off styles.css rather than taken as the whole
+ *  ladder: `--ink-2` never appears on `--hover-2` or `--field` (both are written with `--ink` in
+ *  every rule that uses them), and `--ink-3` never leaves the resting surfaces. Widening these to the
+ *  full cross-product would fail palettes over pairings the stylesheet never produces; narrowing them
+ *  past what it does produce is how an unreadable pairing ships. */
+export const INK_GROUNDS = {
+  ink: ["--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field"],
+  ink2: ["--page", "--canvas", "--surface", "--inset", "--hover"],
+  ink3: ["--page", "--canvas", "--surface", "--inset"],
+} as const;
+
+/** The ink ramp's SPREAD, as a user control. 0–100 with 60 the shipped ramp, which is the range and
+ *  the default the control shows.
+ *
+ *  What it moves is the only thing in this palette that is a matter of preference rather than of
+ *  correctness: how far `--ink-2` and `--ink-3` fall below `--ink` against the ground. Those are the
+ *  exponents in `Ramp`, and this is a multiplier on them — a higher exponent puts the secondary and
+ *  hint tiers closer to primary text, a lower one lets them recede. It cannot touch `--ink` itself
+ *  (that is a seed, and the palette's identity) and it cannot touch a hue (a slider that desaturated
+ *  Monokai's pink towards the ground would be a repaint, not a preference).
+ *
+ *  It CANNOT make anything illegible, and not by arithmetic that has to be got right here: `inkStep`
+ *  floors every tier at `CONTRAST_FLOOR` before it walks, so the bottom of this range is where the
+ *  floors start binding rather than where the ramp keeps sinking. The top is bounded too — at 1.28
+ *  the shipped exponents still leave the three tiers a clear step apart on every palette, and a ramp
+ *  collapsed to one flat tier is a hierarchy destroyed rather than a contrast raised. */
+export const CONTRAST_RANGE = { min: 0, max: 100, default: 60 } as const;
+const CONTRAST_SPAN = { lo: 0.72, hi: 1.28 } as const;
+
+export const clampContrast = (x: number): number =>
+  Math.round(clamp(x, CONTRAST_RANGE.min, CONTRAST_RANGE.max));
+
+/** 0 → `lo`, the default → 1, 100 → `hi`. Two linear halves rather than one, because the default is
+ *  not the midpoint: the shipped ramp has to land exactly on 1 or moving the slider to 60 and back
+ *  would not return the palette it started from. */
+const contrastScale = (level: number): number => {
+  const c = clampContrast(level), d = CONTRAST_RANGE.default;
+  return c <= d
+    ? CONTRAST_SPAN.lo + ((1 - CONTRAST_SPAN.lo) * c) / d
+    : 1 + ((CONTRAST_SPAN.hi - 1) * (c - d)) / (CONTRAST_RANGE.max - d);
+};
+
 /** How far a stated colour may be pushed to meet its floor. A theme states hues; this budget is what
  *  separates "the palette lifted Nord's red half a step so error text is readable on Nord's own
  *  surface" from "the palette invented a colour and called it Nord". A seed that needs more than
@@ -194,10 +237,11 @@ const step = (base: Oklch, dl: number, dc = 0): Oklch =>
  *  thing a correctness fix must not quietly edit. */
 function lift(o: Oklch, ground: Oklch, floor: number, budget = LIFT_BUDGET): Oklch {
   const dir = luminance(o) >= luminance(ground) ? 1 : -1;
+  const g = emitted(ground);
   let best = o;
   for (let d = 0; d <= budget + 1e-9; d += 0.002) {
     best = { ...o, l: clamp(o.l + dir * d, 0, 1) };
-    if (contrast(best, ground) >= floor) return best;
+    if (contrast(emitted(best), g) >= floor) return best;
   }
   return best;
 }
@@ -207,12 +251,13 @@ function lift(o: Oklch, ground: Oklch, floor: number, budget = LIFT_BUDGET): Okl
  *  walk is exact to a step no display can resolve, and it stays correct where the naive inverse does
  *  not — at the gamut boundary, where raising L stops raising luminance. */
 function inkStep(ink: Oklch, ground: Oklch, exp: number, floor: number): Oklch {
-  const target = Math.max(floor, contrast(ink, ground) ** exp);
-  const dir = luminance(ink) >= luminance(ground) ? -1 : 1;
+  const g = emitted(ground);
+  const target = Math.max(floor, contrast(ink, g) ** exp);
+  const dir = luminance(ink) >= luminance(g) ? -1 : 1;
   let best = ink;
   for (let d = 0; d <= 1; d += 0.002) {
     const next = { ...ink, l: clamp(ink.l + dir * d, 0, 1) };
-    if (contrast(next, ground) < target) break;
+    if (contrast(emitted(next), g) < target) break;
     best = next;
   }
   return best;
@@ -235,16 +280,19 @@ export const THEME_VARS = [
 /** The palette a seed expands to: `THEME_VARS` → CSS colour. `themeVars` is pure and cheap enough to
  *  call on every switch, which is why the derived palette is not precomputed into a stylesheet — a
  *  generated CSS file would have to be regenerated, checked in, and then checked for staleness. */
-export function themeVars(name: ThemeName, mode: Mode): Record<string, string> {
-  const seed = seedFor(name, mode);
-  return seed ? deriveVars(seed, mode) : {};
+export function themeVars(name: ThemeName, mode: Mode,
+  { override = {}, contrast = CONTRAST_RANGE.default }: { override?: ThemeOverride; contrast?: number } = {},
+): Record<string, string> {
+  const seed = seedFor(name, mode, override);
+  return seed ? deriveVars(seed, mode, contrast) : {};
 }
 
 /** The derivation itself, on a bare seed. Exported so the guardrail can feed it the seeds tokens.css
  *  was built from and check that what comes out IS tokens.css — the ramp constants above are only
  *  "measured off the shipped palette" for as long as something re-measures them. */
-export function deriveVars(seed: ThemeSeed, mode: Mode): Record<string, string> {
+export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = CONTRAST_RANGE.default): Record<string, string> {
   const r = mode === "dark" ? DARK : LIGHT;
+  const spread = contrastScale(contrastLevel);
   const bg = hexToOklch(seed.bg);
   const ink = hexToOklch(seed.ink);
 
@@ -291,8 +339,8 @@ export function deriveVars(seed: ThemeSeed, mode: Mode): Record<string, string> 
    *  the series, not of the themes. */
   const chart = { ...surface, l: clamp(surface.l, r.chartL.min, r.chartL.max) };
 
-  const ink2 = inkStep(ink, worst(["canvas", "surface", "inset", "hover"]), r.ink2, CONTRAST_FLOOR.ink2);
-  const ink3 = inkStep(ink, worst(["canvas", "surface", "inset"]), r.ink3, CONTRAST_FLOOR.ink3);
+  const ink2 = inkStep(ink, worst(["canvas", "surface", "inset", "hover"]), r.ink2 * spread, CONTRAST_FLOOR.ink2);
+  const ink3 = inkStep(ink, worst(["canvas", "surface", "inset"]), r.ink3 * spread, CONTRAST_FLOOR.ink3);
   const tip = r.tooltip({ bg, ink, ink2 });
 
   /** Chrome and syntax are stated as hues and corrected as lightnesses. Every one of these lands on
@@ -356,10 +404,113 @@ export function deriveVars(seed: ThemeSeed, mode: Mode): Record<string, string> 
   };
 }
 
-const seedFor = (name: ThemeName, mode: Mode): ThemeSeed | null => {
+export type ContrastMiss = { role: string; ratio: number; floor: number };
+
+/** Which of a seed's colours the derivation could not get to their floor, and how far short they
+ *  fell. Two different failures land here, and the difference is why the UI reports rather than
+ *  silently repaints:
+ *
+ *  - The ground and the ink are the two seeds NOTHING corrects. A palette's identity is its paper
+ *    and its text, and a mechanism that moved them would hand back a theme the user did not pick.
+ *    So a `#2b2b2b` ink on a `#282828` page is derived exactly as asked and named here instead.
+ *  - Everything else is corrected along lightness, inside `LIFT_BUDGET`, exactly as a vendored
+ *    palette is. A hue that still misses after its budget is one the ramp genuinely cannot carry,
+ *    and saying which one is more use than a number that quietly stopped being the chosen colour.
+ *
+ *  Measured on the DERIVED palette, so it reports what will be on screen rather than what the seed
+ *  asked for — the same predicate the theme suite holds the shipped palettes to. */
+export function contrastMisses(seed: ThemeSeed, mode: Mode, contrastLevel: number = CONTRAST_RANGE.default): ContrastMiss[] {
+  const v = deriveVars(seed, mode, contrastLevel);
+  const at = (token: string): Oklch => parseOklch(v[token]!);
+  const out: ContrastMiss[] = [];
+  const check = (role: string, token: string, grounds: readonly string[], floor: number): void => {
+    const ratio = Math.min(...grounds.map((g) => contrast(at(token), at(g))));
+    if (ratio < floor) out.push({ role, ratio, floor });
+  };
+  check("Foreground", "--ink", INK_GROUNDS.ink, CONTRAST_FLOOR.ink);
+  check("Secondary text", "--ink-2", INK_GROUNDS.ink2, CONTRAST_FLOOR.ink2);
+  check("Hint text", "--ink-3", INK_GROUNDS.ink3, CONTRAST_FLOOR.ink3);
+  for (const [role, token] of [["Accent", "--accent"], ["Success", "--green"], ["Warning", "--orange"], ["Error", "--red"]] as const) {
+    check(role, token, ["--surface"], CONTRAST_FLOOR.chrome);
+  }
+  check("Link text", "--accent-ink", ["--surface"], CONTRAST_FLOOR.accentInk);
+  check("Button label", "--rl-accent-contrast", ["--accent"], CONTRAST_FLOOR.onAccent);
+  for (const token of THEME_VARS.filter((t) => t.startsWith("--syn-"))) {
+    check(`Code (${token.slice(6)})`, token, ["--surface"], CONTRAST_FLOOR.syntax);
+  }
+  return out;
+}
+
+/** What a user has moved off a palette's own seeds. A PARTIAL SEED rather than a fixed trio of
+ *  fields, because the same shape is what a copied theme has to carry: the picker edits three of the
+ *  twelve (ground, ink, accent — the three that decide what a palette feels like), and an imported
+ *  theme states as many of them as it likes, through one type and one merge.
+ *
+ *  Overrides are keyed by PALETTE as well as by face. Moving One Dark's accent is a statement about
+ *  One Dark; carrying it onto Gruvbox when the palette changes would repaint a theme the user never
+ *  edited, and losing it on the way back would make the picker destructive. */
+export type ThemeOverride = Partial<Omit<ThemeSeed, "syntax">> & { syntax?: Partial<SyntaxSeed> };
+export type ThemeOverrides = Record<string, ThemeOverride>;
+
+export const overrideKey = (name: ThemeName, mode: Mode): string => `${name}:${mode}`;
+
+/** The seed roles an override may state, as the names they carry in the JSON — which are the seed's
+ *  own field names, so a copied theme and a stored override are the same document. */
+export const SEED_ROLES = ["bg", "ink", "accent", "green", "orange", "red"] as const;
+export const SYNTAX_ROLES = ["comment", "keyword", "string", "number", "title", "type", "attr"] as const;
+
+const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+export const isHexColour = (x: unknown): x is string => typeof x === "string" && HEX.test(x);
+
+/** Overrides arrive from a user-editable settings row and from the clipboard, and `hexToOklch`
+ *  THROWS on anything that is not a colour — so an unvalidated `"blue"` in `ui.themeOverrides` is a
+ *  renderer that white-screens at boot with no control left on screen to undo it with. Field by
+ *  field, dropping what does not parse, exactly as the terminal-panel map is read. */
+export function parseThemeOverride(raw: unknown): ThemeOverride {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const src = raw as Record<string, unknown>;
+  const out: ThemeOverride = {};
+  for (const role of SEED_ROLES) if (isHexColour(src[role])) out[role] = src[role];
+  const syn = src["syntax"];
+  if (syn && typeof syn === "object" && !Array.isArray(syn)) {
+    const s = syn as Record<string, unknown>;
+    const kept: Partial<SyntaxSeed> = {};
+    for (const role of SYNTAX_ROLES) if (isHexColour(s[role])) kept[role] = s[role];
+    if (Object.keys(kept).length) out.syntax = kept;
+  }
+  return out;
+}
+
+export function parseThemeOverrides(raw: unknown): ThemeOverrides {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: ThemeOverrides = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const [name, mode] = key.split(":");
+    // A key naming a palette or a face this build does not have would be an override nothing can
+    // ever reach, kept forever in a row the user cannot see.
+    if (!isThemeName(name) || (mode !== "dark" && mode !== "light")) continue;
+    const parsed = parseThemeOverride(value);
+    if (isOverridden(parsed)) out[key] = parsed;
+  }
+  return out;
+}
+
+export const isOverridden = (o: ThemeOverride | undefined): boolean =>
+  !!o && (Object.keys(o).length > (o.syntax ? 1 : 0) || Object.keys(o.syntax ?? {}).length > 0);
+
+/** The seed a face actually derives from: the palette's own, with the user's edits merged in.
+ *
+ *  Null means "write nothing", which is only ever Realm untouched — the default has to stay
+ *  byte-for-byte the static CSS in tokens.css, so the theme mechanism cannot repaint the app for
+ *  someone who never chose a theme. The moment Realm IS edited it needs a ground to move, and
+ *  `REALM_SEED` is that ground, read back out of the stylesheet the default is. */
+export function seedFor(name: ThemeName, mode: Mode, override: ThemeOverride = {}): ThemeSeed | null {
   const def = THEMES.find((t) => t.name === name);
-  return (mode === "dark" ? def?.dark : def?.light) ?? null;
-};
+  const stated = (mode === "dark" ? def?.dark : def?.light) ?? null;
+  const base = stated ?? (name === "realm" ? REALM_SEED[mode] : null);
+  if (!base || (!stated && !isOverridden(override))) return null;
+  return { ...base, ...override, syntax: { ...base.syntax, ...override.syntax } };
+}
 
 /** Which modes a theme actually has a palette for. `realm` has both and states neither — it IS
  *  tokens.css, whose two blocks the mode attribute already flips. */
@@ -369,29 +520,70 @@ export function themeModes(name: ThemeName): Mode[] {
   return [...(def?.dark ? (["dark"] as const) : []), ...(def?.light ? (["light"] as const) : [])];
 }
 
-/** The composition rule for the two axes. A theme with one face pins the window to it; the MODE
- *  PREFERENCE is untouched, so it comes back the moment a two-faced theme is chosen again. */
+/** Which mode a theme would be worn in if it were the only thing chosen — a one-faced theme answers
+ *  with the face it has. Nothing about the WINDOW hangs off this any more (see `paletteFor`): it is
+ *  what a picker card and a ⌘K hint use to preview and to label, so `themeSwatches("monokai",
+ *  "light")` draws Monokai's dark face rather than fabricating a light one. */
 export function resolveMode(name: ThemeName, mode: Mode): Mode {
   const modes = themeModes(name);
   return modes.includes(mode) ? mode : (modes[0] ?? mode);
 }
 
-/** Realm's own window, card, accent and string colours, copied from theme/tokens.css.
- *  The picker cannot read them off the document: by the time it renders under any other theme the
- *  live `var(--page)` is THAT theme's page, so a preview built from computed styles would draw every
- *  card in the colours of whichever palette is already on. Copied, therefore, and pinned by a test
- *  against the stylesheet so the copy cannot drift. */
-const REALM_SWATCHES: Record<Mode, [string, string, string, string]> = {
-  dark: ["oklch(0.209 0.004 264.477)", "oklch(0.26 0.006 271.191)", "oklch(0.68 0.173 253.301)", "oklch(0.705 0.154 153.814)"],
-  light: ["oklch(0.985 0.001 286.376)", "oklch(1 0 0)", "oklch(0.626 0.205 254.947)", "oklch(0.603 0.155 150.883)"],
+/** Which palette each face wears. Two slots rather than one name because the palette that suits a
+ *  lit room is rarely the one that suits a dark one, and a single selection forces one of the two to
+ *  be a compromise — the mode preference already says WHEN to switch, and this says what to switch
+ *  TO. The pickers offer each face only the palettes that have it, which is what keeps the two axes
+ *  independent: choosing Monokai for the dark slot cannot pin the window dark at noon. */
+export type ThemeSelection = Record<Mode, ThemeName>;
+
+export const DEFAULT_SELECTION: ThemeSelection = { dark: "realm", light: "realm" };
+
+/** The palette a face actually wears. A selection naming a palette with no such face — a hand-edited
+ *  setting, or a palette that loses a face in some later version — falls back to `realm`, whose face
+ *  is the static CSS and therefore always exists. Falling back rather than pinning the mode is the
+ *  point of splitting the selection: the window shows the light the user asked for, in the closest
+ *  palette that has one. */
+export function paletteFor(selection: ThemeSelection, mode: Mode): ThemeName {
+  const name = selection[mode];
+  return themeModes(name).includes(mode) ? name : "realm";
+}
+
+/** Realm's own twelve, read out of theme/tokens.css and written here as hex — the same seeds the
+ *  stylesheet's own ramp guardrail recovers from that file, so styles.test.ts pins this copy against
+ *  it rather than letting two sets of Realm's colours drift apart.
+ *
+ *  It exists for the two jobs that need Realm's palette as VALUES rather than as a stylesheet. The
+ *  picker cannot read them off the document — by the time it renders under any other theme the live
+ *  `var(--page)` is THAT theme's page, so a preview built from computed styles would draw every card
+ *  in the colours of whichever palette is already on. And an override needs a ground to derive from:
+ *  a user who moves Realm's accent has asked for a palette, and there has to be a seed under it.
+ *
+ *  Realm's `ThemeDef` still states no seeds, which is what keeps the untouched default byte-for-byte
+ *  the static CSS: an unoverridden `realm` writes nothing, and this is never consulted. */
+export const REALM_SEED: Record<Mode, ThemeSeed> = {
+  dark: {
+    bg: "#17181a", ink: "#f2f3f4", accent: "#3d9aff",
+    green: "#3cbb72", orange: "#f68f3c", red: "#ee5c61",
+    syntax: { comment: "#6c6f75", keyword: "#3d9aff", string: "#3cbb72", number: "#f68f3c", title: "#f2f3f4", type: "#f2f3f4", attr: "#a5a8ad" },
+  },
+  light: {
+    bg: "#fafafb", ink: "#1f2124", accent: "#0285ff",
+    green: "#199a4d", orange: "#ef720d", red: "#e3474c",
+    syntax: { comment: "#9a9da3", keyword: "#0285ff", string: "#199a4d", number: "#ef720d", title: "#1f2124", type: "#1f2124", attr: "#62656b" },
+  },
 };
 
-/** The four colours a picker shows for a theme: the window, the card that floats on it, the accent,
- *  and the one syntax hue that says most about a code palette. */
-export function themeSwatches(name: ThemeName, mode: Mode): [string, string, string, string] {
+/** The colours a picker shows for a theme: the window, the card that floats on it, the accent, the
+ *  one syntax hue that says most about a code palette — and a hairline in the theme's own hint ink.
+ *
+ *  The hairline is there because the card is painted in the theme it names, so a swatch can land on
+ *  a ground it matches: every light palette's `--surface` is within a step of its `--page`, and that
+ *  dot disappeared into the card entirely. A ring drawn from the theme's own ink is visible on any
+ *  ground the theme can produce, which a fixed black or white one is not. */
+export function themeSwatches(name: ThemeName, mode: Mode): [string, string, string, string, string] {
   const v = themeVars(name, resolveMode(name, mode));
-  if (!v["--page"]) return REALM_SWATCHES[mode];
-  return [v["--page"]!, v["--surface"]!, v["--accent"]!, v["--syn-string"]!];
+  const s = v["--page"] ? v : deriveVars(REALM_SEED[mode], mode);
+  return [s["--page"]!, s["--surface"]!, s["--accent"]!, s["--syn-string"]!, s["--ink-3"]!];
 }
 
 export function isThemeName(x: unknown): x is ThemeName {
@@ -519,6 +711,74 @@ export const THEMES: readonly ThemeDef[] = [
       bg: "#fbf1c7", ink: "#3c3836", accent: "#076678",
       green: "#79740e", orange: "#af3a03", red: "#9d0006",
       syntax: { comment: "#7c6f64", keyword: "#9d0006", string: "#79740e", number: "#8f3f71", title: "#b57614", type: "#427b58", attr: "#076678" },
+    },
+  },
+  {
+    /* Catppuccin — catppuccin/palette (palette.json), MIT © Catppuccin. Mocha and Latte, both faces.
+     * Comments are `overlay2`, which is the one syntax role Catppuccin states globally — its VS Code
+     * port sets the rest PER LANGUAGE, so there is no published keyword-or-string colour to vendor.
+     * The seven hues below are Catppuccin's; the assignment of hue to role is Realm's, and it follows
+     * the convention its ports converge on: mauve for keywords, green for strings, blue for the name
+     * being defined, yellow for types, peach for numbers, teal for attributes. */
+    name: "catppuccin",
+    label: "Catppuccin",
+    credit: "Catppuccin — MIT © Catppuccin",
+    blurb: "Mocha at night, Latte by day.",
+    dark: {
+      bg: "#1e1e2e", ink: "#cdd6f4", accent: "#cba6f7",
+      green: "#a6e3a1", orange: "#fab387", red: "#f38ba8",
+      syntax: { comment: "#9399b2", keyword: "#cba6f7", string: "#a6e3a1", number: "#fab387", title: "#89b4fa", type: "#f9e2af", attr: "#94e2d5" },
+    },
+    light: {
+      bg: "#eff1f5", ink: "#4c4f69", accent: "#8839ef",
+      green: "#40a02b", orange: "#fe640b", red: "#d20f39",
+      syntax: { comment: "#7c7f93", keyword: "#8839ef", string: "#40a02b", number: "#fe640b", title: "#1e66f5", type: "#df8e1d", attr: "#179299" },
+    },
+  },
+  {
+    /* GitHub — primer/github-vscode-theme, MIT © Primer. Values read off the SHIPPED theme JSON
+     * rather than off @primer/primitives: colors.js overrides three of them at build time, so the
+     * primitives' own `fg.default` and `accent.fg` are not what the editor draws.
+     * One deviation, and it is the ladder's rather than a matter of taste: GitHub Light's editor
+     * ground is #ffffff, and a light surface step CLIMBS from the page — off pure white there is
+     * nowhere to climb to, so every card would land back on the page and the ladder would collapse.
+     * The seed is `canvas.subtle` (#f6f8fa), which is GitHub's own chrome ground: what it paints its
+     * sidebar, panel and tab strip with, and the right analogue of Realm's `--page`. */
+    name: "github",
+    label: "GitHub",
+    credit: "GitHub — MIT © Primer",
+    blurb: "GitHub's own two, as the editor draws them.",
+    dark: {
+      bg: "#0d1117", ink: "#e6edf3", accent: "#2f81f7",
+      green: "#3fb950", orange: "#d29922", red: "#f85149",
+      syntax: { comment: "#8b949e", keyword: "#ff7b72", string: "#a5d6ff", number: "#79c0ff", title: "#d2a8ff", type: "#7ee787", attr: "#ffa657" },
+    },
+    light: {
+      bg: "#f6f8fa", ink: "#1f2328", accent: "#0969da",
+      green: "#1a7f37", orange: "#9a6700", red: "#cf222e",
+      syntax: { comment: "#6e7781", keyword: "#cf222e", string: "#0a3069", number: "#0550ae", title: "#8250df", type: "#116329", attr: "#953800" },
+    },
+  },
+  {
+    /* Rosé Pine — rose-pine/rose-pine-palette, MIT © Rosé Pine. Main and Dawn.
+     * Dawn's text is #575279, from the palette's TypeScript source and its shipped VS Code theme.
+     * The palette.json in that repo says #464261; it was added in a commit titled "temp: add json,
+     * toml, yaml", disagrees with every built artifact, and is not what anything renders.
+     * Rosé Pine publishes no green. "It worked" takes foam, the nearest tone it has, because a
+     * semantic colour has to survive a repaint and inventing a green would be inventing a hue. */
+    name: "rosepine",
+    label: "Rosé Pine",
+    credit: "Rosé Pine — MIT © Rosé Pine",
+    blurb: "Muted natural tones, night and dawn.",
+    dark: {
+      bg: "#191724", ink: "#e0def4", accent: "#c4a7e7",
+      green: "#9ccfd8", orange: "#f6c177", red: "#eb6f92",
+      syntax: { comment: "#6e6a86", keyword: "#31748f", string: "#f6c177", number: "#c4a7e7", title: "#ebbcba", type: "#9ccfd8", attr: "#908caa" },
+    },
+    light: {
+      bg: "#faf4ed", ink: "#575279", accent: "#907aa9",
+      green: "#56949f", orange: "#ea9d34", red: "#b4637a",
+      syntax: { comment: "#9893a5", keyword: "#286983", string: "#ea9d34", number: "#907aa9", title: "#d7827e", type: "#56949f", attr: "#797593" },
     },
   },
 ];

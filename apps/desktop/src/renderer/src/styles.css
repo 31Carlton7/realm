@@ -109,8 +109,15 @@
   --ease: var(--ease-out-strong);
   /* The weight ladder, from tembo: 450 is "medium", 560 is the one title weight.
      Named rather than written per rule, so the ladder stays a ladder — the old
-     500/550/600/650 spread had two rungs a reader could not tell apart. */
-  --fw-medium: 450; --fw-label: 500; --fw-title: 560; --fw-strong: 600;
+     500/550/600/650 spread had two rungs a reader could not tell apart.
+     Every rung carries the same --fw-shift, which is how the UI font-weight preference reaches the
+     whole app from one place: an OFFSET, so the four rungs stay four rungs. Absolute weights from a
+     dropdown would flatten a label and a title into the same number on the way to making both
+     heavier. applyTheme() writes the shift; 0 here is what a renderer that never ran it gets. */
+  --fw-shift: 0;
+  --fw-body: calc(400 + var(--fw-shift));
+  --fw-medium: calc(450 + var(--fw-shift)); --fw-label: calc(500 + var(--fw-shift));
+  --fw-title: calc(560 + var(--fw-shift)); --fw-strong: calc(600 + var(--fw-shift));
 }
 /* The per-mode residue: the three tokens whose dark/light values do not flow from a BUI var. */
 :root[data-mode="light"] {
@@ -122,7 +129,7 @@
 /* 14/20 rather than 14/1.5: tembo pairs every type step with an explicit line
    height, and 21px line boxes are what left Realm's chrome sitting a hair
    looser than the references it gets measured against. */
-html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font: 14px/20px var(--font-ui); -webkit-font-smoothing: antialiased; }
+html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font: var(--fw-body) 14px/20px var(--font-ui); -webkit-font-smoothing: antialiased; }
 /* §5 vibrancy: html/body/#root/.app stay transparent so the macOS material shows through the
    sidebar column; .main (and every pane) paints opaque --rl-panel, so text there renders on a solid
    ground. On non-mac the BrowserWindow keeps its opaque backgroundColor and this composes to the
@@ -1938,7 +1945,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
   /* page panes */
   .cp-list, .activity-list, .task-detail-result, .notif-list, .notif-detail, .notif-split, .delegation-list,
-  .lecture-list, .install-cmd code,
+  .lecture-list, .install-cmd code, .code-preview,
   /* documents */
   .documents-tabs, .documents-picker, .documents-rich-surface, .documents-rich .tiptap, .documents-raw
 ) { scrollbar-width: thin; }
@@ -2284,6 +2291,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 .settings-input-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 .settings-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); }
 .settings-hint[data-tone="danger"] { color: var(--rl-danger); }
+/* A choice the app has carried out and is reporting on, not one it refused — the contrast a moved
+   colour actually landed at. Orange rather than red: the window still works.
+   --orange is load-bearing here rather than decorative. This line's whole job is to be readable on a
+   palette whose ground and ink have just been set to something illegible, and it is: the ground and
+   the ink are the two seeds nothing corrects, while every HUE is lifted to clear the floor against
+   the surface it lands on. So the sentence explaining the unreadable window is the one thing on it
+   that stays readable. */
+.settings-hint[data-tone="warn"] { color: var(--orange); }
 
 .settings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .settings-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; }
@@ -3003,10 +3018,58 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* ——— Settings → App: the background transparency slider ——————————————————————
    A native range on the app's accent, with the value beside it in tabular figures so the number does
    not jitter as the thumb moves. Disabled off macOS, where the window has no material behind it. */
-.ground-alpha { display: flex; align-items: center; gap: 10px; }
-.ground-alpha input { flex: 1; min-width: 0; max-width: 260px; accent-color: var(--rl-accent); }
-.ground-alpha input:disabled { cursor: default; opacity: .45; }
-.ground-alpha-value { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.font-row { display: flex; align-items: center; gap: 8px; }
+.font-row select { flex: 1; min-width: 0; max-width: 220px; }
+.slider-row { display: flex; align-items: center; gap: 10px; }
+.slider-row input[type="range"] { flex: 1; min-width: 0; max-width: 260px; accent-color: var(--rl-accent); }
+.slider-row input:disabled { cursor: default; opacity: .45; }
+/* Tabular so the readout does not shuffle the thumb sideways while it is being dragged. */
+.slider-value { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+
+/* ——— Settings → App: the previews ————————————————————————————————————————————
+   Every preview below paints from CUSTOM PROPERTIES set inline on its own element, not from :root.
+   That is what lets one page show a light window and a dark one at once: the token blocks in
+   tokens.css hang off `data-mode` at the root and cannot be flipped per subtree, so a preview built
+   on them could only ever show the mode already on screen. */
+.mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; max-width: 420px; }
+.mode-card {
+  display: flex; flex-direction: column; gap: 7px; padding: 7px; cursor: pointer;
+  border: 1px solid var(--rl-line); border-radius: var(--r-panel); background: var(--rl-panel);
+  transition: box-shadow var(--dur-hover) ease;
+}
+.mode-card input { position: absolute; opacity: 0; pointer-events: none; }
+.mode-card[data-selected] { box-shadow: 0 0 0 2px var(--rl-accent); }
+.mode-card:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.mode-card-name { font-size: 11.5px; font-weight: var(--fw-label); text-align: center; }
+/* The System card shows both faces side by side, each clipped to half the frame — the choice cannot
+   promise which one you will get, so the card does not pretend to either. */
+.mode-card-preview { display: flex; gap: 0; border-radius: var(--r-chip); overflow: hidden; }
+.mode-card-preview > * { flex: 1; min-width: 0; }
+.mode-card-preview[data-split] .mini-window:first-child { border-right: 1px solid var(--rl-line); }
+
+.mini-window { display: flex; height: 48px; background: var(--page); }
+.mini-sidebar { flex: none; width: 26%; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 4px; background: var(--canvas); }
+.mini-sidebar i { height: 3px; border-radius: 999px; background: var(--ink-3); }
+.mini-sidebar i:first-child { background: var(--accent); width: 70%; }
+.mini-body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 5px; }
+.mini-card { display: flex; align-items: center; gap: 3px; padding: 4px; border-radius: 3px; background: var(--surface); }
+.mini-card i { height: 3px; flex: 1; border-radius: 999px; background: var(--ink-2); }
+.mini-card i.mini-accent { flex: none; width: 22%; background: var(--accent); }
+
+/* A diff in the palette the row above it names. The spans carry highlight.js's own class names, so
+   this is coloured by the same `--syn-*` mapping a real transcript is — a preview with a private
+   colour table would be a preview of nothing. */
+.code-preview {
+  margin: 2px 0 0; padding: 8px 0; border-radius: var(--r-ctl); border: 1px solid var(--rl-line);
+  background: var(--surface); color: var(--syn-fg); overflow-x: auto;
+  font: 11.5px/1.7 var(--font-mono); white-space: pre;
+}
+.code-preview code { display: block; }
+.cp-line { display: block; padding: 0 10px; }
+/* The tint, not the hue: a diff band is a ground, and painting the line in --green would make the
+   added code itself unreadable in every palette whose green is near its surface. */
+.cp-line[data-diff="add"] { background: var(--green-tint); box-shadow: inset 2px 0 0 var(--green); }
+.cp-line[data-diff="del"] { background: var(--red-tint); box-shadow: inset 2px 0 0 var(--red); }
 
 /* ——— Settings → App: the palette picker ——————————————————————————————————————
    Each card is painted in the theme it names, so the row is a set of previews rather than a list of
@@ -3024,11 +3087,39 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .theme-card[data-selected] { box-shadow: 0 0 0 2px var(--rl-accent), var(--shadow-card-lift); }
 .theme-card:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 .theme-card-swatches { display: flex; gap: 4px; }
+/* The ring is drawn in the THEME's own hint ink, inline: the card is painted in the palette it
+   names, so every light palette's --surface dot sits on a --page within a step of it and would
+   otherwise vanish into the card. A fixed hairline would be the invisible one on half the set. */
 .theme-card-swatches span { width: 14px; height: 14px; border-radius: 999px; }
 .theme-card-name { font-size: 12px; font-weight: var(--fw-label); }
-/* A mode control the palette has overruled. Dimmed, never disabled — it still records a preference
-   that applies again the moment a two-faced palette is chosen. */
-.settings-tabs[data-pinned] { opacity: .5; }
+
+/* The three seeds a palette can be edited on. A swatch and a hex per row: the OS colour picker
+   cannot be typed into and a hex cannot be dragged, and both are how people actually arrive at a
+   colour. Wraps rather than scrolls — this sits in a pane whose width is wherever the split is. */
+.theme-overrides { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 2px 0 0; padding: 0; border: 0; }
+.theme-override { display: flex; align-items: center; gap: 6px; }
+.theme-override > span { font-size: 12px; color: var(--rl-text-dim); }
+.theme-override input[type="color"] {
+  width: 26px; height: 26px; padding: 2px; flex: none; cursor: pointer;
+  border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--rl-panel);
+}
+.theme-override .hex { width: 82px; text-transform: lowercase; }
+.theme-overrides .settings-hint { flex-basis: 100%; }
+.theme-import { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; }
+.theme-import textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px;
+  border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--field);
+  color: var(--rl-text-bright); font: 11.5px/1.6 var(--font-mono); outline: none;
+}
+.theme-import textarea:focus { border-color: var(--rl-accent); }
+.theme-import-actions { display: flex; align-items: center; gap: 10px; }
+/* The face on screen, of the two palette rows. A dot rather than a highlight: both rows are equally
+   live controls, and the only thing that distinguishes them is which one the window is wearing while
+   you read the page. */
+.field[data-live] > span::after {
+  content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 6px; vertical-align: middle;
+  border-radius: 999px; background: var(--rl-accent);
+}
 
 /* ——— Settings → Usage ————————————————————————————————————————————————————————
    Spend, tokens and activity. The palette itself lives in tokens.css (`--series-1..8`, validated as

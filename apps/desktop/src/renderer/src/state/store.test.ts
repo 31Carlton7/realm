@@ -235,15 +235,78 @@ describe("app store", () => {
     expect(store.getState().themePref).toBe("dark"); expect(set).toContain("ui.theme=dark");
   });
 
-  it("themeName persists under its own key, leaving the mode preference untouched", async () => {
+  it("each face's palette persists under its own key, leaving the other face and the mode alone", async () => {
     // THE compound-key mutant: fold the palette into ui.theme as "dark:monokai". It reads back fine
     // here and an older build finds a mode it cannot parse where it used to find "dark".
+    // THE shared-slot mutant: write both faces on every set. Choosing Monokai for the night would
+    // silently replace whatever the user had picked for the day, which is the one thing splitting
+    // the selection exists to stop.
     const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
-    await store.getState().boot(); await store.getState().setThemeName("one");
-    expect(store.getState().themeName).toBe("one");
+    await store.getState().boot();
+    await store.getState().setThemeName("dark", "monokai");
+    expect(store.getState().themeNames).toEqual({ light: "realm", dark: "monokai" });
+    await store.getState().setThemeName("light", "solarized");
+    expect(store.getState().themeNames).toEqual({ light: "solarized", dark: "monokai" });
     expect(store.getState().themePref).toBe("system");
-    expect(set).toContain("ui.themeName=one");
-    expect(set.filter((k) => k.startsWith("ui.theme="))).toEqual([]);
+    expect(set.filter((k) => k.startsWith("ui.theme"))).toEqual(["ui.themeName.dark=monokai", "ui.themeName.light=solarized"]);
+  });
+
+  it("an override is stored per palette and per face, and clearing a role removes it", async () => {
+    const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${JSON.stringify(v)}`); } });
+    await store.getState().boot();
+    await store.getState().setThemeOverride("one", "dark", { accent: "#f92672" });
+    await store.getState().setThemeOverride("one", "dark", { bg: "#101014" });
+    // THE clobbering-setter mutant: replace rather than merge. Setting the Background would silently
+    // discard the Accent the user set a moment earlier, in a control with no undo.
+    expect(store.getState().themeOverrides).toEqual({ "one:dark": { accent: "#f92672", bg: "#101014" } });
+    // A different face of the same palette is a different edit.
+    await store.getState().setThemeOverride("one", "light", { accent: "#4078f2" });
+    expect(Object.keys(store.getState().themeOverrides).sort()).toEqual(["one:dark", "one:light"]);
+
+    // THE undefined-as-a-value mutant: spread the clear in instead of deleting the key. It survives
+    // JSON as a missing key on the way out and reads back as unedited — but until the next boot the
+    // in-memory record still has the key, so "Reset" shows for an edit that is no longer there.
+    await store.getState().setThemeOverride("one", "dark", { accent: undefined });
+    expect(store.getState().themeOverrides["one:dark"]).toEqual({ bg: "#101014" });
+    await store.getState().setThemeOverride("one", "dark", { bg: undefined });
+    expect(store.getState().themeOverrides["one:dark"]).toBeUndefined();
+
+    await store.getState().resetThemeOverride("one", "light");
+    expect(store.getState().themeOverrides).toEqual({});
+    expect(set.filter((k) => k.startsWith("ui.themeOverrides")).at(-1)).toBe("ui.themeOverrides={}");
+  });
+
+  it("boot drops an override that is not a colour rather than letting it reach the derivation", async () => {
+    // THE trusted-row mutant: pass the stored object through. `hexToOklch` throws on "blue", inside
+    // the layout effect that paints the first frame — a white window with no Settings left to fix it.
+    const s = createAppStore({ ...api,
+      getSetting: async (k) => (k === "ui.themeOverrides" ? { "one:dark": { accent: "blue", bg: "#101014" }, "cobalt:dark": { bg: "#000000" } } : null) });
+    await s.getState().boot();
+    expect(s.getState().themeOverrides).toEqual({ "one:dark": { bg: "#101014" } });
+  });
+
+  it("contrast persists once per gesture and is clamped on the way in and out", async () => {
+    const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
+    await store.getState().boot();
+    expect(store.getState().contrast).toBe(60);
+    for (const v of [55, 48, 40]) await store.getState().setContrast(v);
+    expect(store.getState().contrast).toBe(40);
+    await vi.waitFor(() => expect(set).toContain("ui.contrast=40"));
+    expect(set.filter((k) => k.startsWith("ui.contrast="))).toEqual(["ui.contrast=40"]);
+
+    // THE unclamped mutant: store what the caller passed. The slider's min/max is not the guard —
+    // this is the store's API, and the derivation's own floors would silently absorb the excess so
+    // nothing on screen would ever show that the stored number had stopped meaning anything.
+    await store.getState().setContrast(400);
+    expect(store.getState().contrast).toBe(100);
+
+    const read = async (v: unknown) => {
+      const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.contrast" ? v : null) });
+      await s.getState().boot(); return s.getState().contrast;
+    };
+    expect(await read(20)).toBe(20);
+    expect(await read(-5)).toBe(0);
+    expect(await read("high")).toBe(60);
   });
 
   it("groundAlpha persists once per gesture, and boot clamps whatever it reads back", async () => {
@@ -272,16 +335,42 @@ describe("app store", () => {
     expect(await read("very")).toBe(82);
   });
 
-  it("boot reads the palette; garbage and an unknown name both fall back to realm", async () => {
-    const named = async (v: unknown) => {
-      const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.themeName" ? v : null) });
-      await s.getState().boot(); return s.getState().themeName;
+  it("boot reads a palette per face; garbage and an unknown name both fall back to realm", async () => {
+    const stored = async (rows: Record<string, unknown>) => {
+      const s = createAppStore({ ...api, getSetting: async (k) => rows[k] ?? null });
+      await s.getState().boot(); return s.getState().themeNames;
     };
-    expect(await named("one")).toBe("one");
+    expect(await stored({ "ui.themeName.light": "solarized", "ui.themeName.dark": "one" }))
+      .toEqual({ light: "solarized", dark: "one" });
     // A home written by a build that shipped a theme this one does not have must not leave the app
     // with a palette it cannot derive.
-    expect(await named("cobalt")).toBe("realm");
-    expect(await named({ mode: "x" })).toBe("realm");
+    expect(await stored({ "ui.themeName.dark": "cobalt" })).toEqual({ light: "realm", dark: "realm" });
+    expect(await stored({ "ui.themeName.light": { mode: "x" } })).toEqual({ light: "realm", dark: "realm" });
+  });
+
+  it("a home last opened by the single-selection build keeps its palette on the faces that have one", async () => {
+    // THE dropped-migration mutant: read only the two new keys. Every user who had chosen a palette
+    // is silently returned to Realm on the first launch of this build, with nothing to tell them why.
+    const stored = async (legacy: unknown) => {
+      const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.themeName" ? legacy : null) });
+      await s.getState().boot(); return s.getState().themeNames;
+    };
+    expect(await stored("one")).toEqual({ light: "one", dark: "one" });
+    // ...and only those faces. Monokai in the light slot is a slot the light window cannot read;
+    // it has to become the palette that always has a light face, not a dark window at noon.
+    expect(await stored("monokai")).toEqual({ light: "realm", dark: "monokai" });
+    expect(await stored("cobalt")).toEqual({ light: "realm", dark: "realm" });
+  });
+
+  it("the per-face key wins over the legacy one, and the legacy key is never written again", async () => {
+    const set: string[] = [];
+    const s = createAppStore({ ...api,
+      getSetting: async (k) => ({ "ui.themeName": "gruvbox", "ui.themeName.dark": "nord" })[k] ?? null,
+      setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
+    await s.getState().boot();
+    expect(s.getState().themeNames).toEqual({ light: "gruvbox", dark: "nord" });
+    await s.getState().setThemeName("light", "one");
+    expect(set.filter((k) => k.startsWith("ui.theme"))).toEqual(["ui.themeName.light=one"]);
   });
 
   it("updateItem merges the returned item (pin/rename)", async () => {
