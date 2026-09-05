@@ -333,15 +333,25 @@ async function main() {
      which would make an identical pair prove nothing. */
   await evalIn(c, `__live.freeze(true)`);
   await sleep(300);
-  /* Forced visible and given real height, because at rest the band may not reach the strip at all —
-     which would make an identical pair prove nothing. */
-  await evalIn(c, `(() => { const f = document.querySelector(".transcript-fade");
-    f.style.display = "block"; f.style.setProperty("--fade-h", "320px"); return true; })()`);
+  /* Moved ONTO the pair, not merely made taller. The band is anchored to the transcript's bottom and
+     grows upward, so at any height it stops where the dock begins and never overlaps the strip at
+     all — and a comparison of two shots it could not have touched passes whatever the z-order is.
+     Its bottom edge is pushed past the card's so the whole pair is underneath it. */
+  const covered = await evalIn(c, `(() => {
+    const f = document.querySelector(".transcript-fade");
+    const s = document.querySelector(".composer-todos").getBoundingClientRect();
+    const b = document.querySelector(".composer").getBoundingClientRect();
+    const w = document.querySelector(".transcript-wrap").getBoundingClientRect();
+    const h = Math.ceil(b.bottom - s.top) + 80;
+    f.style.display = "block"; f.style.bottom = "auto"; f.style.height = h + "px";
+    f.style.top = Math.floor(s.top - w.top - 40) + "px";
+    f.style.setProperty("--fade-h", h + "px");
+    const r = f.getBoundingClientRect();
+    return { fade: [Math.round(r.top), Math.round(r.bottom)], pair: [Math.round(s.top), Math.round(b.bottom)] }; })()`);
   await sleep(400);
   const withFade = await hashOf(c);
-  check("the band was actually made to reach the strip, so the comparison below can fail",
-    await evalIn(c, `(() => { const f = document.querySelector(".transcript-fade").getBoundingClientRect();
-      return f.top < document.querySelector(".composer-todos").getBoundingClientRect().top; })()`));
+  check("the band was actually moved over the whole pair, so the comparison below can fail",
+    covered.fade[0] <= covered.pair[0] && covered.fade[1] >= covered.pair[1], covered);
   await evalIn(c, `(() => { document.querySelector(".transcript-fade").remove(); return true; })()`);
   await sleep(400);
   const withoutFade = await hashOf(c);
