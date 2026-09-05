@@ -376,22 +376,37 @@ export function resolveMode(name: ThemeName, mode: Mode): Mode {
   return modes.includes(mode) ? mode : (modes[0] ?? mode);
 }
 
-/** Realm's own window, card, accent and string colours, copied from theme/tokens.css.
- *  The picker cannot read them off the document: by the time it renders under any other theme the
- *  live `var(--page)` is THAT theme's page, so a preview built from computed styles would draw every
- *  card in the colours of whichever palette is already on. Copied, therefore, and pinned by a test
- *  against the stylesheet so the copy cannot drift. */
-const REALM_SWATCHES: Record<Mode, [string, string, string, string]> = {
-  dark: ["oklch(0.209 0.004 264.477)", "oklch(0.26 0.006 271.191)", "oklch(0.68 0.173 253.301)", "oklch(0.705 0.154 153.814)"],
-  light: ["oklch(0.985 0.001 286.376)", "oklch(1 0 0)", "oklch(0.626 0.205 254.947)", "oklch(0.603 0.155 150.883)"],
+/** Realm's own twelve, read out of theme/tokens.css and written here as hex — the same seeds the
+ *  stylesheet's own ramp guardrail recovers from that file, so styles.test.ts pins this copy against
+ *  it rather than letting two sets of Realm's colours drift apart.
+ *
+ *  It exists for the two jobs that need Realm's palette as VALUES rather than as a stylesheet. The
+ *  picker cannot read them off the document — by the time it renders under any other theme the live
+ *  `var(--page)` is THAT theme's page, so a preview built from computed styles would draw every card
+ *  in the colours of whichever palette is already on. And an override needs a ground to derive from:
+ *  a user who moves Realm's accent has asked for a palette, and there has to be a seed under it.
+ *
+ *  Realm's `ThemeDef` still states no seeds, which is what keeps the untouched default byte-for-byte
+ *  the static CSS: an unoverridden `realm` writes nothing, and this is never consulted. */
+export const REALM_SEED: Record<Mode, ThemeSeed> = {
+  dark: {
+    bg: "#17181a", ink: "#f2f3f4", accent: "#3d9aff",
+    green: "#3cbb72", orange: "#f68f3c", red: "#ee5c61",
+    syntax: { comment: "#6c6f75", keyword: "#3d9aff", string: "#3cbb72", number: "#f68f3c", title: "#f2f3f4", type: "#f2f3f4", attr: "#a5a8ad" },
+  },
+  light: {
+    bg: "#fafafb", ink: "#1f2124", accent: "#0285ff",
+    green: "#199a4d", orange: "#ef720d", red: "#e3474c",
+    syntax: { comment: "#9a9da3", keyword: "#0285ff", string: "#199a4d", number: "#ef720d", title: "#1f2124", type: "#1f2124", attr: "#62656b" },
+  },
 };
 
 /** The four colours a picker shows for a theme: the window, the card that floats on it, the accent,
  *  and the one syntax hue that says most about a code palette. */
 export function themeSwatches(name: ThemeName, mode: Mode): [string, string, string, string] {
   const v = themeVars(name, resolveMode(name, mode));
-  if (!v["--page"]) return REALM_SWATCHES[mode];
-  return [v["--page"]!, v["--surface"]!, v["--accent"]!, v["--syn-string"]!];
+  const s = v["--page"] ? v : deriveVars(REALM_SEED[mode], mode);
+  return [s["--page"]!, s["--surface"]!, s["--accent"]!, s["--syn-string"]!];
 }
 
 export function isThemeName(x: unknown): x is ThemeName {
