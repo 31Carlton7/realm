@@ -249,6 +249,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const refreshModelFavorites = useApp((s) => s.refreshModelFavorites);
   const toggleModelFavorite = useApp((s) => s.toggleModelFavorite);
   const prefillTerminal = useApp((s) => s.prefillTerminal);
+  const cliStatus = useApp((s) => s.cliStatus);
+  const cliJob = useApp((s) => (session ? s.cliJobs[session.agentKind] : undefined));
+  const runCliAction = useApp((s) => s.runCliAction);
+  const dismissCliJob = useApp((s) => s.dismissCliJob);
+  const refreshCliStatus = useApp((s) => s.refreshCliStatus);
+  const cliRow = session ? cliStatus.find((r) => r.kind === session.agentKind) : undefined;
   const openDiff = useApp((s) => s.openDiff);
   const submitKey = useApp((s) => s.submitKey);
   // Stable across renders: InstallCard registers it as a window "focus" listener.
@@ -269,6 +275,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // Cheap by construction: the store dedups concurrent calls and the server holds a TTL cache, so a
   // four-pane split (or a tab-back) costs one round trip, not a process spawn per agent.
   useEffect(() => { run(() => probeAgents()); }, [id, probeAgents, run]);
+  // Alongside the probe and just as cheap: the server caches this for six hours and the store
+  // collapses concurrent calls, so a split of four panes costs one round trip and no network.
+  useEffect(() => { run(() => refreshCliStatus()); }, [id, refreshCliStatus, run]);
   // One settings read, alongside the probe. Favourites only ever change through this app's own
   // toggle (which writes through and updates the store), so there is nothing to poll for.
   useEffect(() => { run(() => refreshModelFavorites()); }, [refreshModelFavorites, run]);
@@ -294,6 +303,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // mid-stream (its 5s timeout losing a race under load) would otherwise take away the one control that
   // can end the turn — and an agent that is streaming has self-evidently started.
   const availability = agentAvailability(session.agentKind, agentProbe);
+  // Only an INSTALL is offered here, and only on the card that is about a missing CLI. A signed-out
+  // agent's fix is a login — a browser flow or an API key, not a command that finishes on its own —
+  // so this card never grows a button for it even if the two answers disagreed for a moment.
+  const cliOffer = availability.state === "missing" && cliRow?.action === "install" ? cliRow.command : null;
   // The prompter's suggested prompt, derived from THIS session (prompt-hint.ts): the last turn, the
   // working tree, the mode. Computed here rather than in Composer because everything it reads is
   // already the pane's — Composer only draws it and fills it in on ⇥.
@@ -317,7 +330,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       <DelegatedRuns sessionId={id} />
       {blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
-            onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))} />
+            onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))}
+            offer={cliOffer} job={cliJob ?? null}
+            onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
+            onDismissJob={() => dismissCliJob(session.agentKind)} />
         : <Composer session={session} status={status} gitInfo={gitInfo} todos={todos}
             onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
             attachments={attachments}

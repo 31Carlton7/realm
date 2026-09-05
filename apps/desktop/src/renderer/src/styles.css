@@ -1938,7 +1938,7 @@ button.panel-title:hover { background: var(--rl-hover); }
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
   /* page panes */
   .cp-list, .activity-list, .task-detail-result, .notif-list, .notif-detail, .notif-split, .delegation-list,
-  .lecture-list, .install-cmd code, .code-preview,
+  .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents */
   .documents-tabs, .documents-picker, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
   /* the prompter — only the pinned strip's copy of the list is bounded enough to scroll */
@@ -2573,8 +2573,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    Permissions tab's state chip only ever wears green on a probe basis (main/tcc.ts's rule). ——— */
 .engines-head { display: flex; align-items: center; gap: 12px; }
 .engines-head .page-lede { flex: 1; min-width: 0; }
-/* Narrow: Re-check drops below the lede rather than squeezing it into a six-word gutter. Placed
-   after the `flex: 1` above on purpose — a container query carries no extra specificity. */
+/* Narrow: the check buttons drop below the lede rather than squeezing it into a six-word gutter.
+   Placed after the `flex: 1` above on purpose — a container query carries no extra specificity. */
 @container (max-width: 640px) { .engines-head .page-lede { flex-basis: 100%; } }
 .engines-list { gap: 4px; }
 .engine-row { display: flex; gap: 10px; padding: 9px 10px; border-radius: var(--r-ctl); }
@@ -2585,6 +2585,18 @@ button.panel-title:hover { background: var(--rl-hover); }
 .engine-status { font-size: 12px; color: var(--rl-text-dim); }
 .engine-status[data-state="missing"] { color: var(--rl-warning); }
 .engine-status[data-state="unknown"] { color: var(--rl-text-faint); }
+/* The run button sits inside the command chip, so the command and the thing that runs it are one
+   object — reading it and clicking it are never two places on the page. */
+.engine-run { flex: none; }
+/* A running or finished install. Monospace, scrollable, capped: a package manager's output is read
+   at the tail, and an unbounded block would push every row below it off the page. */
+.cli-job { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: var(--r-chip);
+  background: var(--rl-frame); border: 1px solid var(--rl-edge); }
+.cli-job-head { display: flex; align-items: center; gap: 8px; }
+.cli-job-state { flex: 1; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
+.cli-job[data-state="failed"] .cli-job-state { color: var(--rl-warning); }
+.cli-job-output { margin: 0; max-height: 180px; overflow: auto; font: 11px/1.5 var(--font-mono);
+  color: var(--rl-text-dim); white-space: pre-wrap; word-break: break-word; user-select: text; }
 .tcc-row { align-items: flex-start; }
 .tcc-row .btn-quiet { flex: none; margin-top: 1px; }
 .tcc-state { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px;

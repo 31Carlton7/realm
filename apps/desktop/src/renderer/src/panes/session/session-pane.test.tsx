@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, AGENT_NOTES, MODEL_NOTES, canonicalModelKey, sessionEvent, type Environment } from "@realm/contracts";
+import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup } from "@testing-library/react";
+import { AGENT_CLI_COMMANDS, AGENT_NOTES, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
@@ -1675,9 +1675,9 @@ describe("the CLI-missing install card (W4)", () => {
   const missing: AgentProbe = { kind: "claude", available: false, version: null, loggedIn: null, reason: "spawn claude ENOENT" };
   const signedOut: AgentProbe = { kind: "claude", available: true, version: "2.0.1", loggedIn: false, reason: "not logged in — run `claude auth login`" };
 
-  async function mountAgent(agentProbe: AgentProbe[], status: "idle" | "running" = "idle") {
+  async function mountAgent(agentProbe: AgentProbe[], status: "idle" | "running" = "idle", cliStatus: CliStatus[] = []) {
     setTerminalHubForTests(fakeHub());
-    const api = fakeApi({ sessions: [session("se1", "s1", { status, agentKind: "claude" })], agentProbe });
+    const api = fakeApi({ sessions: [session("se1", "s1", { status, agentKind: "claude" })], agentProbe, cliStatus });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: status }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
     const r = render(
@@ -1739,6 +1739,49 @@ describe("the CLI-missing install card (W4)", () => {
     expect(api.calls).toContain(`prefillTerminal:term-se1=${AGENT_CLI_COMMANDS.claude.install}`);
     expect(api.calls.find((c) => c.startsWith("prefillTerminal:"))).not.toMatch(/[\r\n]$/);
     await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
+  });
+
+  /** claude missing, with the server offering to install it — the only shape that grows a button. */
+  const offersInstall: CliStatus[] = [{
+    kind: "claude", installed: false, version: null, binPath: null, provenance: "unknown", latest: null,
+    channel: true, updateAvailable: false, action: "install",
+    command: AGENT_CLI_COMMANDS.claude.install, refusal: null,
+  }];
+
+  it("grows an Install button only when the server is offering one", async () => {
+    // The named mutant: a button rendered from the card's own idea of "missing". The offer is the
+    // server's, so a CLI it will not install shows the command to copy and nothing to press.
+    await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+
+    cleanup();
+    await mountAgent([missing], "idle", offersInstall);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeInTheDocument());
+    // The command is still readable above the button that runs it.
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.install)).toBeInTheDocument();
+  });
+
+  it("Install runs the command and streams what it says, without leaving the pane", async () => {
+    const { api, store } = await mountAgent([missing], "idle", offersInstall);
+    await waitFor(() => screen.getByRole("button", { name: "Install" }));
+    expect(api.calls.some((c) => c.startsWith("runCli:"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(api.calls).toContain("runCli:claude:install"));
+
+    const id = store.getState().cliJobs.claude!.id;
+    store.getState().applyCliOutput({ id, kind: "claude", chunk: "added 128 packages\n" });
+    await waitFor(() => expect(screen.getByText(/added 128 packages/)).toBeInTheDocument());
+    // Nothing else may be pressed while a package manager is writing to the machine.
+    expect(screen.getByRole("button", { name: "Installing…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeDisabled();
+  });
+
+  it("a SIGNED-OUT card never grows an Install button — logging in is not a command Realm can run", async () => {
+    await mountAgent([signedOut], "idle", offersInstall);
+    await waitFor(() => expect(screen.getByRole("group", { name: /isn’t signed in/ })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login)).toBeInTheDocument();
   });
 
   it("'Check again' re-probes past the cache and the prompter comes back — no restart", async () => {

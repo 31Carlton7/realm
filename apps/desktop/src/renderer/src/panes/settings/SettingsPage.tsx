@@ -9,7 +9,7 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
   type FontId, type FontWeight, type Mode, type ThemeName, type ThemeOverride, type ThemeSeed } from "@realm/ui";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
-import { useApp, type SubmitKey } from "../../state/store";
+import { useApp, type CliJob, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
@@ -74,8 +74,12 @@ export function SettingsPage(_props: PaneProps) {
 }
 
 /** A command offered for copying — the install card's affordance, re-rendered. The command travels
- *  to the clipboard verbatim: no trailing newline anywhere near a terminal (typed-never-run). */
-function CommandCopy({ command }: { command: string }) {
+ *  to the clipboard verbatim: no trailing newline anywhere near a terminal (typed-never-run).
+ *
+ *  `action`, when given, is the button that RUNS this exact string. It sits beside the command rather
+ *  than replacing it, because the promise the CLI manager makes is that the command is readable
+ *  before it is run — a button whose command is hidden behind it would be a different promise. */
+function CommandCopy({ command, action }: { command: string; action?: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -91,6 +95,32 @@ function CommandCopy({ command }: { command: string }) {
         <Icon name="copy" size={12} className="copy-icon" />
         <Icon name="check" size={12} className="copied-icon" />
       </button>
+      {action}
+    </div>
+  );
+}
+
+/**
+ * A running or finished install, with its output.
+ *
+ * The output pane is scrolled to the tail on every chunk: a package manager's interesting line is
+ * almost always its last, and a user watching an install is watching the end of it.
+ */
+function CliJobPanel({ job, onDismiss }: { job: CliJob; onDismiss: () => void }) {
+  const tail = useRef<HTMLPreElement>(null);
+  useEffect(() => { const el = tail.current; if (el) el.scrollTop = el.scrollHeight; }, [job.output]);
+  const state = job.state === "running" ? "Running…" : job.state === "ok" ? "Finished" : job.error ?? "Failed";
+  return (
+    <div className="cli-job" data-state={job.state} role="group" aria-label={`${job.command}: ${state}`}>
+      <div className="cli-job-head">
+        <span className="cli-job-state">{state}</span>
+        {/* No dismiss while it runs: hiding a package manager's output while it is still writing to
+            the machine is the one moment that output matters most. */}
+        {job.state !== "running" && (
+          <button type="button" className="btn" onClick={onDismiss}>Dismiss</button>
+        )}
+      </div>
+      <pre className="cli-job-output" ref={tail}>{job.output || "Waiting for output…"}</pre>
     </div>
   );
 }
@@ -107,18 +137,36 @@ const ENGINE_ORDER: AgentKind[] = [...SELECTABLE_AGENT_KINDS];
 function EnginesTab() {
   const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
+  const refreshCliStatus = useApp((s) => s.refreshCliStatus);
+  const checkForNewModels = useApp((s) => s.checkForNewModels);
+  const modelCheck = useApp((s) => s.modelCheck);
   const run = useApp((s) => s.run);
-  // Mount rides the server's TTL cache; only "Re-check" forces past it.
-  useEffect(() => { void run(() => probeAgents(false)); }, [run, probeAgents]);
+  // Mount rides both server caches — the 30s probe and the six-hour version sweep. Only the buttons
+  // force past them, and only the buttons reach the network.
+  useEffect(() => { void run(() => probeAgents(false)); void run(() => refreshCliStatus(false)); }, [run, probeAgents, refreshCliStatus]);
   const kinds: AgentKind[] = [...ENGINE_ORDER, ...agentProbe.map((p) => p.kind).filter((k) => !ENGINE_ORDER.includes(k))];
   return (
     <div className="form">
       <div className="engines-head">
         <p className="page-lede">The agent CLIs Realm can run, as they look on this machine right now.</p>
-        {/* The named mutant: a cached probe shown as fresh. Forced, so what renders after the click
-            is what a child process just reported — never the TTL cache the mount ride uses. */}
-        <button type="button" className="btn" onClick={() => run(() => probeAgents(true))}>Re-check</button>
+        {/* The named mutant: a cached answer shown as fresh. Both are forced, so what renders after
+            a click is what a child process and a registry just reported — never the caches the mount
+            ride uses. The probe is forced alongside the status because the two answer different
+            halves of a row: the status knows versions, only the probe knows sign-in. */}
+        <button type="button" className="btn" onClick={() => run(async () => {
+          await Promise.all([probeAgents(true), refreshCliStatus(true)]);
+        })}>Check for updates</button>
+        {/* Nothing here is a new list Realm made up: it re-asks each provider for the catalog it
+            reports live, and refetches the public price rows. */}
+        <button type="button" className="btn" onClick={() => run(() => checkForNewModels())}>Check for new models</button>
       </div>
+      {modelCheck && (
+        <p className="settings-hint" role="status">
+          {modelCheck.added.length === 0
+            ? "No new models — every provider is reporting the same catalog as before."
+            : `New models: ${modelCheck.added.map((m) => `${AGENT_META[m.kind].label} ${m.label}`).join(", ")}.`}
+        </p>
+      )}
       {agentProbe.length === 0
         ? <p className="env-empty">Checking the installed CLIs…</p>
         : <ul className="page-list engines-list">{kinds.map((k) => <EngineRow key={k} kind={k} />)}</ul>}
@@ -128,16 +176,29 @@ function EnginesTab() {
 
 function EngineRow({ kind }: { kind: AgentKind }) {
   const agentProbe = useApp((s) => s.agentProbe);
+  const cli = useApp((s) => s.cliStatus).find((r) => r.kind === kind);
+  const job = useApp((s) => s.cliJobs[kind]);
+  const runCliAction = useApp((s) => s.runCliAction);
+  const dismissCliJob = useApp((s) => s.dismissCliJob);
+  const run = useApp((s) => s.run);
   const p = agentProbe.find((x) => x.kind === kind);
   const meta = AGENT_META[kind];
   const a = agentAvailability(kind, agentProbe);
   const { install, login } = AGENT_CLI_COMMANDS[kind];
+  // The one command a click would run, and the label for the click. The server decided both; the
+  // row only renders them, so a button can never offer something the server would refuse.
+  const offer = cli && cli.action !== "none" && cli.command
+    ? { command: cli.command, action: cli.action, label: cli.action === "install" ? "Install" : "Update" }
+    : null;
   const offered = (SELECTABLE_AGENT_KINDS as readonly AgentKind[]).includes(kind);
   // Signed-in identity, exactly as far as the probe carries it: a boolean at best (Claude's keychain
   // and both ACP agents report null = "couldn't tell", which renders as nothing, not as either claim).
   const identity = p?.loggedIn === true ? "signed in" : p?.loggedIn === false ? "signed out" : null;
+  // An available update is part of the row's status line, not a separate badge: "what version am I
+  // on" and "is there a newer one" are one sentence.
+  const behind = cli?.updateAvailable && cli.latest ? `${engineVersionLabel(cli.latest)} available` : null;
   const status = !p ? "Checking…"
-    : p.available ? ["Installed", p.version ? engineVersionLabel(p.version) : null, identity].filter(Boolean).join(" · ")
+    : p.available ? ["Installed", p.version ? engineVersionLabel(p.version) : null, identity, behind].filter(Boolean).join(" · ")
     : "Not installed";
   return (
     <li className="engine-row" aria-label={`${meta.label}: ${status}`}>
@@ -150,8 +211,25 @@ function EngineRow({ kind }: { kind: AgentKind }) {
         {/* A kind Realm keeps registered but will not offer says so, and only that — the how-to-fix
             sentence below is shared with every other blocked row. */}
         {!offered && kind !== "fake" && <p className="settings-hint">Not offered for new sessions.</p>}
-        {a.state === "missing" && install && <CommandCopy command={install} />}
-        {a.state === "logged_out" && login && <CommandCopy command={login} />}
+        {offer
+          ? <CommandCopy command={offer.command} action={
+              <button type="button" className="btn primary engine-run" disabled={job?.state === "running"}
+                onClick={() => run(() => runCliAction(kind, offer.action as "install" | "update"))}>
+                {offer.label}
+              </button>
+            } />
+          // No offer: the command is still shown, because a user who must run it themselves needs to
+          // read it. This is the whole surface for a kind Realm will not install for them.
+          : <>
+              {a.state === "missing" && install && <CommandCopy command={install} />}
+              {a.state === "logged_out" && login && <CommandCopy command={login} />}
+            </>}
+        {/* Signing in is never Realm's to run — it is a browser flow or an API key, and a command
+            that would sit waiting on a prompt Realm has closed. */}
+        {offer && a.state === "logged_out" && login && <CommandCopy command={login} />}
+        {/* An update Realm found but will not apply says why, right where the button would be. */}
+        {cli?.refusal && <p className="settings-hint">{cli.refusal}</p>}
+        {job && <CliJobPanel job={job} onDismiss={() => dismissCliJob(kind)} />}
         {/* The login hint on ANY blocked row, not just un-offered ones. It used to hang off `!offered`,
             which was fine only while every kind with something awkward to explain was also withheld.
             Gemini broke that the moment it was offered again: `login` is null for it (there is no login

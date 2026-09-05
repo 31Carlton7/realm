@@ -69,12 +69,33 @@ describe("the Settings page (Plan 12 W6)", () => {
 });
 
 describe("Engines tab", () => {
-  it("mounting rides the probe cache; Re-check FORCES (the named mutant: a cached probe shown as fresh)", async () => {
+  it("mounting rides both caches; Check for updates FORCES both (the named mutant: a cached answer shown as fresh)", async () => {
+    // Two halves of one row: only the probe knows sign-in, only the status knows versions, so a
+    // click that forced one and not the other would leave half the row stale.
     const { api } = await mount();
     await waitFor(() => expect(api.calls).toContain("probeAgents:false"));
+    await waitFor(() => expect(api.calls).toContain("cliStatus:false"));
     expect(api.calls).not.toContain("probeAgents:true");
-    fireEvent.click(screen.getByRole("button", { name: "Re-check" }));
+    expect(api.calls).not.toContain("cliStatus:true");
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
     await waitFor(() => expect(api.calls).toContain("probeAgents:true"));
+    await waitFor(() => expect(api.calls).toContain("cliStatus:true"));
+  });
+
+  it("mounting never runs an installer, however much the status is offering", async () => {
+    // The cadence rule, at the surface the user actually opens: opening Settings LOOKS.
+    const { api } = await mount({
+      cliStatus: [
+        { kind: "codex", installed: true, version: "0.48.0", binPath: "/opt/homebrew/bin/codex", provenance: "npm",
+          latest: "0.153.4", channel: true, updateAvailable: true, action: "update",
+          command: "npm install -g @openai/codex@0.153.4", refusal: null },
+      ],
+    });
+    await waitFor(() => expect(api.calls).toContain("cliStatus:false"));
+    expect(api.calls.some((c) => c.startsWith("runCli:"))).toBe(false);
+    // And the offer is on screen, command first.
+    expect(screen.getByText("npm install -g @openai/codex@0.153.4")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update" })).toBeInTheDocument();
   });
 
   it("renders each CLI's honest state: installed + version, signed-out, missing — and login-unknowable renders as NOTHING, not a claim", async () => {
