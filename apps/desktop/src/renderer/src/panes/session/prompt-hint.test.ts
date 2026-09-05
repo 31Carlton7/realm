@@ -31,15 +31,15 @@ describe("the session's suggested prompt", () => {
     expect(hint({ blocks, status: "waiting_permission" })).toBeNull();
     // …and comes straight back when it settles.
     expect(hint({ blocks, status: "idle" }))
-      .toBe("Stress-test the changes, then fix what the tests expose.");
+      .toBe("Write tests for the changes.");
   });
 
   describe("a session that has not started", () => {
     it("offers the working tree when there is one to review, naming the branch", () => {
       expect(hint({ gitInfo: git({ dirty: 3, branch: "feature/pane-groups" }) }))
-        .toBe("Take a skeptical pass over the pane groups work: find the edge case this diff is most likely to miss.");
+        .toBe("Review my pane groups changes.");
       expect(hint({ gitInfo: git({ dirty: 1, branch: "main" }) }))
-        .toBe("Audit the 1 uncommitted file on main; find the edge case most likely to escape review.");
+        .toBe("Review my 1 uncommitted file on main.");
     });
 
     it("offers the branch's own commits once the tree is clean, and counts them honestly", () => {
@@ -48,7 +48,7 @@ describe("the session's suggested prompt", () => {
       expect(hint({ gitInfo: git({ ahead: 1 }) })).toBe("Write a PR description for the 1 commit on main.");
       // Uncommitted work outranks committed work — it is the part still being decided.
       expect(hint({ gitInfo: git({ ahead: 4, dirty: 2 }) }))
-        .toBe("Audit the 2 uncommitted files on main; find the edge case most likely to escape review.");
+        .toBe("Review my 2 uncommitted files on main.");
     });
 
     it("says nothing at all when there is no session-specific fact to offer", () => {
@@ -65,21 +65,21 @@ describe("the session's suggested prompt", () => {
       const blocks = [user("go"), { kind: "error", message: "spawn ENOENT", ts: 3 } as Block];
       // Outranks the dirty tree AND the edits — nothing else matters until the session runs again.
       expect(hint({ blocks: [...blocks], gitInfo: git({ dirty: 9 }) }))
-        .toBe("Investigate “spawn ENOENT”, fix the root cause, and retry.");
+        .toBe("Fix “spawn ENOENT”.");
       expect(hint({ blocks: [user("go"), tool("Write"), { kind: "error", message: "x", ts: 3 } as Block] }))
-        .toBe("Investigate “x”, fix the root cause, and retry.");
+        .toBe("Fix “x”.");
     });
 
     it("names the command when a tool failed, instead of quoting a wall of output", () => {
       const failed = tool("Bash", { command: "pnpm vitest run prompt-hint.test.ts" }, { content: "500 lines of output", isError: true });
       expect(hint({ blocks: [user("Improve the suggested prompts"), failed] }))
-        .toBe("Investigate “pnpm vitest run prompt-hint.test.ts” while working on suggested prompts, fix the root cause, and retry.");
+        .toBe("Fix “pnpm vitest run prompt-hint.test.ts” while working on suggested prompts.");
     });
 
     it("says go when a plan is on screen and the agent cannot act on it", () => {
       const blocks = [user("plan it"), plan()];
       expect(hint({ blocks, inPlan: true }))
-        .toBe("Implement the plan, then verify its riskiest assumption.");
+        .toBe("Build the plan.");
       // Out of Plan, it still continues the actual subject rather than falling back to repo state.
       expect(hint({ blocks, inPlan: false })).toBeNull();
     });
@@ -93,7 +93,7 @@ describe("the session's suggested prompt", () => {
     it("suggests the tests once the agent has written to a file", () => {
       for (const name of ["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"]) {
         expect(hint({ blocks: [user("Improve the prompt hints"), tool(name)] }))
-          .toBe("Stress-test prompt hints, then fix what the tests expose.");
+          .toBe("Write tests for prompt hints.");
       }
     });
 
@@ -104,14 +104,14 @@ describe("the session's suggested prompt", () => {
         tool("Write", { file_path: "/repo/apps/composer.test.tsx" }),
       ];
       expect(hint({ blocks })).toBe(
-        "Stress-test composer state in apps/Composer.tsx and apps/composer.test.tsx, then fix what the tests expose.",
+        "Write tests for composer state in apps/Composer.tsx and apps/composer.test.tsx.",
       );
     });
 
     it("extracts changed files from apply_patch input", () => {
       const patch = "*** Begin Patch\n*** Update File: src/hints.ts\n*** Add File: src/hints.test.ts\n*** End Patch";
       expect(hint({ blocks: [user("Improve hint specificity"), tool("apply_patch", { patch })] }))
-        .toBe("Stress-test hint specificity in src/hints.ts and src/hints.test.ts, then fix what the tests expose.");
+        .toBe("Write tests for hint specificity in src/hints.ts and src/hints.test.ts.");
     });
 
     it("does not mistake reading and running for writing", () => {
@@ -119,21 +119,21 @@ describe("the session's suggested prompt", () => {
       // produced anything to test.
       expect(hint({ blocks: [user("go"), tool("Read"), tool("Grep"), tool("Bash")] })).toBeNull();
       expect(hint({ blocks: [user("Explain session restore"), tool("Read", { file_path: "/repo/state/store.ts" }), assistant("It works like this.")] }))
-        .toBe("Trace session restore through state/store.ts, then identify the highest-leverage change.");
+        .toBe("Walk me through session restore in state/store.ts.");
     });
 
     it("only looks at the LAST turn — an edit two turns ago is not what just happened", () => {
       const blocks = [user("edit it"), tool("Edit"), assistant("done"), user("now explain"), assistant("because…")];
       expect(hint({ blocks }))
-        .toBe("Take “now explain” further: show the concrete code path and its weakest edge case.");
+        .toBe("Show me the code behind now explain.");
       // …and the dirty tree cannot displace the continuation of the current conversation.
       expect(hint({ blocks, gitInfo: git({ dirty: 1 }) }))
-        .toBe("Take “now explain” further: show the concrete code path and its weakest edge case.");
+        .toBe("Show me the code behind now explain.");
     });
 
     it("turns a plain conversation into a follow-up anchored to what the user asked", () => {
       expect(hint({ blocks: [user("What is this repo?"), assistant("A desktop app.")], gitInfo: git() }))
-        .toBe("Take “what is this repo” further: show the concrete code path and its weakest edge case.");
+        .toBe("Show me the code behind what is this repo.");
     });
   });
 });
