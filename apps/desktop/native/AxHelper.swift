@@ -948,6 +948,12 @@ private final class Helper {
   }
 
   private func resolveApp(_ params: [String: Any]) throws -> NSRunningApplication {
+    // A named app is refused BEFORE anything is looked up. Resolution fails first for an app that is
+    // not running, so with the check only below, asking for a forbidden bundle id answered "not
+    // running" rather than "never driveable" — which made the refusal contingent on the app
+    // happening to be up, and turned the message into a probe for which apps are. `pid` and the
+    // frontmost case cannot be checked this early, and keep the check after resolution.
+    if let bundleId = params["bundleId"] as? String { try refuseForbidden(bundleId: bundleId) }
     let running = NSWorkspace.shared.runningApplications
     var app: NSRunningApplication?
     if let pid = params["pid"] as? Int {
