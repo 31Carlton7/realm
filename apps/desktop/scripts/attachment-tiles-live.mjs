@@ -34,7 +34,6 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9334), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8900);
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-attach-live-"));
-const results = {};
 let electron = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -141,7 +140,6 @@ async function evalIn(c, expr) {
 }
 
 const check = (name, cond, detail) => {
-  results[name] = { pass: !!cond, ...(detail !== undefined ? { detail } : {}) };
   if (!cond) process.exitCode = 1;
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`);
 };

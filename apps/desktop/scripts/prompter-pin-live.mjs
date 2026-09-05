@@ -27,7 +27,6 @@ const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9344), SERVER_PORT = Number
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-pin-live-"));
 /** Transcript.tsx's NEAR_BOTTOM_PX — the slack "at the bottom" is allowed. */
 const NEAR_BOTTOM_PX = 80;
-const results = {};
 let electron = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -128,7 +127,6 @@ async function evalIn(c, expr) {
 }
 
 const check = (name, cond, detail) => {
-  results[name] = { pass: !!cond, ...(detail !== undefined ? { detail } : {}) };
   if (!cond) process.exitCode = 1;
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`);
 };
