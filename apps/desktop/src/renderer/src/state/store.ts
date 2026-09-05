@@ -572,9 +572,10 @@ export type AppState = {
   /** Which type faces the app wears. Not per palette — a face is a fact about reading, not about
    *  One Dark. */
   fonts: FontPref;
-  /** The sidebar's opacity over the macOS vibrancy material, 40–100. Persisted on every platform —
-   *  a preference set on a Mac should survive opening the same home somewhere without a material,
-   *  and come back unchanged. */
+  /** The sidebar's opacity over the macOS vibrancy material, 55–100 (`GROUND_ALPHA_RANGE`, whose
+   *  floor is where the nav labels start washing out). Persisted on every platform — a preference
+   *  set on a Mac should survive opening the same home somewhere without a material, and come back
+   *  unchanged. */
   groundAlpha: number;
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
