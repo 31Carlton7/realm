@@ -255,6 +255,43 @@ describe("App tab", () => {
     expect(screen.getByText(/Weight follows the app's own scale here/)).toBeInTheDocument();
   });
 
+  it("a pasted theme becomes the face's colours; a blob that is not one is refused in place", async () => {
+    const { store } = await openApp();
+    fireEvent.click(colours("Dark").getByRole("button", { name: "Import" }));
+    const box = colours("Dark").getByRole("textbox", { name: "Theme to import" });
+
+    // THE optimistic-apply mutant: apply first and report afterwards. The window repaints off a
+    // half-read document and the message explaining why arrives against colours it caused.
+    fireEvent.change(box, { target: { value: "{ not json" } });
+    fireEvent.click(colours("Dark").getByRole("button", { name: "Apply" }));
+    expect(store.getState().themeOverrides).toEqual({});
+    expect(colours("Dark").getByText(/not JSON/)).toBeInTheDocument();
+    // The box stays open over the thing that was rejected, so the message has something to point at.
+    expect(colours("Dark").getByRole("textbox", { name: "Theme to import" })).toBeInTheDocument();
+
+    const seed = { bg: "#101014", ink: "#e6e6ea", accent: "#7c6cff", green: "#3cbb72", orange: "#f68f3c", red: "#ee5c61",
+      syntax: { comment: "#6c6f75", keyword: "#7c6cff", string: "#3cbb72", number: "#f68f3c", title: "#e6e6ea", type: "#e6e6ea", attr: "#a5a8ad" } };
+    fireEvent.change(box, { target: { value: JSON.stringify({ realmTheme: 1, name: "Night", mode: "dark", seed }) } });
+    fireEvent.click(colours("Dark").getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(store.getState().themeOverrides["realm:dark"]).toEqual(seed));
+    // It lands on the face it was imported into, not the other one.
+    expect(store.getState().themeOverrides["realm:light"]).toBeUndefined();
+  });
+
+  it("copies the face AS EDITED, so what is on the clipboard is what is on screen", async () => {
+    // THE unedited-copy mutant: export the palette's own seeds. Someone who spent a while moving
+    // three colours would hand a colleague the theme they started from.
+    const written: string[] = [];
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: (t: string) => { written.push(t); return Promise.resolve(); } } });
+    const { store } = await openApp();
+    const field = colours("Dark").getByRole("textbox", { name: "Accent hex" });
+    fireEvent.change(field, { target: { value: "#f92672" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(store.getState().themeOverrides["realm:dark"]).toEqual({ accent: "#f92672" }));
+    fireEvent.click(colours("Dark").getByRole("button", { name: "Copy theme" }));
+    expect(JSON.parse(written[0]!)).toMatchObject({ realmTheme: 1, mode: "dark", seed: { accent: "#f92672" } });
+  });
+
   it("contrast is a slider over the ink ramp, defaulting to the shipped spread", async () => {
     // What the store does with it. That it reaches the WINDOW is use-theme.test.ts's assertion — the
     // bridge that writes :root is mounted there, not here.

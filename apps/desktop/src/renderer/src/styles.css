@@ -2986,6 +2986,14 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 }
 .theme-override .hex { width: 82px; text-transform: lowercase; }
 .theme-overrides .settings-hint { flex-basis: 100%; }
+.theme-import { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; }
+.theme-import textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px;
+  border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--field);
+  color: var(--rl-text-bright); font: 11.5px/1.6 var(--font-mono); outline: none;
+}
+.theme-import textarea:focus { border-color: var(--rl-accent); }
+.theme-import-actions { display: flex; align-items: center; gap: 10px; }
 /* The face on screen, of the two palette rows. A dot rather than a highlight: both rows are equally
    live controls, and the only thing that distinguishes them is which one the window is wearing while
    you read the page. */

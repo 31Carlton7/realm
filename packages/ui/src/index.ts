@@ -7,6 +7,7 @@ export { applyTheme, clampGroundAlpha, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE,
    types) stay exported from their own modules, where applyTheme and the package's own suites import
    them directly — a barrel entry for each would advertise a public API nothing consumes. */
 export { oklchToHex } from "./oklch";
+export { exportTheme, importTheme, THEME_DOC_VERSION, type ThemeDocument, type ThemeImport } from "./theme-io";
 export { DEFAULT_FONTS, FONT_FACES, FONT_VARS, FONT_WEIGHTS, FONT_WEIGHT_SHIFT, fontVars, parseFontPref,
   type FontId, type FontPref, type FontRole, type FontWeight } from "./fonts";
 export { clampContrast, CONTRAST_RANGE, contrastMisses, DEFAULT_SELECTION, deriveVars, isHexColour, isOverridden, isThemeName, overrideKey,

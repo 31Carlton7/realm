@@ -5,8 +5,9 @@ import {
 } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
-  seedFor, themeModes, themeSwatches, type FontId, type FontWeight, type Mode, type ThemeName } from "@realm/ui";
-import { useEffect, useState } from "react";
+  exportTheme, importTheme, seedFor, themeModes, themeSwatches,
+  type FontId, type FontWeight, type Mode, type ThemeName } from "@realm/ui";
+import { useEffect, useRef, useState } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
@@ -239,6 +240,15 @@ function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
   const setThemeOverride = useApp((s) => s.setThemeOverride);
   const resetThemeOverride = useApp((s) => s.resetThemeOverride);
   const run = useApp((s) => s.run);
+  const [copied, setCopied] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [rejected, setRejected] = useState<string | null>(null);
+  const paste = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1600);
+    return () => clearTimeout(t);
+  }, [copied]);
   // The palette AS EDITED. `seedFor` returns null only for an untouched Realm, whose seeds are what
   // the fields have to show anyway — there is no other honest starting value for an edit.
   const seed = seedFor(name, face, override ?? {}) ?? REALM_SEED[face];
@@ -246,6 +256,7 @@ function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
   // is one of the things a tier's ratio depends on, and a warning computed against a setting the
   // user is not using would name the wrong roles.
   const misses = contrastMisses(seed, face, contrast);
+  const label = THEMES.find((t) => t.name === name)?.label ?? name;
 
   return (
     <fieldset className="theme-overrides" aria-label={`${face === "light" ? "Light" : "Dark"} theme colours`}>
@@ -270,8 +281,35 @@ function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
       ))}
       {isOverridden(override) && (
         <button type="button" className="btn-quiet" onClick={() => run(() => resetThemeOverride(name, face))}>
-          Reset to {THEMES.find((t) => t.name === name)?.label}
+          Reset to {label}
         </button>
+      )}
+      {/* Copy emits the face AS EDITED, so what lands on the clipboard is what is on screen — the
+          palette's own seeds under a set of overrides would be a theme the user was not looking at. */}
+      <button type="button" className="btn-quiet"
+        onClick={() => { void navigator.clipboard?.writeText(exportTheme(label, face, seed)); setCopied(true); }}>
+        {copied ? "Copied" : "Copy theme"}
+      </button>
+      <button type="button" className="btn-quiet" aria-expanded={importing}
+        onClick={() => { setImporting((o) => !o); setRejected(null); }}>Import</button>
+      {importing && (
+        // A paste box rather than a button that reads the clipboard: a rejection has to be shown
+        // beside the thing that was rejected, and reaching for the clipboard on a click is a
+        // permission prompt in exchange for one saved keystroke.
+        <div className="theme-import">
+          <textarea aria-label="Theme to import" spellCheck={false} rows={4}
+            placeholder={`{ "realmTheme": 1, "name": …, "mode": "${face}", "seed": { … } }`}
+            onChange={() => setRejected(null)} ref={paste} />
+          <div className="theme-import-actions">
+            <button type="button" className="btn" onClick={() => {
+              const result = importTheme(paste.current?.value ?? "", face);
+              if (!result.ok) { setRejected(result.reason); return; }
+              setRejected(null); setImporting(false);
+              run(() => setThemeOverride(name, face, { ...result.doc.seed }));
+            }}>Apply</button>
+            {rejected && <p className="settings-hint" data-tone="danger">{rejected}</p>}
+          </div>
+        </div>
       )}
       {/* Named, not corrected. The ground and the ink are the two seeds nothing lifts — moving them
           silently to clear a floor hands back a theme the user did not pick — and a hue that misses
