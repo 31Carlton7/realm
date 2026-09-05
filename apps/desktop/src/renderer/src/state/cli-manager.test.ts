@@ -71,7 +71,11 @@ describe("running an install", () => {
 
   it("refuses an action the server is not offering", async () => {
     const { store } = await booted({ cliStatus: [status({ kind: "codex", action: "none" })] });
-    await expect(store.getState().runCliAction("codex", "install")).rejects.toThrow(/not offering/);
+    // The refusal is the SERVER's: `runCliAction` carries no guard of its own, deliberately, so that
+    // what is on offer is decided in exactly one place. What the renderer owes is the half below —
+    // a rejected call leaves no job row behind for a panel to render as running. Matching on the
+    // message would pin prose belonging to the fake rather than anything production does.
+    await expect(store.getState().runCliAction("codex", "install")).rejects.toThrow();
     expect(store.getState().cliJobs.codex).toBeUndefined();
   });
 

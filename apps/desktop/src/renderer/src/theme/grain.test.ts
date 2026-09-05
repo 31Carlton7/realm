@@ -26,7 +26,10 @@ describe("the decorative wash's randomisation", () => {
   });
 
   it("is the same picture every time it is asked, so a re-render cannot reshuffle it", () => {
-    expect(grainVars("sheet", 12345)).toEqual(grainVars("sheet", 12345));
+    // No seed, deliberately: the default is the path a re-render actually takes, and the mutant this
+    // exists to kill is `LAUNCH_SEED` being drawn per CALL rather than once per launch. Handing both
+    // sides the same explicit seed would only prove that a pure function is pure.
+    expect(grainVars("sheet")).toEqual(grainVars("sheet"));
   });
 
   it("gives two surfaces on screen together two different pictures", () => {

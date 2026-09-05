@@ -191,9 +191,15 @@ describe("inline citation markers", () => {
     expect(html).not.toContain('<sup class="md-cite">2</sup>');
   });
 
-  it("marks nothing when nothing was fetched, and leaves the prose byte-identical", () => {
+  it("marks nothing when nothing was fetched, and a source the prose never links leaves it byte-identical", () => {
     const text = "Read more at [the docs](https://a.test/one).";
-    expect(renderMarkdown(text)).toBe(renderMarkdown(text, []));
-    expect(renderMarkdown(text)).not.toContain("md-cite");
+    const plain = renderMarkdown(text);
+    expect(plain).not.toContain("md-cite");
+    // The non-empty list is what makes this bite. `decorate` short-circuits only on an EMPTY cite
+    // list, so naming a url the prose never links takes the same text down the DOMParser path — and
+    // a mutant that marked links whenever any source existed would surface here as a diff against
+    // the untouched render. Comparing the default argument against `[]` would only compare the
+    // short-circuit with itself.
+    expect(renderMarkdown(text, ["https://elsewhere.test/x"])).toBe(plain);
   });
 });
