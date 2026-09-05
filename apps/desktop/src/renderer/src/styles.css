@@ -1533,7 +1533,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Two elements, not one, and the split is load-bearing: `attach-art` clips the picture to the
    rounded well, and the TILE must not clip, because the hover tip lives outside its box. Merging
    them makes the tip invisible. */
-.attach-tile { position: relative; width: 44px; height: 44px; flex: none; vertical-align: middle; }
+/* The tile names its own display rather than waiting to be blockified by an ancestor, because its
+   two callers do not agree about that: the composer's <li> is `display: contents`, which makes the
+   tile a direct flex item, while the transcript's <li> is an ordinary flex item and leaves it
+   INLINE — where the width and height below are ignored, the square collapses, and `.attach-art`'s
+   `inset: 0` collapses with it. That is how sent attachments came to render as a 0×0 box. */
+.attach-tile { position: relative; display: inline-block; width: 44px; height: 44px; flex: none; vertical-align: middle; }
 .attach-art { position: absolute; inset: 0; display: grid; place-items: center;
   border-radius: var(--r-ctl); background: var(--field); box-shadow: var(--shadow-hairline);
   color: var(--rl-text-faint); overflow: hidden; }
