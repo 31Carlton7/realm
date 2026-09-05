@@ -186,3 +186,32 @@ export function updateRefusal(route: InstallRoute | null, provenance: InstallPro
   const have = provenance === "brew" ? "Homebrew" : provenance === "unknown" ? "something other than a package manager Realm recognises" : provenance;
   return `Installed with ${have}, so Realm won't update it with ${want} — that would leave a second copy on your PATH instead of upgrading this one.`;
 }
+
+/**
+ * One agent CLI's whole situation on this machine, as the Settings engines list and the install card
+ * read it.
+ *
+ * `action` is the only field a button should branch on, and it is deliberately narrower than the rest
+ * of the row: `updateAvailable` can be true while `action` is `"none"`, which is the case where Realm
+ * found a newer version but must not apply it (see `refusal`). Telling the user an update exists and
+ * refusing to run it is more useful than hiding either half.
+ */
+export type CliStatus = {
+  kind: AgentKind;
+  installed: boolean;
+  /** Raw, exactly as the CLI printed it — `parseVersion` is for comparing, not for showing. */
+  version: string | null;
+  /** The PATH entry the binary was found at, null when it is not installed or was not resolved. */
+  binPath: string | null;
+  provenance: InstallProvenance;
+  /** Newest published version, null when the CLI is absent, has no channel, or the lookup failed. */
+  latest: string | null;
+  /** Whether this route has any way to learn a published version at all. */
+  channel: boolean;
+  updateAvailable: boolean;
+  action: "install" | "update" | "none";
+  /** The exact command `action` would run, shown before it runs. Null when `action` is `"none"`. */
+  command: string | null;
+  /** Why an available update is not offered as a button. Null whenever there is nothing to explain. */
+  refusal: string | null;
+};
