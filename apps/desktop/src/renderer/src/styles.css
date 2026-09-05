@@ -1711,12 +1711,15 @@ button.panel-title:hover { background: var(--rl-hover); }
    (z-index 1 on .composer keeps the card on top). Drawn unconditionally — where a session runs is
    standing context, not a streaming state. In normal flow inside .composer-dock, so the hero→docked
    transform carries it and the absolutely-hung suggestions land below it. ── */
+/* Same rung and same ring as the card above it, so the two read as one object rather than a tab
+   stuck under a card. The bottom padding buys the height that rounding needs: both the worklet and
+   the browser clamp a corner to half the box, so on the old 42px box --r-squircle drew at 21 however
+   it was written. The padding goes symmetric at 12px, which costs 6px of height and buys a 24px
+   corner. The remaining gap to the card's 36 is geometry rather than a choice: matching it exactly
+   needs a 72px strip, three times the height of the chips it holds. */
 .composer-understrip { display: flex; align-items: center; gap: 2px; min-width: 0;
-  margin: -10px 10px 0; padding: 12px 6px 6px; background: var(--rl-frame);
-  /* --r-panel, not --r-squircle: only ~26px of this strip shows below the card, so 12px is already
-     nearly half its height. A corner cannot be rounder than half the box — past that the curve
-     clamps and the strip reads as a stadium rather than as the bottom of the prompter. */
-  border-radius: 0 0 var(--r-panel) var(--r-panel); corner-shape: squircle; }
+  margin: -10px 10px 0; padding: 12px 10px 12px; background: var(--rl-frame);
+  border-radius: 0 0 var(--r-squircle) var(--r-squircle); corner-shape: squircle; }
 .composer-understrip .ghost-chip { height: 24px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
 /* "Thinking…" hangs off the strip's far end, so arriving mid-stream costs the chips no motion. */
@@ -1815,7 +1818,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    inside a rounded corner. No ring: the card underneath is already wearing the drop target's. */
 :root[data-squircle] .composer-drop-hint { --sq-fill: color-mix(in srgb, var(--rl-raised) 82%, transparent); }
 /* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
-:root[data-squircle] .composer-understrip { --sq-fill: var(--rl-frame); --sq-radius-top: 0px; --sq-radius-bottom: var(--r-panel); }
+:root[data-squircle] .composer-understrip {
+  --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
+  --sq-radius-top: 0px; --sq-radius-bottom: var(--r-squircle);
+}
 :root[data-squircle] .install-card {
   --sq-fill: var(--rl-raised); --sq-ring: var(--line); --sq-ring-w: var(--hairline-w);
   box-shadow: var(--rl-shadow);
