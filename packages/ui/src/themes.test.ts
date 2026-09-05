@@ -343,10 +343,14 @@ describe("the contrast control moves the ink ramp and nothing else", () => {
     { seed: REALM_SEED.dark, mode: "dark" as Mode, label: "realm/dark" },
     { seed: REALM_SEED.light, mode: "light" as Mode, label: "realm/light" }];
 
-  it("the default IS the shipped ramp — moving the slider and back returns the palette it started from", () => {
-    // THE off-by-a-default mutant: centre the scale on 50. Every palette in the app shifts the first
-    // time this ships, for everyone, and the ramp constants measured off tokens.css stop being what
-    // the app draws.
+  it("passing the default is the same as passing nothing — moving the slider and back returns the palette it started from", () => {
+    // THE drifted-default mutant: hardcode some other level as deriveVars' default argument. Every
+    // caller that does not thread the preference — the picker swatches, the guardrail in
+    // styles.test.ts — would derive a palette the window never shows.
+    // What this canNOT catch is the scale itself being centred somewhere other than the default:
+    // both sides of this comparison would move together. The check with teeth for that is
+    // styles.test.ts's "the ramp reproduces the palette it was measured from", where the default
+    // derivation is held against tokens.css and a shifted centre stops reproducing it.
     for (const { seed, mode, label } of seeds()) {
       expect(deriveVars(seed, mode, CONTRAST_RANGE.default), label).toEqual(deriveVars(seed, mode));
     }
