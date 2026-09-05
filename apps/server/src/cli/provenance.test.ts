@@ -1,17 +1,14 @@
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDir } from "@realm/test-utils";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { classifyPath, resolveInstall } from "./provenance";
 import { agentBin } from "./bins";
 import { probeClaude } from "@realm/adapters";
 
-const roots: string[] = [];
-afterEach(() => { for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true }); });
 
 function tree(): string {
-  const root = mkdtempSync(join(tmpdir(), "realm-cli-"));
-  roots.push(root);
+  const root = tempDir("realm-cli-");
   return root;
 }
 

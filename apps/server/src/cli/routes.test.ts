@@ -1,15 +1,12 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createApp, type App } from "../app";
 
 let app: App;
-const roots: string[] = [];
 afterEach(async () => {
   await app?.close();
-  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
 });
 
 async function client(port: number) {
@@ -41,10 +38,8 @@ async function client(port: number) {
  * developer's real installs, and must not reach npm. What is left is exactly the routes' own logic.
  */
 async function boot() {
-  const home = mkdtempSync(join(tmpdir(), "realm-home-"));
-  roots.push(home);
-  const empty = mkdtempSync(join(tmpdir(), "realm-nopath-"));
-  roots.push(empty);
+  const home = tempDir("realm-home-");
+  const empty = tempDir("realm-nopath-");
   app = await createApp({
     home, port: 0, adapters: {},
     cli: {

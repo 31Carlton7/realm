@@ -1,19 +1,16 @@
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDir } from "@realm/test-utils";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { ProbeResult } from "@realm/adapters";
 import type { AgentKind } from "@realm/contracts";
 import { CliService } from "./service";
 
-const roots: string[] = [];
-afterEach(() => { for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true }); });
 
 /** A PATH directory holding the named binaries, each a symlink into the layout its package manager
  *  would have produced. No package manager is ever run — the layout IS the fact under test. */
 function machine(installs: { bin: string; under: "npm" | "brew" }[]): { PATH: string } {
-  const root = mkdtempSync(join(tmpdir(), "realm-clisvc-"));
-  roots.push(root);
+  const root = tempDir("realm-clisvc-");
   const binDir = join(root, "bin");
   mkdirSync(binDir, { recursive: true });
   for (const { bin, under } of installs) {
