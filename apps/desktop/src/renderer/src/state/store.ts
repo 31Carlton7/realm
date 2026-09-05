@@ -5,12 +5,13 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
+  DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   type AgentKind, type Attachment, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
+import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha,
   isOverridden, parseFontPref, type FontPref,
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
@@ -302,6 +303,11 @@ export type Api = {
   /** Ask main to post an OS toast for a surfaced feed row. Answers whether one was actually shown —
    *  main suppresses it while the Realm window is focused, and that call is main's to make. */
   showDesktopNotification(input: { id: string; title: string; body: string | null }): Promise<boolean>;
+  /** Play one cue at `volume` (0…1). Synchronous and never throws — the synthesiser is a no-op wherever
+   *  Web Audio is missing or still locked, and a silent renderer must not take the feed handler with
+   *  it. Unlike the toast the sound is made in the window, but it still answers to main's decision
+   *  rather than its own (see applyNotificationsChanged). */
+  playCue(cue: CueName, volume: number): void;
   /** Push the dock badge. Every unread change goes through here; 0 clears it. */
   setBadgeCount(count: number): Promise<void>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
@@ -657,6 +663,10 @@ export type AppState = {
    *  the first broadcast can arrive, and `settingsPrefs` stays null until the Settings page mounts —
    *  a toast that only worked after a visit to Settings would be a toast that does not work. */
   desktopNotifications: boolean;
+  /** Whether a toast main actually posted also plays a cue, and how loud (0…1). Held out beside
+   *  `desktopNotifications`, and for the reason given there. */
+  soundCues: boolean;
+  soundVolume: number;
   agentProbe: AgentProbe[];
   /** Per-agent install/update situation. Empty until something asks; the engines list and the
    *  install card both read it, and neither may block on it. */
@@ -1344,6 +1354,10 @@ export type AppState = {
   /** The Settings→App desktop switch. Writes `NOTIFICATIONS_DESKTOP_KEY` and immediately pushes the
    *  badge the new answer implies, so switching off clears the dock rather than freezing a number. */
   setDesktopNotifications(enabled: boolean): Promise<void>;
+  /** The Settings→App sound switch and its level (0…1). Each writes its key and holds the answer, so
+   *  the next broadcast sounds under the new one without waiting for a settings refresh. */
+  setSoundCues(enabled: boolean): Promise<void>;
+  setSoundVolume(volume: number): Promise<void>;
   /** Select a feed row into the page's detail column (null = back to the bare list). Records the move
    *  on the trail of the pane showing `pageItemId`, so the arrows retrace it, and marks the row read —
    *  opening a notification is the definition of having seen it. */
@@ -1917,7 +1931,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, soundCues: true, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeProfileId() { return get().activeSpace()?.profileId ?? null; },
@@ -1951,8 +1965,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // at boot at all because the first broadcast can arrive long before anyone opens Settings.
         // A failed read keeps the default-on answer: a preference nobody could read is not a
         // preference to switch the feature off.
-        const desktop = await api.getSetting(NOTIFICATIONS_DESKTOP_KEY).catch(() => null);
-        set({ desktopNotifications: desktop !== false });
+        const [desktop, sound, volume] = await Promise.all([
+          api.getSetting(NOTIFICATIONS_DESKTOP_KEY).catch(() => null),
+          api.getSetting(NOTIFICATIONS_SOUND_KEY).catch(() => null),
+          api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY).catch(() => null),
+        ]);
+        set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume) });
         // The sidebar's unread pill needs the count before the page is ever opened. One row, not a
         // page — the count rides every list result. A badge, not a dependency: a failure here must
         // not take boot down with it.
@@ -3322,13 +3340,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       setProfilePageTab(profileId, tab) { set({ profilePageTab: { ...get().profilePageTab, [profileId]: tab } }); },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode, rawDesktop] = await Promise.all([
+        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
+          api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
-        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, desktopNotifications: rawDesktop !== false });
+        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, desktopNotifications: rawDesktop !== false,
+          soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume) });
       },
       async refreshModelFavorites() {
         const raw = await api.getSetting(MODEL_FAVORITES_KEY);
@@ -3498,7 +3518,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // about which PANE is focused; a turn settling on the focused pane while Realm sits behind
           // another app is exactly the toast worth showing. Whether one appears is main's call
           // (window focus), and a failed toast must never take the feed handler down with it.
-          if (get().desktopNotifications) void api.showDesktopNotification({ id: n.id, title: n.title, body: n.body }).catch(() => {});
+          //
+          // The cue rides that same answer rather than re-deriving it: `show` reports whether a toast
+          // was POSTED, so a sound can only follow one that was. The focus rule keeps a single
+          // implementation in notify.ts, and nothing sounds while Realm is the app you are in.
+          if (get().desktopNotifications) {
+            const cue = CUE_BY_CATEGORY[n.category];
+            void api.showDesktopNotification({ id: n.id, title: n.title, body: n.body })
+              .then((posted) => { if (posted && cue && get().soundCues) api.playCue(cue, get().soundVolume); })
+              .catch(() => {});
+          }
         } else if (get().notifications.length > 0) {
           // A resolution or a markRead from elsewhere: re-read the held slice so a permission row can
           // never keep rendering "pending" after it was answered in some other pane or window.
@@ -3556,6 +3585,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Republish the count under the new answer: switching off has to CLEAR the dock, not leave
         // the last number sitting there until something else happens to change it.
         applyUnread(get().notificationsUnread);
+      },
+      async setSoundCues(enabled) {
+        await api.setSetting(NOTIFICATIONS_SOUND_KEY, enabled);
+        set({ soundCues: enabled });
+      },
+      async setSoundVolume(volume) {
+        // Stored through the same reader boot uses, so a value the UI could not produce cannot be
+        // written by anything else either.
+        const v = cueVolume(volume);
+        await api.setSetting(NOTIFICATIONS_SOUND_VOLUME_KEY, v);
+        set({ soundVolume: v });
       },
       async selectNotification(pageItemId, id) {
         set({ notificationsSelectedId: id });

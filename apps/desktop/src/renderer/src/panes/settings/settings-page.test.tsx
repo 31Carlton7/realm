@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GROUND_ALPHA_RANGE } from "@realm/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, PAGE_REF_IDS } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, macRow, notification, type FakeData } from "../../state/store.test-fakes";
@@ -470,6 +470,43 @@ describe("App tab", () => {
     await waitFor(() => expect(api.data.badgeCount).toBe(0)); // …and OFF clears the dock
     // The category set is a different question and stays exactly as it was.
     expect(api.data.settings[NOTIFICATIONS_DISABLED_KEY]).toEqual(["mcp_health"]);
+  });
+
+  it("the sound switch defaults on, at half volume, and writes its own key", async () => {
+    const { api, store } = await openApp();
+    const sw = screen.getByRole("switch", { name: "Play a sound with it" });
+    expect(sw).toBeChecked();
+    expect(screen.getByRole("slider", { name: "Sound volume" })).toHaveValue("50");
+    // The readout says what it measures: the slider sits two rows under the switch it belongs to.
+    expect(screen.getByText("Volume 50%")).toBeInTheDocument();
+    fireEvent.click(sw);
+    await waitFor(() => expect(api.data.settings[NOTIFICATIONS_SOUND_KEY]).toBe(false));
+    expect(store.getState().soundCues).toBe(false);
+    // The wider gate is a different question and is not written by this switch.
+    expect(api.data.settings[NOTIFICATIONS_DESKTOP_KEY]).toBeUndefined();
+  });
+
+  it("the volume writes 0…1 however the slider counts, and a stored level renders", async () => {
+    const { api, store } = await openApp({ settings: { [NOTIFICATIONS_SOUND_VOLUME_KEY]: 0.2 } });
+    const slider = screen.getByRole("slider", { name: "Sound volume" });
+    expect(slider).toHaveValue("20");
+    fireEvent.change(slider, { target: { value: "75" } });
+    await waitFor(() => expect(api.data.settings[NOTIFICATIONS_SOUND_VOLUME_KEY]).toBe(0.75));
+    expect(store.getState().soundVolume).toBe(0.75);
+  });
+
+  it("THE orphaned-control mutant: with notifications off, neither sound control can be reached", async () => {
+    // The cue only ever accompanies a toast that was posted, so a sound switch that stayed live with
+    // toasts off would offer a setting that cannot do anything.
+    await openApp({ settings: { [NOTIFICATIONS_DESKTOP_KEY]: false } });
+    expect(screen.getByRole("switch", { name: "Play a sound with it" })).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "Sound volume" })).toBeDisabled();
+  });
+
+  it("the volume is inert while the sound is off, and the switch above it is not", async () => {
+    await openApp({ settings: { [NOTIFICATIONS_SOUND_KEY]: false } });
+    expect(screen.getByRole("switch", { name: "Play a sound with it" })).not.toBeDisabled();
+    expect(screen.getByRole("slider", { name: "Sound volume" })).toBeDisabled();
   });
 
   it("a toggle writes EXACTLY its own category (the named mutant: the wrong category), leaving the rest of the set alone", async () => {

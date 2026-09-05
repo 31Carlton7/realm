@@ -868,6 +868,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.shownNotifications.push(input);
       return true;
     },
+    // The request IS the observable, so the suite can assert cue and volume with no Web Audio in it.
+    playCue: (cue, volume) => { calls.push(`playCue:${cue}@${volume}`); },
     setBadgeCount: async (count) => { calls.push(`setBadgeCount:${count}`); data.badgeCount = count; },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
