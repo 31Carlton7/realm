@@ -82,6 +82,8 @@ interface Window {
     browser: {
       create(id: string, url: string, allowlist: string[] | null): Promise<void>;
       destroy(id: string): Promise<void>;
+      /** The pane unmounted but the browser did not close: keep the view alive and hidden. */
+      retain(id: string): Promise<void>;
       /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
       navigate(id: string, input: string): Promise<string | null>;
       nav(id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void>;

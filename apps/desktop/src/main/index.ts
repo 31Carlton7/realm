@@ -190,6 +190,9 @@ async function createWindow(info: { port: number; home: string }) {
 // Mutations are invokes; the per-frame bounds sync is a plain send (no reply to wait on).
 ipcMain.handle("browser:create", (_e, id: string, url: string, allowlist: string[] | null) => { browserHost?.create(id, url, allowlist); });
 ipcMain.handle("browser:destroy", (_e, id: string) => { browserHost?.destroy(id); });
+// The pane went away without the browser being closed — a space or pane-group switch. The view
+// keeps running, hidden, until the pane comes back or the off-screen budget evicts it.
+ipcMain.handle("browser:retain", (_e, id: string) => { browserHost?.retain(id); });
 ipcMain.handle("browser:navigate", (_e, id: string, input: string): string | null => browserHost?.navigate(id, input) ?? null);
 ipcMain.handle("browser:nav", (_e, id: string, action: "back" | "forward" | "reload" | "stop") => { browserHost?.navAction(id, action); });
 ipcMain.handle("browser:set-allowlist", (_e, id: string, allowlist: string[] | null) => { browserHost?.setAllowlist(id, allowlist); });

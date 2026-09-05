@@ -55,6 +55,7 @@ export const liveApi = (): Api => ({
   pathForFile: (file) => window.realm.pathForFile(file),
   saveTempAttachment: (name, mime, bytes) => window.realm.saveTempAttachment(name, mime, bytes),
   disposeTerminal: (terminalId) => getTerminalHub().dispose(terminalId),
+  destroyBrowserView: (browserId) => { void window.realm.browser.destroy(browserId); },
   listSessions: (spaceId) => rpc().call("sessions.list", { spaceId }),
   listAllSessions: () => rpc().call("sessions.listAll", {}),
   getSession: (id) => rpc().call("sessions.get", { id }),

@@ -116,6 +116,7 @@ contextBridge.exposeInMainWorld("realm", {
   browser: {
     create: (id: string, url: string, allowlist: string[] | null): Promise<void> => ipcRenderer.invoke("browser:create", id, url, allowlist),
     destroy: (id: string): Promise<void> => ipcRenderer.invoke("browser:destroy", id),
+    retain: (id: string): Promise<void> => ipcRenderer.invoke("browser:retain", id),
     /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
     navigate: (id: string, input: string): Promise<string | null> => ipcRenderer.invoke("browser:navigate", id, input),
     nav: (id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void> => ipcRenderer.invoke("browser:nav", id, action),

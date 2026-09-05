@@ -16,6 +16,7 @@ export function fakeBrowserBridges(over: {
   const host: BrowserHostBridge = {
     create: async () => {},
     destroy: async () => {},
+    retain: async () => {},
     navigate: async () => null,
     nav: async () => {},
     setAllowlist: async () => {},
