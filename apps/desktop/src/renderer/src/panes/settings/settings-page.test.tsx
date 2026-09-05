@@ -233,6 +233,28 @@ describe("App tab", () => {
     expect(await colours("Light").findByText(/Below the contrast Realm holds every palette to.*Foreground/)).toBeInTheDocument();
   });
 
+  it("the two faces are chosen independently, and the weight rides the UI face", async () => {
+    // THE one-font mutant: a single family for both. Someone who wants the system UI face is not
+    // thereby asking for the system mono face, and the two live in different parts of the app.
+    const { store, api } = await openApp();
+    expect((screen.getByRole("combobox", { name: "UI font" }) as HTMLSelectElement).value).toBe("bundled");
+    fireEvent.change(screen.getByRole("combobox", { name: "UI font" }), { target: { value: "system" } });
+    await waitFor(() => expect(store.getState().fonts).toEqual({ ui: "system", uiWeight: "regular", code: "bundled" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "UI font weight" }), { target: { value: "medium" } });
+    await waitFor(() => expect(store.getState().fonts.uiWeight).toBe("medium"));
+    expect(store.getState().fonts.code).toBe("bundled");
+    fireEvent.change(screen.getByRole("combobox", { name: "Code font" }), { target: { value: "system" } });
+    await waitFor(() => expect(store.getState().fonts.code).toBe("system"));
+    expect(store.getState().fonts.ui).toBe("system");
+    expect(api.calls.some((c) => c.startsWith("setSetting:ui.fonts"))).toBe(true);
+  });
+
+  it("offers no weight for code, and says why rather than leaving a gap", async () => {
+    await openApp();
+    expect(screen.queryByRole("combobox", { name: "Code font weight" })).toBeNull();
+    expect(screen.getByText(/Weight follows the app's own scale here/)).toBeInTheDocument();
+  });
+
   it("contrast is a slider over the ink ramp, defaulting to the shipped spread", async () => {
     // What the store does with it. That it reaches the WINDOW is use-theme.test.ts's assertion — the
     // bridge that writes :root is mounted there, not here.

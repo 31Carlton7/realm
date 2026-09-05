@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { terminalBackground, TerminalHub, type HubTransport, type TerminalLike } from "./terminal-hub";
+import { terminalBackground, terminalFont, TerminalHub, type HubTransport, type TerminalLike } from "./terminal-hub";
 
 type Listener = (payload: unknown) => void;
 function fakeTransport() {
@@ -17,7 +17,7 @@ function fakeTransport() {
 function fakeTerm() {
   const writes: string[] = []; let dataFn: ((d: string) => void) | null = null; let disposed = false; let opened: HTMLElement | null = null;
   const term: TerminalLike & { writes: string[]; typed(d: string): void; disposed(): boolean; openedIn(): HTMLElement | null } = {
-    cols: 80, rows: 24, writes,
+    cols: 80, rows: 24, writes, options: { fontFamily: "start" },
     open: (el) => { opened = el; }, write: (d) => { writes.push(d); }, dispose: () => { disposed = true; }, focus: () => {},
     onData: (fn) => { dataFn = fn; return { dispose() { dataFn = null; } }; },
     onResize: () => ({ dispose() {} }),
@@ -29,8 +29,9 @@ function fakeTerm() {
 function setup() {
   const t = fakeTransport();
   const terms: ReturnType<typeof fakeTerm>[] = [];
-  const hub = new TerminalHub(t.transport, () => { const term = fakeTerm(); terms.push(term); return { term, fit: { fit() {} } }; });
-  return { ...t, hub, terms };
+  const fits: number[] = [];
+  const hub = new TerminalHub(t.transport, () => { const term = fakeTerm(); terms.push(term); return { term, fit: { fit() { fits.push(terms.indexOf(term)); } } }; });
+  return { ...t, hub, terms, fits };
 }
 
 describe("TerminalHub", () => {
@@ -165,5 +166,44 @@ describe("terminalBackground", () => {
     document.documentElement.style.setProperty("--rl-terminal-bg", "#101010");
     expect(terminalBackground()).toBe("#101010");
     document.documentElement.style.removeProperty("--rl-terminal-bg");
+  });
+});
+
+describe("the code face reaches a terminal that is already open", () => {
+  it("reads --font-mono rather than a stack of its own", () => {
+    // THE hardcoded-stack mutant: keep the literal '"JetBrains Mono", ui-monospace, …' the factory
+    // used to carry. It is the same value as the default preference, so every terminal looks right
+    // until someone picks the system face — and then the one surface that is nothing but code is the
+    // one surface that ignores the code font.
+    expect(terminalFont()).toContain("JetBrains Mono");
+    document.documentElement.style.setProperty("--font-mono", "ui-monospace, Menlo, monospace");
+    expect(terminalFont()).toBe("ui-monospace, Menlo, monospace");
+    document.documentElement.style.removeProperty("--font-mono");
+  });
+
+  it("pushes a changed face into every live terminal and re-fits the opened ones", () => {
+    // xterm reads its font once, at construction. THE next-terminal-only mutant: leave it there. The
+    // setting appears to do nothing to the terminal in front of you, which is the terminal you were
+    // looking at when you changed it.
+    const { hub, terms, fits } = setup();
+    const container = document.createElement("div"); document.body.appendChild(container);
+    hub.acquire("open").attach(container);
+    hub.acquire("detached");
+    fits.length = 0;
+
+    document.documentElement.style.setProperty("--font-mono", "ui-monospace, Menlo, monospace");
+    hub.refreshFont();
+    expect(terms.map((t) => t.options!.fontFamily)).toEqual(["ui-monospace, Menlo, monospace", "ui-monospace, Menlo, monospace"]);
+    // The cell size is measured off the face, so an opened terminal has to re-measure or the grid is
+    // the wrong shape and the pty was resized to a lie. A detached one has nothing to measure yet.
+    expect(fits).toEqual([0]);
+
+    // THE unconditional-refit mutant: re-fit on every call. This runs on every theme apply, and a
+    // re-fit that changes nothing still costs a reflow per terminal per repaint.
+    fits.length = 0;
+    hub.refreshFont();
+    expect(fits).toEqual([]);
+    document.documentElement.style.removeProperty("--font-mono");
+    container.remove();
   });
 });

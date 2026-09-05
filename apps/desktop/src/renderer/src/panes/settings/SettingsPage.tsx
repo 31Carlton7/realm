@@ -3,8 +3,8 @@ import {
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
 } from "@realm/contracts";
-import { CONTRAST_RANGE, GROUND_ALPHA_RANGE, Icon, REALM_SEED, THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
-  seedFor, themeModes, themeSwatches, type Mode, type ThemeName } from "@realm/ui";
+import { CONTRAST_RANGE, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED, THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
+  seedFor, themeModes, themeSwatches, type FontId, type FontWeight, type Mode, type ThemeName } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
@@ -292,6 +292,8 @@ function AppTab() {
   const setThemeName = useApp((s) => s.setThemeName);
   const contrast = useApp((s) => s.contrast);
   const setContrast = useApp((s) => s.setContrast);
+  const fonts = useApp((s) => s.fonts);
+  const setFonts = useApp((s) => s.setFonts);
   const groundAlpha = useApp((s) => s.groundAlpha);
   const setGroundAlpha = useApp((s) => s.setGroundAlpha);
   const submitKey = useApp((s) => s.submitKey);
@@ -349,6 +351,35 @@ function AppTab() {
         <PaletteRow key={face} face={face} live={face === mode} selected={themeNames[face]}
           onSelect={(name) => run(() => setThemeName(face, name))} />
       ))}
+
+      <div className="field"><span>UI font</span>
+        {/* Two families, not four hundred. Enumerating installed fonts needs a main-process hop and
+            returns mostly faces this layout cannot use — the chrome is set against a four-step weight
+            ladder and tabular figures, and a display face picked out of a long list loses both
+            silently. The bundled faces are guaranteed to be present and to have those axes; the
+            system stack is for someone who would rather Realm looked like the rest of their machine. */}
+        <div className="font-row">
+          <select aria-label="UI font" value={fonts.ui} onChange={(e) => run(() => setFonts({ ui: e.target.value as FontId }))}>
+            {FONT_FACES.ui.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+          <select aria-label="UI font weight" value={fonts.uiWeight}
+            onChange={(e) => run(() => setFonts({ uiWeight: e.target.value as FontWeight }))}>
+            {FONT_WEIGHTS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="field"><span>Code font</span>
+        <div className="font-row">
+          <select aria-label="Code font" value={fonts.code} onChange={(e) => run(() => setFonts({ code: e.target.value as FontId }))}>
+            {FONT_FACES.code.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+        </div>
+        {/* The asymmetry is a fact about the stylesheet, not a judgement: every mono surface sets its
+            font with the `font:` shorthand, which resets weight by definition, so a code weight would
+            mean editing fifty-odd rules or hiding a weight inside a family name. */}
+        <p className="settings-hint">Code, diffs, terminals and keyboard hints. Weight follows the app's own scale here — the UI weight above is the one control over it. Open terminals change face with the setting; their font size does not follow it.</p>
+      </div>
 
       <div className="field"><span>Contrast</span>
         {/* The ink ramp's SPREAD — how far the secondary and hint tiers fall below primary text. It

@@ -13,6 +13,9 @@ export type TerminalLike = {
   onData(fn: (data: string) => void): { dispose(): void };
   onResize(fn: (size: { cols: number; rows: number }) => void): { dispose(): void };
   readonly cols: number; readonly rows: number;
+  /** xterm's live options bag. Optional because the only thing the hub writes back into it is the
+   *  code face, and a fake that does not care about fonts should not have to carry one. */
+  options?: { fontFamily?: string };
 };
 export type FitLike = { fit(): void };
 export type TerminalFactory = () => { term: TerminalLike; fit: FitLike };
@@ -34,15 +37,24 @@ export type HubEntry = {
   detach(): void;
 };
 
-/** Terminal background from the `--rl-terminal-bg` token (read once, at hub creation). */
+/** A `:root` custom property, or the fallback for a renderer whose stylesheet has not loaded. */
+const rootVar = (name: string, fallback: string, doc: Document): string =>
+  doc.defaultView?.getComputedStyle(doc.documentElement).getPropertyValue(name).trim() || fallback;
+
+/** Terminal background from the `--rl-terminal-bg` token. */
 export function terminalBackground(doc: Document = document): string {
-  const v = doc.defaultView?.getComputedStyle(doc.documentElement).getPropertyValue("--rl-terminal-bg").trim();
-  return v || "#17181b";
+  return rootVar("--rl-terminal-bg", "#17181b", doc);
+}
+
+/** The code face, from the same `--font-mono` the rest of the app's code surfaces read — so the
+ *  Settings preference reaches a terminal instead of leaving it on a hardcoded stack that happens to
+ *  match the default. */
+export function terminalFont(doc: Document = document): string {
+  return rootVar("--font-mono", '"JetBrains Mono", ui-monospace, Menlo, monospace', doc);
 }
 
 const defaultFactory: TerminalFactory = () => {
-  // Bundled JetBrains Mono (V-X4) first — same face as the tool cards/wells; system mono as fallback.
-  const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace', theme: { background: terminalBackground() }, allowProposedApi: true });
+  const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: terminalFont(), theme: { background: terminalBackground() }, allowProposedApi: true });
   const fit = new FitAddon(); term.loadAddon(fit);
   return { term, fit };
 };
@@ -159,6 +171,22 @@ export class TerminalHub {
     this.buffers.delete(terminalId);
     this.hasDataIds.delete(terminalId);
     this.firstDataListeners.delete(terminalId);
+  }
+
+  /** Re-reads the code face from `--font-mono` and pushes it into every live terminal.
+   *
+   *  Without this the preference would only reach terminals opened AFTER it changed — xterm reads
+   *  its font once, at construction, exactly as it reads its background. A setting that takes effect
+   *  on the next terminal is a setting the user tries, sees nothing from, and moves on from. Each
+   *  one is re-fit afterwards because the cell size is measured off the face: changing it without
+   *  re-measuring leaves the grid the wrong shape and the pty resized to a lie. */
+  refreshFont() {
+    const font = terminalFont(this.doc);
+    for (const e of this.entries.values()) {
+      if (!e.term.options || e.term.options.fontFamily === font) continue;
+      e.term.options.fontFamily = font;
+      if (e.opened) try { e.fit.fit(); } catch { /* not measurable while detached */ }
+    }
   }
 
   disposeAll() {

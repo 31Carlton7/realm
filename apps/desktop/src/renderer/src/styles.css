@@ -109,8 +109,15 @@
   --ease: var(--ease-out-strong);
   /* The weight ladder, from tembo: 450 is "medium", 560 is the one title weight.
      Named rather than written per rule, so the ladder stays a ladder — the old
-     500/550/600/650 spread had two rungs a reader could not tell apart. */
-  --fw-medium: 450; --fw-label: 500; --fw-title: 560; --fw-strong: 600;
+     500/550/600/650 spread had two rungs a reader could not tell apart.
+     Every rung carries the same --fw-shift, which is how the UI font-weight preference reaches the
+     whole app from one place: an OFFSET, so the four rungs stay four rungs. Absolute weights from a
+     dropdown would flatten a label and a title into the same number on the way to making both
+     heavier. applyTheme() writes the shift; 0 here is what a renderer that never ran it gets. */
+  --fw-shift: 0;
+  --fw-body: calc(400 + var(--fw-shift));
+  --fw-medium: calc(450 + var(--fw-shift)); --fw-label: calc(500 + var(--fw-shift));
+  --fw-title: calc(560 + var(--fw-shift)); --fw-strong: calc(600 + var(--fw-shift));
 }
 /* The per-mode residue: the three tokens whose dark/light values do not flow from a BUI var. */
 :root[data-mode="light"] {
@@ -122,7 +129,7 @@
 /* 14/20 rather than 14/1.5: tembo pairs every type step with an explicit line
    height, and 21px line boxes are what left Realm's chrome sitting a hair
    looser than the references it gets measured against. */
-html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font: 14px/20px var(--font-ui); -webkit-font-smoothing: antialiased; }
+html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font: var(--fw-body) 14px/20px var(--font-ui); -webkit-font-smoothing: antialiased; }
 /* §5 vibrancy: html/body/#root/.app stay transparent so the macOS material shows through the
    sidebar column; .main (and every pane) paints opaque --rl-panel, so text there renders on a solid
    ground. On non-mac the BrowserWindow keeps its opaque backgroundColor and this composes to the
@@ -2940,6 +2947,8 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* ——— Settings → App: the background transparency slider ——————————————————————
    A native range on the app's accent, with the value beside it in tabular figures so the number does
    not jitter as the thumb moves. Disabled off macOS, where the window has no material behind it. */
+.font-row { display: flex; align-items: center; gap: 8px; }
+.font-row select { flex: 1; min-width: 0; max-width: 220px; }
 .slider-row { display: flex; align-items: center; gap: 10px; }
 .slider-row input[type="range"] { flex: 1; min-width: 0; max-width: 260px; accent-color: var(--rl-accent); }
 .slider-row input:disabled { cursor: default; opacity: .45; }

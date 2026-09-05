@@ -472,13 +472,20 @@ describe("Plan 9 W1 — the BUI bridge", () => {
   it("the weight ladder is four named rungs on tembo's values — no bare weight survives in a component rule", () => {
     const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
     // 450/500/560/600. The old 500/550/600/650 spread had two rungs nobody could tell apart.
-    expect(root).toContain("--fw-medium: 450");
-    expect(root).toContain("--fw-label: 500");
-    expect(root).toContain("--fw-title: 560");
-    expect(root).toContain("--fw-strong: 600");
+    // Each rung carries --fw-shift, which is the whole of how the font-weight preference reaches the
+    // app. THE absolute-weight mutant: have the preference write --fw-medium..--fw-strong directly.
+    // Two rungs a user picked "Medium" for would land on the same number and the ladder would stop
+    // being a ladder for exactly the people who asked for heavier text.
+    for (const [rung, base] of [["medium", 450], ["label", 500], ["title", 560], ["strong", 600]] as const) {
+      expect(root, rung).toContain(`--fw-${rung}: calc(${base} + var(--fw-shift))`);
+    }
+    expect(root).toContain("--fw-shift: 0");
     // Everything but the @font-face ranges and the two deliberate 400s goes through the ladder.
     const bare = [...css.matchAll(/font-weight:\s*(\d+)\s*;/g)].map((m) => m[1]);
     expect(bare.filter((w) => w !== "400")).toEqual([]);
+    // ...and body copy is on it too, or the preference would move every label in the app and leave
+    // the prose it sits beside behind. The `font:` shorthand resets weight, so it has to be IN it.
+    expect(bodiesFor("html, body, #root".split(", ")[0]!).join(" ")).toContain("var(--fw-body) 14px/20px");
   });
 
   it("hairlines are half-pixel alpha overlays — one device pixel on retina, and no ground they are painted for", () => {
@@ -495,7 +502,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     for (const decl of ["--text-xs--letter-spacing: -0.2px", "--text-sm--letter-spacing: -0.2px", "--text-base--line-height: 20px"])
       expect(tokens, decl).toContain(decl);
     // The body line box is the 20px the scale asks for, not 1.5×.
-    expect(bodiesFor("html, body, #root".split(", ")[0]!).join(" ")).toContain("font: 14px/20px var(--font-ui)");
+    expect(bodiesFor("html, body, #root".split(", ")[0]!).join(" ")).toContain("font: var(--fw-body) 14px/20px var(--font-ui)");
   });
 
   it("every custom property the stylesheet reads is one it (or tokens.css) actually defines", () => {
