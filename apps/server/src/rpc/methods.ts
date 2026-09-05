@@ -12,6 +12,8 @@ import type { CheckpointService } from "../checkpoints/service";
 import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { ModelCatalogService } from "../models/catalog";
+import type { CliService } from "../cli/service";
+import { specFor, type CliInstaller } from "../cli/install";
 import type { SkillsService } from "../skills/service";
 import type { McpService } from "../mcp/service";
 import type { McpHub } from "../mcp/hub";
@@ -49,7 +51,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; cli: CliService; cliInstaller: CliInstaller;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
   delegation: DelegationEngine;
 };
@@ -503,6 +505,20 @@ export function registerMethods(d: Deps): void {
 
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
   reg("models.catalog", async (p) => ({ rows: await d.modelCatalog.list({ force: p.force }) }));
+
+  reg("cli.status", async (p) => ({ rows: await d.cli.status({ force: p.force }) }));
+  // Every decision about WHAT to run is re-made here from the server's own status, never taken from
+  // the caller: the client names a kind and an action, and gets a refusal unless that is exactly what
+  // the status currently offers. So the provenance rule (no `npm install -g` over a Homebrew install)
+  // and the no-route rule hold even against a hand-crafted call.
+  reg("cli.run", async (p) => {
+    const row = (await d.cli.status()).find((r) => r.kind === p.kind);
+    if (!row || row.action !== p.action) throw new RpcError("CLI_ACTION_UNAVAILABLE", `Realm is not offering to ${p.action} ${p.kind} right now`);
+    const spec = specFor(p.kind, p.action, row.latest);
+    if (!spec) throw new RpcError("CLI_ACTION_UNAVAILABLE", `no ${p.action} command for ${p.kind}`);
+    if (d.cliInstaller.running(p.kind)) throw new RpcError("CLI_ALREADY_RUNNING", `${p.kind} is already installing`);
+    return d.cliInstaller.start(p.kind, p.action, spec);
+  });
 
   // Settings → Usage. Space-checked like every other scoped read: a typo'd id should say so rather
   // than answering an empty page for a space that is not there (the `ships.list` posture).

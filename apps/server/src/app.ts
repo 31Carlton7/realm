@@ -1,4 +1,6 @@
 import { agentBin } from "./cli/bins";
+import { CliService } from "./cli/service";
+import { CliInstaller } from "./cli/install";
 import { openDatabase, type Db } from "./db/database";
 import { dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
@@ -215,6 +217,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Plan 20's interjection: only timeouts, because an ask spawns nothing and so has no kind to fall
    *  back to. The behaviour suite needs sub-second budgets to exercise the timeout path. */
   ask?: { timeouts?: { budgetMs: number; pollMs: number } };
+  /** CLI manager knobs, injected for the same reason `titleGenerator` is omitted: a suite must never
+   *  reach a package registry, and it must read a PATH the test built rather than the developer's own
+   *  machine. Production callers pass neither and get the process environment and real fetch. */
+  cli?: { fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv };
   /** Upgrades a session's heuristic first-line title to a short model-written summary in the
    *  background (`SessionService.upgradeTitle`). A real, billed LLM call per session — omitted here
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
@@ -473,6 +479,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Model prices and context windows for the picker (public catalog, cached in `settings`). Nothing
   // depends on it: every method returns rows, and an unreachable catalog returns the stale ones.
   const modelCatalog = new ModelCatalogService({ settings });
+
+  // The CLI manager reads the same probe every other caller does, so an install card and this service
+  // never disagree about whether an agent is there. The installer's afterRun is what makes a finished
+  // install visible: it bypasses both caches before the `cli.done` event goes out.
+  const cli = new CliService({ probe: (o) => sessions.probe(o), ...opts.cli });
+  const cliInstaller = new CliInstaller({
+    onOutput: (e) => rpc.broadcast("cli.output", e),
+    onDone: (e) => rpc.broadcast("cli.done", e),
+    afterRun: () => cli.refresh(),
+  });
   // Spend and activity for Settings → Usage, and the budget watcher behind it. Reads only; the one
   // thing it writes is the budget row, and the one thing it emits is a threshold notification.
   usage = new UsageService({ db, settings, catalog: modelCatalog, notifications });
@@ -495,7 +511,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify, delegation: delegationEngine,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify, delegation: delegationEngine, cli, cliInstaller,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();
@@ -518,6 +534,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
       runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
       terminals.closeAll();
+      // A package manager outliving the app would keep writing to a global prefix with nobody
+      // watching, and nothing left to re-probe afterwards.
+      cliInstaller.disposeAll();
       await sessions.closeAll();
       // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
       // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.

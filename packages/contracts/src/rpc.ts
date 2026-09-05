@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CliJobStart, CliStatus } from "./cli";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema } from "./entities";
 
 import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
@@ -259,6 +260,29 @@ export const RestoreResultSchema = z.object({
 export type RestoreResult = z.infer<typeof RestoreResultSchema>;
 
 /** Method registry: params + result schemas. Server validates params; client types results. */
+/**
+ * The wire shapes for the CLI manager. They mirror `CliStatus` and `CliJobStart` in cli.ts, which
+ * carry the prose; the `satisfies` is the lock that stops the wire and the type callers program
+ * against drifting apart without a typecheck failure.
+ */
+export const CliActionSchema = z.enum(["install", "update"]);
+export const CliStatusSchema = z.object({
+  kind: AgentKindSchema,
+  installed: z.boolean(),
+  version: z.string().nullable(),
+  binPath: z.string().nullable(),
+  provenance: z.enum(["npm", "pnpm", "brew", "unknown"]),
+  latest: z.string().nullable(),
+  channel: z.boolean(),
+  updateAvailable: z.boolean(),
+  action: z.enum(["install", "update", "none"]),
+  command: z.string().nullable(),
+  refusal: z.string().nullable(),
+}) satisfies z.ZodType<CliStatus>;
+export const CliJobStartSchema = z.object({
+  id: z.string(), kind: AgentKindSchema, action: CliActionSchema, command: z.string(),
+}) satisfies z.ZodType<CliJobStart>;
+
 export const Methods = {
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
   "profiles.create": { params: z.object({ name: z.string().min(1), icon: z.string().default("user"), color: z.string().default("#6b7280") }), result: ProfileSchema },
@@ -897,6 +921,23 @@ export const Methods = {
     priceIn: z.number().nullable(), priceOut: z.number().nullable(), context: z.number().nullable(),
     efforts: z.array(z.string()), blurb: z.string().nullable(),
   })) }) },
+  /**
+   * Every agent CLI's install and update situation: what is on this machine, where it came from, what
+   * the provider has published, and the one command a click would run. `force` bypasses both caches
+   * behind it — the thirty-second probe and the six-hour version sweep — and is what "Check for
+   * updates" and the end of an install both use.
+   */
+  "cli.status": { params: z.object({ force: z.boolean().default(false) }), result: z.object({ rows: z.array(CliStatusSchema) }) },
+  /**
+   * Start the install or update `cli.status` offered for this kind, and answer with the exact command
+   * now running. Output arrives as `cli.output` events and the outcome as `cli.done`.
+   *
+   * The server re-derives the command from its OWN status rather than taking one from the caller, and
+   * refuses when that status does not currently offer this action. The gate lives here for the same
+   * reason the app updater's does: a hand-crafted call must not be able to talk Realm into running a
+   * package manager it decided not to offer.
+   */
+  "cli.run": { params: z.object({ kind: AgentKindSchema, action: CliActionSchema }), result: CliJobStartSchema },
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable(), models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional() })) },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
@@ -973,6 +1014,12 @@ export type MethodParams<M extends MethodName> = z.input<(typeof Methods)[M]["pa
 export type MethodResult<M extends MethodName> = z.infer<(typeof Methods)[M]["result"]>;
 
 export const Events = {
+  /** One chunk of a running install's output. Broadcast rather than sent to the asking client: the
+   *  Settings page and a session's install card can both be watching the same install. */
+  "cli.output": z.object({ id: z.string(), kind: AgentKindSchema, chunk: z.string() }),
+  /** An install or update finished. The probe and the version sweep have already been re-run by the
+   *  time this lands, so a client that refetches `cli.status` on it reads the new machine. */
+  "cli.done": z.object({ id: z.string(), kind: AgentKindSchema, ok: z.boolean(), code: z.number().nullable(), error: z.string().nullable() }),
   "profiles.changed": z.object({}),
   "spaces.changed":   z.object({}),
   "items.changed":    z.object({ spaceId: IdSchema }),
