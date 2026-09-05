@@ -272,8 +272,8 @@ kbd { font: 11px var(--font-mono); }
 /* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way.
    .tool-copy joins the list — its 20px box sits alone at its row's right edge, so the overhang
    never crosses another interactive element. */
-.icon-btn, .item-close, .item-shelf, .tool-copy, .msg-action { position: relative; }
-.icon-btn::after, .item-close::after, .item-shelf::after, .tool-copy::after, .msg-action::after { content: ""; position: absolute; inset: -6px; }
+.icon-btn, .item-close, .item-shelf, .tool-copy { position: relative; }
+.icon-btn::after, .item-close::after, .item-shelf::after, .tool-copy::after { content: ""; position: absolute; inset: -6px; }
 
 /* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
 .group-label { font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding: 12px 8px 4px; }
@@ -1043,6 +1043,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 .msg-actions { display: flex; align-items: center; gap: 2px; margin-left: -6px; }
 .msg-action { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-ctl); color: var(--rl-text-faint); }
 .msg-action:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* A thumb's glyph does not change when it is pressed, so the fill has to say so — one rung past
+   hover, exactly as .icon-btn's toggles do, and on the transition the button already carries. */
+.msg-action[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
+/* Hit-target extension, VERTICAL only. The shared -6px overhang assumes a control with no
+   interactive neighbour — which is why .tool-copy can take it, sitting alone at its row's edge —
+   and these sit 2px apart, where it would have every button stealing clicks from the next. */
+.msg-action { position: relative; }
+.msg-action::after { content: ""; position: absolute; inset: -6px 0; }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
 .msg-assistant.md { line-height: 1.6; }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }

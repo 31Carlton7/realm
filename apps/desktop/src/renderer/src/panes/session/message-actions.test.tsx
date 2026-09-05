@@ -6,7 +6,7 @@ import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 afterEach(() => cleanup());
 
 const model = (blocks: Block[]): TranscriptModel =>
-  ({ blocks, run: null, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null });
+  ({ blocks, run: null, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {} });
 
 const assistant = (text: string, streaming: boolean, messageId = "m1"): Block =>
   ({ kind: "assistant", messageId, text, streaming, ts: 1 });
@@ -100,5 +100,39 @@ describe("the assistant message's action bar", () => {
       transcript={model([user("one"), assistant("done", false)])} />);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retried).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the verdict already on the message, and only on that message", () => {
+    render(<Transcript sessionStatus="idle" onDecide={() => {}} onRate={() => {}}
+      transcript={{ ...model([assistant("one", false), assistant("two", false, "m2")]), feedback: { m2: "down" } }} />);
+    const bars = [...document.querySelectorAll(".msg-actions")];
+    expect(bars[0]!.querySelector('[aria-label="Bad response"]')).toHaveAttribute("aria-pressed", "false");
+    expect(bars[1]!.querySelector('[aria-label="Bad response"]')).toHaveAttribute("aria-pressed", "true");
+    expect(bars[1]!.querySelector('[aria-label="Good response"]')).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("rates the message by its own id, not by where it sits", () => {
+    // The mutant: keying feedback on the block index. Blocks are appended constantly, and a verdict
+    // that moved to a different message on the next turn would be worse than none.
+    const onRate = vi.fn();
+    render(<Transcript sessionStatus="idle" onDecide={() => {}} onRate={onRate}
+      transcript={model([assistant("one", false), assistant("two", false, "m2")])} />);
+    const bars = [...document.querySelectorAll(".msg-actions")];
+    fireEvent.click(bars[1]!.querySelector('[aria-label="Good response"]')!);
+    expect(onRate).toHaveBeenCalledWith("m2", "up");
+  });
+
+  it("pressing the verdict that is already showing takes it back", () => {
+    const onRate = vi.fn();
+    render(<Transcript sessionStatus="idle" onDecide={() => {}} onRate={onRate}
+      transcript={{ ...model([assistant("one", false)]), feedback: { m1: "up" } }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Good response" }));
+    expect(onRate).toHaveBeenCalledWith("m1", null);
+  });
+
+  it("draws no thumbs at all where nothing can record them", () => {
+    render(<Transcript sessionStatus="idle" onDecide={() => {}}
+      transcript={model([assistant("one", false)])} />);
+    expect(screen.queryByRole("button", { name: "Good response" })).toBeNull();
   });
 });

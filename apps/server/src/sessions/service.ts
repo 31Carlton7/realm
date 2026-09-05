@@ -279,6 +279,18 @@ export class SessionService {
   emitExternal(id: string, ev: SessionEvent): void {
     this.onEvent(id, ev);
   }
+  /**
+   * Record what the reader thought of one answer. Goes down the same `onEvent` path as everything
+   * else on the transcript, so it persists and broadcasts by the rules already in force and lands
+   * in the panes showing this session without a second channel.
+   *
+   * `get` first, so a verdict on a session that no longer exists is a NOT_FOUND rather than an
+   * orphan row the foreign key would have refused anyway.
+   */
+  recordFeedback(id: string, messageId: string, rating: "up" | "down" | null): void {
+    this.get(id);
+    this.onEvent(id, sessionEvent("feedback", { messageId, rating }));
+  }
   async setOptions(id: string, o: { model?: string; effort?: string; permissionMode?: string }): Promise<Session> {
     const s = this.d.sessions.update({ id, ...o });
     await this.live.get(id)?.handle.setOptions({ model: o.model, permissionMode: o.permissionMode });

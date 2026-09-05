@@ -195,3 +195,43 @@ describe("how long the run worked", () => {
     expect(runBlocks(t)).toMatchObject([{ ms: 1_000 }, { ms: 4_000 }]);
   });
 });
+
+describe("feedback", () => {
+  const rate = (messageId: string, rating: "up" | "down" | null) => sessionEvent("feedback", { messageId, rating });
+
+  it("keeps a rating against the message it judges, and nothing against the ones it does not", () => {
+    const t = reduceAll([
+      sessionEvent("assistant_text", { messageId: "m1", text: "one" }),
+      sessionEvent("assistant_text", { messageId: "m2", text: "two" }),
+      rate("m1", "up"),
+    ]);
+    expect(t.feedback).toEqual({ m1: "up" });
+  });
+
+  it("lets the reader change their mind, and take the verdict back entirely", () => {
+    // Three states, not two: absent is "not judged", which a boolean could not tell from "down".
+    const up = reduceAll([rate("m1", "up")]);
+    expect(up.feedback).toEqual({ m1: "up" });
+    const down = reduceAll([rate("m1", "up"), rate("m1", "down")]);
+    expect(down.feedback).toEqual({ m1: "down" });
+    const withdrawn = reduceAll([rate("m1", "up"), rate("m1", null)]);
+    expect(withdrawn.feedback).toEqual({});
+  });
+
+  it("survives the relaunch, because it is in the log the transcript is rebuilt from", () => {
+    // The whole reason this is an event and not a settings row.
+    const events = [
+      sessionEvent("user_message", { text: "hi", attachments: [] }),
+      sessionEvent("assistant_text", { messageId: "m1", text: "hello" }),
+      rate("m1", "down"),
+    ];
+    expect(reduceAll(events).feedback).toEqual({ m1: "down" });
+    expect(reduceAll(events.slice())).toEqual(reduceAll(events));
+  });
+
+  it("never touches the blocks — a verdict is about a message, not a thing in the scrollback", () => {
+    const before = reduceAll([sessionEvent("assistant_text", { messageId: "m1", text: "hello" })]);
+    const after = reduceTranscript(before, rate("m1", "up"));
+    expect(after.blocks).toBe(before.blocks);
+  });
+});

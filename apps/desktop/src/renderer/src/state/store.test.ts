@@ -1233,6 +1233,35 @@ describe("app store", () => {
       });
     });
 
+    describe("rateMessage", () => {
+      const rated = async () => {
+        api = fakeApi({
+          items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+          sessions: [session("se1", "s1", { status: "idle" })],
+          sessionEvents: { se1: [stored("se1", 1, sessionEvent("assistant_text", { messageId: "m1", text: "hello" }))] },
+        });
+        const store = createAppStore(api); await store.getState().boot();
+        await store.getState().openSession("se1");
+        return store;
+      };
+
+      it("shows the verdict before the round trip finishes, then records it", async () => {
+        const store = await rated();
+        const pending = store.getState().rateMessage("se1", "m1", "up");
+        expect(store.getState().transcripts.se1!.t.feedback).toEqual({ m1: "up" });
+        await pending;
+        expect(api.calls).toContain("recordFeedback:se1:m1=up");
+      });
+
+      it("takes a verdict back rather than storing a third one", async () => {
+        const store = await rated();
+        await store.getState().rateMessage("se1", "m1", "down");
+        await store.getState().rateMessage("se1", "m1", null);
+        expect(store.getState().transcripts.se1!.t.feedback).toEqual({});
+        expect(api.calls).toContain("recordFeedback:se1:m1=none");
+      });
+    });
+
     it("sendMessage / interrupt / respondPermission / setSessionOptions call the api; options merge into the session", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().sendMessage("se1", "go");

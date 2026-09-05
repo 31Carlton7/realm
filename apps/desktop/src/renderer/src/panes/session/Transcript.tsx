@@ -10,7 +10,7 @@ import { PlanCard, PlanDecision, isPlanDecision } from "./PlanCard";
 import { QuestionCard, questionCardFor } from "./QuestionCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, lastUserMessage, type Transcript as TranscriptModel } from "./transcript-model";
+import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { runLabelFor } from "./run-label";
 import { useEnterTracker } from "./transcript-enter";
 import { MediaStrip } from "./media/MediaView";
@@ -89,9 +89,9 @@ function UserAttachments({ attachments }: { attachments: readonly { path: string
  * strip that appeared, changed and disappeared as the sentence completed would be worse than one
  * that waits for the full stop.
  */
-function AssistantMessage({ text, streaming, enter, cwd, onRetry, retryBusy }: {
+function AssistantMessage({ text, streaming, enter, cwd, onRetry, retryBusy, rating, onRate }: {
   text: string; streaming: boolean; enter: boolean; cwd: string | null;
-  onRetry?: () => void; retryBusy?: boolean;
+  onRetry?: () => void; retryBusy?: boolean; rating?: Rating | null; onRate?: (rating: Rating | null) => void;
 }) {
   const candidates = useMemo(() => (streaming ? [] : mediaCandidatesIn(text, cwd)), [streaming, text, cwd]);
   const files = useMediaFiles(candidates);
@@ -102,7 +102,7 @@ function AssistantMessage({ text, streaming, enter, cwd, onRetry, retryBusy }: {
       data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
       <Markdown className="msg-assistant" text={text} />
       <MediaStrip files={files} />
-      {!streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} />}
+      {!streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
     </div>
   );
 }
@@ -110,12 +110,15 @@ function AssistantMessage({ text, streaming, enter, cwd, onRetry, retryBusy }: {
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
    *  the turn that just finished, and a button on message three of forty would silently act on
    *  message forty instead. Absent in the read-only mounts the suite and the fork preview use. */
   onRetry?: () => void;
+  /** Record what the reader made of one answer, or with null take an earlier verdict back. Absent
+   *  means the thumbs are not drawn at all, rather than drawn dead. */
+  onRate?: (messageId: string, rating: Rating | null) => void;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
   /** The session's working directory — the base a message's bare filenames are joined against when
@@ -218,7 +221,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, visib
                 {b.text && <UserText text={b.text} mentionIds={mentionIds} />}
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
-              onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy} />;
+              onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
+              rating={transcript.feedback[b.messageId] ?? null}
+              onRate={onRate && ((r) => onRate(b.messageId, r))} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter} />;

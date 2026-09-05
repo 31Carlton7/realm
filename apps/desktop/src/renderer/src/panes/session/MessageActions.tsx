@@ -1,5 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
+import type { Rating } from "./transcript-model";
 
 /** How long a copy control holds its ✓ before swapping back — ToolCard's and Markdown's beat, so
  *  every copy in the transcript settles at the same pace. */
@@ -15,7 +16,7 @@ const COPIED_MS = 1400;
  * relaunch every message is complete at once, and forty bars fading in together reads as a fault
  * rather than as forty arrivals.
  */
-export function MessageActions({ text, onRetry, retryBusy = false }: {
+export function MessageActions({ text, onRetry, retryBusy = false, rating = null, onRate }: {
   text: string;
   /** Present only on the message a retry would land after, and only when there is a user message to
    *  ask again — the bar does not offer a button it cannot honour. */
@@ -23,6 +24,11 @@ export function MessageActions({ text, onRetry, retryBusy = false }: {
   /** A turn is in flight. The control stays in place and greys rather than leaving, because a
    *  button that disappears for the seconds a run takes reads as one that was never there. */
   retryBusy?: boolean;
+  /** The verdict already on this message, or null for one nobody has judged. Those are three
+   *  distinct states, not a boolean — "not rated" is not "rated down". */
+  rating?: Rating | null;
+  /** Absent in the read-only mounts, which draw the thumbs not at all rather than drawing dead ones. */
+  onRate?: (rating: Rating | null) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -51,6 +57,15 @@ export function MessageActions({ text, onRetry, retryBusy = false }: {
           <Icon name="reload" size={14} />
         </button>
       )}
+      {/* Pressing the verdict already showing takes it back, which is why these are `aria-pressed`
+          toggles and not a two-way choice: the reader who mis-clicked has somewhere to go, and
+          "unrated" stays reachable rather than being a state you can only leave. */}
+      {onRate && ([["up", "thumbsUp", "Good response"], ["down", "thumbsDown", "Bad response"]] as const).map(([v, icon, label]) => (
+        <button key={v} className="msg-action" aria-label={label} title={label}
+          aria-pressed={rating === v} onClick={() => onRate(rating === v ? null : v)}>
+          <Icon name={icon} size={14} />
+        </button>
+      ))}
     </div>
   );
 }

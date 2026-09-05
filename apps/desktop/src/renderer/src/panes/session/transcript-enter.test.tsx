@@ -42,7 +42,7 @@ describe("enter tracker (§6: new items only)", () => {
 });
 
 const model = (blocks: Block[], pendingPermissions: PendingPermission[] = []): TranscriptModel =>
-  ({ blocks, pendingPermissions, usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null });
+  ({ blocks, pendingPermissions, usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {} });
 
 const user = (text: string): Block => ({ kind: "user", text, ts: 0 });
 const assistant = (text: string, streaming = false): Block => ({ kind: "assistant", messageId: "m1", text, streaming, ts: 0 });

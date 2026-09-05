@@ -17,7 +17,7 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION,
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
-import { emptyTranscript, lastUserMessage, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
+import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
@@ -216,6 +216,7 @@ export type Api = {
    *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
   sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[]): Promise<void>;
   interruptSession(id: string): Promise<void>;
+  recordFeedback(id: string, messageId: string, rating: Rating | null): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
   /** `sessions.setAgent` — rejected by the server once the session has any event. */
@@ -1052,6 +1053,10 @@ export type AppState = {
    *  A no-op while a turn is live, and a no-op when the user has not sent anything yet. */
   retryLastTurn(id: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
+  /** Rate one assistant message, or with null take an earlier rating back. Optimistic: the verdict
+   *  is on screen before the round trip, because a thumb that waits on the disk reads as a dead
+   *  button. The broadcast that follows lands on the same reducer and settles to the same state. */
+  rateMessage(sessionId: string, messageId: string, rating: Rating | null): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
   /** Move a session between Build and Plan (the prompter's mode chip), parking and restoring the
@@ -2732,6 +2737,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.sendMessage(id, msg.text, msg.attachments ?? [], mentions);
       },
       async interruptSession(id) { await api.interruptSession(id); },
+      async rateMessage(sessionId, messageId, rating) {
+        const entry = get().transcripts[sessionId];
+        if (entry) {
+          const { [messageId]: _prev, ...rest } = entry.t.feedback;
+          setTranscript(sessionId, { ...entry, t: { ...entry.t, feedback: rating ? { ...rest, [messageId]: rating } : rest } });
+        }
+        await api.recordFeedback(sessionId, messageId, rating);
+      },
       /**
        * Answering a permission — plus the one case where the answer also settles the MODE axis.
        *
