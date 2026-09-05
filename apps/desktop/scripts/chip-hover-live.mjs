@@ -187,16 +187,22 @@ async function main() {
   await sleep(300);
 
   // ── 2. Hover lights the chip and moves nothing ─────────────────────────
+  const lit = () => evalIn(c, `document.querySelector('.ch-element').hasAttribute('data-hot')`);
+  /** A move to where the pointer already is may never be delivered, so every hover starts off the run. */
+  const settles = async (want) => {
+    for (let i = 0; i < 20; i++) { if ((await lit()) === want) return true; await sleep(100); }
+    return false;
+  };
+
+  await moveTo(c, rest.x - 60, mid.y);
   const before = await evalIn(c, CHIP_RECT);
   await moveTo(c, mid.x, mid.y);
-  const hotOn = await evalIn(c, `document.querySelector('.ch-element').hasAttribute('data-hot')`);
+  check("the pointer lights the chip it is over", await settles(true));
   const during = await evalIn(c, CHIP_RECT);
-  check("the pointer lights the chip it is over", hotOn === true);
   check("lighting it moves no glyph", JSON.stringify(before) === JSON.stringify(during), { before, during });
 
   await moveTo(c, rest.x + rest.w + 60, mid.y);
-  const hotOff = await evalIn(c, `document.querySelector('.ch-element').hasAttribute('data-hot')`);
-  check("the light goes out when the pointer leaves the run", hotOff === false);
+  check("the light goes out when the pointer leaves the run", await settles(false));
 
   // The mutant for the measurement: give the hover state a padding — the exact class of change the
   // stylesheet guardrail exists to forbid — and confirm the box really does move when one is added.
@@ -205,7 +211,9 @@ async function main() {
     s.textContent = '.ch-element[data-hot] { padding: 2px; }';
     document.head.append(s);
     return true; })()`);
+  await moveTo(c, rest.x - 60, mid.y);
   await moveTo(c, mid.x, mid.y);
+  await settles(true);
   const mutated = await evalIn(c, CHIP_RECT);
   check("the mutant reproduces the drift (a padded hover state moves the run)",
     JSON.stringify(before) !== JSON.stringify(mutated), { before, mutated });
