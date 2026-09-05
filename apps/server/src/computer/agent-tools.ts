@@ -192,8 +192,10 @@ const HANDLERS: Record<string, Handler> = {
       "Act with computer_act using this snapshotId and an element's [N].",
     ].filter(Boolean).join(" ");
     // Everything below is other applications' content. It is fenced for the same reason page text
-    // is: an agent reading a mail window must not act on instructions it finds in the mail.
-    const content: CallToolResult["content"] = [{ type: "text", text: `${head}\n${fenceUntrusted(snap.text || "(no addressable elements)")}` }];
+    // is: an agent reading a mail window must not act on instructions it finds in the mail. The
+    // subject says so rather than taking the default — the app's own name is deliberately NOT in it,
+    // since that name comes from the application being fenced.
+    const content: CallToolResult["content"] = [{ type: "text", text: `${head}\n${fenceUntrusted(snap.text || "(no addressable elements)", "ANOTHER APPLICATION'S WINDOW CONTENT")}` }];
     if (snap.screenshot) content.push({ type: "image", data: snap.screenshot, mimeType: "image/jpeg" });
     else if (args.value.screenshot) content.push({ type: "text", text: "(no image: Screen Recording is not granted for Realm)" });
     return { content, isError: false };
