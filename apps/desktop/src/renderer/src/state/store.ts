@@ -5,7 +5,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
+  DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   type AgentKind, type Attachment, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
 } from "@realm/contracts";
@@ -297,10 +297,10 @@ export type Api = {
   /** Ask main to post an OS toast for a surfaced feed row. Answers whether one was actually shown —
    *  main suppresses it while the Realm window is focused, and that call is main's to make. */
   showDesktopNotification(input: { id: string; title: string; body: string | null }): Promise<boolean>;
-  /** Play one cue at `volume` (0…1). Synchronous and never throws: the synthesiser is a no-op wherever
+  /** Play one cue at `volume` (0…1). Synchronous and never throws — the synthesiser is a no-op wherever
    *  Web Audio is missing or still locked, and a silent renderer must not take the feed handler with
-   *  it. Lives on the renderer side of the Api because the sound is made in the window, unlike the
-   *  toast — but it answers to main's decision, not its own (see applyNotificationsChanged). */
+   *  it. Unlike the toast the sound is made in the window, but it still answers to main's decision
+   *  rather than its own (see applyNotificationsChanged). */
   playCue(cue: CueName, volume: number): void;
   /** Push the dock badge. Every unread change goes through here; 0 clears it. */
   setBadgeCount(count: number): Promise<void>;
@@ -657,9 +657,8 @@ export type AppState = {
    *  the first broadcast can arrive, and `settingsPrefs` stays null until the Settings page mounts —
    *  a toast that only worked after a visit to Settings would be a toast that does not work. */
   desktopNotifications: boolean;
-  /** Whether a toast main actually posted also plays a cue, and how loud (0…1). Held out here beside
-   *  `desktopNotifications` for the same reason it is: the first broadcast can arrive long before the
-   *  Settings page mounts, and a cue that only worked after a visit to Settings would not work. */
+  /** Whether a toast main actually posted also plays a cue, and how loud (0…1). Held out beside
+   *  `desktopNotifications`, and for the reason given there. */
   soundCues: boolean;
   soundVolume: number;
   agentProbe: AgentProbe[];
@@ -1916,7 +1915,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, soundCues: true, soundVolume: cueVolume(null), notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, soundCues: true, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeProfileId() { return get().activeSpace()?.profileId ?? null; },
@@ -3487,11 +3486,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // another app is exactly the toast worth showing. Whether one appears is main's call
           // (window focus), and a failed toast must never take the feed handler down with it.
           //
-          // The cue rides that same answer rather than re-deriving it. `show` reports whether a toast
-          // was POSTED, so a sound can only follow one that was — the focus rule stays a single
-          // implementation in notify.ts, and the audible signal can never disagree with the visible
-          // one. Two consequences, both intended: nothing sounds while Realm is the focused app, and
-          // nothing sounds for a row whose category the table below leaves out.
+          // The cue rides that same answer rather than re-deriving it: `show` reports whether a toast
+          // was POSTED, so a sound can only follow one that was. The focus rule keeps a single
+          // implementation in notify.ts, and nothing sounds while Realm is the app you are in.
           if (get().desktopNotifications) {
             const cue = CUE_BY_CATEGORY[n.category];
             void api.showDesktopNotification({ id: n.id, title: n.title, body: n.body })

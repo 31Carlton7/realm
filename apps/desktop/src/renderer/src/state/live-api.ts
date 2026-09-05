@@ -114,12 +114,11 @@ export const liveApi = (): Api => ({
   checkUpdates: () => window.realm.updates.check(),
   installUpdate: () => window.realm.updates.install(),
   showDesktopNotification: (input) => window.realm.notify.show(input),
-  // cuelume builds nothing until the first `play`, so importing it costs no AudioContext. What it
-  // will not do is sound before the document has had a user gesture — it checks
-  // `navigator.userActivation.hasBeenActive` itself and returns. Electron leaves a context `running`
-  // without one, so that flag is the only gate here, and any click or keypress in the window flips
-  // it for the document's lifetime. A cue that arrives before the user has ever touched this window
-  // is therefore dropped, silently and on purpose; the toast it would have accompanied still shows.
+  // cuelume builds nothing until the first `play`, so importing it costs no AudioContext. It then
+  // refuses to sound until the document has had a user gesture, checking
+  // `navigator.userActivation.hasBeenActive` itself — Electron leaves a context `running` without
+  // one, so that flag is the only gate, and any click or keypress flips it for the document's life.
+  // A cue arriving before the user has ever touched this window is dropped; its toast still shows.
   playCue: (cue, volume) => { play(cue, { volume }); },
   setBadgeCount: (count) => window.realm.notify.badge(count),
   gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),

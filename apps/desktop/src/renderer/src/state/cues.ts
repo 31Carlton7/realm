@@ -1,14 +1,12 @@
 /**
  * The sound cues, and the one table that says which feed rows earn one.
  *
- * Cues are synthesised by cuelume (github.com/Danilaa1/cuelume, MIT © Daniel Belyi) — no audio files,
- * one lazily-created `AudioContext`, every tone built from oscillators the moment it plays. Two
- * shipped WAVs would have cost more bytes than the whole library and would still have needed a
- * decoder, a loader and a cache; a synthesiser needs a function call.
+ * Synthesised by cuelume (github.com/Danilaa1/cuelume, MIT © Daniel Belyi) — no audio files, one
+ * lazily-created `AudioContext`, every tone built from oscillators the moment it plays.
  *
- * **cuelume's `bind()` is never called.** It wires every `data-cuelume-*` attribute for presses,
- * releases, toggles and hovers, which would put a sound on ordinary UI interaction. Only `play` is
- * used, and only from the sites below.
+ * cuelume's `bind()` is never called. It wires every `data-cuelume-*` attribute for presses,
+ * releases, toggles and hovers, which would put a sound on ordinary UI interaction; `play` is the
+ * only export Realm touches, and cues.test.ts holds that line.
  */
 import { DEFAULT_NOTIFICATION_SOUND_VOLUME, type NotificationCategory } from "@realm/contracts";
 
@@ -22,13 +20,12 @@ export type CueName = "ready" | "chime";
  * - `chime` — a thing you set going has STOPPED, and cannot go on until you decide something.
  *
  * `session_done` fires for error settles as well as clean ones, and the row carries no status to
- * tell them apart — only prose in `body`. `ready` is chosen because it stays true either way: the
- * turn is over and the session is yours again, however it ended. Splitting it would mean matching on
- * that prose.
+ * tell them apart — only prose in `body`. `ready` stays true either way, so splitting it into a
+ * failure cue would mean matching on that prose.
  *
  * Absent deliberately: `mcp_health`, `agent_probe`, `budget`, `worktree_hazard`. Each is a fact about
  * the machine that its toast already carries, and none is a person being called back to do
- * something — a sound on every category is how an app becomes one you mute.
+ * something.
  */
 export const CUE_BY_CATEGORY: Partial<Record<NotificationCategory, CueName>> = {
   session_done: "ready",
