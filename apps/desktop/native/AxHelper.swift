@@ -813,6 +813,25 @@ private final class Helper {
       break
     }
 
+    // `type` and `key` may name neither an element nor a point, which the contract defines as
+    // "wherever the app's focus already is" — continuing to type into a field, or pressing a shortcut
+    // at the app rather than at a widget. A keystroke needs no point, only the right app in front, so
+    // it cannot go through `resolveActionPoint`: that demands coordinates the caller was told it
+    // could omit, and answered an indexless key with "an act needs either an element index or x/y".
+    // The hit test is skipped because there is nothing being aimed at; `raise` is what makes the
+    // keystroke land in the intended app rather than in whatever happened to be frontmost.
+    if element == nil, params["x"] == nil, kind == "type" || kind == "key" {
+      try raise(app)
+      if kind == "type" {
+        guard let text = params["text"] as? String, !text.isEmpty else { throw HelperError("type needs text") }
+        input.type(text)
+        return ["ok": true, "detail": "typed into \(snapshot.appName)"]
+      }
+      guard let key = params["key"] as? String else { throw HelperError("key needs a key name") }
+      input.press(keycode: try input.keycode(for: key), modifiers: input.flags(for: (params["modifiers"] as? [String]) ?? []))
+      return ["ok": true, "detail": "pressed \(key) in \(snapshot.appName)"]
+    }
+
     let point = try resolveActionPoint(app: app, element: element, params: params)
     let modifiers = input.flags(for: (params["modifiers"] as? [String]) ?? [])
 
