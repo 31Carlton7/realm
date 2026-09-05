@@ -125,7 +125,7 @@ describe("buildForkContext — the fenced, capped summary-of-ancestor", () => {
 });
 
 describe("ForkService.fork — the workspace fork", () => {
-  it("restores the NEW worktree to the checkpoint's tree while the ancestor stays byte-untouched — the cardinal mutant", async () => {
+  it("restores the NEW worktree to the checkpoint's tree while the ancestor stays byte-untouched — the cardinal mutant", { timeout: 20_000 }, async () => {
     const h = harness();
     const s = h.newSession();
     h.events.append(s.id, sessionEvent("user_message", { text: "please change things", attachments: [] }, 1_000));

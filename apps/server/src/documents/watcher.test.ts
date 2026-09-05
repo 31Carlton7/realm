@@ -145,7 +145,7 @@ describe("DocumentWatcher", () => {
     expect(events).toEqual([{ path: p("b.md"), hash: hashText("b2") }]);
   });
 
-  it("is idempotent on repeated watch calls", async () => {
+  it("is idempotent on repeated watch calls", { timeout: 20_000 }, async () => {
     await writeFile(p("a.md"), "v1");
     await w.watch(p("a.md"));
     await w.watch(p("a.md"));

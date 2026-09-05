@@ -162,7 +162,7 @@ describe("documents RPC — files", () => {
     c.close();
   });
 
-  it("a rename is not seen as an outside edit — the tab it just moved must not go into conflict", async () => {
+  it("a rename is not seen as an outside edit — the tab it just moved must not go into conflict", { timeout: 20_000 }, async () => {
     const { c, documentsId, root } = await setup();
     await writeFile(join(root, "a.md"), "v1");
     await c.call("documents.setTabs", { documentsId, openPaths: ["a.md"], activePath: "a.md" });

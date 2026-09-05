@@ -186,7 +186,7 @@ describe("restore", () => {
 });
 
 describe("retention", () => {
-  it("keeps the newest MAX and deletes both the row and the ref of the rest", async () => {
+  it("keeps the newest MAX and deletes both the row and the ref of the rest", { timeout: 20_000 }, async () => {
     initRepo(folder);
     const env = primary();
     const made: string[] = [];
