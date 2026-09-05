@@ -247,14 +247,14 @@ function PaletteRow({ face, live, selected, onSelect }:
       <span>{face === "light" ? "Light theme" : "Dark theme"}</span>
       <fieldset className="theme-grid" aria-label={face === "light" ? "Light theme" : "Dark theme"}>
         {offered.map((t) => {
-          const [page, surface, accent, string] = themeSwatches(t.name, face);
+          const [page, surface, accent, string, line] = themeSwatches(t.name, face);
           return (
             <label key={t.name} className="theme-card" data-selected={selected === t.name || undefined}
               style={{ background: page, borderColor: surface }}>
               <input type="radio" name={`settings-palette-${face}`} value={t.name} checked={selected === t.name}
                 onChange={() => onSelect(t.name)} />
               <span className="theme-card-swatches" aria-hidden>
-                {[surface, accent, string].map((c, i) => <span key={i} style={{ background: c }} />)}
+                {[surface, accent, string].map((c, i) => <span key={i} style={{ background: c, boxShadow: `0 0 0 1px ${line}` }} />)}
               </span>
               <span className="theme-card-name" style={{ color: accent }}>{t.label}</span>
             </label>

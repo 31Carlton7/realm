@@ -219,7 +219,20 @@ describe("the picker's swatches", () => {
 
   it("come from the same derivation the app applies, so a card cannot lie about its theme", () => {
     const v = themeVars("one", "dark");
-    expect(themeSwatches("one", "dark")).toEqual([v["--page"], v["--surface"], v["--accent"], v["--syn-string"]]);
+    expect(themeSwatches("one", "dark")).toEqual([v["--page"], v["--surface"], v["--accent"], v["--syn-string"], v["--ink-3"]]);
+  });
+
+  it("carry a hairline the swatches stay visible against, on every face", () => {
+    // THE fixed-hairline mutant: ring the swatches in a constant black or white. The card is painted
+    // in the theme it names, so a constant ring is invisible on half of them — and the dot it was
+    // added for is the one that matches the card ground, which on every light palette is --surface.
+    // 1.5:1 is the floor for "this is a shape" rather than for text.
+    for (const { theme, mode } of faces()) {
+      const [page, surface, , , line] = themeSwatches(theme.name, mode);
+      for (const [what, ground] of [["page", page], ["surface", surface]] as const) {
+        expect(contrast(parse(line), parse(ground)), `${theme.name}/${mode} hairline on ${what}`).toBeGreaterThan(1.5);
+      }
+    }
   });
 });
 

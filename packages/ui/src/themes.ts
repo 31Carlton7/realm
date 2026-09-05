@@ -573,12 +573,17 @@ export const REALM_SEED: Record<Mode, ThemeSeed> = {
   },
 };
 
-/** The four colours a picker shows for a theme: the window, the card that floats on it, the accent,
- *  and the one syntax hue that says most about a code palette. */
-export function themeSwatches(name: ThemeName, mode: Mode): [string, string, string, string] {
+/** The colours a picker shows for a theme: the window, the card that floats on it, the accent, the
+ *  one syntax hue that says most about a code palette — and a hairline in the theme's own hint ink.
+ *
+ *  The hairline is there because the card is painted in the theme it names, so a swatch can land on
+ *  a ground it matches: every light palette's `--surface` is within a step of its `--page`, and that
+ *  dot disappeared into the card entirely. A ring drawn from the theme's own ink is visible on any
+ *  ground the theme can produce, which a fixed black or white one is not. */
+export function themeSwatches(name: ThemeName, mode: Mode): [string, string, string, string, string] {
   const v = themeVars(name, resolveMode(name, mode));
   const s = v["--page"] ? v : deriveVars(REALM_SEED[mode], mode);
-  return [s["--page"]!, s["--surface"]!, s["--accent"]!, s["--syn-string"]!];
+  return [s["--page"]!, s["--surface"]!, s["--accent"]!, s["--syn-string"]!, s["--ink-3"]!];
 }
 
 export function isThemeName(x: unknown): x is ThemeName {
