@@ -196,8 +196,7 @@ window.__live = window.__live ?? {
     return [...g.getImageData(0, 0, 1, 1).data].slice(0, 3).join(',');
   },
   /** A scroller that is actually overflowing, with the gutter its bar reserves. A gutter of 0 means
-   *  the platform is drawing overlay bars, which paint no track at all. The ground is the page's own
-   *  colour and not a pixel read from inside the scroller — that lands on a row, not on the page. */
+   *  the platform is drawing overlay bars, which paint no track at all. */
   scroller(sel) {
     const e = document.querySelector(sel);
     if (!e) return null;
@@ -205,10 +204,21 @@ window.__live = window.__live ?? {
     const r = e.getBoundingClientRect();
     return { sel, gutter: e.offsetWidth - e.clientWidth, overflow: e.scrollHeight - e.clientHeight,
       scrollTop: e.scrollTop, width: cs.scrollbarWidth, color: cs.scrollbarColor,
-      ground: this.srgb(getComputedStyle(e.closest('.page')).backgroundColor),
       box: { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom) } };
   },
-  /** Pixels down the gutter of a scroller, read out of the screenshot the compositor produced. */
+  /** Pixels down the gutter of a scroller, each PAIRED with the page's own ground at the same y.
+   *
+   *  The page ground is not one colour: the decorative wash paints a field across it that is
+   *  strongest at the top of the page and fades out below, and it drifts horizontally too (the blue
+   *  channel moves about 7 across the width of a page at the top). So a single reference colour
+   *  cannot say whether a gutter pixel is the page showing through or a track painted over it —
+   *  most of the page legitimately differs from any one sample of it.
+   *
+   *  The reference is therefore read at the SAME y, at the nearest x outside the scroller that the
+   *  page shows through: seeThrough walks up from the hit element and takes the point only if
+   *  nothing between it and .page paints a background of its own. .page-body and .notif-detail are
+   *  both transparent, so a usable reference is usually a few pixels away and the wash's own drift
+   *  between the two columns stays inside a unit. */
   async gutterPixels(b64, box, gutter) {
     const img = new Image();
     img.src = 'data:image/png;base64,' + b64;
@@ -217,11 +227,37 @@ window.__live = window.__live ?? {
     cv.width = img.width; cv.height = img.height;
     cv.getContext('2d').drawImage(img, 0, 0);
     const g = cv.getContext('2d');
+    const px = (x, y) => [...g.getImageData(x, y, 1, 1).data].slice(0, 3);
+    const page = document.querySelector('.page');
+    const pb = page.getBoundingClientRect();
+    const seeThrough = (x, y) => {
+      let el = document.elementFromPoint(x, y);
+      if (!el || !page.contains(el)) return false;
+      for (; el && el !== page; el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (!/^rgba\(\d+, \d+, \d+, 0\)$/.test(cs.backgroundColor)) return false;
+        if (cs.backgroundImage !== 'none') return false;
+      }
+      return el === page;
+    };
+    /** The nearest column either side of the gutter that the page shows through, never one inside
+     *  the scroller — a pixel in there lands on a row, not on the ground. */
+    const refX = (y) => {
+      for (let d = 3; d < 700; d += 3) {
+        for (const x of [Math.round(box.r) + d, Math.round(box.l) - d]) {
+          if (x <= pb.left + 1 || x >= pb.right - 1) continue;
+          if (x >= box.l && x <= box.r) continue;
+          if (seeThrough(x, y)) return x;
+        }
+      }
+      return null;
+    };
     const x = Math.round(box.r - gutter / 2);
     const out = [];
     for (let i = 1; i < 40; i++) {
       const y = Math.round(box.t + ((box.b - box.t) * i) / 40);
-      out.push([...g.getImageData(x, y, 1, 1).data].slice(0, 3).join(','));
+      const rx = refX(y);
+      out.push({ y, gutter: px(x, y), ref: rx === null ? null : px(rx, y), rx });
     }
     return out;
   },
@@ -247,24 +283,40 @@ async function shot(c, tag) {
   return s.data;
 }
 
-/** The composited proof that no track is drawn: every pixel down the scroller's gutter is either the
- *  page's own ground or the thumb, and nothing else. A gutter of 0 means the platform is drawing
- *  overlay bars, which have no track to draw. */
+/** The composited proof that no track is drawn: down the scroller's gutter the page shows through
+ *  everywhere the thumb is not, and the thumb is one unbroken run.
+ *
+ *  A track is a band filling the WHOLE gutter, so it shows up two ways at once and both are asserted:
+ *  no row still reads as the page, and the run of rows that differ stops being just the thumb. The
+ *  wash means a row can only be judged against the page at its OWN y — see `gutterPixels`.
+ *
+ *  A gutter of 0 means the platform is drawing overlay bars, which have no track to draw. */
+const TRACK_TOL = 4;
+
 async function gutter(c, mode, s, b64) {
   const tag = mode.toLowerCase();
   if (!s || s.gutter <= 0) {
     console.log(`  NOTE ${tag} ${s?.sel}: overlay scrollbars (gutter 0) — there is no track to paint.`);
     return;
   }
-  const samples = await evalIn(c, `__live.gutterPixels(${JSON.stringify(b64)}, ${JSON.stringify(s.box)}, ${s.gutter})`);
-  /* Within a channel of the ground: the canvas fill the ground is read through and the composited
-     screenshot round the last bit differently in light mode. A track would be off by far more — the
-     thumb, the thing that is SUPPOSED to differ, is 14 away. */
-  const near = (p) => p.split(",").every((v, i) => Math.abs(Number(v) - Number(s.ground.split(",")[i])) <= 2);
-  const onGround = samples.filter(near).length;
-  check(`${tag}: no track down ${s.sel}'s gutter — only the thumb differs from the page`,
-    onGround > 0 && [...new Set(samples)].length <= 2,
-    { ground: s.ground, matching: onGround, of: samples.length, distinct: [...new Set(samples)] });
+  const rows = await evalIn(c, `__live.gutterPixels(${JSON.stringify(b64)}, ${JSON.stringify(s.box)}, ${s.gutter})`);
+  const usable = rows.filter((r) => r.ref !== null);
+  /* Per-channel distance from the page at the same y. The wash's drift between the gutter and the
+     nearest see-through column is under a unit; the thumb — the thing that is SUPPOSED to differ —
+     is 18 away, so TRACK_TOL separates them with room at both ends. */
+  const off = (r) => Math.max(...r.gutter.map((v, i) => Math.abs(v - r.ref[i])));
+  const onGround = usable.filter((r) => off(r) <= TRACK_TOL);
+  const differing = usable.map((r, i) => [i, off(r)]).filter(([, d]) => d > TRACK_TOL).map(([i]) => i);
+  const oneRun = differing.length > 0 && differing[differing.length - 1] - differing[0] === differing.length - 1;
+  /* A thumb is REQUIRED, not merely tolerated. Without that clause an empty gutter passes, and an
+     empty gutter is what a bar painted in a colour it cannot be seen against looks like — which is
+     the same regression, arrived at from the other side. */
+  check(`${tag}: down ${s.sel}'s gutter the thumb is the only thing that differs from the page`,
+    usable.length >= 20 && onGround.length > 0 && oneRun,
+    { usable: usable.length, of: rows.length, onGround: onGround.length,
+      worstOnGround: onGround.length ? Math.max(...onGround.map(off)) : null,
+      thumbRun: differing.length ? [differing[0], differing[differing.length - 1]] : null,
+      thumbOff: differing.length ? Math.max(...differing.map((i) => off(usable[i]))) : null });
 }
 
 /** Sweep one page across the widths, report the measured rects, and leave a shot of the widest —
