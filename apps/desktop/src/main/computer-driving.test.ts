@@ -86,6 +86,22 @@ describe("ComputerDrivingIndicator", () => {
     expect(trays()).toBe(0);
   });
 
+  it("does not let a pending linger tear the item down under a new act", () => {
+    // A run of acts spaced further apart than the linger: the second acquire has to cancel the
+    // timer the first release armed, or that timer fires mid-act and takes the menu bar item away
+    // while the Mac is still being driven — the one direction of this indicator that is a lie.
+    const { inst } = indicator();
+    inst.acquire("TextEdit");
+    inst.release();
+    vi.advanceTimersByTime(1000);
+    inst.acquire("TextEdit");
+    vi.advanceTimersByTime(1000);
+    expect(inst.showing).toBe(true);
+    inst.release();
+    vi.advanceTimersByTime(1500);
+    expect(inst.showing).toBe(false);
+  });
+
   it("renames the item when the run moves to another app", () => {
     const { inst, calls } = indicator();
     inst.acquire("TextEdit");
