@@ -258,10 +258,61 @@ export function toggleList(text: string, selStart: number, selEnd: number, order
   return { text: out + text.slice(prev), start, end: Math.max(start, selEnd + endShift) };
 }
 
-// ── Chip editing ───────────────────────────────────────────────────────────
+// ── Chip interaction ───────────────────────────────────────────────────────
+
+/** Where one painted chip sits in the draft. `start`/`end` bound the whole token, `@` included. */
+export type ChipSpan = { kind: SegmentKind; start: number; end: number };
+
+/** The segment kinds that NAME something rather than format something — the runs the mirror draws as
+ *  a pill, and therefore the runs a gesture may take whole. */
+const CHIP_KINDS: readonly SegmentKind[] = ["mention", "mention-stale", "element"];
 
 /**
- * Backspace at the trailing edge of an element chip deletes the whole token.
+ * Every chip in the draft, as offsets, read off the SAME segments the mirror paints.
+ *
+ * Deriving from the segments rather than re-scanning is what keeps "looks like a chip" and "behaves
+ * like a chip" one set instead of two: `highlightSegments` drops a token that loses an overlap, so
+ * `@mac` inside backticks paints as code — and a click there must place an ordinary caret, because a
+ * pill is the only thing on screen promising otherwise.
+ */
+export function chipSpans(segments: readonly Segment[]): ChipSpan[] {
+  const out: ChipSpan[] = [];
+  let at = 0;
+  for (const s of segments) {
+    if (s.kind && CHIP_KINDS.includes(s.kind)) out.push({ kind: s.kind, start: at, end: at + s.text.length });
+    at += s.text.length;
+  }
+  return out;
+}
+
+/**
+ * The chip a caret at `pos` landed INSIDE — strictly inside, both edges excluded.
+ *
+ * The edges are where an ordinary caret has to stay reachable: clicking just past `@mac` is how a
+ * hand gets to `@mac-cli`, and clicking just before a chip is how it types a word in front of one.
+ * Only a click aimed at the glyphs themselves means "this token".
+ */
+export function chipAround(spans: readonly ChipSpan[], pos: number): ChipSpan | null {
+  return spans.find((c) => pos > c.start && pos < c.end) ?? null;
+}
+
+/**
+ * Where ←/→ lands when the step would otherwise walk into an element chip, or null to leave the key
+ * alone.
+ *
+ * Element chips only, and it is the same asymmetry the atomic delete below draws. Nineteen presses to
+ * cross `@[button "Sign in"]` is the caret pretending a token is a sentence; `@mac` is four characters
+ * that a hand walks INTO on purpose, to make it `@mac-cli` or to fix the word in front of it, and a
+ * mention that could not be entered would be a mention that could not be corrected.
+ */
+export function stepOverChip(spans: readonly ChipSpan[], caret: number, dir: -1 | 1): number | null {
+  const chip = spans.find((c) => c.kind === "element" && (dir === 1 ? c.start === caret : c.end === caret));
+  return chip ? (dir === 1 ? chip.end : chip.start) : null;
+}
+
+/**
+ * Backspace at an element chip's trailing edge (`dir` -1) or Delete at its leading edge (+1) takes the
+ * whole token.
  *
  * Element chips only, and the asymmetry is the point. `@[button "Sign in"]` is syntax the user never
  * types through: `@[` is not something a hand produces by accident, and half of it — `@[button "Sign`
@@ -272,8 +323,8 @@ export function toggleList(text: string, selStart: number, selEnd: number, order
  * Null for everything else, including a non-empty selection: a selection is already the user saying
  * exactly what to delete, and overriding it would be the editor arguing.
  */
-export function deleteElementChipBefore(text: string, caret: number): DraftEdit | null {
-  const chip = scanElementChips(text).find((c) => c.end === caret);
+export function deleteChipAt(spans: readonly ChipSpan[], text: string, caret: number, dir: -1 | 1): DraftEdit | null {
+  const chip = spans.find((c) => c.kind === "element" && (dir === -1 ? c.end === caret : c.start === caret));
   if (!chip) return null;
   return { text: text.slice(0, chip.start) + text.slice(chip.end), start: chip.start, end: chip.start };
 }

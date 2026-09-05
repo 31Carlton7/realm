@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scanMentions, stripMentionAts } from "@realm/contracts";
-import { continueList, deleteElementChipBefore, highlightSegments, indentList, listItemAt, toggleList, type Segment } from "./draft-format";
+import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, listItemAt, stepOverChip, toggleList, type Segment } from "./draft-format";
 
 /** A compact readout of the runs that carry a class — plain text is the uninteresting majority. */
 const painted = (segs: Segment[]) => segs.filter((s) => s.kind).map((s) => [s.kind, s.text]);
@@ -215,31 +215,123 @@ describe("toggleList — ⌘⇧8 / ⌘⇧7", () => {
   });
 });
 
-describe("deleteElementChipBefore", () => {
+/** The chips of a draft, exactly as the composer derives them: off the painted segments. */
+const spans = (text: string, ids: string[] = ["mac"]) => chipSpans(highlightSegments(text, ids));
+
+describe("chipSpans — what the mirror paints is what a gesture can take", () => {
+  it("bounds each chip token, brackets and `@` included", () => {
+    expect(spans('use @mac on @[button "Go"] now')).toEqual([
+      { kind: "mention", start: 4, end: 8 },
+      { kind: "element", start: 12, end: 26 },
+    ]);
+  });
+
+  it("carries a stale mention, which is painted as a token and so must behave as one", () => {
+    expect(chipSpans(highlightSegments("@gone", [], ["gone"]))).toEqual([{ kind: "mention-stale", start: 0, end: 5 }]);
+  });
+
+  /* The reason these come from the segments and not from a second `scanChips` call: a token that
+     lost an overlap is not on screen as a pill, and a gesture that took it anyway would be acting on
+     something the user was never shown. */
+  it("is not a chip where the mirror painted something else", () => {
+    expect(spans("use `@mac` here")).toEqual([]);
+    expect(spans("https://x.dev/@mac")).toEqual([]);
+  });
+
+  it("leaves nothing to interact with in a draft that has no chips", () => {
+    expect(spans("plain words @nonesuch")).toEqual([]);
+  });
+});
+
+describe("chipAround — a click aimed at a chip", () => {
+  const draft = 'make @[button "Sign in"] blue';
+  const chip = spans(draft)[0]!;
+
+  it("takes the whole token from anywhere among its glyphs", () => {
+    for (const pos of [chip.start + 1, chip.start + 7, chip.end - 1])
+      expect(chipAround(spans(draft), pos), String(pos)).toEqual(chip);
+  });
+
+  /* The edges are where an ordinary caret has to stay reachable — `@mac|` is how a hand gets to
+     `@mac-cli`, and the position before a chip is how it types a word in front of one. */
+  it("leaves both edges alone, so a caret can still be placed against a chip", () => {
+    for (const pos of [chip.start, chip.end, 0, draft.length])
+      expect(chipAround(spans(draft), pos), String(pos)).toBeNull();
+  });
+
+  it("takes a mention too — clicking one is aimed, unlike arriving in it by arrow", () => {
+    expect(chipAround(spans("use @mac now"), 6)).toEqual({ kind: "mention", start: 4, end: 8 });
+  });
+
+  it("picks the chip the caret is in when a draft holds several", () => {
+    expect(chipAround(spans("@[a] @[bb]"), 7)).toEqual({ kind: "element", start: 5, end: 10 });
+  });
+});
+
+describe("stepOverChip — one press crosses an element chip", () => {
+  const draft = 'make @[button "Sign in"] blue';
+  const [start, end] = [5, 24];
+
+  it("jumps the token from either side", () => {
+    expect(stepOverChip(spans(draft), start, 1)).toBe(end);
+    expect(stepOverChip(spans(draft), end, -1)).toBe(start);
+  });
+
+  it("does not jump backwards out of a chip the caret is about to enter", () => {
+    expect(stepOverChip(spans(draft), start, -1)).toBeNull();
+    expect(stepOverChip(spans(draft), end, 1)).toBeNull();
+  });
+
+  it("leaves the key alone everywhere else, including inside the token", () => {
+    for (const pos of [0, 4, 6, 12, 25, draft.length])
+      expect(stepOverChip(spans(draft), pos, 1), String(pos)).toBeNull();
+  });
+
+  /* A mention is four characters a hand walks INTO on purpose. A mention that could not be entered
+     would be a mention that could not be corrected. */
+  it("never steps over a mention", () => {
+    expect(stepOverChip(spans("use @mac now"), 4, 1)).toBeNull();
+    expect(stepOverChip(spans("use @mac now"), 8, -1)).toBeNull();
+  });
+});
+
+describe("deleteChipAt", () => {
   const draft = 'make @[button "Sign in"] blue';
   const chipEnd = draft.indexOf("]") + 1;
 
   it("takes the whole token when the caret sits at its trailing edge", () => {
-    expect(deleteElementChipBefore(draft, chipEnd)).toEqual({ text: "make  blue", start: 5, end: 5 });
+    expect(deleteChipAt(spans(draft), draft, chipEnd, -1)).toEqual({ text: "make  blue", start: 5, end: 5 });
+  });
+
+  it("takes it forwards too, from the leading edge", () => {
+    expect(deleteChipAt(spans(draft), draft, 5, 1)).toEqual({ text: "make  blue", start: 5, end: 5 });
   });
 
   it("leaves the caret where the chip was, so the next keystroke lands in its place", () => {
-    const edit = deleteElementChipBefore(draft, chipEnd)!;
+    const edit = deleteChipAt(spans(draft), draft, chipEnd, -1)!;
     expect(edit.text.slice(0, edit.start)).toBe("make ");
   });
 
   it("does nothing anywhere else in the token, or in the prose around it", () => {
     for (const caret of [0, 5, 6, chipEnd - 1, chipEnd + 1, draft.length])
-      expect(deleteElementChipBefore(draft, caret), String(caret)).toBeNull();
+      expect(deleteChipAt(spans(draft), draft, caret, -1), String(caret)).toBeNull();
   });
 
   it("does nothing to a mention — a hand types straight through `@mac` on its way to `@mac-cli`", () => {
-    expect(deleteElementChipBefore("use @mac", 8)).toBeNull();
+    expect(deleteChipAt(spans("use @mac"), "use @mac", 8, -1)).toBeNull();
+    expect(deleteChipAt(spans("use @mac"), "use @mac", 4, 1)).toBeNull();
   });
 
   it("picks the chip that actually ends at the caret when a draft holds several", () => {
     const two = "@[a] @[bb]";
-    expect(deleteElementChipBefore(two, two.length)).toEqual({ text: "@[a] ", start: 5, end: 5 });
-    expect(deleteElementChipBefore(two, 4)).toEqual({ text: " @[bb]", start: 0, end: 0 });
+    expect(deleteChipAt(spans(two), two, two.length, -1)).toEqual({ text: "@[a] ", start: 5, end: 5 });
+    expect(deleteChipAt(spans(two), two, 4, -1)).toEqual({ text: " @[bb]", start: 0, end: 0 });
+  });
+
+  /* The token is inside a code span, so the mirror drew backticked code and no pill at all. One
+     keystroke may not delete nineteen characters the user was never told were one thing. */
+  it("does nothing to a token the mirror did not paint as a chip", () => {
+    const code = "`@[button]`";
+    expect(deleteChipAt(spans(code), code, code.length - 1, -1)).toBeNull();
   });
 });
