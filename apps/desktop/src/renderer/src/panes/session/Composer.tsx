@@ -1,6 +1,6 @@
 import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
@@ -10,7 +10,7 @@ import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
 import { heroGreeting } from "./greeting";
-import { continueList, deleteElementChipBefore, highlightSegments, indentList, toggleList, type DraftEdit } from "./draft-format";
+import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 
 // ~10 lines of 15px/1.55 plus the vertical padding (Ara refresh §1 raises the input to 15px; §4:
@@ -414,6 +414,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // Coloured as a mention only if `scanMentions` resolves it — the same call the server re-runs on the
   // sent text. Stale ids get the warning tone the note below the card already explains.
   const segments = useMemo(() => highlightSegments(draft, liveMentionIds, staleMentions), [draft, liveMentionIds, staleMentions]);
+  /* Chip geometry, in draft offsets rather than pixels. The mirror is behind the textarea and takes no
+     pointer events, so a click never reaches a painted run — but it does not have to: the browser has
+     already resolved the point to a caret by the time `click` fires, and `selectionStart` is that same
+     answer in the coordinate system the chips are already in. */
+  const chips = useMemo(() => chipSpans(segments), [segments]);
 
   useLayoutEffect(() => {
     const el = ta.current; if (!el) return;
@@ -510,17 +515,47 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     pendingSel.current = { start: edit.start, end: edit.end };
   };
 
+  /**
+   * A click that lands inside a chip takes the whole token instead of dropping a caret into the
+   * middle of one.
+   *
+   * Both kinds, unlike ⌫ and ←: a click is AIMED. Nobody clicks the third character of `@mac` on the
+   * way to somewhere else, whereas the caret arrives there constantly just by moving. Aiming at the
+   * pill is the user saying "that thing", and from a selection everything else is already free —
+   * typing replaces it, ⌫ removes it, and the selection says so on screen.
+   *
+   * A drag is left alone: a range the user drew by hand is more specific than anything guessable from
+   * it. The caret lands at the token's start rather than its end so that selecting `@mac` does not
+   * also reopen the mention picker over the token it just selected.
+   */
+  const onClickChip = (e: ReactMouseEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    if (el.selectionStart !== el.selectionEnd) return;
+    const chip = chipAround(chips, el.selectionStart);
+    if (!chip) return;
+    el.setSelectionRange(chip.start, chip.end);
+    setCaret(chip.start);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
     // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
     // window level in hotkeys.ts — consuming it here would turn dispatch into a plain send.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); send(); return; }
-    // Backspace behind an element chip takes the whole token (see `deleteElementChipBefore` for why
+    // ⌫ behind and ⌦ in front of an element chip take the whole token (see `deleteChipAt` for why
     // only that kind). A collapsed selection and no modifiers: ⌥⌫ and a live selection are the user
     // already being specific, and guessing wider destroys text they can no longer see.
-    if (e.key === "Backspace" && !e.metaKey && !e.ctrlKey && !e.altKey && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
-      const edit = deleteElementChipBefore(draft, e.currentTarget.selectionStart ?? 0);
+    if ((e.key === "Backspace" || e.key === "Delete") && !e.metaKey && !e.ctrlKey && !e.altKey && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
+      const edit = deleteChipAt(chips, draft, e.currentTarget.selectionStart ?? 0, e.key === "Backspace" ? -1 : 1);
       if (edit) { e.preventDefault(); applyEdit(edit); return; }
+    }
+    // ←/→ cross an element chip in one press. Bare arrows only: ⌥← and ⌘← already have widths of their
+    // own, and ⇧← is the user drawing a range by hand, which is precisely when a 19-character jump is
+    // the wrong help. A live selection collapses to its edge first, the way it does everywhere else.
+    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
+      && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
+      const to = stepOverChip(chips, e.currentTarget.selectionStart ?? 0, e.key === "ArrowRight" ? 1 : -1);
+      if (to !== null) { e.preventDefault(); e.currentTarget.setSelectionRange(to, to); setCaret(to); return; }
     }
     // ⌘⇧8 bulleted / ⌘⇧7 numbered — the shortcuts these have everywhere else. Keyed off `code`, not
     // `key`: with Shift down the digit row reports "*" and "&", and those differ by layout.
@@ -689,6 +724,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : `Ask ${AGENT_META[kind].label} anything…`} rows={1}
             value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); }}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+            onClick={onClickChip}
             onKeyDown={onKeyDown} onPaste={onPaste} onScroll={syncScroll}
             aria-describedby={hint ? hintId : undefined}
             aria-controls={mentionOpen ? "mention-list" : undefined}

@@ -199,3 +199,136 @@ describe("list authoring in the prompter", () => {
     expect(painted()).toEqual([["ch-marker", "1."], ["ch-marker", "2."]]);
   });
 });
+
+/**
+ * Chips that behave like chips, without the composer ever leaving the textarea.
+ *
+ * Nothing here needs a pixel. The browser resolves a click to a character offset before `click`
+ * fires, so `selectionStart` is the pointer already expressed in the coordinates the chips live in —
+ * which is what these tests set by hand, exactly as the browser would have.
+ */
+describe("chip interaction in the prompter", () => {
+  /** A click landing at the offset the browser would have resolved the point to. */
+  const clickAt = (at: number) => { box().setSelectionRange(at, at); fireEvent.click(box()); };
+  const sel = () => [box().selectionStart, box().selectionEnd];
+  const picker = () => document.getElementById("mention-list");
+
+  it("clicking inside an element chip selects the whole token", async () => {
+    await mount();
+    typeAt('make @[button "Sign in"] blue');
+    clickAt(12); // in the middle of the label
+    expect(sel()).toEqual([5, 24]);
+  });
+
+  /* The selection IS the interaction: from here the browser's own Backspace takes the token, and so
+     does the next character typed. The composer deliberately does not consume the key. */
+  it("hands the selected chip to the browser's own editing, rather than claiming the key", async () => {
+    await mount();
+    typeAt('make @[button "Sign in"] blue');
+    clickAt(12);
+    expect(fireEvent.keyDown(box(), { key: "Backspace" })).toBe(true);
+    expect(sel()).toEqual([5, 24]);
+  });
+
+  it("clicking inside a mention selects it too — a click is aimed, unlike a caret arriving by arrow", async () => {
+    await mount();
+    typeAt("see @mac now");
+    clickAt(6);
+    expect(sel()).toEqual([4, 8]);
+    // The caret lands at the token's start, so selecting a mention does not reopen the picker over it.
+    expect(picker()).toBeNull();
+  });
+
+  it("leaves the trailing edge alone, which is how `@mac` becomes `@mac-cli`", async () => {
+    await mount();
+    typeAt("see @mac");
+    clickAt(8);
+    expect(sel()).toEqual([8, 8]);
+    await waitFor(() => expect(picker()).not.toBeNull());
+  });
+
+  it("leaves a caret in plain text exactly where the click put it", async () => {
+    await mount();
+    typeAt("see @mac now");
+    clickAt(1);
+    expect(sel()).toEqual([1, 1]);
+  });
+
+  /* A range the user drew by hand is more specific than anything guessable from it. */
+  it("never widens a drag-selection to a chip", async () => {
+    await mount();
+    typeAt('make @[button "Sign in"] blue');
+    box().setSelectionRange(10, 14);
+    fireEvent.click(box());
+    expect(sel()).toEqual([10, 14]);
+  });
+
+  it("crosses an element chip in one arrow press, in both directions", async () => {
+    await mount();
+    typeAt('make @[button "Sign in"] blue', 5);
+    expect(fireEvent.keyDown(box(), { key: "ArrowRight" })).toBe(false); // consumed
+    expect(sel()).toEqual([24, 24]);
+    expect(fireEvent.keyDown(box(), { key: "ArrowLeft" })).toBe(false);
+    expect(sel()).toEqual([5, 5]);
+  });
+
+  it("leaves the arrow alone at a mention, and whenever a modifier is down", async () => {
+    await mount();
+    typeAt("see @mac now", 4);
+    expect(fireEvent.keyDown(box(), { key: "ArrowRight" })).toBe(true);
+    typeAt('make @[button "Sign in"] blue', 5);
+    for (const mod of [{ shiftKey: true }, { altKey: true }, { metaKey: true }])
+      expect(fireEvent.keyDown(box(), { key: "ArrowRight", ...mod }), JSON.stringify(mod)).toBe(true);
+    expect(sel()).toEqual([5, 5]);
+  });
+
+  it("Delete in front of an element chip takes the whole token", async () => {
+    const { store } = await mount();
+    typeAt('make @[button "Sign in"] blue', 5);
+    fireEvent.keyDown(box(), { key: "Delete" });
+    expect(store.getState().drafts.se1).toBe("make  blue");
+  });
+
+  it("leaves Delete alone in front of a mention", async () => {
+    const { store } = await mount();
+    typeAt("see @mac now", 4);
+    expect(fireEvent.keyDown(box(), { key: "Delete" })).toBe(true);
+    expect(store.getState().drafts.se1).toBe("see @mac now");
+  });
+
+  /* The whole point of doing this with offsets: selecting a chip is a selection and nothing else, so
+     the bytes that leave are the bytes that were typed. */
+  it("changes nothing about what is sent when a chip has been selected by click", async () => {
+    const { api } = await mount();
+    typeAt("see @mac now");
+    clickAt(6);
+    fireEvent.keyDown(box(), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.sent[0]).toEqual({ id: "se1", text: "see @mac now", attachments: [], mentions: ["mac"] });
+  });
+
+  it("changes nothing about what is sent when a chip has been stepped over", async () => {
+    const { api, store } = await mount();
+    store.getState().addElementChip("se1", {
+      ref: 7, url: "https://example.com/login", title: "Sign in", rect: { x: 0, y: 0, w: 1, h: 1 },
+      selector: "#submit", tag: "button", role: "button", name: "Sign in",
+      text: "Sign in", html: '<button id="submit">Sign in</button>',
+    });
+    typeAt(`${store.getState().drafts.se1}make it blue`, 0);
+    fireEvent.keyDown(box(), { key: "ArrowRight" });
+    expect(sel()).toEqual([19, 19]);
+    fireEvent.keyDown(box(), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.sent[0]!.text).toBe('@[button "Sign in"] make it blue');
+  });
+
+  /* A token the mirror painted as code was never shown as a pill, and a gesture may not act on a
+     promise the screen did not make. */
+  it("does nothing to a token that is not painted as a chip", async () => {
+    await mount();
+    typeAt("run `@[button]` twice");
+    clickAt(8);
+    expect(sel()).toEqual([8, 8]);
+    expect(fireEvent.keyDown(box(), { key: "ArrowRight" })).toBe(true);
+  });
+});
