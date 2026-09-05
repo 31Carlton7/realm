@@ -32,7 +32,6 @@ function renderToolContent(content: unknown): string {
   }).filter(Boolean).join("\n");
 }
 
-
 /** ACP's `plan` entries — `{content, priority, status}` with status `pending | in_progress |
  *  completed` (docs/dev/acp-protocol.md:182), which is already Realm's spelling. An unrecognised
  *  status reads as `pending`: it must never render as work already done. `priority` is carried by

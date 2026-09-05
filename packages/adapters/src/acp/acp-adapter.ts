@@ -205,12 +205,6 @@ export function acpBootFailureMessage(e: unknown, spec: Pick<AcpAgentSpec, "labe
 }
 
 /**
- * One generic ACP adapter, instantiated once per registered agent kind.
- *
- * Unlike Codex's multiplexed app-server, an ACP session belongs to its connection, so this spawns **one child
- * per session** and `dispose()` takes that child down.
- */
-/**
  * The agent's own mode for a Realm mode wire value, or null when it advertises none.
  *
  * The one place Realm's ids are turned into the agent's, so the boot path and the live path can never
@@ -223,6 +217,12 @@ function acpModeFor(permissionMode: string, modes: readonly AcpSessionMode[], bo
   return acpBuildMode(modes, bootModeId);
 }
 
+/**
+ * One generic ACP adapter, instantiated once per registered agent kind.
+ *
+ * Unlike Codex's multiplexed app-server, an ACP session belongs to its connection, so this spawns **one child
+ * per session** and `dispose()` takes that child down.
+ */
 export class AcpAdapter implements AgentAdapter {
   readonly kind: AgentKind;
 
