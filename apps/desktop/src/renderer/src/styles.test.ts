@@ -226,6 +226,28 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".tool-copy:not([data-copied]) .copied-icon").join(" ")).toContain("blur(4px)");
   });
 
+  it("the message action bar reaches for the rungs the copy button already pays for, not a set of its own", () => {
+    const swap = bodiesFor(".msg-action .copy-icon").join(" ");
+    for (const prop of ["opacity", "transform", "filter"]) expect(swap, prop).toContain(`${prop} ${dur("--dur-swap")}`);
+    expect(bodiesFor(".msg-action:not([data-copied]) .copied-icon").join(" ")).toContain("blur(4px)");
+    const btn = bodiesFor(".msg-action").join(" ");
+    expect(btn).toContain(`background-color ${dur("--dur-hover")} ease`);
+    expect(btn).toContain(`transform ${dur("--dur-press")} var(--ease-out-strong)`);
+    expect(bodiesFor(".msg-action:active:not(:disabled)").join(" ")).toContain("transform: scale(.97)");
+    // A thumb's glyph is the same pressed or not, so the fill is the only thing saying which — one
+    // rung past hover, the same reading .icon-btn's toggles get.
+    expect(bodiesFor('.msg-action[aria-pressed="true"]').join(" ")).toContain("background: var(--hover-2)");
+    // The shared -6px overhang is deliberately NOT taken: these sit 2px apart, and it would have
+    // each button stealing clicks from the next.
+    // Exactly one rule reaches it: joining the shared list would give it a second, all-sides one.
+    expect(bodiesFor(".msg-action::after")).toEqual(['content: ""; position: absolute; inset: -6px 0;']);
+  });
+
+  it("the sources chevron turns on the swap rung — a glyph changing state, not a box changing size", () => {
+    expect(bodiesFor(".msg-sources-chevron").join(" ")).toContain(`transform ${dur("--dur-swap")} var(--ease-out-strong)`);
+    expect(bodiesFor(".msg-sources[data-open] .msg-sources-chevron").join(" ")).toContain("rotate(0deg)");
+  });
+
   it("W2's prompter hero→docked move keeps its 320ms ease-in-out-strong (§6 assigns that easing to on-screen movement)", () => {
     expect(bodiesFor(".composer-dock").join(" ")).toContain(`transition: transform ${dur("--dur-move")} var(--ease-in-out-strong)`);
   });

@@ -42,7 +42,7 @@ describe("enter tracker (§6: new items only)", () => {
 });
 
 const model = (blocks: Block[], pendingPermissions: PendingPermission[] = []): TranscriptModel =>
-  ({ blocks, pendingPermissions, usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null });
+  ({ blocks, pendingPermissions, usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {} });
 
 const user = (text: string): Block => ({ kind: "user", text, ts: 0 });
 const assistant = (text: string, streaming = false): Block => ({ kind: "assistant", messageId: "m1", text, streaming, ts: 0 });
@@ -73,10 +73,10 @@ describe("Transcript enter animation (§6: 180ms, new items only)", () => {
   it("keeps the mark through the re-renders that happen during the 180ms — streaming deltas must not abort it", () => {
     const { rerender } = render(view(model([user("hi")])));
     rerender(view(model([user("hi"), assistant("he", true)]), "running"));
-    expect(entering()).toEqual(["md msg-assistant"]);
+    expect(entering()).toEqual(["msg-assistant-row"]);
     rerender(view(model([user("hi"), assistant("hello", true)]), "running"));
     rerender(view(model([user("hi"), assistant("hello there")]), "idle"));
-    expect(entering()).toEqual(["md msg-assistant"]); // still marked, and still the only one
+    expect(entering()).toEqual(["msg-assistant-row"]); // still marked, and still the only one
   });
 
   it("re-rendering with unchanged blocks never promotes an existing block to entering", () => {

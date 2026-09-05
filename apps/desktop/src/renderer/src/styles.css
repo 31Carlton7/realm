@@ -1054,7 +1054,48 @@ button.panel-title:hover { background: var(--rl-hover); }
 .msg-user-files .attach-tile { width: 56px; height: 56px; }
 .msg-user-files .attach-art { border-radius: var(--r-row); }
 /* Ara refresh §4: assistant prose is plain — 15px/1.6, no card. */
+/* The message and everything the message owns — its media strip, its action bar — in one column, at
+   the gap `.transcript-col` used to give them as siblings, so growing the wrapper moved nothing. */
+.msg-assistant-row { display: flex; flex-direction: column; gap: 8px; }
 .msg-assistant { max-width: 72ch; font-size: 15px; line-height: 1.6; }
+/* The bar under a finished message. The negative inset is optical, not spacing: the first glyph is
+   14px inside a 26px box, so without it the row of buttons would hang 6px right of the prose it
+   belongs to and read as indented. */
+.msg-actions { display: flex; align-items: center; gap: 2px; margin-left: -6px; }
+.msg-action { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-ctl); color: var(--rl-text-faint); }
+.msg-action:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* A thumb's glyph does not change when it is pressed, so the fill has to say so — one rung past
+   hover, exactly as .icon-btn's toggles do, and on the transition the button already carries. */
+.msg-action[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
+/* Hit-target extension, VERTICAL only. The shared -6px overhang assumes a control with no
+   interactive neighbour — which is why .tool-copy can take it, sitting alone at its row's edge —
+   and these sit 2px apart, where it would have every button stealing clicks from the next. */
+.msg-action { position: relative; }
+.msg-action::after { content: ""; position: absolute; inset: -6px 0; }
+
+/* The sources disclosure. Folded away by default: a citation is there to be checked, not read, and
+   four urls between two messages cost every reader to serve the one who went looking. */
+.msg-sources { display: flex; flex-direction: column; gap: 6px; }
+.msg-sources-toggle { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+  padding: 3px 7px 3px 5px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); }
+.msg-sources-toggle:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* The chevron points at the list when it is open — the one rotation §6 allows on a disclosure,
+   on the swap rung because it is a glyph changing state rather than a box changing size. */
+.msg-sources-chevron { transform: rotate(-90deg); transition: transform var(--dur-swap) var(--ease-out-strong); }
+.msg-sources[data-open] .msg-sources-chevron { transform: rotate(0deg); }
+.msg-sources-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.msg-sources-list a { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; border-radius: var(--r-ctl);
+  font-size: 12px; color: var(--rl-text-dim); text-decoration: none; }
+.msg-sources-list a:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Tabular so a two-digit marker does not shift the hostnames under it out of line. */
+.msg-source-n { flex: none; min-width: 14px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.msg-source-host { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+/* The path is the least of the three and the longest: it gives up its width first and truncates. */
+.msg-source-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-faint); }
+/* An inline marker on a link the agent actually fetched. It sits on the same numbering as the list
+   above, so [2] in a sentence and 2 in the disclosure are one page. */
+.md-cite { margin-left: 1px; padding: 0 3px; border-radius: var(--r-chip); vertical-align: super;
+  font-size: 9px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); background: var(--rl-raised); }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
 .msg-assistant.md { line-height: 1.6; }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
@@ -2051,16 +2092,17 @@ button.panel-title:hover { background: var(--rl-hover); }
    it read as one glyph turning over rather than two crossing past each other, and the control keeps
    ONE glyph box and ONE accessible name throughout: a swap is a change of state, not of control. */
 .icon-swap { display: grid; place-items: center; }
-.icon-swap > *, .tool-copy .copy-icon, .tool-copy .copied-icon, .composer-send svg { grid-area: 1 / 1;
+.icon-swap > *, .tool-copy .copy-icon, .tool-copy .copied-icon, .msg-action .copy-icon, .msg-action .copied-icon, .composer-send svg { grid-area: 1 / 1;
   transition: opacity var(--dur-swap) var(--ease-out-strong), transform var(--dur-swap) var(--ease-out-strong), filter var(--dur-swap) var(--ease-out-strong); }
 .icon-swap:not([data-on]) .swap-on, .icon-swap[data-on] .swap-off,
 .tool-copy:not([data-copied]) .copied-icon, .tool-copy[data-copied] .copy-icon,
+.msg-action:not([data-copied]) .copied-icon, .msg-action[data-copied] .copy-icon,
 .composer-send[data-state="send"] .stop-icon, .composer-send[data-state="stop"] .send-icon {
   opacity: 0; transform: scale(.25); filter: blur(4px); }
 
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
    never `all`, never geometry. */
-.item-row, .item-close, .item-shelf, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy,
+.item-row, .item-close, .item-shelf, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
 .delegation-row, .delegation-item,
 .strip-space, .strip-profile, .space-card, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
@@ -2068,12 +2110,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 }
 /* Press (§6): 120ms to scale .97 on every pressable — buttons, chips, send, permission options.
    Full-width rows (.tool-row, .item-row) are left out: a wide surface shrinking reads as a glitch. */
-.btn, .icon-btn, .ghost-chip, .suggestion-chip, .composer-send, .permission-option, .tool-copy {
+.btn, .icon-btn, .ghost-chip, .suggestion-chip, .composer-send, .permission-option, .tool-copy, .msg-action {
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, transform var(--dur-press) var(--ease-out-strong);
 }
 .btn:active:not(:disabled), .icon-btn:active:not(:disabled), .ghost-chip:active:not(:disabled),
 .suggestion-chip:active:not(:disabled), .composer-send:active:not(:disabled),
-.permission-option:active:not(:disabled), .tool-copy:active:not(:disabled) { transform: scale(.97); }
+.permission-option:active:not(:disabled), .tool-copy:active:not(:disabled), .msg-action:active:not(:disabled) { transform: scale(.97); }
 .drop-zone { transition: opacity var(--dur-drag) linear; }
 
 /* §6 "do NOT animate: theme/mode switching". useTheme sets this for a beat around a palette rewrite;

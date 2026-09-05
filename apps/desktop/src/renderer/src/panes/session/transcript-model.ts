@@ -29,6 +29,7 @@ export type Block =
    *  just watching (see run-label.ts). */
   | { kind: "run"; ms: number; startedAt: number; ts: number };
 
+export type Rating = "up" | "down";
 export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string };
 export type Usage = { costUsd: number; inputTokens: number; outputTokens: number; numTurns: number };
 export type Transcript = {
@@ -42,6 +43,9 @@ export type Transcript = {
   /** The run in flight: when it started, and the permission-prompt time to take off its clock.
    *  `waitingSince` is the open half of that accounting. Null between runs. */
   run: { startedAt: number; waitedMs: number; waitingSince: number | null } | null;
+  /** What the reader made of each answer, keyed by `messageId`. Only rated messages appear: absent
+   *  is "not judged", which is a different state from either verdict and must stay tellable. */
+  feedback: Record<string, Rating>;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -50,7 +54,27 @@ export type Transcript = {
 export const blockKey = (b: Block, i: number): string =>
   b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : `${b.kind}:${i}`;
 
-export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null });
+export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {} });
+
+export type UserBlock = Extract<Block, { kind: "user" }>;
+
+/**
+ * The message a retry would ask again: the last one the USER wrote.
+ *
+ * A `from`-bearing block is skipped rather than returned. Those are another session's words
+ * delivered into this one, and re-sending one would put the user's hand on a question they never
+ * asked — the same reason the bubble is attributed instead of drawn plain.
+ *
+ * Null means there is nothing to ask again, which is the honest state of a session before its first
+ * send and of one whose only messages arrived from a peer.
+ */
+export const lastUserMessage = (t: Transcript): UserBlock | null => {
+  for (let i = t.blocks.length - 1; i >= 0; i--) {
+    const b = t.blocks[i]!;
+    if (b.kind === "user" && !b.from) return b;
+  }
+  return null;
+};
 
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
 
@@ -98,6 +122,13 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       };
       if (i >= 0) blocks[i] = block; else blocks.push(block);
       return { ...t, blocks };
+    }
+    // Append-only, so the last verdict for a message wins and a retraction is a `null` rating
+    // rather than a row going away — the log records the reader changing their mind, not just
+    // where they landed.
+    case "feedback": {
+      const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
+      return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };
     }
     case "usage": return { ...t, usage: e.payload };
     case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId, ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}) } };

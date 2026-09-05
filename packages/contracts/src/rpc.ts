@@ -969,6 +969,10 @@ export const Methods = {
   "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional() })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** The reader's verdict on one assistant message, appended to that session's own event log and
+   *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
+   *  retracts an earlier one. */
+  "sessions.recordFeedback": { params: z.object({ id: IdSchema, messageId: z.string().min(1), rating: z.enum(["up", "down"]).nullable() }), result: z.object({ ok: z.literal(true) }) },
   /** `answers` rides along only for question-shaped tools (AskUserQuestion): question text -> chosen
    *  label, multi-select comma-joined. Deliberately a record of strings rather than a free-form input
    *  override — the UI answers a question, it never gets to rewrite the tool's arguments. */

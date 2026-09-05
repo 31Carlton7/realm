@@ -4,12 +4,15 @@ import { chipRuns, mediaCandidatesIn, type SessionStatus } from "@realm/contract
 import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
+import { MessageActions } from "./MessageActions";
+import { MessageSources } from "./MessageSources";
+import { sourcesFor, type Source } from "./message-sources";
 import { PermissionCard } from "./PermissionCard";
 import { PlanCard, PlanDecision, isPlanDecision } from "./PlanCard";
 import { QuestionCard, questionCardFor } from "./QuestionCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, type Transcript as TranscriptModel } from "./transcript-model";
+import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { runLabelFor } from "./run-label";
 import { useEnterTracker } from "./transcript-enter";
 import { MediaStrip } from "./media/MediaView";
@@ -30,6 +33,7 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
 }
 
 const NO_MENTIONS: readonly string[] = [];
+const NO_SOURCES: readonly Source[] = [];
 
 /**
  * A user message's text, with its chips drawn as chips.
@@ -88,22 +92,41 @@ function UserAttachments({ attachments }: { attachments: readonly { path: string
  * strip that appeared, changed and disappeared as the sentence completed would be worse than one
  * that waits for the full stop.
  */
-function AssistantMessage({ text, streaming, enter, cwd }: { text: string; streaming: boolean; enter: boolean; cwd: string | null }) {
+function AssistantMessage({ text, streaming, enter, cwd, onRetry, retryBusy, rating, onRate, sources = NO_SOURCES }: {
+  text: string; streaming: boolean; enter: boolean; cwd: string | null;
+  onRetry?: () => void; retryBusy?: boolean; rating?: Rating | null; onRate?: (rating: Rating | null) => void;
+  /** The pages this turn actually fetched. Empty for the overwhelming majority of messages, which
+   *  is the honest answer: an agent that ran no fetch tool read nothing to cite. */
+  sources?: readonly Source[];
+}) {
   const candidates = useMemo(() => (streaming ? [] : mediaCandidatesIn(text, cwd)), [streaming, text, cwd]);
   const files = useMediaFiles(candidates);
+  const cite = useMemo(() => sources.map((s) => s.url), [sources]);
   return (
-    <>
-      <Markdown className="msg-assistant" text={text} enter={enter} />
+    // `data-enter` rides the ROW, not the prose: §6's entrance rule reaches `.transcript-col`'s
+    // direct children only, and the message stopped being one the moment it grew a wrapper.
+    <div className="msg-assistant-row" data-enter={enter || undefined}
+      data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
+      <Markdown className="msg-assistant" text={text} cite={cite} />
       <MediaStrip files={files} />
-    </>
+      {!streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
+      {!streaming && sources.length > 0 && <MessageSources sources={sources} />}
+    </div>
   );
 }
 
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
+  /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
+   *  the turn that just finished, and a button on message three of forty would silently act on
+   *  message forty instead. Absent in the read-only mounts the suite and the fork preview use. */
+  onRetry?: () => void;
+  /** Record what the reader made of one answer, or with null take an earlier verdict back. Absent
+   *  means the thumbs are not drawn at all, rather than drawn dead. */
+  onRate?: (messageId: string, rating: Rating | null) => void;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
   /** The session's working directory — the base a message's bare filenames are joined against when
@@ -128,6 +151,28 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
   const lastLen = lastText && "text" in lastText ? lastText.text?.length ?? 0 : 0;
   // Permission cards only make sense while the adapter is actually waiting; stale requests (crash, restart) are closed server-side.
   const permissions = sessionStatus === "waiting_permission" ? transcript.pendingPermissions : [];
+  // Retry belongs to the newest assistant message, and only when there is something to ask again —
+  // a session whose only messages came from a peer has nothing of the user's to re-send.
+  const retryKey = useMemo(() => {
+    if (!onRetry || !lastUserMessage(transcript)) return null;
+    for (let i = transcript.blocks.length - 1; i >= 0; i--) {
+      const b = transcript.blocks[i]!;
+      if (b.kind === "assistant") return blockKey(b, i);
+    }
+    return null;
+  }, [onRetry, transcript]);
+  const busy = sessionStatus === "running" || sessionStatus === "waiting_permission";
+  // Per message, not per transcript: a turn's fetches belong to the answer they were made for, and
+  // one list at the bottom would credit the newest message with everything ever read.
+  const sourcesByKey = useMemo(() => {
+    const out = new Map<string, Source[]>();
+    transcript.blocks.forEach((b, i) => {
+      if (b.kind !== "assistant" || b.streaming) return;
+      const found = sourcesFor(transcript.blocks, i);
+      if (found.length > 0) out.set(blockKey(b, i), found);
+    });
+    return out;
+  }, [transcript.blocks]);
   // §6: 180ms enter, new items only. Everything on screen at mount is seeded as already-seen, so
   // re-rendering, scrolling, or coming back to this session never replays an entrance.
   const isEntering = useEnterTracker([
@@ -194,7 +239,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
                     send that lost its words rather than one that carried only files. */}
                 {b.text && <UserText text={b.text} mentionIds={mentionIds} />}
               </div>);
-            case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd} />;
+            case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
+              onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
+              rating={transcript.feedback[b.messageId] ?? null}
+              onRate={onRate && ((r) => onRate(b.messageId, r))}
+              sources={sourcesByKey.get(key)} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter} />;

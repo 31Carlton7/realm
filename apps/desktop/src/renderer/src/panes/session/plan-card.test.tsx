@@ -6,7 +6,7 @@ import type { Block, PendingPermission, Transcript as TranscriptModel } from "./
 afterEach(() => cleanup());
 
 const model = (blocks: Block[], pendingPermissions: PendingPermission[] = []): TranscriptModel =>
-  ({ blocks, run: null, pendingPermissions, usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null });
+  ({ blocks, run: null, pendingPermissions, usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {} });
 
 const perm = (over: Partial<PendingPermission> = {}): PendingPermission =>
   ({ requestId: "r1", toolName: "ExitPlanMode", title: "Exit plan mode?", input: { plan: "# Ship it" }, ...over });

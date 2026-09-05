@@ -48,6 +48,21 @@ const P = {
     text: z.string().optional(),
     steps: z.array(z.object({ text: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })).optional(),
   }),
+  /** The reader's verdict on one assistant message, and the only event here the USER authors about
+   *  the agent rather than to it.
+   *
+   *  It is an event, not a settings row, for three reasons. A transcript is rebuilt from this log at
+   *  every relaunch, so a verdict kept anywhere else has to be re-joined to a message by a second
+   *  lookup that can silently drift. `permission_response` is the precedent — a user's decision
+   *  recorded beside the thing it decides. And `session_events` is `ON DELETE CASCADE` from
+   *  `sessions`, while the settings table has no delete at all: KV feedback would outlive by years
+   *  the session it was about.
+   *
+   *  `rating: null` is a retraction — the reader taking it back. Append-only, so the LAST rating for
+   *  a `messageId` wins and the earlier ones stay as the record of a mind being changed.
+   *
+   *  This never leaves the machine. Nothing reads it but the transcript that drew it. */
+  feedback: z.object({ messageId: z.string(), rating: z.enum(["up", "down"]).nullable() }),
   init: z.object({
     providerSessionId: z.string(), model: z.string(), tools: z.array(z.string()), cwd: z.string(),
     /** The instruction files the agent says it loaded — Codex `thread/start` `instructionSources`, W3's
@@ -80,6 +95,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("usage"),
   variant("init"),
   variant("plan"),
+  variant("feedback"),
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
@@ -91,7 +107,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "permission_request", "permission_response", "status", "error", "usage", "init", "plan"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

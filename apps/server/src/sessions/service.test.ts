@@ -227,6 +227,27 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
+  it("a verdict on an answer is written to the session's own log and replayed from it", async () => {
+    // The whole case for making feedback an event: it comes back with the transcript, from the same
+    // rows, with no second lookup to drift. And it goes nowhere else — the assertion below is the
+    // full list of places it lands.
+    const { c, sp } = await boot();
+    const s1 = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    expect((await c.call("sessions.recordFeedback", { id: s1.id, messageId: "m1", rating: "up" })).result).toEqual({ ok: true });
+    await c.call("sessions.recordFeedback", { id: s1.id, messageId: "m1", rating: "down" });
+
+    const rows = (await c.call("sessions.events", { id: s1.id })).result
+      .filter((r: Any) => r.event.type === "feedback").map((r: Any) => r.event.payload);
+    expect(rows).toEqual([{ messageId: "m1", rating: "up" }, { messageId: "m1", rating: "down" }]);
+    c.close();
+  });
+
+  it("refuses a verdict on a session that does not exist, rather than orphaning a row", async () => {
+    const { c } = await boot();
+    expect((await c.call("sessions.recordFeedback", { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", messageId: "m1", rating: "up" })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+
   it("rejects unknown agents, unknown sessions and unknown projects", async () => {
     const { c, sp } = await boot();
     expect((await c.call("sessions.create", { spaceId: sp.id, agentKind: "codex" })).error.code).toBe("AGENT_UNAVAILABLE");

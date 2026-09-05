@@ -756,6 +756,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return m;
     },
     interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
+    recordFeedback: async (id, messageId, rating) => { calls.push(`recordFeedback:${id}:${messageId}=${rating ?? "none"}`); },
     respondPermission: async (id, requestId, decision) => { calls.push(`respondPermission:${id}:${requestId}:${decision}`); },
     setSessionOptions: async (id, o) => {
       calls.push(`setSessionOptions:${id}`);
