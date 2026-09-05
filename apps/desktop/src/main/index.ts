@@ -150,6 +150,7 @@ async function createWindow(info: { port: number; home: string }) {
   const host = new BrowserAgentHost({
     attach: (id) => pane.attachCdp(id),
     hasView: (id) => pane.hasView(id),
+    touch: (id) => pane.host.touch(id),
     navigate: (id, url) => pane.host.navigate(id, url),
     pageState: (id) => pane.pageState(id),
     // The fill op's only reach into the store. Passed as an object of bound methods rather than the
