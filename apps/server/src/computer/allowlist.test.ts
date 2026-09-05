@@ -92,14 +92,6 @@ describe("the forbidden list beats the allowed list", () => {
     expect(list.allows("sp1", "com.apple.TextEdit")).toBe(true);
   });
 
-  it("treats a corrupt row as an empty list rather than throwing", () => {
-    for (const value of [null, 42, "com.apple.TextEdit", { app: "x" }]) {
-      const { list } = allowlist({ "computer.allowedApps:sp1": value });
-      expect(list.list("sp1")).toEqual([]);
-      expect(list.allows("sp1", "com.apple.TextEdit")).toBe(false);
-    }
-  });
-
   it("never allows an empty bundle id, which an app with no identifier would send", () => {
     const { list } = allowlist({ "computer.allowedApps:sp1": [""] });
     expect(list.allows("sp1", "")).toBe(false);

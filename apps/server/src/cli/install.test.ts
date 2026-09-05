@@ -65,10 +65,9 @@ describe("commandSpec", () => {
     // carries the merged login PATH, so the shell exists only to interpret the pipe.
     const spec = commandSpec(AGENT_INSTALL_ROUTES["acp:fx"], "install", null);
     expect(spec?.file).toBe("/bin/bash");
-    expect(spec?.args[0]).toBe("-c");
-    expect(spec?.args).not.toContain("-l");
-    expect(spec?.args).not.toContain("-i");
-    expect(spec?.args[1]).toBe("curl -fsSL https://fx.sh/setup.sh | bash");
+    // The whole argv, not `not.toContain("-l")`: the shape a mistake actually takes here is a
+    // combined flag like `-lc`, which no membership check on a whole element would ever see.
+    expect(spec?.args).toEqual(["-c", "curl -fsSL https://fx.sh/setup.sh | bash"]);
   });
 
   it("never offers to update a script route", () => {

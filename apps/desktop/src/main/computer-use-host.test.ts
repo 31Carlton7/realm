@@ -205,9 +205,11 @@ describe("the driving indicator's feed", () => {
     expect(driving.filter((d) => !String(d).startsWith("during:"))).toEqual([]);
   });
 
-  it("names the app the server resolved, and stays quiet when it sent none", async () => {
+  it("still raises when the server named no app — an unnamed drive is still a drive", async () => {
+    // `drivingName` renders the empty name as "an app". Staying dark because a name went missing
+    // would hide input that really was posted, which is the one thing this indicator exists to show.
     const { instance, driving } = host({ act: { ok: true, detail: "ok" } });
     await instance.handleOp("computerAct", { snapshotId: "ax_1", action: click });
-    expect(driving[0]).toBe("");
+    expect(driving).toEqual(["", "during:act", null]);
   });
 });

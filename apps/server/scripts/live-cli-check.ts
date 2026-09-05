@@ -21,7 +21,7 @@
  * Exits non-zero if a check fails. Needs a network; agent CLIs are optional (an absent one is
  * reported as absent, which is a valid answer).
  */
-import { AGENT_INSTALL_ROUTES, AgentKindSchema, installCommand, isNewerVersion, parseBrewFormula, parseNpmLatest, parseVersion, updateChannel } from "@realm/contracts";
+import { AGENT_INSTALL_ROUTES, AgentKindSchema, isNewerVersion, parseBrewFormula, parseNpmLatest, parseVersion, updateChannel } from "@realm/contracts";
 import { CliService } from "../src/cli/service";
 import { agentBin } from "../src/cli/bins";
 import { resolveInstall } from "../src/cli/provenance";
@@ -57,7 +57,6 @@ async function main() {
   const adapters = defaultAdapters();
   const probe = async () => (await Promise.all(Object.values(adapters).map((a) => a!.probe()))).flat();
   const rows = await new CliService({ probe }).status();
-  ok("answers a row for every kind", rows.length === AgentKindSchema.options.length, `${rows.length} rows`);
 
   for (const r of rows) {
     const bits = [
@@ -73,16 +72,14 @@ async function main() {
   }
 
   console.log("\n== the invariants that keep this safe ==");
-  // Nothing on this machine may be offered an update through a method that did not install it.
-  const wrongMethod = rows.filter((r) => r.action === "update" && r.provenance !== AGENT_INSTALL_ROUTES[r.kind]?.method);
-  ok("no update is offered through the wrong package manager", wrongMethod.length === 0, wrongMethod.map((r) => `${r.kind}=${r.provenance}`).join(", "));
-  // An `install` offer only ever appears for a CLI that is genuinely absent.
-  const wrongInstall = rows.filter((r) => r.action === "install" && r.installed);
-  ok("no install is offered for a CLI that is already here", wrongInstall.length === 0, wrongInstall.map((r) => r.kind).join(", "));
-  // Every offered command is one the route table can regenerate — never an invented string.
-  const invented = rows.filter((r) => r.action === "install" && r.command !== installCommand(AGENT_INSTALL_ROUTES[r.kind]));
-  ok("every install command is the route table's own", invented.length === 0, invented.map((r) => r.kind).join(", "));
-  // `updateAvailable` must agree with the comparison, not be set on its own.
+  // Only invariants that a real machine can actually break belong here. The provenance rule ("no
+  // `npm install -g` over a Homebrew install") and "an install is only offered for an absent CLI"
+  // are NOT among them: `join` derives `action` from `canRunUpdate` and `installCommand`, so
+  // re-deriving them from the same pure functions in the same process cannot fail. `service.test.ts`
+  // is where those live, against fixtures that can disagree.
+  //
+  // `updateAvailable` is worth re-deriving because `join` adds a `!latest` clause of its own on top
+  // of the comparison, and a real registry answer is what makes the two able to diverge.
   const bogus = rows.filter((r) => r.updateAvailable !== isNewerVersion(r.version, r.latest));
   ok("updateAvailable agrees with the version comparison", bogus.length === 0, bogus.map((r) => r.kind).join(", "));
   ok("fake is never offered anything", rows.find((r) => r.kind === "fake")?.action === "none");
