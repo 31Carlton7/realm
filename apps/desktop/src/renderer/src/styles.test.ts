@@ -760,6 +760,21 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(tile).not.toContain("overflow: hidden");
   });
 
+  it("the open control fills the tile and draws nothing — the well underneath already has the ring", () => {
+    const open = bodiesFor(".attach-open").join(" ");
+    // `inset: 0` is what keeps `.attach-art`'s own `inset: 0` resolving against the 44px square: the
+    // art is now the button's child, so a button that merely wrapped the tile would collapse it.
+    expect(open).toContain("position: absolute");
+    expect(open).toContain("inset: 0");
+    expect(open).toContain("border: none");
+    expect(open).toContain("background: none");
+    expect(open).toContain("padding: 0");
+    // A drop target's cursor must not promise a zoom the file cannot do: only a tile main has
+    // confirmed is media gets zoom-in, and the mark only lands once that answer is back.
+    expect(open).toContain("cursor: pointer");
+    expect(bodiesFor(".attach-tile[data-media] .attach-open").join(" ")).toContain("cursor: zoom-in");
+  });
+
   it("the file's name lives in a hover tip that fades in — not in an OS `title`, which cannot show the size or the folder", () => {
     const tip = bodiesFor(".attach-tip").join(" ");
     expect(tip).toContain("opacity: 0");

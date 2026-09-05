@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { basenameOf, chipRuns, isPlayablePath, mediaCandidatesIn, type MediaFile, type SessionStatus } from "@realm/contracts";
+import { chipRuns, mediaCandidatesIn, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
@@ -12,8 +12,8 @@ import { formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, type Transcript as TranscriptModel } from "./transcript-model";
 import { runLabelFor } from "./run-label";
 import { useEnterTracker } from "./transcript-enter";
-import { MediaLightbox, MediaStrip } from "./media/MediaView";
-import { useMediaByCandidate, useMediaFiles } from "./media/use-media";
+import { MediaStrip } from "./media/MediaView";
+import { useMediaFiles } from "./media/use-media";
 
 const NEAR_BOTTOM_PX = 80;
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
@@ -69,29 +69,10 @@ function UserText({ text, mentionIds }: { text: string; mentionIds: readonly str
  * more Realm can do with it here, so making it look clickable would be a promise it cannot keep.
  */
 function UserAttachments({ attachments }: { attachments: readonly { path: string; mime: string }[] }) {
-  const candidates = useMemo(
-    () => attachments.filter((a) => isPlayablePath(a.path)).map((a) => a.path),
-    [attachments],
-  );
-  const byCandidate = useMediaByCandidate(candidates);
-  const [open, setOpen] = useState<MediaFile | null>(null);
   return (
-    <>
-      <ul className="msg-user-files" aria-label="Attached files">
-        {attachments.map((a) => {
-          const file = byCandidate.get(a.path);
-          const tile = <AttachmentTile path={a.path} mime={a.mime} />;
-          return (
-            <li key={a.path}>
-              {file
-                ? <button type="button" className="msg-user-file-open" aria-label={`Open ${basenameOf(a.path)}`} onClick={() => setOpen(file)}>{tile}</button>
-                : tile}
-            </li>
-          );
-        })}
-      </ul>
-      {open && <MediaLightbox file={open} onClose={() => setOpen(null)} />}
-    </>
+    <ul className="msg-user-files" aria-label="Attached files">
+      {attachments.map((a) => <li key={a.path}><AttachmentTile path={a.path} mime={a.mime} /></li>)}
+    </ul>
   );
 }
 

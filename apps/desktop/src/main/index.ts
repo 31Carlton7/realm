@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { startServer } from "./server-process";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
-import { compressIconIfNeeded, describeFiles, quickLookThumbnail, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
+import { compressIconIfNeeded, describeFiles, openablePath, quickLookThumbnail, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
 import { BlockedDownloads, DownloadGovernor, retryBlockedDownload } from "./downloads";
 import type { BrowserPaneHost, ViewRect } from "./browser-host";
@@ -544,6 +544,15 @@ ipcMain.handle("attachment-thumbnail", async (_e, path: string): Promise<string 
     if (mimeForPath(path) === DEFAULT_MIME) return null;
     return await quickLookThumbnail(realmHome, path, THUMB_PX);
   } catch { return null; }
+});
+
+/** Opening an attachment the app cannot draw itself. A PDF, a CSV, a `.ts` — `realm-media://` will
+ *  never serve one and no element could render it, so the honest answer is the app the user already
+ *  reads that type in. `openablePath` is the gate, and it is why this is not `media:open`: that one
+ *  answers about paths an AGENT wrote, and must stay narrow. */
+ipcMain.handle("attachment:open", async (_e, path: unknown): Promise<void> => {
+  const openable = await openablePath(path);
+  if (openable) await shell.openPath(openable);
 });
 
 /** Paste. A pasted image has no path, and every adapter's contract is a path — so one is made here.

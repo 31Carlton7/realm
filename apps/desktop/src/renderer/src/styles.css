@@ -1509,6 +1509,16 @@ button.panel-title:hover { background: var(--rl-hover); }
   border-radius: var(--r-ctl); background: var(--field); box-shadow: var(--shadow-hairline);
   color: var(--rl-text-faint); overflow: hidden; }
 .attach-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* The whole face of the tile is the open control, and it adds no box of its own: the well underneath
+   already carries the ring and the rounding, and a second frame around it would read as a different
+   kind of thing. It fills the tile rather than wrapping it so that `.attach-art`'s `inset: 0` still
+   resolves against the 44px square, and so the remove button — a SIBLING, never a child — keeps the
+   corner to itself. */
+.attach-open { position: absolute; inset: 0; display: block; padding: 0; border: none; background: none; cursor: pointer; }
+/* A file that opens in the lightbox says so: zoom-in is the cursor for a picture that gets bigger in
+   place, and it would be a lie on the PDF that leaves for Preview. The mark lands only once main has
+   confirmed the file, which is also when the lightbox becomes the branch that runs. */
+.attach-tile[data-media] .attach-open { cursor: zoom-in; }
 /* The type badge rides the bottom of the well; over a photo it needs its own scrim to stay legible. */
 .attach-ext { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 2px; text-align: center;
   font-size: 8px; line-height: 1.25; font-weight: var(--fw-title); letter-spacing: .02em; text-transform: uppercase;
@@ -2901,10 +2911,6 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
      stays as a static, legible "nothing here yet". */
   .gen-glow { display: none; }
 }
-/* A media attachment's tile is a button; a non-media one is not. The button adds no box of its own —
-   the tile already has the ring and the rounding, and a second frame around it would read as a
-   different kind of thing. */
-.msg-user-file-open { display: block; padding: 0; border: none; background: none; cursor: zoom-in; }
 
 /* ——— Settings → App: the background transparency slider ——————————————————————
    A native range on the app's accent, with the value beside it in tabular figures so the number does

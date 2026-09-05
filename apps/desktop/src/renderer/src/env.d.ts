@@ -14,6 +14,9 @@ interface Window {
     pickFiles(): Promise<PickedFile[]>;
     /** Downscaled data: URL for an image attachment; null for anything not a readable image. */
     attachmentThumbnail(path: string): Promise<string | null>;
+    /** Hand an attachment to the app the user reads that type in — the files Realm cannot draw.
+     *  Optional for the same reason `media` is: without the bridge the tile stays a picture. */
+    openAttachment?(path: string): Promise<void>;
     /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
     pickIconImage(): Promise<PickedFile | null>;
     /** Local media drawn inline in the transcript. Optional in the type on purpose: every call site

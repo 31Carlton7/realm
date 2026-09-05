@@ -47,6 +47,19 @@ const MIME_BY_EXT: Record<string, string> = {
 
 export const DEFAULT_MIME = "application/octet-stream";
 
+/**
+ * Whether Realm will hand this file to the OS to open.
+ *
+ * The mime table IS the gate, and that is the point rather than a shortcut: on macOS `open` RUNS an
+ * `.app`, a `.command` or a `.tool` instead of showing it, and none of those extensions is in the
+ * table — so an unrecognised extension is refused before it can be one of them. Every type the table
+ * does know is a document, and opening one is what a double-click in Finder already does.
+ *
+ * Asked on both sides of the bridge: the tile draws its open affordance from this, main re-asks it
+ * before the `shell` call. A tile therefore never offers an open that main will turn down.
+ */
+export const isOpenablePath = (path: string): boolean => mimeForPath(path) !== DEFAULT_MIME;
+
 /** Mime from a path's extension. Case-insensitive; a dotfile or extensionless name is octet-stream. */
 export function mimeForPath(path: string): string {
   const name = basenameOf(path);

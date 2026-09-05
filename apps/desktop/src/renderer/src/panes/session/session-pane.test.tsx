@@ -1904,11 +1904,12 @@ describe("prompter attachments", () => {
     await waitFor(() => expect(chips()).toHaveLength(1));
     const tile = document.querySelector(".attach-tile")!;
     // Everything naming the file is either visually hidden or inside the hover tip — nothing else
-    // in the tile carries text, which is what keeps a row of files to a row of squares.
-    const visible = Array.from(tile.childNodes)
-      .filter((n) => !(n instanceof HTMLElement && (n.classList.contains("visually-hidden") || n.classList.contains("attach-tip"))))
-      .map((n) => n.textContent ?? "").join("");
-    expect(visible).not.toContain("report");
+    // in the tile carries text, which is what keeps a row of files to a row of squares. Read off a
+    // clone with those two stripped, at any depth: the hidden name rides inside the open button, so
+    // a filter over the tile's direct children alone would stop seeing it and pass on nothing.
+    const bare = tile.cloneNode(true) as HTMLElement;
+    for (const hidden of bare.querySelectorAll(".visually-hidden, .attach-tip")) hidden.remove();
+    expect(bare.textContent).not.toContain("report");
     expect(tile.querySelector(".visually-hidden")!.textContent).toContain("report.pdf");
   });
 

@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld("realm", {
    *  image. The renderer cannot read the file itself, and CSP forbids `file://` — this is the only
    *  way an attachment is ever seen rather than merely named. */
   attachmentThumbnail: (path: string): Promise<string | null> => ipcRenderer.invoke("attachment-thumbnail", path),
+  /** Hand an attachment to the app the user reads that type in. For the files Realm cannot draw —
+   *  a PDF, a spreadsheet, source — where the alternative is a tile that does nothing. Refused in
+   *  main for an extension its mime table does not know; see `openablePath`. */
+  openAttachment: (path: string): Promise<void> => ipcRenderer.invoke("attachment:open", path),
   /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
   pickIconImage: (): Promise<PickedFile | null> => ipcRenderer.invoke("pick-icon-image"),
   /** Local media the transcript draws inline. Only `stat` and `poster` cross IPC — the bytes are
