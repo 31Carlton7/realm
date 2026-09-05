@@ -1,3 +1,4 @@
+import { agentBin } from "./cli/bins";
 import { openDatabase, type Db } from "./db/database";
 import { dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
@@ -82,7 +83,7 @@ export function defaultAdapters(): AdapterRegistry {
     codex: new CodexAdapter(),
     "acp:cursor": new AcpAdapter({
       kind: "acp:cursor",
-      bin: process.env.REALM_CURSOR_BIN ?? "cursor-agent",
+      bin: agentBin("acp:cursor"),
       args: ["acp"],
       label: "Cursor",
       loginHint: "Run `cursor-agent login`.",
@@ -91,7 +92,7 @@ export function defaultAdapters(): AdapterRegistry {
     }),
     "acp:gemini": new AcpAdapter({
       kind: "acp:gemini",
-      bin: process.env.REALM_GEMINI_BIN ?? "gemini",
+      bin: agentBin("acp:gemini"),
       args: ["--acp"],
       label: "Gemini",
       // Measured 2026-09-01 (gemini-cli 0.56.0): `initialize` advertises oauth-personal, gemini-api-key,
@@ -107,35 +108,35 @@ export function defaultAdapters(): AdapterRegistry {
     // spawn would cost a real round trip to learn nothing.
     "acp:opencode": new AcpAdapter({
       kind: "acp:opencode",
-      bin: process.env.REALM_OPENCODE_BIN ?? "opencode",
+      bin: agentBin("acp:opencode"),
       args: ["acp"],
       label: "OpenCode",
       loginHint: "Run `opencode auth login`.",
     }),
     "acp:copilot": new AcpAdapter({
       kind: "acp:copilot",
-      bin: process.env.REALM_COPILOT_BIN ?? "copilot",
+      bin: agentBin("acp:copilot"),
       args: ["--acp"],
       label: "GitHub Copilot",
       loginHint: "Run `copilot login`.",
     }),
     "acp:goose": new AcpAdapter({
       kind: "acp:goose",
-      bin: process.env.REALM_GOOSE_BIN ?? "goose",
+      bin: agentBin("acp:goose"),
       args: ["acp"],
       label: "goose",
       loginHint: "Run `goose configure` to pick a provider and set its API key.",
     }),
     "acp:qwen": new AcpAdapter({
       kind: "acp:qwen",
-      bin: process.env.REALM_QWEN_BIN ?? "qwen",
+      bin: agentBin("acp:qwen"),
       args: ["--acp"],
       label: "Qwen Code",
       loginHint: "Run `qwen` once to sign in with your Qwen account, or set OPENAI_API_KEY.",
     }),
     "acp:grok": new AcpAdapter({
       kind: "acp:grok",
-      bin: process.env.REALM_GROK_BIN ?? "grok",
+      bin: agentBin("acp:grok"),
       args: ["agent", "stdio"],
       label: "Grok",
       loginHint: "Run `grok login` (browser sign-in, needs SuperGrok or X Premium), or set XAI_API_KEY.",
@@ -155,14 +156,14 @@ export function defaultAdapters(): AdapterRegistry {
     // learn nothing. `AGENT_MODELS["acp:deepseek"]` carries the two models instead.
     "acp:deepseek": new AcpAdapter({
       kind: "acp:deepseek",
-      bin: process.env.REALM_DEEPSEEK_BIN ?? "dsh-acp-demo",
+      bin: agentBin("acp:deepseek"),
       args: [],
       label: "DeepSeek",
       loginHint: "Set DEEPSEEK_API_KEY — the DeepSeek Harness has no login command of its own.",
     }),
     "acp:fx": new AcpAdapter({
       kind: "acp:fx",
-      bin: process.env.REALM_FX_BIN ?? "fx",
+      bin: agentBin("acp:fx"),
       args: ["acp"],
       label: "fx",
       // fx gates `initialize` ITSELF on being signed in (measured: -32600 with this exact text), so a
