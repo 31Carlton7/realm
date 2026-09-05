@@ -47,6 +47,16 @@ describe("the Settings page (Plan 12 W6)", () => {
     }
   });
 
+  it("the tabs ARE the page's rail, which is what widens the page's measure to hold them", async () => {
+    // styles.css caps `.page:has(.page-rail)` at the rail plus the reading column, and every other
+    // page at the column alone. Rename the class here and the whole page narrows by 200px with
+    // nothing in the stylesheet to say why.
+    const { container } = await mount();
+    const rail = container.querySelector(".page > .page-body > .page-rail");
+    expect(rail).not.toBeNull();
+    expect(within(rail as HTMLElement).getByRole("radio", { name: "Engines" })).toBeInTheDocument();
+  });
+
   it("opens the Usage tab without the rest of Settings paying for it", async () => {
     // The panel reads a whole time range on mount, so it must not run for someone who came here to
     // check an engine version — which is what tabbing rather than stacking buys.
