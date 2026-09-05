@@ -471,6 +471,10 @@ function AppTab() {
   // so it is never null and the row never renders a loading state the others need.
   const desktopNotifications = useApp((s) => s.desktopNotifications);
   const setDesktopNotifications = useApp((s) => s.setDesktopNotifications);
+  const soundCues = useApp((s) => s.soundCues);
+  const soundVolume = useApp((s) => s.soundVolume);
+  const setSoundCues = useApp((s) => s.setSoundCues);
+  const setSoundVolume = useApp((s) => s.setSoundVolume);
   const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
@@ -620,8 +624,27 @@ function AppTab() {
               checked={desktopNotifications}
               onChange={(e) => run(() => setDesktopNotifications(e.target.checked))} />
           </li>
+          {/* Nested under the switch above, and inert while it is off, because the sound is part of a
+              notification rather than a second way of being told: it plays only alongside one that
+              was actually posted. */}
+          <li className="settings-row">
+            <div className="settings-row-main">
+              <span className="settings-row-name">Play a sound with it</span>
+              <span className="settings-row-desc">One cue when a turn finishes, another when an agent is waiting on you.</span>
+            </div>
+            <input type="checkbox" role="switch" className="switch" aria-label="Play a sound with it"
+              disabled={!desktopNotifications} checked={soundCues}
+              onChange={(e) => run(() => setSoundCues(e.target.checked))} />
+          </li>
         </ul>
-        <p className="settings-hint">Only when Realm is not the app you are in — a notification for something already on your screen is noise. Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app.</p>
+        <div className="slider-row">
+          <input type="range" aria-label="Sound volume" disabled={!desktopNotifications || !soundCues}
+            min={0} max={100} step={5}
+            value={Math.round(soundVolume * 100)}
+            onChange={(e) => run(() => setSoundVolume(Number(e.target.value) / 100))} />
+          <span className="slider-value">{Math.round(soundVolume * 100)}%</span>
+        </div>
+        <p className="settings-hint">Only when Realm is not the app you are in — a notification for something already on your screen is noise. Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app. The sound follows your Mac's volume, so muting the machine mutes it.</p>
       </div>
 
       <div className="field"><span>Notifications</span>

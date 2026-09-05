@@ -1339,6 +1339,10 @@ export type AppState = {
   /** The Settings→App desktop switch. Writes `NOTIFICATIONS_DESKTOP_KEY` and immediately pushes the
    *  badge the new answer implies, so switching off clears the dock rather than freezing a number. */
   setDesktopNotifications(enabled: boolean): Promise<void>;
+  /** The Settings→App sound switch and its level (0…1). Each writes its key and holds the answer, so
+   *  the next broadcast sounds under the new one without waiting for a settings refresh. */
+  setSoundCues(enabled: boolean): Promise<void>;
+  setSoundVolume(volume: number): Promise<void>;
   /** Select a feed row into the page's detail column (null = back to the bare list). Records the move
    *  on the trail of the pane showing `pageItemId`, so the arrows retrace it, and marks the row read —
    *  opening a notification is the definition of having seen it. */
@@ -3304,13 +3308,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       setProfilePageTab(profileId, tab) { set({ profilePageTab: { ...get().profilePageTab, [profileId]: tab } }); },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode, rawDesktop] = await Promise.all([
+        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
+          api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
-        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, desktopNotifications: rawDesktop !== false });
+        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, desktopNotifications: rawDesktop !== false,
+          soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume) });
       },
       async refreshModelFavorites() {
         const raw = await api.getSetting(MODEL_FAVORITES_KEY);
@@ -3549,6 +3555,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Republish the count under the new answer: switching off has to CLEAR the dock, not leave
         // the last number sitting there until something else happens to change it.
         applyUnread(get().notificationsUnread);
+      },
+      async setSoundCues(enabled) {
+        await api.setSetting(NOTIFICATIONS_SOUND_KEY, enabled);
+        set({ soundCues: enabled });
+      },
+      async setSoundVolume(volume) {
+        // Stored through the same reader boot uses, so a value the UI could not produce cannot be
+        // written by anything else either.
+        const v = cueVolume(volume);
+        await api.setSetting(NOTIFICATIONS_SOUND_VOLUME_KEY, v);
+        set({ soundVolume: v });
       },
       async selectNotification(pageItemId, id) {
         set({ notificationsSelectedId: id });
