@@ -1735,19 +1735,21 @@ button.panel-title:hover { background: var(--rl-hover); }
 .composer-send:disabled { background: var(--line-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
 
 /* ── To-do strip (§4): the session's plan, attached to the TOP of the card ─────────────
-   The under-strip below is the same attachment in the other direction, but one of its constraints
-   does not carry: that strip caps at --r-panel because only ~26px of it shows and a corner cannot be
-   rounder than half its box. A list is tall enough for the card's own --r-squircle, and taking it is
-   what makes the two read as one silhouette instead of a card resting on a card.
-   Flush to the dock's width rather than inset like the strip below — the side edges have to continue
-   the card's, or the two rings draw two boxes. The bottom edge overlaps the card and is square, so
-   the seam that would cross the join is hidden underneath it (.composer holds z-index 1).
+   The under-strip below, mirrored: same frame fill, same 10px inset, same overlap sliding it behind
+   the card, and the radii swapped end for end — so the prompter reads as one card with a narrower
+   tab above it and a narrower tab below. The three-value margin is what keeps the insets equal; a
+   four-value one could hold a strip that is the right WIDTH and still off the card's centre.
+   Only one of the under-strip's constraints fails to carry. That strip caps its rounding at
+   --r-panel because barely 26px of it shows and a corner cannot be rounder than half its box; a list
+   is tall enough to take the card's own --r-squircle, so it does.
+   The bottom corners are square because that edge is not an edge — it is 10px behind the card, which
+   paints over it (.composer holds z-index 1). Rounding them would round nothing and the two would
+   still meet flush; leaving them square is what the strip's own painted path has to say.
    In normal flow inside .composer-dock, so the hero→docked transform carries it and it grows UPWARD
    into the transcript: the prompter's own controls never leave the bottom edge they sit on. ── */
 .composer-todos { display: flex; flex-direction: column; min-width: 0;
-  margin: 0 0 -12px; padding: 12px 16px 22px; background: var(--rl-frame);
-  border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle;
-  box-shadow: var(--shadow-card); }
+  margin: 0 10px -10px; padding: 10px 14px 20px; background: var(--rl-frame);
+  border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
 .composer-todos-head { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; font-size: 11.5px; }
 .composer-todos-caret { flex: none; margin-left: auto; align-self: center; color: var(--rl-text-faint);
   transition: transform var(--dur-pop) var(--ease-out-strong); }
@@ -1853,10 +1855,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The hint lies inset:0 over the card, so it takes the card's own radius or it would square off
    inside a rounded corner. No ring: the card underneath is already wearing the drop target's. */
 :root[data-squircle] .composer-drop-hint { --sq-fill: color-mix(in srgb, var(--rl-raised) 82%, transparent); }
-/* The to-do strip's bottom edge is hidden beneath the card, so only its top corners are drawn — and
-   it wears the card's ring, at the card's width, because the join has to read as one outline. */
-:root[data-squircle] .composer-todos { --sq-fill: var(--rl-frame); --sq-radius-bottom: 0px;
-  --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w); box-shadow: var(--shadow-card-lift); }
+/* The to-do strip's bottom edge is hidden beneath the card, so only its top corners are drawn — the
+   under-strip's rule with the two radii swapped, and ringless for the same reason it is. */
+:root[data-squircle] .composer-todos { --sq-fill: var(--rl-frame); --sq-radius-bottom: 0px; }
 /* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
 :root[data-squircle] .composer-understrip { --sq-fill: var(--rl-frame); --sq-radius-top: 0px; --sq-radius-bottom: var(--r-panel); }
 :root[data-squircle] .install-card {

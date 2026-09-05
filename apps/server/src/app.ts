@@ -174,14 +174,26 @@ export function defaultAdapters(): AdapterRegistry {
   // The offline-dev script: enough to reach the surfaces that only exist for one event type. A plan
   // is here because it is drawn by a card of its own, and without a scripted one the fake agent —
   // whose whole purpose is UI development — can never produce it. Revised in place, since a plan that
-  // updates is the behaviour worth looking at.
+  // updates is the behaviour worth looking at. A to-do list is here for the same reason, in two
+  // triggers rather than one run: the strip above the prompter shuts itself once every item is done,
+  // and both sides of that have to be reachable and holdable long enough to look at.
   if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [{ on: "plan", emit: [
     { kind: "text", text: "Here is how I would go about it." },
     { kind: "plan", planId: "fake-plan", text: "## Rework the mapper\n\n1. Carry the plan as its own event.\n2. Draw it as a plan.", steps: [
       { text: "Carry the plan as its own event", status: "in_progress" }, { text: "Draw it as a plan", status: "pending" }] },
     { kind: "plan", planId: "fake-plan", text: "## Rework the mapper\n\n1. Carry the plan as its own event.\n2. Draw it as a plan.", steps: [
       { text: "Carry the plan as its own event", status: "completed" }, { text: "Draw it as a plan", status: "in_progress" }] },
-  ] }] });
+  ] }, {
+    on: "todos", emit: [{ kind: "tool", name: "TodoWrite", result: "Todos have been modified successfully", input: { todos: [
+      { content: "Carry the plan as its own event", status: "completed", activeForm: "Carrying the plan as its own event" },
+      { content: "Draw it as a plan", status: "in_progress", activeForm: "Drawing it as a plan" },
+      { content: "Test it", status: "pending", activeForm: "Testing it" }] } }],
+  }, {
+    on: "all done", emit: [{ kind: "tool", name: "TodoWrite", result: "Todos have been modified successfully", input: { todos: [
+      { content: "Carry the plan as its own event", status: "completed", activeForm: "Carrying the plan as its own event" },
+      { content: "Draw it as a plan", status: "completed", activeForm: "Drawing it as a plan" },
+      { content: "Test it", status: "completed", activeForm: "Testing it" }] } }],
+  }] });
   return reg;
 }
 

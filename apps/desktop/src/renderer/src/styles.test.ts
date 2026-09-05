@@ -1411,20 +1411,34 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
     expect(bodiesFor('.todo-list li[data-status="completed"] .todo-text').join(" ")).toContain("line-through");
   });
 
-  it("the to-do strip takes the card's top radius, squares its bottom, and tucks under the card", () => {
-    // The whole point of the strip is that it is not a second card. Rounding the bottom, or letting
-    // the two boxes meet edge to edge instead of overlapping, puts a seam across the join and the
-    // pair reads as stacked cards again — which is the state this replaced.
-    const body = bodiesFor(".composer-todos").join(" ");
-    expect(body).toContain("border-radius: var(--r-squircle) var(--r-squircle) 0 0");
-    expect(body).toMatch(/margin:\s*0 0 -\d+px/);
-    // Full-width, so the side edges continue the card's rather than starting a narrower box. The
-    // under-strip below is inset on purpose; this one must not inherit that.
-    expect(body).not.toMatch(/margin:[^;]*\b(?!0)\d+px\s+-?\d+px\s*;/);
-    // Under the gate the corner is the painter's, and the bottom radius has to go with it.
-    const painted = bodiesFor(":root[data-squircle] .composer-todos").join(" ");
-    expect(painted).toContain("--sq-radius-bottom: 0px");
-    expect(painted).toContain("--sq-ring: var(--card-ring)");
+  it("the to-do strip is the under-strip mirrored: same inset, same overlap, radii swapped end for end", () => {
+    // The prompter is one card with a narrower tab at each end. A strip at the card's own width, or
+    // at the under-strip's width but nudged off its centre, is a different object.
+    const strip = bodiesFor(".composer-todos").join(" ");
+    const under = bodiesFor(".composer-understrip").join(" ");
+    // Three values, not four: the shorthand itself is what makes the two insets equal, so a strip
+    // that is the right width can never also be off-centre.
+    const margin = (body: string) => /margin:\s*(-?\d+(?:px)?) (-?\d+(?:px)?) (-?\d+(?:px)?)\s*[;}]/.exec(body);
+    const s = margin(strip), u = margin(under);
+    expect(s, ".composer-todos needs a three-value margin").not.toBeNull();
+    expect(u, ".composer-understrip needs a three-value margin").not.toBeNull();
+    expect(s![2], "the strip's side inset is the under-strip's").toBe(u![2]);
+    // Mirrored overlap: the under-strip slides up behind the card, this one slides down behind it.
+    expect(s![3]).toBe(u![1]);
+    expect(s![1], "the strip adds no gap above itself").toBe("0");
+    expect(strip).toContain("border-radius: var(--r-squircle) var(--r-squircle) 0 0");
+    // Under the gate the corner is the painter's, and the swap has to go with it — the under-strip
+    // zeroes its TOP, so this one zeroes its bottom.
+    expect(bodiesFor(":root[data-squircle] .composer-todos").join(" ")).toContain("--sq-radius-bottom: 0px");
+    expect(bodiesFor(":root[data-squircle] .composer-understrip").join(" ")).toContain("--sq-radius-top: 0px");
+  });
+
+  it("the prompter's own corners are untouched — the strip attaching above it changes nothing", () => {
+    // The strip is the only thing that squares an edge here. A rule reaching for `.composer` to make
+    // the join work would be the strip redesigning the card to fit itself.
+    const reaching = RULES.flatMap((r) => r.selectors).filter((sel) => /\.composer-todos\s*[+~]\s*\.composer\b/.test(sel));
+    expect(reaching).toEqual([]);
+    expect(bodiesFor(".composer").join(" ")).toContain("border-radius: var(--r-squircle)");
   });
 
   it("the strip collapses on the house grid-row idiom, at the rung for a box changing size", () => {
