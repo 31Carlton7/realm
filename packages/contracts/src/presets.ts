@@ -318,9 +318,8 @@ export const AGENT_SUPPORTS_PLAN_MODE = {
  *
  * - `claude` — `canUseTool` denies anything outside `claudeAskTools` before it runs. The SDK's own
  *   `Options.tools` is deliberately NOT the lever: it restricts the base set of BUILT-IN tools, so
- *   an MCP server's mutating tool would walk straight past it, and it cannot be changed on a live
- *   query (`Query` exposes `setPermissionMode` and `setModel` and nothing else) — a session that
- *   started in Ask would be left without its tools until a restart after leaving it.
+ *   an MCP server's mutating tool would walk straight past it, and `Query` offers no setter for it —
+ *   a session that started in Ask would be left without its tools until a restart after leaving it.
  * - `codex` — `sandbox: "read-only"` refuses writes in the kernel (verified: a write under
  *   `codex sandbox -c sandbox_mode='"read-only"'` fails "Operation not permitted"), and
  *   `approvalPolicy: "never"` means there is no prompt through which to escalate out of it.
