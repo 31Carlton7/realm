@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import type { Notification, NotificationCategory } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { PermissionCard } from "../session/PermissionCard";
+import { grainVars } from "../../theme/grain";
 import type { PaneProps } from "../registry";
 
 const CATEGORY_ICON: Record<NotificationCategory, string> = {
@@ -71,7 +72,7 @@ export function NotificationsPage({ item }: PaneProps) {
   const selected = notifications.find((n) => n.id === selectedId) ?? null;
 
   return (
-    <div className="page notifications-page-pane">
+    <div className="page notifications-page-pane wash" style={grainVars("notifications-page")}>
       <header className="page-head">
         <span className="page-glyph"><Icon name="notifications-page" size={20} /></span>
         <div className="page-title">

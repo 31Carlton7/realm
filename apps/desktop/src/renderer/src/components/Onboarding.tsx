@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { FALLBACK_AGENT, useApp } from "../state/store";
 import { agentAvailability, type AgentAvailability } from "../state/agent-availability";
+import { grainVars } from "../theme/grain";
 
 /**
  * Status pill text + tone per §3 (fill = 14% color-mix, text at full strength).
@@ -72,7 +73,7 @@ export function Onboarding() {
 
   return (
     <div className="onboarding-stage">
-      <section className="sheet onboarding" aria-labelledby="onboarding-title">
+      <section className="sheet onboarding wash" data-grain style={grainVars("onboarding")} aria-labelledby="onboarding-title">
         <div className="sheet-head"><h3 id="onboarding-title">Welcome to Realm</h3></div>
         <div className="sheet-body">
           <p className="muted onboarding-lead">

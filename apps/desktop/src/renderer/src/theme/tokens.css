@@ -550,3 +550,44 @@ a {
 @media (prefers-reduced-transparency: reduce) {
   :root { --sidebar-ground: var(--page); }
 }
+
+/* ══ DECORATIVE GRAIN ══════════════════════════════════════════════════════════
+ * A calm surface may carry a soft field of the theme's own accent and, where there is room for it,
+ * a film of grain. Both are decoration, and the app holds text to a contrast floor per role
+ * (CONTRAST_FLOOR, packages/ui/src/themes.ts), so the numbers below are not taste — they are the
+ * band inside which every ink tier on all seventeen faces still clears its floor. grain.test.ts
+ * walks the faces and proves it.
+ *
+ * The derivation leaves NO headroom: it places --ink-3 at exactly 2.400 against a 2.4 floor on six
+ * light faces. So the two layers are built to spend none.
+ *
+ * `--grain-wash-l` is the whole reason the colour is free. Pinned BELOW every dark ground (the
+ * darkest is L .176) and INSIDE the light grounds' own band (.932–1.000), the wash moves hue
+ * without moving luminance, and hue is not what contrast is computed from. The alpha could go
+ * several times higher before any tier moved.
+ *
+ * The grain cannot be free, because grain IS a luminance excursion. `--grain-lift` pays for it in
+ * advance: a solid layer pushing the ground AWAY from the ink (down in dark, up in light), so the
+ * speckles spend a budget that was already banked instead of the text's. That only balances on a
+ * `--surface` ground; on `--canvas` the budget is zero in both directions and nothing textured may
+ * be painted there. */
+:root {
+  --grain-wash-l: 0.10;
+  --grain-wash-c: 0.09;
+  --grain-wash-a: 0.12;
+  --grain-lift: oklch(0 0 0 / 0.05);
+  /* Alpha-only fractal noise, monochrome, tiled. The 0.035 in the matrix's alpha row is the
+   * speckles' ceiling and is the number grain.test.ts checks; changing it here changes the proof.
+   * `stitchTiles` is what lets the tile repeat without a seam, and is why the drift can translate by
+   * exactly one tile and land back on itself. */
+  --grain-tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 .035 0 0 0 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
+/* Light faces invert both directions: the lift climbs toward white and the speckles are black,
+ * because on a light ground it is darkening that costs contrast. */
+:root[data-mode="light"] {
+  --grain-wash-l: 0.97;
+  --grain-wash-c: 0.05;
+  --grain-lift: oklch(1 0 0 / 0.05);
+  --grain-tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .035 0 0 0 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+}

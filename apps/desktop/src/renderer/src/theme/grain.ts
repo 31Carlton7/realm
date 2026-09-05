@@ -41,7 +41,9 @@ const between = (t: number, [lo, hi]: readonly [number, number]): number => lo +
 export function grainVars(surface: string, seed: number = LAUNCH_SEED): CSSProperties {
   const key = `${seed}:${surface}`;
   return {
-    "--grain-hue": `${Math.round(between(draw(key, 0), [-ARC, ARC]))}deg`,
+    // A bare number, not an angle: inside oklch(from ...) the origin's `h` component IS a number,
+    // and calc() will not add a <angle> to it.
+    "--grain-hue": `${Math.round(between(draw(key, 0), [-ARC, ARC]))}`,
     "--grain-x": `${Math.round(between(draw(key, 1), ORIGIN.x))}%`,
     "--grain-y": `${Math.round(between(draw(key, 2), ORIGIN.y))}%`,
     "--grain-spread": `${Math.round(between(draw(key, 3), SPREAD))}%`,
