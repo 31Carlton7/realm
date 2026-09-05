@@ -3,7 +3,7 @@ import { AgentKindSchema } from "./entities";
 import { AGENT_META } from "./presets";
 import {
   attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, DEFAULT_MIME,
-  isImageMime, MAX_ATTACHMENT_BYTES, mimeForPath,
+  isImageMime, isOpenablePath, MAX_ATTACHMENT_BYTES, mimeForPath,
 } from "./attachments";
 
 const KINDS = AgentKindSchema.options;
@@ -134,5 +134,25 @@ describe("attachmentSummary", () => {
 describe("MAX_ATTACHMENT_BYTES", () => {
   it("is the 20 MB ceiling the Claude adapter throws above", () => {
     expect(MAX_ATTACHMENT_BYTES).toBe(20 * 1024 * 1024);
+  });
+});
+
+describe("isOpenablePath", () => {
+  it("accepts every document type the mime table names", () => {
+    for (const p of ["/x/a.pdf", "/x/a.png", "/x/a.mp4", "/x/a.csv", "/x/a.ts", "/x/a.md", "/x/a.zip"]) {
+      expect(isOpenablePath(p), p).toBe(true);
+    }
+  });
+  it("refuses what the table does not name — the bundles macOS would RUN rather than show", () => {
+    // `open Thing.app` launches it. The table not knowing those extensions is the whole gate, so
+    // this is the assertion that keeps `attachment:open` off them.
+    for (const p of ["/x/Thing.app", "/x/run.command", "/x/h.tool", "/x/a.workflow", "/x/blob.bin", "/x/noext", "/x/.env"]) {
+      expect(isOpenablePath(p), p).toBe(false);
+    }
+  });
+  it("agrees with mimeForPath — it IS that question, and both sides of the bridge ask it", () => {
+    for (const p of ["/x/a.pdf", "/x/Thing.app", "/x/noext"]) {
+      expect(isOpenablePath(p), p).toBe(mimeForPath(p) !== DEFAULT_MIME);
+    }
   });
 });

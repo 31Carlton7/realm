@@ -1,7 +1,8 @@
 import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
+import { useFileDrop } from "../../components/use-file-drop";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
@@ -358,22 +359,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     return () => clearTimeout(t);
   }, [confirmBypass]);
 
-  // Drag depth, not a boolean: dragging across a child element fires leave-then-enter, and a boolean
-  // flickers the drop target off on every internal boundary. Reset outright on drop.
-  const [dragDepth, setDragDepth] = useState(0);
-  // Realm already drags its own sidebar rows onto panes (DropEdge). Only a drag carrying FILES is ours;
-  // anything else must fall through to the pane's own drop handling untouched.
-  const carriesFiles = (e: DragEvent) => e.dataTransfer?.types?.includes("Files") ?? false;
-  const onDragEnter = (e: DragEvent) => { if (!carriesFiles(e)) return; e.preventDefault(); setDragDepth((d) => d + 1); };
-  const onDragOver = (e: DragEvent) => { if (!carriesFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; };
-  const onDragLeave = (e: DragEvent) => { if (!carriesFiles(e)) return; setDragDepth((d) => Math.max(0, d - 1)); };
-  const onDrop = (e: DragEvent) => {
-    if (!carriesFiles(e)) return;
-    e.preventDefault();
-    setDragDepth(0);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) onAttachFiles(files);
-  };
+  /* The card CLAIMS a file drag from the session pane around it, which is also a drop target. Both
+     lighting up for one drag would say the file is about to land in two places. */
+  const drop = useFileDrop(onAttachFiles, true);
   /** Pasting an image: it has no path yet, which the store handles. A paste with no files is text —
    *  fall through untouched, or ⌘V would stop working in the one box people paste into most. */
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -711,8 +699,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
       )}
       {/* The whole card is the drop target — aiming at a 44px textarea with a file in hand is a chore.
           §6 forbids animating during a drag, so the state change is a static ring, not a transition. */}
-      <div className="composer" data-dropping={dragDepth > 0 || undefined}
-        onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      <div className="composer" data-dropping={drop.dropping || undefined} {...drop.handlers}>
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
         {/* A mention whose skill vanished after typing (W4): warning tone, same row language as the
             attachment fates — the last moment the degradation is actionable is before send. */}
@@ -768,7 +755,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             onManage={() => onManageSkills?.()}
             onClose={() => setSkillPickerOpen(false)} />
         )}
-        {dragDepth > 0 && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
+        {drop.dropping && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
         <div className="composer-bar">
           <div className="composer-opts" ref={optsRef} data-collapsed={collapsed || undefined}>
             {/* The "+" opens the add menu now (Plan 12 W1) — its Add files… reaches the SAME picker

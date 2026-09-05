@@ -3,9 +3,10 @@ import { mkdtemp, mkdir, readFile, readdir, stat, utimes, writeFile } from "node
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { symlink } from "node:fs/promises";
 import {
-  describeFiles, quickLookThumbnail, safeAttachmentName, saveTempAttachment, sweepTempAttachments,
-  TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
+  describeFiles, openablePath, quickLookThumbnail, safeAttachmentName, saveTempAttachment,
+  sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
 } from "./attachments";
 
 let home: string;
@@ -185,5 +186,57 @@ describe("quickLookThumbnail", () => {
   it("is a no-op off macOS — qlmanage is Apple's, and the caller falls back to its glyph", async () => {
     if (darwin) return; // the darwin path is covered above; this is the guard's other branch
     expect(await quickLookThumbnail(home, join(home, "report.pdf"), 96)).toBeNull();
+  });
+});
+
+/* The single gate on `attachment:open`, which is the one bridge call that hands a renderer-supplied
+   path to `shell`. Everything a tile can open has to pass it. */
+describe("openablePath", () => {
+  const put = async (rel: string) => { const p = join(home, rel); await writeFile(p, "x"); return p; };
+
+  it("resolves a document type Realm's mime table knows", async () => {
+    const pdf = await put("report.pdf");
+    expect(await openablePath(pdf)).toBe(pdf);
+    expect(await openablePath(await put("notes.md"))).toBeTruthy();
+    expect(await openablePath(await put("rows.csv"))).toBeTruthy();
+  });
+
+  it("refuses an extension the table does not know — which is what keeps `open` off an executable", async () => {
+    // On macOS `open` RUNS a .app, a .command or a .tool rather than showing it. None of them is in
+    // the mime table, so the table being the gate is what makes them unreachable.
+    for (const name of ["run.command", "Thing.app", "helper.tool", "blob.bin", "noext"]) {
+      expect(await openablePath(await put(name)), name).toBeNull();
+    }
+  });
+
+  it("refuses a relative path, a non-string and a file that is not there", async () => {
+    expect(await openablePath("report.pdf")).toBeNull();
+    expect(await openablePath(42)).toBeNull();
+    expect(await openablePath(null)).toBeNull();
+    expect(await openablePath(join(home, "never-written.pdf"))).toBeNull();
+  });
+
+  it("refuses a directory that merely ends in a known extension", async () => {
+    const dir = join(home, "bundle.pdf");
+    await mkdir(dir);
+    expect(await openablePath(dir)).toBeNull();
+  });
+
+  it("cannot be climbed out of, and a symlink cannot lend its extension to something else", async () => {
+    await writeFile(join(home, "run.command"), "x");
+    // The pre-syscall check runs on the `..`-collapsed string, so the climb is refused for free.
+    expect(await openablePath(join(home, "sub", "..", "run.command"))).toBeNull();
+    const link = join(home, "innocent.pdf");
+    await symlink(join(home, "run.command"), link);
+    // The link's name says pdf; realpath says otherwise, and the second check is what reads it.
+    expect(await openablePath(link)).toBeNull();
+  });
+
+  it("follows a symlink that points at a real document — the target agrees with the name", async () => {
+    await writeFile(join(home, "real.pdf"), "x");
+    const link = join(home, "link.pdf");
+    await symlink(join(home, "real.pdf"), link);
+    // The LINK is returned, not the target: it is the path the user was shown.
+    expect(await openablePath(link)).toBe(link);
   });
 });

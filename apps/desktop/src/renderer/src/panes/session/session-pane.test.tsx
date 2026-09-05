@@ -1904,11 +1904,12 @@ describe("prompter attachments", () => {
     await waitFor(() => expect(chips()).toHaveLength(1));
     const tile = document.querySelector(".attach-tile")!;
     // Everything naming the file is either visually hidden or inside the hover tip — nothing else
-    // in the tile carries text, which is what keeps a row of files to a row of squares.
-    const visible = Array.from(tile.childNodes)
-      .filter((n) => !(n instanceof HTMLElement && (n.classList.contains("visually-hidden") || n.classList.contains("attach-tip"))))
-      .map((n) => n.textContent ?? "").join("");
-    expect(visible).not.toContain("report");
+    // in the tile carries text, which is what keeps a row of files to a row of squares. Read off a
+    // clone with those two stripped, at any depth: the hidden name rides inside the open button, so
+    // a filter over the tile's direct children alone would stop seeing it and pass on nothing.
+    const bare = tile.cloneNode(true) as HTMLElement;
+    for (const hidden of bare.querySelectorAll(".visually-hidden, .attach-tip")) hidden.remove();
+    expect(bare.textContent).not.toContain("report");
     expect(tile.querySelector(".visually-hidden")!.textContent).toContain("report.pdf");
   });
 
@@ -1977,6 +1978,66 @@ describe("prompter attachments", () => {
     expect(composer()).toHaveAttribute("data-dropping");
     fireEvent.dragLeave(composer(), dt(files));
     await waitFor(() => expect(composer()).not.toHaveAttribute("data-dropping"));
+  });
+
+  /* The whole pane takes a file, not just the card. With a transcript on screen the prompter is a
+     strip at the bottom, and aiming at it with a file in hand was the chore this removes. */
+  const pane = () => document.querySelector(".session-pane") as HTMLElement;
+  const glow = () => document.querySelector(".session-drop");
+
+  it("dropping on the transcript — nowhere near the prompter — attaches the file to THIS session", async () => {
+    const { store } = await mountFor("codex");
+    const files = [dropped("/Users/me/far.png", "image/png")];
+    fireEvent.dragEnter(document.querySelector(".transcript")!, dt(files));
+    expect(pane()).toHaveAttribute("data-dropping");
+    fireEvent.drop(document.querySelector(".transcript")!, dt(files));
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    // Attached to the session this pane is showing, not to whichever one was last focused.
+    expect(store.getState().pendingAttachments["se1"]?.map((a) => a.path)).toEqual(["/Users/me/far.png"]);
+    expect(pane()).not.toHaveAttribute("data-dropping");
+  });
+
+  it("the highlight is the pane's, and it is the only one lit while the drag is out on the transcript", async () => {
+    await mountFor("codex");
+    const files = [dropped("/x/a.png", "image/png")];
+    expect(glow()).toBeNull();
+    fireEvent.dragEnter(document.querySelector(".transcript")!, dt(files));
+    expect(glow()).not.toBeNull();
+    // Decorative, and it must never eat the drop it is advertising.
+    expect(glow()).toHaveAttribute("aria-hidden", "true");
+    expect(composer()).not.toHaveAttribute("data-dropping");
+  });
+
+  it("over the prompter it is the CARD that lights up, and the pane stands down", async () => {
+    await mountFor("codex");
+    const files = [dropped("/x/a.png", "image/png")];
+    fireEvent.dragEnter(document.querySelector(".transcript")!, dt(files));
+    expect(pane()).toHaveAttribute("data-dropping");
+    // Into the card: the browser fires enter on the new target, then leave on the old one.
+    fireEvent.dragEnter(composer(), dt(files));
+    fireEvent.dragLeave(document.querySelector(".transcript")!, dt(files));
+    expect(composer()).toHaveAttribute("data-dropping");
+    // Two lit targets would say the file is about to land in two places.
+    expect(pane()).not.toHaveAttribute("data-dropping");
+    expect(glow()).toBeNull();
+  });
+
+  it("a drop on the prompter is handled ONCE — the card claims it from the pane", async () => {
+    await mountFor("codex");
+    const files = [dropped("/x/once.png", "image/png")];
+    fireEvent.drop(composer(), dt(files));
+    // The named mutant: drop `claim` on the composer's target and the same file is attached twice.
+    await waitFor(() => expect(chips()).toHaveLength(1));
+  });
+
+  it("a Realm pane drag over the transcript lights nothing — a session dragged between groups is not a file", async () => {
+    await mountFor("codex");
+    const itemDrag = { dataTransfer: { files: [], items: [], types: ["application/x-realm-item"] } };
+    fireEvent.dragEnter(document.querySelector(".transcript")!, itemDrag);
+    expect(pane()).not.toHaveAttribute("data-dropping");
+    expect(glow()).toBeNull();
+    // Not consumed either: PaneHost's own drop-edge handling is above this and has to still see it.
+    expect(fireEvent.dragOver(document.querySelector(".transcript")!, itemDrag)).toBe(true);
   });
 
   it("pasting an image attaches it — it has no path, so it is written out first", async () => {

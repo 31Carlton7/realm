@@ -737,6 +737,53 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(reduced).toContain("linear-gradient(to bottom, transparent 0, var(--page) 88%)");
   });
 
+  /* Dropping a file anywhere on the session pane. jsdom has no compositing, so the one thing these
+     can hold is the LAYERING and the degradations — how it actually paints is what
+     `session-drop-live.mjs` samples. */
+  it("the pane's drop glow passes UNDER the prompter, the way the transcript does", () => {
+    const glow = bodiesFor(".session-drop").join(" ");
+    // The bug this refuses to repeat: a blurring band that outranked the prompter cut a stripe
+    // straight across the hero card (prompter-fade-live.mjs). The dock is layer 2; this is 1.
+    expect(glow).toContain("z-index: 1");
+    expect(bodiesFor(".composer-dock").join(" ")).toContain("z-index: 2");
+    // Inset from the panel edge: flush, a four-way split's rings would run into each other and the
+    // two panes would read as one target.
+    expect(glow).toContain("inset: 6px");
+    // It advertises the drop; it must never eat it.
+    expect(glow).toContain("pointer-events: none");
+    // The pane is the positioned ancestor the glow hangs off, not whatever happens to be above it.
+    expect(bodiesFor(".session-pane").join(" ")).toContain("position: relative");
+  });
+
+  it("the glow is an inner ring that dissolves inward, and the blur is masked on its own layer", () => {
+    const glow = bodiesFor(".session-drop").join(" ");
+    // Both insets: the sharp ring, then the soft fall-off behind it. A flat overlay is what this is
+    // deliberately not.
+    expect(glow).toContain("box-shadow: inset 0 0 0 1.5px var(--rl-accent), inset 0 0 36px -6px var(--rl-accent)");
+    const soft = bodiesFor(".session-drop::before").join(" ");
+    expect(soft).toContain("backdrop-filter: blur(5px)");
+    expect(soft).toContain("mask-image: radial-gradient");
+    // A masked ancestor becomes a backdrop root and its children blur an EMPTY backdrop, so the mask
+    // has to sit on the blurring layer itself — the trap the transcript's fade band documents.
+    expect(glow).not.toContain("mask-image");
+  });
+
+  it("the glow appears on the drag rung, and reduced motion is what takes the fade away", () => {
+    // `--dur-drag` is the ladder's rung for exactly this: a drop target appearing mid-drag.
+    expect(bodiesFor(".session-drop").join(" ")).toContain(`animation: rl-fade-in ${dur("--dur-drag")} linear`);
+    // Reduced motion needs no rule of its own here: the blanket `*` kill covers a real element (it
+    // would NOT cover a pseudo-element, which is why the glow is one).
+    expect(blockAfter("@media (prefers-reduced-motion: reduce)")).toContain("animation: none !important");
+  });
+
+  it("reduced transparency drops the glow's blur and keeps the ring that carries the meaning", () => {
+    const reduced = blockAfter("@media (prefers-reduced-transparency: reduce)").replace(/\s+/g, " ");
+    expect(reduced).toContain(".session-drop::before { backdrop-filter: none");
+    // Only the blur goes. The ring is on `.session-drop` itself and is never touched here — a
+    // preference about translucency must not take the affordance away.
+    expect(reduced).not.toContain(".session-drop {");
+  });
+
   it("a disabled quiet button stays dark under the cursor — the hover fill is guarded like .btn's", () => {
     // Unguarded, "Commit only" with nothing staged still lit up on hover: a control that answers
     // the pointer while refusing the click.
@@ -758,6 +805,21 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // The well clips the picture; the TILE must not, or it would clip its own hover tip off.
     expect(art).toContain("overflow: hidden");
     expect(tile).not.toContain("overflow: hidden");
+  });
+
+  it("the open control fills the tile and draws nothing — the well underneath already has the ring", () => {
+    const open = bodiesFor(".attach-open").join(" ");
+    // `inset: 0` is what keeps `.attach-art`'s own `inset: 0` resolving against the 44px square: the
+    // art is now the button's child, so a button that merely wrapped the tile would collapse it.
+    expect(open).toContain("position: absolute");
+    expect(open).toContain("inset: 0");
+    expect(open).toContain("border: none");
+    expect(open).toContain("background: none");
+    expect(open).toContain("padding: 0");
+    // A drop target's cursor must not promise a zoom the file cannot do: only a tile main has
+    // confirmed is media gets zoom-in, and the mark only lands once that answer is back.
+    expect(open).toContain("cursor: pointer");
+    expect(bodiesFor(".attach-tile[data-media] .attach-open").join(" ")).toContain("cursor: zoom-in");
   });
 
   it("the file's name lives in a hover tip that fades in — not in an OS `title`, which cannot show the size or the folder", () => {

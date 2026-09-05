@@ -1,9 +1,9 @@
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { nativeImage } from "electron";
-import { isImageMime, mimeForPath } from "@realm/contracts";
+import { isImageMime, isOpenablePath, mimeForPath } from "@realm/contracts";
 
 /** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
@@ -165,4 +165,28 @@ export async function describeFiles(paths: readonly string[]): Promise<PickedFil
     } catch { /* gone between the dialog and here */ }
   }
   return out;
+}
+
+/**
+ * The absolute path of an attachment Realm may hand to the OS, or null.
+ *
+ * `media.ts` has `servablePath` for the same question about MEDIA, and the two are deliberately not
+ * one function: that gate gets asked about paths harvested from an agent's PROSE, so it admits only
+ * the inert formats an `img`/`video`/`audio` element can decode. This one is asked about a file the
+ * user themselves picked or dropped, and it admits every document type Realm's mime table knows.
+ *
+ * The extension is checked twice for the reason `servablePath` documents: before the syscall on the
+ * `..`-collapsed string, and again on the fully-resolved real path, so a symlink cannot lend its own
+ * extension to something the gate would otherwise refuse.
+ */
+export async function openablePath(candidate: unknown): Promise<string | null> {
+  if (typeof candidate !== "string" || !isAbsolute(candidate)) return null;
+  const path = resolve(candidate);
+  if (!isOpenablePath(path)) return null;
+  try {
+    const real = await realpath(path);
+    if (!isOpenablePath(real)) return null;
+    if (!(await stat(real)).isFile()) return null;
+    return path;
+  } catch { return null; }
 }
