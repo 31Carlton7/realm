@@ -86,12 +86,31 @@ export type ViewHooks = {
 export type ViewFactory = (id: string, hooks: ViewHooks) => ViewHandle;
 
 /**
+ * How many RETAINED (off-screen) browser views stay alive at once, on top of whatever is on screen.
+ *
+ * This is a process budget, not a cache size: every `WebContentsView` is a full renderer process,
+ * and retained ones run unthrottled (browser-pane.ts sets `backgroundThrottling: false`, without
+ * which a hidden page's timers drop to ~1Hz). Ten spaces holding a browser each must not mean ten
+ * unthrottled renderers, so past this limit the least-recently-used retained view is destroyed and
+ * its page reloads on the user's next visit.
+ */
+export const RETAINED_VIEW_LIMIT = 3;
+
+/**
  * One `WebContentsView` per open browser item, keyed by browser id. Owns lifecycle (create is
  * idempotent; destroy is final; destroyAll on window teardown — a view never outlives its window),
  * the navigation guards, and the state channel back to the renderer.
+ *
+ * A view's lifetime is NOT its pane's. Panes unmount for reasons that have nothing to do with the
+ * user closing anything — switching space or pane group swaps the whole rendered tree — so an
+ * unmounting pane `retain`s its view (hidden, still running, still drivable over CDP) and only an
+ * explicit close or delete `destroy`s it. What bounds the cost is `RETAINED_VIEW_LIMIT`, below.
  */
 export class BrowserPaneHost {
   private views = new Map<string, { handle: ViewHandle; allowlist: string[] | null }>();
+  /** Retained ids in least-recently-used order — `Set` iterates by insertion, so re-adding after a
+   *  delete moves an id to the back. Views with a mounted pane are absent, never evictable. */
+  private retained = new Set<string>();
 
   constructor(private opts: {
     createView: ViewFactory;
@@ -102,8 +121,11 @@ export class BrowserPaneHost {
 
   has(id: string): boolean { return this.views.has(id); }
 
-  /** Idempotent: React StrictMode double-mounts, and a remount must not reload the page. */
+  /** Idempotent: React StrictMode double-mounts, and a remount must not reload the page. It is also
+   *  how a retained view is re-adopted — a pane returning to a space calls this and gets the SAME
+   *  view back, mid-scroll and mid-form, rather than a reload. */
   create(id: string, url: string, allowlist: string[] | null): void {
+    this.retained.delete(id); // a pane is showing it again: no longer evictable
     if (this.views.has(id)) { this.emitState(id); return; }
     const handle = this.opts.createView(id, {
       emitState: () => this.emitState(id),
@@ -148,10 +170,44 @@ export class BrowserPaneHost {
     const v = this.views.get(id); if (v) v.allowlist = allowlist;
   }
 
-  /** Final: a browser is not a terminal — closing the pane kills the view, no hidden survival. */
+  /**
+   * The pane showing this view unmounted, but the browser item still exists — the user switched
+   * space or pane group. Hide the view (main does it here because the renderer's per-frame bounds
+   * sync, which is what normally carries the visibility verdict, stops with the pane) and keep the
+   * process running so background work and agent driving continue.
+   *
+   * Hiding is safe for driving: on Electron 37 a hidden `WebContentsView` still accepts CDP
+   * `Input.dispatchMouseEvent`/`dispatchKeyEvent` — measured, both with and without background
+   * throttling. What hiding alone would cost is background WORK, which browser-pane.ts buys back.
+   */
+  retain(id: string): void {
+    const v = this.views.get(id); if (!v) return;
+    v.handle.setVisible(false);
+    this.retained.delete(id);
+    this.retained.add(id); // to the back: most recently retained
+    while (this.retained.size > RETAINED_VIEW_LIMIT) {
+      const oldest = this.retained.values().next().value;
+      if (oldest === undefined) break;
+      // Dropped here rather than left to `destroy`, so the loop terminates on its own terms and not
+      // on the invariant that every retained id still has a view behind it.
+      this.retained.delete(oldest);
+      this.destroy(oldest);
+    }
+  }
+
+  /** Mark a retained view as recently used, so eviction does not take one an agent is driving in the
+   *  background out from under it. A no-op for views with a mounted pane — those cannot be evicted. */
+  touch(id: string): void {
+    if (!this.retained.delete(id)) return;
+    this.retained.add(id);
+  }
+
+  /** Final: the user closed the pane or deleted the item. Only these destroy a view — a pane merely
+   *  unmounting `retain`s instead, or a space switch would throw the page away. */
   destroy(id: string): void {
     const v = this.views.get(id); if (!v) return;
     this.views.delete(id);
+    this.retained.delete(id);
     // Tolerate a view the window already tore down: on BrowserWindow "closed", Electron has destroyed
     // the children before this runs, and a second destroy throws "Object has been destroyed". The row
     // must be forgotten either way (user-hit crash, 2026-08-31).

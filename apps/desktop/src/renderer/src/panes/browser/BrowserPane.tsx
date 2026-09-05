@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import type { StoreApi } from "zustand";
 import type { PaneProps } from "../registry";
 import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
-import { cancelViewDestroy, getBrowserBridges, scheduleViewDestroy } from "./browser-client";
+import { cancelViewRelease, getBrowserBridges, scheduleViewRelease } from "./browser-client";
 import { sessionForPick } from "./pick-target";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
 
@@ -235,7 +235,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     // the view appears once the layout has actually settled, not mid-tween.
     const settleTimer = setTimeout(() => { flags.settled = true; schedule(); }, SETTLE_MS);
 
-    cancelViewDestroy(browserId); // a StrictMode remount adopts the still-live view
+    cancelViewRelease(browserId); // a remount adopts the still-live view
     void (async () => {
       try {
         const [row, allowlist] = await Promise.all([server.get(browserId), server.allowlist(item.spaceId)]);
@@ -267,15 +267,18 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       window.removeEventListener("dragend", onDragEnd);
       window.removeEventListener("drop", onDragEnd);
       window.removeEventListener("resize", schedule);
-      // The no-overlay rect lives and dies WITH THE VIEW, so its clear rides the same deferred
-      // destroy: on a layout remount (leaf reparented by a split/unwrap) the adopted view never
+      // The no-overlay rect tracks where the view PAINTS, so its clear rides the same deferred
+      // release: on a layout remount (leaf reparented by a split/unwrap) the adopted view never
       // stops painting, and clearing the rect eagerly would open a window — until the remount's
       // async re-adopt lands — where floating surfaces believe no view exists. A remount cancels
-      // this timer and the rect never blinks; a real close clears rect and view together.
-      // (Deferred one macrotask so a StrictMode double-mount re-adopts instead of reloading.)
-      scheduleViewDestroy(browserId, () => {
+      // this timer and the rect never blinks.
+      //
+      // Release, not destroy: this pane going away says nothing about the browser being closed
+      // (switching space or pane group unmounts every pane in the tree). The view stays alive and
+      // hidden; the store destroys it when the user actually closes or deletes the item.
+      scheduleViewRelease(browserId, () => {
         store?.getState().setBrowserRect(item.id, null); // nothing paints here any more
-        void host.destroy(browserId);
+        void host.retain(browserId);
       });
     };
   }, [browserId, item.id, item.spaceId, store]);

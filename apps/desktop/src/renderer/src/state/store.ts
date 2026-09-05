@@ -143,6 +143,9 @@ export type Api = {
   saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedAttachment>;
   /** Drop the renderer-side xterm instance/scrollback for a closed terminal. */
   disposeTerminal(terminalId: string): void;
+  /** Destroy the native WebContentsView behind a browser item. The pane unmounting does NOT do this
+   *  — it only releases the view — so closing and deleting have to say so themselves. */
+  destroyBrowserView(browserId: string): void;
   /** The space icon picker's per-profile library (`iconAssets.*`). */
   listIconAssets(profileId: string): Promise<IconAsset[]>;
   /** One-shot Claude call; can take a few seconds. Throws `ICON_INVALID`/`ICON_TOO_LARGE` on a
@@ -2132,6 +2135,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await persist();
       },
       async closeFromLayout(itemId) {
+        // Closing is the one thing that ends a browser's view. An unmounting pane only releases it
+        // (it may just be a space switch), and this runs for every close path there is — the panel
+        // bar's ×, ⌘W, the sidebar row, archive and delete — including the other-group branch below,
+        // where the view is already off screen and alive.
+        const closing = get().items.find((i) => i.id === itemId);
+        if (closing?.kind === "browser") api.destroyBrowserView(closing.refId);
         // The pane may be open in a group other than the one on screen (the sidebar lists every
         // group's rows): close it where it actually is, and leave the active arrangement alone.
         const gs = get().groups;

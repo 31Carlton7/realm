@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  BrowserPaneHost, normalizeAddress, originAllowed, toViewBounds,
+  BrowserPaneHost, RETAINED_VIEW_LIMIT, normalizeAddress, originAllowed, toViewBounds,
   type BrowserViewState, type ViewHandle, type ViewHooks,
 } from "./browser-host";
 
@@ -101,6 +101,14 @@ function makeHost(scaleFactor = 2) {
   const host = new BrowserPaneHost({ createView: factory, sendState: (s) => states.push(s), scaleFactor: () => scaleFactor });
   return { host, views, states, factory };
 }
+
+const alive = (v: ReturnType<typeof fakeView>) => !v.calls.includes("destroy");
+/** One more browser than the budget can retain, named v0 (oldest) upward. */
+const overBudget = (host: BrowserPaneHost) => {
+  const ids = Array.from({ length: RETAINED_VIEW_LIMIT + 1 }, (_, i) => `v${i}`);
+  for (const id of ids) host.create(id, "example.com", null);
+  return ids;
+};
 
 describe("BrowserPaneHost", () => {
   it("create loads the (normalized) url and emits initial state; create is idempotent", () => {
@@ -222,5 +230,82 @@ describe("BrowserPaneHost", () => {
     const last = states.at(-1)!;
     expect(last.id).toBe("b1");
     expect(last.title).toBe("Page one");
+  });
+});
+
+/**
+ * Retention: what a pane unmounting means. Switching space or pane group swaps the whole rendered
+ * tree, so unmount is not the user closing anything — the view has to outlive it.
+ */
+describe("BrowserPaneHost retention", () => {
+  it("retain keeps the view alive and hides it — a space switch must not close the browser", () => {
+    const { host, views } = makeHost();
+    host.create("b1", "example.com", null);
+    host.retain("b1");
+    expect(views.get("b1")!.calls).not.toContain("destroy");
+    expect(host.has("b1")).toBe(true);
+    // Main hides it itself: the renderer's per-frame bounds sync, which normally carries the
+    // visibility verdict, stopped with the pane.
+    expect(views.get("b1")!.calls.at(-1)).toBe("visible:false");
+  });
+
+  it("returning to the space re-adopts the SAME view instead of reloading it", () => {
+    const { host, views, factory } = makeHost();
+    host.create("b1", "example.com", null);
+    host.retain("b1");
+    host.create("b1", "example.com", null); // the pane remounts in its space
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(views.get("b1")!.calls.filter((c) => c.startsWith("load:"))).toHaveLength(1);
+  });
+
+  it("a re-adopted view leaves the off-screen budget", () => {
+    const { host, views } = makeHost();
+    const ids = overBudget(host);
+    host.retain(ids[0]!);
+    host.create(ids[0]!, "example.com", null); // the user came back to its space
+    for (const id of ids.slice(1)) host.retain(id); // exactly the budget, so nothing is evicted
+    for (const id of ids) expect(alive(views.get(id)!)).toBe(true);
+  });
+
+  it("past the off-screen budget the LEAST recently retained view is destroyed", () => {
+    const { host, views } = makeHost();
+    const ids = overBudget(host);
+    for (const id of ids) host.retain(id);
+    expect(alive(views.get(ids[0]!)!)).toBe(false); // oldest off-screen page pays
+    expect(host.has(ids[0]!)).toBe(false);
+    for (const id of ids.slice(1)) expect(alive(views.get(id)!)).toBe(true);
+  });
+
+  it("touch spares a background view an agent is still driving", () => {
+    const { host, views } = makeHost();
+    const ids = overBudget(host);
+    for (const id of ids.slice(0, RETAINED_VIEW_LIMIT)) host.retain(id);
+    host.touch(ids[0]!); // an agent op reached it while its space was off screen
+    host.retain(ids[RETAINED_VIEW_LIMIT]!);
+    expect(alive(views.get(ids[0]!)!)).toBe(true);
+    expect(alive(views.get(ids[1]!)!)).toBe(false); // the next-oldest pays instead
+  });
+
+  it("touch never makes an on-screen view evictable", () => {
+    const { host, views } = makeHost();
+    const ids = overBudget(host);
+    host.touch(ids[0]!); // still mounted, never retained
+    for (const id of ids.slice(1)) host.retain(id); // exactly the budget
+    for (const id of ids) expect(alive(views.get(id)!)).toBe(true);
+  });
+
+  it("retain on an unknown id is refused, not thrown", () => {
+    const { host } = makeHost();
+    expect(() => host.retain("nope")).not.toThrow();
+    expect(() => host.touch("nope")).not.toThrow();
+  });
+
+  it("destroyAll still takes retained views — they must never outlive the window", () => {
+    const { host, views } = makeHost();
+    host.create("b1", "", null);
+    host.retain("b1");
+    host.destroyAll();
+    expect(alive(views.get("b1")!)).toBe(false);
+    expect(host.has("b1")).toBe(false);
   });
 });

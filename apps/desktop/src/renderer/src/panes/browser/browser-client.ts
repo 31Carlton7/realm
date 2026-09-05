@@ -50,6 +50,8 @@ export function parseOriginInput(input: string): string | null {
 export type BrowserHostBridge = {
   create(id: string, url: string, allowlist: string[] | null): Promise<void>;
   destroy(id: string): Promise<void>;
+  /** The pane unmounted but the browser is still open somewhere: keep the view alive and hidden. */
+  retain(id: string): Promise<void>;
   navigate(id: string, input: string): Promise<string | null>;
   nav(id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void>;
   setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
@@ -93,17 +95,23 @@ export function getBrowserBridges(): BrowserBridges {
 export function setBrowserBridgesForTests(b: BrowserBridges | null): void { bridges = b; }
 
 /**
- * StrictMode-safe destroy: React double-mounts in dev (mount → cleanup → mount, synchronously), and
- * an immediate destroy would reload the page on every dev mount. Cleanup schedules the destroy a
- * macrotask out; a remount for the same id cancels it and the (idempotent) create simply re-attaches.
- * A real unmount lets the timer fire — the view dies with the pane, never surviving hidden.
+ * Deferred release of the native view on unmount.
+ *
+ * Releasing is not destroying: an unmounting pane means only that nothing is showing this browser
+ * right now — a space or pane-group switch swaps the whole tree — so main hides the view and keeps
+ * it running. Destroying is the user closing the pane or deleting the item, and reaches main from
+ * the store instead.
+ *
+ * Still deferred a macrotask, for the reason it always was: React double-mounts in dev (mount →
+ * cleanup → mount, synchronously) and a layout reshape remounts a leaf, and neither should make the
+ * view blink through a hide. A remount cancels the timer and the (idempotent) create re-attaches.
  */
-const pendingDestroys = new Map<string, ReturnType<typeof setTimeout>>();
-export function scheduleViewDestroy(id: string, destroy: () => void): void {
-  cancelViewDestroy(id);
-  pendingDestroys.set(id, setTimeout(() => { pendingDestroys.delete(id); destroy(); }, 0));
+const pendingReleases = new Map<string, ReturnType<typeof setTimeout>>();
+export function scheduleViewRelease(id: string, release: () => void): void {
+  cancelViewRelease(id);
+  pendingReleases.set(id, setTimeout(() => { pendingReleases.delete(id); release(); }, 0));
 }
-export function cancelViewDestroy(id: string): void {
-  const t = pendingDestroys.get(id);
-  if (t !== undefined) { clearTimeout(t); pendingDestroys.delete(id); }
+export function cancelViewRelease(id: string): void {
+  const t = pendingReleases.get(id);
+  if (t !== undefined) { clearTimeout(t); pendingReleases.delete(id); }
 }

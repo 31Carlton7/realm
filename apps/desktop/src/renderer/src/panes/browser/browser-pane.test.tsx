@@ -25,6 +25,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
   const host: BrowserHostBridge = {
     create: async (id, url, list) => { calls.push(`create:${id}:${url}:${JSON.stringify(list)}`); },
     destroy: async (id) => { calls.push(`destroy:${id}`); },
+    retain: async (id) => { calls.push(`retain:${id}`); },
     navigate: async (id, input) => { calls.push(`navigate:${id}:${input}`); return input.trim() === "" ? null : `https://${input}`; },
     nav: async (id, a) => { calls.push(`nav:${id}:${a}`); },
     setAllowlist: async () => {},
@@ -223,35 +224,52 @@ describe("BrowserPane", () => {
       expect(f.bounds.at(-1)!.visible).toBe(false); // native view hidden for the drag...
       expect(store.getState().browserRects).toHaveLength(1); // ...but the no-overlay rect stays
       unmount();
-      // The rect clears WITH the deferred view destroy (one macrotask), not eagerly — a layout
+      // The rect clears WITH the deferred view release (one macrotask), not eagerly — a layout
       // remount cancels that timer and the rect never blinks while the adopted view keeps painting.
       expect(store.getState().browserRects).toHaveLength(1);
       await act(async () => { await vi.advanceTimersByTimeAsync(10); });
       expect(store.getState().browserRects).toEqual([]);
-      expect(f.calls).toContain("destroy:b1");
+      expect(f.calls).toContain("retain:b1");
     });
   });
 
-  it("unmount destroys the native view — no hidden survival", async () => {
+  it("unmount releases the native view and never destroys it — a space switch is not a close", async () => {
     const f = fakeBridges({ url: "https://example.com" });
     setBrowserBridgesForTests(f.bridges);
     const { unmount } = render(<BrowserPane item={browserItem()} visible />);
     await settle();
     unmount();
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-    expect(f.calls).toContain("destroy:b1");
+    expect(f.calls).toContain("retain:b1");
+    expect(f.calls).not.toContain("destroy:b1");
   });
 
-  it("a StrictMode-style remount within the same tick re-adopts the view instead of destroying it", async () => {
+  it("remounting after a release re-adopts the view instead of reloading the page", async () => {
     const f = fakeBridges({ url: "https://example.com" });
     setBrowserBridgesForTests(f.bridges);
     const first = render(<BrowserPane item={browserItem()} visible />);
     await settle();
     first.unmount();
-    // Remount BEFORE the deferred destroy's macrotask fires:
+    // Past the deferred release: main is holding the view hidden, exactly as after a space switch.
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(f.calls).toContain("retain:b1");
     render(<BrowserPane item={browserItem()} visible />);
     await settle();
-    expect(f.calls.filter((c) => c === "destroy:b1")).toHaveLength(0);
+    // Re-adoption is `create` — idempotent on the main side, so the page is not reloaded.
+    expect(f.calls.filter((c) => c.startsWith("create:b1"))).toHaveLength(2);
+    expect(f.calls).not.toContain("destroy:b1");
+  });
+
+  it("a StrictMode-style remount within the same tick cancels the release outright", async () => {
+    const f = fakeBridges({ url: "https://example.com" });
+    setBrowserBridgesForTests(f.bridges);
+    const first = render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    first.unmount();
+    // Remount BEFORE the deferred release's macrotask fires: the view never even blinks hidden.
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    expect(f.calls.filter((c) => c === "retain:b1")).toHaveLength(0);
     expect(f.calls.filter((c) => c.startsWith("create:b1"))).toHaveLength(2); // idempotent on the main side
   });
 

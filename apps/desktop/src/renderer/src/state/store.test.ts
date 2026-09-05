@@ -362,6 +362,61 @@ describe("app store", () => {
     expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(persists + 1); // the close itself persisted
   });
 
+  /**
+   * Which of the two ways a browser pane can leave the screen ends its native view. Only one does:
+   * the view is a whole renderer process holding a live page, and a space switch is not a close.
+   */
+  describe("a browser's native view outlives the space, not the close", () => {
+    const openBrowser = async (store: ReturnType<typeof createAppStore>) => {
+      api.data.items["s1"]!.push(item("i9", "s1", { kind: "browser", title: "web", refId: "b9" }));
+      await store.getState().refreshItems();
+      await store.getState().openItem("i9");
+    };
+
+    it("switching space leaves the view alone — the page keeps running off screen", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await openBrowser(store);
+      await store.getState().selectSpace("s2");
+      expect(store.getState().activeSpaceId).toBe("s2");
+      expect(api.destroyedBrowserViews).toEqual([]);
+    });
+
+    it("closing the pane destroys the view — the one act that means the user is done with it", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await openBrowser(store);
+      await store.getState().closeFromLayout("i9");
+      expect(api.destroyedBrowserViews).toEqual(["b9"]);
+    });
+
+    it("deleting the item destroys the view too", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await openBrowser(store);
+      await store.getState().deleteItem("i9");
+      expect(api.destroyedBrowserViews).toEqual(["b9"]);
+    });
+
+    it("the driving signal survives the switch too — the dot is there on the way back", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await openBrowser(store);
+      store.getState().applyBrowserDriving({ browserId: "b9", driving: true });
+      await store.getState().selectSpace("s2");
+      await store.getState().selectSpace("s1");
+      expect(store.getState().browserDriving["b9"]).toBe(true);
+    });
+
+    it("closing a pane that is not a browser destroys no view", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().closeFromLayout("i1");
+      expect(api.destroyedBrowserViews).toEqual([]);
+    });
+  });
+
   describe("agent-opened panes arrive beside, never replacing (live-found deadlock)", () => {
     it("openItemBeside splits right of an occupied focused leaf and opens there", async () => {
       const store = createAppStore(api);

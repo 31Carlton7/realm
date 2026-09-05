@@ -20,8 +20,12 @@ export type BrowserAgentHostDeps = {
   /** Attach (or fail with null) to the live view for this browser id. Called once per attachment;
    *  the host caches the binding until an op fails against a dead view. */
   attach(browserId: string): CdpBinding | null;
-  /** Is the pane's view currently alive? Gates the cache — a destroyed view's binding is dropped. */
+  /** Is the pane's view currently alive? Gates the cache — a destroyed view's binding is dropped.
+   *  True for a RETAINED view too: a browser whose space is off screen is still drivable. */
   hasView(browserId: string): boolean;
+  /** This view is in use right now. `BrowserPaneHost.touch` — it keeps the off-screen budget from
+   *  evicting a browser an agent is working in while the user reads something in another space. */
+  touch(browserId: string): void;
   /** BrowserPaneHost.navigate — the SAME normalization + allowlist every other navigation obeys. */
   navigate(browserId: string, url: string): string | null;
   /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text). */
@@ -293,10 +297,15 @@ export class BrowserAgentHost {
   /** Get-or-create the attachment. A cached binding whose view died is dropped and re-attached —
    *  and if no view exists, the op fails with the one message that tells the agent what to do. */
   private ensure(browserId: string): Attached {
+    if (!this.d.hasView(browserId)) {
+      this.attached.delete(browserId); // a cached binding whose view died
+      throw new Error(`browser ${browserId}'s pane is not open in the app — the user must open (or reopen) the browser pane before tools can drive it`);
+    }
+    // Ahead of the cache hit, so EVERY op refreshes the view's recency and not just the one that
+    // attached — a long agent task in a background browser is exactly what must not be evicted.
+    this.d.touch(browserId);
     const cached = this.attached.get(browserId);
-    if (cached && this.d.hasView(browserId)) return cached;
-    this.attached.delete(browserId);
-    if (!this.d.hasView(browserId)) throw new Error(`browser ${browserId}'s pane is not open in the app — the user must open (or reopen) the browser pane before tools can drive it`);
+    if (cached) return cached;
     const binding = this.d.attach(browserId);
     if (!binding) throw new Error(`could not attach the debugger to browser ${browserId}`);
     const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], lastSnapshot: null, pick: null, pickGen: 0 };

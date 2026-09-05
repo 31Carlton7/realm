@@ -242,6 +242,8 @@ export type FakeApi = Api & {
   /** Method-call log, e.g. `listItems:s1`, `setLayout:s1`, `setSetting:ui.theme=dark`. */
   calls: string[];
   disposed: string[];
+  /** Browser ids whose native view the store asked main to destroy. */
+  destroyedBrowserViews: string[];
   /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
    *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
   sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[] }[];
@@ -268,6 +270,7 @@ export type FakeApi = Api & {
 export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
+  const destroyedBrowserViews: string[] = [];
   const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[] = [];
   const data: Required<FakeData> = {
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
@@ -396,7 +399,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     };
   };
   const api: FakeApi = {
-    calls, disposed, sent, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
+    calls, disposed, destroyedBrowserViews, sent, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
     // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
     // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
     // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
@@ -628,6 +631,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { path: `/realm-home/tmp/attachments/aa-${name}`, mime: mime || "application/octet-stream", name, size: bytes.byteLength };
     },
     disposeTerminal: (id) => { disposed.push(id); },
+    destroyBrowserView: (id) => { destroyedBrowserViews.push(id); },
     listSessions: async (sid) => { calls.push(`listSessions:${sid}`); return data.sessions.filter((s) => s.spaceId === sid); },
     listAllSessions: async () => { calls.push("listAllSessions"); await wait("listAllSessions"); return [...data.sessions]; },
     getSession: async (id) => { calls.push(`getSession:${id}`); const s = data.sessions.find((x) => x.id === id); if (!s) throw new Error(`no session ${id}`); return s; },

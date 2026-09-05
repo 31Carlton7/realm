@@ -21,6 +21,7 @@ function setup(opts: {
   const audit: { ts: number; origin: string; credentialId: string; outcome: string }[] = [];
   const grants: { browserId: string; origin: string; dir: string; expiresAt: number }[] = [];
   const liveViews = new Set(["b1"]);
+  const touched: string[] = [];
   const binding: CdpBinding = {
     send: async (method, params) => {
       calls.push({ method, params });
@@ -36,6 +37,7 @@ function setup(opts: {
   const host = new BrowserAgentHost({
     attach: (id) => (opts.attachFails || !liveViews.has(id) ? null : binding),
     hasView: (id) => liveViews.has(id),
+    touch: (id) => { touched.push(id); },
     navigate: (id, url) => (liveViews.has(id) && url.startsWith("https://allowed.") ? url : null),
     pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example" } : null),
     secrets: opts.credentials === undefined ? undefined : {
@@ -59,7 +61,7 @@ function setup(opts: {
       },
     } : undefined,
   });
-  return { host, calls, liveViews, audit, grants, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
+  return { host, calls, liveViews, audit, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
 
 describe("BrowserAgentHost", () => {
@@ -431,5 +433,26 @@ describe("BrowserAgentHost — element picking", () => {
     expect(picked.html).toHaveLength(PICK_HTML_MAX);
     expect(picked.text).toHaveLength(PICK_TEXT_MAX);
     expect(picked.html.endsWith("…")).toBe(true);
+  });
+});
+
+/**
+ * A browser whose space is off screen is retained, not closed — so the agent must still reach it,
+ * and reaching it must be what keeps it retained rather than what gets it evicted.
+ */
+describe("driving a browser whose pane is off screen", () => {
+  it("every op marks the view in use, not just the one that attached", async () => {
+    const h = setup();
+    await h.host.handleOp("read", { browserId: "b1", kind: "text" });
+    await h.host.handleOp("read", { browserId: "b1", kind: "text" });
+    await h.host.handleOp("snapshot", { browserId: "b1" });
+    expect(h.touched).toEqual(["b1", "b1", "b1"]);
+  });
+
+  it("a view that is gone for real is still refused, and not marked in use", async () => {
+    const h = setup();
+    h.liveViews.delete("b1");
+    await expect(h.host.handleOp("read", { browserId: "b1", kind: "text" })).rejects.toThrow(/pane is not open/);
+    expect(h.touched).toEqual([]);
   });
 });
