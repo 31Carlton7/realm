@@ -269,7 +269,7 @@ const CHIP_KINDS: readonly SegmentKind[] = ["mention", "mention-stale", "element
 
 /** Whether a painted run is a chip. The mirror asks this to decide which spans carry the offset a
  *  pointer is matched against, so it and `chipSpans` can never disagree about what a chip is. */
-export const isChipKind = (kind: SegmentKind | null): boolean => kind !== null && CHIP_KINDS.includes(kind);
+export const isChipKind = (kind: SegmentKind | null): kind is SegmentKind => kind !== null && CHIP_KINDS.includes(kind);
 
 /**
  * Every chip in the draft, as offsets, read off the SAME segments the mirror paints.
@@ -283,7 +283,7 @@ export function chipSpans(segments: readonly Segment[]): ChipSpan[] {
   const out: ChipSpan[] = [];
   let at = 0;
   for (const s of segments) {
-    if (isChipKind(s.kind)) out.push({ kind: s.kind!, start: at, end: at + s.text.length });
+    if (isChipKind(s.kind)) out.push({ kind: s.kind, start: at, end: at + s.text.length });
     at += s.text.length;
   }
   return out;
@@ -293,7 +293,7 @@ export function chipSpans(segments: readonly Segment[]): ChipSpan[] {
  * The chip a caret at `pos` landed INSIDE — strictly inside, both edges excluded.
  *
  * The edges are where an ordinary caret has to stay reachable: clicking just past `@mac` is how a
- * hand gets to `@mac-cli`, and clicking just before a chip is how it types a word in front of one.
+ * hand gets to `@mac-cli`, and clicking just before a chip is how a hand types a word in front of one.
  * Only a click aimed at the glyphs themselves means "this token".
  */
 export function chipAround(spans: readonly ChipSpan[], pos: number): ChipSpan | null {
@@ -304,7 +304,7 @@ export function chipAround(spans: readonly ChipSpan[], pos: number): ChipSpan | 
  * Where ←/→ lands when the step would otherwise walk into an element chip, or null to leave the key
  * alone.
  *
- * Element chips only, and it is the same asymmetry the atomic delete below draws. Nineteen presses to
+ * Element chips only, the same asymmetry the atomic delete below makes. Nineteen presses to
  * cross `@[button "Sign in"]` is the caret pretending a token is a sentence; `@mac` is four characters
  * that a hand walks INTO on purpose, to make it `@mac-cli` or to fix the word in front of it, and a
  * mention that could not be entered would be a mention that could not be corrected.

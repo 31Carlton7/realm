@@ -421,11 +421,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const chips = useMemo(() => chipSpans(segments), [segments]);
   /** Where each painted run begins, so a chip span can carry its own draft offset as an attribute. */
   const segStarts = useMemo(() => { const out: number[] = []; let at = 0; for (const s of segments) { out.push(at); at += s.text.length; } return out; }, [segments]);
-  /** The chip under the pointer, by start offset. Hover is the one thing here that cannot be answered
-   *  in offsets — there is no selection to read — so it is also the one place the composer asks the
-   *  mirror for real geometry. Asking the runs for their own boxes is cheaper and far more predictable
-   *  than a caret-from-point API: the mirror takes no pointer events, so nothing else has to change. */
+  /** The chip under the pointer, by start offset. */
   const [hotChip, setHotChip] = useState<number | null>(null);
+  /* Hover is the one chip gesture with no selection behind it to read, so it is the one place the
+     composer needs real geometry — and it takes it from the mirror's own runs rather than from a
+     caret-from-point API, which would have to guess which layer the point belongs to. Nothing else
+     changes: the runs are measured, never hit-tested, so the mirror keeps taking no pointer events. */
   const onHoverChip = (e: ReactMouseEvent<HTMLTextAreaElement>) => {
     const m = hl.current;
     let hit: number | null = null;
