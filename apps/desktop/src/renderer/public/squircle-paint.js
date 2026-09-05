@@ -20,8 +20,13 @@
  * already draws; 4 is the ratio Figma and iOS settled on for a corner that reads as smooth rather
  * than as a shape of its own. */
 const N = 4;
-/* Segments per corner. At the 20px radius the prompter uses this puts a vertex every ~1.3px, which
- * is under the point a retina display can resolve a facet at. */
+/* Segments per corner. At the 36px radius the prompter uses this puts a vertex every ~2.6px, and no
+ * chord leaves the true superellipse by more than ~0.02px — well inside one device pixel at any
+ * scale factor, so the facets stay invisible.
+ *
+ * The deviation is the figure to check when changing either number, not the spacing. Both grow in
+ * proportion to the radius at a fixed step count, but a 2.6px facet only reads as a facet if the
+ * chord under it visibly misses the curve, and at this radius it misses by a fiftieth of a pixel. */
 const STEPS = 24;
 
 const px = (v) => (typeof v?.value === "number" ? v.value : parseFloat(String(v)) || 0);
