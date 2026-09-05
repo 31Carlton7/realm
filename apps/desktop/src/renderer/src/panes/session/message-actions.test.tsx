@@ -64,14 +64,14 @@ describe("the assistant message's action bar", () => {
 
   it("keeps the entrance mark on the element §6's rule can actually reach", () => {
     // The wrapper made the prose a grandchild of `.transcript-col`, and `> [data-enter]` does not
-    // reach one — an entrance left on the inner div animates nothing at all. Only a block that is
-    // genuinely arriving carries the mark, so this has to grow one to have anything to look at.
+    // reach one. Only a block that is genuinely arriving carries the mark, so this has to grow one
+    // to have anything to look at. (Markdown no longer takes an `enter` at all, so putting the mark
+    // back on the prose is a compile error rather than a thing this has to catch.)
     const view = render(<Transcript sessionStatus="idle" onDecide={() => {}}
       transcript={model([assistant("first", false)])} />);
     view.rerender(<Transcript sessionStatus="idle" onDecide={() => {}}
       transcript={model([assistant("first", false), assistant("second", false, "m2")])} />);
     expect(document.querySelector(".transcript-col > .msg-assistant-row[data-enter]")).not.toBeNull();
-    expect(document.querySelector(".md[data-enter]")).toBeNull();
   });
 
   it("offers Retry on the newest answer only — the button acts on the last turn wherever it sits", () => {

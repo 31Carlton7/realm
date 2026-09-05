@@ -142,10 +142,11 @@ export function renderMarkdown(text: string, cite: readonly string[] = []): stri
 }
 
 /** Assistant prose: markdown → sanitized HTML. The text itself is whatever has actually arrived:
- *  deltas pace the stream, there is no reveal timer, so a re-render can never replay it. `enter`
- *  opts the block into the transcript's 180ms enter animation (§6 — set only for blocks that are
- *  genuinely new). */
-export function Markdown({ text, className = "", enter = false, cite = NO_CITATIONS }: { text: string; className?: string; enter?: boolean; cite?: readonly string[] }) {
+ *  deltas pace the stream, there is no reveal timer, so a re-render can never replay it.
+ *
+ *  §6's entrance is NOT this component's to carry: the rule reaches `.transcript-col`'s direct
+ *  children, and the prose has a wrapper above it that owns the mark instead. */
+export function Markdown({ text, className = "", cite = NO_CITATIONS }: { text: string; className?: string; cite?: readonly string[] }) {
   const html = useMemo(() => renderMarkdown(text, cite), [text, cite]);
   const body = useRef<HTMLDivElement>(null);
   const media = useMediaPortals(body, html);
@@ -163,7 +164,7 @@ export function Markdown({ text, className = "", enter = false, cite = NO_CITATI
     timers.current.set(btn, setTimeout(() => { btn.removeAttribute("data-copied"); timers.current.delete(btn); }, COPIED_MS));
   };
   return (
-    <div className={`md ${className}`.trim()} data-enter={enter || undefined}>
+    <div className={`md ${className}`.trim()}>
       {/* The markup is written imperatively rather than through `dangerouslySetInnerHTML`, and the
           reason is portals: React 19 does not commit a portal into a node it created by setting
           innerHTML, so media parked inside the prose would never appear. A node the effect below
