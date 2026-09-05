@@ -359,7 +359,7 @@ a {
    * One rung per KIND of change, and the kind is the reason the number is
    * what it is. Tembo's four steps are the spine; the rest are the durations
    * §6's motion table already assigns, which used to be written out as
-   * literals at 41 call sites — a ladder nothing stands on is documentation,
+   * literals at 46 call sites — a ladder nothing stands on is documentation,
    * not a system, and `--dur-press` and `--dur-slow` had no users at all.
    *
    * A caveat worth knowing before adding to it: 140 / 150 / 160 are three
