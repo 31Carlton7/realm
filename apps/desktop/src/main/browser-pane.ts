@@ -25,6 +25,13 @@ export function electronViewFactory(win: BrowserWindow, onView?: (id: string, wc
         partition: BROWSER_PARTITION,
         // Untrusted web content: full Chromium sandbox, no node, no preload, isolated world.
         sandbox: true, contextIsolation: true, nodeIntegration: false,
+        // A browser pane keeps working while its space is off screen, and Chromium's default
+        // undoes that: measured on Electron 37, a `setVisible(false)` WebContentsView drops a 50ms
+        // interval to ~1Hz and reports `document.visibilityState === "hidden"`, which pages take as
+        // their own cue to stop polling, stall SSE and pause media. With this off, the hidden view
+        // ticks at full rate and still reads as visible to the page. The cost is CPU for pages
+        // nobody is looking at, which is what RETAINED_VIEW_LIMIT exists to bound.
+        backgroundThrottling: false,
       },
     });
     view.setBackgroundColor("#ffffffff"); // opaque — the window behind is transparent on macOS
