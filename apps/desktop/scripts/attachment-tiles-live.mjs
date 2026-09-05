@@ -223,8 +223,8 @@ async function main() {
     { name: "shot.png", mime: "image/png", b64: PNG_B64 },
     { name: "report.pdf", mime: "application/pdf", b64: makePdf() },
   ])})`);
-  await until(() => evalIn(c, `document.querySelectorAll('.attach-tile').length === 2`), 15000, "two tiles");
-  check("a dropped file becomes a tile", true);
+  const tiles = await until(() => evalIn(c, `document.querySelectorAll('.attach-tile').length || null`), 15000, "the dropped files' tiles");
+  check("a dropped file becomes a tile — one apiece, and no extras", tiles === 2, { tiles });
 
   // 1. The tile is a square, and it does not spell the filename out.
   const shape = await until(() => evalIn(c, `(() => {
@@ -295,8 +295,7 @@ async function main() {
   check("attachment:open is registered in main, and refuses a path that is not there", channel === "registered", { channel });
 
   await evalIn(c, `(() => { document.querySelector('.attach-tile[data-media] .attach-open').click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.media-lightbox')`), 8000, "lightbox");
-  check("an image opens in the lightbox instead", true);
+  await until(() => evalIn(c, `!!document.querySelector('.media-lightbox')`), 8000, "an image to open in the lightbox instead");
 
   /* The stacking question, and the whole reason this part is live: the tile that opened it lives
      INSIDE the prompter — a card on its own layer, above the transcript. The lightbox is portalled
@@ -411,8 +410,7 @@ async function main() {
     sentMarks.filter((m) => m.media).length === 1 && sentMarks[0].media, sentMarks);
 
   await evalIn(c, `(() => { document.querySelector('.msg-user-files .attach-tile[data-media] .attach-open').click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.media-lightbox')`), 8000, "sent lightbox");
-  check("a sent image opens in the lightbox, the same as a pending one", true);
+  await until(() => evalIn(c, `!!document.querySelector('.media-lightbox')`), 8000, "a sent image to open in the lightbox, the same as a pending one");
   const sentShot = await c.send("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(path.join(os.tmpdir(), "realm-sent-attachments-live.png"), Buffer.from(sentShot.data, "base64"));
   console.log("SCREENSHOT " + path.join(os.tmpdir(), "realm-sent-attachments-live.png"));
@@ -455,5 +453,11 @@ main().catch(async (e) => {
 })
   .finally(() => {
     electron?.kill();
-    setTimeout(() => process.exit(process.exitCode ?? 0), 500);
+    setTimeout(() => {
+      // The scratch dir holds a REALM_HOME and an Electron userData tree. Left behind it is tens of
+      // megabytes a run, and a pile of them is what turns the next suite's disk pressure into a
+      // page of unrelated-looking failures.
+      fs.rmSync(scratch, { recursive: true, force: true });
+      process.exit(process.exitCode ?? 0);
+    }, 500);
   });

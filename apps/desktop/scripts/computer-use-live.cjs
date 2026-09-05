@@ -62,14 +62,6 @@ const log = (line) => console.log(`[live] ${line}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Every bundle id LaunchServices currently has an application registered for.
- *
- * A second opinion about what is running, deliberately NOT `NSWorkspace.runningApplications` — that
- * is the enumeration `listApps` itself filters, so using it to check the filter would be asking the
- * same source twice. Returns null rather than an empty set when `lsappinfo` cannot be read, so a
- * missing tool is reported as a skip instead of as "nothing is running".
- */
-/**
  * A JPEG's real pixel dimensions, from its SOF marker.
  *
  * Read rather than trusted, because the failure this exists to catch is a capture that succeeds and
@@ -94,6 +86,14 @@ function jpegSize(buf) {
   return null;
 }
 
+/**
+ * Every bundle id LaunchServices currently has an application registered for.
+ *
+ * A second opinion about what is running, deliberately NOT `NSWorkspace.runningApplications` — that
+ * is the enumeration `listApps` itself filters, so using it to check the filter would be asking the
+ * same source twice. Returns null rather than an empty set when `lsappinfo` cannot be read, so a
+ * missing tool is reported as a skip instead of as "nothing is running".
+ */
 function runningBundleIds() {
   try {
     const out = execFileSync("/usr/bin/lsappinfo", ["list"], { encoding: "utf8", maxBuffer: 32 << 20 });

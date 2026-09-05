@@ -4,19 +4,6 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 type Block = { type: string; [k: string]: unknown };
 
 /**
- * Pure, stateful mapper from SDK messages to normalized SessionEvents.
- * - Streaming deltas share a message id with the final `assistant` message: `message_start` sets the id and
- *   `message_stop` retires it, keyed by `parent_tool_use_id` so concurrent subagent streams don't clobber the
- *   top-level one. Retiring on an interim `assistant` notification instead (one can arrive per completed content
- *   block — e.g. after `thinking`, before the trailing `text` block even starts) would drop the id mid-stream and
- *   splinter every remaining delta onto its own id.
- * - v1 drops assistant text/thinking/delta events from subagents (`parent_tool_use_id != null`); their output reaches
- *   the transcript via the Task tool's `tool_result`. Subagent `tool_call`/`tool_result` events are kept (with
- *   `parentToolUseId`) so the UI can nest them.
- * - `assistant_text` is de-duplicated per (messageId, text) because the SDK can re-emit the same assistant message;
- *   the dedupe set is cleared on `result`.
- */
-/**
  * Claude's plan, which arrives as an ordinary `ExitPlanMode` tool call.
  *
  * The markdown is `input.plan` — verified against real SDK transcripts on disk, whose tool_use input
@@ -34,6 +21,19 @@ function exitPlanText(name: string, input: Record<string, unknown>): string | nu
   return typeof plan === "string" && plan.trim() ? plan : null;
 }
 
+/**
+ * Pure, stateful mapper from SDK messages to normalized SessionEvents.
+ * - Streaming deltas share a message id with the final `assistant` message: `message_start` sets the id and
+ *   `message_stop` retires it, keyed by `parent_tool_use_id` so concurrent subagent streams don't clobber the
+ *   top-level one. Retiring on an interim `assistant` notification instead (one can arrive per completed content
+ *   block — e.g. after `thinking`, before the trailing `text` block even starts) would drop the id mid-stream and
+ *   splinter every remaining delta onto its own id.
+ * - v1 drops assistant text/thinking/delta events from subagents (`parent_tool_use_id != null`); their output reaches
+ *   the transcript via the Task tool's `tool_result`. Subagent `tool_call`/`tool_result` events are kept (with
+ *   `parentToolUseId`) so the UI can nest them.
+ * - `assistant_text` is de-duplicated per (messageId, text) because the SDK can re-emit the same assistant message;
+ *   the dedupe set is cleared on `result`.
+ */
 export function createSdkMapper() {
   const streamMsgIds = new Map<string | null, string>(); // parent_tool_use_id -> current streaming message id
   const emittedText = new Set<string>();

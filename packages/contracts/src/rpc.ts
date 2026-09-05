@@ -259,14 +259,13 @@ export const RestoreResultSchema = z.object({
 });
 export type RestoreResult = z.infer<typeof RestoreResultSchema>;
 
-/** Method registry: params + result schemas. Server validates params; client types results. */
 /**
  * The wire shapes for the CLI manager. They mirror `CliStatus` and `CliJobStart` in cli.ts, which
  * carry the prose; the `satisfies` is the lock that stops the wire and the type callers program
  * against drifting apart without a typecheck failure.
  */
-export const CliActionSchema = z.enum(["install", "update"]);
-export const CliStatusSchema = z.object({
+const CliActionSchema = z.enum(["install", "update"]);
+const CliStatusSchema = z.object({
   kind: AgentKindSchema,
   installed: z.boolean(),
   version: z.string().nullable(),
@@ -278,10 +277,11 @@ export const CliStatusSchema = z.object({
   command: z.string().nullable(),
   refusal: z.string().nullable(),
 }) satisfies z.ZodType<CliStatus>;
-export const CliJobStartSchema = z.object({
+const CliJobStartSchema = z.object({
   id: z.string(), kind: AgentKindSchema, action: CliActionSchema, command: z.string(),
 }) satisfies z.ZodType<CliJobStart>;
 
+/** Method registry: params + result schemas. Server validates params; client types results. */
 export const Methods = {
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
   "profiles.create": { params: z.object({ name: z.string().min(1), icon: z.string().default("user"), color: z.string().default("#6b7280") }), result: ProfileSchema },
@@ -678,13 +678,13 @@ export const Methods = {
    *  as `error` naming what went wrong, NOT a thrown RPC error: the list is still a renderable result,
    *  just an empty one with a reason attached. `tools` mirrors `mcp.list`'s cache on success. */
   "mcp.tools.list": { params: z.object({ id: IdSchema }), result: z.object({ tools: z.array(McpToolSchema), error: z.string().nullable() }) },
-  /** Narrow this space's tools for one server to exactly `tools`; `null` restores "every cached tool
-   *  allowed", the same default a server nobody has touched already has. */
   /** The space's computer-use allowlist: the applications an agent may drive there without a card.
    *  `set` returns the list AS STORED — forbidden bundle ids are dropped rather than accepted, so the
    *  caller renders what is really in effect. */
   "computer.allowedApps.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ apps: z.array(z.string()) }) },
   "computer.allowedApps.set": { params: z.object({ spaceId: IdSchema, apps: z.array(z.string()) }), result: z.object({ apps: z.array(z.string()) }) },
+  /** Narrow this space's tools for one server to exactly `tools`; `null` restores "every cached tool
+   *  allowed", the same default a server nobody has touched already has. */
   "mcp.setAllowedTools": { params: z.object({ spaceId: IdSchema, id: IdSchema, tools: z.array(z.string()).nullable() }), result: z.object({ ok: z.literal(true) }) },
   /** Realm's own call log (Activity), newest first — see `McpCallSchema`. `before` pages backward by a
    *  composite `{ ts, id }` cursor — a plain `ts` cursor drops same-millisecond siblings at a page

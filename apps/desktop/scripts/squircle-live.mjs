@@ -266,7 +266,11 @@ async function main() {
   const flat = await evalIn(c, leftOfCard(await shotOf(c)));
   check("the card still casts its lift — the ground beside it is darker than with the drop-shadow removed",
     lift < flat - 0.3, { withShadow: +lift.toFixed(2), withoutShadow: +flat.toFixed(2) });
-  await evalIn(c, `(() => { document.querySelector(".composer").style.boxShadow = ""; return true; })()`);
+  // Put the lift back. It is the style element that suppressed it, so it is the style element that
+  // has to go — clearing an inline boxShadow here restores nothing (see above) and would leave every
+  // measurement below reading a card with no lift, including one compared against a shot taken with
+  // the lift still on.
+  await evalIn(c, `(() => { document.getElementById("kill-lift")?.remove(); return true; })()`);
   await sleep(250);
 
   // ── the focus ring the technique could also have eaten ───────────────────
