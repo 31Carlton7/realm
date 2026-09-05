@@ -319,9 +319,10 @@ export function downloadExtensionAllowed(filename: string): boolean {
 /**
  * One element the USER picked out of a browser pane, on its way into a prompt.
  *
- * Everything below `rect` is PAGE-AUTHORED. A page chooses its own ids, classes and text, and the
- * selector is computed by script evaluated in the page's own world — where the page could have
- * replaced `querySelectorAll` or `Element.prototype.cloneNode` and lied about the answer. The clamps
+ * Everything from `rect` down is PAGE-AUTHORED. A page chooses its own ids, classes and text, and
+ * all of it — the rect included — is computed by script evaluated in the page's own world, where the
+ * page could have replaced `querySelectorAll`, `Element.prototype.cloneNode` or
+ * `getBoundingClientRect` and lied about the answer. The clamps
  * are the only reason a hostile page cannot make a picked element arbitrarily large; they are not a
  * reason to believe it, and nothing downstream may read these fields as instructions.
  *

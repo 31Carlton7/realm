@@ -45,8 +45,10 @@ export const CHIP_LABEL_MAX = 56;
  *
  * The bounds duplicate what main already clipped, deliberately: main clips because a prompt has a
  * budget, and this rejects because a request that exceeds those bounds did not come from main's
- * picker. Every field here is page-authored except `url`, and the server neither interprets nor
- * trusts any of them — it fences them into the wire text and nothing else.
+ * picker. Only `ref` is the browser's own — a CDP node id — and `url` is a fact just as far as its
+ * origin, page-authored after it; everything else is the page's outright (see
+ * `BrowserPickedElement`). The server neither interprets nor trusts any of them — it fences them
+ * into the wire text and nothing else.
  */
 export const ElementChipSchema = z.object({
   label: z.string().min(1).max(CHIP_LABEL_MAX),

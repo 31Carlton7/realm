@@ -28,7 +28,6 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9346), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8913);
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-drop-live-"));
-const results = {};
 let electron = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -106,7 +105,6 @@ async function evalIn(c, expr) {
 }
 
 const check = (name, cond, detail) => {
-  results[name] = { pass: !!cond, ...(detail !== undefined ? { detail } : {}) };
   if (!cond) process.exitCode = 1;
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`);
 };
@@ -152,7 +150,6 @@ async function main() {
   const targets = () => fetch(`http://127.0.0.1:${CDP_PORT}/json/list`).then((r) => r.json()).catch(() => []);
   const rendererTarget = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("file://")), 30000, "renderer target");
   const c = cdp(rendererTarget.webSocketDebuggerUrl);
-  globalThis.__c = c;
   await c.ready;
   await c.send("Runtime.enable");
   await c.send("Page.enable");

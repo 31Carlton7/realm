@@ -337,7 +337,7 @@ async function main() {
   await sleep(500);
 
   const grounds = new Map();
-  const shots = [];
+  let mappingChecked = false;
   for (const mode of ["light", "dark"]) {
     await evalIn(c, `__live.menu(${JSON.stringify(`Theme: ${mode[0].toUpperCase()}${mode.slice(1)}`)})`);
     await sleep(300);
@@ -359,10 +359,17 @@ async function main() {
       check(`${tag}: the menu selection is the palette the window is actually wearing`,
         p.theme === name && p.mode === mode, { asked: `${name}/${mode}`, got: `${p.theme}/${p.mode}` });
 
-      // 2. The token chain, end to end, through the real cascade.
-      for (const role of SYNTAX_ROLES) {
-        const r = p.roles[role];
-        check(`${tag}: .hljs-${role} resolves to --syn-${role}`, r && near(r.resolved, r.token, 1), r);
+      /* 2. The token chain, end to end, through the real cascade — once, not per palette. Each
+            `.hljs-*` rule in styles.css names its token unscoped, so which token a class reads is a
+            fact about the stylesheet and the same answer for every face; asking it again per palette
+            restated it another sixteen times and made the pass count look like coverage it is not.
+            What it catches is a rule repointed at the wrong token, and one face catches that. */
+      if (!mappingChecked) {
+        mappingChecked = true;
+        for (const role of SYNTAX_ROLES) {
+          const r = p.roles[role];
+          check(`.hljs-${role} resolves to --syn-${role}`, r && near(r.resolved, r.token, 1), r);
+        }
       }
       // 3. The roles are still telling things apart — a mapping collapsed onto one token would
       //    resolve consistently and highlight nothing.
@@ -383,7 +390,6 @@ async function main() {
 
       const out = path.join(os.tmpdir(), `realm-theme-${tag}.png`);
       fs.writeFileSync(out, Buffer.from(shot, "base64"));
-      shots.push(out);
       console.log(`SCREENSHOT ${tag} ${out}  pane=${sampled.map((v) => Math.round(v)).join(",")}`);
     }
   }
@@ -419,7 +425,6 @@ async function main() {
   const settingsShot = (await c.send("Page.captureScreenshot", { format: "png" })).data;
   const settingsOut = path.join(os.tmpdir(), "realm-theme-settings.png");
   fs.writeFileSync(settingsOut, Buffer.from(settingsShot, "base64"));
-  shots.push(settingsOut);
   console.log(`SCREENSHOT settings ${settingsOut}`);
 
   const previews = await evalIn(c, `__live.previews()`);
@@ -446,7 +451,6 @@ async function main() {
   const ovShot = (await c.send("Page.captureScreenshot", { format: "png" })).data;
   const ovOut = path.join(os.tmpdir(), "realm-theme-override.png");
   fs.writeFileSync(ovOut, Buffer.from(ovShot, "base64"));
-  shots.push(ovOut);
   console.log(`SCREENSHOT override ${ovOut}`);
   await evalIn(c, `__live.clickButton(/^Reset to /)`);
   await sleep(400);

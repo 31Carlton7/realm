@@ -221,7 +221,6 @@ async function main() {
     check(`the readout is the complement of what is stored`, p.readout === `${100 - alpha}%`, { readout: p.readout, alpha });
   }
 
-  // 3. Reduced transparency wins, and does not eat the value.
   // 3. The switch and the amount are one number. Fully opaque IS off, so the switch has to read the
   //    ground rather than a boolean of its own — two stored states could disagree, and the pair of
   //    them sit on the same row where the disagreement would be visible.
@@ -233,8 +232,9 @@ async function main() {
   await evalIn(c, `__live.toggle().click()`);
   await sleep(300);
   t = await evalIn(c, `({ on: __live.toggle().checked, disabled: __live.slider().disabled, token: getComputedStyle(document.documentElement).getPropertyValue("--ground-alpha").trim() })`);
-  check("switching it back on restores a translucent ground", t.on === true && t.token === "82%" && t.disabled === false, t);
+  check("switching it back on restores a translucent ground", t.on === true && t.token === `${DEFAULT_ALPHA}%` && t.disabled === false, t);
 
+  // 4. Reduced transparency wins, and does not eat the value.
   await evalIn(c, `__live.setInput(__live.slider(), "${MIN_ALPHA + MAX_ALPHA - MIN_ALPHA}")`);
   await sleep(200);
   await c.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-transparency", value: "reduce" }] });

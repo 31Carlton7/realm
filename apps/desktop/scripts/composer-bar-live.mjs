@@ -38,7 +38,6 @@ const WIDTHS = (process.env.LIVE_WIDTHS ?? "1280,1040,900,780,700,620,560,500,44
  * widths are still swept and printed, just not asserted on.
  */
 const MIN_PANE = 320;
-const results = {};
 let electron = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -159,7 +158,6 @@ async function evalIn(c, expr) {
 }
 
 const check = (name, cond, detail) => {
-  results[name] = { pass: !!cond, ...(detail !== undefined ? { detail } : {}) };
   if (!cond) process.exitCode = 1;
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`);
 };

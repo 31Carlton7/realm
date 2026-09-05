@@ -29,7 +29,6 @@
  */
 import { spawn } from "node:child_process";
 import { connect } from "node:net";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -170,6 +169,33 @@ window.__live = window.__live ?? {
   },
   /* Every screenshot comparison below is of a surface carrying a live shimmer (the in-flight item's
      label). Frozen, or no two frames of it are ever identical and the stacking check can only fail. */
+  /** How much two captures of the SAME clip differ: the share of pixels moving further than tol on
+   *  any channel, and the largest single move. This used to be a sha256 of the two shots, which
+   *  stopped being able to answer the question when the decorative grain landed — it redraws itself
+   *  between frames whether or not anything else changed, and freeze cannot stop it, because it is
+   *  not a CSS animation. Two shots of an untouched surface are never identical any more, so an
+   *  exact hash reports a z-order inversion and a repaint as the same thing. */
+  async diff(a64, b64, tol) {
+    const load = async (b) => {
+      const im = new Image();
+      im.src = "data:image/png;base64," + b;
+      await im.decode();
+      const cv = document.createElement("canvas");
+      cv.width = im.width; cv.height = im.height;
+      const g = cv.getContext("2d", { willReadFrequently: true });
+      g.drawImage(im, 0, 0);
+      return { d: g.getImageData(0, 0, cv.width, cv.height).data, w: im.width, h: im.height };
+    };
+    const A = await load(a64), B = await load(b64);
+    if (A.w !== B.w || A.h !== B.h) return { sizeMismatch: [A.w, A.h, B.w, B.h] };
+    let changed = 0, worst = 0;
+    for (let i = 0; i < A.d.length; i += 4) {
+      const m = Math.max(Math.abs(A.d[i] - B.d[i]), Math.abs(A.d[i + 1] - B.d[i + 1]), Math.abs(A.d[i + 2] - B.d[i + 2]));
+      if (m > worst) worst = m;
+      if (m > tol) changed += 1;
+    }
+    return { fraction: +(changed / (A.d.length / 4)).toFixed(4), worst, pixels: A.d.length / 4 };
+  },
   freeze(on) {
     let el = document.getElementById("live-freeze");
     if (!on) { el?.remove(); return true; }
@@ -192,23 +218,17 @@ const check = (name, cond, detail) => {
 };
 const shotOf = async (c) => (await c.send("Page.captureScreenshot", { format: "png" })).data;
 /** Only the pair's own rectangle, so a change anywhere else in the pane cannot decide the answer. */
-const hashOf = async (c) => {
-  /* The STRIP's visible interior, and only that. Its own box reaches past its visible edge — the
-     -10px bottom margin tucks it under the card — so the sample stops where the card begins, and
-     insets 8px so no antialiased edge is crossed.
-     The card is deliberately not sampled here. prompter-fade-live.mjs already owns "the band does
-     not paint over the prompter", and including the card made this comparison fail on the textarea's
-     caret, which blinks between the two captures and is not a CSS animation, so `freeze` does not
-     stop it. A check that fails on a caret is not measuring z-order. */
+const clipOf = async (c) => {
+  /* Strictly the pair's INTERIOR: inset past the rounded corner columns at both ends, because the
+     ground showing through those curves is ground the fade is entitled to blur. Include it and the
+     comparison fails on the band doing its job. */
   const clip = await evalIn(c, `(() => {
     const a = document.querySelector(".composer-todos").getBoundingClientRect();
     const b = document.querySelector(".composer").getBoundingClientRect();
-    return { x: Math.round(a.left) + 8, y: Math.round(a.top) + 8,
-             width: Math.max(1, Math.round(a.width) - 16),
-             height: Math.max(1, Math.round(b.top - a.top) - 16), scale: 1 };
+    const R = Math.round(parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--r-squircle"))) || 36;
+    return { x: Math.floor(a.left) + R, y: Math.floor(a.top) + 2, width: Math.ceil(b.right - a.left) - 2 * R, height: Math.ceil(b.bottom - a.top) - 4, scale: 1 };
   })()`);
-  const shot = (await c.send("Page.captureScreenshot", { format: "png", clip })).data;
-  return crypto.createHash("sha256").update(shot).digest("hex").slice(0, 16);
+  return (await c.send("Page.captureScreenshot", { format: "png", clip })).data;
 };
 
 async function main() {
@@ -342,34 +362,29 @@ async function main() {
      grows upward, so at any height it stops where the dock begins and never overlaps the strip at
      all — and a comparison of two shots it could not have touched passes whatever the z-order is.
      Its bottom edge is pushed past the card's so the whole pair is underneath it. */
-  /* Why this is an ORDER assertion and not a pixel comparison any more: the two-frame form hashed the
-     strip with the band forced over it and again with the band removed, and the strip's content is
-     live — a todo's status changes between two captures taken 400ms apart, so the comparison could
-     not tell a repaint from a z-order inversion. Sampled directly, the strip's interior is
-     byte-identical either way; the band never touched it.
-     The order is checked the way the original bug actually happened: `.composer-dock` won on z-index
-     while an ancestor's `transform` quietly made it a stacking context and trapped it below the band.
-     So both halves are asserted — the numbers, and that nothing between the dock and the shared
-     ancestor forms a context that could swallow them. */
-  const order = await evalIn(c, `(() => {
-    const dock = document.querySelector(".composer-dock");
-    const fade = document.querySelector(".transcript-fade");
-    const traps = (el) => {
-      const s = getComputedStyle(el);
-      return s.transform !== "none" || s.filter !== "none" || s.perspective !== "none"
-        || parseFloat(s.opacity) < 1 || s.isolation === "isolate" || s.willChange.includes("transform")
-        || s.mixBlendMode !== "normal" || (s.position !== "static" && s.zIndex !== "auto")
-        || s.contain.includes("paint");
-    };
-    const ancestorsOf = (el) => { const out = []; for (let n = el.parentElement; n; n = n.parentElement) out.push(n); return out; };
-    const shared = ancestorsOf(dock).find((n) => n.contains(fade)) ?? document.body;
-    const trapped = [];
-    for (let n = dock.parentElement; n && n !== shared; n = n.parentElement) if (traps(n)) trapped.push(n.className || n.tagName);
-    return { dockZ: getComputedStyle(dock).zIndex, fadeZ: getComputedStyle(fade).zIndex,
-             shared: shared.className || shared.tagName, trapped };
-  })()`);
-  check("the band passes UNDER the strip — the dock outranks it, and nothing traps the dock below it",
-    Number(order.dockZ) > Number(order.fadeZ) && order.trapped.length === 0, order);
+  const covered = await evalIn(c, `(() => {
+    const f = document.querySelector(".transcript-fade");
+    const s = document.querySelector(".composer-todos").getBoundingClientRect();
+    const b = document.querySelector(".composer").getBoundingClientRect();
+    const w = document.querySelector(".transcript-wrap").getBoundingClientRect();
+    const h = Math.ceil(b.bottom - s.top) + 80;
+    f.style.display = "block"; f.style.bottom = "auto"; f.style.height = h + "px";
+    f.style.top = Math.floor(s.top - w.top - 40) + "px";
+    f.style.setProperty("--fade-h", h + "px");
+    const r = f.getBoundingClientRect();
+    return { fade: [Math.round(r.top), Math.round(r.bottom)], pair: [Math.round(s.top), Math.round(b.bottom)] }; })()`);
+  await sleep(400);
+  const withFade = await clipOf(c);
+  check("the band was actually moved over the whole pair, so the comparison below can fail",
+    covered.fade[0] <= covered.pair[0] && covered.fade[1] >= covered.pair[1], covered);
+  await evalIn(c, `(() => { document.querySelector(".transcript-fade").remove(); return true; })()`);
+  await sleep(400);
+  const withoutFade = await clipOf(c);
+  /* TOL absorbs the grain's own redraw; the SHARE is what carries the claim. A band painting over
+     the pair rewrites most of the rectangle, not a scattering of it. */
+  const bandMoved = await evalIn(c, `__live.diff(${JSON.stringify(withFade)}, ${JSON.stringify(withoutFade)}, 8)`);
+  check("the transcript's fade band passes UNDER the strip — the dock still outranks it",
+    bandMoved.fraction !== undefined && bandMoved.fraction < 0.02, bandMoved);
   await evalIn(c, `__live.freeze(false)`);
 
   // ── items arriving grow the strip upward and stop; the card holds still ──
