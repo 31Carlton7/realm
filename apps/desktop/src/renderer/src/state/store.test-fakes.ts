@@ -2,7 +2,7 @@
 import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import type { ModelInfo, SearchResults, UsageBudget, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { CliStatus, ModelInfo, SearchResults, UsageBudget, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -170,6 +170,9 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
+  /** What `cli.status` answers. Empty by default: a test that is not about the CLI manager should
+   *  see no install or update offers at all. */
+  cliStatus?: CliStatus[];
   modelCatalog?: ModelInfo[];
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
@@ -304,6 +307,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    cliStatus: overrides.cliStatus ?? [],
     // The model catalog the picker's detail pane reads. Empty by default because that is the state
     // every test but a catalog test wants: prices are additive, and a fixture that invented them
     // would put numbers into snapshots that have nothing to do with what is being tested.
@@ -855,6 +859,19 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");
       return data.agentProbe;
+    },
+    cliStatus: async (force) => {
+      calls.push(`cliStatus:${force}`);
+      await wait("cliStatus");
+      return data.cliStatus;
+    },
+    // No child process anywhere near a test: the fake answers the job the real route would have
+    // started, and the test drives its output through applyCliOutput/applyCliDone by hand.
+    runCli: async (kind, action) => {
+      calls.push(`runCli:${kind}:${action}`);
+      const row = data.cliStatus.find((r) => r.kind === kind);
+      if (!row || row.action !== action) throw new Error(`Realm is not offering to ${action} ${kind} right now`);
+      return { id: `job-${kind}`, kind, action, command: row.command ?? "" };
     },
     modelCatalog: async (force) => {
       calls.push(`modelCatalog:${force}`);
