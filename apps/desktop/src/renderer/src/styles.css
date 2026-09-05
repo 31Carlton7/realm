@@ -341,13 +341,34 @@ kbd { font: 11px var(--font-mono); }
 /* The profile chip: which profile the strip below is scoped to, and the door to the others. One
    square the size of a space button, wearing the profile's own icon and colour — spelling the name
    out here cost roughly two space slots, and the header's profile pill already says it. */
-.strip-profile { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); }
-.strip-profile:hover:not(:disabled) { background: var(--rl-hover); }
+.strip-profile { position: relative; isolation: isolate; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); }
+.strip-profile::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; opacity: 0;
+  background: radial-gradient(closest-side, var(--rl-hover), transparent);
+  transition: opacity var(--dur-hover) ease;
+}
+.strip-profile:hover:not(:disabled)::before { opacity: 1; }
 .strip-profile:disabled { opacity: .45; }
-.strip-space { position: relative; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); color: var(--rl-text-dim); flex: none; }
-.strip-space:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-/* Active space (§5): --rl-active fill, no border; the glyph takes the space colour. */
-.strip-space[data-active] { color: var(--rl-space); background: var(--rl-active); }
+/* The strip sits on the macOS vibrancy, and a flat fill behind the active space read as a plate
+   stuck onto the material rather than part of it — a hard rounded-rect edge is the one thing the
+   blur underneath cannot soften. The fill is a radial wash with no boundary instead: strongest under
+   the glyph, gone by the edge of the box.
+
+   It rides ::before rather than the element so the hover can still cross-fade — a background-image
+   does not interpolate, and .strip-space is in the §6 hover-transition list. `isolation` is what
+   makes z-index: -1 mean "behind the glyph" rather than "behind the sidebar": without a stacking
+   context here the wash would drop through the strip entirely. */
+.strip-space { position: relative; isolation: isolate; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); color: var(--rl-text-dim); flex: none; }
+.strip-space::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; opacity: 0;
+  background: radial-gradient(closest-side, var(--rl-active), transparent);
+  transition: opacity var(--dur-hover) ease;
+}
+.strip-space:hover { color: var(--rl-text-bright); }
+.strip-space:hover::before { opacity: .6; }
+/* Active space (§5): the wash at full strength, no border; the glyph takes the space colour. */
+.strip-space[data-active] { color: var(--rl-space); }
+.strip-space[data-active]::before { opacity: 1; }
 .strip-space[data-drag-over] { box-shadow: inset 2px 0 0 var(--rl-accent); }
 /* Cross-space agent status (U-H3): waiting > error > running, resolved in spaceBadge. */
 /* This badge does NOT take the .status-dot ping, and the divergence is the point. A status dot says
