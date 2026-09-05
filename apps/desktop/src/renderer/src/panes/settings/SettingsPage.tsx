@@ -3,7 +3,8 @@ import {
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
 } from "@realm/contracts";
-import { CONTRAST_RANGE, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED, THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
+import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
+  THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
   seedFor, themeModes, themeSwatches, type FontId, type FontWeight, type Mode, type ThemeName } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
@@ -322,6 +323,7 @@ function AppTab() {
   // you are not looking at — so this only decides which row is marked as the live one.
   const mode = useResolvedMode(themePref);
   const material = hasWindowMaterial();
+  const translucent = groundAlpha < GROUND_ALPHA_RANGE.max;
 
   const supported = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_SUPPORTS_PERMISSION_MODES[k]);
   const unsupported = SELECTABLE_AGENT_KINDS.filter((k) => !AGENT_SUPPORTS_PERMISSION_MODES[k]);
@@ -396,14 +398,21 @@ function AppTab() {
         <p className="settings-hint">How far labels, metadata and hints sit below primary text. Every tier stays above the contrast Realm holds its palettes to, whatever this says — turning it down recedes them, it does not make them unreadable.</p>
       </div>
 
-      <div className="field"><span>Background transparency</span>
-        {/* The slider runs the way the label reads — right is MORE transparent — while the stored
-            value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is
-            the one place the two meet.
-            step 1, not a coarser grid: the range spans an odd number of points, so any step above 1
-            leaves one of its two ends unreachable — including 100%, which is how this is turned off. */}
+      <div className="field"><span>Translucent sidebar</span>
+        {/* A switch and an amount over ONE stored number, not two controls that can disagree: fully
+            opaque IS off, because covering the material completely is the same as not having asked
+            for it. So the switch reads `groundAlpha < max` and writes either the maximum or the
+            default, and the slider is inert while it is off — nothing here can put the app in a
+            state where the switch says one thing and the amount another.
+            The slider runs the way its label reads — right is MORE transparent — while the stored
+            value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is the
+            one place the two meet. step 1, not a coarser grid: the range spans an odd number of
+            points, so any step above 1 leaves one of its two ends unreachable. */}
         <div className="slider-row">
-          <input type="range" aria-label="Background transparency" disabled={!material}
+          <input type="checkbox" role="switch" className="switch" aria-label="Translucent sidebar"
+            disabled={!material} checked={translucent}
+            onChange={(e) => run(() => setGroundAlpha(e.target.checked ? DEFAULT_GROUND_ALPHA : GROUND_ALPHA_RANGE.max))} />
+          <input type="range" aria-label="Background transparency" disabled={!material || !translucent}
             min={GROUND_ALPHA_RANGE.min} max={GROUND_ALPHA_RANGE.max} step={1}
             value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
           <span className="slider-value">{100 - groundAlpha}%</span>

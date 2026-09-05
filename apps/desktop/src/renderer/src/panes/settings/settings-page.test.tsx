@@ -268,6 +268,28 @@ describe("App tab", () => {
     await vi.waitFor(() => expect(api.calls).toContain("setSetting:ui.contrast=10"));
   });
 
+  it("the switch and the amount are one number, so they cannot disagree", async () => {
+    // THE two-controls mutant: give the switch its own stored boolean. It can then say "on" over a
+    // ground the slider has at 100% — a control claiming a state the window is not in, with the
+    // other control on the same row contradicting it.
+    vi.stubGlobal("realm", { platform: "darwin" });
+    const { store } = await openApp();
+    const sw = screen.getByRole("switch", { name: "Translucent sidebar" });
+    const slider = screen.getByRole("slider", { name: "Background transparency" });
+    expect(sw).toBeChecked();               // 82 by default, which is translucent
+    fireEvent.click(sw);
+    await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
+    expect(screen.getByRole("switch", { name: "Translucent sidebar" })).not.toBeChecked();
+    // Off means opaque, and the amount is inert rather than showing a value nothing is using.
+    expect(screen.getByRole("slider", { name: "Background transparency" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("switch", { name: "Translucent sidebar" }));
+    await waitFor(() => expect(store.getState().groundAlpha).toBe(82));
+    // Dragging the amount to fully opaque turns the switch off, because that IS off.
+    fireEvent.change(slider, { target: { value: "55" } });
+    await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
+    expect(screen.getByRole("switch", { name: "Translucent sidebar" })).not.toBeChecked();
+  });
+
   it("background transparency runs the way its label reads and persists the ground's opacity", async () => {
     // The bridge is what says this platform has a material; jsdom has none, so the mac case is
     // stubbed rather than assumed. An unstubbed renderer must not guess macOS.
