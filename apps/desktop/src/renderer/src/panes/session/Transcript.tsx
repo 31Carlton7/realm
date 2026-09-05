@@ -4,6 +4,7 @@ import { chipRuns, mediaCandidatesIn, type SessionStatus } from "@realm/contract
 import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
+import { MessageActions } from "./MessageActions";
 import { PermissionCard } from "./PermissionCard";
 import { PlanCard, PlanDecision, isPlanDecision } from "./PlanCard";
 import { QuestionCard, questionCardFor } from "./QuestionCard";
@@ -92,10 +93,14 @@ function AssistantMessage({ text, streaming, enter, cwd }: { text: string; strea
   const candidates = useMemo(() => (streaming ? [] : mediaCandidatesIn(text, cwd)), [streaming, text, cwd]);
   const files = useMediaFiles(candidates);
   return (
-    <>
-      <Markdown className="msg-assistant" text={text} enter={enter} />
+    // `data-enter` rides the ROW, not the prose: §6's entrance rule reaches `.transcript-col`'s
+    // direct children only, and the message stopped being one the moment it grew a wrapper.
+    <div className="msg-assistant-row" data-enter={enter || undefined}
+      data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
+      <Markdown className="msg-assistant" text={text} />
       <MediaStrip files={files} />
-    </>
+      {!streaming && <MessageActions text={text} />}
+    </div>
   );
 }
 

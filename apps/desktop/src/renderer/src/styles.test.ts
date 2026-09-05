@@ -226,6 +226,16 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".tool-copy:not([data-copied]) .copied-icon").join(" ")).toContain("blur(4px)");
   });
 
+  it("the message action bar reaches for the rungs the copy button already pays for, not a set of its own", () => {
+    const swap = bodiesFor(".msg-action .copy-icon").join(" ");
+    for (const prop of ["opacity", "transform", "filter"]) expect(swap, prop).toContain(`${prop} ${dur("--dur-swap")}`);
+    expect(bodiesFor(".msg-action:not([data-copied]) .copied-icon").join(" ")).toContain("blur(4px)");
+    const btn = bodiesFor(".msg-action").join(" ");
+    expect(btn).toContain(`background-color ${dur("--dur-hover")} ease`);
+    expect(btn).toContain(`transform ${dur("--dur-press")} var(--ease-out-strong)`);
+    expect(bodiesFor(".msg-action:active:not(:disabled)").join(" ")).toContain("transform: scale(.97)");
+  });
+
   it("W2's prompter hero→docked move keeps its 320ms ease-in-out-strong (§6 assigns that easing to on-screen movement)", () => {
     expect(bodiesFor(".composer-dock").join(" ")).toContain(`transition: transform ${dur("--dur-move")} var(--ease-in-out-strong)`);
   });
