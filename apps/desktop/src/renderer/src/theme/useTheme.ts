@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, applyTheme, paletteFor, type Mode, type ThemeSelection } from "@realm/ui";
+import { DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, applyTheme, overrideKey, paletteFor,
+  type Mode, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
 
 export type ThemePref = "system" | "light" | "dark";
 
@@ -46,16 +47,27 @@ export function suppressTransitions(root: HTMLElement, ms = SETTLE_MS): () => vo
  *  The mode is now the preference and nothing else. A palette used to be able to pin it — the only
  *  way a single selection could honour "Monokai, which has no light face" — and with a slot per face
  *  there is no such conflict to resolve: each slot is offered only palettes that have its face. */
-export function useApplyTheme(color: string | null, pref: ThemePref,
-  themes: ThemeSelection = DEFAULT_SELECTION, groundAlpha: number = DEFAULT_GROUND_ALPHA): Mode {
+export type AppliedTheme = {
+  color: string | null;
+  pref: ThemePref;
+  themes?: ThemeSelection;
+  /** Keyed by palette AND face, so the effect's dependency is the ONE override on screen rather than
+   *  every override the user has ever set — editing Gruvbox's accent must not repaint One Dark. */
+  overrides?: ThemeOverrides;
+  groundAlpha?: number;
+};
+
+export function useApplyTheme({ color, pref, themes = DEFAULT_SELECTION, overrides = {},
+  groundAlpha = DEFAULT_GROUND_ALPHA }: AppliedTheme): Mode {
   const mode = useResolvedMode(pref);
   const theme = paletteFor(themes, mode);
+  const override = overrides[overrideKey(theme, mode)];
   // Layout effect so the first paint already carries the mode (no flash of default vars).
   useLayoutEffect(() => {
     const done = suppressTransitions(document.documentElement);
-    applyTheme({ space: color ?? "#7c6cff", mode, theme, groundAlpha });
+    applyTheme({ space: color ?? "#7c6cff", mode, theme, override, groundAlpha });
     return done;
-  }, [color, mode, theme, groundAlpha]);
+  }, [color, mode, theme, override, groundAlpha]);
   return mode;
 }
 

@@ -2237,6 +2237,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .settings-input-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 .settings-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); }
 .settings-hint[data-tone="danger"] { color: var(--rl-danger); }
+/* A choice the app has carried out and is reporting on, not one it refused — the contrast a moved
+   colour actually landed at. Orange rather than red: the window still works. */
+.settings-hint[data-tone="warn"] { color: var(--orange); }
 
 .settings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .settings-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; }
@@ -2960,6 +2963,19 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .theme-card-swatches { display: flex; gap: 4px; }
 .theme-card-swatches span { width: 14px; height: 14px; border-radius: 999px; }
 .theme-card-name { font-size: 12px; font-weight: var(--fw-label); }
+
+/* The three seeds a palette can be edited on. A swatch and a hex per row: the OS colour picker
+   cannot be typed into and a hex cannot be dragged, and both are how people actually arrive at a
+   colour. Wraps rather than scrolls — this sits in a pane whose width is wherever the split is. */
+.theme-overrides { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 2px 0 0; padding: 0; border: 0; }
+.theme-override { display: flex; align-items: center; gap: 6px; }
+.theme-override > span { font-size: 12px; color: var(--rl-text-dim); }
+.theme-override input[type="color"] {
+  width: 26px; height: 26px; padding: 2px; flex: none; cursor: pointer;
+  border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--rl-panel);
+}
+.theme-override .hex { width: 82px; text-transform: lowercase; }
+.theme-overrides .settings-hint { flex-basis: 100%; }
 /* The face on screen, of the two palette rows. A dot rather than a highlight: both rows are equally
    live controls, and the only thing that distinguishes them is which one the window is wearing while
    you read the page. */

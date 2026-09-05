@@ -32,7 +32,7 @@ describe("theme switching is not animated (§6)", () => {
 
   it("applying a theme fences the write, and switching mode fences it again", () => {
     vi.useFakeTimers();
-    const { rerender } = renderHook(({ pref }) => useApplyTheme("#7c6cff", pref), { initialProps: { pref: "dark" as ThemePref } });
+    const { rerender } = renderHook(({ pref }) => useApplyTheme({ color: "#7c6cff", pref }), { initialProps: { pref: "dark" as ThemePref } });
     expect(marked()).toBe(true); // set by the same layout effect that writes the palette
     act(() => { vi.advanceTimersByTime(100); });
     expect(marked()).toBe(false);
@@ -42,7 +42,7 @@ describe("theme switching is not animated (§6)", () => {
 
   it("leaves no mark behind when the app unmounts mid-swap", () => {
     vi.useFakeTimers();
-    const { unmount } = renderHook(() => useApplyTheme("#7c6cff", "dark"));
+    const { unmount } = renderHook(() => useApplyTheme({ color: "#7c6cff", pref: "dark" }));
     expect(marked()).toBe(true);
     unmount();
     expect(marked()).toBe(false);
@@ -60,7 +60,7 @@ describe("theme and mode compose", () => {
     // THE one-slot mutant: read a single palette for both faces (`themes.dark` whatever the mode).
     // Everything below still paints, and the light window silently wears the dark palette.
     const { result, rerender } = renderHook(
-      ({ pref }) => useApplyTheme("#7c6cff", pref, sel("solarized", "one")),
+      ({ pref }) => useApplyTheme({ color: "#7c6cff", pref, themes: sel("solarized", "one") }),
       { initialProps: { pref: "light" as ThemePref } },
     );
     expect(result.current).toBe("light");
@@ -75,7 +75,7 @@ describe("theme and mode compose", () => {
     // face. With a slot per face that is a control changing the OTHER axis behind the user's back:
     // asking for light and being handed a dark window because of something stored in a slot the
     // light window does not read.
-    const { result } = renderHook(() => useApplyTheme("#7c6cff", "light" as ThemePref, sel("monokai", "monokai")));
+    const { result } = renderHook(() => useApplyTheme({ color: "#7c6cff", pref: "light", themes: sel("monokai", "monokai") }));
     expect(result.current).toBe("light");
     expect(root().dataset.mode).toBe("light");
     expect(root().dataset.theme).toBe("realm");
@@ -84,7 +84,7 @@ describe("theme and mode compose", () => {
 
   it("a custom palette paints inline and the default palette scrubs it off again", () => {
     const { rerender } = renderHook(
-      ({ theme }) => useApplyTheme("#7c6cff", "dark" as ThemePref, sel("realm", theme)),
+      ({ theme }) => useApplyTheme({ color: "#7c6cff", pref: "dark", themes: sel("realm", theme) }),
       { initialProps: { theme: "one" } },
     );
     expect(root().style.getPropertyValue("--page")).toMatch(/^oklch\(/);
@@ -96,7 +96,7 @@ describe("theme and mode compose", () => {
   it("switching palette is fenced by the no-transition mark, exactly like switching mode", () => {
     vi.useFakeTimers();
     const { rerender } = renderHook(
-      ({ theme }) => useApplyTheme("#7c6cff", "dark" as ThemePref, sel("realm", theme)),
+      ({ theme }) => useApplyTheme({ color: "#7c6cff", pref: "dark", themes: sel("realm", theme) }),
       { initialProps: { theme: "realm" } },
     );
     act(() => { vi.advanceTimersByTime(100); });
@@ -113,7 +113,7 @@ describe("the adjustable ground reaches :root", () => {
 
   it("carries the user's value, and a change to it repaints without a mode or theme change", () => {
     const { rerender } = renderHook(
-      ({ alpha }) => useApplyTheme("#7c6cff", "dark" as ThemePref, { light: "realm", dark: "realm" }, alpha),
+      ({ alpha }) => useApplyTheme({ color: "#7c6cff", pref: "dark", groundAlpha: alpha }),
       { initialProps: { alpha: 82 } },
     );
     expect(document.documentElement.style.getPropertyValue("--ground-alpha")).toBe("82%");

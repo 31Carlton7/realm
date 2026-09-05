@@ -148,6 +148,7 @@ describe("App tab", () => {
   });
 
   const row = (face: "Light" | "Dark") => within(screen.getByRole("group", { name: `${face} theme` }));
+  const colours = (face: "Light" | "Dark") => within(screen.getByRole("group", { name: `${face} theme colours` }));
 
   it("there is a palette row per face, and each writes only its own key", async () => {
     const { store, api } = await openApp();
@@ -177,6 +178,59 @@ describe("App tab", () => {
         expect(row(face).getByRole("radio", { name }), `${face}/${name}`).toBeInTheDocument();
       }
     }
+  });
+
+  it("the override fields show the palette as edited, and a hex commits on blur", async () => {
+    const { store, api } = await openApp();
+    const hex = colours("Dark").getByRole("textbox", { name: "Accent hex" }) as HTMLInputElement;
+    // One Dark's own accent, before anything is edited — the field is a view of the seed, not a blank.
+    expect(hex.value).toBe("#3d9aff"); // Realm dark, the default selection
+    fireEvent.click(row("Dark").getByRole("radio", { name: "One" }));
+    await waitFor(() => expect((colours("Dark").getByRole("textbox", { name: "Accent hex" }) as HTMLInputElement).value).toBe("#61afef"));
+
+    const field = colours("Dark").getByRole("textbox", { name: "Accent hex" });
+    fireEvent.change(field, { target: { value: "#f92672" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(store.getState().themeOverrides["one:dark"]).toEqual({ accent: "#f92672" }));
+    expect(api.calls.some((c) => c.startsWith("setSetting:ui.themeOverrides"))).toBe(true);
+  });
+
+  it("a hex that is not a colour is refused and the field goes back to what is on screen", async () => {
+    // THE trusting-field mutant: commit whatever was typed. "#f" is a valid prefix of a hex and an
+    // invalid colour, and the derivation throws on it — from inside the paint of the next frame.
+    const { store } = await openApp();
+    const field = colours("Light").getByRole("textbox", { name: "Background hex" }) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "not a colour" } });
+    fireEvent.blur(field);
+    expect(store.getState().themeOverrides).toEqual({});
+    expect(field.value).toBe("#fafafb");
+  });
+
+  it("an edited palette offers a way back to the palette itself", async () => {
+    // THE no-reset mutant: leave the button out. An override is per palette and per face, so a user
+    // who dislikes what they did has no path back short of matching the original hex by hand.
+    const { store } = await openApp();
+    expect(colours("Light").queryByRole("button", { name: /Reset to/ })).toBeNull();
+    const field = colours("Light").getByRole("textbox", { name: "Accent hex" });
+    fireEvent.change(field, { target: { value: "#ff0000" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(colours("Light").getByRole("button", { name: "Reset to Realm" })).toBeInTheDocument());
+    fireEvent.click(colours("Light").getByRole("button", { name: "Reset to Realm" }));
+    await waitFor(() => expect(store.getState().themeOverrides).toEqual({}));
+  });
+
+  it("a colour that cannot reach the floor is named rather than quietly corrected", async () => {
+    // The decision: the ground and the ink are never moved for the user, so the app has to SAY what
+    // it did with them. THE silent-warning mutant: drop the line. The window is illegible and the
+    // page that caused it shows the hex the user typed with nothing beside it.
+    const { store } = await openApp();
+    for (const [label, hex] of [["Background", "#282828"], ["Foreground", "#2b2b2b"]] as const) {
+      const field = colours("Light").getByRole("textbox", { name: `${label} hex` });
+      fireEvent.change(field, { target: { value: hex } });
+      fireEvent.blur(field);
+    }
+    await waitFor(() => expect(store.getState().themeOverrides["realm:light"]).toMatchObject({ bg: "#282828", ink: "#2b2b2b" }));
+    expect(await colours("Light").findByText(/Below the contrast Realm holds every palette to.*Foreground/)).toBeInTheDocument();
   });
 
   it("background transparency runs the way its label reads and persists the ground's opacity", async () => {

@@ -11,8 +11,9 @@ import {
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
-import { DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, clampGroundAlpha, isThemeName, themeModes,
-  type Mode, type ThemeName, type ThemeSelection } from "@realm/ui";
+import { DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, clampGroundAlpha, isOverridden, isThemeName, overrideKey,
+  parseThemeOverrides, themeModes,
+  type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
@@ -428,6 +429,10 @@ export const SETTING_THEME = "ui.theme";
  *  wherever that palette has a face, which for a dark-only one is the dark slot alone. */
 export const SETTING_THEME_NAME: Record<Mode, string> = { light: "ui.themeName.light", dark: "ui.themeName.dark" };
 const SETTING_THEME_NAME_LEGACY = "ui.themeName";
+/** Colours the user has moved off a palette's own seeds, keyed by palette and face. One row rather
+ *  than a key per palette: they are read together on every boot and there is no palette whose
+ *  override is interesting on its own. */
+export const SETTING_THEME_OVERRIDES = "ui.themeOverrides";
 /** How opaque the sidebar's ground is over the macOS window material, in percent. */
 export const SETTING_GROUND_ALPHA = "ui.groundAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
@@ -507,6 +512,10 @@ export type AppState = {
    *  a palette can no longer move the mode, because each slot is offered only palettes that have
    *  its face (see `paletteFor`). */
   themeNames: ThemeSelection;
+  /** Per-palette, per-face colour edits, merged into the palette's seeds before derivation — so a
+   *  moved background gets the same surface ladder and the same contrast correction a vendored one
+   *  does, rather than a raw value written past the machinery. */
+  themeOverrides: ThemeOverrides;
   /** The sidebar's opacity over the macOS vibrancy material, 40–100. Persisted on every platform —
    *  a preference set on a Mac should survive opening the same home somewhere without a material,
    *  and come back unchanged. */
@@ -816,6 +825,9 @@ export type AppState = {
   reorderSpaces(ids: string[]): Promise<void>;
   setThemePref(pref: ThemePref): Promise<void>;
   setThemeName(mode: Mode, name: ThemeName): Promise<void>;
+  /** Merges into the palette's existing edits; an undefined role clears that one. */
+  setThemeOverride(name: ThemeName, mode: Mode, patch: ThemeOverride & { syntax?: Partial<Record<string, string>> }): Promise<void>;
+  resetThemeOverride(name: ThemeName, mode: Mode): Promise<void>;
   setGroundAlpha(pct: number): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
   /** Flip the sidebar between full column and top rail, and persist it. */
@@ -1807,7 +1819,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
@@ -1829,9 +1841,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, groundAlpha, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, groundAlpha, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_TERMINAL_PANEL),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
@@ -1839,6 +1851,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
+          themeOverrides: parseThemeOverrides(overrides),
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true, lastAgentKind: agent.success ? agent.data : null,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName });
@@ -2000,6 +2013,30 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setThemeName(mode, name) {
         set({ themeNames: { ...get().themeNames, [mode]: name } });
         await api.setSetting(SETTING_THEME_NAME[mode], name);
+      },
+      async setThemeOverride(name, mode, patch) {
+        const key = overrideKey(name, mode);
+        const prev = get().themeOverrides[key] ?? {};
+        // An undefined role means "back to the palette's own", so it is DELETED rather than spread
+        // in: a stored `{ accent: undefined }` survives JSON as a missing key on the way out and as
+        // a present one on the way in, and the two disagree about whether the palette is edited.
+        const merged: ThemeOverride = { ...prev, ...patch, syntax: { ...prev.syntax, ...patch.syntax } };
+        for (const [role, hex] of Object.entries({ ...patch, ...patch.syntax })) {
+          if (hex !== undefined) continue;
+          delete (merged as Record<string, unknown>)[role];
+          delete (merged.syntax as Record<string, unknown> | undefined)?.[role];
+        }
+        if (!Object.keys(merged.syntax ?? {}).length) delete merged.syntax;
+        const next = { ...get().themeOverrides };
+        if (isOverridden(merged)) next[key] = merged; else delete next[key];
+        set({ themeOverrides: next });
+        await api.setSetting(SETTING_THEME_OVERRIDES, next);
+      },
+      async resetThemeOverride(name, mode) {
+        const next = { ...get().themeOverrides };
+        delete next[overrideKey(name, mode)];
+        set({ themeOverrides: next });
+        await api.setSetting(SETTING_THEME_OVERRIDES, next);
       },
       async setGroundAlpha(pct) {
         // Clamped before it is stored, not just before it is painted: an out-of-range value written

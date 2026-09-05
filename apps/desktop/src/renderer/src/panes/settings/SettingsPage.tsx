@@ -3,7 +3,8 @@ import {
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
 } from "@realm/contracts";
-import { GROUND_ALPHA_RANGE, Icon, THEMES, themeModes, themeSwatches, type Mode, type ThemeName } from "@realm/ui";
+import { GROUND_ALPHA_RANGE, Icon, REALM_SEED, THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
+  seedFor, themeModes, themeSwatches, type Mode, type ThemeName } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
@@ -218,7 +219,65 @@ function PaletteRow({ face, live, selected, onSelect }:
         })}
       </fieldset>
       <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
+      <ThemeOverrideEditor name={palette.name} face={face} />
     </div>
+  );
+}
+
+/** The three seeds that decide what a palette feels like — its paper, its text and its one hue.
+ *  Edits go into the SEED and back through the same derivation a vendored palette goes through, so a
+ *  moved background gets the surface ladder, the ink ramp and the contrast correction rather than a
+ *  raw value written past all three. */
+const OVERRIDE_FIELDS = [
+  { role: "accent", label: "Accent" }, { role: "bg", label: "Background" }, { role: "ink", label: "Foreground" },
+] as const;
+
+function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
+  const override = useApp((s) => s.themeOverrides[overrideKey(name, face)]);
+  const setThemeOverride = useApp((s) => s.setThemeOverride);
+  const resetThemeOverride = useApp((s) => s.resetThemeOverride);
+  const run = useApp((s) => s.run);
+  // The palette AS EDITED. `seedFor` returns null only for an untouched Realm, whose seeds are what
+  // the fields have to show anyway — there is no other honest starting value for an edit.
+  const seed = seedFor(name, face, override ?? {}) ?? REALM_SEED[face];
+  const misses = contrastMisses(seed, face);
+
+  return (
+    <fieldset className="theme-overrides" aria-label={`${face === "light" ? "Light" : "Dark"} theme colours`}>
+      {OVERRIDE_FIELDS.map(({ role, label }) => (
+        <label key={role} className="theme-override">
+          <span>{label}</span>
+          <input type="color" aria-label={`${label} colour`} value={seed[role]}
+            onChange={(e) => run(() => setThemeOverride(name, face, { [role]: e.target.value }))} />
+          {/* Text as well as a swatch: a hex is a value you paste from somewhere else, and the OS
+              colour picker cannot be typed into. Committed on blur/Enter rather than per keystroke —
+              every prefix of a hex is a different colour, and "#f" would repaint the window red on
+              the way to "#f92672". */}
+          <input type="text" className="hex" aria-label={`${label} hex`} defaultValue={seed[role]} key={seed[role]}
+            spellCheck={false} maxLength={7}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+            onBlur={(e) => {
+              const hex = e.target.value.trim();
+              if (isHexColour(hex)) run(() => setThemeOverride(name, face, { [role]: hex }));
+              else e.target.value = seed[role];
+            }} />
+        </label>
+      ))}
+      {isOverridden(override) && (
+        <button type="button" className="btn-quiet" onClick={() => run(() => resetThemeOverride(name, face))}>
+          Reset to {THEMES.find((t) => t.name === name)?.label}
+        </button>
+      )}
+      {/* Named, not corrected. The ground and the ink are the two seeds nothing lifts — moving them
+          silently to clear a floor hands back a theme the user did not pick — and a hue that misses
+          after its whole lift budget is one this ramp cannot carry. Either way the useful thing to
+          show is which colour, and by how much. */}
+      {misses.length > 0 && (
+        <p className="settings-hint" data-tone="warn">
+          {`Below the contrast Realm holds every palette to: ${misses.map((m) => `${m.role} ${m.ratio.toFixed(1)}:1 (needs ${m.floor}:1)`).join(", ")}.`}
+        </p>
+      )}
+    </fieldset>
   );
 }
 

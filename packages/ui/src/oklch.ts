@@ -72,6 +72,14 @@ export function css(o: Oklch, alpha?: number): string {
   return alpha === undefined ? `oklch(${base})` : `oklch(${base} / ${n(alpha, 3)})`;
 }
 
+/** Back from the CSS form. The derivation's own output is the only thing this parses — a full
+ *  colour parser is a different job, and every caller here is reading a value `css` wrote. */
+export function parseOklch(value: string): Oklch {
+  const m = /^oklch\(([\d.]+) ([\d.]+) ([\d.]+)/.exec(value.trim());
+  if (!m) throw new Error(`not an oklch value: ${value}`);
+  return { l: Number(m[1]), c: Number(m[2]), h: Number(m[3]) };
+}
+
 /** WCAG 2.x relative luminance. */
 export function luminance(o: Oklch): number {
   const [r, g, b] = toLinearRgb(o);

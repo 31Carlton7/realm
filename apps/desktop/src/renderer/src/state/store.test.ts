@@ -251,6 +251,40 @@ describe("app store", () => {
     expect(set.filter((k) => k.startsWith("ui.theme"))).toEqual(["ui.themeName.dark=monokai", "ui.themeName.light=solarized"]);
   });
 
+  it("an override is stored per palette and per face, and clearing a role removes it", async () => {
+    const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${JSON.stringify(v)}`); } });
+    await store.getState().boot();
+    await store.getState().setThemeOverride("one", "dark", { accent: "#f92672" });
+    await store.getState().setThemeOverride("one", "dark", { bg: "#101014" });
+    // THE clobbering-setter mutant: replace rather than merge. Setting the Background would silently
+    // discard the Accent the user set a moment earlier, in a control with no undo.
+    expect(store.getState().themeOverrides).toEqual({ "one:dark": { accent: "#f92672", bg: "#101014" } });
+    // A different face of the same palette is a different edit.
+    await store.getState().setThemeOverride("one", "light", { accent: "#4078f2" });
+    expect(Object.keys(store.getState().themeOverrides).sort()).toEqual(["one:dark", "one:light"]);
+
+    // THE undefined-as-a-value mutant: spread the clear in instead of deleting the key. It survives
+    // JSON as a missing key on the way out and reads back as unedited — but until the next boot the
+    // in-memory record still has the key, so "Reset" shows for an edit that is no longer there.
+    await store.getState().setThemeOverride("one", "dark", { accent: undefined });
+    expect(store.getState().themeOverrides["one:dark"]).toEqual({ bg: "#101014" });
+    await store.getState().setThemeOverride("one", "dark", { bg: undefined });
+    expect(store.getState().themeOverrides["one:dark"]).toBeUndefined();
+
+    await store.getState().resetThemeOverride("one", "light");
+    expect(store.getState().themeOverrides).toEqual({});
+    expect(set.filter((k) => k.startsWith("ui.themeOverrides")).at(-1)).toBe("ui.themeOverrides={}");
+  });
+
+  it("boot drops an override that is not a colour rather than letting it reach the derivation", async () => {
+    // THE trusted-row mutant: pass the stored object through. `hexToOklch` throws on "blue", inside
+    // the layout effect that paints the first frame — a white window with no Settings left to fix it.
+    const s = createAppStore({ ...api,
+      getSetting: async (k) => (k === "ui.themeOverrides" ? { "one:dark": { accent: "blue", bg: "#101014" }, "cobalt:dark": { bg: "#000000" } } : null) });
+    await s.getState().boot();
+    expect(s.getState().themeOverrides).toEqual({ "one:dark": { bg: "#101014" } });
+  });
+
   it("groundAlpha persists once per gesture, and boot clamps whatever it reads back", async () => {
     const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
     await store.getState().boot();

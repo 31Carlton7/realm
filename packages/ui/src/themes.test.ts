@@ -1,24 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { contrast, hexToOklch, type Oklch } from "./oklch";
-import { CONTRAST_FLOOR, THEMES, THEME_VARS, deriveVars, paletteFor, resolveMode, themeModes, themeSwatches, themeVars } from "./themes";
+import { contrast, hexToOklch, parseOklch as parse } from "./oklch";
+import { CONTRAST_FLOOR, INK_GROUNDS, REALM_SEED, THEMES, THEME_VARS, contrastMisses, deriveVars, paletteFor,
+  parseThemeOverride, parseThemeOverrides, resolveMode, seedFor, themeModes, themeSwatches, themeVars,
+  type ThemeOverride } from "./themes";
 import type { Mode } from "./theme";
-
-const parse = (value: string): Oklch => {
-  const m = /^oklch\(([\d.]+) ([\d.]+) ([\d.]+)/.exec(value);
-  if (!m) throw new Error(`not an oklch value: ${value}`);
-  return { l: Number(m[1]), c: Number(m[2]), h: Number(m[3]) };
-};
-
-/** The grounds each ink tier actually lands on, read off styles.css rather than taken as the whole
- *  ladder: `--ink-2` never appears on `--hover-2` or `--field` (both are written with `--ink` in
- *  every rule that uses them), and `--ink-3` never leaves the resting surfaces. Widening these to the
- *  full cross-product would fail themes over pairings the stylesheet never produces; narrowing them
- *  past what it does produce is how an unreadable pairing ships. */
-const GROUNDS = {
-  ink: ["--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field"],
-  ink2: ["--page", "--canvas", "--surface", "--inset", "--hover"],
-  ink3: ["--page", "--canvas", "--surface", "--inset"],
-} as const;
 
 /** The eight validated chart series, copied from tokens.css. A theme does not repaint them; what it
  *  moves is the ground under them, so this is the set the clamp has to keep working for. */
@@ -133,9 +118,9 @@ describe(`every theme clears the floor (ink ${CONTRAST_FLOOR.ink}:1, ink-2 ${CON
       // The one assertion here that no derivation can rescue: `--ink` is a seed, held to AA on every
       // ground the stylesheet puts it on. A theme whose foreground is too close to its background is
       // a bug in the theme, and this is the line that says so.
-      expect(worst("--ink", GROUNDS.ink), "--ink").toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink);
-      expect(worst("--ink-2", GROUNDS.ink2), "--ink-2").toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink2);
-      expect(worst("--ink-3", GROUNDS.ink3), "--ink-3").toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink3);
+      expect(worst("--ink", INK_GROUNDS.ink), "--ink").toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink);
+      expect(worst("--ink-2", INK_GROUNDS.ink2), "--ink-2").toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink2);
+      expect(worst("--ink-3", INK_GROUNDS.ink3), "--ink-3").toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink3);
 
       for (const token of ["--accent", "--green", "--orange", "--red"]) {
         expect(onSurface(token), token).toBeGreaterThanOrEqual(CONTRAST_FLOOR.chrome);
@@ -244,5 +229,97 @@ describe("provenance", () => {
       if (theme.name === "realm") { expect(theme.credit).toBeNull(); continue; }
       expect(theme.credit, theme.name).toMatch(/MIT ©/);
     }
+  });
+});
+
+describe("a user's own colours go through the same machinery", () => {
+  const derived = (name: Parameters<typeof themeVars>[0], mode: Mode, o: ThemeOverride) => themeVars(name, mode, o);
+
+  it("an override is merged into the SEED, so the whole palette follows it", () => {
+    // THE raw-write mutant: write the three overridden values straight onto :root and leave the rest
+    // of the derivation on the palette's own seeds. Every floor still passes — they are measured
+    // against the surface the OLD ground derived — and the app is a One Dark card ladder floating on
+    // a black page, with a tooltip and a chart ground that never heard about the change.
+    const v = derived("one", "dark", { bg: "#101014" });
+    const base = themeVars("one", "dark");
+    for (const token of ["--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2",
+      "--field", "--stripe-bg", "--tooltip-bg", "--tooltip-border", "--chart-surface"]) {
+      expect(v[token], token).not.toBe(base[token]);
+    }
+    expect(parse(v["--page"]!).l).toBeCloseTo(hexToOklch("#101014").l, 3);
+    // ...and the ladder still climbs off the NEW ground by the ramp's own step.
+    expect(parse(v["--surface"]!).l - parse(v["--page"]!).l)
+      .toBeCloseTo(parse(base["--surface"]!).l - parse(base["--page"]!).l, 3);
+  });
+
+  it("an overridden hue is corrected exactly as a vendored one is — lightness only, inside the budget", () => {
+    // THE unchecked-override mutant: skip `lift` for user colours because "the user asked for it".
+    // A #333 accent on One Dark's card is 1.3:1, which is a focus ring nobody can find.
+    const v = derived("one", "dark", { accent: "#333333" });
+    const want = hexToOklch("#333333"), got = parse(v["--accent"]!);
+    expect(got.c).toBeCloseTo(want.c, 3);
+    expect(Math.abs(got.h - want.h)).toBeLessThan(0.5);
+    expect(Math.abs(got.l - want.l)).toBeLessThanOrEqual(0.121);
+    expect(contrast(got, parse(v["--surface"]!))).toBeGreaterThan(contrast(want, parse(v["--surface"]!)));
+  });
+
+  it("the ground and the ink are handed back exactly as asked, and the miss is REPORTED", () => {
+    // The decision this pins: correcting these two silently would hand back a theme the user did not
+    // pick — a palette's identity is its paper and its text. So they are derived verbatim and named.
+    // THE silent-fix mutant: lift `ink` off `bg` like any other hue. `contrastMisses` returns empty,
+    // the warning never renders, and the foreground in the field stops being the one on screen.
+    const seed = seedFor("one", "dark", { bg: "#282828", ink: "#2b2b2b" })!;
+    const v = deriveVars(seed, "dark");
+    expect(parse(v["--ink"]!).l).toBeCloseTo(hexToOklch("#2b2b2b").l, 3);
+    expect(contrastMisses(seed, "dark").map((m) => m.role)).toContain("Foreground");
+  });
+
+  it("a palette that clears every floor reports nothing — the warning cannot be always-on", () => {
+    // Without this, `contrastMisses` returning every role unconditionally would pass the test above.
+    for (const { theme, mode } of faces()) {
+      if (theme.name === "realm") continue;
+      expect(contrastMisses(seedFor(theme.name, mode)!, mode), `${theme.name}/${mode}`).toEqual([]);
+    }
+    expect(contrastMisses(REALM_SEED.dark, "dark")).toEqual([]);
+    expect(contrastMisses(REALM_SEED.light, "light")).toEqual([]);
+  });
+
+  it("Realm untouched still writes nothing, and Realm edited derives off its own seeds", () => {
+    // THE eager-seed mutant: give `realm` seeds in THEMES. Every user who never chose a theme gets
+    // 34 inline properties over the hand-tuned static CSS — near-identical, and no longer it.
+    expect(seedFor("realm", "dark")).toBeNull();
+    expect(themeVars("realm", "dark", {})).toEqual({});
+    const edited = seedFor("realm", "dark", { accent: "#f92672" })!;
+    expect(edited.bg).toBe(REALM_SEED.dark.bg);
+    expect(edited.accent).toBe("#f92672");
+    expect(Object.keys(themeVars("realm", "dark", { accent: "#f92672" })).sort()).toEqual([...THEME_VARS].sort());
+  });
+
+  it("a face with no seeds cannot be conjured out of an override", () => {
+    // Monokai has no light palette. An override is an edit to something, not a way to invent the
+    // thing — otherwise a stray stored key would produce a "Monokai Light" nobody designed.
+    expect(seedFor("monokai", "light", { accent: "#f92672" })).toBeNull();
+  });
+});
+
+describe("overrides read back off a user-editable settings row", () => {
+  it("keeps hex and drops everything else, per field", () => {
+    // THE trusted-blob mutant: cast the stored row to ThemeOverride. `hexToOklch` THROWS on
+    // "cornflowerblue", inside a layout effect, at boot — a white window with no settings page left
+    // to undo it from.
+    expect(parseThemeOverride({ bg: "#101014", ink: "cornflowerblue", accent: 42, nope: "#fff" }))
+      .toEqual({ bg: "#101014" });
+    expect(parseThemeOverride({ syntax: { keyword: "#abc", string: "rgb(1,2,3)" } }))
+      .toEqual({ syntax: { keyword: "#abc" } });
+    for (const junk of [null, undefined, "one", 7, [], { bg: "#12345" }]) expect(parseThemeOverride(junk)).toEqual({});
+  });
+
+  it("drops a key naming a palette or a face this build does not have", () => {
+    expect(parseThemeOverrides({ "one:dark": { accent: "#ff0000" } })).toEqual({ "one:dark": { accent: "#ff0000" } });
+    expect(parseThemeOverrides({ "cobalt:dark": { accent: "#ff0000" } })).toEqual({});
+    expect(parseThemeOverrides({ "one:sepia": { accent: "#ff0000" } })).toEqual({});
+    // An entry whose every field was dropped is not an override — it would make `isOverridden` true
+    // and show a "Reset" button for an edit that no longer exists.
+    expect(parseThemeOverrides({ "one:dark": { accent: "nope" } })).toEqual({});
   });
 });
