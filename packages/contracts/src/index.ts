@@ -19,6 +19,7 @@ export * from "./review";
 export * from "./browser-agent";
 export * from "./fence";
 export * from "./chips";
+export * from "./cli";
 export * from "./computer-use";
 export * from "./delegation";
 export * from "./search";

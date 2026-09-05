@@ -91,6 +91,8 @@ export const liveApi = (): Api => ({
   writeTerminal: async (terminalId, data) => { await rpc().call("terminals.write", { terminalId, data }); },
   prefillTerminal: async (terminalId, command) => { await rpc().call("terminals.prefill", { terminalId, command }); },
   probeAgents: (force) => rpc().call("agents.probe", { force }),
+  cliStatus: async (force) => (await rpc().call("cli.status", { force })).rows,
+  runCli: (kind, action) => rpc().call("cli.run", { kind, action }),
   modelCatalog: async (force) => (await rpc().call("models.catalog", { force })).rows,
   usageSummary: (p) => rpc().call("usage.summary", p),
   setUsageBudget: (budget) => rpc().call("usage.setBudget", budget),

@@ -261,6 +261,16 @@ export function App() {
       // was never opened has nothing to go stale.
       for (const spaceId of Object.keys(st.connectors)) st.run(() => st.refreshConnectors(spaceId));
     });
+    // A running install's narration and its outcome. Broadcast, so both the Settings engines list and
+    // a session's install card follow the same install; the store drops anything it did not start.
+    const offCO = rpc().on("cli.output", (e) => store.getState().applyCliOutput(e));
+    const offCD = rpc().on("cli.done", (e) => {
+      const st = store.getState();
+      st.applyCliDone(e);
+      // The server re-probed before sending this, so an unforced read is already the new truth.
+      st.run(() => st.refreshCliStatus());
+      st.run(() => st.probeAgents(true));
+    });
     const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
     // Broadcast for EVERY space/session (binding rule 5) — applyMcpCall itself is the gate on whether
     // Activity is even open and whether the row matches its filter, same as mcp.serverStatus above.
@@ -277,7 +287,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offSh(); offRun(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offC();
+      offS(); offI(); offV(); offW(); offSh(); offRun(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

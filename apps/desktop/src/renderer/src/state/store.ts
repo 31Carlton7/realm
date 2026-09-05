@@ -7,7 +7,7 @@ import {
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
+  type AgentKind, type Attachment, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -64,6 +64,31 @@ export type AgentProbe = MethodResult<"agents.probe">[number];
 export type McpTestResult = { reached: boolean; detail: string };
 /** A `session.event` broadcast: persisted rows carry their seq; ephemeral ones (deltas) have seq -1. */
 export type LiveSessionEvent = StoredSessionEvent & { ephemeral: boolean };
+
+/** Each kind's currently-known model ids, for kinds that could enumerate at all. A kind absent from
+ *  the map is one whose catalog is unknown, which is not the same as one whose catalog is empty. */
+function modelIdsByKind(probe: AgentProbe[]): Map<AgentKind, Set<string>> {
+  const out = new Map<AgentKind, Set<string>>();
+  for (const p of probe) if (p.models) out.set(p.kind, new Set(p.models.map((m) => m.id)));
+  return out;
+}
+
+/**
+ * One install or update as the renderer follows it: the exact command that is running, everything it
+ * has said so far, and how it ended.
+ *
+ * `output` is one growing string rather than a list of chunks because that is what it is — a package
+ * manager's narration arrives split at arbitrary byte boundaries, and rejoining it is the only way
+ * a half-written line reads as a line.
+ */
+export type CliJob = {
+  id: string;
+  kind: AgentKind;
+  command: string;
+  output: string;
+  state: "running" | "ok" | "failed";
+  error: string | null;
+};
 export type TranscriptEntry = { lastSeq: number; t: Transcript };
 
 /** Everything the store needs from the outside world: realm-server RPC plus the two platform
@@ -216,6 +241,12 @@ export type Api = {
   prefillTerminal(terminalId: string, command: string): Promise<void>;
   /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
   probeAgents(force: boolean): Promise<AgentProbe[]>;
+  /** `cli.status` — install/update situation per agent CLI. `force` bypasses the server's probe
+   *  cache AND its six-hour version sweep; that is the "Check for updates" gesture. */
+  cliStatus(force: boolean): Promise<CliStatus[]>;
+  /** `cli.run` — start the install or update the status offered. Rejects when the server is not
+   *  offering that action, which is the only place that decision is ever made. */
+  runCli(kind: AgentKind, action: "install" | "update"): Promise<CliJobStart>;
   /** `models.catalog` — prices, context windows and reasoning efforts for the picker. Never rejects
    *  on a dead network: the server answers with its cache, or with nothing. */
   modelCatalog(force: boolean): Promise<ModelInfo[]>;
@@ -627,6 +658,15 @@ export type AppState = {
    *  a toast that only worked after a visit to Settings would be a toast that does not work. */
   desktopNotifications: boolean;
   agentProbe: AgentProbe[];
+  /** Per-agent install/update situation. Empty until something asks; the engines list and the
+   *  install card both read it, and neither may block on it. */
+  cliStatus: CliStatus[];
+  /** What the last "Check for new models" turned up. Null until one has run; an empty `added` is a
+   *  real answer ("nothing new"), which is why this is not just an array. */
+  modelCheck: { at: number; added: { kind: AgentKind; id: string; label: string }[] } | null;
+  /** The install or update running (or just finished) for each kind, keyed by kind rather than by job
+   *  id because that is how every reader asks: "is this row busy, and what did it say". */
+  cliJobs: Record<string, CliJob>;
   /** The Settings page's App-tab preferences (Plan 12 W6), read from the server's settings rows:
    *  which notification categories are switched OFF (`NOTIFICATIONS_DISABLED_KEY` — default-on
    *  polarity, matching the service), and the permission mode new sessions start in
@@ -1044,6 +1084,15 @@ export type AppState = {
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
+  /** Refresh `cliStatus`. Unforced rides the server's caches; `force` is "Check for updates" and the
+   *  refresh after an install finishes. */
+  refreshCliStatus(force?: boolean): Promise<void>;
+  runCliAction(kind: AgentKind, action: "install" | "update"): Promise<void>;
+  applyCliOutput(e: CliJobOutput): void;
+  applyCliDone(e: CliJobEnd): void;
+  /** Drop a finished job's output panel. A running job cannot be dismissed — hiding output while a
+   *  package manager is still writing to the machine is the one moment it matters most. */
+  dismissCliJob(kind: AgentKind): void;
   /** The Usage tab's read. Returns rather than stores, for the same reason `importScan` does: it is
    *  a range's worth of rows that only one panel ever looks at, and parking it globally would keep
    *  it alive for every pane that never opens Settings. */
@@ -1224,7 +1273,10 @@ export type AppState = {
   refreshModelFavorites(): Promise<void>;
   /** Read the model catalog into `modelInfo`. Cheap and idempotent: the server holds a day-long
    *  cache, so every session pane calling this on mount costs one round trip. */
-  refreshModelCatalog(): Promise<void>;
+  refreshModelCatalog(force?: boolean): Promise<void>;
+  /** Ask every provider for its model list again and refetch the public catalog, then record which
+   *  ids are new since the last answer. Both halves force past a cache that is otherwise correct. */
+  checkForNewModels(): Promise<void>;
   /** Star or un-star ONE model by canonical key, persisting the whole list. Recomputed from the held
    *  list so a double-click can't write a duplicate, and so only THIS key ever moves. */
   toggleModelFavorite(key: string): Promise<void>;
@@ -1633,9 +1685,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** In-flight `agents.probe` calls, kept apart by force: a forced probe must never be satisfied by a
      *  cheap one already in flight (that one may predate the install the user just ran). */
     const probing: { plain: Promise<void> | null; forced: Promise<void> | null } = { plain: null, forced: null };
+  const cliChecking: { plain: Promise<void> | null; forced: Promise<void> | null } = { plain: null, forced: null };
     // The catalog's in-flight read, collapsed the same way the probe's is — one round trip per tick
     // however many panes mounted at once.
-    let catalogPending: Promise<void> | null = null;
+    const catalogPending: { plain: Promise<void> | null; forced: Promise<void> | null } = { plain: null, forced: null };
     /** Flush a pending debounced persist before the active space changes (persist reads the current space). */
     const flushPersist = async () => {
       if (panelTimer) await persistPanels();
@@ -1855,7 +1908,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -1907,6 +1960,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (feed) applyUnread(feed.unread);
         // Last, so `booted && spaces.length === 0` is only ever true for a genuinely empty home.
         set({ booted: true });
+        // The launch check: what agent CLIs are here, and has anything published a newer version.
+        // AFTER booted and never awaited, so it cannot delay the first paint or make a session wait
+        // on a network call — and unforced, so it rides the server's six-hour cache rather than
+        // asking a registry on every launch. It only ever LOOKS; applying an update stays a click.
+        void get().refreshCliStatus().catch(() => {});
       },
       async selectSpace(id) {
         await flushPersist();
@@ -2797,6 +2855,42 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         probing[force ? "forced" : "plain"] = p;
         await p;
       },
+      async refreshCliStatus(force = false) {
+        // Same mount-storm collapse as probeAgents, keyed by force for the same reason: an unforced
+        // call already in flight may have read the machine before an install finished, which is
+        // exactly what the forced one is asking to escape.
+        const pending = cliChecking[force ? "forced" : "plain"];
+        if (pending) { await pending; return; }
+        const p = api.cliStatus(force)
+          .then((cliStatus) => { set({ cliStatus }); })
+          .finally(() => { cliChecking[force ? "forced" : "plain"] = null; });
+        cliChecking[force ? "forced" : "plain"] = p;
+        await p;
+      },
+      async runCliAction(kind, action) {
+        const started = await api.runCli(kind, action);
+        // The command comes back from the server rather than being remembered from the status that
+        // rendered the button: what is shown running is what the server says is running.
+        set({ cliJobs: { ...get().cliJobs, [kind]: { ...started, output: "", state: "running", error: null } } });
+      },
+      applyCliOutput({ id, kind, chunk }) {
+        const job = get().cliJobs[kind];
+        // A chunk from a job this client did not start (another window's install, broadcast to
+        // everyone) has nowhere to go — the panel showing it is the one that has the job.
+        if (!job || job.id !== id) return;
+        set({ cliJobs: { ...get().cliJobs, [kind]: { ...job, output: job.output + chunk } } });
+      },
+      applyCliDone({ id, kind, ok, error }) {
+        const job = get().cliJobs[kind];
+        if (!job || job.id !== id) return;
+        set({ cliJobs: { ...get().cliJobs, [kind]: { ...job, state: ok ? "ok" : "failed", error } } });
+      },
+      dismissCliJob(kind) {
+        const job = get().cliJobs[kind];
+        if (!job || job.state === "running") return;
+        const { [kind]: _gone, ...rest } = get().cliJobs;
+        set({ cliJobs: rest });
+      },
       async setDefaultAgent(kind) {
         set({ lastAgentKind: kind });
         await api.setSetting(SETTING_LAST_AGENT, kind);
@@ -3240,17 +3334,37 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const raw = await api.getSetting(MODEL_FAVORITES_KEY);
         set({ modelFavorites: (Array.isArray(raw) ? raw : []).filter((k): k is string => typeof k === "string") });
       },
-      async refreshModelCatalog() {
+      async refreshModelCatalog(force = false) {
         // Same mount-storm shape as probeAgents, for the same reason: a four-pane split asks four
         // times in one tick. Failures are swallowed — a picker with no prices is the fallback the
         // whole catalog path is designed around, so there is nothing to report to the user here.
-        if (!catalogPending) {
-          catalogPending = api.modelCatalog(false)
+        //
+        // Keyed by force like probeAgents: a mount-time call already in flight was answered from the
+        // day-long cache, which is exactly what "Check for new models" is asking to get past.
+        const slot = force ? "forced" : "plain";
+        if (!catalogPending[slot]) {
+          catalogPending[slot] = api.modelCatalog(force)
             .then((rows) => { set({ modelInfo: Object.fromEntries(rows.map((r) => [r.key, r])) }); })
             .catch(() => {})
-            .finally(() => { catalogPending = null; });
+            .finally(() => { catalogPending[slot] = null; });
         }
-        await catalogPending;
+        await catalogPending[slot];
+      },
+      async checkForNewModels() {
+        // The probe re-asks each provider for its LIVE catalog (Codex over model/list, the ACP
+        // agents through session/new). Nothing new is invented here — the diff below only reports
+        // what the providers themselves started saying.
+        const before = modelIdsByKind(get().agentProbe);
+        await Promise.all([get().probeAgents(true), get().refreshModelCatalog(true)]);
+        const added: { kind: AgentKind; id: string; label: string }[] = [];
+        for (const p of get().agentProbe) {
+          const seen = before.get(p.kind);
+          // A kind that could not enumerate before (or cannot now) is skipped rather than counted:
+          // "we could not ask" would otherwise read as "everything here is new".
+          if (!seen || !p.models) continue;
+          for (const m of p.models) if (!seen.has(m.id)) added.push({ kind: p.kind, id: m.id, label: m.label });
+        }
+        set({ modelCheck: { at: Date.now(), added } });
       },
       async toggleModelFavorite(key) {
         const held = get().modelFavorites;
