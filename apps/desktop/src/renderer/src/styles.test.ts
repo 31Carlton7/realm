@@ -959,13 +959,19 @@ describe("squircle surfaces", () => {
     expect(registrar).toContain('root.setAttribute("data-squircle", "")');
   });
 
-  it("the ring moves to the painter and the lift stays on box-shadow", () => {
-    // A box-shadow ring is drawn on the rounded rect whatever the fill does, so under the gate —
-    // where the radius is 0 — a focus ring left on box-shadow would square the corner off. The lift
-    // is the opposite case: blurred far wider than the two curves diverge, so it stays put, and
-    // keeping it there is what a mask would have cost.
+  it("the ring AND the lift both come off box-shadow — neither can be drawn from the border box", () => {
+    // Both are drawn from the rounded rect whatever the fill does, so under the gate — where the
+    // radius is 0 — box-shadow squares them off. The ring squares the corner outright; the lift
+    // landed as a detached square band beside the card, measured 6px wide at --r-squircle: 36px.
+    // The lift's old home was defended as "blurred wider than the two curves diverge", which held
+    // while the radius was 20 and stopped holding when it grew.
+    //
+    // The lift rides a ::before rather than the card because a filter on the card promotes it to its
+    // own layer, and the worklet then stops repainting when --sq-ring changes — focus silently stops
+    // brightening the edge. squircle-live.mjs is what catches that; this only pins where it lives.
     for (const sel of [".composer", ".commit-card"]) {
-      expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain("box-shadow: var(--shadow-card-lift)");
+      expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain("box-shadow: none");
+      expect(bodiesFor(`:root[data-squircle] ${sel}::before`).join(" "), sel).toContain("filter: var(--shadow-card-lift-filter)");
       const focus = bodiesFor(`:root[data-squircle] ${sel}:focus-within`).join(" ");
       expect(focus, sel).toContain("--sq-ring: var(--line-strong)");
       expect(focus, sel).not.toContain("0 0 0 1px");

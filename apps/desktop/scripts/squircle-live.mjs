@@ -251,10 +251,20 @@ async function main() {
     return s.band(b.left - 6, b.top + 30, b.left - 1, b.bottom - 30);
   })()`;
   const lift = await evalIn(c, leftOfCard(restShot));
-  await evalIn(c, `(() => { document.querySelector(".composer").style.boxShadow = "none"; return true; })()`);
+  // The lift is a `filter` on the card's ::before, not a box-shadow on the card — a box-shadow is
+  // drawn from the border box and these surfaces have `border-radius: 0`, so it landed square behind
+  // a rounded card. Suppressing the filter is therefore what removes the lift; mutating boxShadow
+  // here would change nothing and this check would pass without testing anything.
+  await evalIn(c, `(() => {
+    const st = document.createElement("style");
+    st.id = "kill-lift";
+    st.textContent = ":root[data-squircle] .composer::before { filter: none !important; }";
+    document.head.appendChild(st);
+    return true;
+  })()`);
   await sleep(250);
   const flat = await evalIn(c, leftOfCard(await shotOf(c)));
-  check("the card still casts its lift — the ground beside it is darker than with box-shadow removed",
+  check("the card still casts its lift — the ground beside it is darker than with the drop-shadow removed",
     lift < flat - 0.3, { withShadow: +lift.toFixed(2), withoutShadow: +flat.toFixed(2) });
   await evalIn(c, `(() => { document.querySelector(".composer").style.boxShadow = ""; return true; })()`);
   await sleep(250);

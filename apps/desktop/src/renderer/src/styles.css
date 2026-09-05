@@ -1757,18 +1757,38 @@ button.panel-title:hover { background: var(--rl-hover); }
   --sq-radius-top: var(--r-squircle);
   --sq-radius-bottom: var(--r-squircle);
 }
+/* The lift, cast from the painted curve rather than from the border box.
+ *
+ * `box-shadow` is drawn from the border box, and these surfaces set `border-radius: 0` because their
+ * curve is painted rather than declared — so the lift landed as a SQUARE behind a rounded card, six
+ * pixels wide at the corners once the radius reached 36. `drop-shadow` traces rendered alpha, which
+ * IS the worklet's path, and neither lift layer has a spread, so the two forms are otherwise equal.
+ *
+ * It rides a content-free ::before rather than the card, and that is load-bearing twice over: a
+ * filter on the card promotes it to its own layer and the worklet then stops repainting when
+ * `--sq-ring` changes, so focus silently stopped brightening the edge; and filtering the card would
+ * put its text through the filter too. The registered `--sq-*` inputs do not inherit, so this layer
+ * states its own — it needs only an opaque fill and the same radii, never the ring. */
+:root[data-squircle] .composer::before,
+:root[data-squircle] .install-card::before,
+:root[data-squircle] .commit-card::before {
+  content: ""; position: absolute; inset: 2px; z-index: -1; pointer-events: none;
+  --sq-fill: var(--surface); --sq-radius-top: var(--r-squircle); --sq-radius-bottom: var(--r-squircle);
+  background: paint(rl-squircle);
+  filter: var(--shadow-card-lift-filter);
+}
 :root[data-squircle] .composer, :root[data-squircle] .commit-card {
   --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
-  box-shadow: var(--shadow-card-lift);
+  box-shadow: none;
 }
 /* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
 :root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
   --sq-ring: var(--line-strong); --sq-ring-w: 1px;
-  box-shadow: var(--shadow-card-lift);
+  box-shadow: none;
 }
 :root[data-squircle] .composer[data-dropping] {
   --sq-ring: var(--rl-accent); --sq-ring-w: 2px;
-  box-shadow: var(--shadow-card-lift);
+  box-shadow: none;
 }
 /* The hint lies inset:0 over the card, so it takes the card's own radius or it would square off
    inside a rounded corner. No ring: the card underneath is already wearing the drop target's. */

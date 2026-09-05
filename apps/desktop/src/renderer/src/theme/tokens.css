@@ -413,6 +413,11 @@ a {
    * stack, and there is still one place either half is written. */
   --card-ring: var(--overlay-lighten-400);
   --shadow-card-lift: 0 1px 2px #00000033, 0 2px 6px #00000033;
+  /* The same lift as a filter. A box-shadow is drawn from the border box, so on the squircle
+     surfaces — whose border-radius is 0 because the curve is painted, not declared — it lands as a
+     SQUARE behind a rounded card. `drop-shadow` traces the rendered alpha instead, which is the
+     worklet's actual path. Neither layer has a spread, which is what makes the two forms equal. */
+  --shadow-card-lift-filter: drop-shadow(0 1px 2px #00000033) drop-shadow(0 2px 6px #00000033);
   --shadow-card: 0 0 0 var(--hairline-w) var(--card-ring), var(--shadow-card-lift);
   --shadow-raised:
     0 0 0 var(--hairline-w) var(--overlay-lighten-500),
@@ -437,6 +442,7 @@ a {
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-300), 0 1px 2px #03071214;
   --card-ring: #03071214;
   --shadow-card-lift: 0 2px 4px 0 #0307120a;
+  --shadow-card-lift-filter: drop-shadow(0 2px 4px #0307120a);
   --shadow-card: 0 0 0 var(--hairline-w) var(--card-ring), var(--shadow-card-lift);
   --shadow-raised: 0 0 0 var(--hairline-w) #03071214, 0 8px 16px 0 #0307120a, 0 24px 117px 0 #1c284024;
   --shadow-overlay:
