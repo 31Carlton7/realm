@@ -87,7 +87,7 @@ describe("Engines tab", () => {
     const { api } = await mount({
       cliStatus: [
         { kind: "codex", installed: true, version: "0.48.0", binPath: "/opt/homebrew/bin/codex", provenance: "npm",
-          latest: "0.153.4", channel: true, updateAvailable: true, action: "update",
+          latest: "0.153.4", updateAvailable: true, action: "update",
           command: "npm install -g @openai/codex@0.153.4", refusal: null },
       ],
     });

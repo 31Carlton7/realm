@@ -1744,7 +1744,7 @@ describe("the CLI-missing install card (W4)", () => {
   /** claude missing, with the server offering to install it — the only shape that grows a button. */
   const offersInstall: CliStatus[] = [{
     kind: "claude", installed: false, version: null, binPath: null, provenance: "unknown", latest: null,
-    channel: true, updateAvailable: false, action: "install",
+    updateAvailable: false, action: "install",
     command: AGENT_CLI_COMMANDS.claude.install, refusal: null,
   }];
 

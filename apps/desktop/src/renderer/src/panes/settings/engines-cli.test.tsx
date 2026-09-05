@@ -13,7 +13,7 @@ const installedCodex: AgentProbe[] = [
 ];
 
 const status = (over: Partial<CliStatus> & { kind: AgentKind }): CliStatus => ({
-  installed: true, version: null, binPath: null, provenance: "npm", latest: null, channel: true,
+  installed: true, version: null, binPath: null, provenance: "npm", latest: null,
   updateAvailable: false, action: "none", command: null, refusal: null, ...over,
 });
 
@@ -81,7 +81,7 @@ describe("an engine row with an update available", () => {
 describe("an engine row Realm will not update", () => {
   const brewInstalled = status({
     kind: "codex", version: "codex-cli 0.146.0", provenance: "brew", latest: "0.153.4",
-    updateAvailable: true, action: "none", command: null,
+    binPath: "/opt/homebrew/bin/codex", updateAvailable: true, action: "none", command: null,
     refusal: "Installed with Homebrew, so Realm won’t update it with npm — that would leave a second copy on your PATH instead of upgrading this one.",
   });
 
@@ -89,7 +89,8 @@ describe("an engine row Realm will not update", () => {
     // The named mutant: hiding the update because it cannot be applied. Both halves are the user's.
     await mount({ cliStatus: [brewInstalled] });
     await waitFor(() => expect(codexRow()).toHaveAccessibleName(/v0\.153\.4 available/));
-    expect(within(codexRow()).getByText(/Homebrew/)).toBeInTheDocument();
+    // With the copy it means: "which one?" is the next question for anyone with two on their PATH.
+    expect(within(codexRow()).getByText(/Homebrew.*\/opt\/homebrew\/bin\/codex/)).toBeInTheDocument();
     expect(within(codexRow()).queryByRole("button", { name: "Update" })).toBeNull();
     expect(within(codexRow()).queryByRole("button", { name: "Install" })).toBeNull();
   });

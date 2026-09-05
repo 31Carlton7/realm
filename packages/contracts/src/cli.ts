@@ -125,6 +125,10 @@ const segments = (v: string): number[] => v.split(".").map((s) => Number.parseIn
 /**
  * Orders two release versions: negative when `a` is older, positive when newer, 0 when equal.
  *
+ * Hand-rolled rather than reached for from `semver`, which is not a dependency of this repo and would
+ * be the wrong tool anyway: two of the five CLIs measured print versions semver rejects outright —
+ * cursor-agent's calendar-and-commit `2026.07.25-e42b078` and claude's `2.1.258 (Claude Code)`.
+ *
  * Numeric segment compare with missing segments read as 0, so `1.2` and `1.2.0` are the same release.
  * A prerelease suffix orders BELOW the same numbers without one (`1.2.0-rc.1` < `1.2.0`), which is
  * semver's rule and the one that matters here: it stops an installed release candidate from reading
@@ -209,8 +213,6 @@ export type CliStatus = {
   provenance: InstallProvenance;
   /** Newest published version, null when the CLI is absent, has no channel, or the lookup failed. */
   latest: string | null;
-  /** Whether this route has any way to learn a published version at all. */
-  channel: boolean;
   updateAvailable: boolean;
   action: "install" | "update" | "none";
   /** The exact command `action` would run, shown before it runs. Null when `action` is `"none"`. */

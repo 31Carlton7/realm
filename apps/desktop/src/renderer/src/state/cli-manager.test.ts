@@ -6,7 +6,7 @@ import { fakeApi, profile, space, type FakeApi } from "./store.test-fakes";
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 const status = (over: Partial<CliStatus> & { kind: AgentKind }): CliStatus => ({
-  installed: true, version: null, binPath: null, provenance: "npm", latest: null, channel: true,
+  installed: true, version: null, binPath: null, provenance: "npm", latest: null,
   updateAvailable: false, action: "none", command: null, refusal: null, ...over,
 });
 

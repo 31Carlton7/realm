@@ -80,7 +80,6 @@ export class CliService {
     const latest = installed ? check?.latest ?? null : null;
     const base = {
       kind, installed, version, binPath: check?.binPath ?? null, provenance, latest,
-      channel: updateChannel(route) !== null,
     };
     if (!installed) {
       return { ...base, updateAvailable: false, action: installCommand(route) ? "install" : "none", command: installCommand(route), refusal: null };

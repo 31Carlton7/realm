@@ -273,7 +273,6 @@ export const CliStatusSchema = z.object({
   binPath: z.string().nullable(),
   provenance: z.enum(["npm", "pnpm", "brew", "unknown"]),
   latest: z.string().nullable(),
-  channel: z.boolean(),
   updateAvailable: z.boolean(),
   action: z.enum(["install", "update", "none"]),
   command: z.string().nullable(),

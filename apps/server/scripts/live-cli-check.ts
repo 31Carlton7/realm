@@ -63,10 +63,11 @@ async function main() {
     const bits = [
       r.installed ? `installed ${r.version ?? "?"}` : "not installed",
       `via ${r.provenance}`,
-      r.latest ? `latest ${r.latest}` : r.channel ? "latest unknown" : "no channel",
+      r.latest ? `latest ${r.latest}` : "latest unknown",
       `action ${r.action}`,
     ];
     console.log(`  --    ${r.kind.padEnd(14)} ${bits.join(" · ")}`);
+    if (r.binPath) console.log(`        at:        ${r.binPath}`);
     if (r.command) console.log(`        would run: ${r.command}`);
     if (r.refusal) console.log(`        refused:   ${r.refusal}`);
   }

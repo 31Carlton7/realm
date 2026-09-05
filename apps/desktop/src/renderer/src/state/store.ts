@@ -1071,7 +1071,6 @@ export type AppState = {
   /** Refresh `cliStatus`. Unforced rides the server's caches; `force` is "Check for updates" and the
    *  refresh after an install finishes. */
   refreshCliStatus(force?: boolean): Promise<void>;
-  /** Start the install or update the server is offering for this kind. */
   runCliAction(kind: AgentKind, action: "install" | "update"): Promise<void>;
   applyCliOutput(e: CliJobOutput): void;
   applyCliDone(e: CliJobEnd): void;
@@ -3319,10 +3318,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await catalogPending[slot];
       },
       async checkForNewModels() {
-        // Both halves are existing `force` seams: the probe re-asks each provider for its LIVE
-        // catalog (Codex over model/list, the ACP agents through session/new), and the model catalog
-        // refetches the public price/context rows. Nothing new is invented here — the diff below only
-        // reports what the providers themselves started saying.
+        // The probe re-asks each provider for its LIVE catalog (Codex over model/list, the ACP
+        // agents through session/new). Nothing new is invented here — the diff below only reports
+        // what the providers themselves started saying.
         const before = modelIdsByKind(get().agentProbe);
         await Promise.all([get().probeAgents(true), get().refreshModelCatalog(true)]);
         const added: { kind: AgentKind; id: string; label: string }[] = [];

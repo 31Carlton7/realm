@@ -118,12 +118,11 @@ describe("CliService.status", () => {
     expect(fake.command).toBe(null);
   });
 
-  it("says a script-installed CLI has no version channel and offers no update", async () => {
+  it("asks nothing and offers nothing for a script-installed CLI, which has no version channel", async () => {
     const env = machine([{ bin: "cursor-agent", under: "npm" }]);
     const { impl, urls } = fakeFetch({});
-    const svc = new CliService({ probe: probes([{ kind: "acp:cursor", version: "2026.09.01" }]), fetchImpl: impl, env });
+    const svc = new CliService({ probe: probes([{ kind: "acp:cursor", version: "2026.07.25-e42b078" }]), fetchImpl: impl, env });
     const cursor = row(await svc.status(), "acp:cursor");
-    expect(cursor.channel).toBe(false);
     expect(cursor.latest).toBe(null);
     expect(cursor.action).toBe("none");
     expect(urls).toEqual([]);

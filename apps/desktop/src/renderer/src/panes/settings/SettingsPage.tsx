@@ -101,8 +101,6 @@ function CommandCopy({ command, action }: { command: string; action?: React.Reac
 }
 
 /**
- * A running or finished install, with its output.
- *
  * The output pane is scrolled to the tail on every chunk: a package manager's interesting line is
  * almost always its last, and a user watching an install is watching the end of it.
  */
@@ -194,8 +192,8 @@ function EngineRow({ kind }: { kind: AgentKind }) {
   // Signed-in identity, exactly as far as the probe carries it: a boolean at best (Claude's keychain
   // and both ACP agents report null = "couldn't tell", which renders as nothing, not as either claim).
   const identity = p?.loggedIn === true ? "signed in" : p?.loggedIn === false ? "signed out" : null;
-  // An available update is part of the row's status line, not a separate badge: "what version am I
-  // on" and "is there a newer one" are one sentence.
+  // Folded into the status line rather than shown as its own badge: "what version am I on" and "is
+  // there a newer one" are one sentence.
   const behind = cli?.updateAvailable && cli.latest ? `${engineVersionLabel(cli.latest)} available` : null;
   const status = !p ? "Checking…"
     : p.available ? ["Installed", p.version ? engineVersionLabel(p.version) : null, identity, behind].filter(Boolean).join(" · ")
@@ -227,8 +225,10 @@ function EngineRow({ kind }: { kind: AgentKind }) {
         {/* Signing in is never Realm's to run — it is a browser flow or an API key, and a command
             that would sit waiting on a prompt Realm has closed. */}
         {offer && a.state === "logged_out" && login && <CommandCopy command={login} />}
-        {/* An update Realm found but will not apply says why, right where the button would be. */}
-        {cli?.refusal && <p className="settings-hint">{cli.refusal}</p>}
+        {/* An update Realm found but will not apply says why, right where the button would be — with
+            the copy it is talking about, because "which one?" is the next question for anyone who
+            has ended up with two of something on their PATH. */}
+        {cli?.refusal && <p className="settings-hint">{cli.refusal}{cli.binPath ? ` (${cli.binPath})` : ""}</p>}
         {job && <CliJobPanel job={job} onDismiss={() => dismissCliJob(kind)} />}
         {/* The login hint on ANY blocked row, not just un-offered ones. It used to hang off `!offered`,
             which was fine only while every kind with something awkward to explain was also withheld.
