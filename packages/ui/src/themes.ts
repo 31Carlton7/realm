@@ -1,4 +1,4 @@
-import { contrast, css, hexToOklch, luminance, parseOklch, type Oklch } from "./oklch";
+import { contrast, css, emitted, hexToOklch, luminance, parseOklch, type Oklch } from "./oklch";
 import type { Mode } from "./theme";
 
 /** Custom themes.
@@ -186,6 +186,37 @@ export const INK_GROUNDS = {
   ink3: ["--page", "--canvas", "--surface", "--inset"],
 } as const;
 
+/** The ink ramp's SPREAD, as a user control. 0–100 with 60 the shipped ramp, which is the range and
+ *  the default the control shows.
+ *
+ *  What it moves is the only thing in this palette that is a matter of preference rather than of
+ *  correctness: how far `--ink-2` and `--ink-3` fall below `--ink` against the ground. Those are the
+ *  exponents in `Ramp`, and this is a multiplier on them — a higher exponent puts the secondary and
+ *  hint tiers closer to primary text, a lower one lets them recede. It cannot touch `--ink` itself
+ *  (that is a seed, and the palette's identity) and it cannot touch a hue (a slider that desaturated
+ *  Monokai's pink towards the ground would be a repaint, not a preference).
+ *
+ *  It CANNOT make anything illegible, and not by arithmetic that has to be got right here: `inkStep`
+ *  floors every tier at `CONTRAST_FLOOR` before it walks, so the bottom of this range is where the
+ *  floors start binding rather than where the ramp keeps sinking. The top is bounded too — at 1.28
+ *  the shipped exponents still leave the three tiers a clear step apart on every palette, and a ramp
+ *  collapsed to one flat tier is a hierarchy destroyed rather than a contrast raised. */
+export const CONTRAST_RANGE = { min: 0, max: 100, default: 60 } as const;
+const CONTRAST_SPAN = { lo: 0.72, hi: 1.28 } as const;
+
+export const clampContrast = (x: number): number =>
+  Math.round(clamp(x, CONTRAST_RANGE.min, CONTRAST_RANGE.max));
+
+/** 0 → `lo`, the default → 1, 100 → `hi`. Two linear halves rather than one, because the default is
+ *  not the midpoint: the shipped ramp has to land exactly on 1 or moving the slider to 60 and back
+ *  would not return the palette it started from. */
+const contrastScale = (level: number): number => {
+  const c = clampContrast(level), d = CONTRAST_RANGE.default;
+  return c <= d
+    ? CONTRAST_SPAN.lo + ((1 - CONTRAST_SPAN.lo) * c) / d
+    : 1 + ((CONTRAST_SPAN.hi - 1) * (c - d)) / (CONTRAST_RANGE.max - d);
+};
+
 /** How far a stated colour may be pushed to meet its floor. A theme states hues; this budget is what
  *  separates "the palette lifted Nord's red half a step so error text is readable on Nord's own
  *  surface" from "the palette invented a colour and called it Nord". A seed that needs more than
@@ -205,10 +236,11 @@ const step = (base: Oklch, dl: number, dc = 0): Oklch =>
  *  thing a correctness fix must not quietly edit. */
 function lift(o: Oklch, ground: Oklch, floor: number, budget = LIFT_BUDGET): Oklch {
   const dir = luminance(o) >= luminance(ground) ? 1 : -1;
+  const g = emitted(ground);
   let best = o;
   for (let d = 0; d <= budget + 1e-9; d += 0.002) {
     best = { ...o, l: clamp(o.l + dir * d, 0, 1) };
-    if (contrast(best, ground) >= floor) return best;
+    if (contrast(emitted(best), g) >= floor) return best;
   }
   return best;
 }
@@ -218,12 +250,13 @@ function lift(o: Oklch, ground: Oklch, floor: number, budget = LIFT_BUDGET): Okl
  *  walk is exact to a step no display can resolve, and it stays correct where the naive inverse does
  *  not — at the gamut boundary, where raising L stops raising luminance. */
 function inkStep(ink: Oklch, ground: Oklch, exp: number, floor: number): Oklch {
-  const target = Math.max(floor, contrast(ink, ground) ** exp);
-  const dir = luminance(ink) >= luminance(ground) ? -1 : 1;
+  const g = emitted(ground);
+  const target = Math.max(floor, contrast(ink, g) ** exp);
+  const dir = luminance(ink) >= luminance(g) ? -1 : 1;
   let best = ink;
   for (let d = 0; d <= 1; d += 0.002) {
     const next = { ...ink, l: clamp(ink.l + dir * d, 0, 1) };
-    if (contrast(next, ground) < target) break;
+    if (contrast(emitted(next), g) < target) break;
     best = next;
   }
   return best;
@@ -246,16 +279,19 @@ export const THEME_VARS = [
 /** The palette a seed expands to: `THEME_VARS` → CSS colour. `themeVars` is pure and cheap enough to
  *  call on every switch, which is why the derived palette is not precomputed into a stylesheet — a
  *  generated CSS file would have to be regenerated, checked in, and then checked for staleness. */
-export function themeVars(name: ThemeName, mode: Mode, override: ThemeOverride = {}): Record<string, string> {
+export function themeVars(name: ThemeName, mode: Mode,
+  { override = {}, contrast = CONTRAST_RANGE.default }: { override?: ThemeOverride; contrast?: number } = {},
+): Record<string, string> {
   const seed = seedFor(name, mode, override);
-  return seed ? deriveVars(seed, mode) : {};
+  return seed ? deriveVars(seed, mode, contrast) : {};
 }
 
 /** The derivation itself, on a bare seed. Exported so the guardrail can feed it the seeds tokens.css
  *  was built from and check that what comes out IS tokens.css — the ramp constants above are only
  *  "measured off the shipped palette" for as long as something re-measures them. */
-export function deriveVars(seed: ThemeSeed, mode: Mode): Record<string, string> {
+export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = CONTRAST_RANGE.default): Record<string, string> {
   const r = mode === "dark" ? DARK : LIGHT;
+  const spread = contrastScale(contrastLevel);
   const bg = hexToOklch(seed.bg);
   const ink = hexToOklch(seed.ink);
 
@@ -302,8 +338,8 @@ export function deriveVars(seed: ThemeSeed, mode: Mode): Record<string, string> 
    *  the series, not of the themes. */
   const chart = { ...surface, l: clamp(surface.l, r.chartL.min, r.chartL.max) };
 
-  const ink2 = inkStep(ink, worst(["canvas", "surface", "inset", "hover"]), r.ink2, CONTRAST_FLOOR.ink2);
-  const ink3 = inkStep(ink, worst(["canvas", "surface", "inset"]), r.ink3, CONTRAST_FLOOR.ink3);
+  const ink2 = inkStep(ink, worst(["canvas", "surface", "inset", "hover"]), r.ink2 * spread, CONTRAST_FLOOR.ink2);
+  const ink3 = inkStep(ink, worst(["canvas", "surface", "inset"]), r.ink3 * spread, CONTRAST_FLOOR.ink3);
   const tip = r.tooltip({ bg, ink, ink2 });
 
   /** Chrome and syntax are stated as hues and corrected as lightnesses. Every one of these lands on
@@ -382,8 +418,8 @@ export type ContrastMiss = { role: string; ratio: number; floor: number };
  *
  *  Measured on the DERIVED palette, so it reports what will be on screen rather than what the seed
  *  asked for — the same predicate the theme suite holds the shipped palettes to. */
-export function contrastMisses(seed: ThemeSeed, mode: Mode): ContrastMiss[] {
-  const v = deriveVars(seed, mode);
+export function contrastMisses(seed: ThemeSeed, mode: Mode, contrastLevel: number = CONTRAST_RANGE.default): ContrastMiss[] {
+  const v = deriveVars(seed, mode, contrastLevel);
   const at = (token: string): Oklch => parseOklch(v[token]!);
   const out: ContrastMiss[] = [];
   const check = (role: string, token: string, grounds: readonly string[], floor: number): void => {

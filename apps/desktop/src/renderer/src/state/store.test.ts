@@ -285,6 +285,30 @@ describe("app store", () => {
     expect(s.getState().themeOverrides).toEqual({ "one:dark": { bg: "#101014" } });
   });
 
+  it("contrast persists once per gesture and is clamped on the way in and out", async () => {
+    const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
+    await store.getState().boot();
+    expect(store.getState().contrast).toBe(60);
+    for (const v of [55, 48, 40]) await store.getState().setContrast(v);
+    expect(store.getState().contrast).toBe(40);
+    await vi.waitFor(() => expect(set).toContain("ui.contrast=40"));
+    expect(set.filter((k) => k.startsWith("ui.contrast="))).toEqual(["ui.contrast=40"]);
+
+    // THE unclamped mutant: store what the caller passed. The slider's min/max is not the guard —
+    // this is the store's API, and the derivation's own floors would silently absorb the excess so
+    // nothing on screen would ever show that the stored number had stopped meaning anything.
+    await store.getState().setContrast(400);
+    expect(store.getState().contrast).toBe(100);
+
+    const read = async (v: unknown) => {
+      const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.contrast" ? v : null) });
+      await s.getState().boot(); return s.getState().contrast;
+    };
+    expect(await read(20)).toBe(20);
+    expect(await read(-5)).toBe(0);
+    expect(await read("high")).toBe(60);
+  });
+
   it("groundAlpha persists once per gesture, and boot clamps whatever it reads back", async () => {
     const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
     await store.getState().boot();

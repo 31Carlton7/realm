@@ -55,8 +55,9 @@ function ThemeBridge() {
   const pref = useApp((s) => s.themePref);
   const themes = useApp((s) => s.themeNames);
   const overrides = useApp((s) => s.themeOverrides);
+  const contrast = useApp((s) => s.contrast);
   const groundAlpha = useApp((s) => s.groundAlpha);
-  useApplyTheme({ color, pref, themes, overrides, groundAlpha });
+  useApplyTheme({ color, pref, themes, overrides, contrast, groundAlpha });
   return null;
 }
 

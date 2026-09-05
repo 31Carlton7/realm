@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contrast, hexToOklch, parseOklch as parse } from "./oklch";
-import { CONTRAST_FLOOR, INK_GROUNDS, REALM_SEED, THEMES, THEME_VARS, contrastMisses, deriveVars, paletteFor,
+import { clampContrast, CONTRAST_FLOOR, CONTRAST_RANGE, INK_GROUNDS, REALM_SEED, THEMES, THEME_VARS, contrastMisses, deriveVars, paletteFor,
   parseThemeOverride, parseThemeOverrides, resolveMode, seedFor, themeModes, themeSwatches, themeVars,
   type ThemeOverride } from "./themes";
 import type { Mode } from "./theme";
@@ -233,7 +233,7 @@ describe("provenance", () => {
 });
 
 describe("a user's own colours go through the same machinery", () => {
-  const derived = (name: Parameters<typeof themeVars>[0], mode: Mode, o: ThemeOverride) => themeVars(name, mode, o);
+  const derived = (name: Parameters<typeof themeVars>[0], mode: Mode, override: ThemeOverride) => themeVars(name, mode, { override });
 
   it("an override is merged into the SEED, so the whole palette follows it", () => {
     // THE raw-write mutant: write the three overridden values straight onto :root and leave the rest
@@ -288,11 +288,11 @@ describe("a user's own colours go through the same machinery", () => {
     // THE eager-seed mutant: give `realm` seeds in THEMES. Every user who never chose a theme gets
     // 34 inline properties over the hand-tuned static CSS — near-identical, and no longer it.
     expect(seedFor("realm", "dark")).toBeNull();
-    expect(themeVars("realm", "dark", {})).toEqual({});
+    expect(themeVars("realm", "dark", { override: {} })).toEqual({});
     const edited = seedFor("realm", "dark", { accent: "#f92672" })!;
     expect(edited.bg).toBe(REALM_SEED.dark.bg);
     expect(edited.accent).toBe("#f92672");
-    expect(Object.keys(themeVars("realm", "dark", { accent: "#f92672" })).sort()).toEqual([...THEME_VARS].sort());
+    expect(Object.keys(themeVars("realm", "dark", { override: { accent: "#f92672" } })).sort()).toEqual([...THEME_VARS].sort());
   });
 
   it("a face with no seeds cannot be conjured out of an override", () => {
@@ -321,5 +321,84 @@ describe("overrides read back off a user-editable settings row", () => {
     // An entry whose every field was dropped is not an override — it would make `isOverridden` true
     // and show a "Reset" button for an edit that no longer exists.
     expect(parseThemeOverrides({ "one:dark": { accent: "nope" } })).toEqual({});
+  });
+});
+
+describe("the contrast control moves the ink ramp and nothing else", () => {
+  const levels = [CONTRAST_RANGE.min, 20, 40, CONTRAST_RANGE.default, 80, CONTRAST_RANGE.max];
+  const seeds = () => [...faces().filter((f) => f.theme.name !== "realm").map(({ theme, mode }) => ({ seed: seedFor(theme.name, mode)!, mode, label: `${theme.name}/${mode}` })),
+    { seed: REALM_SEED.dark, mode: "dark" as Mode, label: "realm/dark" },
+    { seed: REALM_SEED.light, mode: "light" as Mode, label: "realm/light" }];
+
+  it("the default IS the shipped ramp — moving the slider and back returns the palette it started from", () => {
+    // THE off-by-a-default mutant: centre the scale on 50. Every palette in the app shifts the first
+    // time this ships, for everyone, and the ramp constants measured off tokens.css stop being what
+    // the app draws.
+    for (const { seed, mode, label } of seeds()) {
+      expect(deriveVars(seed, mode, CONTRAST_RANGE.default), label).toEqual(deriveVars(seed, mode));
+    }
+  });
+
+  it("raising it closes the ramp up and lowering it opens it out, monotonically", () => {
+    // THE inverted-scale mutant: multiply where it should divide. The label says Contrast and the
+    // control does the opposite, which no floor and no ratio would ever catch.
+    for (const { seed, mode, label } of seeds()) {
+      const gap = (level: number) => {
+        const v = deriveVars(seed, mode, level);
+        const ground = parse(v["--surface"]!);
+        return contrast(parse(v["--ink"]!), ground) - contrast(parse(v["--ink-2"]!), ground);
+      };
+      for (let i = 1; i < levels.length; i++) {
+        expect(gap(levels[i]!), `${label} @${levels[i]}`).toBeLessThanOrEqual(gap(levels[i - 1]!) + 1e-9);
+      }
+      expect(gap(CONTRAST_RANGE.min), label).toBeGreaterThan(gap(CONTRAST_RANGE.max));
+    }
+  });
+
+  it("cannot push any tier below the floor, at any setting, on any palette", () => {
+    // This is the whole safety claim, and it is structural rather than arithmetic: `inkStep` floors
+    // every tier before it walks. THE unfloored mutant: pass 0 as inkStep's floor and let the
+    // exponent decide. Nothing about the slider looks different until it is near the bottom, where
+    // the hint tier quietly stops being text.
+    for (const { seed, mode, label } of seeds()) {
+      for (const level of levels) {
+        const v = deriveVars(seed, mode, level);
+        const worst = (token: string, grounds: readonly string[]) =>
+          Math.min(...grounds.map((g) => contrast(parse(v[token]!), parse(v[g]!))));
+        expect(worst("--ink", INK_GROUNDS.ink), `${label} @${level} --ink`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink);
+        expect(worst("--ink-2", INK_GROUNDS.ink2), `${label} @${level} --ink-2`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink2);
+        expect(worst("--ink-3", INK_GROUNDS.ink3), `${label} @${level} --ink-3`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.ink3);
+      }
+    }
+  });
+
+  it("cannot collapse the three tiers into one, at the top of the range", () => {
+    // THE unbounded-top mutant: let the exponent reach 1. --ink-2 and --ink-3 become --ink, and
+    // every distinction the ramp draws — a label from its value, a timestamp from a title — is gone.
+    // Raising contrast must not be a way to destroy the hierarchy contrast is for.
+    for (const { seed, mode, label } of seeds()) {
+      const v = deriveVars(seed, mode, CONTRAST_RANGE.max);
+      const g = parse(v["--surface"]!);
+      const [ink, ink2, ink3] = ["--ink", "--ink-2", "--ink-3"].map((k) => contrast(parse(v[k]!), g));
+      expect(ink!, label).toBeGreaterThan(ink2! * 1.15);
+      expect(ink2!, label).toBeGreaterThan(ink3! * 1.15);
+    }
+  });
+
+  it("moves no hue and no surface — a contrast control that repainted a palette would be a repaint", () => {
+    // THE overreaching mutant: apply the spread to the accent, or to the surface ladder. It would
+    // look like it was working, and Monokai at 20 would no longer be Monokai.
+    const seed = seedFor("one", "dark")!;
+    const [lo, hi] = [deriveVars(seed, "dark", CONTRAST_RANGE.min), deriveVars(seed, "dark", CONTRAST_RANGE.max)];
+    for (const token of THEME_VARS.filter((t) => t !== "--ink-2" && t !== "--ink-3" && t !== "--syn-fg" && t !== "--tooltip-muted")) {
+      expect(hi[token], token).toBe(lo[token]);
+    }
+  });
+
+  it("clamps whatever it is handed, so a stored or hand-edited value cannot leave the range", () => {
+    expect(clampContrast(-40)).toBe(CONTRAST_RANGE.min);
+    expect(clampContrast(1000)).toBe(CONTRAST_RANGE.max);
+    expect(clampContrast(61.6)).toBe(62);
+    expect(deriveVars(REALM_SEED.dark, "dark", -40)).toEqual(deriveVars(REALM_SEED.dark, "dark", CONTRAST_RANGE.min));
   });
 });

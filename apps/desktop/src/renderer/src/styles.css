@@ -2940,10 +2940,11 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* ——— Settings → App: the background transparency slider ——————————————————————
    A native range on the app's accent, with the value beside it in tabular figures so the number does
    not jitter as the thumb moves. Disabled off macOS, where the window has no material behind it. */
-.ground-alpha { display: flex; align-items: center; gap: 10px; }
-.ground-alpha input { flex: 1; min-width: 0; max-width: 260px; accent-color: var(--rl-accent); }
-.ground-alpha input:disabled { cursor: default; opacity: .45; }
-.ground-alpha-value { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.slider-row { display: flex; align-items: center; gap: 10px; }
+.slider-row input[type="range"] { flex: 1; min-width: 0; max-width: 260px; accent-color: var(--rl-accent); }
+.slider-row input:disabled { cursor: default; opacity: .45; }
+/* Tabular so the readout does not shuffle the thumb sideways while it is being dragged. */
+.slider-value { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 
 /* ——— Settings → App: the palette picker ——————————————————————————————————————
    Each card is painted in the theme it names, so the row is a set of previews rather than a list of

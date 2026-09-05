@@ -3,7 +3,7 @@ import {
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
 } from "@realm/contracts";
-import { GROUND_ALPHA_RANGE, Icon, REALM_SEED, THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
+import { CONTRAST_RANGE, GROUND_ALPHA_RANGE, Icon, REALM_SEED, THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
   seedFor, themeModes, themeSwatches, type Mode, type ThemeName } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
@@ -234,13 +234,17 @@ const OVERRIDE_FIELDS = [
 
 function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
   const override = useApp((s) => s.themeOverrides[overrideKey(name, face)]);
+  const contrast = useApp((s) => s.contrast);
   const setThemeOverride = useApp((s) => s.setThemeOverride);
   const resetThemeOverride = useApp((s) => s.resetThemeOverride);
   const run = useApp((s) => s.run);
   // The palette AS EDITED. `seedFor` returns null only for an untouched Realm, whose seeds are what
   // the fields have to show anyway — there is no other honest starting value for an edit.
   const seed = seedFor(name, face, override ?? {}) ?? REALM_SEED[face];
-  const misses = contrastMisses(seed, face);
+  // Measured at the contrast the app is actually running at, not at the default — the ramp's spread
+  // is one of the things a tier's ratio depends on, and a warning computed against a setting the
+  // user is not using would name the wrong roles.
+  const misses = contrastMisses(seed, face, contrast);
 
   return (
     <fieldset className="theme-overrides" aria-label={`${face === "light" ? "Light" : "Dark"} theme colours`}>
@@ -286,6 +290,8 @@ function AppTab() {
   const setThemePref = useApp((s) => s.setThemePref);
   const themeNames = useApp((s) => s.themeNames);
   const setThemeName = useApp((s) => s.setThemeName);
+  const contrast = useApp((s) => s.contrast);
+  const setContrast = useApp((s) => s.setContrast);
   const groundAlpha = useApp((s) => s.groundAlpha);
   const setGroundAlpha = useApp((s) => s.setGroundAlpha);
   const submitKey = useApp((s) => s.submitKey);
@@ -344,17 +350,32 @@ function AppTab() {
           onSelect={(name) => run(() => setThemeName(face, name))} />
       ))}
 
+      <div className="field"><span>Contrast</span>
+        {/* The ink ramp's SPREAD — how far the secondary and hint tiers fall below primary text. It
+            is the only thing in the palette that is a matter of eyes rather than of design: the hues
+            are the palette's identity and the surfaces are its structure, and a slider that moved
+            either would be a repaint wearing the word "contrast". It cannot make anything illegible
+            at any setting, because every tier is floored at WCAG before the ramp is walked. */}
+        <div className="slider-row">
+          <input type="range" aria-label="Contrast"
+            min={CONTRAST_RANGE.min} max={CONTRAST_RANGE.max} step={1}
+            value={contrast} onChange={(e) => run(() => setContrast(Number(e.target.value)))} />
+          <span className="slider-value">{contrast}</span>
+        </div>
+        <p className="settings-hint">How far labels, metadata and hints sit below primary text. Every tier stays above the contrast Realm holds its palettes to, whatever this says — turning it down recedes them, it does not make them unreadable.</p>
+      </div>
+
       <div className="field"><span>Background transparency</span>
         {/* The slider runs the way the label reads — right is MORE transparent — while the stored
             value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is
             the one place the two meet.
             step 1, not a coarser grid: the range spans an odd number of points, so any step above 1
             leaves one of its two ends unreachable — including 100%, which is how this is turned off. */}
-        <div className="ground-alpha">
+        <div className="slider-row">
           <input type="range" aria-label="Background transparency" disabled={!material}
             min={GROUND_ALPHA_RANGE.min} max={GROUND_ALPHA_RANGE.max} step={1}
             value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
-          <span className="ground-alpha-value">{100 - groundAlpha}%</span>
+          <span className="slider-value">{100 - groundAlpha}%</span>
         </div>
         <p className="settings-hint">{material
           ? "The sidebar is the one surface thin enough to show the desktop behind the window. Panes stay opaque on purpose — at any setting where a pane looked translucent, text on it would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting: with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."

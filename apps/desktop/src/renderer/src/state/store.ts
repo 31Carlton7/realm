@@ -11,8 +11,8 @@ import {
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
-import { DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, clampGroundAlpha, isOverridden, isThemeName, overrideKey,
-  parseThemeOverrides, themeModes,
+import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, isOverridden,
+  isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
@@ -433,6 +433,9 @@ const SETTING_THEME_NAME_LEGACY = "ui.themeName";
  *  than a key per palette: they are read together on every boot and there is no palette whose
  *  override is interesting on its own. */
 export const SETTING_THEME_OVERRIDES = "ui.themeOverrides";
+/** How far the ink ramp spreads below primary text, 0–100. Not per palette: it is a statement about
+ *  the eyes reading the screen, not about One Dark. */
+export const SETTING_CONTRAST = "ui.contrast";
 /** How opaque the sidebar's ground is over the macOS window material, in percent. */
 export const SETTING_GROUND_ALPHA = "ui.groundAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
@@ -516,6 +519,9 @@ export type AppState = {
    *  moved background gets the same surface ladder and the same contrast correction a vendored one
    *  does, rather than a raw value written past the machinery. */
   themeOverrides: ThemeOverrides;
+  /** The ink ramp's spread. Floored by the derivation at every setting, so this is a preference and
+   *  never a legibility risk. */
+  contrast: number;
   /** The sidebar's opacity over the macOS vibrancy material, 40–100. Persisted on every platform —
    *  a preference set on a Mac should survive opening the same home somewhere without a material,
    *  and come back unchanged. */
@@ -828,6 +834,7 @@ export type AppState = {
   /** Merges into the palette's existing edits; an undefined role clears that one. */
   setThemeOverride(name: ThemeName, mode: Mode, patch: ThemeOverride & { syntax?: Partial<Record<string, string>> }): Promise<void>;
   resetThemeOverride(name: ThemeName, mode: Mode): Promise<void>;
+  setContrast(level: number): Promise<void>;
   setGroundAlpha(pct: number): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
   /** Flip the sidebar between full column and top rail, and persist it. */
@@ -1816,10 +1823,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
 
     let groundAlphaTimer: ReturnType<typeof setTimeout> | null = null;
+    let contrastTimer: ReturnType<typeof setTimeout> | null = null;
 
     return {
       booted: false,
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
+      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, contrast: CONTRAST_RANGE.default, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
@@ -1841,9 +1849,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, groundAlpha, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, groundAlpha, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_TERMINAL_PANEL),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
@@ -1851,7 +1859,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
-          themeOverrides: parseThemeOverrides(overrides),
+          themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default,
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true, lastAgentKind: agent.success ? agent.data : null,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName });
@@ -2031,6 +2039,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (isOverridden(merged)) next[key] = merged; else delete next[key];
         set({ themeOverrides: next });
         await api.setSetting(SETTING_THEME_OVERRIDES, next);
+      },
+      async setContrast(level) {
+        // Clamped before it is stored, like the ground's alpha: an out-of-range value written by an
+        // older build or by hand must not be what the next boot reads back.
+        const next = clampContrast(level);
+        set({ contrast: next });
+        // The window follows the thumb, and a drag fires on every step. Same debounce, same reason.
+        if (contrastTimer) clearTimeout(contrastTimer);
+        contrastTimer = setTimeout(() => { contrastTimer = null; get().run(() => api.setSetting(SETTING_CONTRAST, next)); }, PERSIST_DEBOUNCE_MS);
       },
       async resetThemeOverride(name, mode) {
         const next = { ...get().themeOverrides };

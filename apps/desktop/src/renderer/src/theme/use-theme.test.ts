@@ -108,6 +108,28 @@ describe("theme and mode compose", () => {
   });
 });
 
+describe("the contrast preference reaches :root", () => {
+  it("repaints the ink ramp when it changes, and touches nothing else", () => {
+    // THE decorative-slider mutant: render the control, persist the number, never pass it to
+    // applyTheme. It moves, it survives a restart, and the window never changes — the failure a
+    // settings control is most likely to ship with and least likely to be noticed in.
+    // THE missing-dependency mutant: leave `contrast` out of the layout effect's deps. Same symptom,
+    // until something unrelated forces a re-apply.
+    const root = document.documentElement;
+    const { rerender } = renderHook(
+      ({ contrast }) => useApplyTheme({ color: "#7c6cff", pref: "dark", themes: { light: "one", dark: "one" }, contrast }),
+      { initialProps: { contrast: 60 } },
+    );
+    const at60 = { ink2: root.style.getPropertyValue("--ink-2"), page: root.style.getPropertyValue("--page"), accent: root.style.getPropertyValue("--accent") };
+    expect(at60.ink2).toMatch(/^oklch\(/);
+    rerender({ contrast: 10 });
+    expect(root.style.getPropertyValue("--ink-2")).not.toBe(at60.ink2);
+    // ...and the ground and the hues are untouched, or it is not a contrast control.
+    expect(root.style.getPropertyValue("--page")).toBe(at60.page);
+    expect(root.style.getPropertyValue("--accent")).toBe(at60.accent);
+  });
+});
+
 describe("the adjustable ground reaches :root", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 

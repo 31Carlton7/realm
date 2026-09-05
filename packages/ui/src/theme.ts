@@ -1,4 +1,4 @@
-import { THEME_VARS, themeVars, type ThemeName, type ThemeOverride } from "./themes";
+import { CONTRAST_RANGE, THEME_VARS, themeVars, type ThemeName, type ThemeOverride } from "./themes";
 
 export type Mode = "light" | "dark";
 export type Hsl = { h: number; s: number; l: number };
@@ -90,15 +90,15 @@ export const clampGroundAlpha = (pct: number): number =>
  *  property would beat any media query, and the app already honours that preference in its fade
  *  bands. */
 export function applyTheme(
-  { space, mode, theme = "realm", override = {}, groundAlpha = DEFAULT_GROUND_ALPHA }:
-    { space: string; mode: Mode; theme?: ThemeName; override?: ThemeOverride; groundAlpha?: number },
+  { space, mode, theme = "realm", override = {}, contrast = CONTRAST_RANGE.default, groundAlpha = DEFAULT_GROUND_ALPHA }:
+    { space: string; mode: Mode; theme?: ThemeName; override?: ThemeOverride; contrast?: number; groundAlpha?: number },
   root: HTMLElement = document.documentElement,
 ): void {
   root.style.setProperty("--rl-space", spaceColor(space, mode));
   root.style.setProperty("--ground-alpha", `${clampGroundAlpha(groundAlpha)}%`);
   root.dataset.mode = mode;
   root.dataset.theme = theme;
-  const vars = themeVars(theme, mode, override);
+  const vars = themeVars(theme, mode, { override, contrast });
   for (const name of THEME_VARS) {
     const value = vars[name];
     if (value === undefined) root.style.removeProperty(name);

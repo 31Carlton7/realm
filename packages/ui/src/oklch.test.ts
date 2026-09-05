@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contrast, css, hexToOklch, luminance, oklchToHex } from "./oklch";
+import { contrast, css, emitted, hexToOklch, luminance, oklchToHex } from "./oklch";
 
 /** These numbers are checkable against something outside this repo, which is the point of testing a
  *  colour space at all: an arithmetic slip in one matrix row produces colours that still look like
@@ -59,5 +59,17 @@ describe("css()", () => {
   it("writes the form tokens.css writes, and carries alpha when asked", () => {
     expect(css({ l: 0.209, c: 0.004, h: 264.477 })).toBe("oklch(0.209 0.004 264.48)");
     expect(css({ l: 0.68, c: 0.173, h: 253.301 }, 0.16)).toBe("oklch(0.68 0.173 253.3 / 0.16)");
+  });
+});
+
+describe("emitted", () => {
+  it("is what css() writes, so a walk that stops at a floor stops at the shipped value", () => {
+    // THE unrounded-floor mutant: measure a contrast walk on the working value instead. `css` keeps
+    // three decimals of lightness — finer than a display resolves, coarser than a WCAG floor — so a
+    // tier walked to exactly 3.00:1 can be written at 2.9987 and break the assertion the whole
+    // palette is held to. Gruvbox dark's --ink-2 at the bottom of the contrast range is that case.
+    const o = { l: 0.6184937, c: 0.0173456, h: 92.4567 };
+    expect(emitted(o)).toEqual({ l: 0.618, c: 0.0173, h: 92.46 });
+    expect(css(emitted(o))).toBe(css(o));
   });
 });

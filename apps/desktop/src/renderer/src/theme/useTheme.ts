@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, applyTheme, overrideKey, paletteFor,
+import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, applyTheme, overrideKey, paletteFor,
   type Mode, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
 
 export type ThemePref = "system" | "light" | "dark";
@@ -54,20 +54,21 @@ export type AppliedTheme = {
   /** Keyed by palette AND face, so the effect's dependency is the ONE override on screen rather than
    *  every override the user has ever set — editing Gruvbox's accent must not repaint One Dark. */
   overrides?: ThemeOverrides;
+  contrast?: number;
   groundAlpha?: number;
 };
 
 export function useApplyTheme({ color, pref, themes = DEFAULT_SELECTION, overrides = {},
-  groundAlpha = DEFAULT_GROUND_ALPHA }: AppliedTheme): Mode {
+  contrast = CONTRAST_RANGE.default, groundAlpha = DEFAULT_GROUND_ALPHA }: AppliedTheme): Mode {
   const mode = useResolvedMode(pref);
   const theme = paletteFor(themes, mode);
   const override = overrides[overrideKey(theme, mode)];
   // Layout effect so the first paint already carries the mode (no flash of default vars).
   useLayoutEffect(() => {
     const done = suppressTransitions(document.documentElement);
-    applyTheme({ space: color ?? "#7c6cff", mode, theme, override, groundAlpha });
+    applyTheme({ space: color ?? "#7c6cff", mode, theme, override, contrast, groundAlpha });
     return done;
-  }, [color, mode, theme, override, groundAlpha]);
+  }, [color, mode, theme, override, contrast, groundAlpha]);
   return mode;
 }
 

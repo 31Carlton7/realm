@@ -233,6 +233,19 @@ describe("App tab", () => {
     expect(await colours("Light").findByText(/Below the contrast Realm holds every palette to.*Foreground/)).toBeInTheDocument();
   });
 
+  it("contrast is a slider over the ink ramp, defaulting to the shipped spread", async () => {
+    // What the store does with it. That it reaches the WINDOW is use-theme.test.ts's assertion — the
+    // bridge that writes :root is mounted there, not here.
+    const { store, api } = await openApp();
+    const slider = screen.getByRole("slider", { name: "Contrast" }) as HTMLInputElement;
+    expect(slider.value).toBe("60");
+    expect(slider.min).toBe("0");
+    expect(slider.max).toBe("100");
+    fireEvent.change(slider, { target: { value: "10" } });
+    await waitFor(() => expect(store.getState().contrast).toBe(10));
+    await vi.waitFor(() => expect(api.calls).toContain("setSetting:ui.contrast=10"));
+  });
+
   it("background transparency runs the way its label reads and persists the ground's opacity", async () => {
     // The bridge is what says this platform has a material; jsdom has none, so the mac case is
     // stubbed rather than assumed. An unstubbed renderer must not guess macOS.
