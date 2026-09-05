@@ -10,6 +10,10 @@
  *      not exist under jsdom and cannot be exercised any other way
  *   3. the name is one hover away, in a tip that is NOT clipped by the composer card — the failure
  *      mode a stylesheet test cannot see, because it needs real layout
+ *   4. clicking a tile opens the file, and which of the two openings it gets is decided by what the
+ *      file IS — the PNG lands in the lightbox, the PDF goes out to the OS
+ *   5. the lightbox that opens from a PROMPTER tile covers the prompter. It is portalled to <body>,
+ *      so it escapes the pane; nothing in jsdom can see whether it actually paints on top
  *
  * Ports: env-overridable, defaulting to a high pair that will not contend with a running Realm.
  * Touches only a scratch dir (REALM_HOME + userData); kills only the process it started.
@@ -76,6 +80,15 @@ window.__live = window.__live ?? {
     const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const set = Object.getOwnPropertyDescriptor(proto, "value").set;
     set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true }));
+  },
+  /** Files as a DataTransfer, the shape a Finder drag arrives in. */
+  files(specs) {
+    const dt = new DataTransfer();
+    for (const s of specs) {
+      const bytes = Uint8Array.from(atob(s.b64), (ch) => ch.charCodeAt(0));
+      dt.items.add(new File([bytes], s.name, { type: s.mime }));
+    }
+    return dt;
   },
   /** Drop real Files on an element — the same path a Finder drag takes into the composer. */
   async drop(sel, specs) {
@@ -186,9 +199,9 @@ async function main() {
   const shape = await until(() => evalIn(c, `(() => {
     const t = document.querySelector('.attach-tile');
     const b = t.getBoundingClientRect();
-    const visible = [...t.children]
-      .filter((e) => !e.classList.contains('visually-hidden') && !e.classList.contains('attach-tip'))
-      .map((e) => e.textContent).join('');
+    const bare = t.cloneNode(true);
+    for (const h of bare.querySelectorAll('.visually-hidden, .attach-tip')) h.remove();
+    const visible = bare.textContent;
     return { w: Math.round(b.width), h: Math.round(b.height), visible };
   })()`), 5000, "tile shape");
   check("the tile is a square with no filename on it", shape.w === shape.h && !shape.visible.includes("shot"), shape);
@@ -224,6 +237,63 @@ async function main() {
   })()`);
   check("the tip carries the name the tile stopped showing", tip.text.includes("report.pdf"), { text: tip.text });
   check("the tip is laid out on screen and nothing clips it", !tip.clippedBy && tip.onScreen && tip.w > 0 && tip.h > 0, tip);
+
+  /* 4/5. Opening.
+     The PDF's own click is deliberately NOT exercised here. It would reach `shell.openPath` for
+     real and leave Preview open on whoever ran the script, and it cannot be stubbed around —
+     `contextBridge` freezes `window.realm`, so assigning over `openAttachment` silently does
+     nothing and the real call goes through anyway. Which kind gets which opening is pinned in
+     jsdom; what only the built app can answer is below. */
+
+  // Both tiles are real buttons, and only the one main confirmed as media is marked as such — that
+  // mark is what decides which of the two openings a click gets.
+  await until(() => evalIn(c, `!!document.querySelector('.attach-tile[data-media]')`), 15000, "image resolved as media");
+  const marks = await evalIn(c, `[...document.querySelectorAll('.attach-tile')].map((t) => ({
+    button: t.querySelector('.attach-open')?.tagName === 'BUTTON',
+    media: t.hasAttribute('data-media'),
+    label: t.querySelector('.attach-open')?.getAttribute('aria-label') ?? null }))`);
+  check("every tile is a real button", marks.every((m) => m.button), marks);
+  check("only the image is marked as media — the PDF is not",
+    marks.filter((m) => m.media).length === 1 && marks[0].media && !marks[1].media, marks);
+
+  /* The channel itself, in the BUILT main bundle. An unregistered `ipcMain.handle` REJECTS with
+     "No handler registered for …", so a resolved promise is proof the handler is really there — and
+     a path that cannot exist is refused by its gate, so proving it launches nothing. */
+  const channel = await evalIn(c, `window.realm.openAttachment(${JSON.stringify(path.join(scratch, "nothing-here.pdf"))})
+    .then(() => "registered").catch((e) => String(e.message ?? e))`);
+  check("attachment:open is registered in main, and refuses a path that is not there", channel === "registered", { channel });
+
+  await evalIn(c, `(() => { document.querySelector('.attach-tile[data-media] .attach-open').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.media-lightbox')`), 8000, "lightbox");
+  check("an image opens in the lightbox instead", true);
+
+  /* The stacking question, and the whole reason this part is live: the tile that opened it lives
+     INSIDE the prompter — a card on its own layer, above the transcript. The lightbox is portalled
+     to <body> to escape that, and whether it actually paints over the card is a compositing fact.
+     Measured by covering: crop the card's box out of the screenshot with the lightbox up, then hide
+     the lightbox and crop the same box. If the overlay covers the card the two must DIFFER, and the
+     lightbox's own crop must be near-uniform dim rather than prompter pixels showing through. */
+  const cardBox = await evalIn(c, `(() => {
+    const b = document.querySelector('.composer').getBoundingClientRect();
+    return { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) }; })()`);
+  const cropOf = async () => (await c.send("Page.captureScreenshot", { format: "png", clip: { ...cardBox, scale: 1 } })).data;
+  const covered = await cropOf();
+  await evalIn(c, `(() => { document.querySelector('.media-lightbox').style.visibility = 'hidden'; return true; })()`);
+  await sleep(250);
+  const bare = await cropOf();
+  await evalIn(c, `(() => { document.querySelector('.media-lightbox').style.visibility = ''; return true; })()`);
+  await sleep(250);
+  check("the lightbox really is painting over the prompter, not merely above it in the DOM",
+    covered !== bare, { sameBytes: covered === bare });
+
+  // Escape leaves, and focus comes back to the tile it came out of rather than to the document.
+  await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  const afterEscape = await until(() => evalIn(c, `(() => {
+    if (document.querySelector('.media-lightbox')) return null;
+    const a = document.activeElement;
+    return { onTile: !!a?.classList.contains('attach-open'), label: a?.getAttribute('aria-label') ?? null }; })()`), 5000, "lightbox closed");
+  check("Escape closes it and focus lands back on the tile", afterEscape.onTile, afterEscape);
 
   // Screenshot for the human verdict: hover the second tile so the tip is actually painted.
   const box = await evalIn(c, `(() => {
