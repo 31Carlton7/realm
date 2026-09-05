@@ -7,6 +7,7 @@ import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { TerminalView } from "../TerminalPane";
 import type { PaneProps } from "../registry";
 import { Composer } from "./Composer";
+import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
 import { DelegatedRuns } from "./DelegatedRuns";
@@ -256,6 +257,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // intent: ⌘⇧↩ dispatches the draft into a NEW session (store.dispatchDraft, bound in hotkeys.ts)
   // and must leave this scroller exactly where the reader parked it.
   const [sends, setSends] = useState(0);
+  /* The whole pane takes a dropped file, not just the prompter: with a transcript on screen the card
+     is a strip at the bottom, and aiming at it with a file in hand is the chore this removes. The
+     session id is closed over here, so a four-pane split lands each file in the pane it was dropped
+     on rather than in whichever session was last focused. The prompter claims the drag when the
+     pointer is actually over it, so a drop is only ever handled once. */
+  const fileDrop = useFileDrop((files) => run(() => attachFiles(id, files)));
 
   useEffect(() => { run(() => openSession(id)); }, [id, openSession, run]);
   // Cheap by construction: the store dedups concurrent calls and the server holds a TTL cache, so a
@@ -294,7 +301,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   });
   const blocked = isBlocked(availability) && status !== "running" && status !== "waiting_permission";
   const body = (
-    <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}>
+    <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}
+      data-dropping={fileDrop.dropping || undefined} {...fileDrop.handlers}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
         sends={sends}
         mentionIds={liveMentionIds}
@@ -342,6 +350,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             submitKey={submitKey}
             hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)}
             promptHint={hint} />}
+      {/* Last child and BELOW the prompter's dock, so the glow passes under the card exactly as the
+          transcript does — an affordance that blurred across the prompter would be the fade band's
+          old bug wearing a different colour. Decorative: the drop is announced by what it does. */}
+      {fileDrop.dropping && <div className="session-drop" aria-hidden="true" />}
     </div>
   );
   if (!panelOpen) return body;

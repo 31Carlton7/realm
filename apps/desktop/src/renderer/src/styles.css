@@ -850,7 +850,26 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* ── Session pane ──────────────────────────────────────────────────────── */
 /* A size container so the prompter's hero lift can be expressed in cqh (pane-height units). */
-.session-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); container-type: size; }
+.session-pane { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); container-type: size; }
+/* Dropping a file anywhere on the pane. Inset from the panel edge rather than flush to it, so the
+   glow reads as this pane's — in a four-way split a flush ring would run straight into its
+   neighbour's and the two would look like one target.
+
+   z-index 1 puts it under `.composer-dock` (2) and level with the transcript's fade band, which is
+   the whole point: the highlight passes UNDER the prompter the way the transcript does. Above it,
+   the blurred band would wash across the card — the bug `prompter-fade-live.mjs` exists to catch. */
+.session-drop { position: absolute; inset: 6px; z-index: 1; pointer-events: none;
+  border-radius: calc(var(--r-float) + 4px); corner-shape: squircle;
+  box-shadow: inset 0 0 0 1.5px var(--rl-accent), inset 0 0 36px -6px var(--rl-accent);
+  animation: rl-fade-in var(--dur-drag) linear; }
+/* The soft half, on its own layer because a backdrop-filter cannot be an inset shadow. The mask
+   lives HERE and never on the parent: a masked ancestor becomes a backdrop root, and its children
+   would then blur an empty backdrop — the same trap the transcript's fade band documents. */
+.session-drop::before { content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: color-mix(in srgb, var(--rl-accent) 12%, transparent);
+  backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+  mask-image: radial-gradient(farthest-side at 50% 50%, transparent 42%, #000 100%);
+  -webkit-mask-image: radial-gradient(farthest-side at 50% 50%, transparent 42%, #000 100%); }
 /* The session's terminal drawer (W4): a split INSIDE the session pane, not a layout leaf. Its divider is
    the same 1px .resize-handle the pane host uses; the terminal keeps its full-pane treatment (§5 — no
    border, no radius), separated from the transcript by the panel→terminal-bg luminance step alone.
@@ -972,6 +991,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 @media (prefers-reduced-transparency: reduce) {
   .transcript-fade::before, .diff-fade::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
   .transcript-fade::after, .diff-fade::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  /* The drop highlight, same treatment: the ring and its wash are what say "this pane takes the
+     file", and neither needs the blur to say it. */
+  .session-drop::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
 /* A column, always: a sent message is up to three stacked pieces — the attribution line, the
