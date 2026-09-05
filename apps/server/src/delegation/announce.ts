@@ -3,11 +3,8 @@ import type { RpcServer } from "../rpc/server";
 import type { DelegationEngine } from "./engine";
 
 /**
- * Publish one parent's live delegated runs, read straight back off the engine.
- *
- * The engine says only WHICH parent changed, so the payload is built here and nowhere else, and the
- * in-memory registry stays the single copy of who is waiting on what. A listener can never be handed
- * a set the registry has already moved past, because there is no set to hand — only a lookup.
+ * Publish one parent's live delegated runs, read straight back off the engine — see `onChange` on
+ * `DelegationEngine` for why the engine hands over an id rather than a set.
  *
  * `parentSessionId` is not always a session. A reviewer the user asks for from a diff pane has no
  * delegating agent, so `review.ts` begins it under a synthetic key to keep it capped and

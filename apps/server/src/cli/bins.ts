@@ -6,7 +6,7 @@ import type { AgentKind } from "@realm/contracts";
  * `defaultAdapters()` reads its ACP specs' `bin` from here rather than restating them, so pointing an
  * adapter at a stub binary points the CLI manager's provenance lookup at the same one. Claude and
  * Codex resolve their own defaults inside their probes (`probeClaude`, `probeCodex`) from the same two
- * env vars; `bins.test.ts` pins those names by proving an override moves both.
+ * env vars; `provenance.test.ts` pins those names by proving an override moves both.
  *
  * `fake` is null: the scripted dev adapter is compiled in and has no binary to find.
  */
