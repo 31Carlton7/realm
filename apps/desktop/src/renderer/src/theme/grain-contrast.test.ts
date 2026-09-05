@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CONTRAST_FLOOR, REALM_SEED, THEMES, deriveVars, themeVars } from "@realm/ui/src/themes";
-import { parseOklch, srgb, srgbLuminance } from "@realm/ui/src/oklch";
+import { hexToOklch, oklchToHex, parseOklch, srgb, srgbLuminance } from "@realm/ui/src/oklch";
 import { grainVars } from "./grain";
 
 /* The wash is decoration; the contrast floor is not. This walks every face the app can wear, paints
@@ -127,6 +127,26 @@ describe("the decorative wash never costs text its contrast floor", () => {
       }
     }
     expect(worst).toBeGreaterThan(-0.01);
+  });
+
+  it("adds hue to the ground without restating its lightness", () => {
+    // The other ceiling on these numbers, and the one that is about the design rather than the
+    // reader: a wash heavy enough to move the ground's lightness stops being decoration ON the
+    // user's palette and becomes a different palette. Contrast alone would allow far more than this
+    // on a dark face, where darkening the ground only ever helps.
+    const okl = (rgb: Rgb) => hexToOklch(oklchToHex({ l: 0, c: 0, h: 0 }) === "" ? "#000" : "#" +
+      rgb.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, "0")).join("")).l;
+    for (const surface of SURFACES) {
+      for (const face of FACES) {
+        const plain = okl(srgb(parseOklch(face.vars[surface.ground]!)));
+        for (const hue of HUE_OFFSETS) {
+          // Measured on the STEADY ground, without the speckles: the grain's excursion is the
+          // texture itself, bounded by the lift and by the floor, not by this.
+          const moved = Math.abs(okl(decorate(face.vars, face.mode, surface.ground, hue, false)) - plain);
+          expect(moved, `${face.label} ${surface.ground} at ${hue}deg`).toBeLessThan(0.025);
+        }
+      }
+    }
   });
 
   it("the texture is paid for by the lift, not by the reader", () => {

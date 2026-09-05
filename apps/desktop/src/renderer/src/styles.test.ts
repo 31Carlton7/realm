@@ -1726,8 +1726,8 @@ describe("the decorative wash", () => {
     }
     // The light face flips the pin: .97 sits inside the light grounds' own band the way .10 sits
     // below every dark one.
-    expect(tokensCss).toContain("--grain-wash-l: 0.10");
-    expect(tokensCss).toContain("--grain-wash-l: 0.97");
+    expect(tokensCss).toContain("--grain-wash-l: 0.17");
+    expect(tokensCss).toContain("--grain-wash-l: 0.98");
     expect(wash).toContain("var(--grain-hue, 0)");
     expect(wash).toContain("var(--grain-x, 50%)");
   });

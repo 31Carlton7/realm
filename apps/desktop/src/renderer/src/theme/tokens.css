@@ -561,10 +561,16 @@ a {
  * The derivation leaves NO headroom: it places --ink-3 at exactly 2.400 against a 2.4 floor on six
  * light faces. So the two layers are built to spend none.
  *
- * `--grain-wash-l` is the whole reason the colour is free. Pinned BELOW every dark ground (the
- * darkest is L .176) and INSIDE the light grounds' own band (.932–1.000), the wash moves hue
- * without moving luminance, and hue is not what contrast is computed from. The alpha could go
- * several times higher before any tier moved.
+ * `--grain-wash-l` is the whole reason the colour is free. Pinned just BELOW every dark ground (the
+ * darkest is L .176) and INSIDE the light grounds' own band (.932–1.000), the wash moves hue without
+ * moving luminance, and hue is not what contrast is computed from. Chroma is where the colour comes
+ * from and it costs nothing, so it is spent freely; the alphas differ by six times between the modes
+ * for the same reason, since on a light face the wash is already almost exactly the ground's
+ * lightness and more of it changes almost nothing.
+ *
+ * The ceiling on all three is not the floor but the PALETTE: past about .02 of OKLCH lightness the
+ * decorated ground stops reading as the user's canvas with something on it and starts reading as a
+ * different canvas. grain.test.ts holds that line as well as the contrast one.
  *
  * The grain cannot be free, because grain IS a luminance excursion. `--grain-lift` pays for it in
  * advance: a solid layer pushing the ground AWAY from the ink (down in dark, up in light), so the
@@ -572,10 +578,10 @@ a {
  * `--surface` ground; on `--canvas` the budget is zero in both directions and nothing textured may
  * be painted there. */
 :root {
-  --grain-wash-l: 0.10;
-  --grain-wash-c: 0.09;
-  --grain-wash-a: 0.12;
-  --grain-lift: oklch(0 0 0 / 0.05);
+  --grain-wash-l: 0.17;
+  --grain-wash-c: 0.28;
+  --grain-wash-a: 0.08;
+  --grain-lift: oklch(0 0 0 / 0.07);
   /* Alpha-only fractal noise, monochrome, tiled. The 0.035 in the matrix's alpha row is the
    * speckles' ceiling and is the number grain.test.ts checks; changing it here changes the proof.
    * `stitchTiles` is what lets the tile repeat without a seam, and is why the drift can translate by
@@ -586,8 +592,9 @@ a {
 /* Light faces invert both directions: the lift climbs toward white and the speckles are black,
  * because on a light ground it is darkening that costs contrast. */
 :root[data-mode="light"] {
-  --grain-wash-l: 0.97;
-  --grain-wash-c: 0.05;
-  --grain-lift: oklch(1 0 0 / 0.05);
+  --grain-wash-l: 0.98;
+  --grain-wash-c: 0.06;
+  --grain-wash-a: 0.32;
+  --grain-lift: oklch(1 0 0 / 0.07);
   --grain-tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .035 0 0 0 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
 }
