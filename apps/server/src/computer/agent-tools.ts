@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  COMPUTER_KEY_NAMES, COMPUTER_MODIFIERS, COMPUTER_PROVIDER_NAME, ComputerActionSchema,
+  COMPUTER_FORBIDDEN_BUNDLE_IDS, COMPUTER_KEY_NAMES, COMPUTER_MODIFIERS, COMPUTER_PROVIDER_NAME, ComputerActionSchema,
   type ComputerAction, type ComputerActResult, type ComputerAppsResult, type ComputerSnapshotResult,
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -9,6 +9,7 @@ import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { McpService } from "../mcp/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
+import type { ComputerAppAllowlist } from "./allowlist";
 import { fenceUntrusted } from "@realm/contracts";
 
 /**
@@ -36,11 +37,13 @@ import { fenceUntrusted } from "@realm/contracts";
  *     field is refused against the element's LIVE role, not the snapshot's.
  *  4. **Read-only mode refuses mutation.** A `plan` session cannot act, exactly as it cannot act on
  *     a page.
- *  5. **A permission card per application, per session** — and `bypassPermissions` does NOT skip it
+ *  5. **A permission card per application** — and `bypassPermissions` does NOT skip it
  *     (`promptUnderBypass`). That mode means "stop asking about ordinary actions", and it earns that
  *     meaning from the blast radius being a page in Realm's own pane. Approving TextEdit must not
- *     license Mail, so the grant is keyed on the bundle id; answering "always" covers that app for
- *     the rest of the session and nothing else.
+ *     license Mail, so the grant is keyed on the bundle id. Answering "always" writes the app to the
+ *     space's allowlist (`allowlist.ts`), which is what the card is asked once per app instead of
+ *     once per app per session forever; the user curates and revokes that list in the space's
+ *     settings. It cannot hold a forbidden app, and layer 3 is checked before it is read.
  *  6. **Two independent checks before any synthetic input lands**, both in the helper: the target app
  *     must actually come to the front, and the point must belong to it at the instant of the click.
  *  7. **It is visible while it happens.** Main puts an item in the menu bar for the duration of
@@ -52,14 +55,15 @@ import { fenceUntrusted } from "@realm/contracts";
  *     result, and where a permission card names an element the label is attributed to the app rather
  *     than spoken in Realm's voice.
  *
- * What this model does NOT have, stated plainly: a durable per-application allowlist the user
- * curates ahead of time. The per-app card is a session-scoped stand-in — it asks before the first
- * action against each app rather than letting the user decide in advance which apps are eligible.
+ * What this model does NOT have, stated plainly: any bound on WHAT may be done to an app once the
+ * app itself is approved. A grant is per application, not per action — an allowlisted TextEdit may
+ * be typed into as well as clicked, and the only per-action refusals are the hard ones in layer 3.
  */
 export type ComputerAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
   broker: Pick<BrowserPermissionBroker, "gate">;
+  allowlist: Pick<ComputerAppAllowlist, "allows" | "add">;
 };
 
 export function createComputerAgentProvider(d: ComputerAgentToolsDeps): RealmToolProvider {
@@ -207,6 +211,12 @@ const HANDLERS: Record<string, Handler> = {
       return err(`refused: this session has no snapshot "${snapshotId}". Take a computer_snapshot and act on the id it returns.`);
     }
 
+    // Before the allowlist is read and before a card can be raised: a forbidden app must not reach a
+    // prompt that could be answered "always", which would then be a stored approval for something no
+    // approval covers. The helper refuses again in the last process before an event is posted — this
+    // copy is about what the user is asked, not about what is finally allowed.
+    if ((COMPUTER_FORBIDDEN_BUNDLE_IDS as readonly string[]).includes(app.bundleId)) return err(FORBIDDEN_REFUSAL);
+
     const title = describeAct(action, app.appName);
     // Keyed on the bundle id, not the tool: "the user said this session may drive TextEdit" must not
     // read as "may drive anything". `promptUnderBypass` keeps that true in bypassPermissions too —
@@ -214,7 +224,12 @@ const HANDLERS: Record<string, Handler> = {
     const gate = await d.broker.gate(
       ctx.sessionId, `computer_act:${app.bundleId}`, title,
       { app: app.appName, bundleId: app.bundleId, action },
-      "computer_act", { promptUnderBypass: true },
+      "computer_act",
+      {
+        promptUnderBypass: true,
+        preapproved: d.allowlist.allows(ctx.spaceId, app.bundleId),
+        onAlwaysAllow: () => d.allowlist.add(ctx.spaceId, app.bundleId),
+      },
     );
     if (!gate.allowed) return err(gate.reason);
 
@@ -225,9 +240,7 @@ const HANDLERS: Record<string, Handler> = {
     if (result.refused === "secure_field") {
       return err("refused: that is a password field. Realm never types into one, in any mode — tell the user what to enter and let them type it themselves.");
     }
-    if (result.refused === "forbidden_app") {
-      return err("refused: that application can never be driven. Realm will not drive itself, System Settings, a password prompt, or a terminal — no permission lifts this.");
-    }
+    if (result.refused === "forbidden_app") return err(FORBIDDEN_REFUSAL);
     if (result.refused === "stale_snapshot" || result.refused === "no_element") {
       return err(`${result.error}. Take a fresh computer_snapshot: the app has changed since the one you are holding.`);
     }
@@ -239,6 +252,9 @@ const HANDLERS: Record<string, Handler> = {
 };
 
 /* ---------------------------------- helpers ---------------------------------- */
+
+const FORBIDDEN_REFUSAL =
+  "refused: that application can never be driven. Realm will not drive itself, System Settings, a password prompt, or a terminal — no permission lifts this, including the space's allowed-apps list.";
 
 const NO_ACCESSIBILITY =
   "macOS has not granted Realm the Accessibility permission, so it cannot read or drive other applications. The user grants it in Realm's Settings, under Permissions — it needs a real click from them and cannot be turned on from here.";

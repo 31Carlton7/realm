@@ -23,6 +23,7 @@ import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
+import { ComputerAppAllowlist } from "./computer/allowlist";
 import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAME } from "./browsers/browser-agent";
 import { DelegationEngine } from "./delegation/engine";
 import { announceDelegation } from "./delegation/announce";
@@ -373,6 +374,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
+  const computerAllowlist = new ComputerAppAllowlist({ settings });
   const browserBridge = new BrowserHostBridge({ rpc });
   const browserBroker = new BrowserPermissionBroker({
     // A missing row degrades to "plan" — the refuse-mutations mode — never to a prompt on a ghost.
@@ -430,7 +432,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
-  mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker }));
+  mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist }));
   // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
   // One extractor for the process: PDF text is memoized across every session's searches.
   const extractor = new TextExtractor();
@@ -482,7 +484,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify, delegation: delegationEngine,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();

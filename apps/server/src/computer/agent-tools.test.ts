@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { COMPUTER_PROVIDER_NAME } from "@realm/contracts";
 import { createComputerAgentProvider } from "./agent-tools";
-import type { GateResult } from "../browsers/permissions";
+import type { GateOptions, GateResult } from "../browsers/permissions";
 
 /**
  * The provider's own decisions, over a scripted bridge and gate. What must die here: the per-app
@@ -22,8 +22,11 @@ function setup(over: {
   ops?: Record<string, unknown | ((params: Record<string, unknown>) => unknown)>;
   gate?: GateResult;
   enabled?: boolean;
+  allowed?: string[];
 } = {}) {
-  const gates: { toolKey: string; title: string; opts: unknown }[] = [];
+  const allowed = new Set(over.allowed ?? []);
+  const added: { spaceId: string; bundleId: string }[] = [];
+  const gates: { toolKey: string; title: string; opts: GateOptions | undefined }[] = [];
   const ops: { op: string; params: Record<string, unknown> }[] = [];
   const table = { computerGrants: { accessibility: true, screenRecording: true }, ...over.ops };
   const provider = createComputerAgentProvider({
@@ -37,13 +40,20 @@ function setup(over: {
       },
     },
     broker: {
-      gate: async (_sessionId: string, toolKey: string, title: string, _input: unknown, _toolName?: string, opts?: unknown) => {
+      gate: async (_sessionId: string, toolKey: string, title: string, _input: unknown, _toolName?: string, opts?: GateOptions) => {
         gates.push({ toolKey, title, opts });
+        // A preapproved gate never reaches a card, so the fake must not run the "always" callback
+        // for one — that is what makes "already on the list" distinguishable from "just added".
+        if (!opts?.preapproved) opts?.onAlwaysAllow?.();
         return over.gate ?? { allowed: true };
       },
     },
+    allowlist: {
+      allows: (spaceId: string, bundleId: string) => allowed.has(`${spaceId} ${bundleId}`),
+      add: (spaceId: string, bundleId: string) => { added.push({ spaceId, bundleId }); },
+    },
   });
-  return { provider, gates, ops };
+  return { provider, gates, ops, added };
 }
 
 const text = (r: CallToolResult): string =>
@@ -195,6 +205,57 @@ describe("computer_act permissions", () => {
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/invalid arguments/);
     expect(s.gates).toEqual([]);
+  });
+});
+
+describe("the space's allowed-apps list", () => {
+  const FORBIDDEN_SNAPSHOT = { ...SNAPSHOT, bundleId: "com.apple.Terminal", appName: "Terminal" };
+
+  it("does not ask again about an app the space has already allowed", async () => {
+    const s = setup({ ops: { computerSnapshot: SNAPSHOT, computerAct: { ok: true, detail: "clicked" } }, allowed: ["sp1 com.apple.TextEdit"] });
+    const r = await snapshotThenAct(s, { kind: "click", index: 0 });
+    expect(r.isError).toBe(false);
+    expect(s.gates[0]!.opts).toMatchObject({ preapproved: true });
+    // Still gated, never skipped: the broker is what refuses a read-only session, and an allowlist
+    // says which apps are eligible, not that Plan mode may act.
+    expect(s.gates).toHaveLength(1);
+  });
+
+  it("still asks about an app the space has not allowed", async () => {
+    const s = setup({ ops: { computerSnapshot: SNAPSHOT, computerAct: { ok: true, detail: "clicked" } }, allowed: ["sp1 com.apple.Mail"] });
+    await snapshotThenAct(s, { kind: "click", index: 0 });
+    expect(s.gates[0]!.opts).toMatchObject({ preapproved: false, promptUnderBypass: true });
+  });
+
+  it("does not carry one space's approvals into another", async () => {
+    const s = setup({ ops: { computerSnapshot: SNAPSHOT, computerAct: { ok: true, detail: "clicked" } }, allowed: ["sp1 com.apple.TextEdit"] });
+    await s.provider.call({ sessionId: "s9", spaceId: "sp2" }, "computer_snapshot", {});
+    await s.provider.call({ sessionId: "s9", spaceId: "sp2" }, "computer_act", { snapshotId: SNAPSHOT.snapshotId, action: { kind: "click", index: 0 } });
+    expect(s.gates[0]!.opts).toMatchObject({ preapproved: false });
+  });
+
+  it("writes the app to the space's list when the user answers always", async () => {
+    const s = setup({ ops: { computerSnapshot: SNAPSHOT, computerAct: { ok: true, detail: "clicked" } } });
+    await snapshotThenAct(s, { kind: "click", index: 0 });
+    expect(s.added).toEqual([{ spaceId: "sp1", bundleId: "com.apple.TextEdit" }]);
+  });
+
+  it("refuses a forbidden app even when it is on the list, before any card can be raised", async () => {
+    // The ordering that matters: forbidden beats every grant, including one the user curated. The
+    // refusal lands before the gate, so a forbidden app can never reach a card whose "always" would
+    // write it down as approved.
+    const s = setup({ ops: { computerSnapshot: FORBIDDEN_SNAPSHOT }, allowed: ["sp1 com.apple.Terminal"] });
+    const r = await snapshotThenAct(s, { kind: "click", index: 0 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/no permission lifts this/);
+    expect(s.gates).toEqual([]);
+    expect(s.added).toEqual([]);
+    expect(s.ops.filter((o) => o.op === "computerAct")).toEqual([]);
+  });
+
+  it("refuses a forbidden app that is not on the list the same way", async () => {
+    const s = setup({ ops: { computerSnapshot: FORBIDDEN_SNAPSHOT } });
+    expect(text(await snapshotThenAct(s, { kind: "click", index: 0 }))).toMatch(/no permission lifts this/);
   });
 });
 

@@ -657,6 +657,11 @@ export const Methods = {
   "mcp.tools.list": { params: z.object({ id: IdSchema }), result: z.object({ tools: z.array(McpToolSchema), error: z.string().nullable() }) },
   /** Narrow this space's tools for one server to exactly `tools`; `null` restores "every cached tool
    *  allowed", the same default a server nobody has touched already has. */
+  /** The space's computer-use allowlist: the applications an agent may drive there without a card.
+   *  `set` returns the list AS STORED — forbidden bundle ids are dropped rather than accepted, so the
+   *  caller renders what is really in effect. */
+  "computer.allowedApps.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ apps: z.array(z.string()) }) },
+  "computer.allowedApps.set": { params: z.object({ spaceId: IdSchema, apps: z.array(z.string()) }), result: z.object({ apps: z.array(z.string()) }) },
   "mcp.setAllowedTools": { params: z.object({ spaceId: IdSchema, id: IdSchema, tools: z.array(z.string()).nullable() }), result: z.object({ ok: z.literal(true) }) },
   /** Realm's own call log (Activity), newest first — see `McpCallSchema`. `before` pages backward by a
    *  composite `{ ts, id }` cursor — a plain `ts` cursor drops same-millisecond siblings at a page

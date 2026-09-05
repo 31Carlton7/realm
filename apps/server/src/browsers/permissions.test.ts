@@ -275,3 +275,116 @@ describe("gate({ promptUnderBypass })", () => {
     expect(await again).toEqual({ allowed: true });
   });
 });
+
+/**
+ * `preapproved` and `onAlwaysAllow`: the seam a durable, user-curated grant hangs off. The broker
+ * still owns modes and prompting; where a standing approval is KEPT belongs to the caller, because
+ * the shape of it — bundle ids, per space — is not something this class should know.
+ *
+ * Its mutants: a preapproved gate that still asks; one that is honoured in a read-only session; and
+ * an "always" that is remembered for the session but never written down, which is the whole failure
+ * this option exists to end.
+ */
+describe("gate({ preapproved, onAlwaysAllow })", () => {
+  it("does not ask about something the user has already put on a list", async () => {
+    const { broker, events } = setup("default");
+    expect(await broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", { preapproved: true, promptUnderBypass: true }))
+      .toEqual({ allowed: true });
+    expect(events).toEqual([]);
+  });
+
+  it("still refuses a read-only session, list or no list", async () => {
+    // A standing approval says which apps are eligible. It does not say a Plan session may act, and
+    // the refusal has to outrank it or "always allow TextEdit" would quietly re-arm every mode.
+    for (const mode of ["plan", "ask"]) {
+      const { broker, events } = setup(mode);
+      const gate = await broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", { preapproved: true });
+      expect(gate).toMatchObject({ allowed: false });
+      expect(gate).toMatchObject({ reason: expect.stringMatching(/read-only/) });
+      expect(events).toEqual([]);
+    }
+  });
+
+  it("still asks about an app that is NOT on the list", async () => {
+    const { broker, events } = setup("bypassPermissions");
+    const gate = broker.gate("s1", "computer_act:com.apple.Mail", "Click", {}, "computer_act", { preapproved: false, promptUnderBypass: true });
+    broker.resolve(requestIdOf(events), "allow");
+    expect(await gate).toEqual({ allowed: true });
+  });
+
+  it("hands the answer back to the caller to persist when the user says always", async () => {
+    const { broker, events } = setup("default");
+    const written: string[] = [];
+    const gate = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act",
+      { promptUnderBypass: true, onAlwaysAllow: () => written.push("com.apple.TextEdit") });
+    broker.resolve(requestIdOf(events), "allow_always");
+    expect(await gate).toEqual({ allowed: true });
+    expect(written).toEqual(["com.apple.TextEdit"]);
+  });
+
+  it("persists nothing for a one-off allow or a denial", async () => {
+    for (const decision of ["allow", "deny"] as const) {
+      const { broker, events } = setup("default");
+      const written: string[] = [];
+      const gate = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", { onAlwaysAllow: () => written.push("x") });
+      broker.resolve(requestIdOf(events), decision);
+      await gate;
+      expect(written, decision).toEqual([]);
+    }
+  });
+
+  it("persists nothing when the card is one that may never be remembered", async () => {
+    // The credential-fill rule: an `alwaysPrompt` gate records nothing in the session set, and must
+    // not find a back door to disk through this callback either.
+    const { broker, events } = setup("default");
+    const written: string[] = [];
+    const gate = broker.gate("s1", "browser_fill_credential", "Fill", {}, "browser_fill_credential",
+      { alwaysPrompt: true, onAlwaysAllow: () => written.push("x") });
+    broker.resolve(requestIdOf(events), "allow_always");
+    await gate;
+    expect(written).toEqual([]);
+  });
+});
+
+describe("BrowserPermissionBroker.revoke", () => {
+  it("makes a session that already answered always ask again", async () => {
+    // Taking an app off the durable list is not a revocation while a live session still holds its
+    // own grant for it — that session would keep driving the app until it ended.
+    const { broker, events } = setup("default");
+    const first = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", { promptUnderBypass: true });
+    broker.resolve(requestIdOf(events), "allow_always");
+    await first;
+
+    events.length = 0;
+    broker.revoke("computer_act:com.apple.TextEdit");
+    const second = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click again", {}, "computer_act", { promptUnderBypass: true });
+    broker.resolve(requestIdOf(events), "allow");
+    expect(await second).toEqual({ allowed: true });
+  });
+
+  it("leaves other apps' grants alone", async () => {
+    const { broker, events } = setup("default");
+    const first = broker.gate("s1", "computer_act:com.apple.Mail", "Click", {}, "computer_act", { promptUnderBypass: true });
+    broker.resolve(requestIdOf(events), "allow_always");
+    await first;
+
+    events.length = 0;
+    broker.revoke("computer_act:com.apple.TextEdit");
+    expect(await broker.gate("s1", "computer_act:com.apple.Mail", "Click again", {}, "computer_act", { promptUnderBypass: true })).toEqual({ allowed: true });
+    expect(events).toEqual([]);
+  });
+
+  it("reaches every session, since the broker is never told which space one belongs to", async () => {
+    const { broker, events } = setup("default");
+    for (const sessionId of ["s1", "s2"]) {
+      const gate = broker.gate(sessionId, "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", { promptUnderBypass: true });
+      broker.resolve(requestIdOf(events), "allow_always");
+      await gate;
+      events.length = 0;
+    }
+    broker.revoke("computer_act:com.apple.TextEdit");
+    const gate = broker.gate("s2", "computer_act:com.apple.TextEdit", "Click again", {}, "computer_act", { promptUnderBypass: true });
+    broker.resolve(requestIdOf(events), "allow");
+    expect(await gate).toEqual({ allowed: true });
+  });
+});
