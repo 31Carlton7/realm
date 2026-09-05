@@ -35,6 +35,8 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
 });
 
+const NO_CITATIONS: readonly string[] = [];
+
 /** How long the copy button holds its ✓ before cross-fading back (matches ToolCard's COPIED_MS). */
 const COPIED_MS = 1400;
 
@@ -56,9 +58,34 @@ const COPY_BUTTON_HTML =
  *  the marker was for — which of the five it is. Anything else in the brackets is left alone. */
 const CALLOUTS = new Set(["note", "tip", "important", "warning", "caution"]);
 
-function decorate(html: string): string {
-  if (!html.includes("<table") && !html.includes("<pre") && !html.includes("<blockquote")) return html;
+/**
+ * A numbered marker on a link the agent DID fetch.
+ *
+ * The numbers are the sources list's own, so `[2]` in the prose and `2` in the disclosure are one
+ * page. Only links whose href matches something actually retrieved get one: a marker on a url the
+ * model merely typed would present a claim as a citation, which is the one thing a citation must
+ * never do. A message with no matching links gets no markers and still gets its sources list —
+ * they answer different questions ("where did this sentence come from" against "what did you
+ * read"), and only the first needs the model to have linked anything.
+ */
+const citeKey = (url: string): string => url.replace(/\/+$/, "");
+
+function markCitations(doc: Document, cite: readonly string[]): void {
+  const index = new Map(cite.map((url, i) => [citeKey(url), i + 1]));
+  for (const a of Array.from(doc.body.querySelectorAll("a[href]"))) {
+    const n = index.get(citeKey(a.getAttribute("href") ?? ""));
+    if (n === undefined) continue;
+    const sup = doc.createElement("sup");
+    sup.className = "md-cite";
+    sup.textContent = String(n);
+    a.after(sup);
+  }
+}
+
+function decorate(html: string, cite: readonly string[]): string {
+  if (cite.length === 0 && !html.includes("<table") && !html.includes("<pre") && !html.includes("<blockquote")) return html;
   const doc = new DOMParser().parseFromString(html, "text/html");
+  markCitations(doc, cite);
   for (const quote of Array.from(doc.body.querySelectorAll("blockquote"))) {
     const first = quote.firstElementChild;
     const m = /^\[!(\w+)\]\s*/.exec(first?.textContent ?? "");
@@ -103,21 +130,23 @@ function decorate(html: string): string {
   return doc.body.innerHTML;
 }
 
-export function renderMarkdown(text: string): string {
+/** `cite` — urls the agent actually retrieved for this message, in the order the sources list shows
+ *  them. Empty everywhere but an assistant message that fetched something. */
+export function renderMarkdown(text: string, cite: readonly string[] = []): string {
   const html = marked.parse(text, { async: false });
   /* MathML and SVG join the HTML profile for KaTeX's sake: it emits `<math>` alongside its visual
    * markup (so the expression can be selected, copied and read aloud) and `<svg>` for the parts CSS
    * cannot draw — surd bars, stretchy braces. With the html profile alone the sanitizer strips both
    * and every formula loses its accessible half and its radicals. */
-  return decorate(DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true }, ADD_ATTR: ["target"] }));
+  return decorate(DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true }, ADD_ATTR: ["target"] }), cite);
 }
 
 /** Assistant prose: markdown → sanitized HTML. The text itself is whatever has actually arrived:
  *  deltas pace the stream, there is no reveal timer, so a re-render can never replay it. `enter`
  *  opts the block into the transcript's 180ms enter animation (§6 — set only for blocks that are
  *  genuinely new). */
-export function Markdown({ text, className = "", enter = false }: { text: string; className?: string; enter?: boolean }) {
-  const html = useMemo(() => renderMarkdown(text), [text]);
+export function Markdown({ text, className = "", enter = false, cite = NO_CITATIONS }: { text: string; className?: string; enter?: boolean; cite?: readonly string[] }) {
+  const html = useMemo(() => renderMarkdown(text, cite), [text, cite]);
   const body = useRef<HTMLDivElement>(null);
   const media = useMediaPortals(body, html);
   // Copy buttons live inside dangerouslySetInnerHTML, so they are wired by delegation; the ✓ hold

@@ -243,6 +243,11 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".msg-action::after")).toEqual(['content: ""; position: absolute; inset: -6px 0;']);
   });
 
+  it("the sources chevron turns on the swap rung — a glyph changing state, not a box changing size", () => {
+    expect(bodiesFor(".msg-sources-chevron").join(" ")).toContain(`transform ${dur("--dur-swap")} var(--ease-out-strong)`);
+    expect(bodiesFor(".msg-sources[data-open] .msg-sources-chevron").join(" ")).toContain("rotate(0deg)");
+  });
+
   it("W2's prompter hero→docked move keeps its 320ms ease-in-out-strong (§6 assigns that easing to on-screen movement)", () => {
     expect(bodiesFor(".composer-dock").join(" ")).toContain(`transition: transform ${dur("--dur-move")} var(--ease-in-out-strong)`);
   });

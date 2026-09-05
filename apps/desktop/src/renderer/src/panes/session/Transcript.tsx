@@ -5,6 +5,8 @@ import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { MessageActions } from "./MessageActions";
+import { MessageSources } from "./MessageSources";
+import { sourcesFor, type Source } from "./message-sources";
 import { PermissionCard } from "./PermissionCard";
 import { PlanCard, PlanDecision, isPlanDecision } from "./PlanCard";
 import { QuestionCard, questionCardFor } from "./QuestionCard";
@@ -31,6 +33,7 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
 }
 
 const NO_MENTIONS: readonly string[] = [];
+const NO_SOURCES: readonly Source[] = [];
 
 /**
  * A user message's text, with its chips drawn as chips.
@@ -89,20 +92,25 @@ function UserAttachments({ attachments }: { attachments: readonly { path: string
  * strip that appeared, changed and disappeared as the sentence completed would be worse than one
  * that waits for the full stop.
  */
-function AssistantMessage({ text, streaming, enter, cwd, onRetry, retryBusy, rating, onRate }: {
+function AssistantMessage({ text, streaming, enter, cwd, onRetry, retryBusy, rating, onRate, sources = NO_SOURCES }: {
   text: string; streaming: boolean; enter: boolean; cwd: string | null;
   onRetry?: () => void; retryBusy?: boolean; rating?: Rating | null; onRate?: (rating: Rating | null) => void;
+  /** The pages this turn actually fetched. Empty for the overwhelming majority of messages, which
+   *  is the honest answer: an agent that ran no fetch tool read nothing to cite. */
+  sources?: readonly Source[];
 }) {
   const candidates = useMemo(() => (streaming ? [] : mediaCandidatesIn(text, cwd)), [streaming, text, cwd]);
   const files = useMediaFiles(candidates);
+  const cite = useMemo(() => sources.map((s) => s.url), [sources]);
   return (
     // `data-enter` rides the ROW, not the prose: §6's entrance rule reaches `.transcript-col`'s
     // direct children only, and the message stopped being one the moment it grew a wrapper.
     <div className="msg-assistant-row" data-enter={enter || undefined}
       data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
-      <Markdown className="msg-assistant" text={text} />
+      <Markdown className="msg-assistant" text={text} cite={cite} />
       <MediaStrip files={files} />
       {!streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
+      {!streaming && sources.length > 0 && <MessageSources sources={sources} />}
     </div>
   );
 }
@@ -154,6 +162,17 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     return null;
   }, [onRetry, transcript]);
   const busy = sessionStatus === "running" || sessionStatus === "waiting_permission";
+  // Per message, not per transcript: a turn's fetches belong to the answer they were made for, and
+  // one list at the bottom would credit the newest message with everything ever read.
+  const sourcesByKey = useMemo(() => {
+    const out = new Map<string, Source[]>();
+    transcript.blocks.forEach((b, i) => {
+      if (b.kind !== "assistant" || b.streaming) return;
+      const found = sourcesFor(transcript.blocks, i);
+      if (found.length > 0) out.set(blockKey(b, i), found);
+    });
+    return out;
+  }, [transcript.blocks]);
   // §6: 180ms enter, new items only. Everything on screen at mount is seeded as already-seen, so
   // re-rendering, scrolling, or coming back to this session never replays an entrance.
   const isEntering = useEnterTracker([
@@ -223,7 +242,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
               onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
               rating={transcript.feedback[b.messageId] ?? null}
-              onRate={onRate && ((r) => onRate(b.messageId, r))} />;
+              onRate={onRate && ((r) => onRate(b.messageId, r))}
+              sources={sourcesByKey.get(key)} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter} />;

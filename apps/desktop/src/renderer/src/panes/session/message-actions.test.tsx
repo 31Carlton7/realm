@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Transcript } from "./Transcript";
+import { renderMarkdown } from "./Markdown";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
 afterEach(() => cleanup());
@@ -12,6 +13,9 @@ const assistant = (text: string, streaming: boolean, messageId = "m1"): Block =>
   ({ kind: "assistant", messageId, text, streaming, ts: 1 });
 
 const user = (text: string): Block => ({ kind: "user", text, ts: 0 });
+
+const fetched = (url: string): Block =>
+  ({ kind: "tool", toolUseId: `t:${url}`, name: "WebFetch", input: { url }, result: { content: "page", isError: false }, ts: 0 });
 
 const row = () => document.querySelector(".msg-assistant-row")!;
 
@@ -134,5 +138,62 @@ describe("the assistant message's action bar", () => {
     render(<Transcript sessionStatus="idle" onDecide={() => {}}
       transcript={model([assistant("one", false)])} />);
     expect(screen.queryByRole("button", { name: "Good response" })).toBeNull();
+  });
+
+  it("folds the sources away until the reader asks, and names how many there are", () => {
+    render(<Transcript sessionStatus="idle" onDecide={() => {}}
+      transcript={model([user("q"), fetched("https://a.test/one"), fetched("https://b.test/two"), assistant("answer", false)])} />);
+    const toggle = screen.getByRole("button", { name: /2 sources/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(document.querySelector(".msg-sources-list")).toHaveAttribute("hidden");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const links = [...document.querySelectorAll<HTMLAnchorElement>(".msg-sources-list a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://a.test/one", "https://b.test/two"]);
+    // target=_blank is the whole mechanism for reaching the OS browser; without it a click would
+    // navigate the renderer itself out of the app.
+    expect(links[0]!.getAttribute("target")).toBe("_blank");
+  });
+
+  it("says nothing at all about sources when the turn fetched nothing", () => {
+    render(<Transcript sessionStatus="idle" onDecide={() => {}}
+      transcript={model([user("q"), assistant("an answer with https://typed.test/x in it", false)])} />);
+    expect(document.querySelector(".msg-sources")).toBeNull();
+  });
+
+  it("credits the answer whose turn did the fetching, not the one after it", () => {
+    render(<Transcript sessionStatus="idle" onDecide={() => {}}
+      transcript={model([
+        user("first"), fetched("https://a.test/one"), assistant("one", false),
+        user("second"), assistant("two", false, "m2"),
+      ])} />);
+    const bars = [...document.querySelectorAll(".msg-assistant-row")];
+    expect(bars[0]!.querySelector(".msg-sources")).not.toBeNull();
+    expect(bars[1]!.querySelector(".msg-sources")).toBeNull();
+  });
+});
+
+describe("inline citation markers", () => {
+  it("numbers a link the agent actually fetched, matching the sources list", () => {
+    const html = renderMarkdown("See [the docs](https://a.test/one) and [more](https://b.test/two).",
+      ["https://a.test/one", "https://b.test/two"]);
+    expect(html).toContain('<sup class="md-cite">1</sup>');
+    expect(html).toContain('<sup class="md-cite">2</sup>');
+  });
+
+  it("leaves a link the agent never fetched unmarked — a typed url is not a citation", () => {
+    // The mutant this kills: marking every link, which would present the model's own recollection
+    // as evidence it went and checked.
+    const html = renderMarkdown("Fetched [one](https://a.test/one), guessed [two](https://guess.test/x).",
+      ["https://a.test/one"]);
+    expect(html.match(/md-cite/g)).toHaveLength(1);
+    expect(html).toContain('<sup class="md-cite">1</sup>');
+    expect(html).not.toContain('<sup class="md-cite">2</sup>');
+  });
+
+  it("marks nothing when nothing was fetched, and leaves the prose byte-identical", () => {
+    const text = "Read more at [the docs](https://a.test/one).";
+    expect(renderMarkdown(text)).toBe(renderMarkdown(text, []));
+    expect(renderMarkdown(text)).not.toContain("md-cite");
   });
 });

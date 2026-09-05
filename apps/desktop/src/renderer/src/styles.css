@@ -1051,6 +1051,30 @@ button.panel-title:hover { background: var(--rl-hover); }
    and these sit 2px apart, where it would have every button stealing clicks from the next. */
 .msg-action { position: relative; }
 .msg-action::after { content: ""; position: absolute; inset: -6px 0; }
+
+/* The sources disclosure. Folded away by default: a citation is there to be checked, not read, and
+   four urls between two messages cost every reader to serve the one who went looking. */
+.msg-sources { display: flex; flex-direction: column; gap: 6px; }
+.msg-sources-toggle { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+  padding: 3px 7px 3px 5px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); }
+.msg-sources-toggle:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* The chevron points at the list when it is open — the one rotation §6 allows on a disclosure,
+   on the swap rung because it is a glyph changing state rather than a box changing size. */
+.msg-sources-chevron { transform: rotate(-90deg); transition: transform var(--dur-swap) var(--ease-out-strong); }
+.msg-sources[data-open] .msg-sources-chevron { transform: rotate(0deg); }
+.msg-sources-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.msg-sources-list a { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; border-radius: var(--r-ctl);
+  font-size: 12px; color: var(--rl-text-dim); text-decoration: none; }
+.msg-sources-list a:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Tabular so a two-digit marker does not shift the hostnames under it out of line. */
+.msg-source-n { flex: none; min-width: 14px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.msg-source-host { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+/* The path is the least of the three and the longest: it gives up its width first and truncates. */
+.msg-source-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-faint); }
+/* An inline marker on a link the agent actually fetched. It sits on the same numbering as the list
+   above, so [2] in a sentence and 2 in the disclosure are one page. */
+.md-cite { margin-left: 1px; padding: 0 3px; border-radius: var(--r-chip); vertical-align: super;
+  font-size: 9px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); background: var(--rl-raised); }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
 .msg-assistant.md { line-height: 1.6; }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
