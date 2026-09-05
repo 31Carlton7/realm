@@ -477,6 +477,8 @@ describe("App tab", () => {
     const sw = screen.getByRole("switch", { name: "Play a sound with it" });
     expect(sw).toBeChecked();
     expect(screen.getByRole("slider", { name: "Sound volume" })).toHaveValue("50");
+    // The readout says what it measures: the slider sits two rows under the switch it belongs to.
+    expect(screen.getByText("Volume 50%")).toBeInTheDocument();
     fireEvent.click(sw);
     await waitFor(() => expect(api.data.settings[NOTIFICATIONS_SOUND_KEY]).toBe(false));
     expect(store.getState().soundCues).toBe(false);

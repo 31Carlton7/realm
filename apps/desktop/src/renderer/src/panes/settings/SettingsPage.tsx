@@ -638,17 +638,18 @@ function AppTab() {
           </li>
         </ul>
         <div className="slider-row">
-          {/* Labelled where the other sliders on this tab are not: theirs are the whole subject of
-              their field, this one hangs off a switch two rows up, so a bare bar and a percentage
-              would leave the reader to guess what the percentage measures. */}
-          <span className="slider-value">Volume</span>
+          {/* The readout names its quantity, where the other two sliders on this tab are named by the
+              heading of the field they are the whole subject of. This one hangs off a switch two rows
+              up, so a bare percentage would leave the reader to work out what it measures — and a
+              label to the LEFT would be the one slider on the tab whose bar does not start on the
+              same edge as the rest. */}
           <input type="range" aria-label="Sound volume" disabled={!desktopNotifications || !soundCues}
             min={0} max={100} step={5}
             value={Math.round(soundVolume * 100)}
             onChange={(e) => run(() => setSoundVolume(Number(e.target.value) / 100))} />
-          <span className="slider-value">{Math.round(soundVolume * 100)}%</span>
+          <span className="slider-value">Volume {Math.round(soundVolume * 100)}%</span>
         </div>
-        <p className="settings-hint">Only when Realm is not the app you are in — a notification for something already on your screen is noise. Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app. The sound follows your Mac's volume, so muting the machine mutes it.</p>
+        <p className="settings-hint">Only when Realm is not the app you are in — a notification for something already on your screen is noise. Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app. The sound follows the system volume, so muting the machine mutes it.</p>
       </div>
 
       <div className="field"><span>Notifications</span>
