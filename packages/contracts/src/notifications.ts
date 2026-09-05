@@ -76,3 +76,18 @@ export const NOTIFICATIONS_DISABLED_KEY = "notifications.disabledCategories";
  * suppressed never reach here at all, so this is a narrowing of that set, never a widening.
  */
 export const NOTIFICATIONS_DESKTOP_KEY = "notifications.desktop";
+
+/**
+ * Settings keys for the audible half of a desktop notification: whether a posted toast also plays a
+ * cue, and how loud (0…1). Both NARROW the desktop switch rather than standing beside it — a cue is
+ * only ever played to accompany a toast main actually posted, so with `NOTIFICATIONS_DESKTOP_KEY`
+ * off there is no interruption for a sound to be part of.
+ *
+ * Default ON, at half volume: the cue inherits an opt-in the user already made, it can only sound
+ * while Realm is in the background, and a cue nobody ever hears is a cue nobody ever finds in
+ * Settings to keep. Half volume because the synthesiser's own output stage is generous and a cue
+ * heard hundreds of times should sit under the room, not on top of it.
+ */
+export const NOTIFICATIONS_SOUND_KEY = "notifications.sound";
+export const NOTIFICATIONS_SOUND_VOLUME_KEY = "notifications.soundVolume";
+export const DEFAULT_NOTIFICATION_SOUND_VOLUME = 0.5;

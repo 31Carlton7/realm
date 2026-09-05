@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createAppStore } from "./store";
 import { fakeApi, item, notification, session } from "./store.test-fakes";
-import { allItems, navEntry, NOTIFICATIONS_DESKTOP_KEY } from "@realm/contracts";
+import { allItems, navEntry, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY } from "@realm/contracts";
 
 const boot = async (overrides: Parameters<typeof fakeApi>[0] = {}) => {
   const api = fakeApi(overrides);
@@ -282,5 +282,65 @@ describe("store — the desktop (OS) hop", () => {
     await store.getState().activateDesktopNotification("h2");
     expect(store.getState().items.filter((i) => i.kind === "notifications-page")).toHaveLength(1);
     expect(store.getState().notificationsSelectedId).toBe("h2");
+  });
+});
+
+describe("store — the sound cues", () => {
+  it("a settle cues `ready` and a permission cues `chime` — the two moments that call you back", async () => {
+    const { api, store } = await boot();
+    store.getState().applyNotificationsChanged({ notification: notification("n1", { category: "session_done" }), unread: 1 });
+    await tick();
+    expect(api.calls).toContain("playCue:ready@0.5");
+    store.getState().applyNotificationsChanged({ notification: notification("n2", { category: "permission", actedAt: null }), unread: 2 });
+    await tick();
+    expect(api.calls).toContain("playCue:chime@0.5");
+  });
+
+  it("THE widened-table mutant: infrastructure rows toast in silence", async () => {
+    // Every category surfaces a row and every row toasts. Sound is the narrower set on purpose — a
+    // failing MCP server, a CLI that stopped probing, a budget ceiling and a refused worktree removal
+    // are facts their toast already carries, not a person being called back to do something.
+    const { api, store } = await boot();
+    for (const category of ["mcp_health", "agent_probe", "budget", "worktree_hazard"] as const) {
+      store.getState().applyNotificationsChanged({ notification: notification(`n-${category}`, { category }), unread: 1 });
+    }
+    await tick();
+    expect(api.data.shownNotifications).toHaveLength(4); // all four still reached the OS
+    expect(api.calls.some((c) => c.startsWith("playCue"))).toBe(false);
+  });
+
+  it("THE focused-window mutant: main suppressed the toast, so there is nothing for a cue to accompany", async () => {
+    const { api, store } = await boot({ windowFocused: true });
+    store.getState().applyNotificationsChanged({ notification: notification("n1"), unread: 1 });
+    await tick();
+    expect(api.calls).toContain("showDesktopNotification:n1"); // asked, as always
+    expect(api.calls.some((c) => c.startsWith("playCue"))).toBe(false);
+  });
+
+  it("THE ignored-setting mutant: sound off is silent, and the toast is untouched", async () => {
+    const { api, store } = await boot({ settings: { [NOTIFICATIONS_SOUND_KEY]: false } });
+    expect(store.getState().soundCues).toBe(false);
+    store.getState().applyNotificationsChanged({ notification: notification("n1"), unread: 1 });
+    await tick();
+    expect(api.data.shownNotifications.map((n) => n.id)).toEqual(["n1"]);
+    expect(api.calls.some((c) => c.startsWith("playCue"))).toBe(false);
+  });
+
+  it("the desktop switch is the wider gate: with toasts off nothing sounds either", async () => {
+    const { api, store } = await boot({ settings: { [NOTIFICATIONS_DESKTOP_KEY]: false } });
+    expect(store.getState().soundCues).toBe(true); // the sound preference itself is untouched
+    store.getState().applyNotificationsChanged({ notification: notification("n1"), unread: 1 });
+    await tick();
+    expect(api.calls.some((c) => c.startsWith("playCue"))).toBe(false);
+  });
+
+  it("the stored volume rides every cue, and an unreadable one falls back rather than to silence", async () => {
+    const { api, store } = await boot({ settings: { [NOTIFICATIONS_SOUND_VOLUME_KEY]: 0.2 } });
+    expect(store.getState().soundVolume).toBe(0.2);
+    store.getState().applyNotificationsChanged({ notification: notification("n1"), unread: 1 });
+    await tick();
+    expect(api.calls).toContain("playCue:ready@0.2");
+    const bad = await boot({ settings: { [NOTIFICATIONS_SOUND_VOLUME_KEY]: 4 } });
+    expect(bad.store.getState().soundVolume).toBe(0.5);
   });
 });
