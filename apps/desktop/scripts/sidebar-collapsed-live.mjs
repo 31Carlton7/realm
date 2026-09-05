@@ -104,7 +104,6 @@ const PROBE = `(() => {
              contentLeft: first ? Math.round(first.left) : null, padLeft: Math.round(parseFloat(getComputedStyle(bar).paddingLeft)) };
   }).filter(Boolean);
   return {
-    rail: !!document.querySelector('.sb-rail'),
     sidebar: box('.sidebar'), corner: box('.sb-corner'), main: box('.main'),
     panehost: box('.panehost'), groupBar: box('.group-bar'), toggle: box('.sb-toggle'),
     groupBarPadLeft: document.querySelector('.group-bar') ? Math.round(parseFloat(getComputedStyle(document.querySelector('.group-bar')).paddingLeft)) : null,
@@ -191,7 +190,7 @@ async function main() {
   await sleep(300);
   const one = await evalIn(c, PROBE);
 
-  check("the rail is gone", one.rail === false && one.sidebar === null, { rail: one.rail, sidebar: one.sidebar });
+  check("collapsed, the sidebar is gone rather than narrowed", one.sidebar === null, { sidebar: one.sidebar });
   // The regression this replaces: a 38px full-width strip above the content. The panes now start at
   // the window's own top edge, so collapsing costs no height at all.
   check("collapsing costs no height — the pane host still starts at the top of the window",

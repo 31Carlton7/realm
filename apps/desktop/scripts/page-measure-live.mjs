@@ -411,7 +411,7 @@ async function main() {
   }
   await api.call("sessions.setAgent", { id: first.id, agentKind: "fake" });
   await api.call("sessions.send", { id: first.id, text: "hello", attachments: [], mentions: [] });
-  await until(() => evalIn(c, `(window.__realmUnread ?? 0) >= 0 && !!document.querySelector('.sb-destinations')`), 10000, "the sidebar");
+  await until(() => evalIn(c, `!!document.querySelector('.sb-destinations')`), 10000, "the sidebar");
   await sleep(2500);
 
   /* ── Settings: rail + reading column ─────────────────────────────────────────────────────── */

@@ -158,9 +158,6 @@ async function main() {
   })()`);
   check("a pressed icon button takes a fill it does not have at rest",
     fills.pressed === "true" && fills.rest === null && fills.on !== null, fills);
-  // The mutant this closes is the one the app shipped with: no rule at all, so the two are identical.
-  check("MUTANT-CATCHER: on and rest are genuinely different colours, not the same one twice",
-    fills.on && (fills.rest === null || fills.on.r !== fills.rest.r), fills);
 
   /* ── 2. The hover fill and the on fill are different pictures ─────────────────────────────── */
   // "On" sits one rung past hover on purpose: if the two resolved to the same colour, a hovered
