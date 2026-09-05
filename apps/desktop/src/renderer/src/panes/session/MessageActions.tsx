@@ -10,7 +10,7 @@ const COPIED_MS = 1400;
  * The controls under a finished assistant message.
  *
  * Mounted only once the message is complete, which is the whole design constraint: a bar under a
- * paragraph that is still growing would be pushed down the pane by every delta, and a 20px button
+ * paragraph that is still growing would be pushed down the pane by every delta, and a 26px button
  * the reader has to chase is worth less than the stability it costs. Nothing here has an entrance
  * animation for the same reason the transcript seeds its enter tracker as already-seen — on
  * relaunch every message is complete at once, and forty bars fading in together reads as a fault
