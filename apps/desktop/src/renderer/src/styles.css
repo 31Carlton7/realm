@@ -2960,9 +2960,13 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .theme-card-swatches { display: flex; gap: 4px; }
 .theme-card-swatches span { width: 14px; height: 14px; border-radius: 999px; }
 .theme-card-name { font-size: 12px; font-weight: var(--fw-label); }
-/* A mode control the palette has overruled. Dimmed, never disabled — it still records a preference
-   that applies again the moment a two-faced palette is chosen. */
-.settings-tabs[data-pinned] { opacity: .5; }
+/* The face on screen, of the two palette rows. A dot rather than a highlight: both rows are equally
+   live controls, and the only thing that distinguishes them is which one the window is wearing while
+   you read the page. */
+.field[data-live] > span::after {
+  content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 6px; vertical-align: middle;
+  border-radius: 999px; background: var(--rl-accent);
+}
 
 /* ——— Settings → Usage ————————————————————————————————————————————————————————
    Spend, tokens and activity. The palette itself lives in tokens.css (`--series-1..8`, validated as

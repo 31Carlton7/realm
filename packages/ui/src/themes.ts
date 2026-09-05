@@ -369,11 +369,32 @@ export function themeModes(name: ThemeName): Mode[] {
   return [...(def?.dark ? (["dark"] as const) : []), ...(def?.light ? (["light"] as const) : [])];
 }
 
-/** The composition rule for the two axes. A theme with one face pins the window to it; the MODE
- *  PREFERENCE is untouched, so it comes back the moment a two-faced theme is chosen again. */
+/** Which mode a theme would be worn in if it were the only thing chosen — a one-faced theme answers
+ *  with the face it has. Nothing about the WINDOW hangs off this any more (see `paletteFor`): it is
+ *  what a picker card and a ⌘K hint use to preview and to label, so `themeSwatches("monokai",
+ *  "light")` draws Monokai's dark face rather than fabricating a light one. */
 export function resolveMode(name: ThemeName, mode: Mode): Mode {
   const modes = themeModes(name);
   return modes.includes(mode) ? mode : (modes[0] ?? mode);
+}
+
+/** Which palette each face wears. Two slots rather than one name because the palette that suits a
+ *  lit room is rarely the one that suits a dark one, and a single selection forces one of the two to
+ *  be a compromise — the mode preference already says WHEN to switch, and this says what to switch
+ *  TO. The pickers offer each face only the palettes that have it, so the two axes no longer fight:
+ *  choosing Monokai for the dark slot cannot pin the window dark at noon. */
+export type ThemeSelection = Record<Mode, ThemeName>;
+
+export const DEFAULT_SELECTION: ThemeSelection = { dark: "realm", light: "realm" };
+
+/** The palette a face actually wears. A selection naming a palette with no such face — a hand-edited
+ *  setting, or a palette that loses a face in some later version — falls back to `realm`, whose face
+ *  is the static CSS and therefore always exists. Falling back rather than pinning the mode is the
+ *  point of splitting the selection: the window shows the light the user asked for, in the closest
+ *  palette that has one. */
+export function paletteFor(selection: ThemeSelection, mode: Mode): ThemeName {
+  const name = selection[mode];
+  return themeModes(name).includes(mode) ? name : "realm";
 }
 
 /** Realm's own twelve, read out of theme/tokens.css and written here as hex — the same seeds the

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contrast, hexToOklch, type Oklch } from "./oklch";
-import { CONTRAST_FLOOR, THEMES, THEME_VARS, deriveVars, resolveMode, themeModes, themeSwatches, themeVars } from "./themes";
+import { CONTRAST_FLOOR, THEMES, THEME_VARS, deriveVars, paletteFor, resolveMode, themeModes, themeSwatches, themeVars } from "./themes";
 import type { Mode } from "./theme";
 
 const parse = (value: string): Oklch => {
@@ -28,28 +28,39 @@ const faces = (): { theme: (typeof THEMES)[number]; mode: Mode }[] =>
   THEMES.flatMap((theme) => themeModes(theme.name).map((mode) => ({ theme, mode })));
 
 describe("the two axes compose", () => {
-  it("a theme with both faces takes whichever mode the preference resolved to", () => {
-    for (const mode of ["dark", "light"] as const) {
-      expect(resolveMode("realm", mode)).toBe(mode);
-      expect(resolveMode("one", mode)).toBe(mode);
-    }
-  });
-
-  it("a theme with one face pins the mode, and every theme still resolves to something", () => {
-    for (const { theme } of THEMES.map((theme) => ({ theme }))) {
+  it("every theme previews as a face it actually has", () => {
+    // `resolveMode` is what a picker card and a ⌘K hint use to say which face they are showing, so
+    // it must never name a face the theme has no seeds for.
+    for (const theme of THEMES) {
       const modes = themeModes(theme.name);
       expect(modes.length, theme.name).toBeGreaterThan(0);
       for (const mode of ["dark", "light"] as const) expect(modes).toContain(resolveMode(theme.name, mode));
     }
-  });
-
-  it("pinning is a fact about the theme, not a write to the preference", () => {
-    // THE clobber mutant: have the picker call setThemePref("dark") when a dark-only palette is
-    // chosen. Nothing here would notice — which is why `resolveMode` is a pure function of the two
-    // inputs and the preference is never an output. A user who prefers "system" and tries Monokai
-    // for an afternoon must find "system" again afterwards.
     expect(resolveMode("monokai", "light")).toBe("dark");
     expect(resolveMode("one", "light")).toBe("light");
+  });
+
+  it("a face reads its OWN slot — the two are chosen independently or they are one control", () => {
+    // THE shared-slot mutant: return `selection.dark` whatever the mode. Every palette still paints,
+    // every floor still clears, and the light window silently wears the night's palette.
+    const sel = { light: "solarized", dark: "monokai" } as const;
+    expect(paletteFor(sel, "light")).toBe("solarized");
+    expect(paletteFor(sel, "dark")).toBe("monokai");
+  });
+
+  it("a slot naming a palette with no such face falls back rather than moving the mode", () => {
+    // THE pinning mutant: keep the old rule that a one-faced palette resolves the mode to its face.
+    // The mode is the user's other axis; a value sitting in a slot the light window does not read is
+    // not permission to hand them a dark window. `realm` is the fallback because its face is the
+    // static CSS, which is the one face that cannot be missing.
+    expect(paletteFor({ light: "monokai", dark: "monokai" }, "light")).toBe("realm");
+    expect(paletteFor({ light: "monokai", dark: "monokai" }, "dark")).toBe("monokai");
+    // And the fallback is reachable for every face of every theme, so no selection can be unpaintable.
+    for (const theme of THEMES) {
+      for (const mode of ["dark", "light"] as const) {
+        expect(themeModes(paletteFor({ light: theme.name, dark: theme.name }, mode)), `${theme.name}/${mode}`).toContain(mode);
+      }
+    }
   });
 });
 

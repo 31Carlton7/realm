@@ -147,25 +147,36 @@ describe("App tab", () => {
     expect(api.calls).toContain("setSetting:ui.theme=dark");
   });
 
-  it("the palette is a card per theme; choosing one writes ui.themeName and not ui.theme", async () => {
+  const row = (face: "Light" | "Dark") => within(screen.getByRole("group", { name: `${face} theme` }));
+
+  it("there is a palette row per face, and each writes only its own key", async () => {
     const { store, api } = await openApp();
-    expect(screen.getByRole("radio", { name: "Realm" })).toBeChecked();
-    fireEvent.click(screen.getByRole("radio", { name: "One" }));
-    await waitFor(() => expect(store.getState().themeName).toBe("one"));
-    expect(api.calls).toContain("setSetting:ui.themeName=one");
+    expect(row("Light").getByRole("radio", { name: "Realm" })).toBeChecked();
+    fireEvent.click(row("Dark").getByRole("radio", { name: "One" }));
+    await waitFor(() => expect(store.getState().themeNames.dark).toBe("one"));
+    expect(api.calls).toContain("setSetting:ui.themeName.dark=one");
+    // THE shared-row mutant: render one picker and point both faces at it. The two rows would move
+    // together and the whole feature would be a relabelled single selection.
+    expect(store.getState().themeNames.light).toBe("realm");
+    expect(row("Light").getByRole("radio", { name: "Realm" })).toBeChecked();
     // THE conflated-axis mutant: have the picker set the mode too. The light/dark preference is the
     // user's and a palette choice is not permission to overwrite it.
     expect(api.calls.filter((c) => c.startsWith("setSetting:ui.theme="))).toEqual([]);
     expect(store.getState().themePref).toBe("system");
   });
 
-  it("a one-faced palette says so rather than leaving the mode control looking broken", async () => {
-    const { store } = await openApp();
-    fireEvent.click(screen.getByRole("radio", { name: "Monokai" }));
-    await waitFor(() => expect(store.getState().themeName).toBe("monokai"));
-    expect(screen.getByText(/Monokai has no light variant/)).toBeInTheDocument();
-    // Still operable: the preference it records applies again under a two-faced palette.
-    expect(screen.getByRole("radio", { name: "Light" })).not.toBeDisabled();
+  it("a face is offered only palettes that have it", async () => {
+    // THE every-palette mutant: list all of THEMES in both rows. Choosing Monokai for the light face
+    // stores a slot the light window cannot read, and the row's own card would have to preview a
+    // light face Monokai does not have — which is a card that lies about what clicking it does.
+    await openApp();
+    expect(row("Dark").getByRole("radio", { name: "Monokai" })).toBeInTheDocument();
+    expect(row("Light").queryByRole("radio", { name: "Monokai" })).toBeNull();
+    for (const face of ["Light", "Dark"] as const) {
+      for (const name of ["Realm", "One", "Solarized", "Gruvbox"]) {
+        expect(row(face).getByRole("radio", { name }), `${face}/${name}`).toBeInTheDocument();
+      }
+    }
   });
 
   it("background transparency runs the way its label reads and persists the ground's opacity", async () => {

@@ -7,4 +7,5 @@ export { applyTheme, clampGroundAlpha, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE,
    types) stay exported from their own modules, where applyTheme and the package's own suites import
    them directly — a barrel entry for each would advertise a public API nothing consumes. */
 export { oklchToHex } from "./oklch";
-export { deriveVars, isThemeName, REALM_SEED, resolveMode, THEMES, themeSwatches, type ThemeName } from "./themes";
+export { DEFAULT_SELECTION, deriveVars, isThemeName, paletteFor, REALM_SEED, resolveMode, THEMES, themeModes,
+  themeSwatches, type ThemeName, type ThemeSelection } from "./themes";

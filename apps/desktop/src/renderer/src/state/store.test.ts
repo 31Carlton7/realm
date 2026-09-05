@@ -235,15 +235,20 @@ describe("app store", () => {
     expect(store.getState().themePref).toBe("dark"); expect(set).toContain("ui.theme=dark");
   });
 
-  it("themeName persists under its own key, leaving the mode preference untouched", async () => {
+  it("each face's palette persists under its own key, leaving the other face and the mode alone", async () => {
     // THE compound-key mutant: fold the palette into ui.theme as "dark:monokai". It reads back fine
     // here and an older build finds a mode it cannot parse where it used to find "dark".
+    // THE shared-slot mutant: write both faces on every set. Choosing Monokai for the night would
+    // silently replace whatever the user had picked for the day, which is the one thing splitting
+    // the selection exists to stop.
     const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
-    await store.getState().boot(); await store.getState().setThemeName("one");
-    expect(store.getState().themeName).toBe("one");
+    await store.getState().boot();
+    await store.getState().setThemeName("dark", "monokai");
+    expect(store.getState().themeNames).toEqual({ light: "realm", dark: "monokai" });
+    await store.getState().setThemeName("light", "solarized");
+    expect(store.getState().themeNames).toEqual({ light: "solarized", dark: "monokai" });
     expect(store.getState().themePref).toBe("system");
-    expect(set).toContain("ui.themeName=one");
-    expect(set.filter((k) => k.startsWith("ui.theme="))).toEqual([]);
+    expect(set.filter((k) => k.startsWith("ui.theme"))).toEqual(["ui.themeName.dark=monokai", "ui.themeName.light=solarized"]);
   });
 
   it("groundAlpha persists once per gesture, and boot clamps whatever it reads back", async () => {
@@ -272,16 +277,42 @@ describe("app store", () => {
     expect(await read("very")).toBe(82);
   });
 
-  it("boot reads the palette; garbage and an unknown name both fall back to realm", async () => {
-    const named = async (v: unknown) => {
-      const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.themeName" ? v : null) });
-      await s.getState().boot(); return s.getState().themeName;
+  it("boot reads a palette per face; garbage and an unknown name both fall back to realm", async () => {
+    const stored = async (rows: Record<string, unknown>) => {
+      const s = createAppStore({ ...api, getSetting: async (k) => rows[k] ?? null });
+      await s.getState().boot(); return s.getState().themeNames;
     };
-    expect(await named("one")).toBe("one");
+    expect(await stored({ "ui.themeName.light": "solarized", "ui.themeName.dark": "one" }))
+      .toEqual({ light: "solarized", dark: "one" });
     // A home written by a build that shipped a theme this one does not have must not leave the app
     // with a palette it cannot derive.
-    expect(await named("cobalt")).toBe("realm");
-    expect(await named({ mode: "x" })).toBe("realm");
+    expect(await stored({ "ui.themeName.dark": "cobalt" })).toEqual({ light: "realm", dark: "realm" });
+    expect(await stored({ "ui.themeName.light": { mode: "x" } })).toEqual({ light: "realm", dark: "realm" });
+  });
+
+  it("a home last opened by the single-selection build keeps its palette on the faces that have one", async () => {
+    // THE dropped-migration mutant: read only the two new keys. Every user who had chosen a palette
+    // is silently returned to Realm on the first launch of this build, with nothing to tell them why.
+    const stored = async (legacy: unknown) => {
+      const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.themeName" ? legacy : null) });
+      await s.getState().boot(); return s.getState().themeNames;
+    };
+    expect(await stored("one")).toEqual({ light: "one", dark: "one" });
+    // ...and only those faces. Monokai in the light slot is a slot the light window cannot read;
+    // it has to become the palette that always has a light face, not a dark window at noon.
+    expect(await stored("monokai")).toEqual({ light: "realm", dark: "monokai" });
+    expect(await stored("cobalt")).toEqual({ light: "realm", dark: "realm" });
+  });
+
+  it("the per-face key wins over the legacy one, and the legacy key is never written again", async () => {
+    const set: string[] = [];
+    const s = createAppStore({ ...api,
+      getSetting: async (k) => ({ "ui.themeName": "gruvbox", "ui.themeName.dark": "nord" })[k] ?? null,
+      setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
+    await s.getState().boot();
+    expect(s.getState().themeNames).toEqual({ light: "gruvbox", dark: "nord" });
+    await s.getState().setThemeName("light", "one");
+    expect(set.filter((k) => k.startsWith("ui.theme"))).toEqual(["ui.themeName.light=one"]);
   });
 
   it("updateItem merges the returned item (pin/rename)", async () => {

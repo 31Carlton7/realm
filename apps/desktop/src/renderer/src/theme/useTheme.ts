@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { DEFAULT_GROUND_ALPHA, applyTheme, resolveMode, type Mode, type ThemeName } from "@realm/ui";
+import { DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, applyTheme, paletteFor, type Mode, type ThemeSelection } from "@realm/ui";
 
 export type ThemePref = "system" | "light" | "dark";
 
@@ -16,6 +16,14 @@ export function useSystemMode(): Mode {
   return mode;
 }
 
+/** The face on screen: the preference, resolved against the OS only where it defers to it. Every
+ *  control that offers "the palette for the mode you are looking at" needs this same answer, and one
+ *  of them computing it differently would set the slot the user is not seeing. */
+export function useResolvedMode(pref: ThemePref): Mode {
+  const sys = useSystemMode();
+  return pref === "system" ? sys : pref;
+}
+
 /** How long the no-transition guard holds. Long enough for the new palette to paint, short enough
  *  that a hover started right after a theme switch still animates. */
 const SETTLE_MS = 60;
@@ -30,17 +38,18 @@ export function suppressTransitions(root: HTMLElement, ms = SETTLE_MS): () => vo
   return () => { clearTimeout(id); root.removeAttribute("data-theme-switching"); };
 }
 
-/** Resolves the effective mode from the two axes — the user's light/dark preference and the theme,
- *  which may only have one face — and stamps it (plus the space colour and the theme's palette) on
- *  `:root`. On the default theme the palette is still static CSS (BUI tokens in theme/tokens.css
- *  keyed on `data-mode`) and the only runtime writes are `--rl-space` and the two attributes.
+/** Resolves the two axes — the user's light/dark preference, and the palette that face wears — and
+ *  stamps the result (plus the space colour) on `:root`. On the default theme the palette is still
+ *  static CSS (BUI tokens in theme/tokens.css keyed on `data-mode`) and the only runtime writes are
+ *  `--rl-space` and the two attributes.
  *
- *  The PREFERENCE is deliberately not clamped here, only the resolved mode: choosing Monokai pins
- *  the window dark, and choosing a two-faced theme afterwards must find "system" where it left it. */
-export function useApplyTheme(color: string | null, pref: ThemePref, theme: ThemeName = "realm",
-  groundAlpha: number = DEFAULT_GROUND_ALPHA): Mode {
-  const sys = useSystemMode();
-  const mode = resolveMode(theme, pref === "system" ? sys : pref);
+ *  The mode is now the preference and nothing else. A palette used to be able to pin it — the only
+ *  way a single selection could honour "Monokai, which has no light face" — and with a slot per face
+ *  there is no such conflict to resolve: each slot is offered only palettes that have its face. */
+export function useApplyTheme(color: string | null, pref: ThemePref,
+  themes: ThemeSelection = DEFAULT_SELECTION, groundAlpha: number = DEFAULT_GROUND_ALPHA): Mode {
+  const mode = useResolvedMode(pref);
+  const theme = paletteFor(themes, mode);
   // Layout effect so the first paint already carries the mode (no flash of default vars).
   useLayoutEffect(() => {
     const done = suppressTransitions(document.documentElement);
