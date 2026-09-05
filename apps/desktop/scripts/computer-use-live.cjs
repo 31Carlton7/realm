@@ -15,9 +15,11 @@
  * Two tiers, because one of them needs a grant this machine may not have:
  *
  *   ALWAYS — the helper spawns and answers; grants are reported honestly; the app list is real and
- *     excludes Realm itself and System Settings (the refusal that matters most, checked live rather
- *     than assumed); a snapshot without the grant refuses with actionable words; acting on a snapshot
- *     that does not exist is refused; and the client recovers when the helper dies under it.
+ *     excludes the forbidden apps that LaunchServices says are actually up, and the app hosting this
+ *     check, and is checked against a second inventory so an empty list cannot pass for a filtered
+ *     one; a forbidden app is refused by name whether or not it is running; a snapshot without the
+ *     grant refuses with actionable words; acting on a snapshot that does not exist is refused; and
+ *     the client recovers when the helper dies under it.
  *
  *   ONLY WITH ACCESSIBILITY GRANTED — a real end-to-end drive of Calculator: snapshot it, press a
  *     digit by element index, and read the result back out of the accessibility tree. Calculator is
@@ -58,6 +60,39 @@ const ok = (label, cond, detail = "") => {
 const skip = (label, why) => { results.push(`  SKIP  ${label} — ${why}`); skipped += 1; };
 const log = (line) => console.log(`[live] ${line}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Every bundle id LaunchServices currently has an application registered for.
+ *
+ * A second opinion about what is running, deliberately NOT `NSWorkspace.runningApplications` — that
+ * is the enumeration `listApps` itself filters, so using it to check the filter would be asking the
+ * same source twice. Returns null rather than an empty set when `lsappinfo` cannot be read, so a
+ * missing tool is reported as a skip instead of as "nothing is running".
+ */
+function runningBundleIds() {
+  try {
+    const out = execFileSync("/usr/bin/lsappinfo", ["list"], { encoding: "utf8", maxBuffer: 32 << 20 });
+    const ids = [...out.matchAll(/bundleID="([^"]+)"/g)].map((m) => m[1]);
+    return ids.length > 0 ? new Set(ids) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The bundle id of the application hosting this check — what the helper's ancestry walk should
+ * resolve to, read here from the bundle around `execPath` so the two are derived independently.
+ * `defaults` rather than a plist parser because Info.plist is usually binary.
+ */
+const selfBundleId = (() => {
+  const bundle = /^(.*?\.app)\//.exec(process.execPath);
+  if (!bundle) return null;
+  try {
+    return execFileSync("/usr/bin/defaults", ["read", path.join(bundle[1], "Contents/Info"), "CFBundleIdentifier"], { encoding: "utf8" }).trim();
+  } catch {
+    return null;
+  }
+})();
 
 // ---- compile the real main-process sources (TS) to CJS with the workspace's own esbuild ----
 function esbuild() {
@@ -120,25 +155,51 @@ async function run() {
   ok("the app list is real, with no Accessibility grant", Array.isArray(apps.apps) && apps.apps.length > 0,
     `${apps.apps?.length ?? 0} app(s) — NSWorkspace rather than the accessibility API, so an ungranted machine can still discover what is running`);
 
-  // The refusals that matter most, observed rather than assumed. Realm is several processes sharing
-  // one bundle id, and the helper is a descendant of one of them.
-  const bundles = (apps.apps ?? []).map((a) => a.bundleId);
-  ok("Realm never lists itself", !bundles.some((b) => b.includes("realm")), bundles.filter((b) => b.includes("realm")).join(", ") || "absent");
-  ok("System Settings is never listed", !bundles.includes("com.apple.systempreferences"));
-  // Named against the whole list rather than two entries: asserting Terminal.app and iTerm are absent
-  // from a machine running neither passes without testing anything, and it did — Ghostty sat in the
-  // app list, driveable, while this line was green.
-  const leaked = bundles.filter((b) => FORBIDDEN.has(b));
-  ok("no forbidden app is ever listed", leaked.length === 0, leaked.length ? `LEAKED: ${leaked.join(", ")}` : "none present");
+  // The refusals that matter most, observed against an INDEPENDENT inventory of what is running.
+  //
+  // `listApps` filters the forbidden set before it returns, so "no forbidden app is in the list"
+  // is empty by construction: it reads the same green whether the filter works, whether the filter
+  // is missing, and whether the list came back empty. LaunchServices is asked separately so each
+  // absence below has a subject that is demonstrably running, and so a machine with no forbidden
+  // app up is reported as SKIP rather than as proof.
+  const listed = new Set((apps.apps ?? []).map((a) => a.bundleId));
+  const running = runningBundleIds();
+  if (!running) {
+    skip("the app list excludes forbidden apps that are running", "lsappinfo did not answer, so nothing independent to compare against");
+  } else {
+    // The positive control. Without it every exclusion below would also pass on an empty list.
+    const alsoRunning = [...listed].filter((b) => running.has(b));
+    ok("the app list agrees with LaunchServices about what is running", alsoRunning.length > 0,
+      `${alsoRunning.length} app(s) in both, e.g. ${alsoRunning.slice(0, 3).join(", ")}`);
 
-  // The absence above cannot prove itself: `listApps` filters the forbidden set, so deriving "which
-  // forbidden apps are running" from its own output is empty by construction whatever the helper
-  // does. The refusal is what can be tested directly, and it does not depend on anything being up —
-  // ask for one by name and require the refusal rather than an empty answer.
+    const forbiddenUp = [...FORBIDDEN].filter((b) => running.has(b));
+    if (forbiddenUp.length === 0) {
+      skip("the app list excludes forbidden apps that are running",
+        "none of the forbidden bundle ids is running, so their absence proves nothing — the by-name refusal below is what covers this case");
+    } else {
+      const leaked = forbiddenUp.filter((b) => listed.has(b));
+      ok("the app list excludes forbidden apps that are running", leaked.length === 0,
+        leaked.length ? `LEAKED: ${leaked.join(", ")}` : `excluded while up: ${forbiddenUp.join(", ")}`);
+    }
+  }
+
+  // Realm's own exclusion is derived from the helper's PROCESS ANCESTRY, not from the forbidden
+  // list, and under a dev run the ancestor is Electron rather than Realm.app — so looking for
+  // "realm" in the list tests the static entry and leaves the ancestry walk unexercised. The host
+  // of this very check is the subject that exercises it.
+  ok("the app hosting this check is excluded by ancestry, not by name",
+    !(apps.apps ?? []).some((a) => a.pid === process.pid)
+      && (selfBundleId === null || !listed.has(selfBundleId)),
+    `host pid ${process.pid}${selfBundleId ? ` (${selfBundleId})` : " (bundle id unreadable)"}`);
+
+  // The exclusions above can only speak for apps that happen to be up. The refusal can be tested
+  // directly and unconditionally — ask for one by name and require a refusal rather than an empty
+  // answer, so the rule is covered on a machine running none of them.
   // A snapshot refusal THROWS, where computerAct returns `{ok:false, refused}` — the two ops do not
   // answer the same way, so a check that only inspected a return value would read a throw as a pass.
+  const byName = ["com.apple.Terminal", "com.mitchellh.ghostty", "com.apple.systempreferences"];
   const refusals = [];
-  for (const bundleId of ["com.apple.Terminal", "com.mitchellh.ghostty", "com.apple.systempreferences"]) {
+  for (const bundleId of byName) {
     try {
       await host.handleOp("computerSnapshot", { bundleId });
       refusals.push(`${bundleId}=ALLOWED`);
@@ -146,8 +207,10 @@ async function run() {
       refusals.push(`${bundleId}=${/never driveable/.test(e.message) ? "refused" : `other(${e.message.slice(0, 40)})`}`);
     }
   }
+  // Length as well as content: `every` holds of an empty array, so a loop that stopped running
+  // would report the same pass as three refusals.
   ok("a forbidden app is refused BY NAME, whether or not it is running",
-    refusals.every((r) => r.endsWith("=refused")), refusals.join(" "));
+    refusals.length === byName.length && refusals.every((r) => r.endsWith("=refused")), refusals.join(" "));
 
   // Acting on a snapshot the helper has never issued must refuse, not act on whatever matches.
   // Without the grant the trust check answers first, and deliberately so: "grant Accessibility" is
