@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  COMPUTER_FORBIDDEN_BUNDLE_IDS, COMPUTER_KEY_NAMES, COMPUTER_MODIFIERS, COMPUTER_PROVIDER_NAME, ComputerActionSchema,
+  COMPUTER_FORBIDDEN_BUNDLE_IDS, COMPUTER_KEY_NAMES, COMPUTER_MODIFIERS, COMPUTER_PROVIDER_NAME, ComputerActionSchema, fenceUntrusted,
   type ComputerAction, type ComputerActResult, type ComputerAppsResult, type ComputerSnapshotResult,
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -10,7 +10,6 @@ import type { McpService } from "../mcp/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { ComputerAppAllowlist } from "./allowlist";
-import { fenceUntrusted } from "@realm/contracts";
 
 /**
  * The `realm-computer` gateway provider: the agent tool surface over the Mac's own applications,
@@ -287,7 +286,7 @@ class SnapshotOwners {
 }
 
 /** NUL cannot occur in either id, so no pair of them can collide by concatenation. */
-const key = (sessionId: string, snapshotId: string): string => `${sessionId} ${snapshotId}`;
+const key = (sessionId: string, snapshotId: string): string => `${sessionId}\0${snapshotId}`;
 
 /**
  * The permission card's line. It names the app — which is the decision the user is actually making —

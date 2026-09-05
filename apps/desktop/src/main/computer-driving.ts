@@ -13,9 +13,6 @@
  * owned by Realm would sit over the very point about to be clicked. The menu bar is the platform's
  * own answer for "something is running that you are not looking at" — where macOS puts its screen
  * recording and location indicators — and it is visible whichever application is frontmost.
- *
- * Nothing here animates, so the `prefers-reduced-motion` problem the sidebar's ring solves does not
- * arise: there is no motion carrying state that stopping would take away.
  */
 
 /** The part of Electron's `Tray` this needs, so the counting and lingering below can be exercised
@@ -84,8 +81,6 @@ export class ComputerDrivingIndicator {
       this.linger = null;
       this.teardown();
     }, LINGER_MS);
-    // Not unref'd: an indicator that says the Mac is being driven must not be the thing keeping the
-    // process alive, but neither should quitting leave it on screen — `dispose` is what quit calls.
   }
 
   /** Drop the item now. Quit calls this, where a pending linger would otherwise outlive the app. */

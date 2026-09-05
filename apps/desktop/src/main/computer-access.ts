@@ -78,8 +78,6 @@ export function computerAccessRows(grants: ComputerGrantState, opts: { helperAva
 }
 
 /**
- * What the "Ask macOS" button will really do, stated before it is pressed.
- *
  * Both strings promise a trip to System Settings rather than a grant, because that is what happens.
  * A button that said "Grant" and then changed nothing on screen would train the user to distrust the
  * page.

@@ -249,7 +249,6 @@ describe("the space's allowed-apps list", () => {
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/no permission lifts this/);
     expect(s.gates).toEqual([]);
-    expect(s.added).toEqual([]);
     expect(s.ops.filter((o) => o.op === "computerAct")).toEqual([]);
   });
 

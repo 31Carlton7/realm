@@ -117,9 +117,10 @@ describe("ComputerDrivingIndicator", () => {
     inst.dispose();
     expect(inst.showing).toBe(false);
     expect(trays()).toBe(0);
-    // The pending linger must not resurrect or re-destroy anything after the app is gone.
-    vi.advanceTimersByTime(60_000);
-    expect(trays()).toBe(0);
+    // The linger is CANCELLED, not merely left harmless. Advancing the clock cannot tell those two
+    // apart — `teardown` on an already-null tray is a no-op either way — so the pending count is
+    // what actually reads whether quit let go of the timer.
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("drops the item on quit even with acts still in flight", () => {
@@ -143,11 +144,18 @@ describe("ComputerDrivingIndicator", () => {
 
   it("survives more releases than acquires without going negative", () => {
     // A release is emitted from a `finally`, and a future caller pairing them wrongly must not leave
-    // the count below zero, where the next real act would settle to a still-showing item.
+    // the count below zero — where a later act's settle would read as "nothing is running" and take
+    // the item down while the OTHER act is still clicking. Two acquires after the deficit is what
+    // makes that visible: with the clamp the first settle leaves one in flight, without it the count
+    // is still under zero and the item goes.
     const { inst } = indicator();
     inst.release();
     inst.release();
     inst.acquire("TextEdit");
+    inst.acquire("Calculator");
+    inst.release();
+    vi.advanceTimersByTime(1500);
+    expect(inst.showing).toBe(true);
     inst.release();
     vi.advanceTimersByTime(1500);
     expect(inst.showing).toBe(false);

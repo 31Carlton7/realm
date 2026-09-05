@@ -14,7 +14,7 @@ import { resolveInstall } from "./provenance";
  * agent. Every "check now" gesture forces past it, and so does finishing an install — after Realm
  * changes the machine, a cached answer describes a machine that no longer exists.
  */
-export const CLI_CHECK_TTL_MS = 6 * 60 * 60 * 1000;
+const CLI_CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 
 /** A published version lookup is a courtesy, never load-bearing: the same budget the model catalog
  *  gives its fetch, and for the same reason — a slow registry may not become a slow Settings page. */

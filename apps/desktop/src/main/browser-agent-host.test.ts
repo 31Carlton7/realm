@@ -364,8 +364,11 @@ describe("BrowserAgentHost — element picking", () => {
     host.cancelPick("b1");
     expect(await pending).toBeNull();
     expect(overlayCalls(calls)).toContain("Overlay.setInspectMode none");
-    // And the view is no longer picking: a late event has nothing left to settle.
+    // And the view is no longer picking. A late event must settle nothing and disarm nothing —
+    // resolving an already-settled promise is silent, so the CDP traffic is what can be read.
+    const after = calls.length;
     emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    expect(calls.length).toBe(after);
   });
 
   it("a main-frame navigation settles the pick empty — it resets the overlay agent and the picker is dead", async () => {

@@ -222,10 +222,13 @@ describe("openablePath", () => {
     expect(await openablePath(dir)).toBeNull();
   });
 
-  it("cannot be climbed out of, and a symlink cannot lend its extension to something else", async () => {
+  it("reads the extension off the collapsed path, and a symlink cannot lend its own to something else", async () => {
+    await writeFile(join(home, "collapse.pdf"), "x");
+    // `resolve` runs before the extension check, so the answer is the COLLAPSED path — which is what
+    // proves the extension was read off the destination rather than off the last segment written.
+    // (`join` would collapse this itself, so the `..` has to survive into the argument as a string.)
+    expect(await openablePath(`${home}/sub/../collapse.pdf`)).toBe(join(home, "collapse.pdf"));
     await writeFile(join(home, "run.command"), "x");
-    // The pre-syscall check runs on the `..`-collapsed string, so the climb is refused for free.
-    expect(await openablePath(join(home, "sub", "..", "run.command"))).toBeNull();
     const link = join(home, "innocent.pdf");
     await symlink(join(home, "run.command"), link);
     // The link's name says pdf; realpath says otherwise, and the second check is what reads it.

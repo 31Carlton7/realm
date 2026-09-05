@@ -27,8 +27,7 @@ type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: Permissi
  * ordinary action — `browser_act` refuses password fields in that mode too. A batched or remembered
  * approval is also the wrong shape for this specific decision: the card names an origin, and the
  * whole point of the origin gate is that the answer changes when the origin does.
- */
-/**
+ *
  * `promptUnderBypass` is the softer sibling: `bypassPermissions` does NOT skip the card, but
  * `allow_always` both satisfies and is recorded by it — so the user is asked once per `toolKey` and
  * never again for that key in that session.
@@ -126,11 +125,6 @@ export class BrowserPermissionBroker {
   }
 
   /**
-   * Gate one mutating tool call. `toolKey` scopes `allow_always` (the tool name — "the user said
-   * browser_act may always act in this session"); `title` is the human-readable line the ApprovalCard
-   * shows; `input` is echoed onto the event so the card can show what the agent asked for.
-   */
-  /**
    * Forget one grant in every live session.
    *
    * Deliberately broad: a durable list is scoped to a space, this map is scoped to a session, and
@@ -142,6 +136,11 @@ export class BrowserPermissionBroker {
     for (const set of this.always.values()) set.delete(toolKey);
   }
 
+  /**
+   * Gate one mutating tool call. `toolKey` scopes `allow_always` (the tool name — "the user said
+   * browser_act may always act in this session"); `title` is the human-readable line the ApprovalCard
+   * shows; `input` is echoed onto the event so the card can show what the agent asked for.
+   */
   async gate(sessionId: string, toolKey: string, title: string, input: Record<string, unknown>, toolName: string = toolKey, opts: GateOptions = {}): Promise<GateResult> {
     const mode = this.d.permissionMode(sessionId);
     if (isReadOnlyMode(mode)) return { allowed: false, reason: `this session is in ${mode === "plan" ? "Plan" : "Ask"} (read-only) mode — mutating tools are refused; switch modes to act` };

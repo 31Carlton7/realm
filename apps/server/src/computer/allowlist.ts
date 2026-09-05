@@ -1,6 +1,10 @@
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS } from "@realm/contracts";
 import type { SettingsStore } from "../store/settings";
 
+const allowedAppsKey = (spaceId: string): string => `computer.allowedApps:${spaceId}`;
+
+const FORBIDDEN: ReadonlySet<string> = new Set(COMPUTER_FORBIDDEN_BUNDLE_IDS);
+
 /**
  * The applications an agent may drive in a space without being asked again.
  *
@@ -19,10 +23,6 @@ import type { SettingsStore } from "../store/settings";
  * three checks for one rule because a settings row is user-editable JSON on disk — a value that was
  * never written through this class can still be read through it.
  */
-const allowedAppsKey = (spaceId: string): string => `computer.allowedApps:${spaceId}`;
-
-const FORBIDDEN: ReadonlySet<string> = new Set(COMPUTER_FORBIDDEN_BUNDLE_IDS);
-
 export class ComputerAppAllowlist {
   constructor(private readonly d: { settings: Pick<SettingsStore, "getIds" | "set"> }) {}
 

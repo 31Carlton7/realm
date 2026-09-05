@@ -536,8 +536,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
       runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
       terminals.closeAll();
-      // A package manager outliving the app would keep writing to a global prefix with nobody
-      // watching, and nothing left to re-probe afterwards.
       cliInstaller.disposeAll();
       await sessions.closeAll();
       // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
