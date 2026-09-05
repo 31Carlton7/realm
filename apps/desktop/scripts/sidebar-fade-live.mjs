@@ -82,11 +82,6 @@ const check = (name, cond, detail) => {
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`);
 };
 
-/** Mean horizontal gradient energy per row of a clip — how sharp the edges in it are. Blur destroys
- *  the hard boundaries of glyphs, so the same strip of rows measured with and without the backdrop
- *  filter differs here even though both are the same content at the same scroll offset. A hash
- *  comparison cannot be used: a vibrancy material dithers, so two captures of an untouched surface
- *  are already not bit-identical. */
 /** Mean luminance of a clip — used to ask whether the band tints the column it sits over. A
  *  backdrop-filter over a VIBRANT material is not the same operation as one over an opaque panel;
  *  it can average the material toward a different tone and leave a visible band across the sidebar
@@ -104,6 +99,11 @@ const MEANLUM = (b64) => `(async () => {
   return +(sum / (px.length / 4)).toFixed(3);
 })()`;
 
+/** Mean horizontal gradient energy per row of a clip — how sharp the edges in it are. Blur destroys
+ *  the hard boundaries of glyphs, so the same strip of rows measured with and without the backdrop
+ *  filter differs here even though both are the same content at the same scroll offset. A hash
+ *  comparison cannot be used: a vibrancy material dithers, so two captures of an untouched surface
+ *  are already not bit-identical. */
 const SHARPNESS = (b64) => `(async () => {
   const img = new Image();
   img.src = "data:image/png;base64," + ${JSON.stringify(b64)};
