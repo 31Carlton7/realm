@@ -124,6 +124,9 @@ export type Api = {
   /** Deleting a terminal item closes its pty server-side. */
   deleteItem(id: string): Promise<void>;
   getSetting(key: string): Promise<unknown>;
+  listComputerAllowedApps(spaceId: string): Promise<string[]>;
+  /** Resolves to the list AS STORED, which may be shorter than the one sent. */
+  setComputerAllowedApps(spaceId: string, apps: string[]): Promise<string[]>;
   setSetting(key: string, value: unknown): Promise<void>;
   /** `system.info` — the under-strip's display-only machine label (Plan 12 W1) and the person's
    *  first name for the hero greeting. One call: boot wants both labels at the same moment. */
@@ -748,6 +751,10 @@ export type AppState = {
    *  as last fetched. null = no list = allow everything (W1's default posture); absent = never
    *  fetched. The Connections tab's Browser origins section reads and writes this. */
   browserAllowlists: Record<string, string[] | null>;
+  /** The per-space computer-use allowed-apps list, by space id — the bundle ids an agent may drive
+   *  in that space without a permission card. Absent = never fetched; `[]` = the list is empty and
+   *  every app is asked about, which is the default. */
+  computerAllowedApps: Record<string, string[]>;
   /** MCP servers for the space whose Connections tab is currently mounted (W6) — `mcp.list`'s
    *  per-space projection. Empty until `refreshMcpServers` runs; McpSection fetches on mount. */
   mcpServers: McpServer[];
@@ -992,6 +999,12 @@ export type AppState = {
   /** Persist a space's browser origin allowlist AND push it into every live browser view of that
    *  space, so the fence moves without a pane reopen (Plan 14 W4). null = back to allow-all. */
   setBrowserAllowlist(spaceId: string, allowlist: string[] | null): Promise<void>;
+  /** Fetch a space's computer-use allowed-apps list (Connections tab mount). */
+  refreshComputerAllowedApps(spaceId: string): Promise<void>;
+  /** Persist a space's computer-use allowed-apps list. The server stores what it will really honour
+   *  — a forbidden bundle id is dropped rather than accepted — so the list it returns is what lands
+   *  in the store, never the one that was sent. */
+  setComputerAllowedApps(spaceId: string, apps: string[]): Promise<void>;
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
@@ -1802,7 +1815,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
-      machineName: "", userName: "", connectors: {}, browserAllowlists: {},
+      machineName: "", userName: "", connectors: {}, browserAllowlists: {}, computerAllowedApps: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
@@ -2658,6 +2671,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         for (const it of get().items) {
           if (it.kind === "browser") void host.setAllowlist(it.refId, allowlist);
         }
+      },
+      async refreshComputerAllowedApps(spaceId) {
+        const apps = await api.listComputerAllowedApps(spaceId);
+        set({ computerAllowedApps: { ...get().computerAllowedApps, [spaceId]: apps } });
+      },
+      async setComputerAllowedApps(spaceId, apps) {
+        // The server's answer, not the argument: removing an entry also revokes it in every live
+        // session, and it refuses to store an app that can never be driven — so what comes back is
+        // the only truthful thing to render.
+        const stored = await api.setComputerAllowedApps(spaceId, apps);
+        set({ computerAllowedApps: { ...get().computerAllowedApps, [spaceId]: stored } });
       },
       usageSummary(p) { return api.usageSummary(p); },
       setUsageBudget(budget) { return api.setUsageBudget(budget); },

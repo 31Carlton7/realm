@@ -359,20 +359,35 @@ private func captureApp(pid: pid_t) -> String? {
     content = fetched
     contentSemaphore.signal()
   }
-  guard contentSemaphore.wait(timeout: .now() + CAPTURE_TIMEOUT_S) == .success,
-        let content,
-        let display = content.displays.first else { return nil }
+  guard contentSemaphore.wait(timeout: .now() + CAPTURE_TIMEOUT_S) == .success, let content else { return nil }
 
   let windows = content.windows.filter { $0.owningApplication?.processID == pid }
   guard !windows.isEmpty else { return nil }
+  let bounds = windows.dropFirst().reduce(windows[0].frame) { $0.union($1.frame) }
+
+  // The display the app's windows are actually ON, not `content.displays.first`.
+  //
+  // Observed on a three-display Mac: `displays` came back ordered [external-left, main, laptop], so
+  // `.first` was the monitor at x=-1920 while Calculator's window sat at x=969 on the main display.
+  // A filter whose windows are not on its display does not return a wrong image — it fails the whole
+  // capture with SCStreamErrorDomain -3811, "failed to start stream due to audio/video capture
+  // failure", which reads exactly like a missing permission and is why this path looked ungranted.
+  // On a single-display Mac `.first` is right by luck, which is why it survived this long.
+  let area = { (display: SCDisplay) -> CGFloat in
+    let overlap = display.frame.intersection(bounds)
+    return overlap.isNull ? 0 : overlap.width * overlap.height
+  }
+  guard let display = content.displays.max(by: { area($0) < area($1) }), area(display) > 0 else { return nil }
 
   let filter = SCContentFilter(display: display, including: windows)
   let config = SCStreamConfiguration()
-  // The filter's own bounds, so the image is the app's windows rather than a mostly-empty desktop.
-  // `contentRect` is in points; scaling to 1x keeps a Retina capture from being four times the
-  // bytes for detail no model reads.
-  config.width = Int(filter.contentRect.width)
-  config.height = Int(filter.contentRect.height)
+  // `filter.contentRect` for a display filter is the whole DISPLAY, not the included windows, so the
+  // crop has to be asked for or the image is a mostly-empty desktop at display resolution. Points,
+  // and `.nominal` so a Retina capture is not four times the bytes for detail no model reads.
+  let crop = bounds.intersection(display.frame).offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+  config.sourceRect = crop
+  config.width = Int(crop.width)
+  config.height = Int(crop.height)
   config.captureResolution = .nominal
   config.showsCursor = false
 
@@ -798,6 +813,25 @@ private final class Helper {
       break
     }
 
+    // `type` and `key` may name neither an element nor a point, which the contract defines as
+    // "wherever the app's focus already is" — continuing to type into a field, or pressing a shortcut
+    // at the app rather than at a widget. A keystroke needs no point, only the right app in front, so
+    // it cannot go through `resolveActionPoint`: that demands coordinates the caller was told it
+    // could omit, and answered an indexless key with "an act needs either an element index or x/y".
+    // The hit test is skipped because there is nothing being aimed at; `raise` is what makes the
+    // keystroke land in the intended app rather than in whatever happened to be frontmost.
+    if element == nil, params["x"] == nil, kind == "type" || kind == "key" {
+      try raise(app)
+      if kind == "type" {
+        guard let text = params["text"] as? String, !text.isEmpty else { throw HelperError("type needs text") }
+        input.type(text)
+        return ["ok": true, "detail": "typed into \(snapshot.appName)"]
+      }
+      guard let key = params["key"] as? String else { throw HelperError("key needs a key name") }
+      input.press(keycode: try input.keycode(for: key), modifiers: input.flags(for: (params["modifiers"] as? [String]) ?? []))
+      return ["ok": true, "detail": "pressed \(key) in \(snapshot.appName)"]
+    }
+
     let point = try resolveActionPoint(app: app, element: element, params: params)
     let modifiers = input.flags(for: (params["modifiers"] as? [String]) ?? [])
 
@@ -948,6 +982,12 @@ private final class Helper {
   }
 
   private func resolveApp(_ params: [String: Any]) throws -> NSRunningApplication {
+    // A named app is refused BEFORE anything is looked up. Resolution fails first for an app that is
+    // not running, so with the check only below, asking for a forbidden bundle id answered "not
+    // running" rather than "never driveable" — which made the refusal contingent on the app
+    // happening to be up, and turned the message into a probe for which apps are. `pid` and the
+    // frontmost case cannot be checked this early, and keep the check after resolution.
+    if let bundleId = params["bundleId"] as? String { try refuseForbidden(bundleId: bundleId) }
     let running = NSWorkspace.shared.runningApplications
     var app: NSRunningApplication?
     if let pid = params["pid"] as? Int {

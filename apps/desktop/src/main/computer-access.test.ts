@@ -45,8 +45,11 @@ describe("computerAccessRows", () => {
   });
 
   it("never claims an unknown state — both grants answer definitively", () => {
+    // The states are named rather than scanned for the absence of "unknown": `every` is true of an
+    // empty array, so a row that stopped being returned would satisfy that scan without existing.
     for (const grants of [{ accessibility: true, screenRecording: false }, { accessibility: false, screenRecording: true }]) {
-      expect(computerAccessRows(grants, { helperAvailable: true }).every((r) => r.state !== "unknown")).toBe(true);
+      expect(computerAccessRows(grants, { helperAvailable: true }).map((r) => r.state))
+        .toEqual([grants.accessibility ? "granted" : "denied", grants.screenRecording ? "granted" : "denied"]);
     }
   });
 

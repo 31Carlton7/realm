@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { activeLayout, setActiveLayout, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
+import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import type { ModelInfo, SearchResults, UsageBudget, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -120,6 +120,7 @@ export type FakeData = {
   /** By space id. `createWorktree` appends one, as the server's createWorktree does. */
   environments?: Record<string, Environment[]>;
   settings?: Record<string, unknown>;
+  computerAllowedApps?: Record<string, string[]>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
   importScan?: ImportScan; importResult?: ImportResult;
   usageSummary?: UsageSummary;
@@ -275,6 +276,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     projects: overrides.projects ?? {},
     environments: overrides.environments ?? {},
     settings: overrides.settings ?? {},
+    computerAllowedApps: overrides.computerAllowedApps ?? {},
     sessions: overrides.sessions ?? [],
     sessionEvents: overrides.sessionEvents ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
@@ -589,6 +591,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     deleteItem: async (id) => { calls.push(`deleteItem:${id}`); for (const k of Object.keys(data.items)) data.items[k] = data.items[k]!.filter((i) => i.id !== id); },
     getSetting: async (key) => { calls.push(`getSetting:${key}`); return data.settings[key] ?? null; },
     setSetting: async (key, value) => { calls.push(`setSetting:${key}=${String(value)}`); data.settings[key] = value; },
+    listComputerAllowedApps: async (spaceId) => { calls.push(`listComputerAllowedApps:${spaceId}`); return data.computerAllowedApps[spaceId] ?? []; },
+    // Mirrors the server: what comes back is what was stored, sorted and with forbidden ids dropped.
+    setComputerAllowedApps: async (spaceId, apps) => {
+      calls.push(`setComputerAllowedApps:${spaceId}=${apps.join(",")}`);
+      const stored = [...new Set(apps.filter((a) => !COMPUTER_FORBIDDEN_BUNDLE_IDS.includes(a as never)))].sort();
+      data.computerAllowedApps[spaceId] = stored;
+      return stored;
+    },
     systemInfo: async () => { calls.push("systemInfo"); return { machineName: "Carlton's M4 MacBook Pro", userName: "Carlton" }; },
     pickFolder: async () => "/tmp/picked-repo",
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".

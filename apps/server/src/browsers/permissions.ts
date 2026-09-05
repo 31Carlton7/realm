@@ -13,7 +13,7 @@ const REQUEST_PREFIX = "bperm_";
  *  the agent's own transport gives up at some unhelpful place. */
 const PROMPT_TIMEOUT_MS = 15 * 60 * 1000;
 
-type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: PermissionDecision) => void; timer: NodeJS.Timeout; alwaysPrompt: boolean };
+type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: PermissionDecision) => void; timer: NodeJS.Timeout; alwaysPrompt: boolean; onAlwaysAllow?: () => void };
 
 /**
  * Per-call gate behaviour.
@@ -40,7 +40,22 @@ type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: Permissi
  * and "drive anything on this Mac" is not one a mode set for coding agents can express. Keying the
  * grant per app is what keeps approving one from licensing the rest.
  */
-export type GateOptions = { alwaysPrompt?: boolean; promptUnderBypass?: boolean };
+export type GateOptions = {
+  alwaysPrompt?: boolean;
+  promptUnderBypass?: boolean;
+  /**
+   * A durable grant the CALLER holds already covers this gate, so do not ask.
+   *
+   * The broker owns modes and prompting; where a standing approval is kept, and what it is keyed on,
+   * belongs to whoever made it — the computer tools store bundle ids per space, which is not a shape
+   * this class should know. Consulted in the same place a session `allow_always` is, so it satisfies
+   * a `promptUnderBypass` gate for the same reason one does, and so plan and ask still refuse: a
+   * standing approval says which apps are eligible, never that a read-only session may act.
+   */
+  preapproved?: boolean;
+  /** Answered "always": persist it wherever `preapproved` will be read from next time. */
+  onAlwaysAllow?: () => void;
+};
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
 
@@ -89,6 +104,9 @@ export class BrowserPermissionBroker {
       let set = this.always.get(p.sessionId);
       if (!set) { set = new Set(); this.always.set(p.sessionId, set); }
       set.add(p.toolKey);
+      // The session set is kept even for a gate that also persists: it is what answers if the
+      // durable write fails, and it keeps the answer working for the rest of THIS session either way.
+      p.onAlwaysAllow?.();
     }
     this.d.emit(p.sessionId, sessionEvent("permission_response", { requestId, decision }));
     this.d.emit(p.sessionId, sessionEvent("status", { status: "running" }));
@@ -112,6 +130,18 @@ export class BrowserPermissionBroker {
    * browser_act may always act in this session"); `title` is the human-readable line the ApprovalCard
    * shows; `input` is echoed onto the event so the card can show what the agent asked for.
    */
+  /**
+   * Forget one grant in every live session.
+   *
+   * Deliberately broad: a durable list is scoped to a space, this map is scoped to a session, and
+   * the broker is never told which space a session belongs to. Dropping the key everywhere errs
+   * towards asking again, which is the safe direction — the alternative is a session that keeps
+   * driving an application the user has just taken off the list.
+   */
+  revoke(toolKey: string): void {
+    for (const set of this.always.values()) set.delete(toolKey);
+  }
+
   async gate(sessionId: string, toolKey: string, title: string, input: Record<string, unknown>, toolName: string = toolKey, opts: GateOptions = {}): Promise<GateResult> {
     const mode = this.d.permissionMode(sessionId);
     if (isReadOnlyMode(mode)) return { allowed: false, reason: `this session is in ${mode === "plan" ? "Plan" : "Ask"} (read-only) mode — mutating tools are refused; switch modes to act` };
@@ -119,6 +149,7 @@ export class BrowserPermissionBroker {
       // `allow_always` is consulted BEFORE the mode, so a `promptUnderBypass` gate the user has
       // already answered "always" to stops asking. For every other caller the two orders agree:
       // both branches return allowed.
+      if (opts.preapproved) return { allowed: true };
       if (this.always.get(sessionId)?.has(toolKey)) return { allowed: true };
       if (mode === "bypassPermissions" && !opts.promptUnderBypass) return { allowed: true };
     }
@@ -131,7 +162,7 @@ export class BrowserPermissionBroker {
         this.d.emit(sessionId, sessionEvent("status", { status: "running" }));
         resolve("deny");
       }, PROMPT_TIMEOUT_MS);
-      this.pending.set(requestId, { sessionId, toolKey, resolve, timer, alwaysPrompt: opts.alwaysPrompt === true });
+      this.pending.set(requestId, { sessionId, toolKey, resolve, timer, alwaysPrompt: opts.alwaysPrompt === true, onAlwaysAllow: opts.onAlwaysAllow });
       // Emitted AFTER the pending entry exists: a same-tick respondPermission must find it.
       // `toolName` is what the card SHOWS; `toolKey` is what `allow_always` remembers. They differ when
       // the grant must be narrower than the tool — Plan 20's ask keys on `agent_ask:<targetId>` so

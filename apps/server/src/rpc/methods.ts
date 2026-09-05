@@ -14,6 +14,8 @@ import type { SettingsStore } from "../store/settings";
 import type { ModelCatalogService } from "../models/catalog";
 import type { SkillsService } from "../skills/service";
 import type { McpService } from "../mcp/service";
+import type { ComputerAppAllowlist } from "../computer/allowlist";
+import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { McpHub } from "../mcp/hub";
 import type { McpGateway } from "../mcp/gateway";
 import { oauthSecretBox, type McpOauth } from "../mcp/oauth";
@@ -49,7 +51,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
   delegation: DelegationEngine;
 };
@@ -284,6 +286,22 @@ export function registerMethods(d: Deps): void {
     d.gateway.notifyPolicyChanged(p.spaceId);
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
+  });
+  reg("computer.allowedApps.list", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return { apps: d.computerAllowlist.list(p.spaceId) };
+  });
+  reg("computer.allowedApps.set", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    const before = d.computerAllowlist.list(p.spaceId);
+    const apps = d.computerAllowlist.replace(p.spaceId, p.apps);
+    // Persisting is not the whole of a revocation. A session that answered "always" holds its own
+    // in-memory grant for that app, and would keep driving it until it ended — so every app dropped
+    // from the list is dropped from the live grants too.
+    for (const bundleId of before) {
+      if (!apps.includes(bundleId)) d.browserPermissions.revoke(`computer_act:${bundleId}`);
+    }
+    return { apps };
   });
   reg("mcp.calls.list", (p) => ({ calls: d.calls.list(p) }));
   /** Returns the authorization URL and nothing else — the RENDERER opens it in the system browser, and

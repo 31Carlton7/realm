@@ -2774,3 +2774,32 @@ describe("computer access", () => {
     expect(store.getState().computerRequesting).toBeNull();
   });
 });
+
+describe("the computer-use allowed-apps list", () => {
+  let api: FakeApi;
+  beforeEach(() => { api = fakeApi({ computerAllowedApps: { s1: ["com.apple.TextEdit"] } }); });
+
+  it("fetches a space's list, keyed by space", async () => {
+    const store = createAppStore(api);
+    await store.getState().refreshComputerAllowedApps("s1");
+    expect(store.getState().computerAllowedApps.s1).toEqual(["com.apple.TextEdit"]);
+    // Absent, not empty: a space that was never fetched must render as loading rather than as
+    // "nothing is allowed here", which is a different and reassuring-looking claim.
+    expect(store.getState().computerAllowedApps.s2).toBeUndefined();
+  });
+
+  it("keeps what the server stored, not what was sent", async () => {
+    // The server drops an app that can never be driven. Storing the argument would leave the list
+    // showing an entry that is not in effect, and the user believing they had granted something.
+    const store = createAppStore(api);
+    await store.getState().setComputerAllowedApps("s1", ["com.apple.Terminal", "com.apple.TextEdit"]);
+    expect(store.getState().computerAllowedApps.s1).toEqual(["com.apple.TextEdit"]);
+  });
+
+  it("drops an entry the user removed", async () => {
+    const store = createAppStore(api);
+    await store.getState().refreshComputerAllowedApps("s1");
+    await store.getState().setComputerAllowedApps("s1", []);
+    expect(store.getState().computerAllowedApps.s1).toEqual([]);
+  });
+});
