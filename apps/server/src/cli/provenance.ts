@@ -12,10 +12,17 @@ import type { InstallProvenance } from "@realm/contracts";
  * symlinks and the npm-global shims when node itself came from brew, so the directory on PATH proves
  * nothing — only the resolved target does.
  *
- *   brew   /opt/homebrew/bin/goose  → ../Cellar/block-goose-cli/1.9.0/bin/goose
- *   npm    /opt/homebrew/bin/codex  → ../lib/node_modules/@openai/codex/bin/codex.js
- *   pnpm   ~/Library/pnpm/codex     → ../pnpm/global/5/.pnpm/@openai+codex@0.1.0/node_modules/...
- *   script ~/.local/bin/cursor-agent → a real file, no marker at all
+ * Measured on a real machine, 2026-09-05:
+ *
+ *   brew keg   /opt/homebrew/bin/goose  → ../Cellar/block-goose-cli/1.49.0/bin/goose
+ *   brew cask  /opt/homebrew/bin/codex  → ../Caskroom/codex/0.146.0/bin/codex
+ *   npm        /opt/homebrew/bin/codex  → ../lib/node_modules/@openai/codex/bin/codex.js
+ *   pnpm       ~/Library/pnpm/codex     → ../pnpm/global/5/.pnpm/@openai+codex@0.1.0/node_modules/...
+ *   vendor     ~/.local/share/claude/versions/2.1.258, ~/.opencode/bin/opencode, ~/.local/bin/fx
+ *
+ * That last row is the majority on a working machine — four of the five agent CLIs installed on the
+ * one measured came from a vendor script that self-updates. `unknown` is the common answer here, not
+ * an edge case, and it is why refusing to update is the default rather than the exception.
  */
 
 /** Every marker is matched as a whole path SEGMENT (`/Cellar/`, not the substring "Cellar"), so a
@@ -31,7 +38,11 @@ const hasSegment = (path: string, name: string): boolean => path.split(sep).incl
  * that always encloses it.
  */
 export function classifyPath(realPath: string): InstallProvenance {
-  if (hasSegment(realPath, "Cellar")) return "brew";
+  // Both of Homebrew's install roots: formulae land in Cellar, casks in Caskroom. Missing Caskroom
+  // would not make Realm run the wrong command — an npm route refuses `unknown` too — but it would
+  // tell a Homebrew user their CLI came from something Realm did not recognise, which is a worse
+  // sentence than the true one. (Measured: `codex` installs as a cask.)
+  if (hasSegment(realPath, "Cellar") || hasSegment(realPath, "Caskroom")) return "brew";
   if (hasSegment(realPath, ".pnpm")) return "pnpm";
   if (hasSegment(realPath, "node_modules")) return "npm";
   return "unknown";

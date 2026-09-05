@@ -28,8 +28,20 @@ function install(root: string, opts: { real: string; link: string }): { binDir: 
 }
 
 describe("classifyPath", () => {
-  it("reads a Homebrew keg as brew", () => {
-    expect(classifyPath("/opt/homebrew/Cellar/block-goose-cli/1.9.0/bin/goose")).toBe("brew");
+  it("reads both of Homebrew's install roots as brew", () => {
+    // Formulae land in Cellar and casks in Caskroom; `codex` is a cask on the machine this was
+    // measured on, and calling that "not a package manager Realm recognises" would be a false
+    // sentence shown to a Homebrew user.
+    expect(classifyPath("/opt/homebrew/Cellar/block-goose-cli/1.49.0/bin/goose")).toBe("brew");
+    expect(classifyPath("/opt/homebrew/Caskroom/codex/0.146.0/bin/codex")).toBe("brew");
+  });
+
+  it("reads the vendor self-updater layouts as unknown, which is the common case", () => {
+    // Measured 2026-09-05: four of the five agent CLIs installed on a working machine look like this.
+    expect(classifyPath("/Users/x/.local/share/claude/versions/2.1.258")).toBe("unknown");
+    expect(classifyPath("/Users/x/.local/share/cursor-agent/versions/2026.07.25-e42b078/cursor-agent")).toBe("unknown");
+    expect(classifyPath("/Users/x/.opencode/bin/opencode")).toBe("unknown");
+    expect(classifyPath("/Users/x/.local/bin/fx")).toBe("unknown");
   });
 
   it("reads a global node_modules as npm", () => {

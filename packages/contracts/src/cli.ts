@@ -82,8 +82,9 @@ export function updateCommand(route: InstallRoute | null, version: string): stri
  */
 export function updateChannel(route: InstallRoute | null): { url: string; kind: "npm" | "brew" } | null {
   if (!route) return null;
-  // The registry wants a scoped name with only its slash escaped (`@openai%2Fcodex`);
-  // encodeURIComponent would also escape the leading `@`, which the registry 404s on.
+  // `@openai%2Fcodex` — the form npm's own registry API documents for a scoped name. Measured
+  // 2026-09-05, the registry also answers 200 to the raw slash and to a fully percent-encoded name,
+  // so this is a matter of sending the documented URL rather than of the other forms being broken.
   if (route.method === "npm") return { url: `https://registry.npmjs.org/${route.pkg.replace("/", "%2F")}/latest`, kind: "npm" };
   if (route.method === "brew") return { url: `https://formulae.brew.sh/api/formula/${route.formula}.json`, kind: "brew" };
   return null;
@@ -96,8 +97,9 @@ export function parseNpmLatest(body: unknown): string | null {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 }
 
-/** `versions.stable` off a formulae.brew.sh formula document. Shape verified against the public API
- *  2026-09-05; `versions.head` is deliberately ignored, since `brew install` lands stable. */
+/** `versions.stable` off a formulae.brew.sh formula document. Measured 2026-09-05 against the public
+ *  API: `versions` is `{ stable: "1.49.0", head: "HEAD", bottle: true }`. `head` is deliberately
+ *  ignored — it is the literal string "HEAD", not a version, and `brew install` lands stable. */
 export function parseBrewFormula(body: unknown): string | null {
   const v = (body as { versions?: { stable?: unknown } } | null)?.versions?.stable;
   return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
@@ -106,8 +108,9 @@ export function parseBrewFormula(body: unknown): string | null {
 /**
  * The version number inside whatever a `--version` flag printed.
  *
- * Every CLI decorates it differently — measured: claude prints `2.1.223 (Claude Code)`, codex prints
- * `codex-cli 0.146.0`, cursor-agent prints a calendar version like `2026.09.01`. At least one dot is
+ * Every CLI decorates it differently. Measured 2026-09-05 across five installed CLIs: claude prints
+ * `2.1.258 (Claude Code)`, codex `codex-cli 0.146.0`, cursor-agent a calendar version with a commit
+ * suffix `2026.07.25-e42b078`, opencode a bare `1.18.13`, fx a bare `0.0.7`. At least one dot is
  * required so a lone digit in a product name (`gpt-5-codex`) is not mistaken for a version; the first
  * match wins, because every observed format puts the version after any name and before any build
  * decoration.

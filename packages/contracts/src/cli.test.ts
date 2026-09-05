@@ -44,7 +44,7 @@ describe("updateCommand", () => {
 });
 
 describe("updateChannel", () => {
-  it("escapes only the scope slash — an encoded @ 404s on the registry", () => {
+  it("sends a scoped name in the form npm's registry documents", () => {
     expect(updateChannel({ method: "npm", pkg: "@openai/codex" })?.url).toBe("https://registry.npmjs.org/@openai%2Fcodex/latest");
   });
 
@@ -70,7 +70,10 @@ describe("registry parsers", () => {
   });
 
   it("reads versions.stable off a brew formula, ignoring head", () => {
-    expect(parseBrewFormula({ versions: { stable: "1.9.0", head: "HEAD" } })).toBe("1.9.0");
+    // The document formulae.brew.sh actually returned for block-goose-cli on 2026-09-05. `head` is
+    // the literal string "HEAD", so a parser reaching for the wrong key would return that as a
+    // version and every comparison against it would be nonsense.
+    expect(parseBrewFormula({ versions: { stable: "1.49.0", head: "HEAD", bottle: true } })).toBe("1.49.0");
   });
 
   it("answers null rather than throwing on anything else", () => {
@@ -85,9 +88,12 @@ describe("registry parsers", () => {
 
 describe("parseVersion", () => {
   it("pulls the version out of what each CLI actually prints", () => {
-    expect(parseVersion("2.1.223 (Claude Code)")).toBe("2.1.223");
+    // Every string here was read off a real `--version` on 2026-09-05, except the last.
+    expect(parseVersion("2.1.258 (Claude Code)")).toBe("2.1.258");
     expect(parseVersion("codex-cli 0.146.0")).toBe("0.146.0");
-    expect(parseVersion("2026.09.01")).toBe("2026.09.01");
+    expect(parseVersion("2026.07.25-e42b078")).toBe("2026.07.25-e42b078");
+    expect(parseVersion("1.18.13")).toBe("1.18.13");
+    expect(parseVersion("0.0.7")).toBe("0.0.7");
     expect(parseVersion("0.1.2-rc.3")).toBe("0.1.2-rc.3");
   });
 
