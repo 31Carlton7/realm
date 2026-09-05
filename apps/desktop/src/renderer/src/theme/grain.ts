@@ -2,13 +2,12 @@ import type { CSSProperties } from "react";
 
 /** Decorative wash geometry, drawn once per launch.
  *
- *  The user asked for randomised colour. Free randomisation is not available here: every hue the app
- *  paints is a token with a meaning (--red is failure, --green is done), and a decorative field that
- *  landed on one by chance would say something. So the only degree of freedom is an offset from the
- *  theme's OWN accent, held inside an arc narrow enough that the result still reads as the palette
- *  the user chose. Lightness and chroma are NOT randomised — they are pinned in tokens.css to the
- *  band that leaves every ink tier above its contrast floor, and are the reason this is safe to ship
- *  on all seventeen faces.
+ *  The colour is randomised, but not freely: every hue the app paints is a token with a meaning
+ *  (--red is failure, --green is done), and a field that landed on one by chance would say
+ *  something. The only degree of freedom is an offset from the theme's OWN accent, inside an arc
+ *  narrow enough that the result still reads as the palette on screen. Lightness and chroma are not
+ *  drawn at all — they are pinned in tokens.css to the band that leaves every ink tier above its
+ *  contrast floor, and are why this is safe on all seventeen faces.
  *
  *  Seeded once per launch, keyed by surface: two surfaces on screen together should not be the same
  *  picture, and one surface must not repaint itself on every React render. A launch is also the
@@ -36,8 +35,9 @@ function hash(key: string): number {
 const draw = (key: string, n: number): number => hash(`${key}#${n}`) / 0x100000000;
 const between = (t: number, [lo, hi]: readonly [number, number]): number => lo + t * (hi - lo);
 
-/** The custom properties styles.css reads. Exported as a pure function of (surface, seed) so a test
- *  can pin the bounds without stubbing Math.random. */
+/** The custom properties styles.css reads. Pure in (surface, seed): the launch seed is a default
+ *  rather than a closure, so the bounds can be walked over thousands of draws without stubbing
+ *  Math.random. */
 export function grainVars(surface: string, seed: number = LAUNCH_SEED): CSSProperties {
   const key = `${seed}:${surface}`;
   return {

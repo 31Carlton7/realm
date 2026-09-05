@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CONTRAST_FLOOR, REALM_SEED, THEMES, deriveVars, themeVars } from "@realm/ui/src/themes";
-import { hexToOklch, oklchToHex, parseOklch, srgb, srgbLuminance } from "@realm/ui/src/oklch";
+import { hexToOklch, parseOklch, srgb, srgbLuminance } from "@realm/ui/src/oklch";
 import { grainVars } from "./grain";
 
 /* The wash is decoration; the contrast floor is not. This walks every face the app can wear, paints
@@ -134,8 +134,8 @@ describe("the decorative wash never costs text its contrast floor", () => {
     // reader: a wash heavy enough to move the ground's lightness stops being decoration ON the
     // user's palette and becomes a different palette. Contrast alone would allow far more than this
     // on a dark face, where darkening the ground only ever helps.
-    const okl = (rgb: Rgb) => hexToOklch(oklchToHex({ l: 0, c: 0, h: 0 }) === "" ? "#000" : "#" +
-      rgb.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, "0")).join("")).l;
+    const okl = (rgb: Rgb) => hexToOklch("#" + rgb
+      .map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, "0")).join("")).l;
     for (const surface of SURFACES) {
       for (const face of FACES) {
         const plain = okl(srgb(parseOklch(face.vars[surface.ground]!)));
@@ -146,6 +146,23 @@ describe("the decorative wash never costs text its contrast floor", () => {
           expect(moved, `${face.label} ${surface.ground} at ${hue}deg`).toBeLessThan(0.025);
         }
       }
+    }
+  });
+
+  it("the lift pushes the ground away from the ink and the speckles push it back", () => {
+    /* The two layers have to point OPPOSITE ways or the lift is not paying for anything: it exists
+       to bank a margin in advance so the grain can spend it. Contrast alone will not catch this,
+       because on a dark face a grain that darkens along WITH the lift only ever raises the ratio —
+       it just carries the ground further from the palette and leaves the lift doing nothing. */
+    for (const face of FACES) {
+      const ground = srgbLuminance(srgb(parseOklch(face.vars["--surface"]!)));
+      const ink = srgbLuminance(srgb(parseOklch(face.vars["--ink-3"]!)));
+      const away = Math.sign(ground - ink);
+      // The lift may be a no-op where the ground is already at the end of the gamut — One Light's
+      // surface is pure white and nothing is whiter — but it may never point at the ink.
+      expect(Math.sign(srgbLuminance(layer(decl(face.mode, "--grain-lift")).rgb) - ground) * away,
+        `lift, ${face.label}`).toBeGreaterThanOrEqual(0);
+      expect(Math.sign(srgbLuminance(texture(face.mode).rgb) - ground) * away, `speckles, ${face.label}`).toBe(-1);
     }
   });
 

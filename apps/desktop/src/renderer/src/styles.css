@@ -3337,10 +3337,10 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    question.
 
    Two layers, and which of them a surface gets is decided by its GROUND, not by taste. The colour
-   field is luminance-neutral (theme/tokens.css) and can go anywhere. The grain is a luminance
-   excursion and can only go where a lift can pay for it, which on the measured faces means a
-   `--surface` ground and not a `--canvas` one — so `.page` takes the field alone and says nothing
-   about texture.
+   field holds the ground's own lightness (theme/tokens.css) and so can go anywhere. The grain is a
+   luminance excursion and can only go where a lift can bank the budget for it first, which on the
+   measured faces means a `--surface` ground and not a `--canvas` one — so `.page` takes the field
+   alone.
 
    Painted as background layers on the surface itself rather than as an absolutely-positioned child.
    That is what keeps it out of the no-overlay problem (state/no-overlay.ts): a background cannot
@@ -3352,18 +3352,16 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    The fallbacks are what the surface looks like if they never do: centred, unrotated, still the
    theme's accent. */
 .wash {
-  background-image: radial-gradient(var(--grain-spread, 90%) 76% at var(--grain-x, 50%) var(--grain-y, 0%),
+  --grain-field: radial-gradient(var(--grain-spread, 90%) 76% at var(--grain-x, 50%) var(--grain-y, 0%),
     oklch(from var(--accent) var(--grain-wash-l) var(--grain-wash-c) calc(h + var(--grain-hue, 0)) / var(--grain-wash-a)),
     transparent 72%);
+  background-image: var(--grain-field);
   background-repeat: no-repeat;
 }
-/* Grain over lift over field. The lift is flat, so it is a gradient of one colour — the only way to
-   put a solid into the background-image stack, where it has to sit to be under the speckles. */
+/* Grain over lift over field. The lift is flat, so it is a gradient of one colour — a solid has no
+   other way into the background-image stack, and under the speckles is where it has to sit. */
 .wash[data-grain] {
-  background-image: var(--grain-tex), linear-gradient(var(--grain-lift), var(--grain-lift)),
-    radial-gradient(var(--grain-spread, 90%) 76% at var(--grain-x, 50%) var(--grain-y, 0%),
-      oklch(from var(--accent) var(--grain-wash-l) var(--grain-wash-c) calc(h + var(--grain-hue, 0)) / var(--grain-wash-a)),
-      transparent 72%);
+  background-image: var(--grain-tex), linear-gradient(var(--grain-lift), var(--grain-lift)), var(--grain-field);
   background-repeat: repeat, no-repeat, no-repeat;
   background-size: 160px 160px, auto, auto;
   background-position: 0 0, 0 0, 0 0;
