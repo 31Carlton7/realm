@@ -53,6 +53,16 @@ const { createBrowserPane } = require(outfile);
 const { RETAINED_VIEW_LIMIT } = require(hostOut);
 
 app.setPath("userData", path.join(scratch, "userData")); // persist:browser lands here, not in any real profile
+
+/** Every exit path gives the scratch dir back, including the watchdog — a run that hung holding a
+ *  userData tree with a renderer process per retained view is exactly the run nobody comes back to
+ *  clean up after. */
+const cleanup = () => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ } };
+const finish = (code) => { cleanup(); app.exit(code); };
+/* Nothing here has a timeout of its own: a CDP call that never answers would leave the window open
+   and the scratch dir on disk for as long as the machine stayed up. */
+const bail = setTimeout(() => { console.log("FAIL timed out before reaching a verdict"); finish(2); }, 120000);
+bail.unref();
 // Cases destroy their windows as they go; without this the app quits on the first one and the rest
 // of the checks silently never run.
 app.on("window-all-closed", () => {});
@@ -205,5 +215,29 @@ app.whenReady().then(async () => {
     out.error = String((e && e.stack) || e);
   }
   console.log(`PERSIST_LIVE ${JSON.stringify(out, null, 2)}`);
-  app.exit(out.error ? 1 : 0);
+
+  /* The verdicts, asserted rather than merely printed. Every requirement in this file's header is a
+     boolean recorded above, and until these were read a run in which all six were false still
+     exited 0 — the only thing that could fail the script was a thrown exception. Each entry names
+     the requirement it is, so a red line says what broke rather than which field went false. */
+  const verdicts = [
+    ["1 retain does not destroy the view", (k) => k.retainSurvives.alive === true],
+    ["2 the retained view is hidden", (k) => k.retainedIsInvisible.showsDecoyNotPage === true && k.retainedIsInvisible.getVisible === false],
+    ["3 the retained page keeps running unthrottled", (k) => k.keepsRunningWhileHidden.unthrottled === true],
+    ["4 the retained view is still drivable", (k) => k.drivableWhileHidden.inputLanded === true],
+    ["5 coming back re-adopts rather than reloads", (k) => k.readoptedWithoutReload.noReload === true],
+    ["6 the off-screen budget evicts the least-recently-used", (k) =>
+      k.budgetEvictsLru.oldestEvicted === true && k.budgetEvictsLru.newestKept === true
+      && k.budgetEvictsLru.readoptedViewNotEvictable === true],
+  ];
+  let failed = !!out.error;
+  if (out.error) console.log(`FAIL threw before it could finish: ${out.error}`);
+  for (const [name, ok] of verdicts) {
+    let passed = false;
+    try { passed = ok(out.checks) === true; } catch { passed = false; }
+    if (!passed) failed = true;
+    console.log(`${passed ? "PASS" : "FAIL"} ${name}`);
+  }
+  clearTimeout(bail);
+  finish(failed ? 1 : 0);
 });
