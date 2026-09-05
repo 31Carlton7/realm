@@ -44,6 +44,8 @@ export const liveApi = (): Api => ({
   deleteItem: async (id) => { await rpc().call("items.delete", { id }); },
   getSetting: async (key) => (await rpc().call("settings.get", { key })).value,
   setSetting: async (key, value) => { await rpc().call("settings.set", { key, value }); },
+  listComputerAllowedApps: async (spaceId) => (await rpc().call("computer.allowedApps.list", { spaceId })).apps,
+  setComputerAllowedApps: async (spaceId, apps) => (await rpc().call("computer.allowedApps.set", { spaceId, apps })).apps,
   systemInfo: async () => { const i = await rpc().call("system.info", {}); return { machineName: i.machineName, userName: i.userName }; },
   pickFolder: () => window.realm.pickFolder(),
   pickFiles: () => window.realm.pickFiles(),

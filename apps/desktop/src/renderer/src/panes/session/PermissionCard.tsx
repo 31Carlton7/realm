@@ -16,6 +16,22 @@ const OPTIONS: { decision: PermissionDecision; label: string; kbd: string }[] = 
   { decision: "deny", label: "Deny", kbd: "⌘⌫" },
 ];
 
+/**
+ * What "always" is worth, for the tools where it is not the session.
+ *
+ * `computer_act`'s always is written to the space's allowed-apps list and outlives the session, so
+ * the option has to say so — a user answering "Allow always" about an application on their own Mac
+ * is owed the scope they are granting, and the plain label reads as "for now" next to "Allow". The
+ * option list itself is unchanged: this is the same decision reaching a different store, not a
+ * fourth answer, which would have to be understood by every adapter that can receive one.
+ */
+const ALWAYS_LABEL: Record<string, string> = { computer_act: "Always allow in this space" };
+
+const optionsFor = (toolName: string): typeof OPTIONS => {
+  const label = ALWAYS_LABEL[toolName];
+  return label ? OPTIONS.map((o) => (o.decision === "allow_always" ? { ...o, label } : o)) : OPTIONS;
+};
+
 /** The agent wants to run a tool: Allow (once) / Allow always / Deny.
  *
  *  Keyboard (U-H4): with `autoFocus` (the card sits in the focused pane) the Allow option takes
@@ -77,7 +93,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       {preview && <div className="permission-preview"><ToolInputBody view={preview} /></div>}
       <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre>{prettyJson(permission.input)}</pre></details>
       <div className="permission-options">
-        {OPTIONS.map((o, i) => (
+        {optionsFor(permission.toolName).map((o, i) => (
           <button key={o.decision} ref={(el) => { rows.current[i] = el; }} className="permission-option"
             aria-label={o.label} data-selected={i === selected || undefined} data-decision={o.decision}
             onFocus={() => setSelected(i)} onClick={() => onDecide(o.decision)}>

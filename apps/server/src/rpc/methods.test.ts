@@ -543,3 +543,39 @@ describe("graphify over rpc", () => {
     }
   });
 });
+
+describe("the computer-use allowed-apps list over rpc", () => {
+  it("round-trips a space's list through the settings row", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const s1 = (await c.call("spaces.create", { profileId: prof.id, name: "One" })).result;
+    const s2 = (await c.call("spaces.create", { profileId: prof.id, name: "Two" })).result;
+
+    expect((await c.call("computer.allowedApps.list", { spaceId: s1.id })).result.apps).toEqual([]);
+    const set = await c.call("computer.allowedApps.set", { spaceId: s1.id, apps: ["com.apple.TextEdit", "com.apple.Mail"] });
+    expect(set.result.apps).toEqual(["com.apple.Mail", "com.apple.TextEdit"]);
+    expect((await c.call("computer.allowedApps.list", { spaceId: s1.id })).result.apps).toEqual(["com.apple.Mail", "com.apple.TextEdit"]);
+    // The other space is untouched: this is the scope the whole design rests on.
+    expect((await c.call("computer.allowedApps.list", { spaceId: s2.id })).result.apps).toEqual([]);
+    c.close();
+  });
+
+  it("answers with what it will really honour, dropping an app that can never be driven", async () => {
+    const { c } = await boot();
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const s1 = (await c.call("spaces.create", { profileId: prof.id, name: "One" })).result;
+    const r = await c.call("computer.allowedApps.set", { spaceId: s1.id, apps: ["com.apple.Terminal", "com.apple.TextEdit"] });
+    expect(r.result.apps).toEqual(["com.apple.TextEdit"]);
+    c.close();
+  });
+
+  it("returns NOT_FOUND for a space that is not there, rather than reading a settings row for it", async () => {
+    const { c } = await boot();
+    for (const method of ["computer.allowedApps.list", "computer.allowedApps.set"]) {
+      const r = await c.call(method, { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", apps: [] });
+      expect(r.ok, method).toBe(false);
+      expect(r.error.code, method).toBe("NOT_FOUND");
+    }
+    c.close();
+  });
+});

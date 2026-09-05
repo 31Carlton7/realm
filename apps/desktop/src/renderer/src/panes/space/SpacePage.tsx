@@ -6,6 +6,7 @@ import { relativeTime } from "../../components/CheckpointsSheet";
 import { ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
 import { McpSection } from "../../components/sidebar/McpSection";
 import { BrowserOrigins } from "../../components/sidebar/BrowserOrigins";
+import { ComputerApps } from "../../components/sidebar/ComputerApps";
 import { IconPicker } from "../../components/IconPicker";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
@@ -647,6 +648,9 @@ export function SpacePage({ item }: PaneProps) {
             {/* The per-space browser origin allowlist (Plan 14 W4) — same tab as the other things
                 agents reach out through. Its own settings-panel block, below the servers. */}
             <div className="form settings-panel"><BrowserOrigins spaceId={spaceId} /></div>
+            {/* The computer-use allowlist, in the same tab for the same reason: it is another list of
+                what agents in this space may reach outside it. */}
+            <div className="form settings-panel"><ComputerApps spaceId={spaceId} /></div>
           </>}
           {tab === "sessions" && <SessionsTab spaceId={spaceId} />}
           {tab === "tasks" && <TasksTab spaceId={spaceId} />}
