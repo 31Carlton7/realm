@@ -144,7 +144,8 @@ export type ComputerActResult =
  * refuses with a useful message instead of posting a keystroke it guessed at.
  *
  * Aliases are accepted generously because models write all of them: macOS users and Apple's own docs
- * say `cmd`, xdotool says `super`, web APIs say `meta`, and all three mean the Command key. The
+ * say `cmd`, xdotool says `super`, web APIs say `meta`, and a PC keyboard is labelled `win` — every
+ * one of them is the Command key here. The
  * KEY half is passed through with its case preserved — `a` and `A` are the same physical key and
  * shift is a modifier, but the named keys (`Return`, `Escape`) are matched case-insensitively
  * downstream.
