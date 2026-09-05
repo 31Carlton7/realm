@@ -1201,6 +1201,14 @@ describe("§6 do-NOT-animate list", () => {
     }
   });
 
+  it("a disabled switch is visibly disabled, wherever it is nested", () => {
+    // `.switch:checked` paints the accent at full strength, and `disabled` changes nothing else about
+    // it — a dependent toggle would otherwise read as live and on. The only other disabled treatment
+    // a switch can pick up is `.slider-row input:disabled`, which reaches the one switch that happens
+    // to sit inside a slider row and no other.
+    expect(bodiesFor(".switch:disabled").join(" ")).toContain("opacity: .45");
+  });
+
   it("the focused-pane marks are instant — §6 does not animate pane focus switching", () => {
     // The underline, the inked header icon and the empty-leaf top rule all move when focus moves.
     const focusRules = RULES.filter((x) => x.selectors.some((s) => /^\.panel(\[data-focused\]|-title|-icon)/.test(s)));

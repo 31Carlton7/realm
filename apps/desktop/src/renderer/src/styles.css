@@ -2315,6 +2315,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .switch:checked { background: var(--rl-accent); }
 .switch:checked::after { translate: 13px 0; }
 .switch:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
+/* A checked switch keeps the accent at full strength when disabled, so without this a dependent
+   toggle reads as live and on. .45 is the disabled opacity every other control here uses. */
+.switch:disabled { opacity: .45; cursor: default; }
 
 .memory-doc { min-height: 140px; padding: 8px 9px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; font: 12px/1.5 var(--font-mono); resize: vertical; }
 .memory-doc:focus { border-color: var(--rl-accent); }

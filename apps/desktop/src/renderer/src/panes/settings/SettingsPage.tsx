@@ -638,6 +638,10 @@ function AppTab() {
           </li>
         </ul>
         <div className="slider-row">
+          {/* Labelled where the other sliders on this tab are not: theirs are the whole subject of
+              their field, this one hangs off a switch two rows up, so a bare bar and a percentage
+              would leave the reader to guess what the percentage measures. */}
+          <span className="slider-value">Volume</span>
           <input type="range" aria-label="Sound volume" disabled={!desktopNotifications || !soundCues}
             min={0} max={100} step={5}
             value={Math.round(soundVolume * 100)}
