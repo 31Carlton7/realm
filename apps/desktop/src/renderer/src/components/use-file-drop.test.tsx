@@ -7,8 +7,8 @@ const dt = (files: File[] = []) => ({ dataTransfer: { files, items: files.map(()
 const paneDrag = { dataTransfer: { files: [], items: [], types: [REALM_ITEM_TYPE] } };
 const file = (name = "a.png") => new File([new Uint8Array(2)], name, { type: "image/png" });
 
-/** The real shape: a claiming target nested inside a plain one, which is the session pane with the
- *  prompter inside it. Everything subtle about the hook is about how those two interact. */
+/** A claiming target nested inside a plain one — the shape the session pane and the prompter make,
+ *  and the only shape in which the hook's counting can go wrong. */
 function Nested({ onOuter, onInner }: { onOuter: (f: File[]) => void; onInner: (f: File[]) => void }) {
   const outer = useFileDrop(onOuter);
   const inner = useFileDrop(onInner, true);

@@ -50,10 +50,10 @@ const extOf = (path: string): string => {
  * element that could render a PDF or a CSV and a viewer that showed a broken image for half the
  * attachments would be worse than a tile that did nothing.
  *
- * This lives on the TILE rather than on either of its two callers, which is the point: the composer's
- * pending chip and the sent chip in a user's message bubble look identical, and a tile that behaved
- * one way above the prompter and another way six inches up the transcript would be a bug wearing the
- * same picture.
+ * Opening lives on the TILE rather than on either of its two callers. The composer's pending chip
+ * and the sent chip in a message bubble are the same picture of the same file, so a tile that
+ * behaved one way in the prompter and another way in the transcript would be a bug — and two
+ * callers each holding their own copy of the behaviour is how that bug gets written.
  */
 export function AttachmentTile({ path, mime, name, detail, disposition, onRemove }: {
   path: string; mime: string;

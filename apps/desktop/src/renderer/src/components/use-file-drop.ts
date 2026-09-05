@@ -2,7 +2,7 @@ import { useState, type DragEvent } from "react";
 import { carriesFiles } from "./drag-types";
 
 /** The four handlers a file-drop target needs, spread straight onto the element. */
-export type FileDropHandlers = {
+type FileDropHandlers = {
   onDragEnter: (e: DragEvent) => void;
   onDragOver: (e: DragEvent) => void;
   onDragLeave: (e: DragEvent) => void;

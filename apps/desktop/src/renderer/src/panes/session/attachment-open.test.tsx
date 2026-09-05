@@ -7,17 +7,14 @@ import { reduceAll } from "./transcript-model";
 import { resetMediaCache } from "./media/use-media";
 
 /** What main would answer for a real file on disk. */
-const mediaFile = (path: string, kind: MediaFile["kind"] = "image"): MediaFile => ({
-  path, kind, size: 4096,
-  mime: kind === "video" ? "video/mp4" : kind === "audio" ? "audio/mpeg" : "image/png",
-});
+const mediaFile = (path: string): MediaFile => ({ path, kind: "image", mime: "image/png", size: 4096 });
 
 /**
  * Stand in for the preload bridge. `known` is the whole filesystem as far as the renderer is
- * concerned — anything else stats to null, which is how a moved file degrades.
+ * concerned — anything else stats to null, which is how a file that has moved degrades.
  *
- * `openAttachment` is the OTHER half of the surface under test: a tile that reaches for it has
- * decided the file is not something the app can draw.
+ * A tile that reaches for `openAttachment` has decided the file is not one the app can draw, so
+ * which of the two the click lands on is the whole question here.
  */
 function stubBridge(known: MediaFile[] = []) {
   const stat = vi.fn(async (candidates: readonly string[]) =>
@@ -48,10 +45,10 @@ describe("opening an attachment from its tile", () => {
   });
 
   it("a PDF is never even put to media:stat — the scheme could not serve one", async () => {
-    const { stat } = stubBridge();
+    const { stat, openAttachment } = stubBridge();
     render(<AttachmentTile path="/x/report.pdf" mime="application/pdf" />);
     fireEvent.click(screen.getByRole("button", { name: "Open report.pdf" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open report.pdf" })).toBeInTheDocument());
+    await waitFor(() => expect(openAttachment).toHaveBeenCalled());
     expect(stat).not.toHaveBeenCalled();
   });
 
@@ -117,10 +114,9 @@ describe("remove and open are separate controls", () => {
     const onRemove = vi.fn();
     render(<AttachmentTile path="/x/report.pdf" mime="application/pdf" onRemove={onRemove} />);
     fireEvent.click(screen.getByRole("button", { name: "Remove report.pdf" }));
-    expect(onRemove).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onRemove).toHaveBeenCalledTimes(1));
     // The mutant this pins: put the open handler on `.attach-tile` (or nest remove inside the open
     // button) and the ✕ opens the file on its way out.
-    await waitFor(() => expect(onRemove).toHaveBeenCalled());
     expect(openAttachment).not.toHaveBeenCalled();
     expect(lightbox()).toBeNull();
   });
@@ -161,8 +157,8 @@ describe("a sent tile and a pending tile are the same tile", () => {
     stubBridge();
     sent([{ path: "/x/report.pdf", mime: "application/pdf" }]);
     const open = screen.getByRole("button", { name: "Open report.pdf" });
-    // The old shape wrapped the tile in a second button. Two nested buttons is one tab stop too many
-    // and invalid markup besides; the tile carries the control itself now.
+    // The tile carries the control itself; a wrapper around it would be a button inside a button —
+    // invalid markup, and one tab stop too many on every attachment in the transcript.
     expect(open.className).toBe("attach-open");
     expect(open.querySelector("button")).toBeNull();
   });
