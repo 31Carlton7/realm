@@ -1,8 +1,9 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { GitInfoService } from "./git-info";
 
 /** Run git in `cwd` with identity/config pinned so the host machine's config never leaks in. */
@@ -11,7 +12,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function makeRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "realm-git-"));
+  const dir = tempDir("realm-git-");
   git(dir, "init", "-b", "main");
   writeFileSync(join(dir, "a.txt"), "one\ntwo\nthree\n");
   git(dir, "add", ".");
@@ -30,7 +31,7 @@ describe("GitInfoService", () => {
   });
 
   it("returns null for a directory that is not a git repo", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-notgit-"));
+    const dir = tempDir("realm-notgit-");
     expect(await new GitInfoService().get(dir)).toBeNull();
   });
 
@@ -54,7 +55,7 @@ describe("GitInfoService", () => {
 
   it("ahead/behind come from the upstream in the right order", async () => {
     const upstream = makeRepo();
-    const dir = mkdtempSync(join(tmpdir(), "realm-clone-"));
+    const dir = tempDir("realm-clone-");
     git(dir, "clone", upstream, "clone");
     const clone = join(dir, "clone");
     writeFileSync(join(clone, "b.txt"), "local\n");

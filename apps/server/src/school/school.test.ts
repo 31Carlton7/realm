@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 import { normalizeBody } from "./plynn";
@@ -21,7 +21,7 @@ async function client(port: number) {
 }
 
 async function setup(o: { plynnDir?: string } = {}) {
-  const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+  const home = tempDir("realm-home-");
   const app = await createApp({ home, port: 0, plynnMeetingsDir: o.plynnDir ?? join(home, "no-plynn") }); apps.push(app);
   const c = await client(app.port);
   const prof = (await c.call("profiles.create", { name: "School" })).result;
@@ -81,7 +81,7 @@ describe("lectures RPC", () => {
 
 describe("plynn RPC", () => {
   function plynnFixture() {
-    const dir = mkdtempSync(join(tmpdir(), "plynn-meetings-"));
+    const dir = tempDir("plynn-meetings-");
     writeFileSync(join(dir, "2026-09-02 14.05 EE 457 lecture.md"), "# EE 457 lecture\n\n- Hazards\n\n---\n\n## Transcript\n\nToday we cover hazards.\n");
     writeFileSync(join(dir, "2026-09-01 09.00 Standup.md"), "Notes without a heading\n\n---\n\n## Transcript\n\nhi\n");
     writeFileSync(join(dir, "README.txt"), "not a meeting");
@@ -173,7 +173,7 @@ describe("imported lecture files are real files", () => {
     c.close();
   });
   function plynnOne() {
-    const dir = mkdtempSync(join(tmpdir(), "plynn-meetings-"));
+    const dir = tempDir("plynn-meetings-");
     writeFileSync(join(dir, "2026-09-02 10.00 L.md"), "# L\n\nnotes\n");
     return dir;
   }

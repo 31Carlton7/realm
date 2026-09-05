@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { emptyGuideProgress, recordGuideAttempt, type DocumentEntry } from "@realm/contracts";
 import { DOCS_PROVIDER_NAME, createDocsAgentProvider, type DocsAgentToolsDeps } from "./agent-tools";
 import { TextExtractor } from "./text-extract";
 
 function harness(o: { enabled?: boolean } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "realm-docs-tools-"));
+  const root = tempDir("realm-docs-tools-");
   mkdirSync(join(root, "lectures"));
   writeFileSync(join(root, "lectures", "2026-09-01-pipelining.md"), "# Pipelining\n\nforwarding fixes data hazards");
   writeFileSync(join(root, "lectures", "2026-09-03-caches.md"), "# Caches\n\nthrashing");

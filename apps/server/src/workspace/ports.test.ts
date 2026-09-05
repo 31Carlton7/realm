@@ -1,8 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { createServer, type Server } from "node:net";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -13,7 +12,7 @@ let db: Db; let home: string; let spaces: SpacesStore; let envs: EnvironmentsSto
 let spaceIds: string[];
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "realm-ports-"));
+  home = tempDir("realm-ports-");
   db = openDatabase(join(home, "realm.db"));
   const p = new ProfilesStore(db).create({ name: "P", icon: "x", color: "#000" });
   spaces = new SpacesStore(db, home);

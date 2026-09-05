@@ -1,7 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { openDatabase, type Db } from "../db/database";
 import { McpServersStore, type McpServerRow } from "../store/mcp";
@@ -44,7 +43,7 @@ afterEach(async () => {
 
 async function setup(opts: Parameters<typeof makeStubAuthServer>[0] = {}): Promise<Harness> {
   const as = await makeStubAuthServer(opts);
-  const db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-mcp-oauth-")), "realm.db"));
+  const db = openDatabase(join(tempDir("realm-mcp-oauth-"), "realm.db"));
   open.push({ db, as });
   const servers = new McpServersStore(db);
   const row = servers.create({ name: "remote", transport: "http", command: "", args: [], url: `${as.url}/mcp`, secrets: {} });

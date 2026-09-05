@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";
+import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { sessionEvent } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { ProfilesStore } from "./profiles";
@@ -9,7 +10,7 @@ import { EnvironmentsStore } from "./environments";
 import { NotFoundError } from "./rows";
 
 function fresh() {
-  const home = mkdtempSync(join(tmpdir(), "realm-"));
+  const home = tempDir("realm-");
   const db = openDatabase(join(home, "realm.db"));
   const p = new ProfilesStore(db).create({ name: "W", icon: "x", color: "#000" });
   const space = new SpacesStore(db, home).create({ profileId: p.id, name: "S", icon: "f" });

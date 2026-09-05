@@ -1,9 +1,9 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type FakeScript, type McpServerConfig } from "@realm/adapters";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -60,7 +60,7 @@ function initRepo(dir: string): void {
 
 async function boot(opts: { script?: FakeScript; delayMs?: number; parentKind?: "fake" | "claude" | "acp:cursor"; parentMode?: string;
   timeouts?: { budgetMs: number; pollMs: number } } = {}) {
-  const home = mkdtempSync(join(tmpdir(), "realm-rv-"));
+  const home = tempDir("realm-rv-");
   const fake = new FakeAdapter({ script: opts.script ?? REVIEW_SCRIPT, delayMs: opts.delayMs ?? 5 });
   app = await createApp({
     home, port: 0, adapters: { fake, claude: fake, "acp:cursor": fake },

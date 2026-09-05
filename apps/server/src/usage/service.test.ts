@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { USAGE_BUDGET_KEY, sessionEvent, type AgentKind, type ModelInfo, type Session, type SessionEventPayload } from "@realm/contracts";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
@@ -56,7 +55,7 @@ const appendEvent = (sessionId: string, ts: number, type: string, payload: unkno
   db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)").run(sessionId, ts, type, JSON.stringify(payload));
 
 beforeEach(() => {
-  const home = mkdtempSync(join(tmpdir(), "realm-usage-"));
+  const home = tempDir("realm-usage-");
   db = openDatabase(join(home, "realm.db"));
   settings = new SettingsStore(db);
   profileId = new ProfilesStore(db).create({ name: "P", icon: "x", color: "#000" }).id;

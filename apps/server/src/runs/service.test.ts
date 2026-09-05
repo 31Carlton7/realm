@@ -1,7 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
 import { RUN_BLOCK_SENTINEL } from "@realm/contracts";
 import { createApp, type App } from "../app";
@@ -43,7 +41,7 @@ const DONE_SCRIPT: FakeScript = [{ on: WORKER_OPENER, emit: [
 ] }];
 
 async function boot(opts: { script?: FakeScript; delayMs?: number; home?: string } = {}) {
-  const home = opts.home ?? mkdtempSync(join(tmpdir(), "realm-runs-"));
+  const home = opts.home ?? tempDir("realm-runs-");
   const fake = new CaptureFake({ script: opts.script ?? DONE_SCRIPT, delayMs: opts.delayMs ?? 2 });
   app = await createApp({
     home, port: 0, adapters: { fake, claude: fake },

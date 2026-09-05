@@ -1,9 +1,9 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 
@@ -25,7 +25,7 @@ async function client(port: number) {
 }
 
 async function boot() {
-  const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+  const home = tempDir("realm-home-");
   app = await createApp({ home, port: 0 });
   const c = await client(app.port);
   return { home, c };
@@ -198,7 +198,7 @@ describe("rpc methods", () => {
     c.close();
   });
   it("spaces.list is global and spaces.reorder + settings work over rpc", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-")); app = await createApp({ home, port: 0 });
+    const home = tempDir("realm-home-"); app = await createApp({ home, port: 0 });
     const c = await client(app.port);
     const p1 = (await c.call("profiles.create", { name: "Work" })).result;
     const p2 = (await c.call("profiles.create", { name: "School" })).result;

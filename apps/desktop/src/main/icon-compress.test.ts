@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 
 const { createFromPath } = vi.hoisted(() => ({ createFromPath: vi.fn() }));
 vi.mock("electron", () => ({ nativeImage: { createFromPath } }));
@@ -28,7 +28,7 @@ function fakeImage(opts: { width: number; height: number; png?: Buffer; jpeg?: B
 
 let home: string;
 beforeEach(async () => {
-  home = await mkdtemp(join(tmpdir(), "realm-icon-test-"));
+  home = tempDir("realm-icon-test-");
   createFromPath.mockReset();
 });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });

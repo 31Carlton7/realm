@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { mkdtempSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 import { hashText } from "./files";
@@ -23,7 +22,7 @@ async function client(port: number) {
 
 /** A space, its primary environment (the space folder), and a documents workspace over it. */
 async function setup() {
-  const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+  const home = tempDir("realm-home-");
   const app = await createApp({ home, port: 0 }); apps.push(app);
   const c = await client(app.port);
   const prof = (await c.call("profiles.create", { name: "Work" })).result;
@@ -56,7 +55,7 @@ describe("documents RPC — lifecycle", () => {
   });
 
   it("persists the tab strip across a restart", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const home = tempDir("realm-home-");
     const app1 = await createApp({ home, port: 0 }); apps.push(app1);
     const c1 = await client(app1.port);
     const prof = (await c1.call("profiles.create", { name: "Work" })).result;

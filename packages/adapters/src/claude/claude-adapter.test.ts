@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode } from "./claude-adapter";
 import type { SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
-import { readFileSync, writeFileSync } from "node:fs"; import { tmpdir } from "node:os"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
+import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
+import { tempDir } from "@realm/test-utils";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
 
 type FakeOpts = {
@@ -203,7 +204,7 @@ describe("ClaudeAdapter", () => {
   });
   it("attachment-only: an image carries the message with NO empty text block (Plan 14 W5)", async () => {
     // The Messages API rejects `text: ""` — an image-only send must be image blocks alone.
-    const png = join(tmpdir(), `realm-claude-attach-${Date.now()}.png`);
+    const png = join(tempDir("realm-claude-attach-"), "shot.png");
     writeFileSync(png, Buffer.from([1, 2, 3, 4]));
     const capture: unknown[] = [];
     const a = new ClaudeAdapter({ query: fakeQuery({ capture }) as never });

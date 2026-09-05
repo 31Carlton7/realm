@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { mkdtempSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { progressSidecarPath } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
@@ -21,7 +20,7 @@ async function client(port: number) {
 }
 
 async function setup() {
-  const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+  const home = tempDir("realm-home-");
   const app = await createApp({ home, port: 0 }); apps.push(app);
   const c = await client(app.port);
   const prof = (await c.call("profiles.create", { name: "School" })).result;

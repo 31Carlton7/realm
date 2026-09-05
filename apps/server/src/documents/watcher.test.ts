@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { waitFor } from "../test-utils";
 import { hashText, writeAtomic } from "./files";
 import { DocumentWatcher } from "./watcher";
@@ -12,7 +12,7 @@ let w: DocumentWatcher;
 const p = (name: string) => join(dir, name);
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "realm-watch-"));
+  dir = tempDir("realm-watch-");
   events = [];
   // 5ms debounce: the coalescing behaviour is the same, the test just does not have to wait for it.
   w = new DocumentWatcher((path, hash) => { events.push({ path, hash }); }, 5);

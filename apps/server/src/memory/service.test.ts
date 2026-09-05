@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import type { Environment, EnvironmentKind } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
@@ -26,7 +26,7 @@ const envs = (bySpace: Record<string, { path: string; kind: EnvironmentKind }>) 
 });
 
 function harness(kinds: Partial<Record<string, EnvironmentKind>> = {}) {
-  const home = mkdtempSync(join(tmpdir(), "realm-memory-"));
+  const home = tempDir("realm-memory-");
   const claudeDir = join(home, "claude-home");
   const folders: Record<string, { path: string; kind: EnvironmentKind }> = {};
   for (const [i, space] of [SPACE_A, SPACE_B].entries()) {

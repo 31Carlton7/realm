@@ -1,9 +1,10 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
@@ -47,7 +48,7 @@ function initRepo(dir: string): void {
 const script = [{ on: "go", emit: [{ kind: "text" as const, text: "ok" }] }];
 
 async function boot() {
-  const home = mkdtempSync(join(tmpdir(), "realm-cpint-"));
+  const home = tempDir("realm-cpint-");
   if (!resolve(home).startsWith(resolve(tmpdir()))) throw new Error(`refusing to run against ${home}`);
   app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script, delayMs: 5 }) } });
   const c = await client(app.port);
@@ -117,7 +118,7 @@ describe("checkpoints over rpc", () => {
   });
 
   it("still delivers the message when the checkout is not a git repository", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-cpint-"));
+    const home = tempDir("realm-cpint-");
     app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script, delayMs: 5 }) } });
     const c = await client(app.port);
     const p = (await c.call("profiles.create", { name: "W" })).result;

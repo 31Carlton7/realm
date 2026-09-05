@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase, type Db } from "../db/database";
 import { NotificationsStore, type NotificationInsert } from "./notifications";
 
@@ -11,7 +10,7 @@ const row = (extra: Partial<NotificationInsert> = {}): NotificationInsert =>
   ({ category: "session_done", spaceId: null, sessionId: null, refId: null, title: "t", body: null, ...extra });
 
 beforeEach(() => {
-  db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-notifstore-")), "realm.db"));
+  db = openDatabase(join(tempDir("realm-notifstore-"), "realm.db"));
   store = new NotificationsStore(db);
 });
 

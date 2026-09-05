@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { assignRootKeys, pluginRoots, scan, scanRoots, tildify, type ScanRoot } from "./discovery";
 
 let home: string;
@@ -17,7 +17,7 @@ const write = (path: string, body: string) => {
   writeFileSync(path, body);
 };
 
-beforeEach(() => { home = mkdtempSync(join(tmpdir(), "realm-discovery-")); });
+beforeEach(() => { home = tempDir("realm-discovery-"); });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 const library = () => join(home, "Realm", "skills");

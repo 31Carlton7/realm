@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "./profiles";
 import { SpacesStore } from "./spaces";
@@ -15,7 +14,7 @@ const stdio = (name: string): McpServerInput =>
   ({ name, transport: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], url: "", secrets: { KEY: "pat-x" } });
 
 beforeEach(() => {
-  db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-mcpstore-")), "realm.db"));
+  db = openDatabase(join(tempDir("realm-mcpstore-"), "realm.db"));
   servers = new McpServersStore(db);
   calls = new McpCallLogStore(db);
 });
@@ -68,7 +67,7 @@ describe("McpCallLogStore", () => {
   let sessionId: string; let serverId: string;
 
   beforeEach(() => {
-    const home = mkdtempSync(join(tmpdir(), "realm-mcplog-home-"));
+    const home = tempDir("realm-mcplog-home-");
     const p = new ProfilesStore(db).create({ name: "P", icon: "x", color: "#000" });
     const spaces = new SpacesStore(db, home);
     const envs = new EnvironmentsStore(db);

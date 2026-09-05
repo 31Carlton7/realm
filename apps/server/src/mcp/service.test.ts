@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
 import { RpcError } from "../store/rows";
@@ -17,7 +16,7 @@ let mcp: McpService;
 let servers: McpServersStore;
 let settings: SettingsStore;
 beforeEach(() => {
-  const db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-mcp-")), "realm.db"));
+  const db = openDatabase(join(tempDir("realm-mcp-"), "realm.db"));
   servers = new McpServersStore(db);
   settings = new SettingsStore(db);
   mcp = new McpService({ servers, settings });

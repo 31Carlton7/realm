@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { DIFF_MAX_FILES, FILE_DIFF_MAX_LINES, GitDiffService, parseNumstat, parseStatus, parsePatch, statusOf } from "./git-diff";
 
 /**
@@ -14,7 +14,7 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
 }
 function makeRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "realm-diff-"));
+  const dir = tempDir("realm-diff-");
   git(dir, "init", "-q", "-b", "main");
   writeFileSync(join(dir, "a.txt"), "one\ntwo\nthree\n");
   writeFileSync(join(dir, "b.txt"), "x\n");
@@ -74,7 +74,7 @@ describe("parseStatus", () => {
 
 describe("summary", () => {
   it("returns null outside a repository", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-nodiff-"));
+    const dir = tempDir("realm-nodiff-");
     try { expect(await svc().summary(dir)).toBeNull(); } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -152,7 +152,7 @@ describe("summary", () => {
   }, 30_000);
 
   it("survives a repository with no commits", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-empty-"));
+    const dir = tempDir("realm-empty-");
     try {
       git(dir, "init", "-q", "-b", "main");
       writeFileSync(join(dir, "first.txt"), "hello\n");

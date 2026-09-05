@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { sessionEvent, NOTIFICATIONS_DISABLED_KEY, type Notification, type Session } from "@realm/contracts";
 import { openDatabase, type Db } from "../db/database";
 import { NotificationsStore } from "../store/notifications";
@@ -22,7 +21,7 @@ const session = (extra: Partial<Session> = {}): Session => ({
 const feed = () => store.list({ cursor: null, limit: 100 }).notifications;
 
 beforeEach(() => {
-  db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-notifsvc-")), "realm.db"));
+  db = openDatabase(join(tempDir("realm-notifsvc-"), "realm.db"));
   store = new NotificationsStore(db);
   settings = new SettingsStore(db);
   broadcasts = [];

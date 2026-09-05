@@ -1,7 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript, type UserMessage } from "@realm/adapters";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
@@ -71,7 +70,7 @@ const SLOW_TO_ANSWER: FakeScript = [
 ];
 
 async function boot(opts: { script?: FakeScript; delayMs?: number; peerKind?: "fake" | "codex"; askerMode?: string; budgetMs?: number } = {}) {
-  const home = mkdtempSync(join(tmpdir(), "realm-ask-"));
+  const home = tempDir("realm-ask-");
   const fake = new InterruptCountingFake({ script: opts.script ?? PEER_SCRIPT, delayMs: opts.delayMs ?? 5 });
   app = await createApp({
     home, port: 0,

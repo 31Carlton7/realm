@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { GitWriteService, compareUrl, parseGitHubRemote } from "./git-write";
 
 /**
@@ -15,7 +16,7 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", [...IDENT, ...args], { cwd, encoding: "utf8" });
 }
 function makeRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "realm-write-"));
+  const dir = tempDir("realm-write-");
   git(dir, "init", "-q", "-b", "main");
   git(dir, "config", "user.email", "t@example.com");
   git(dir, "config", "user.name", "t");
@@ -28,14 +29,14 @@ function makeRepo(): string {
 }
 /** A bare repository on disk, wired up as `origin`. Push works; nothing leaves the machine. */
 function attachRemote(repo: string, name = "origin"): string {
-  const bare = mkdtempSync(join(tmpdir(), "realm-remote-"));
+  const bare = tempDir("realm-remote-");
   execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare]);
   git(repo, "remote", "add", name, bare);
   return bare;
 }
 /** A `gh` that is not gh: a script that prints what the test wants and exits how the test says. */
 function stubGh(body: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "realm-gh-"));
+  const dir = tempDir("realm-gh-");
   const path = join(dir, "gh");
   writeFileSync(path, `#!/bin/sh\n${body}\n`);
   chmodSync(path, 0o755);
@@ -92,7 +93,7 @@ describe("stage / unstage", () => {
   });
 
   it("unstages in a repository that has no commits yet", async () => {
-    const repo = mkdtempSync(join(tmpdir(), "realm-unborn-"));
+    const repo = tempDir("realm-unborn-");
     try {
       git(repo, "init", "-q", "-b", "main");
       writeFileSync(join(repo, "a.txt"), "one\n");
@@ -155,7 +156,7 @@ describe("ship — commit", () => {
   });
 
   it("explains a missing git identity instead of returning git's four paragraphs", async () => {
-    const repo = mkdtempSync(join(tmpdir(), "realm-noident-"));
+    const repo = tempDir("realm-noident-");
     try {
       execFileSync("git", ["init", "-q", "-b", "main", repo]);
       // Local config that BLANKS the identity: set to empty, which git treats as absent even when a
@@ -221,7 +222,7 @@ describe("ship — push", () => {
 
   it("explains a rejected push instead of forcing it", async () => {
     const repo = makeRepo(); const bare = attachRemote(repo);
-    const other = mkdtempSync(join(tmpdir(), "realm-other-"));
+    const other = tempDir("realm-other-");
     try {
       git(repo, "push", "-u", "origin", "main");
       // Someone else moves the remote on.
@@ -267,7 +268,7 @@ describe("ship — push", () => {
  * URL, `git remote get-url` still reports the fetch URL, and github.com is never contacted.
  */
 function attachGitHubLookalike(repo: string, address = "https://github.com/acme/widgets.git"): string {
-  const bare = mkdtempSync(join(tmpdir(), "realm-remote-"));
+  const bare = tempDir("realm-remote-");
   execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare]);
   git(repo, "remote", "add", "origin", address);
   git(repo, "remote", "set-url", "--push", "origin", bare);
@@ -390,7 +391,7 @@ describe("ship — the durable log", () => {
 
   it("a commit whose push was rejected logs with pushState rejected — never pushed (the named mutant)", async () => {
     const repo = makeRepo(); const bare = attachRemote(repo);
-    const other = mkdtempSync(join(tmpdir(), "realm-other-"));
+    const other = tempDir("realm-other-");
     const { service, entries } = logSvc();
     try {
       git(repo, "push", "-u", "origin", "main");

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { probeGraphify } from "./probe";
 
 /**
@@ -22,7 +22,7 @@ let printsTwoLines: string;
 let printsNothing: string;
 let brokenExit: string;
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), "realm-graphify-probe-"));
+  dir = tempDir("realm-graphify-probe-");
   printsVersion = stub("graphify-ok", `console.log("graphify 0.9.53");`);
   printsTwoLines = stub("graphify-chatty", `console.log("graphify 0.9.53\\nextra diagnostic line");`);
   printsNothing = stub("graphify-mute", `console.log("");`);

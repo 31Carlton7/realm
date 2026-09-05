@@ -1,8 +1,9 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { BRANCH_PREFIX, NAME_ATTEMPTS, SLUG_MAX, UNNAMED_BRANCH, WorktreeService, slugifyBranch } from "./worktrees";
 
 /**
@@ -15,10 +16,10 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 let home: string;
-beforeEach(() => { home = mkdtempSync(join(tmpdir(), "realm-wt-home-")); });
+beforeEach(() => { home = tempDir("realm-wt-home-"); });
 
 function makeRepo(name = "repo"): string {
-  const dir = mkdtempSync(join(tmpdir(), `realm-wt-${name}-`));
+  const dir = tempDir(`realm-wt-${name}-`);
   git(dir, "init", "-b", "main");
   writeFileSync(join(dir, "a.txt"), "one\n");
   git(dir, "add", ".");
@@ -82,7 +83,7 @@ describe("WorktreeService.create", () => {
   });
 
   it("refuses a directory that is not a git repository — a plain space must not break", async () => {
-    const plain = mkdtempSync(join(tmpdir(), "realm-wt-plain-"));
+    const plain = tempDir("realm-wt-plain-");
     await expect(svc().create({ spaceId: SPACE, sourcePath: plain, title: "x" }))
       .rejects.toMatchObject({ code: "NOT_A_REPOSITORY" });
     expect(existsSync(join(home, "worktrees", SPACE, "x"))).toBe(false);
@@ -94,7 +95,7 @@ describe("WorktreeService.create", () => {
   });
 
   it("refuses a repository with no commits, naming what to do about it", async () => {
-    const empty = mkdtempSync(join(tmpdir(), "realm-wt-empty-"));
+    const empty = tempDir("realm-wt-empty-");
     git(empty, "init", "-b", "main");
     await expect(svc().create({ spaceId: SPACE, sourcePath: empty, title: "x" }))
       .rejects.toMatchObject({ code: "WORKTREE_NO_COMMITS", message: expect.stringContaining("no commits") });
@@ -159,7 +160,7 @@ describe("WorktreeService.hazard", () => {
 
   it("counts only commits absent from every remote", async () => {
     const origin = makeRepo("origin");
-    const clone = mkdtempSync(join(tmpdir(), "realm-wt-clone-"));
+    const clone = tempDir("realm-wt-clone-");
     rmSync(clone, { recursive: true, force: true });
     execFileSync("git", ["clone", "-q", origin, clone], { encoding: "utf8" });
     const wt = await svc().create({ spaceId: SPACE, sourcePath: clone, title: "pushed" });
@@ -186,7 +187,7 @@ describe("WorktreeService.hazard", () => {
 describe("WorktreeService.remove", () => {
   it("removes a clean worktree and deletes its branch", async () => {
     const origin = makeRepo("origin2");
-    const clone = mkdtempSync(join(tmpdir(), "realm-wt-clone2-"));
+    const clone = tempDir("realm-wt-clone2-");
     rmSync(clone, { recursive: true, force: true });
     execFileSync("git", ["clone", "-q", origin, clone], { encoding: "utf8" });
     const wt = await svc().create({ spaceId: SPACE, sourcePath: clone, title: "clean" });
@@ -211,7 +212,7 @@ describe("WorktreeService.remove", () => {
   // dirty-tree check stands between `--force` and an hour of uncommitted work.
   it("refuses a dirty tree even when nothing is unpushed", async () => {
     const origin = makeRepo("origin4");
-    const clone = mkdtempSync(join(tmpdir(), "realm-wt-clone4-"));
+    const clone = tempDir("realm-wt-clone4-");
     rmSync(clone, { recursive: true, force: true });
     execFileSync("git", ["clone", "-q", origin, clone], { encoding: "utf8" });
     const wt = await svc().create({ spaceId: SPACE, sourcePath: clone, title: "onlydirty" });
@@ -262,7 +263,7 @@ describe("WorktreeService.remove", () => {
   // service must ask first, not lean on git's refusal after the directory is already gone.
   it("refuses a clean worktree whose branch holds unpushed commits", async () => {
     const origin = makeRepo("origin3");
-    const clone = mkdtempSync(join(tmpdir(), "realm-wt-clone3-"));
+    const clone = tempDir("realm-wt-clone3-");
     rmSync(clone, { recursive: true, force: true });
     execFileSync("git", ["clone", "-q", origin, clone], { encoding: "utf8" });
     const wt = await svc().create({ spaceId: SPACE, sourcePath: clone, title: "unpushed" });
@@ -354,7 +355,7 @@ describe("renameBranch", () => {
 
   it("refuses to rename a branch a remote already carries", async () => {
     const src = makeRepo();
-    const bare = mkdtempSync(join(tmpdir(), "realm-wt-bare-"));
+    const bare = tempDir("realm-wt-bare-");
     execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare]);
     const wt = await svc().create({ spaceId: SPACE, sourcePath: src, title: null });
     git(wt.path, "remote", "add", "origin", bare);

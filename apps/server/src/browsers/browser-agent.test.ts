@@ -1,8 +1,8 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { mkdtempSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
@@ -51,7 +51,7 @@ async function boot(opts: {
   parentKind?: "fake" | "claude"; parentMode?: string; fallbackKind?: "fake" | "claude";
   timeouts?: { baseMs: number; perActMs: number; pollMs: number };
 } = {}) {
-  const home = mkdtempSync(join(tmpdir(), "realm-ba-"));
+  const home = tempDir("realm-ba-");
   const fake = new CaptureFake({ script: opts.script ?? CHILD_SCRIPT, delayMs: opts.delayMs ?? 5 });
   // The same fake serves BOTH registry keys: "claude" here is a stand-in whose only job is to be a
   // kind with AGENT_SKILL_SUPPORT "injected", so kind-selection and skills staging are testable

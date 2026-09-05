@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { TextExtractor, htmlToText, isExtractable, pdfText } from "./text-extract";
 import { makePdf } from "./test-pdf";
 
@@ -22,7 +22,7 @@ describe("pdfText — the real pdf.js path", () => {
 
 describe("TextExtractor", () => {
   it("extracts text files and PDFs, and answers null for other kinds and oversized files", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-extract-"));
+    const dir = tempDir("realm-extract-");
     writeFileSync(join(dir, "a.md"), "# Caches\n\nMESI protocol");
     writeFileSync(join(dir, "p.pdf"), makePdf(["Snoopy caches"]));
     writeFileSync(join(dir, "bin.zip"), "zip");
@@ -37,7 +37,7 @@ describe("TextExtractor", () => {
   });
 
   it("memoizes on size+mtime and re-reads when either changes", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-extract-"));
+    const dir = tempDir("realm-extract-");
     const f = join(dir, "p.pdf");
     let calls = 0;
     const x = new TextExtractor(async () => { calls++; return `parsed ${calls}`; });
@@ -53,7 +53,7 @@ describe("TextExtractor", () => {
   });
 
   it("swallows a PDF parse failure as empty text rather than failing the search", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-extract-"));
+    const dir = tempDir("realm-extract-");
     const f = join(dir, "broken.pdf");
     writeFileSync(f, "not a pdf at all");
     const x = new TextExtractor(async () => { throw new Error("boom"); });

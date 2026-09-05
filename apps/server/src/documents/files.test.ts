@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { DOCUMENT_MAX_BYTES } from "@realm/contracts";
 import { hashText, isTempArtifact, readDocument, readIfExists, writeAtomic, writeDocument } from "./files";
 
 let dir: string;
 const p = (name: string) => join(dir, name);
-beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "realm-docs-")); });
+beforeEach(async () => { dir = tempDir("realm-docs-"); });
 afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
 describe("hashText", () => {

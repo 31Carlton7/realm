@@ -1,8 +1,8 @@
 import { describe, expect, it, afterEach, vi } from "vitest";
 import WebSocket from "ws";
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions, type UserMessage } from "@realm/adapters";
 import { newId, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
@@ -58,7 +58,7 @@ const skill = (dir: string, id: string) => {
 
 /** A home with no bundled install, so each test's library is exactly what it wrote. */
 async function boot(opts: { bundled?: string } = {}) {
-  const home = mkdtempSync(join(tmpdir(), "realm-skills-int-"));
+  const home = tempDir("realm-skills-int-");
   vi.stubEnv("REALM_BUNDLED_SKILLS", opts.bundled ?? join(home, "no-bundle"));
   const claude = new RecordingAdapter("claude");
   const cursor = new RecordingAdapter("acp:cursor");
@@ -174,7 +174,7 @@ describe("skills over rpc", () => {
   });
 
   it("installs the bundled skills into the library once, on boot", async () => {
-    const bundled = mkdtempSync(join(tmpdir(), "realm-skills-bundle-"));
+    const bundled = tempDir("realm-skills-bundle-");
     skill(bundled, "mac");
     const { c, sp, home } = await boot({ bundled });
     expect(readdirSync(join(home, "skills"))).toEqual(["mac"]);

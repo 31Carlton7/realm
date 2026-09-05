@@ -1,7 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -68,7 +67,7 @@ async function setupApp(opts: {
    *  (`string[]`) and Plan 13 W1's exclude mode (`{ exclude }`). */
   sessionToolset?: (sessionId: string) => import("./gateway").SessionToolset;
 } = {}): Promise<App> {
-  const home = mkdtempSync(join(tmpdir(), "realm-mcp-gw-"));
+  const home = tempDir("realm-mcp-gw-");
   const db = openDatabase(join(home, "realm.db"));
   const servers = new McpServersStore(db);
   const calls = new McpCallLogStore(db);
@@ -230,7 +229,7 @@ describe("tools/list — namespacing and policy", () => {
     app.mcp.promote(app.spaceId, row.id);
     const sibling = app.createSpaceAndSession("Sibling");
     const otherProfileId = new ProfilesStore(app.db).create({ name: "Q", icon: "x", color: "#000" }).id;
-    const otherSpaceId = new SpacesStore(app.db, mkdtempSync(join(tmpdir(), "realm-gw-q-"))).create({ profileId: otherProfileId, name: "Elsewhere", icon: "folder" }).id;
+    const otherSpaceId = new SpacesStore(app.db, tempDir("realm-gw-q-")).create({ profileId: otherProfileId, name: "Elsewhere", icon: "folder" }).id;
     const otherEnvId = new EnvironmentsStore(app.db).ensurePrimary(otherSpaceId).id;
     const otherSessionId = new SessionsStore(app.db).create({ spaceId: otherSpaceId, projectId: null, agentKind: "claude", model: null, effort: null, permissionMode: "default", environmentId: otherEnvId, title: "q" }).id;
 
