@@ -7,6 +7,9 @@ import type { Block } from "./transcript-model";
  * render of every visible session pane, so it must not call an agent, and a suggestion that changed
  * under the user between renders would be a moving target for the key that accepts it.
  *
+ * The register is plain and short on purpose: this is a sentence someone reads at a glance and
+ * accepts with one key, not a brief. A hint that has to be parsed is slower than typing.
+ *
  * "Based on the current session" means literally that — the transcript's last turn, the working tree
  * and the mode, in that order of specificity. Nothing here falls back to `suggestions.ts`: those
  * static starters are the hero's chips, sitting two inches below this line, and the one thing this
@@ -58,8 +61,8 @@ export function promptHint(ctx: {
   if (failure || status === "error") {
     const target = request ? ` while working on ${request}` : "";
     return failure
-      ? `Investigate “${failure}”${target}, fix the root cause, and retry.`
-      : `Find the failure${target}, fix the root cause, and retry.`;
+      ? `Fix “${failure}”${target}.`
+      : `Find what went wrong${target} and fix it.`;
   }
 
   // Plan mode: retain the subject that caused the plan and ask for the valuable second half of the
@@ -71,8 +74,8 @@ export function promptHint(ctx: {
   // plan under it promised a plan that did not exist. A `plan` event is the agent saying it has one.
   if (inPlan && turn.some((b) => b.kind === "plan")) {
     return request
-      ? `Turn the plan for ${request} into working code, then verify its riskiest assumption.`
-      : "Implement the plan, then verify its riskiest assumption.";
+      ? `Build the plan for ${request}.`
+      : "Build the plan.";
   }
 
   // It wrote code. Name what changed and why it changed; the files are taken from the actual tool
@@ -80,20 +83,20 @@ export function promptHint(ctx: {
   if (turn.some((b) => b.kind === "tool" && WRITE_TOOLS.has(b.name))) {
     const where = files.length ? ` in ${joinFiles(files)}` : "";
     return request
-      ? `Stress-test ${request}${where}, then fix what the tests expose.`
-      : `Stress-test the changes${where}, then fix what the tests expose.`;
+      ? `Write tests for ${request}${where}.`
+      : `Write tests for the changes${where}.`;
   }
 
   // A read-only investigation already established a trail through the repo. Offer to follow that
   // trail instead of collapsing back to the unrelated dirty-tree fallback.
   if (files.length && request) {
-    return `Trace ${request} through ${joinFiles(files)}, then identify the highest-leverage change.`;
+    return `Walk me through ${request} in ${joinFiles(files)}.`;
   }
 
   // Even a tool-free answer has a session-specific subject. The next useful move is to make the
   // answer concrete; this is intentionally absent when there was no user request to anchor it to.
   if (request && turn.some((b) => b.kind === "assistant" && !b.streaming)) {
-    return `Take “${request}” further: show the concrete code path and its weakest edge case.`;
+    return `Show me the code behind ${request}.`;
   }
   return reviewChanges;
 }
@@ -120,9 +123,9 @@ const subjectOf = (text: string): string | null => {
 
 const freshChangesHint = (git: GitInfo): string => {
   const topic = branchTopic(git.branch);
-  if (topic) return `Take a skeptical pass over the ${topic} work: find the edge case this diff is most likely to miss.`;
+  if (topic) return `Review my ${topic} changes.`;
   const files = `${git.dirty} uncommitted ${git.dirty === 1 ? "file" : "files"}`;
-  return `Audit the ${files} on ${git.branch}; find the edge case most likely to escape review.`;
+  return `Review my ${files} on ${git.branch}.`;
 };
 
 /** main/master/develop carry no subject. A descriptive branch does, and is often the only context a
