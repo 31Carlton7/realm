@@ -127,12 +127,27 @@ async function run() {
   ok("System Settings is never listed", !bundles.includes("com.apple.systempreferences"));
   // Named against the whole list rather than two entries: asserting Terminal.app and iTerm are absent
   // from a machine running neither passes without testing anything, and it did — Ghostty sat in the
-  // app list, driveable, while this line was green. `running` reports which forbidden apps were
-  // actually up, so a run that proved nothing says so instead of reading as a pass.
+  // app list, driveable, while this line was green.
   const leaked = bundles.filter((b) => FORBIDDEN.has(b));
-  const running = [...FORBIDDEN].filter((b) => bundles.includes(b));
-  ok("no forbidden app is ever listed", leaked.length === 0,
-    leaked.length ? `LEAKED: ${leaked.join(", ")}` : running.length ? `${running.length} forbidden app(s) running and all excluded` : "none of the forbidden apps are running — this run proves nothing");
+  ok("no forbidden app is ever listed", leaked.length === 0, leaked.length ? `LEAKED: ${leaked.join(", ")}` : "none present");
+
+  // The absence above cannot prove itself: `listApps` filters the forbidden set, so deriving "which
+  // forbidden apps are running" from its own output is empty by construction whatever the helper
+  // does. The refusal is what can be tested directly, and it does not depend on anything being up —
+  // ask for one by name and require the refusal rather than an empty answer.
+  // A snapshot refusal THROWS, where computerAct returns `{ok:false, refused}` — the two ops do not
+  // answer the same way, so a check that only inspected a return value would read a throw as a pass.
+  const refusals = [];
+  for (const bundleId of ["com.apple.Terminal", "com.mitchellh.ghostty", "com.apple.systempreferences"]) {
+    try {
+      await host.handleOp("computerSnapshot", { bundleId });
+      refusals.push(`${bundleId}=ALLOWED`);
+    } catch (e) {
+      refusals.push(`${bundleId}=${/never driveable/.test(e.message) ? "refused" : `other(${e.message.slice(0, 40)})`}`);
+    }
+  }
+  ok("a forbidden app is refused BY NAME, whether or not it is running",
+    refusals.every((r) => r.endsWith("=refused")), refusals.join(" "));
 
   // Acting on a snapshot the helper has never issued must refuse, not act on whatever matches.
   // Without the grant the trust check answers first, and deliberately so: "grant Accessibility" is
