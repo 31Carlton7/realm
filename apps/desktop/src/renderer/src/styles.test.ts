@@ -1648,10 +1648,11 @@ describe("custom themes", () => {
   });
 
   it("the ramp reproduces the palette it was measured from", () => {
-    // packages/ui/src/themes.ts derives every theme from twelve seeds using ramp constants its
-    // comments claim were measured off THIS file. That claim is only worth anything if something
-    // re-measures it, so: take the seeds out of tokens.css, run them through the same derivation
-    // every theme goes through, and require that what comes back IS tokens.css.
+    // packages/ui/src/themes.ts derives every theme from thirteen seed colours — six plus seven
+    // syntax roles — using ramp constants its comments claim were measured off THIS file. That
+    // claim is only worth anything if something re-measures it, so: take the seeds out of
+    // tokens.css, run them through the same derivation every theme goes through, and require
+    // that what comes back IS tokens.css.
     //
     // THE drifted-ramp mutant: nudge any offset in DARK or LIGHT — the ΔL of --hover, an ink
     // exponent, the tooltip's inversion. Every theme still clears every contrast floor, because the
@@ -1688,7 +1689,7 @@ describe("custom themes", () => {
 
   it("the picker's copy of Realm's own colours has not drifted from tokens.css", () => {
     // themeSwatches cannot read the live values — under any other theme they are that theme's — and
-    // an override needs a seed to move, so REALM_SEED carries Realm's twelve as hex. This is the pin
+    // an override needs a seed to move, so REALM_SEED carries Realm's thirteen as hex. This is the pin
     // that keeps the copy honest: the same read-back the ramp test does above, compared value for
     // value. THE drifted-seed mutant: repaint --accent in tokens.css and leave REALM_SEED alone —
     // the picker's Realm card, and every override derived off Realm, keep the old blue.
