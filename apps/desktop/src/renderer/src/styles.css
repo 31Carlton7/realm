@@ -96,6 +96,12 @@
   --r-panel: 12px;                               /* --radius-card: menus, pickers, permission card */
   --r-float: 16px;                               /* --radius-window: composer, sheets, palette */
   --r-pill: 999px;                               /* --radius-pill */
+  /* The floating cards the paint worklet draws. Its own rung rather than a step off --r-float:
+     a superellipse at a given radius reads visually smaller than a circular corner at the same
+     one, so the two scales were never going to stay in step by arithmetic. Every squircle surface
+     reads this, and the fallback border-radius reads it too, so the painted and unpainted forms
+     cannot drift apart. */
+  --r-squircle: 36px;
   --sidebar-w: 280px; --prompter-w: 720px;
   /* §6 easings — identical curves to BUI's @theme; --ease stays as the legacy alias. */
   --ease-out-strong: cubic-bezier(.23,1,.32,1);
@@ -1474,12 +1480,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The card (Plan 9 W3 — BUI PromptBar): a surface field on shadow-card (the hairline ring is part
    of the stack), --r-float, borderless. Focus is BUI's border-brighten — the ring steps to
    line-strong — replacing the old 30% accent glow (PromptBar's focus-within:border-line-strong). */
-/* Squircle prompter. What is written here is the FALLBACK — a circular corner one radius step past
-   --r-float, because a squircle at the same radius reads visually smaller — plus `corner-shape`,
+/* Squircle prompter. What is written here is the FALLBACK — a circular corner at --r-squircle,
+   which is its own rung because a squircle reads visually smaller than a circular corner at the
+   same radius and the two scales cannot track by arithmetic — plus `corner-shape`,
    which states the shape declaratively and takes over once Electron ships Chromium 139. On the
    runtime this app actually has (Chromium 138) `corner-shape` is not a recognised property at all,
    so the curve is drawn by the paint worklet instead; see the squircle block further down. */
-.composer { width: 100%; border-radius: calc(var(--r-float) + 4px); corner-shape: squircle; background: var(--surface);
+.composer { width: 100%; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface);
   box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
   box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
@@ -1667,7 +1674,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    card declares none. The hint is a label, not a scrim: pointer-events off, so the drop still lands. */
 .composer[data-dropping] { box-shadow: 0 0 0 2px var(--rl-accent), var(--shadow-card); }
 .composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
-  border-radius: calc(var(--r-float) + 4px); corner-shape: squircle; background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
+  border-radius: var(--r-squircle); corner-shape: squircle; background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
   font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 /* Send↔stop morph (§6): accent circle at Ara refresh §2's 32px, wearing the shared icon swap in the
    motion block — both icons in the DOM, `data-state` picking which one is up.
@@ -1685,6 +1692,9 @@ button.panel-title:hover { background: var(--rl-hover); }
    transform carries it and the absolutely-hung suggestions land below it. ── */
 .composer-understrip { display: flex; align-items: center; gap: 2px; min-width: 0;
   margin: -10px 10px 0; padding: 12px 6px 6px; background: var(--rl-frame);
+  /* --r-panel, not --r-squircle: only ~26px of this strip shows below the card, so 12px is already
+     nearly half its height. A corner cannot be rounder than half the box — past that the curve
+     clamps and the strip reads as a stadium rather than as the bottom of the prompter. */
   border-radius: 0 0 var(--r-panel) var(--r-panel); corner-shape: squircle; }
 .composer-understrip .ghost-chip { height: 24px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
@@ -1703,7 +1713,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* ── Install card (§5 floating card) — what stands in for the prompter when the CLI can't run ── */
 /* It rides the prompter's own rails (.composer-dock), so hero vs docked positioning is already right. */
-.install-card { width: 100%; border-radius: calc(var(--r-float) + 4px); corner-shape: squircle; background: var(--rl-raised);
+.install-card { width: 100%; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--rl-raised);
   box-shadow: var(--rl-edge), var(--rl-shadow); padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 1; }
 .install-head { display: flex; align-items: center; gap: 8px; }
 .install-head h3 { margin: 0; font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
@@ -1744,8 +1754,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 :root[data-squircle] .commit-card {
   border-radius: 0;
   background: paint(rl-squircle);
-  --sq-radius-top: calc(var(--r-float) + 4px);
-  --sq-radius-bottom: calc(var(--r-float) + 4px);
+  --sq-radius-top: var(--r-squircle);
+  --sq-radius-bottom: var(--r-squircle);
 }
 :root[data-squircle] .composer, :root[data-squircle] .commit-card {
   --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
@@ -2021,7 +2031,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    second time. Unlike .composer-input this textarea has no auto-resize behind it, so it keeps its
    scrollbar: at a fixed two rows that bar is the only sign the message runs on. */
 .diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 6px 12px 12px; }
-.commit-card { display: flex; flex-direction: column; border-radius: calc(var(--r-float) + 4px); corner-shape: squircle;
+.commit-card { display: flex; flex-direction: column; border-radius: var(--r-squircle); corner-shape: squircle;
   background: var(--surface); box-shadow: var(--shadow-card); }
 .commit-card:focus-within { box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
 .commit-message { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright);
