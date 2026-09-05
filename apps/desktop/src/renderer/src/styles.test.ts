@@ -1011,7 +1011,7 @@ describe("squircle surfaces", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
   const worklet = readFileSync(repoFile("apps/desktop/src/renderer/public/squircle-paint.js"), "utf8");
   const registrar = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/squircle.ts"), "utf8");
-  const SURFACES = [".composer", ".composer-drop-hint", ".composer-understrip", ".install-card", ".commit-card"];
+  const SURFACES = [".composer", ".composer-drop-hint", ".composer-todos", ".composer-understrip", ".install-card", ".commit-card"];
 
   it("every squircle surface keeps a circular-corner fallback AND the declarative form", () => {
     // `corner-shape` is a no-op on Chromium 138 (measured in squircle-live.mjs) and takes over at
@@ -1503,6 +1503,50 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
   it("the todo bar is the one accent fill, and finished items are struck through rather than dropped", () => {
     expect(bodiesFor(".todo-fill").join(" ")).toContain("background: var(--rl-accent)");
     expect(bodiesFor('.todo-list li[data-status="completed"] .todo-text').join(" ")).toContain("line-through");
+  });
+
+  it("the to-do strip is the under-strip mirrored: same inset, same overlap, radii swapped end for end", () => {
+    // The prompter is one card with a narrower tab at each end. A strip at the card's own width, or
+    // at the under-strip's width but nudged off its centre, is a different object.
+    const strip = bodiesFor(".composer-todos").join(" ");
+    const under = bodiesFor(".composer-understrip").join(" ");
+    // Three values, not four: the shorthand itself is what makes the two insets equal, so a strip
+    // that is the right width can never also be off-centre.
+    const margin = (body: string) => /margin:\s*(-?\d+(?:px)?) (-?\d+(?:px)?) (-?\d+(?:px)?)\s*[;}]/.exec(body);
+    const s = margin(strip), u = margin(under);
+    expect(s, ".composer-todos needs a three-value margin").not.toBeNull();
+    expect(u, ".composer-understrip needs a three-value margin").not.toBeNull();
+    expect(s![2], "the strip's side inset is the under-strip's").toBe(u![2]);
+    // Mirrored overlap: the under-strip slides up behind the card, this one slides down behind it.
+    expect(s![3]).toBe(u![1]);
+    expect(s![1], "the strip adds no gap above itself").toBe("0");
+    expect(strip).toContain("border-radius: var(--r-squircle) var(--r-squircle) 0 0");
+    // Under the gate the corner is the painter's, and the swap has to go with it — the under-strip
+    // zeroes its TOP, so this one zeroes its bottom.
+    expect(bodiesFor(":root[data-squircle] .composer-todos").join(" ")).toContain("--sq-radius-bottom: 0px");
+    expect(bodiesFor(":root[data-squircle] .composer-understrip").join(" ")).toContain("--sq-radius-top: 0px");
+  });
+
+  it("the prompter's own corners are untouched — the strip attaching above it changes nothing", () => {
+    // The strip is the only thing that squares an edge here. A rule reaching for `.composer` to make
+    // the join work would be the strip redesigning the card to fit itself.
+    const reaching = RULES.flatMap((r) => r.selectors).filter((sel) => /\.composer-todos\s*[+~]\s*\.composer\b/.test(sel));
+    expect(reaching).toEqual([]);
+    expect(bodiesFor(".composer").join(" ")).toContain("border-radius: var(--r-squircle)");
+  });
+
+  it("the strip collapses on the house grid-row idiom, at the rung for a box changing size", () => {
+    expect(bodiesFor(".composer-todos-wrap").join(" "))
+      .toContain(`transition: grid-template-rows ${dur("--dur-base")} var(--ease-in-out-strong)`);
+    expect(bodiesFor(".composer-todos[data-open] .composer-todos-wrap").join(" ")).toContain("grid-template-rows: 1fr");
+    // Without the clip the collapsed rows still take their natural height and 0fr animates nothing.
+    expect(bodiesFor(".composer-todos-clip").join(" ")).toContain("overflow: hidden");
+  });
+
+  it("the strip's list is bounded and does not hand its scroll to the transcript behind it", () => {
+    const list = bodiesFor(".composer-todos .todo-list").join(" ");
+    expect(list).toMatch(/max-height:\s*\d+px/);
+    expect(list).toContain("overscroll-behavior: contain");
   });
 });
 

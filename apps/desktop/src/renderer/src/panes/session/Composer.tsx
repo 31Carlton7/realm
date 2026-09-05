@@ -13,6 +13,8 @@ import { SUGGESTIONS } from "./suggestions";
 import { heroGreeting } from "./greeting";
 import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
+import { TodoStrip } from "./TodoStrip";
+import type { Todo } from "./rich/tool-view";
 
 // ~10 lines of 15px/1.55 plus the vertical padding (Ara refresh §1 raises the input to 15px; §4:
 // autogrows to 10 lines). Matches .composer-input's max-height in styles.css.
@@ -251,11 +253,13 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [] }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
   draft: string; onDraftChange: (text: string) => void;
+  /** The session's plan as it stands, pinned above the card. Empty draws nothing at all. */
+  todos?: readonly Todo[];
   /** Part of the draft, and store-owned for the same reason: a remount must not drop them. */
   attachments: PickedAttachment[];
   /** The attach button — the native multi-select picker. */
@@ -697,6 +701,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           {greeting.map((part, i) => (part.em ? <em key={i}>{part.text}</em> : <Fragment key={i}>{part.text}</Fragment>))}
         </div>
       )}
+      {/* Above the card and inside the dock, so the hero→docked move carries it and it cannot be
+          left behind mid-transition. In flow, so it grows UPWARD into the transcript rather than
+          pushing the prompter's own controls off their bottom edge. */}
+      <TodoStrip todos={todos} />
       {/* The whole card is the drop target — aiming at a 44px textarea with a file in hand is a chore.
           §6 forbids animating during a drag, so the state change is a static ring, not a transition. */}
       <div className="composer" data-dropping={drop.dropping || undefined} {...drop.handlers}>
