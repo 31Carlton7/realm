@@ -7,20 +7,26 @@ const element = (over: Partial<ComputerElement> = {}): ComputerElement => ({
   x: 10, y: 20, w: 30, h: 40, actions: [], enabled: true, focused: false, depth: 1, ...over,
 });
 
-/** A host over a scripted helper: records the calls, answers from a table. */
+/** A host over a scripted helper: records the calls, answers from a table. `driving` records the
+ *  menu-bar indicator's feed as a transcript, so its ORDER against the helper call is assertable. */
 function host(answers: Record<string, unknown | (() => unknown)>, opts: { available?: boolean } = {}) {
   const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const driving: (string | null)[] = [];
   const instance = new ComputerUseHost({
     available: () => opts.available !== false,
     request: async <T,>(method: string, params: Record<string, unknown> = {}) => {
       calls.push({ method, params });
+      driving.push(`during:${method}` as unknown as string);
       const answer = answers[method];
       if (answer === undefined) throw new Error(`no scripted answer for "${method}"`);
       return (typeof answer === "function" ? (answer as () => unknown)() : answer) as T;
     },
+    driving: (appName) => { driving.push(appName); },
   });
-  return { instance, calls };
+  return { instance, calls, driving };
 }
+
+const click = ComputerActionSchema.parse({ kind: "click", index: 1 });
 
 describe("formatElementLine", () => {
   it("renders index, role, name and frame", () => {
@@ -151,5 +157,45 @@ describe("ComputerUseHost", () => {
   it("rejects an unknown op", async () => {
     const { instance } = host({});
     await expect(instance.handleOp("computerWhatever", {})).rejects.toThrow(/unknown computer host op/);
+  });
+});
+
+describe("the driving indicator's feed", () => {
+  it("is raised around the helper call and lowered once it answers", async () => {
+    const { instance, driving } = host({ act: { ok: true, detail: "clicked" } });
+    await instance.handleOp("computerAct", { snapshotId: "ax_1", action: click, appName: "TextEdit" });
+    expect(driving).toEqual(["TextEdit", "during:act", null]);
+  });
+
+  it("is lowered when the helper throws, so nothing can leave it stuck on", async () => {
+    // The mutant this kills: dropping the `finally`. A helper that dies mid-act, or times out,
+    // would otherwise leave the menu bar saying the Mac is still being driven forever.
+    const { instance, driving } = host({ act: () => { throw Object.assign(new Error("child died"), { cause: "kaboom" }); } });
+    await instance.handleOp("computerAct", { snapshotId: "ax_1", action: click, appName: "TextEdit" });
+    expect(driving).toEqual(["TextEdit", "during:act", null]);
+  });
+
+  it("is not raised for an act refused before the machine is touched", async () => {
+    // No snapshot id and an unparseable chord are both refused here. Claiming the Mac was driven
+    // for either would put the indicator up for input that was never posted.
+    const { instance, driving } = host({});
+    await instance.handleOp("computerAct", { action: click, appName: "TextEdit" });
+    await instance.handleOp("computerAct", {
+      snapshotId: "ax_1", action: ComputerActionSchema.parse({ kind: "key", key: "hello there" }), appName: "TextEdit",
+    });
+    expect(driving).toEqual([]);
+  });
+
+  it("is not raised by reading, which drives nothing", async () => {
+    const { instance, driving } = host({ snapshot: { elements: [] }, listApps: { apps: [] } });
+    await instance.handleOp("computerSnapshot", { bundleId: "x" });
+    await instance.handleOp("computerListApps", {});
+    expect(driving.filter((d) => !String(d).startsWith("during:"))).toEqual([]);
+  });
+
+  it("names the app the server resolved, and stays quiet when it sent none", async () => {
+    const { instance, driving } = host({ act: { ok: true, detail: "ok" } });
+    await instance.handleOp("computerAct", { snapshotId: "ax_1", action: click });
+    expect(driving[0]).toBe("");
   });
 });

@@ -1,4 +1,4 @@
-import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, type MenuItemConstructorOptions } from "electron";
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, DEFAULT_MIME, isImageMime, mimeForPath, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -15,6 +15,7 @@ import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import { ComputerUseHelper, axHelperPath } from "./computer-use-helper";
 import { ComputerUseHost } from "./computer-use-host";
+import { ComputerDrivingIndicator } from "./computer-driving";
 import { computerAccessRows, isComputerAccessId, type ComputerAccessStatus } from "./computer-access";
 import {
   MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
@@ -56,9 +57,24 @@ let agentBridge: { stop(): void } | null = null;
  * only while an agent is driving something.
  */
 const computerHelper = new ComputerUseHelper({ helperPath: axHelperPath, onLog: (line) => console.error(line) });
+/**
+ * The menu-bar item that says the Mac is being driven — see `computer-driving.ts` for why the signal
+ * is there rather than in a Realm window.
+ *
+ * Built with an empty image and carried by its title: a menu-bar item that only exists while an act
+ * is in flight has to say what it is in words, where a glyph would be one more unexplained icon
+ * appearing during the exact seconds the user's attention is on another application.
+ */
+const computerDriving = new ComputerDrivingIndicator({
+  createTray: () => {
+    const tray = new Tray(nativeImage.createEmpty());
+    return { setTitle: (t) => tray.setTitle(t), setToolTip: (t) => tray.setToolTip(t), destroy: () => tray.destroy() };
+  },
+});
 const computerHost = new ComputerUseHost({
   available: () => computerHelper.available,
   request: (method, params) => computerHelper.request(method, params),
+  driving: (appName) => { if (appName === null) computerDriving.release(); else computerDriving.acquire(appName); },
 });
 /** The encrypted secret store (safeStorage + the OS Keychain). App-scoped, not per-window: the
  *  bridge asks it for the `oauth` key at registration, and Settings enrolls into it. Built lazily
@@ -632,6 +648,7 @@ app.on("window-all-closed", () => app.quit());
  *  child (SIGTERM — the server's own handler closes ptys and the DB). Idempotent: quitAndInstall
  *  paths can arrive here twice (`before-quit-for-update`, then the ordinary quit machinery). */
 function shutdownForQuit() {
+  computerDriving.dispose();
   computerHelper.stop();
   agentBridge?.stop();
   agentBridge = null;

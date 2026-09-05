@@ -18,6 +18,15 @@ export type ComputerUseHostDeps = {
   request<T>(method: string, params?: Record<string, unknown>): Promise<T>;
   /** False when this build has no compiled helper (non-mac, or no Swift toolchain at build time). */
   available(): boolean;
+  /**
+   * An act against `appName` is starting, and null once it has settled — the menu-bar indicator's
+   * feed. Optional so the unit tests and the live check can build a host with no menu bar.
+   *
+   * Driven from here rather than from the provider because the server's half ends before the input
+   * is posted: the permission card is awaited over there, and lighting the indicator around that
+   * would say the Mac was being driven while the user was still deciding whether it may be.
+   */
+  driving?(appName: string | null): void;
 };
 
 /** The helper's own tags, which are the ones worth reporting to the agent verbatim. Anything else
@@ -49,8 +58,10 @@ export class ComputerUseHost {
         this.requireHelper();
         const snapshotId = String(params.snapshotId ?? "");
         // Schema-validated server-side; this cast is the two processes' contract, exactly as it is
-        // for `browser_act`.
-        return this.act(snapshotId, params.action as ComputerAction);
+        // for `browser_act`. `appName` rides along for the indicator alone — the server already
+        // resolved it to name the permission card, and deriving it a second time here would put two
+        // answers to "which app is this" in two processes.
+        return this.act(snapshotId, params.action as ComputerAction, String(params.appName ?? ""));
       }
       default:
         throw new Error(`unknown computer host op "${op}"`);
@@ -63,7 +74,7 @@ export class ComputerUseHost {
     }
   }
 
-  private async act(snapshotId: string, action: ComputerAction): Promise<ComputerActResult> {
+  private async act(snapshotId: string, action: ComputerAction, appName: string): Promise<ComputerActResult> {
     if (!snapshotId) return { ok: false, error: "no snapshot id — take a computer_snapshot before acting", refused: "stale_snapshot" };
     let params: Record<string, unknown>;
     try {
@@ -71,12 +82,19 @@ export class ComputerUseHost {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+    // Raised around the helper call and nothing wider: the refusals above never reach the machine,
+    // and an indicator that lit for them would be claiming input was posted when none was.
+    this.d.driving?.(appName);
     try {
       return await this.d.request<ComputerActResult>("act", params);
     } catch (e) {
       const error = e as Error & { cause?: unknown };
       const tag = typeof error.cause === "string" && REFUSALS.has(error.cause) ? (error.cause as ComputerRefusal) : undefined;
       return { ok: false, error: error.message, ...(tag ? { refused: tag } : {}) };
+    } finally {
+      // In a `finally` so a helper that throws, hangs to its timeout, or dies mid-act cannot leave
+      // the menu bar claiming the Mac is still being driven.
+      this.d.driving?.(null);
     }
   }
 }

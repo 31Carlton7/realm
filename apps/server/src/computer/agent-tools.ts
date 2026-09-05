@@ -43,7 +43,11 @@ import { fenceUntrusted } from "@realm/contracts";
  *     the rest of the session and nothing else.
  *  6. **Two independent checks before any synthetic input lands**, both in the helper: the target app
  *     must actually come to the front, and the point must belong to it at the instant of the click.
- *  7. **App text is untrusted data.** A snapshot is other applications' content — an email body, a
+ *  7. **It is visible while it happens.** Main puts an item in the menu bar for the duration of
+ *     every act (`computer-driving.ts`). Not a gate — nothing is refused by it — but the act itself
+ *     requires the target app to be frontmost, so this is the only layer the user can see at the
+ *     moment it runs, Realm's own window being behind something by then.
+ *  8. **App text is untrusted data.** A snapshot is other applications' content — an email body, a
  *     document, a web page inside someone else's browser — so it is fenced before it enters a tool
  *     result, and where a permission card names an element the label is attributed to the app rather
  *     than spoken in Realm's voice.
@@ -214,7 +218,9 @@ const HANDLERS: Record<string, Handler> = {
     );
     if (!gate.allowed) return err(gate.reason);
 
-    const result = (await d.bridge.call("computerAct", { snapshotId, action })) as ComputerActResult;
+    // `appName` is for main's menu-bar indicator, which has no other way to learn which application
+    // is being driven — the snapshot-to-app map that answers that lives in this process.
+    const result = (await d.bridge.call("computerAct", { snapshotId, action, appName: app.appName })) as ComputerActResult;
     if (result.ok) return ok(result.detail);
     if (result.refused === "secure_field") {
       return err("refused: that is a password field. Realm never types into one, in any mode — tell the user what to enter and let them type it themselves.");
