@@ -1204,6 +1204,94 @@ describe("row and control layout", () => {
   });
 });
 
+/** The page measure. Where a column actually LANDS is settled by scripts/page-measure-live.mjs, which
+ *  measures the real rects at seven pane widths — jsdom has no layout, so to it `margin-inline: auto`
+ *  is a declaration that parses and nothing more. What is checkable here is the arithmetic: that each
+ *  page shape is capped at what that shape's own parts add up to, read from the rules that state
+ *  those parts, so a drift in either place fails. */
+describe("the page measure", () => {
+  /** A declaration from the first rule that states it for `sel` — the base rule, which the narrow
+   *  container block further down the file overrides rather than replaces. */
+  function decl(sel: string, prop: string): string {
+    for (const body of bodiesFor(sel)) {
+      const m = body.match(new RegExp(`(?:^|;\\s*)${prop}:\\s*([^;]+)`));
+      if (m) return m[1]!.trim();
+    }
+    throw new Error(`no ${prop} on ${sel}`);
+  }
+  const px = (v: string): number => Number(v.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? NaN);
+
+  const GUTTER = px(decl(".page-body", "padding").split(" ")[1]!);
+  const GAP = px(decl(".page-body", "gap"));
+  const RAIL = px(decl(".page-rail", "width"));
+  const COLUMN = px(decl(".page-content", "max-width"));
+  const LENS = px(decl(".task-lens", "max-width"));
+
+  /** Every `--page-measure` in the stylesheet, by the selector that sets it. */
+  const MEASURES = new Map(RULES
+    .filter((r) => /--page-measure:/.test(r.body))
+    .map((r) => [r.selectors.join(", "), px(r.body.match(/--page-measure:\s*([^;]+)/)![1]!)]));
+  const measure = (sel: string): number => {
+    expect(MEASURES.get(sel), `no --page-measure on \`${sel}\``).toBeGreaterThan(0);
+    return MEASURES.get(sel)!;
+  };
+
+  it("head, rail and content are ONE centred block — the title stays over the column it introduces", () => {
+    // The mutant: drop `.page-head` from this rule. The form centres itself in the pane and the title
+    // that names it stays at the pane's left edge, introducing nothing.
+    const band = RULES.filter((r) => r.selectors.includes(".page-head") && r.body.includes("margin-inline: auto"));
+    expect(band).toHaveLength(1);
+    for (const sel of [".page-body", ".profile-spaces"]) expect(band[0]!.selectors).toContain(sel);
+    // The load-bearing one: an auto cross-axis margin switches a flex item's stretch OFF, so without
+    // an explicit width each band shrinks to fit its own longest line instead of filling the cap.
+    expect(band[0]!.body).toContain("width: 100%");
+    expect(band[0]!.body).toContain("max-width: var(--page-measure)");
+  });
+
+  it("each shape is capped at what ITS parts add up to, never at a number typed in twice", () => {
+    // Bare column, column beside the rail, and the Tasks lens beside the rail. Change `.page-rail`'s
+    // width or `.page-content`'s measure and the cap that no longer matches fails here.
+    expect(measure(".page")).toBe(GUTTER * 2 + COLUMN);
+    expect(measure(".page:has(.page-rail, .notif-split)")).toBe(GUTTER * 2 + RAIL + GAP + COLUMN);
+    expect(measure(".page:has(.page-content[data-wide])")).toBe(GUTTER * 2 + RAIL + GAP + LENS);
+  });
+
+  it("the Tasks tab, which matches two of them, takes the wider", () => {
+    // The space page has a rail AND a wide content, so both selectors hit it; `[data-wide]` is what
+    // makes the wider one win. Losing that is a lens squeezed into the reading measure.
+    expect(measure(".page:has(.page-content[data-wide])"))
+      .toBeGreaterThan(measure(".page:has(.page-rail, .notif-split)"));
+  });
+
+  it("the notifications split shares the rail pages' cap, because 720 leaves it no second column", () => {
+    // The mutant: let it fall through to the bare default. The list alone claims 480, so the detail
+    // becomes the ~220px gutter that could not hold a title — the failure the 760px stacking
+    // threshold exists to avoid, reintroduced above that threshold where stacking cannot save it.
+    const detail = measure(".page:has(.page-rail, .notif-split)") - GUTTER * 2
+      - px(decl(".notif-list", "max-width")) - px(decl(".notif-detail", "padding-left"));
+    expect(detail).toBeGreaterThan(300);
+  });
+
+  it("no cap can bind inside the narrow pass, so the two never fight", () => {
+    // Every measure is wider than the widest pane the responsive rules claim (the notifications
+    // split's 760). Below them a page is full-bleed and the cap is inert; above them nothing
+    // re-flows. A measure that fell between would centre a page that was busy standing itself up.
+    for (const [sel, value] of MEASURES) expect(value, sel).toBeGreaterThan(760);
+  });
+
+  it("the profile page's chip strip is a band of the page, and can still shed its gutter when narrow", () => {
+    // Its own rule sits BELOW the narrow block. Stated there, `padding-inline: 24px` would beat the
+    // query's 16px — a container query carries no extra specificity — and the chips would hang past
+    // the head at every narrow width.
+    const base = css.indexOf(".profile-spaces { padding-inline: 24px");
+    const narrow = css.indexOf(".profile-spaces { padding-inline: 16px");
+    expect(base).toBeGreaterThan(-1);
+    expect(narrow).toBeGreaterThan(base);
+    // A `margin` shorthand anywhere would zero the auto that centres it.
+    for (const body of bodiesFor(".profile-spaces")) expect(body, body).not.toMatch(/(^|;\s*)margin:/);
+  });
+});
+
 /** A pane is not a window: `minSize={10}` in PaneHost means a leaf can be a tenth of the host, and a
  *  three-way split routinely leaves one under 300px. These assert the two halves of the fix — the
  *  flex minimums that stop a pane sizing itself to its WIDEST child (and being clipped by

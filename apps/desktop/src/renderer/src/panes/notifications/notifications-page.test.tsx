@@ -48,6 +48,15 @@ describe("the Notifications page (Plan 12 W5)", () => {
     expect(within(old).queryByLabelText("Unread")).toBeNull();
   });
 
+  it("the page body IS the split, which is how the page earns a measure wide enough for two columns", async () => {
+    // styles.css caps `.page:has(.notif-split)` alongside the rail pages rather than at the bare
+    // 720px reading column, because the list alone claims 480 of it. Rename the class and the detail
+    // silently becomes a gutter too narrow for a title.
+    const { container } = await mount({ notifications: [notification("n1", { title: "a row" })] });
+    await waitFor(() => expect(screen.getByText("a row")).toBeInTheDocument());
+    expect(container.querySelector(".page > .page-body")).toHaveClass("notif-split");
+  });
+
   it("shows a quiet, honest empty state", async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Nothing has needed you/)).toBeInTheDocument());

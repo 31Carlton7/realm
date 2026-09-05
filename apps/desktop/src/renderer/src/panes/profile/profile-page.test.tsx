@@ -32,6 +32,14 @@ describe("ProfilePage · header", () => {
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s3"));
   });
 
+  it("the chip strip is a BAND of the page, a sibling of the head and the body", async () => {
+    // It takes the page's measure and gutter from the band rule in styles.css, which reaches it only
+    // as a direct child of `.page`. Nested inside the head or the body it would take the gutter
+    // twice and sit 24px inside the column every other band starts at.
+    const { container } = await mount();
+    expect(container.querySelector(".page > .profile-spaces")).toBe(screen.getByLabelText("Spaces of Work"));
+  });
+
   it("derives the profile LIVE from the item's space — a space moved between profiles moves the page's subject", async () => {
     const { store } = await mount();
     expect(screen.getByRole("heading", { name: "Work" })).toBeInTheDocument();

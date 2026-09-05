@@ -2252,6 +2252,22 @@ button.panel-title:hover { background: var(--rl-hover); }
    with three panes open: the Sessions tab was overflowing by 179px and the Tasks lens by 247px,
    which put the run detail panel's Approve/Decline under the session pane. jsdom has no layout, so
    no test in the suite could see it. */
+/* ——— The measure. A page is a column of content in a pane that is routinely twice as wide as the
+   column wants to be. Head, rail and content are therefore centred TOGETHER, as one block: centring
+   the content alone would leave the title at the pane's left edge introducing a form in the middle,
+   and centring it in the space BESIDE the rail would put the rail outside the thing it belongs to.
+   The number is what the page's own parts add up to, so below it nothing moves and above it the
+   surplus becomes equal margins rather than a right-hand void. */
+.page { --page-measure: 768px; }                                 /* 24px gutter + 720px column + 24px */
+.page:has(.page-rail, .notif-split) { --page-measure: 968px; }   /* + the 180px rail and its 20px gap */
+.page:has(.page-content[data-wide]) { --page-measure: 1348px; }  /* the Tasks lens's own 1100px cap */
+/* `width: 100%` is load-bearing: an auto cross-axis margin switches off a flex item's stretch, so
+   without it each band would shrink to fit its own longest line instead of filling the cap. */
+.page-head, .page-body, .profile-spaces { width: 100%; max-width: var(--page-measure); margin-inline: auto; }
+/* The profile page's chip strip is a third band between the head and the body, so its gutter is
+   stated here rather than with its own look — after the narrow block below, it could not be
+   overridden there (a container query carries no extra specificity). */
+.profile-spaces { padding-inline: 24px; }
 .page-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 20px 24px 14px; }
 .page-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, currentColor 14%, transparent); }
@@ -2291,6 +2307,7 @@ button.panel-title:hover { background: var(--rl-hover); }
     overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
   .page-rail .settings-tab { white-space: nowrap; }
   .page-content { max-width: none; padding-right: 0; }
+  .profile-spaces { padding-inline: 16px; }
   /* The `1fr auto` row grid, stood up: the actions keep their own width and the path/name column
      gets all of it back. */
   .env-row { grid-template-columns: minmax(0, 1fr); }
@@ -2389,7 +2406,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .task-attempt-outcome[data-outcome="failed"], .task-attempt-outcome[data-outcome="expired"] { color: var(--rl-danger); }
 
 /* The profile page's space chips (Plan 14 W2): the profile's spaces as jump targets, under the head. */
-.profile-spaces { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
+/* The inline margin is left to the band rule up in the page section — a `margin` shorthand here
+   would zero the auto that centres it. */
+.profile-spaces { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 2px 10px; }
 .profile-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font-size: 12px;
   border: 1px solid var(--rl-line-strong); border-radius: 999px; background: none; color: var(--rl-text-dim); cursor: pointer; }
 .profile-chip:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -2413,11 +2432,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ——— Plan 12 W5: the Notifications page. Quiet feed rows on the page pattern; unread is a dot and a
    brighter title, never a wash. The inline permission card is the session pane's own component. ——— */
 .notifications-page-pane .page-head { align-items: flex-start; }
-/* The feed is SCANNED, not read: it takes the whole pane instead of the ~720px reading column the
-   other destination pages cap themselves at (there is no `.page-content` here at all), and spends
-   the width on a second column. It answers to the PANE's width and not the window's — `.page` is the
-   inline-size container every page shares — because this page is as likely to be half of a split as
-   it is to be the whole screen. */
+/* The feed is SCANNED, not read: it spends its width on a second column instead of the ~720px
+   reading column the other destination pages cap themselves at (there is no `.page-content` here at
+   all), which is why it shares the rail pages' measure rather than the bare column's. It answers
+   to the PANE's width and not the window's — `.page` is the inline-size container every page shares
+   — because this page is as likely to be half of a split as it is to be the whole screen. */
 .notif-split { gap: 0; }
 .notif-list { flex: 1 1 380px; min-width: 0; max-width: 480px; overflow-y: auto; padding-right: 16px; }
 .notif-detail { flex: 2 1 0; min-width: 0; overflow-y: auto; padding-left: 20px; border-left: 1px solid var(--rl-hairline); }
