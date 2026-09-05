@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Menu, type MenuItem } from "./Menu";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi } from "../state/store.test-fakes";
+import { exited } from "./popover-exit.test-fakes";
 
 function mount(items: MenuItem[], over: Partial<Parameters<typeof Menu>[0]> = {}) {
   const onClose = vi.fn();
@@ -12,10 +13,6 @@ function mount(items: MenuItem[], over: Partial<Parameters<typeof Menu>[0]> = {}
 }
 
 const plain = (label: string, onSelect = () => {}): MenuItem => ({ label, onSelect });
-
-/** §6's popover exit keeps a dismissed menu in the DOM for `--dur-press` and tells its parent at the
- *  end of it, so anything asserting on the menu being GONE has to let that run. */
-const exited = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
 
 describe("Menu placement", () => {
   const rect = (top: number, height: number, left = 100, width = 50) =>
