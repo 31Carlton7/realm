@@ -130,7 +130,7 @@ function ReviewSection({ environmentId, review }: { environmentId: string; revie
   return (
     <section className="diff-review" aria-label="Review">
       <div className="diff-review-head">
-        <Icon name="diff" size={13} />
+        <Icon name="diff" size={12} />
         <span className="diff-review-title">Review</span>
         <span className="diff-review-dim">{relativeTime(review.createdAt, Date.now())}</span>
         {reviewerItem && (
@@ -141,7 +141,7 @@ function ReviewSection({ environmentId, review }: { environmentId: string; revie
         <span className="diff-head-spacer" />
         <button type="button" className="icon-btn" aria-label="Dismiss review"
           onClick={() => run(() => dismissReview(environmentId))}>
-          <Icon name="close" size={13} />
+          <Icon name="close" size={14} />
         </button>
       </div>
       {note && <p className="diff-note">{note}</p>}
@@ -162,7 +162,7 @@ function ShipReport({ cwd, environmentId, result }: { cwd: string; environmentId
   const { commit, push, pr } = result;
   return (
     <div className="ship-report" role="status">
-      {commit.state === "committed" && <p><Icon name="commit" size={13} /> Committed <code>{commit.sha?.slice(0, 7)}</code> — {commit.subject}</p>}
+      {commit.state === "committed" && <p><Icon name="commit" size={12} /> Committed <code>{commit.sha?.slice(0, 7)}</code> — {commit.subject}</p>}
       {commit.state === "nothing-to-commit" && <p>Nothing was staged, so no commit was made.</p>}
       {commit.state === "no-identity" && <p className="ship-bad">{commit.reason}</p>}
       {commit.state === "failed" && <p className="ship-bad">Commit failed: {commit.reason}</p>}
@@ -183,7 +183,7 @@ function ShipReport({ cwd, environmentId, result }: { cwd: string; environmentId
       {push.state === "failed" && <p className="ship-bad">Push failed: {push.reason}</p>}
 
       {(pr.state === "created" || pr.state === "existing") && pr.url && (
-        <p><Icon name="pullRequest" size={13} /> {pr.state === "created" ? "Opened" : "Already open"}: <a href={pr.url} target="_blank" rel="noreferrer">{pr.url}</a></p>
+        <p><Icon name="pullRequest" size={12} /> {pr.state === "created" ? "Opened" : "Already open"}: <a href={pr.url} target="_blank" rel="noreferrer">{pr.url}</a></p>
       )}
       {pr.state === "compare" && pr.url && (
         <p>{pr.reason} <a href={pr.url} target="_blank" rel="noreferrer">Open a pull request</a></p>
@@ -262,7 +262,7 @@ export function DiffPane({ item }: PaneProps) {
         <button type="button" className="btn-quiet" title="Checkpoints taken before each turn (W4)"
           onClick={() => run(() => openCheckpoints(environmentId, null))}>History</button>
         <button type="button" className="icon-btn" aria-label="Refresh changes" title="Refresh" onClick={() => run(() => refreshDiff(cwd))}>
-          <Icon name="diff" size={13} />
+          <Icon name="diff" size={14} />
         </button>
       </div>
 

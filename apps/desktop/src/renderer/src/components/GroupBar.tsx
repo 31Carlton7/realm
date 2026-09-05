@@ -65,12 +65,12 @@ export function GroupBar() {
               }}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ group: g, x: e.clientX, y: e.clientY }); }}
               onClick={() => run(() => activatePaneGroup(g.id))}>
-              <Icon name="group" size={13} />
+              <Icon name="group" size={14} />
               <span className="group-tab-name">{g.name}</span>
             </button>
           )))}
           <button className="icon-btn group-add" aria-label="New pane group" title="New pane group"
-            onClick={() => run(() => newPaneGroup())}><Icon name="add" size={13} /></button>
+            onClick={() => run(() => newPaneGroup())}><Icon name="add" size={14} /></button>
         </div>
       )}
       {zoomed && (
@@ -79,7 +79,7 @@ export function GroupBar() {
         // of sight — the bar has to carry what the screen no longer shows.
         <button className="group-unfocus" onClick={() => run(() => unfocusPane())}
           aria-label={zoomedTitle ? `Unfocus ${zoomedTitle}` : "Unfocus pane"} title="Unfocus (⌘⇧F)">
-          <Icon name="unfocusPane" size={13} />
+          <Icon name="unfocusPane" size={14} />
           <span>Focused{zoomedTitle ? `: ${zoomedTitle}` : ""}</span>
           <span className="group-unfocus-hint">Unfocus</span>
         </button>

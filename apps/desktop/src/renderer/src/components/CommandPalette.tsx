@@ -191,7 +191,7 @@ function PaletteBody() {
     const byRecency = (a: Item, b: Item) => b.updatedAt - a.updatedAt;
 
     const itemEntry = (it: Item, section: string, hint: ReactNode): Entry => ({
-      id: `item:${it.id}`, label: it.title, hint, icon: <Icon name={it.kind} size={15} />, section,
+      id: `item:${it.id}`, label: it.title, hint, icon: <Icon name={it.kind} size={16} />, section,
       run: () => run(async () => {
         if (it.spaceId !== activeSpaceId) await selectSpace(it.spaceId);
         await openItem(it.id);
@@ -213,7 +213,7 @@ function PaletteBody() {
 
     const anyWaiting = Object.values(sessionStatus).includes("waiting_permission");
     const act = (id: string, label: string, icon: string, run_: () => void, hint?: ReactNode): Entry =>
-      ({ id: `act:${id}`, label, icon: <Icon name={icon} size={15} />, run: run_, section: "Actions", hint });
+      ({ id: `act:${id}`, label, icon: <Icon name={icon} size={16} />, run: run_, section: "Actions", hint });
     const actions: Entry[] = [
       // A pending permission anywhere leads the actions — it is the hottest thing in the app (U-H4).
       ...(anyWaiting ? [act("respond-permission", "Respond to pending permission", "alert", () => run(() => jumpToPermission()))] : []),
@@ -224,7 +224,7 @@ function PaletteBody() {
       // (`parseSpaceIcon`), not just a Hugeicons name, so it needs `SpaceIcon`'s resolver — the same
       // reason the `item:` entries above bypass `act()` for `ItemGlyph`.
       ...spaces.map((sp): Entry => ({
-        id: `act:space-${sp.id}`, label: `Switch to ${sp.name}`, icon: <SpaceIcon icon={sp.icon} size={15} />,
+        id: `act:space-${sp.id}`, label: `Switch to ${sp.name}`, icon: <SpaceIcon icon={sp.icon} size={16} />,
         run: () => run(() => selectSpace(sp.id)), section: "Actions", hint: sp.id === activeSpaceId ? "current" : undefined,
       })),
       // Pane groups sit right beside the space switches: they are the same gesture one level in —
@@ -255,7 +255,7 @@ function PaletteBody() {
       // rather than pretending to a "focus the composer with a hint" flow the palette cannot honor
       // (picking an entry closes the palette; a hint nobody sees is not a hint).
       ...(focusedSession ? [{
-        id: "act:dispatch", section: "Actions", icon: <Icon name="send" size={15} />,
+        id: "act:dispatch", section: "Actions", icon: <Icon name="send" size={16} />,
         label: "Dispatch task", hint: (drafts[focusedSession] ?? "").trim() ? <kbd>⌘⇧↵</kbd> : "type a draft first",
         disabled: !(drafts[focusedSession] ?? "").trim(),
         run: () => run(() => dispatchDraft(focusedSession)),
@@ -294,7 +294,7 @@ function PaletteBody() {
 
     const themes = MODES.map<Entry>((t) => ({
       id: `theme:${t}`, label: `Theme: ${t[0]!.toUpperCase()}${t.slice(1)}`, hint: themePref === t ? "current" : undefined,
-      icon: <Icon name={t === "dark" ? "moon" : "sun"} size={15} />, section: "Theme", run: () => run(() => setThemePref(t)),
+      icon: <Icon name={t === "dark" ? "moon" : "sun"} size={16} />, section: "Theme", run: () => run(() => setThemePref(t)),
     }));
 
     // The palette axis, in the same section: light/dark and which colours are the same question to
@@ -304,7 +304,7 @@ function PaletteBody() {
     const palettes = THEMES.filter((t) => themeModes(t.name).includes(mode)).map<Entry>((t) => ({
       id: `palette:${t.name}`, label: `Palette: ${t.label}`, section: "Theme",
       hint: themeNames[mode] === t.name ? `current · ${mode}` : mode,
-      icon: <Icon name="paintBucket" size={15} />, run: () => run(() => setThemeName(mode, t.name)),
+      icon: <Icon name="paintBucket" size={16} />, run: () => run(() => setThemeName(mode, t.name)),
     }));
 
     return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
@@ -336,7 +336,7 @@ function PaletteBody() {
     for (const h of r.sessions) {
       out.push({
         id: `deep-session:${h.sessionId}:${h.seq}`, deep: true, section: "Sessions",
-        label: h.title, icon: <Icon name="session" size={15} />, hint: <Snippet parts={h.snippet} />,
+        label: h.title, icon: <Icon name="session" size={16} />, hint: <Snippet parts={h.snippet} />,
         // Jump = open the session (scroll-to-event is not cheap today: transcript block keys are
         // index-based, not seq-based — the hit's `seq` is on the wire for the day it becomes so).
         run: () => run(async () => {
@@ -350,14 +350,14 @@ function PaletteBody() {
     for (const h of r.skills) {
       out.push({
         id: `deep-skill:${h.id}`, deep: true, section: "Skills", label: h.name,
-        icon: <Icon name="library-page" size={15} />, hint: <Snippet parts={h.snippet} />,
+        icon: <Icon name="library-page" size={16} />, hint: <Snippet parts={h.snippet} />,
         run: () => run(() => openDestinationPage("library-page")),
       });
     }
     for (const h of r.memory) {
       out.push({
         id: `deep-memory:${h.scope}:${h.spaceId ?? h.profileId}`, deep: true, section: "Memory", label: h.title,
-        icon: <Icon name="context" size={15} />, hint: <Snippet parts={h.snippet} />,
+        icon: <Icon name="context" size={16} />, hint: <Snippet parts={h.snippet} />,
         run: () => run(async () => {
           if (h.scope === "profile") { await openProfilePage("memory"); return; }
           if (!h.spaceId) return;
@@ -370,7 +370,7 @@ function PaletteBody() {
       if (shown.has(`item:${h.itemId}`)) continue; // already an instant row above
       out.push({
         id: `deep-item:${h.itemId}`, deep: true, section: "Items", label: h.title,
-        icon: <Icon name={h.itemKind} size={15} />, hint: <Snippet parts={h.snippet} />,
+        icon: <Icon name={h.itemKind} size={16} />, hint: <Snippet parts={h.snippet} />,
         run: () => run(async () => {
           if (h.spaceId !== activeSpaceId) await selectSpace(h.spaceId);
           await openItem(h.itemId);

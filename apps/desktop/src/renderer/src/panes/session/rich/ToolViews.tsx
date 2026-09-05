@@ -110,6 +110,7 @@ export function TodoList({ todos }: { todos: Todo[] }) {
       <ul className="todo-list">
         {todos.map((t, i) => (
           <li key={i} data-status={t.status}>
+            {/* off-ladder: the dot is 13px, so the inline rung would fill it edge to edge. */}
             <span className="todo-dot" aria-hidden="true">{t.status === "completed" && <Icon name="check" size={10} />}</span>
             <span className="todo-text">{t.content}</span>
           </li>
@@ -168,7 +169,7 @@ export function RequestView({ url, query, prompt }: { url: string | null; query:
   return (
     <div className="req">
       <div className="req-head">
-        <Icon name={url ? "browser" : "search"} size={13} />
+        <Icon name={url ? "browser" : "search"} size={12} />
         {host && <span className="req-host">{host}</span>}
         <span className="req-target" title={url ?? query ?? ""}>{url ?? query}</span>
       </div>

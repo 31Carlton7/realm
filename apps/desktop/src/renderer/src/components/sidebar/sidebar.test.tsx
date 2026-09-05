@@ -6,14 +6,6 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
 import { paneSlotOf } from "./ItemList";
 
-/** The five rungs of Icon.tsx's ladder — card, tile, row, control, inline. */
-const RUNGS = new Set([20, 18, 16, 14, 12]);
-/* Every component in this directory, as source text. Read through Vite rather than off disk: the
-   paths resolve against this module, so the scan below does not care whether vitest was invoked from
-   the repo root or from apps/desktop, and `import.meta.url` (which Vite rewrites to a non-file scheme
-   under jsdom) never comes into it. */
-const SIDEBAR_SOURCES = import.meta.glob("./*.tsx", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
-
 /** §6's popover exit keeps a dismissed menu or picker mounted for `--dur-press` and tells its parent
  *  at the end of it, so anything that closes one and then opens (or asserts the absence of) another
  *  has to let the first one leave. */
@@ -856,24 +848,5 @@ describe("archiving a session", () => {
     expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Unarchive" }));
     await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(false));
-  });
-});
-
-/** The ladder is documented on `Icon` (packages/ui/src/Icon.tsx) and enforceable only here: `size`
- *  is a plain number, so nothing in a type or a render can notice a call site quietly picking 15.
- *  Scanning the source is the whole point — a rendered assertion would only cover the rows a test
- *  happens to mount, and the drift this pins is in the ones nobody mounts. */
-describe("sidebar icon sizes", () => {
-  it("every call site sits on a rung of the ladder", () => {
-    const files = Object.entries(SIDEBAR_SOURCES).filter(([name]) => !name.includes(".test."));
-    expect(files.length, "the source glob found nothing — the scan would pass vacuously").toBeGreaterThan(5);
-    const offenders: string[] = [];
-    for (const [name, src] of files) {
-      for (const m of src.matchAll(/size=\{(\d+)\}/g)) {
-        const size = Number(m[1]);
-        if (!RUNGS.has(size)) offenders.push(`${name.replace("./", "")}: size={${size}}`);
-      }
-    }
-    expect(offenders, "off-ladder icon sizes — pick a rung or move the ladder, do not add a value").toEqual([]);
   });
 });

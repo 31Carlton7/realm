@@ -283,7 +283,7 @@ export function DocumentsPane({ item }: PaneProps) {
             // `alert`, not `status`: the head bar already carries the save state as this pane's one
             // polite status, and a file vanishing under an open editor is not a polite update.
             <div className="documents-bar warn" role="alert">
-              <Icon name="alert" size={13} />
+              <Icon name="alert" size={12} />
               <span>This file was deleted on disk. Saving will re-create it.</span>
             </div>
           )}
@@ -357,7 +357,7 @@ function TabStrip({ tabs, active, buffers, onSelect, onClose, onNew, onOpenExist
                 : b?.dirty ? <span className="documents-dot" aria-label="Unsaved" /> : null}
             </button>
             <button className="documents-tab-close icon-btn" aria-label={`Close ${baseName(path)}`}
-              onClick={() => onClose(path)}><Icon name="close" size={11} /></button>
+              onClick={() => onClose(path)}><Icon name="close" size={12} /></button>
           </div>
         );
       })}
@@ -443,7 +443,7 @@ const structuredLabel = (v: "rich" | "grid" | "preview" | "pdf"): string =>
 function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onTakeTheirs: () => void }) {
   return (
     <div className="documents-bar conflict" role="alert">
-      <Icon name="alert" size={13} />
+      <Icon name="alert" size={12} />
       <span>This file changed on disk while you were editing.</span>
       <button type="button" className="btn-quiet" onClick={onKeepMine}>Keep mine</button>
       <button type="button" className="btn-quiet" onClick={onTakeTheirs}>Take theirs</button>

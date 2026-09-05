@@ -237,7 +237,7 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
                     data-active={r === activeRow || undefined} data-blocked={r.blockedReason ? "" : undefined}
                     onMouseEnter={() => setActiveKey(r.key)}
                     onClick={() => pick(r, routes[r.key])}>
-                    <Icon name={r.icon} size={15} colored className="mp-row-mark" />
+                    <Icon name={r.icon} size={16} colored className="mp-row-mark" />
                     <span className="mp-row-text">
                       <span className="mp-row-name">
                         {r.label}
@@ -261,7 +261,7 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
                       aria-label={r.favorite ? `Unfavourite ${r.label}` : `Favourite ${r.label}`}
                       title={r.favorite ? "Unfavourite (⌥↩)" : "Favourite (⌥↩)"}
                       onClick={(e) => { e.stopPropagation(); onToggleFavorite(r.key); }}>
-                      <Icon name="star" size={13} />
+                      <Icon name="star" size={12} />
                     </button>
                   </div>
                 );
@@ -339,7 +339,7 @@ function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, 
               disabled={!!row.blockedReason}
               aria-label={`Run ${row.label} through ${AGENT_META[h].label}`}
               onClick={() => onRoute(h)}>
-              <Icon name={AGENT_META[h].icon} size={13} colored />
+              <Icon name={AGENT_META[h].icon} size={12} colored />
               {AGENT_META[h].label}
             </button>
           ))}
@@ -348,8 +348,8 @@ function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, 
         {/* Billing sits directly under the price, and always: a per-token number is a lie about the
             bill for a harness that runs on a subscription, and this is the line that says so. */}
         <p className="mp-harness-billing">{harness.billing}</p>
-        {harness.limits && <p className="mp-harness-limits"><Icon name="alert" size={11} /> {harness.limits}</p>}
-        {row.blockedReason && <p className="mp-harness-limits"><Icon name="alert" size={11} /> {row.blockedReason}</p>}
+        {harness.limits && <p className="mp-harness-limits"><Icon name="alert" size={12} /> {harness.limits}</p>}
+        {row.blockedReason && <p className="mp-harness-limits"><Icon name="alert" size={12} /> {row.blockedReason}</p>}
       </div>
       </div>
       <div className="mp-detail-foot">

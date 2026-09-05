@@ -131,7 +131,7 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
       </span>
       {onRemove && (
         <button type="button" className="attach-remove" aria-label={`Remove ${label}`} onClick={onRemove}>
-          <Icon name="close" size={9} />
+          <Icon name="close" size={12} />
         </button>
       )}
       {lightbox && file && <MediaLightbox file={file} onClose={close} />}

@@ -72,7 +72,7 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
             onClick={() => { it.onSelect(); if (!it.keepOpen) close(); }}>
             <span className="menu-label">{it.label}</span>
             {it.kbd && <kbd className="menu-kbd">{it.kbd}</kbd>}
-            {it.checked && <Icon name="check" size={13} className="menu-check" />}
+            {it.checked && <Icon name="check" size={14} className="menu-check" />}
           </button>
         ))}
     </div>,

@@ -83,6 +83,8 @@ function VideoPlayer({ file, autoFocus = false, onExpand }: { file: MediaFile; a
           thing they came to look at. */}
       {!playing && (
         <button type="button" className="media-play" aria-label={`Play ${basenameOf(file.path)}`} autoFocus={autoFocus} onClick={toggle}>
+          {/* off-ladder: a 52px poster button has no rung. `control` is sized for a 28px one, and
+              every rung above it is for a glyph that IS its container's subject rather than its verb. */}
           <Icon name="play" size={22} />
         </button>
       )}
@@ -91,8 +93,8 @@ function VideoPlayer({ file, autoFocus = false, onExpand }: { file: MediaFile; a
             and cross-fade. A ternary replaces the element instead, and gets no transition at all. */}
         <button type="button" className="media-btn" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
           <span className="icon-swap" data-on={playing || undefined}>
-            <Icon name="play" size={13} className="swap-off" />
-            <Icon name="pause" size={13} className="swap-on" />
+            <Icon name="play" size={12} className="swap-off" />
+            <Icon name="pause" size={12} className="swap-on" />
           </span>
         </button>
         <span className="media-time">{formatTime(time)}</span>
@@ -107,13 +109,13 @@ function VideoPlayer({ file, autoFocus = false, onExpand }: { file: MediaFile; a
         <span className="media-time media-duration">{formatTime(duration)}</span>
         <button type="button" className="media-btn" aria-label={muted ? "Unmute" : "Mute"} aria-pressed={muted} onClick={() => setMuted((m) => !m)}>
           <span className="icon-swap" data-on={muted || undefined}>
-            <Icon name="volumeOn" size={13} className="swap-off" />
-            <Icon name="volumeOff" size={13} className="swap-on" />
+            <Icon name="volumeOn" size={12} className="swap-off" />
+            <Icon name="volumeOff" size={12} className="swap-on" />
           </span>
         </button>
         {onExpand && (
           <button type="button" className="media-btn" aria-label="Open larger" onClick={onExpand}>
-            <Icon name="focusPane" size={13} />
+            <Icon name="focusPane" size={12} />
           </button>
         )}
       </div>

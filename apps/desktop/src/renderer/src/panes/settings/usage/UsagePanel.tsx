@@ -428,7 +428,7 @@ function Caveats({ data }: { data: UsageSummary }) {
     <section className="usage-caveats" aria-label="Why some numbers are missing">
       {data.unmeasuredKinds.length > 0 && (
         <p>
-          <Icon name="alert" size={13} />{" "}
+          <Icon name="alert" size={12} />{" "}
           <strong>{data.unmeasuredKinds.map((k) => AGENT_META[k].label).join(", ")}</strong>{" "}
           {data.unmeasuredKinds.length === 1 ? "reports" : "report"} no token usage — the ACP protocol these engines speak
           carries no usage message, so their sessions appear in Activity but never in spend.
@@ -436,7 +436,7 @@ function Caveats({ data }: { data: UsageSummary }) {
       )}
       {data.unpricedModels.length > 0 && (
         <p>
-          <Icon name="alert" size={13} />{" "}
+          <Icon name="alert" size={12} />{" "}
           No catalog price for <strong>{data.unpricedModels.slice(0, 4).join(", ")}</strong>
           {data.unpricedModels.length > 4 && ` and ${data.unpricedModels.length - 4} more`}, so their tokens are counted but not costed.
         </p>

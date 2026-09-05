@@ -124,7 +124,7 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" }}
       onKeyDown={onKeyDown}>
       <div className="skill-picker-search">
-        <Icon name="search" size={13} className="skill-picker-search-glyph" />
+        <Icon name="search" size={14} className="skill-picker-search-glyph" />
         <input ref={input} type="text" className="skill-picker-input" placeholder="Search skills…"
           aria-label="Search skills" role="combobox" aria-expanded aria-controls="skill-picker-list"
           value={query} onChange={(e) => setQuery(e.target.value)} />

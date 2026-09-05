@@ -33,7 +33,7 @@ function GitChip({ gitInfo, onOpenDiff }: { gitInfo: GitInfo | null; onOpenDiff:
     // One button, not three — the whole group means "show me these changes".
     <button type="button" className="composer-git" onClick={onOpenDiff}
       title={gitInfo.dirty > 0 ? `Show ${gitInfo.dirty} changed ${gitInfo.dirty === 1 ? "file" : "files"} on ${gitInfo.branch}` : `Show changes on ${gitInfo.branch}`}>
-      <span className="ghost-chip git-branch"><Icon name="branch" size={13} className="chip-brand" /><span className="chip-label">{gitInfo.branch}</span></span>
+      <span className="ghost-chip git-branch"><Icon name="branch" size={12} className="chip-brand" /><span className="chip-label">{gitInfo.branch}</span></span>
       {(gitInfo.additions > 0 || gitInfo.deletions > 0) && (
         <span className="ghost-chip git-diff">
           <span className="diff-add">+{gitInfo.additions}</span>
@@ -53,7 +53,7 @@ function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel
   const [open, setOpen] = useState(false);
   // A sibling of chip-label, never inside it: chip-label truncates with an ellipsis, which needs a
   // plain inline box — an icon nested in there gets no gap and sits off the text's centre line.
-  const glyph = icon ? <Icon name={icon} size={13} className="chip-brand" /> : null;
+  const glyph = icon ? <Icon name={icon} size={12} className="chip-brand" /> : null;
   if (items.length === 0) {
     return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}>{glyph}<span className="chip-label">{label}</span></span>;
   }
@@ -818,7 +818,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               disabled={!running && !draft.trim() && !deliverable}
               onClick={() => (running ? onStop() : send())}>
               <Icon name="arrowUp" size={16} className="send-icon" />
-              <Icon name="stop" size={13} className="stop-icon" />
+              <Icon name="stop" size={14} className="stop-icon" />
             </button>
           </div>
         </div>

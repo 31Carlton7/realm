@@ -61,7 +61,7 @@ export function ProfilePage({ item }: PaneProps) {
         {profileSpaces.map((sp) => (
           <button key={sp.id} type="button" className="profile-chip" title={`Switch to ${sp.name}`}
             onClick={() => run(() => selectSpace(sp.id))}>
-            <SpaceIcon icon={sp.icon} size={13} /> {sp.name}
+            <SpaceIcon icon={sp.icon} size={12} /> {sp.name}
           </button>
         ))}
       </div>

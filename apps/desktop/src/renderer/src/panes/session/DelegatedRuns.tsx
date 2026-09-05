@@ -71,7 +71,7 @@ function Dock({ sessionId, running }: { sessionId: string; running: readonly Del
           unsettled drain, which is precisely what "still running" means. */}
       <button type="button" className="delegation-row" aria-expanded={open} onClick={() => setOpen((o) => !o)}
         aria-label={`${count} in flight for ${title}`}>
-        <Icon name="bot" size={13} />
+        <Icon name="bot" size={12} />
         <span className="delegation-summary">{count} running</span>
         <span className="delegation-elapsed">{formatDuration(elapsed)}</span>
         <Icon name="chevronRight" size={12} className="tool-chevron" />
