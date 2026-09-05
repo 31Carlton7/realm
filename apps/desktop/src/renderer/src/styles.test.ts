@@ -812,6 +812,11 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // The well clips the picture; the TILE must not, or it would clip its own hover tip off.
     expect(art).toContain("overflow: hidden");
     expect(tile).not.toContain("overflow: hidden");
+    /* The tile is a <span>, so without a display of its own it is an INLINE box and both lengths
+       above are dead letters. The composer never noticed — its <li> is `display: contents`, which
+       makes the tile a flex item and blockifies it — but the transcript's <li> is an ordinary flex
+       item, and there the sent tile collapsed to 0×0 and painted nothing. */
+    expect(tile).toContain("display: inline-block");
   });
 
   it("the open control fills the tile and draws nothing — the well underneath already has the ring", () => {

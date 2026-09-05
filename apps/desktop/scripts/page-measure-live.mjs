@@ -139,6 +139,32 @@ window.__live = window.__live ?? {
   },
   box(e) { if (!e) return null; const r = e.getBoundingClientRect();
     return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; },
+  /** Open a Settings rail tab by its visible label. */
+  async settingsTab(label) {
+    const hit = [...document.querySelectorAll('.page-rail .settings-tab')].find((l) => l.textContent.trim() === label);
+    if (!hit) throw new Error('no settings tab: ' + label);
+    hit.querySelector('input').click();
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+      if (document.querySelector('.page-content')) return true;
+    }
+    throw new Error('tab did not open: ' + label);
+  },
+  /** The App tab's two card grids, against the column the shared shell gives them. The grids are the
+   *  widest things on any Settings tab, so they are where a measure that does not hold shows first. */
+  appearance() {
+    const content = document.querySelector('.page-content');
+    const grids = ['.mode-grid', '.theme-grid'].map((sel) => {
+      const g = document.querySelector(sel);
+      if (!g) return { sel, box: null };
+      const cards = [...g.children].map((k) => k.getBoundingClientRect()).filter((r) => r.width > 0);
+      return { sel, box: this.box(g), overflowX: g.scrollWidth - g.clientWidth,
+        cards: cards.length ? { n: cards.length,
+          min: Math.round(Math.min(...cards.map((r) => r.width))), max: Math.round(Math.max(...cards.map((r) => r.width))),
+          l: Math.round(Math.min(...cards.map((r) => r.left))), r: Math.round(Math.max(...cards.map((r) => r.right))) } : null };
+    });
+    return { content: this.box(content), grids, overflowX: content.scrollWidth - content.clientWidth };
+  },
   /** The horizontal extent of a band's visible children — what the eye reads as the column's edges.
    *  The band ELEMENT is full-bleed today and would report itself centred either way. */
   span(el) {
@@ -292,6 +318,9 @@ async function main() {
       LIVE_MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js"),
     },
     stdio: ["ignore", "pipe", "pipe"],
+    // Its own process group. Main spawns the server as a GRANDCHILD, so killing the Electron pid
+    // alone orphans a listener on SERVER_PORT and the next run refuses to start on a busy port.
+    detached: true,
   });
   electron.stderr.on("data", () => {}); electron.stdout.on("data", () => {});
 
@@ -407,6 +436,69 @@ async function main() {
     tasks.filter((r) => r.page.w >= 1400).every((r) => r.lens.w >= 1000),
     tasks.map((r) => ({ pane: r.page.w, lens: r.lens?.w })));
 
+  await evalIn(c, `__live.destination('Settings')`);
+  await sleep(500);
+  /* ── Settings → App: the Appearance controls, against the other tabs ─────────────────────────
+     "Fix the padding here" reads most naturally as Appearance disagreeing with the tabs above it,
+     so the gutters are measured on every tab rather than on the one that was complained about — a
+     number from Appearance alone cannot tell an inconsistency from a taste. The App tab is also the
+     only one whose content is a GRID of cards, which is the thing that escapes a measure first. */
+  const SETTINGS_TABS = ["Engines", "Usage", "App", "Sign-ins", "Import", "Permissions"];
+  const perTab = [];
+  for (const width of WIDTHS) {
+    await c.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await sleep(250);
+    for (const label of SETTINGS_TABS) {
+      await evalIn(c, `__live.settingsTab(${JSON.stringify(label)})`);
+      await sleep(140);
+      const p = await evalIn(c, `__live.page()`);
+      perTab.push({ width, label, content: p.content, body: p.body });
+    }
+  }
+  console.log("\n── Settings tabs, one column each ───────────────────────────────");
+  for (const width of WIDTHS) {
+    const at = perTab.filter((r) => r.width === width);
+    console.log(`  window ${String(width).padStart(4)}  ` +
+      at.map((r) => `${r.label} w${r.content.w}@${r.content.l}`).join("  "));
+  }
+  check("settings: every tab is set in the same column — Appearance has no gutters of its own",
+    WIDTHS.every((w) => {
+      const at = perTab.filter((r) => r.width === w);
+      return at.every((r) => r.content.l === at[0].content.l && r.content.w === at[0].content.w);
+    }),
+    WIDTHS.map((w) => {
+      const at = perTab.filter((r) => r.width === w);
+      return { width: w, distinct: [...new Set(at.map((r) => `${r.content.w}@${r.content.l}`))] };
+    }));
+
+  const appearance = [];
+  for (const width of WIDTHS) {
+    await c.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await sleep(250);
+    await evalIn(c, `__live.settingsTab("App")`);
+    await sleep(200);
+    appearance.push({ width, ...(await evalIn(c, `__live.appearance()`)) });
+  }
+  console.log("\n── Settings → App: the theme grids ──────────────────────────────");
+  for (const a of appearance) {
+    console.log(`  window ${String(a.width).padStart(4)}  column w${a.content.w}@${a.content.l}  ` +
+      a.grids.map((g) => `${g.sel} ${g.cards.n}×${g.cards.min}–${g.cards.max}@[${g.cards.l},${g.cards.r}]`).join("  "));
+  }
+  check("appearance: the cards stay inside the reading column — no grid escapes the measure",
+    appearance.every((a) => a.grids.every((g) => g.cards.l >= a.content.l - 1 && g.cards.r <= a.content.r + 1)),
+    appearance.map((a) => ({ width: a.width, col: [a.content.l, a.content.r],
+      grids: a.grids.map((g) => [g.cards.l, g.cards.r]) })));
+  check("appearance: nothing in the App tab scrolls sideways at any width",
+    appearance.every((a) => a.overflowX <= 0 && a.grids.every((g) => g.overflowX <= 0)),
+    appearance.map((a) => ({ width: a.width, content: a.overflowX, grids: a.grids.map((g) => g.overflowX) })));
+
+  // Back to the widest and to the tab the page opens on, the way `sweep` leaves it. The App tab is
+  // not a neutral thing to leave behind: it re-renders every palette card on a theme change, which
+  // is exactly what the scrollbar pass below does next.
+  await evalIn(c, `__live.settingsTab("Engines")`);
+  await c.send("Emulation.setDeviceMetricsOverride", { width: WIDTHS[0], height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(300);
+
   /* ── Scrollbars, in both modes, on a scroller that is actually overflowing ───────────────── */
   await evalIn(c, `__live.destination('Settings')`);
   await sleep(400);
@@ -441,6 +533,11 @@ async function main() {
 main()
   .catch((e) => { console.error("ERROR", e.message); process.exitCode = 1; })
   .finally(() => {
-    electron?.kill("SIGTERM");
-    setTimeout(() => { electron?.kill("SIGKILL"); fs.rmSync(scratch, { recursive: true, force: true }); process.exit(process.exitCode ?? 0); }, 1200);
+    const killGroup = (sig) => { try { if (electron?.pid) process.kill(-electron.pid, sig); } catch { /* already gone */ } };
+    killGroup("SIGTERM");
+    setTimeout(() => {
+      killGroup("SIGKILL");
+      fs.rmSync(scratch, { recursive: true, force: true });
+      process.exit(process.exitCode ?? 0);
+    }, 1200);
   });

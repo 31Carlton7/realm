@@ -15,6 +15,12 @@
  *   5. the lightbox that opens from a PROMPTER tile covers the prompter. It is portalled to <body>,
  *      so it escapes the pane; nothing in jsdom can see whether it actually paints on top
  *
+ * Then the same file is SENT, and the tile in the bubble is held to the same guarantees. The two
+ * tiles are one component, but they are reached by different routes — the prompter's is built from
+ * the picker's own record, the bubble's is rebuilt from the server's echo of the event, which keeps
+ * only `{path, mime}`. Whether the picture survives that round trip is a question about the real
+ * `attachment-thumbnail` bridge over the real path, and jsdom decodes no images.
+ *
  * Ports: env-overridable, defaulting to a high pair that will not contend with a running Realm.
  * Touches only a scratch dir (REALM_HOME + userData); kills only the process it started.
  */
@@ -106,6 +112,28 @@ window.__live = window.__live ?? {
 };
 void 0`;
 
+/** The server's own socket, for the one thing the UI cannot do here: put the session on the fake
+ *  agent so a send completes on a machine with no CLI installed. */
+function rpc(port) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+  let id = 0;
+  const pending = new Map();
+  const ready = new Promise((res) => ws.addEventListener("open", res));
+  ws.addEventListener("message", (m) => {
+    const msg = JSON.parse(m.data);
+    if (msg.id !== undefined) pending.get(msg.id)?.(msg);
+  });
+  return {
+    ready,
+    call: (method, params) => new Promise((res, rej) => {
+      const i = String(++id);
+      pending.set(i, (msg) => (msg.ok ? res(msg.result) : rej(new Error(`${method}: ${msg.error?.message}`))));
+      ws.send(JSON.stringify({ id: i, method, params }));
+    }),
+    close: () => ws.close(),
+  };
+}
+
 async function evalIn(c, expr) {
   const r = await c.send("Runtime.evaluate", { expression: HELPERS + ";\n" + expr, awaitPromise: true, returnByValue: true });
   if (r.exceptionDetails) throw new Error(`page exception: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
@@ -159,6 +187,9 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
+      // The sent half needs a turn that completes without a CLI on the box; the tiles under test are
+      // on the USER's bubble, which the server echoes either way, but a send that throws never gets there.
+      REALM_ENABLE_FAKE_AGENT: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
@@ -305,6 +336,100 @@ async function main() {
   const shotPath = path.join(os.tmpdir(), "realm-attachment-tiles-live.png");
   fs.writeFileSync(shotPath, Buffer.from(shot.data, "base64"));
   console.log("SCREENSHOT " + shotPath);
+
+  /* ── The same two files, SENT ──────────────────────────────────────────────────────────────
+     Everything above measured the PROMPTER's tile, which is built from the picker's own record and
+     still has the File in hand. The bubble's tile is rebuilt from the server's echo of the
+     `user_message` event, which carries only `{path, mime}` — the name and the size are dropped on
+     the wire. So this is a round trip, not a re-render, and the question is whether the picture
+     survives it. */
+  const api = rpc(SERVER_PORT);
+  await api.ready;
+  const session = await until(async () => {
+    const all = await api.call("sessions.listAll", {});
+    return all.length ? all[0] : null;
+  }, 15000, "a session");
+  await api.call("sessions.setAgent", { id: session.id, agentKind: "fake" });
+
+  // The button rather than Enter: which key sends is a user preference, and this check is not about it.
+  await evalIn(c, `(() => {
+    const ta = document.querySelector('.composer textarea');
+    __live.setInput(ta, 'here are the files');
+    return true; })()`);
+  await until(() => evalIn(c, `!document.querySelector('.composer-send[disabled]')`), 8000, "send enabled");
+  await evalIn(c, `(() => { document.querySelector('.composer-send').click(); return true; })()`);
+
+  const sent = await until(() => evalIn(c, `(() => {
+    const tiles = [...document.querySelectorAll('.msg-user-files .attach-tile')];
+    return tiles.length === 2 ? tiles.length : null; })()`), 20000, "two sent tiles");
+  check("the attachments survive the send and land in the bubble", sent === 2, { tiles: sent });
+
+  // The prompter's row is emptied by the same send — the files moved, they were not duplicated.
+  check("the prompter's row is cleared by the send that carried them",
+    (await evalIn(c, `document.querySelectorAll('.composer-attachments .attach-tile').length`)) === 0);
+
+  /* The picture, after the round trip. This is the failure the report would look like: a tile that
+     renders but falls back to the grey glyph because the path no longer resolves. `naturalWidth`
+     is the decode actually happening, not the src merely being set. */
+  const sentArt = await until(() => evalIn(c, `(() => {
+    const imgs = [...document.querySelectorAll('.msg-user-files .attach-thumb')];
+    if (imgs.length < 2) return null;
+    return imgs.map((i) => ({ src: i.src.slice(0, 22), w: i.naturalWidth, h: i.naturalHeight }));
+  })()`), 25000, "both sent thumbnails");
+  check("the sent image still renders its own pixels, not the fallback glyph",
+    sentArt[0].src.startsWith("data:image/") && sentArt[0].w > 0, sentArt[0]);
+  check("the sent PDF still renders its first page", sentArt[1].src.startsWith("data:image/") && sentArt[1].w > 0, sentArt[1]);
+  check("no sent tile fell back to the glyph",
+    (await evalIn(c, `document.querySelectorAll('.msg-user-files .attach-glyph').length`)) === 0);
+
+  /* The bubble's tile is deliberately a size of its own (56 against the prompter's 44), so this
+     pins the size it is MEANT to be rather than equality with the prompter. Still square, and still
+     without the filename written on it. */
+  const sentShape = await evalIn(c, `(() => {
+    const t = document.querySelector('.msg-user-files .attach-tile');
+    const b = t.getBoundingClientRect();
+    const bare = t.cloneNode(true);
+    for (const h of bare.querySelectorAll('.visually-hidden, .attach-tip')) h.remove();
+    return { w: Math.round(b.width), h: Math.round(b.height), visible: bare.textContent.trim() }; })()`);
+  check("the sent tile is a square, and larger than the prompter's",
+    sentShape.w === sentShape.h && sentShape.w === 56, sentShape);
+  check("the sent tile does not spell its filename out either — only the extension badge",
+    !sentShape.visible.includes("shot"), sentShape);
+
+  // The name is still one hover away, off the path's basename now that the picker's name is gone.
+  const sentTip = await evalIn(c, `(() => {
+    const t = document.querySelector('.msg-user-files .attach-tile');
+    return { tip: t.querySelector('.attach-tip')?.textContent ?? null,
+             label: t.querySelector('.visually-hidden')?.textContent ?? null }; })()`);
+  check("the sent tile still names its file in the tip", (sentTip.tip ?? "").includes("shot.png"), sentTip);
+
+  // Openable, and sorted into the same two openings by the same rule the prompter's tile used.
+  const sentMarks = await evalIn(c, `[...document.querySelectorAll('.msg-user-files .attach-tile')].map((t) => ({
+    button: t.querySelector('.attach-open')?.tagName === 'BUTTON', media: t.hasAttribute('data-media') }))`);
+  check("every sent tile is a real button", sentMarks.every((m) => m.button), sentMarks);
+  check("only the sent image is marked as media — the PDF is not",
+    sentMarks.filter((m) => m.media).length === 1 && sentMarks[0].media, sentMarks);
+
+  await evalIn(c, `(() => { document.querySelector('.msg-user-files .attach-tile[data-media] .attach-open').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.media-lightbox')`), 8000, "sent lightbox");
+  check("a sent image opens in the lightbox, the same as a pending one", true);
+  const sentShot = await c.send("Page.captureScreenshot", { format: "png" });
+  fs.writeFileSync(path.join(os.tmpdir(), "realm-sent-attachments-live.png"), Buffer.from(sentShot.data, "base64"));
+  console.log("SCREENSHOT " + path.join(os.tmpdir(), "realm-sent-attachments-live.png"));
+  await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await until(() => evalIn(c, `!document.querySelector('.media-lightbox')`), 5000, "sent lightbox closed");
+
+  // The bubble, with the tip up, for the human verdict on whether the tile is findable at all.
+  const sentBox = await evalIn(c, `(() => {
+    const b = document.querySelector('.msg-user-files .attach-tile').getBoundingClientRect();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; })()`);
+  await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: sentBox.x, y: sentBox.y });
+  await sleep(400);
+  const bubbleShot = await c.send("Page.captureScreenshot", { format: "png" });
+  fs.writeFileSync(path.join(os.tmpdir(), "realm-sent-attachments-bubble.png"), Buffer.from(bubbleShot.data, "base64"));
+  console.log("SCREENSHOT " + path.join(os.tmpdir(), "realm-sent-attachments-bubble.png"));
+  api.close();
 
   const errs = c.events.filter((e) => !e.includes("Autofill"));
   check("no renderer console errors", errs.length === 0, errs.slice(0, 5));
