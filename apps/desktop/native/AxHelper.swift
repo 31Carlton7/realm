@@ -359,20 +359,35 @@ private func captureApp(pid: pid_t) -> String? {
     content = fetched
     contentSemaphore.signal()
   }
-  guard contentSemaphore.wait(timeout: .now() + CAPTURE_TIMEOUT_S) == .success,
-        let content,
-        let display = content.displays.first else { return nil }
+  guard contentSemaphore.wait(timeout: .now() + CAPTURE_TIMEOUT_S) == .success, let content else { return nil }
 
   let windows = content.windows.filter { $0.owningApplication?.processID == pid }
   guard !windows.isEmpty else { return nil }
+  let bounds = windows.dropFirst().reduce(windows[0].frame) { $0.union($1.frame) }
+
+  // The display the app's windows are actually ON, not `content.displays.first`.
+  //
+  // Observed on a three-display Mac: `displays` came back ordered [external-left, main, laptop], so
+  // `.first` was the monitor at x=-1920 while Calculator's window sat at x=969 on the main display.
+  // A filter whose windows are not on its display does not return a wrong image — it fails the whole
+  // capture with SCStreamErrorDomain -3811, "failed to start stream due to audio/video capture
+  // failure", which reads exactly like a missing permission and is why this path looked ungranted.
+  // On a single-display Mac `.first` is right by luck, which is why it survived this long.
+  let area = { (display: SCDisplay) -> CGFloat in
+    let overlap = display.frame.intersection(bounds)
+    return overlap.isNull ? 0 : overlap.width * overlap.height
+  }
+  guard let display = content.displays.max(by: { area($0) < area($1) }), area(display) > 0 else { return nil }
 
   let filter = SCContentFilter(display: display, including: windows)
   let config = SCStreamConfiguration()
-  // The filter's own bounds, so the image is the app's windows rather than a mostly-empty desktop.
-  // `contentRect` is in points; scaling to 1x keeps a Retina capture from being four times the
-  // bytes for detail no model reads.
-  config.width = Int(filter.contentRect.width)
-  config.height = Int(filter.contentRect.height)
+  // `filter.contentRect` for a display filter is the whole DISPLAY, not the included windows, so the
+  // crop has to be asked for or the image is a mostly-empty desktop at display resolution. Points,
+  // and `.nominal` so a Retina capture is not four times the bytes for detail no model reads.
+  let crop = bounds.intersection(display.frame).offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+  config.sourceRect = crop
+  config.width = Int(crop.width)
+  config.height = Int(crop.height)
   config.captureResolution = .nominal
   config.showsCursor = false
 
