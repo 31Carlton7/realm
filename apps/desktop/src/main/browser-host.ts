@@ -117,14 +117,9 @@ export class BrowserPaneHost {
     sendState: (s: BrowserViewState) => void;
     /** The window's display scale factor at the time of a bounds sync. */
     scaleFactor: () => number;
-    /** Off-screen view budget; injected so tests can drive eviction without opening four views. */
-    retainedLimit?: number;
   }) {}
 
   has(id: string): boolean { return this.views.has(id); }
-
-  /** Is this view alive with no pane showing it? Off-screen and still running. */
-  isRetained(id: string): boolean { return this.retained.has(id); }
 
   /** Idempotent: React StrictMode double-mounts, and a remount must not reload the page. It is also
    *  how a retained view is re-adopted — a pane returning to a space calls this and gets the SAME
@@ -190,11 +185,12 @@ export class BrowserPaneHost {
     v.handle.setVisible(false);
     this.retained.delete(id);
     this.retained.add(id); // to the back: most recently retained
-    const limit = this.opts.retainedLimit ?? RETAINED_VIEW_LIMIT;
-    while (this.retained.size > limit) {
+    while (this.retained.size > RETAINED_VIEW_LIMIT) {
       const oldest = this.retained.values().next().value;
       if (oldest === undefined) break;
-      this.retained.delete(oldest); // before destroy, so the loop cannot spin on an id destroy skips
+      // Dropped here rather than left to `destroy`, so the loop terminates on its own terms and not
+      // on the invariant that every retained id still has a view behind it.
+      this.retained.delete(oldest);
       this.destroy(oldest);
     }
   }

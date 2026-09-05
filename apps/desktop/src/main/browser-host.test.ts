@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  BrowserPaneHost, normalizeAddress, originAllowed, toViewBounds,
+  BrowserPaneHost, RETAINED_VIEW_LIMIT, normalizeAddress, originAllowed, toViewBounds,
   type BrowserViewState, type ViewHandle, type ViewHooks,
 } from "./browser-host";
 
@@ -92,17 +92,23 @@ function fakeView() {
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
 }
 
-function makeHost(scaleFactor = 2, retainedLimit?: number) {
+function makeHost(scaleFactor = 2) {
   const views = new Map<string, ReturnType<typeof fakeView>>();
   const states: BrowserViewState[] = [];
   const factory = vi.fn((id: string, hooks: ViewHooks) => {
     const v = fakeView(); v.setHooks(hooks); views.set(id, v); return v.handle;
   });
-  const host = new BrowserPaneHost({ createView: factory, sendState: (s) => states.push(s), scaleFactor: () => scaleFactor, retainedLimit });
+  const host = new BrowserPaneHost({ createView: factory, sendState: (s) => states.push(s), scaleFactor: () => scaleFactor });
   return { host, views, states, factory };
 }
 
 const alive = (v: ReturnType<typeof fakeView>) => !v.calls.includes("destroy");
+/** One more browser than the budget can retain, named v0 (oldest) upward. */
+const overBudget = (host: BrowserPaneHost) => {
+  const ids = Array.from({ length: RETAINED_VIEW_LIMIT + 1 }, (_, i) => `v${i}`);
+  for (const id of ids) host.create(id, "example.com", null);
+  return ids;
+};
 
 describe("BrowserPaneHost", () => {
   it("create loads the (normalized) url and emits initial state; create is idempotent", () => {
@@ -253,47 +259,39 @@ describe("BrowserPaneHost retention", () => {
   });
 
   it("a re-adopted view leaves the off-screen budget", () => {
-    const { host, views } = makeHost(2, 1);
-    host.create("b1", "", null);
-    host.create("b2", "", null);
-    host.retain("b1");
-    host.create("b1", "", null); // the user came back to b1's space
-    host.retain("b2"); // ...so b2 fits in the budget on its own
-    expect(alive(views.get("b1")!)).toBe(true);
-    expect(alive(views.get("b2")!)).toBe(true);
+    const { host, views } = makeHost();
+    const ids = overBudget(host);
+    host.retain(ids[0]!);
+    host.create(ids[0]!, "example.com", null); // the user came back to its space
+    for (const id of ids.slice(1)) host.retain(id); // exactly the budget, so nothing is evicted
+    for (const id of ids) expect(alive(views.get(id)!)).toBe(true);
   });
 
   it("past the off-screen budget the LEAST recently retained view is destroyed", () => {
-    const { host, views } = makeHost(2, 2);
-    for (const id of ["b1", "b2", "b3"]) host.create(id, "example.com", null);
-    host.retain("b1");
-    host.retain("b2");
-    host.retain("b3");
-    expect(alive(views.get("b1")!)).toBe(false); // oldest off-screen page pays
-    expect(alive(views.get("b2")!)).toBe(true);
-    expect(alive(views.get("b3")!)).toBe(true);
-    expect(host.has("b1")).toBe(false);
+    const { host, views } = makeHost();
+    const ids = overBudget(host);
+    for (const id of ids) host.retain(id);
+    expect(alive(views.get(ids[0]!)!)).toBe(false); // oldest off-screen page pays
+    expect(host.has(ids[0]!)).toBe(false);
+    for (const id of ids.slice(1)) expect(alive(views.get(id)!)).toBe(true);
   });
 
   it("touch spares a background view an agent is still driving", () => {
-    const { host, views } = makeHost(2, 2);
-    for (const id of ["b1", "b2", "b3"]) host.create(id, "example.com", null);
-    host.retain("b1");
-    host.retain("b2");
-    host.touch("b1"); // an agent op reached b1 while its space was off screen
-    host.retain("b3");
-    expect(alive(views.get("b1")!)).toBe(true);
-    expect(alive(views.get("b2")!)).toBe(false);
+    const { host, views } = makeHost();
+    const ids = overBudget(host);
+    for (const id of ids.slice(0, RETAINED_VIEW_LIMIT)) host.retain(id);
+    host.touch(ids[0]!); // an agent op reached it while its space was off screen
+    host.retain(ids[RETAINED_VIEW_LIMIT]!);
+    expect(alive(views.get(ids[0]!)!)).toBe(true);
+    expect(alive(views.get(ids[1]!)!)).toBe(false); // the next-oldest pays instead
   });
 
   it("touch never makes an on-screen view evictable", () => {
-    const { host, views } = makeHost(2, 1);
-    host.create("b1", "", null); // mounted pane, never retained
-    host.create("b2", "", null);
-    host.touch("b1");
-    host.retain("b2");
-    expect(alive(views.get("b1")!)).toBe(true);
-    expect(alive(views.get("b2")!)).toBe(true); // b1 is not in the budget, so b2 fits
+    const { host, views } = makeHost();
+    const ids = overBudget(host);
+    host.touch(ids[0]!); // still mounted, never retained
+    for (const id of ids.slice(1)) host.retain(id); // exactly the budget
+    for (const id of ids) expect(alive(views.get(id)!)).toBe(true);
   });
 
   it("retain on an unknown id is refused, not thrown", () => {

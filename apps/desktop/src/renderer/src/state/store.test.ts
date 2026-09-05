@@ -398,6 +398,16 @@ describe("app store", () => {
       expect(api.destroyedBrowserViews).toEqual(["b9"]);
     });
 
+    it("the driving signal survives the switch too — the dot is there on the way back", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await openBrowser(store);
+      store.getState().applyBrowserDriving({ browserId: "b9", driving: true });
+      await store.getState().selectSpace("s2");
+      await store.getState().selectSpace("s1");
+      expect(store.getState().browserDriving["b9"]).toBe(true);
+    });
+
     it("closing a pane that is not a browser destroys no view", async () => {
       const store = createAppStore(api);
       await store.getState().boot();
