@@ -532,8 +532,8 @@ export function resolveMode(name: ThemeName, mode: Mode): Mode {
 /** Which palette each face wears. Two slots rather than one name because the palette that suits a
  *  lit room is rarely the one that suits a dark one, and a single selection forces one of the two to
  *  be a compromise — the mode preference already says WHEN to switch, and this says what to switch
- *  TO. The pickers offer each face only the palettes that have it, so the two axes no longer fight:
- *  choosing Monokai for the dark slot cannot pin the window dark at noon. */
+ *  TO. The pickers offer each face only the palettes that have it, which is what keeps the two axes
+ *  independent: choosing Monokai for the dark slot cannot pin the window dark at noon. */
 export type ThemeSelection = Record<Mode, ThemeName>;
 
 export const DEFAULT_SELECTION: ThemeSelection = { dark: "realm", light: "realm" };

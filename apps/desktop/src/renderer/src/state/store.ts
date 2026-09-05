@@ -514,9 +514,9 @@ export type AppState = {
   /** All spaces across profiles, in user sort order. Exactly one is active at a time. */
   spaces: Space[]; activeSpaceId: string | null;
   themePref: ThemePref;
-  /** The palette each face wears. Orthogonal to `themePref`, which says only WHEN to switch faces —
-   *  a palette can no longer move the mode, because each slot is offered only palettes that have
-   *  its face (see `paletteFor`). */
+  /** The palette each face wears. Orthogonal to `themePref`, which says only WHEN to switch faces:
+   *  a palette cannot move the mode, because each slot is offered only palettes that have its face
+   *  (see `paletteFor`). */
   themeNames: ThemeSelection;
   /** Per-palette, per-face colour edits, merged into the palette's seeds before derivation — so a
    *  moved background gets the same surface ladder and the same contrast correction a vendored one

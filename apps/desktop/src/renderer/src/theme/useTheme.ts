@@ -44,9 +44,9 @@ export function suppressTransitions(root: HTMLElement, ms = SETTLE_MS): () => vo
  *  static CSS (BUI tokens in theme/tokens.css keyed on `data-mode`) and the only runtime writes are
  *  `--rl-space` and the two attributes.
  *
- *  The mode is now the preference and nothing else. A palette used to be able to pin it — the only
- *  way a single selection could honour "Monokai, which has no light face" — and with a slot per face
- *  there is no such conflict to resolve: each slot is offered only palettes that have its face. */
+ *  The mode is the preference and nothing else. A palette cannot move it: each slot is offered only
+ *  palettes that have its face, so "Monokai, which has no light face" is settled by what the dark
+ *  slot may hold rather than by overruling the other axis at paint time. */
 export type AppliedTheme = {
   color: string | null;
   pref: ThemePref;

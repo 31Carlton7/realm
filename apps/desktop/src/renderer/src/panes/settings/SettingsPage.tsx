@@ -4,9 +4,9 @@ import {
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
 } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
-  THEMES, contrastMisses, isHexColour, isOverridden, overrideKey,
-  deriveVars, exportTheme, importTheme, paletteFor, seedFor, themeModes, themeSwatches,
-  type FontId, type FontWeight, type Mode, type ThemeName, type ThemeOverride } from "@realm/ui";
+  THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
+  paletteFor, seedFor, themeModes, themeSwatches,
+  type FontId, type FontWeight, type Mode, type ThemeName, type ThemeOverride, type ThemeSeed } from "@realm/ui";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type SubmitKey } from "../../state/store";
@@ -193,11 +193,18 @@ const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string 
   budget: { label: "Spend thresholds", desc: "This month's agent spend passed one of your budget thresholds." },
 };
 
-/** The palette a face would wear, as VALUES. Realm's own face is the static CSS in tokens.css, which
- *  a preview nested in the page cannot reach — `data-mode` only flips the token blocks at `:root` —
- *  so the seeds behind it are derived here like any other palette's. */
+/** The seed a face is really wearing. `seedFor` answers null for an untouched Realm, whose whole
+ *  point is to write nothing — but a field showing the current colour and a preview painting it both
+ *  need values, and Realm's own seeds are the only honest ones to show. */
+function faceSeed(name: ThemeName, face: Mode, override: ThemeOverride | undefined): ThemeSeed {
+  return seedFor(name, face, override ?? {}) ?? REALM_SEED[face];
+}
+
+/** ...and as the palette it derives to. Realm's face is the static CSS in tokens.css, which a preview
+ *  nested in the page cannot reach — `data-mode` only flips the token blocks at `:root` — so it is
+ *  derived here like any other palette's. */
 function facePalette(name: ThemeName, face: Mode, override: ThemeOverride | undefined, contrast: number): Record<string, string> {
-  return deriveVars(seedFor(name, face, override ?? {}) ?? REALM_SEED[face], face, contrast);
+  return deriveVars(faceSeed(name, face, override), face, contrast);
 }
 
 /** The window, small enough to read at a glance: the ground, the sidebar over it, two cards and the
@@ -291,9 +298,7 @@ function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
     const t = setTimeout(() => setCopied(false), 1600);
     return () => clearTimeout(t);
   }, [copied]);
-  // The palette AS EDITED. `seedFor` returns null only for an untouched Realm, whose seeds are what
-  // the fields have to show anyway — there is no other honest starting value for an edit.
-  const seed = seedFor(name, face, override ?? {}) ?? REALM_SEED[face];
+  const seed = faceSeed(name, face, override);
   // Measured at the contrast the app is actually running at, not at the default — the ramp's spread
   // is one of the things a tier's ratio depends on, and a warning computed against a setting the
   // user is not using would name the wrong roles.
