@@ -64,8 +64,8 @@ export function oklchToHex(o: Oklch): string {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 
-/** The CSS form. Three decimals on lightness and chroma is what tokens.css already writes, and it is
- *  finer than an 8-bit channel can resolve — rounding here never moves a pixel. */
+/** The CSS form: three decimals on lightness, four on chroma. Both are finer than an 8-bit channel
+ *  can resolve — rounding here never moves a pixel. */
 export function css(o: Oklch, alpha?: number): string {
   const n = (x: number, p: number) => Number(x.toFixed(p)).toString();
   const base = `${n(o.l, 3)} ${n(o.c, 4)} ${n(o.h, 2)}`;

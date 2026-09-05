@@ -15,13 +15,13 @@ import type { Mode } from "./theme";
  *  overrides at all, so the default experience is byte-for-byte the static CSS it has always been —
  *  the theme mechanism cannot regress the theme nobody chose. */
 
-/** What a theme has to state. Everything else in the 85-property token set is derived from these —
- *  see `themeVars` — because a palette is a set of RELATIONSHIPS (a surface ladder, an ink ramp, a
+/** What a theme has to state. Every property in `THEME_VARS` is derived from these — see
+ *  `themeVars` — because a palette is a set of RELATIONSHIPS (a surface ladder, an ink ramp, a
  *  border overlay ramp) and only the anchors of those relationships are a matter of taste.
  *
  *  The border ramp, the shadow stacks and the scrims state nothing here on purpose: tembo's ramps are
  *  ALPHA overlays over whatever ground they land on, so they already follow a repainted surface. That
- *  is the property that makes a twelve-value seed enough. */
+ *  is the property that makes a thirteen-value seed enough. */
 /** Every hue below is the value its upstream PUBLISHES, not a value tuned to clear Realm's floors.
  *  It can be, because `lift` corrects a stated hue along lightness until it clears — and refuses to
  *  move it further than `LIFT_BUDGET`, which is what makes "vendored" mean something. Hand-brightening
@@ -443,7 +443,7 @@ export function contrastMisses(seed: ThemeSeed, mode: Mode, contrastLevel: numbe
 
 /** What a user has moved off a palette's own seeds. A PARTIAL SEED rather than a fixed trio of
  *  fields, because the same shape is what a copied theme has to carry: the picker edits three of the
- *  twelve (ground, ink, accent — the three that decide what a palette feels like), and an imported
+ *  thirteen (ground, ink, accent — the three that decide what a palette feels like), and an imported
  *  theme states as many of them as it likes, through one type and one merge.
  *
  *  Overrides are keyed by PALETTE as well as by face. Moving One Dark's accent is a statement about
@@ -548,7 +548,7 @@ export function paletteFor(selection: ThemeSelection, mode: Mode): ThemeName {
   return themeModes(name).includes(mode) ? name : "realm";
 }
 
-/** Realm's own twelve, read out of theme/tokens.css and written here as hex — the same seeds the
+/** Realm's own thirteen, read out of theme/tokens.css and written here as hex — the same seeds the
  *  stylesheet's own ramp guardrail recovers from that file, so styles.test.ts pins this copy against
  *  it rather than letting two sets of Realm's colours drift apart.
  *
@@ -603,8 +603,7 @@ export const THEMES: readonly ThemeDef[] = [
   {
     /* One — atom/one-dark-syntax and atom/one-light-syntax, MIT © GitHub Inc. Hex values read off
      * those two packages' settings files. `ink` is the Atom ONE UI foreground (#d7dae0), not the
-     * syntax foreground (#abb2bf): --ink is chrome, and the ink ramp's second step lands on #abb2bf
-     * by itself, which is a fair check that the ramp is the right shape. */
+     * syntax foreground (#abb2bf): --ink is chrome, and the dimmer tiers derive off it. */
     name: "one",
     label: "One",
     credit: "Atom One Dark / One Light — MIT © GitHub, Inc.",
