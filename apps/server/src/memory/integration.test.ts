@@ -1,8 +1,8 @@
 import { describe, expect, it, afterEach, vi } from "vitest";
 import WebSocket from "ws";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
 import { newId, sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
@@ -57,7 +57,7 @@ async function client(port: number) {
 }
 
 async function boot() {
-  const home = mkdtempSync(join(tmpdir(), "realm-memory-int-"));
+  const home = tempDir("realm-memory-int-");
   vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
   const claudeDir = join(home, "claude-home");
   const claude = new RecordingAdapter("claude");

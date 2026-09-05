@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase, type Db } from "../db/database";
 import { ShipsStore, type ShipInsert } from "./ships";
 
@@ -12,7 +11,7 @@ const row = (extra: Partial<ShipInsert> = {}): ShipInsert =>
     sha: "abc123", subject: "a change", prUrl: null, pushState: "pushed", ...extra });
 
 beforeEach(() => {
-  db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-shipstore-")), "realm.db"));
+  db = openDatabase(join(tempDir("realm-shipstore-"), "realm.db"));
   store = new ShipsStore(db);
 });
 

@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, readFile, readdir, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, utimes, writeFile } from "node:fs/promises";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { symlink } from "node:fs/promises";
+import { tempDir } from "@realm/test-utils";
 import {
   describeFiles, openablePath, quickLookThumbnail, safeAttachmentName, saveTempAttachment,
   sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
 } from "./attachments";
 
 let home: string;
-beforeEach(async () => { home = await mkdtemp(join(tmpdir(), "realm-attach-test-")); });
+beforeEach(async () => { home = tempDir("realm-attach-test-"); });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 /** Backdate a file so the sweep sees it as stale. */

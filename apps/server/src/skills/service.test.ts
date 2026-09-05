@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
 import { RpcError } from "../store/rows";
@@ -19,8 +19,8 @@ const skill = (dir: string, id: string, body = `---\nname: ${id}\ndescription: d
 };
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "realm-skills-home-"));
-  bundled = mkdtempSync(join(tmpdir(), "realm-skills-bundle-"));
+  home = tempDir("realm-skills-home-");
+  bundled = tempDir("realm-skills-bundle-");
   settings = new SettingsStore(openDatabase(join(home, "realm.db")));
   service = new SkillsService({ home, settings, bundledDir: bundled });
 });

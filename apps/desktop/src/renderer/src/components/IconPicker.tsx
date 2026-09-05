@@ -99,7 +99,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
       </div>
       {(tab === "default" || tab === "emoji") && (
         <div className="ip-search">
-          <Icon name="search" size={13} />
+          <Icon name="search" size={14} />
           <input autoFocus type="text" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder={tab === "default" ? "Search icons…" : "Search emoji…"} aria-label="Search" />
         </div>
@@ -128,7 +128,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
               generation in flight — for the reader and for the stylesheet, which must not grey the
               button out from under the press that started the work. */}
           <button type="button" className="btn primary" aria-busy={generating} disabled={!prompt.trim() || generating} onClick={submitGenerate}>
-            {generating ? <><Spinner size={14} /> Generating…</> : <><Icon name="sparkles" size={13} /> Generate</>}
+            {generating ? <><Spinner size={14} /> Generating…</> : <><Icon name="sparkles" size={14} /> Generate</>}
           </button>
           {genError && <p className="ip-error">{genError}</p>}
           <div className="ip-grid">
@@ -144,7 +144,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
       {tab === "uploaded" && (
         <div className="ip-generate">
           <button type="button" className="btn" aria-busy={uploading} disabled={uploading} onClick={doUpload}>
-            <Icon name="attach" size={13} /> {uploading ? "Uploading…" : "Upload image…"}
+            <Icon name="attach" size={14} /> {uploading ? "Uploading…" : "Upload image…"}
           </button>
           <div className="ip-grid">
             {uploaded.map((a) => (

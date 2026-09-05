@@ -1,9 +1,9 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import { createApp, type App } from "../app";
 import { DEFAULT_PERMISSION_MODE_KEY } from "@realm/contracts";
@@ -31,7 +31,7 @@ async function client(port: number) {
 }
 
 async function boot(fake = new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "ok" }, { kind: "tool", name: "Bash", input: { command: "ls" }, needsPermission: true, result: "x" }] }] })) {
-  const home = mkdtempSync(join(tmpdir(), "realm-"));
+  const home = tempDir("realm-");
   app = await createApp({ home, port: 0, adapters: { fake } });
   const c = await client(app.port);
   const p = (await c.call("profiles.create", { name: "W" })).result;
@@ -142,7 +142,7 @@ describe("SessionService over rpc", () => {
   });
 
   it("upgrades the heuristic title to the configured titleGenerator's summary once it resolves", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-"));
+    const home = tempDir("realm-");
     app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) }, titleGenerator: async (text) => `Summary of: ${text}` });
     const c = await client(app.port);
     const p = (await c.call("profiles.create", { name: "W" })).result;
@@ -158,7 +158,7 @@ describe("SessionService over rpc", () => {
   });
 
   it("never clobbers a title a rename already moved past by the time the generator resolves", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-"));
+    const home = tempDir("realm-");
     let resolveTitle!: (v: string) => void;
     const slow = new Promise<string>((res) => { resolveTitle = res; });
     app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) }, titleGenerator: () => slow });
@@ -180,7 +180,7 @@ describe("SessionService over rpc", () => {
     expect((await c.call("agents.probe", {})).result).toEqual([{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }]);
     c.close(); await app.close();
     class BadProbe extends FakeAdapter { override async probe(): Promise<never> { throw new Error("probe exploded"); } }
-    const home = mkdtempSync(join(tmpdir(), "realm-"));
+    const home = tempDir("realm-");
     app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }), claude: Object.assign(new BadProbe({ script: [] }), { kind: "claude" as const }) } });
     const c2 = await client(app.port);
     expect((await c2.call("agents.probe", {})).result).toEqual([
@@ -197,7 +197,7 @@ describe("SessionService over rpc", () => {
     class Counting extends FakeAdapter {
       override async probe() { return { kind: this.kind, available: true, version: `v${++n}`, loggedIn: true, reason: null }; }
     }
-    const home = mkdtempSync(join(tmpdir(), "realm-"));
+    const home = tempDir("realm-");
     app = await createApp({ home, port: 0, adapters: { fake: new Counting({ script: [] }) } });
     const c = await client(app.port);
     expect((await c.call("agents.probe", {})).result[0].version).toBe("v1");
@@ -280,7 +280,7 @@ describe("SessionService over rpc", () => {
   describe("sessions.setAgent", () => {
     /** Two kinds registered so a switch has somewhere to go; both are the scripted fake. */
     async function bootTwo() {
-      const home = mkdtempSync(join(tmpdir(), "realm-"));
+      const home = tempDir("realm-");
       const script = [{ on: "go", emit: [{ kind: "text" as const, text: "ok" }] }];
       app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script }), codex: new FakeAdapter({ script }) } });
       const c = await client(app.port);
@@ -342,7 +342,7 @@ describe("SessionService over rpc", () => {
      *  that send a message need an event, not a turn parked on a permission prompt at teardown. */
     async function bootTwoEnvs() {
       const booted = await boot(new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "ok" }] }] }));
-      const root = mkdtempSync(join(tmpdir(), "realm-checkout-"));
+      const root = tempDir("realm-checkout-");
       const project = (await booted.c.call("projects.create", { spaceId: booted.sp.id, name: "web", rootPath: root })).result;
       const anchor = (await booted.c.call("sessions.create", { spaceId: booted.sp.id, agentKind: "fake", projectId: project.id })).result.session;
       return { ...booted, anchor };
@@ -421,7 +421,7 @@ describe("SessionService over rpc", () => {
 
     it("clears projectId on move — a project is scoped to the space it was left in", async () => {
       const { c, sp, other } = await twoSpaces();
-      const root = mkdtempSync(join(tmpdir(), "realm-checkout-"));
+      const root = tempDir("realm-checkout-");
       const project = (await c.call("projects.create", { spaceId: sp.id, name: "web", rootPath: root })).result;
       const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", projectId: project.id })).result;
       expect(session.projectId).toBe(project.id);

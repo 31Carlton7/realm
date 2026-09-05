@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase } from "./database";
 import { migrations } from "./migrations";
 import { ItemsStore } from "../store/items";
@@ -67,7 +66,7 @@ function v3Fixture(path: string): { spaceId: string; sessionId: string } {
 
 describe("database", () => {
   it("creates schema and records version", () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-db-"));
+    const dir = tempDir("realm-db-");
     const db = openDatabase(join(dir, "realm.db"));
     const row = db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number };
     expect(row.v).toBeGreaterThanOrEqual(1);
@@ -77,14 +76,14 @@ describe("database", () => {
     db.close();
   });
   it("is idempotent on reopen", () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-db-"));
+    const dir = tempDir("realm-db-");
     const p = join(dir, "realm.db");
     openDatabase(p).close();
     expect(() => openDatabase(p).close()).not.toThrow();
   });
 
   it("migrates a populated v3 database to v4, adding sessions.terminal_item_id (NULL) without touching its rows", () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     const { sessionId } = v3Fixture(p);
 
     const db = openDatabase(p);
@@ -98,7 +97,7 @@ describe("database", () => {
   });
 
   it("re-running the v4 migration is impossible: a second open is a no-op and the data survives", () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v3Fixture(p);
     openDatabase(p).close();
     // Second open: schema_version already says 4, so no ALTER re-runs (it would throw "duplicate column").
@@ -180,7 +179,7 @@ const readSessions = (db: ReturnType<typeof openDatabase>) =>
 
 describe("migration v5 — environments", () => {
   const migrated = () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     return { p, db: openDatabase(p) };
   };
@@ -300,7 +299,7 @@ describe("migration v5 — environments", () => {
 
 describe("migration v6 — port blocks", () => {
   const migrated = () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     return { p, db: openDatabase(p) };
   };
@@ -373,7 +372,7 @@ function v8McpFixture(path: string): { serverId: string } {
 
 describe("migration v9 — MCP gateway", () => {
   const migrated = () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     const { serverId } = v8McpFixture(p);
     return { p, db: openDatabase(p), serverId };
   };
@@ -410,7 +409,7 @@ describe("migration v9 — MCP gateway", () => {
   // the v4 fixture (which openDatabase migrates all the way to v9, mcp_servers included) rather than
   // building a second parallel chain of profiles/spaces/environments just for one row.
   it("server_id survives as NULL once the server row it names is deleted — the log outlives the config", () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     const db = openDatabase(p);
     db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES ('srv1','airtable','stdio','/usr/bin/node','[]','','{}',1,1)").run();
@@ -435,7 +434,7 @@ describe("migration v14 — dispatch origin (Plan 13 W1; renumbered past Plan 14
   // The v4 fixture holds a REAL populated session ('se1'), migrated all the way forward — exactly
   // the row an upgrade must leave alone.
   it("adds dispatched_by_kind/dispatched_by_session_id, NULL for every existing session — nothing backfilled", () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     const db = openDatabase(p);
     const cols = (db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).map((c) => c.name);
@@ -450,7 +449,7 @@ describe("migration v14 — dispatch origin (Plan 13 W1; renumbered past Plan 14
 describe("migration v15 — the search index (Plan 16 W1)", () => {
   // The v4 fixture again: real items and sessions, migrated the whole way forward.
   const migrated = () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     // A pre-v15 transcript, inserted raw (no store, so no write-time indexing) before openDatabase
     // replays the chain — exactly what an upgrading home holds.
@@ -478,7 +477,7 @@ describe("migration v15 — the search index (Plan 16 W1)", () => {
   });
 
   it("a fresh (no-history) home gets a closed cursor: done 0, target 0 — nothing to backfill", () => {
-    const db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db"));
+    const db = openDatabase(join(tempDir("realm-db-"), "realm.db"));
     const cursor = JSON.parse((db.prepare("SELECT value_json FROM settings WHERE key = 'search.backfill'").get() as { value_json: string }).value_json) as { done: number; target: number };
     expect(cursor).toEqual({ done: 0, target: 0 });
     db.close();
@@ -488,7 +487,7 @@ describe("migration v15 — the search index (Plan 16 W1)", () => {
 describe("migration v17 — pane groups", () => {
   /** A v4 home carrying a real layout on one space and none on another. */
   const migrated = () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     const pre = new DatabaseSync(p);
     pre.prepare("UPDATE spaces SET layout_json = ? WHERE id = 'sp1'")
@@ -519,7 +518,7 @@ describe("migration v17 — pane groups", () => {
   });
 
   it("is idempotent: reopening the same home does not re-run the ALTER", () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     const first = openDatabase(p);
     first.prepare("UPDATE spaces SET groups_json = ? WHERE id = 'sp1'").run('{"groups":[]}');
@@ -533,7 +532,7 @@ describe("migration v17 — pane groups", () => {
 
 describe("migration v16 — the icon asset library", () => {
   it("adds icon_assets to a pre-v16 (v4-forward) home, scoped to a profile", () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     const db = openDatabase(p);
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
@@ -545,7 +544,7 @@ describe("migration v16 — the icon asset library", () => {
   });
 
   it("cascades on profile deletion", () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     const db = openDatabase(p);
     db.exec("PRAGMA foreign_keys = ON;");
@@ -561,7 +560,7 @@ describe("migration v18 — archiving (a row put away, not deleted)", () => {
    *  an upgrading home actually holds. `it-term` cannot stand in for it: se1 owns it, so every
    *  listing filters it out for an unrelated reason. */
   const migrated = () => {
-    const p = join(mkdtempSync(join(tmpdir(), "realm-db-")), "realm.db");
+    const p = join(tempDir("realm-db-"), "realm.db");
     v4Fixture(p);
     const raw = new DatabaseSync(p);
     raw.prepare("INSERT INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")

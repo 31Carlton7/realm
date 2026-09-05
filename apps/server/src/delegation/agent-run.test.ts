@@ -1,8 +1,8 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
 import type { McpServerConfig } from "@realm/adapters";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -79,7 +79,7 @@ async function boot(opts: {
   timeouts?: { baseMs: number; perTurnMs: number; pollMs: number };
   maxDepth?: number; caps?: { perParent?: number; total?: number };
 } = {}) {
-  const home = mkdtempSync(join(tmpdir(), "realm-ar-"));
+  const home = tempDir("realm-ar-");
   const fake = new CaptureFake({ script: opts.script ?? CHILD_SCRIPT, delayMs: opts.delayMs ?? 5 });
   // The same fake serves BOTH registry keys — "claude" is the stand-in kind with skills injection,
   // exactly the arrangement browser-agent.test.ts uses.

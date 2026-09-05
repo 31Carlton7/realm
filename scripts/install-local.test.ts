@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { tempDir } from "@realm/test-utils";
 import { findBuiltApp, installLocal, installPaths } from "./install-local.mjs";
 
 describe("findBuiltApp", () => {
@@ -9,7 +9,7 @@ describe("findBuiltApp", () => {
   afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
   it("selects the newest unpacked Realm.app and ignores packaged artifacts", () => {
-    const release = mkdtempSync(join(tmpdir(), "realm-local-build-"));
+    const release = tempDir("realm-local-build-");
     dirs.push(release);
     const old = join(release, "mac", "Realm.app");
     const current = join(release, "mac-arm64", "Realm.app");
@@ -21,7 +21,7 @@ describe("findBuiltApp", () => {
   });
 
   it("fails honestly when no directory build exists", () => {
-    const release = mkdtempSync(join(tmpdir(), "realm-local-build-"));
+    const release = tempDir("realm-local-build-");
     dirs.push(release);
     expect(() => findBuiltApp(release)).toThrow(/no unpacked Realm\.app/);
   });

@@ -23,7 +23,7 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="msg-thinking" data-enter={enter || undefined}>
-      <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={13} /><span>Thinking…</span></button>
+      <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={12} /><span>Thinking…</span></button>
       {open && <Markdown text={text} className="thinking-body" />}
     </div>
   );
@@ -228,7 +228,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, visible = true
       {/* The transcript dissolves into the prompter instead of being clipped by it — a sibling of the
           scroller (not a child) so its backdrop-filter still sees the text scrolling underneath. */}
       <div className="transcript-fade" aria-hidden="true" />
-      {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={13} /> New messages</button>}
+      {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={12} /> New messages</button>}
     </div>
   );
 }

@@ -17,6 +17,7 @@
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
     "@realm/contracts": "workspace:*",
+    "@realm/test-utils": "workspace:*",
     "@realm/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.6.0",

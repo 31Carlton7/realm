@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { sessionEvent, type SearchSnippet } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
@@ -16,7 +16,7 @@ import { NotFoundError } from "../store/rows";
 import { BACKFILL_CHUNK, SEARCH_BACKFILL_KEY, SearchService, ftsExpression, liveMatches, liveSnippet, parseFtsSnippet, queryTokens } from "./service";
 
 function harness() {
-  const home = mkdtempSync(join(tmpdir(), "realm-search-"));
+  const home = tempDir("realm-search-");
   const db = openDatabase(join(home, "realm.db"));
   const profiles = new ProfilesStore(db);
   const spaces = new SpacesStore(db, home);

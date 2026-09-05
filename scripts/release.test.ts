@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { tempDir } from "@realm/test-utils";
 import {
   bumpPackageJsonText, bumpVersion, changelogEntries, entriesFromGh, missingArtifacts, nextStepsText,
   parseReleaseArgs, prEntryFromSubject, prependChangelog, release, renderStub,
@@ -172,7 +172,7 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
 
   beforeEach(() => {
     logs.length = 0;
-    root = mkdtempSync(join(tmpdir(), "realm-release-"));
+    root = tempDir("realm-release-");
     realExec("git", ["init", "-q", "-b", "main"], { cwd: root });
     realExec("git", ["config", "user.email", "t@t"], { cwd: root });
     realExec("git", ["config", "user.name", "t"], { cwd: root });

@@ -1,8 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tempDir } from "@realm/test-utils";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
 import { CodexAdapter, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
 import type { AgentHandle, StartOptions } from "../types";
@@ -929,8 +928,8 @@ describe("CodexAdapter memory", () => {
     // Two sessions on ONE adapter: the shared-process design is exactly where a cross-thread mixup would live.
     // The spawn needs a real cwd (the first session's); the second thread's cwd is only a thread/start param.
     const adapter = newAdapter();
-    const cwdA = mkdtempSync(join(tmpdir(), "realm-mem-a-"));
-    const cwdB = mkdtempSync(join(tmpdir(), "realm-mem-b-"));
+    const cwdA = tempDir("realm-mem-a-");
+    const cwdB = tempDir("realm-mem-b-");
     const a = adapter.start(startOpts({ cwd: cwdA }));
     const evsA = drain(a).evs;
     const b = adapter.start(startOpts({ cwd: cwdB }));

@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tempDir } from "@realm/test-utils";
 import { RUN_LIVE_STATES } from "@realm/contracts";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "./profiles";
@@ -17,7 +17,7 @@ const insert = (extra: Partial<RunInsert> = {}): RunInsert => ({
 });
 
 beforeEach(() => {
-  const home = mkdtempSync(join(tmpdir(), "realm-runstore-"));
+  const home = tempDir("realm-runstore-");
   db = openDatabase(join(home, "realm.db"));
   const profile = new ProfilesStore(db).create({ name: "P", icon: "x", color: "#000" });
   const spaces = new SpacesStore(db, home);

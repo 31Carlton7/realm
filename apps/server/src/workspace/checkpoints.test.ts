@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, lstatSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, lstatSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { newId } from "@realm/contracts";
 import { CHECKPOINT_REF_PREFIX, CheckpointGit, checkpointRef } from "./checkpoints";
 
@@ -19,7 +20,7 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", [...IDENT, ...args], { cwd, encoding: "utf8" });
 }
 function makeRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "realm-cp-"));
+  const dir = tempDir("realm-cp-");
   const scratch = resolve(tmpdir());
   if (!resolve(dir).startsWith(scratch)) throw new Error(`refusing to run against ${dir}: not a scratch directory`);
   git(dir, "init", "-q", "-b", "main");
@@ -34,7 +35,7 @@ function makeRepo(): string {
 }
 /** A repository that has been `git init`ed and nothing more: no HEAD, no index file. */
 function makeEmptyRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "realm-cp-empty-"));
+  const dir = tempDir("realm-cp-empty-");
   if (!resolve(dir).startsWith(resolve(tmpdir()))) throw new Error(`refusing to run against ${dir}`);
   git(dir, "init", "-q", "-b", "main");
   git(dir, "config", "user.email", "t@example.com");
@@ -451,7 +452,7 @@ describe("refs", () => {
 describe("worktrees", () => {
   it("checkpoints a worktree without touching its sibling's tree", async () => {
     const repo = makeRepo();
-    const wt = mkdtempSync(join(tmpdir(), "realm-cp-wt-"));
+    const wt = tempDir("realm-cp-wt-");
     try {
       rmSync(wt, { recursive: true, force: true }); // git worktree add wants a path that does not exist
       git(repo, "worktree", "add", "-q", "-b", "realm/side", wt, "HEAD");

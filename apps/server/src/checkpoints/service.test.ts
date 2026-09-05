@@ -1,8 +1,9 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -35,7 +36,7 @@ let db: Db; let home: string; let envs: EnvironmentsStore; let sessions: Session
 let svc: CheckpointService; let spaceId: string; let folder: string; let busy: Set<string>;
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "realm-cpsvc-"));
+  home = tempDir("realm-cpsvc-");
   // These tests rewrite working trees. Anything outside the scratch dir is a bug worth crashing on.
   if (!resolve(home).startsWith(resolve(tmpdir()))) throw new Error(`refusing to run against ${home}`);
   db = openDatabase(join(home, "realm.db"));
@@ -140,7 +141,7 @@ describe("restore", () => {
 
   it("reaches only the environment the checkpoint belongs to", async () => {
     initRepo(folder);
-    const other = mkdtempSync(join(tmpdir(), "realm-cp-other-"));
+    const other = tempDir("realm-cp-other-");
     try {
       initRepo(other);
       const mine = primary();
@@ -228,7 +229,7 @@ describe("retention", () => {
 
   it("prunes one environment without touching another's refs", async () => {
     initRepo(folder);
-    const other = mkdtempSync(join(tmpdir(), "realm-cp-other-"));
+    const other = tempDir("realm-cp-other-");
     try {
       initRepo(other);
       const mine = primary();
@@ -246,7 +247,7 @@ describe("retention", () => {
 describe("forgetEnvironment", () => {
   it("deletes every ref and row for that environment and nothing else", async () => {
     initRepo(folder);
-    const other = mkdtempSync(join(tmpdir(), "realm-cp-other-"));
+    const other = tempDir("realm-cp-other-");
     try {
       initRepo(other);
       const mine = primary();

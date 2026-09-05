@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { claudeMemoryFiles, parseImports } from "./claude-files";
 
-const scratch = () => mkdtempSync(join(tmpdir(), "realm-claude-files-"));
+const scratch = () => tempDir("realm-claude-files-");
 const write = (dir: string, name: string, text: string) => {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, name), text);

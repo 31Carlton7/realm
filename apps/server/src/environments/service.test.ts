@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -26,7 +26,7 @@ let db: Db; let home: string; let spaces: SpacesStore; let envs: EnvironmentsSto
 let svc: EnvironmentService; let spaceId: string; let folder: string;
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "realm-envsvc-"));
+  home = tempDir("realm-envsvc-");
   db = openDatabase(join(home, "realm.db"));
   const p = new ProfilesStore(db).create({ name: "P", icon: "x", color: "#000" });
   spaces = new SpacesStore(db, home);
@@ -111,7 +111,7 @@ describe("EnvironmentService.removeWorktree", () => {
 
   // MUTANT: removal reachable for `checkout` — a working copy the user made and Realm merely noticed.
   it("refuses a checkout Realm did not create, and touches nothing on disk", async () => {
-    const userRepo = mkdtempSync(join(tmpdir(), "realm-user-repo-"));
+    const userRepo = tempDir("realm-user-repo-");
     initRepo(userRepo);
     const env = envs.ensureAt(spaceId, userRepo, "checkout");
     await expect(svc.removeWorktree(env.id, null)).rejects.toMatchObject({ code: "ENVIRONMENT_NOT_WORKTREE" });
@@ -130,7 +130,7 @@ describe("EnvironmentService.removeWorktree", () => {
 
   it("removes a clean worktree and its row", async () => {
     // Cloned so HEAD is on a remote and there are no unpushed commits.
-    const origin = mkdtempSync(join(tmpdir(), "realm-origin-"));
+    const origin = tempDir("realm-origin-");
     initRepo(origin);
     execFileSync("git", ["clone", "-q", origin, folder + "-clone"], { encoding: "utf8" });
     const src = envs.ensureAt(spaceId, folder + "-clone", "checkout");
@@ -150,7 +150,7 @@ describe("EnvironmentService.removeWorktree", () => {
   });
 
   it("frees the port block for reuse once the row is gone", async () => {
-    const origin = mkdtempSync(join(tmpdir(), "realm-origin2-"));
+    const origin = tempDir("realm-origin2-");
     initRepo(origin);
     execFileSync("git", ["clone", "-q", origin, folder + "-clone2"], { encoding: "utf8" });
     const src = envs.ensureAt(spaceId, folder + "-clone2", "checkout");

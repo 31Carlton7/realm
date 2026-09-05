@@ -1,8 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { tempDir } from "@realm/test-utils";
 import WebSocket from "ws";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { createApp, type App } from "../app";
 import { BrowsersStore } from "../store/browsers";
 
@@ -25,7 +23,7 @@ async function makeSpace(c: Awaited<ReturnType<typeof client>>) {
 
 describe("browsers RPC", () => {
   it("create makes row + item as one unit; url defaults to empty (never navigated)", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const home = tempDir("realm-home-");
     const app = await createApp({ home, port: 0 }); apps.push(app);
     const c = await client(app.port);
     const space = await makeSpace(c);
@@ -40,7 +38,7 @@ describe("browsers RPC", () => {
   });
 
   it("survives a restart: the row keeps its last committed url/title", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const home = tempDir("realm-home-");
     const app1 = await createApp({ home, port: 0 }); apps.push(app1);
     const c1 = await client(app1.port);
     const space = await makeSpace(c1);
@@ -60,7 +58,7 @@ describe("browsers RPC", () => {
   });
 
   it("update with a title renames the item and broadcasts items.changed; url-only does not touch the item", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const home = tempDir("realm-home-");
     const app = await createApp({ home, port: 0 }); apps.push(app);
     const c = await client(app.port);
     const space = await makeSpace(c);
@@ -85,7 +83,7 @@ describe("browsers RPC", () => {
   });
 
   it("close deletes row + item; a second close is NOT_FOUND; items.delete routes through it", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const home = tempDir("realm-home-");
     const app = await createApp({ home, port: 0 }); apps.push(app);
     const c = await client(app.port);
     const space = await makeSpace(c);
@@ -107,7 +105,7 @@ describe("browsers RPC", () => {
   });
 
   it("space deletion cascades browser rows away", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const home = tempDir("realm-home-");
     const app = await createApp({ home, port: 0 }); apps.push(app);
     const c = await client(app.port);
     const space = await makeSpace(c);

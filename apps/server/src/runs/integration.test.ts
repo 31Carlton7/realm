@@ -1,8 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { tempDir } from "@realm/test-utils";
 import WebSocket from "ws";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { FakeAdapter, type FakeScript } from "@realm/adapters";
 import { RUN_BLOCK_SENTINEL } from "@realm/contracts";
 import { createApp, type App } from "../app";
@@ -43,7 +41,7 @@ async function client(port: number) {
 }
 
 async function boot(script: FakeScript = SCRIPT) {
-  const home = mkdtempSync(join(tmpdir(), "realm-runs-rpc-"));
+  const home = tempDir("realm-runs-rpc-");
   const fake = new FakeAdapter({ script, delayMs: 2 });
   app = await createApp({ home, port: 0, adapters: { fake, claude: fake }, agentRun: { fallbackKind: "fake" } });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });

@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { newId } from "@realm/contracts";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "./profiles";
@@ -18,7 +17,7 @@ const state = (n: number): CapturedState =>
   ({ commitSha: `c${n}`, worktreeTree: `w${n}`, indexTree: `i${n}`, headSha: "h", headRef: "refs/heads/main" });
 
 beforeEach(() => {
-  const home = mkdtempSync(join(tmpdir(), "realm-cpstore-"));
+  const home = tempDir("realm-cpstore-");
   db = openDatabase(join(home, "realm.db"));
   const p = new ProfilesStore(db).create({ name: "P", icon: "x", color: "#000" });
   const spaces = new SpacesStore(db, home);

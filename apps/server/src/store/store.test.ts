@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "./profiles";
 import { SpacesStore } from "./spaces";
@@ -15,7 +15,7 @@ import { emptyLayout, type Layout } from "@realm/contracts";
 
 let db: Db; let home: string;
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "realm-home-"));
+  home = tempDir("realm-home-");
   db = openDatabase(join(home, "realm.db"));
 });
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { DocumentPreviewServer, GUIDE_CSP, defaultKatexDir, defaultVisNetworkDir, injectHelpers, localizeVisNetwork, wantsKatex } from "./preview";
 import { makePdf } from "./test-pdf";
 
@@ -9,7 +9,7 @@ const servers: DocumentPreviewServer[] = [];
 afterEach(async () => { for (const s of servers.splice(0)) await s.close(); });
 
 async function boot(katexDir?: string | null, visNetworkDir?: string | null) {
-  const root = mkdtempSync(join(tmpdir(), "realm-preview-"));
+  const root = tempDir("realm-preview-");
   const s = new DocumentPreviewServer({ rootOf: (id) => (id === "ws1" ? root : null), katexDir, visNetworkDir });
   servers.push(s);
   const port = await s.listen();

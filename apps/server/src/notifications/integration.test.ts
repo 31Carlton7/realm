@@ -1,8 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import type { Notification } from "@realm/contracts";
 import { createApp, type App } from "../app";
@@ -38,7 +37,7 @@ async function client(port: number) {
 
 const fake = () => new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "ok" }, { kind: "tool", name: "Bash", input: { command: "ls" }, needsPermission: true, result: "x" }] }] });
 
-async function boot(home = mkdtempSync(join(tmpdir(), "realm-notif-"))) {
+async function boot(home = tempDir("realm-notif-")) {
   app = await createApp({ home, port: 0, adapters: { fake: fake() } });
   const c = await client(app.port);
   const p = (await c.call("profiles.create", { name: "W" })).result;
@@ -134,7 +133,7 @@ describe("notifications over rpc — the real wiring", () => {
 
 describe("the stale-ack hook (EnvironmentService.removeWorktree)", () => {
   it("a PRESENT-but-stale acknowledgement writes a worktree_hazard row; the ask-first null ack does not", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-notifenv-"));
+    const home = tempDir("realm-notifenv-");
     const db = openDatabase(dbPath(home));
     const profiles = new ProfilesStore(db);
     const spaces = new SpacesStore(db, home);

@@ -189,10 +189,10 @@ function SessionsTab({ spaceId }: { spaceId: string }) {
         return (
           <li key={s.id}>
             <button type="button" className="page-row" aria-label={label} onClick={() => open(s)}>
-              <Icon name={AGENT_META[s.agentKind].icon} size={15} colored />
+              <Icon name={AGENT_META[s.agentKind].icon} size={16} colored />
               <span className="page-row-title">{s.title}</span>
               {archived && <span className="status-pill" data-tone="muted">Archived</span>}
-              {env?.branch && <span className="page-row-dim"><Icon name="branch" size={11} /> {env.branch}</span>}
+              {env?.branch && <span className="page-row-dim"><Icon name="branch" size={12} /> {env.branch}</span>}
               <span className="page-row-dim">{relativeTime(s.createdAt, Date.now())}</span>
               {status && <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />}
             </button>
@@ -284,9 +284,9 @@ function TasksTab({ spaceId }: { spaceId: string }) {
                       aria-pressed={r.id === selectedRunId}
                       aria-label={`${r.title} — run — ${RUN_STATE_LABEL[r.state]}`}
                       onClick={() => run(() => selectRun(spaceId, r.id === selectedRunId ? null : r.id))}>
-                      <Icon name={RUN_STATE_ICON[r.state]} size={15} />
+                      <Icon name={RUN_STATE_ICON[r.state]} size={16} />
                       <span className="page-row-title">{r.title}</span>
-                      {envLabel && <span className="page-row-dim"><Icon name={env!.kind === "worktree" ? "branch" : "folder"} size={11} /> {envLabel}</span>}
+                      {envLabel && <span className="page-row-dim"><Icon name={env!.kind === "worktree" ? "branch" : "folder"} size={12} /> {envLabel}</span>}
                       {/* Attempts are only worth saying once there has been more than one — a run on
                           its first try should not read like it has already struggled. */}
                       {r.attempt > 1 && <span className="page-row-dim">attempt {r.attempt}/{r.maxAttempts}</span>}
@@ -317,7 +317,7 @@ function TasksTab({ spaceId }: { spaceId: string }) {
                     <button type="button" className="page-row"
                       aria-label={status ? `${s.title} — ${meta.label} — ${SESSION_STATUS_LABEL[status]}` : `${s.title} — ${meta.label}`}
                       onClick={() => jumpTo(s.id)}>
-                      <Icon name={meta.icon} size={15} />
+                      <Icon name={meta.icon} size={16} />
                       <span className="page-row-title">{s.title}</span>
                       {parentId && (
                         // The agent origins link their parent. A span styled as a link, not a nested button
@@ -330,7 +330,7 @@ function TasksTab({ spaceId }: { spaceId: string }) {
                             </span>
                           : <span className="page-row-dim">parent session gone</span>
                       )}
-                      {envLabel && <span className="page-row-dim"><Icon name={env!.kind === "worktree" ? "branch" : "folder"} size={11} /> {envLabel}</span>}
+                      {envLabel && <span className="page-row-dim"><Icon name={env!.kind === "worktree" ? "branch" : "folder"} size={12} /> {envLabel}</span>}
                       <span className="page-row-dim" title={new Date(s.createdAt).toLocaleString()}>started {relativeTime(s.createdAt, Date.now())}</span>
                       {settled && <span className="page-row-dim" title="From the session's last update — no separate settle clock exists">settled {relativeTime(s.updatedAt, Date.now())}</span>}
                       {status && <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />}
@@ -370,7 +370,7 @@ function NewRun({ spaceId }: { spaceId: string }) {
   if (!open) {
     return (
       <div className="task-lens-new">
-        <button type="button" className="btn" onClick={() => setOpen(true)}><Icon name="add" size={13} /> New run</button>
+        <button type="button" className="btn" onClick={() => setOpen(true)}><Icon name="add" size={14} /> New run</button>
       </div>
     );
   }
@@ -427,7 +427,7 @@ function RunDetail({ run: r, spaceId, onJump }: { run: Run; spaceId: string; onJ
         <h3>{r.title}</h3>
         <span className="run-state" data-state={r.state}>{RUN_STATE_LABEL[r.state]}</span>
         <button type="button" className="icon-btn" aria-label="Close run detail" onClick={() => run(() => selectRun(spaceId, null))}>
-          <Icon name="close" size={13} />
+          <Icon name="close" size={14} />
         </button>
       </header>
 
@@ -557,11 +557,11 @@ function HistoryTab({ spaceId }: { spaceId: string }) {
             <span className="cp-kind ship-kind"><Icon name="commit" size={12} /> Ship</span>
             <span className="page-row-title">{row.ship.subject}</span>
             <span className="page-row-dim"><code className="ship-sha">{row.ship.sha.slice(0, 7)}</code></span>
-            {row.ship.branch && <span className="page-row-dim"><Icon name="branch" size={11} /> {row.ship.branch}</span>}
+            {row.ship.branch && <span className="page-row-dim"><Icon name="branch" size={12} /> {row.ship.branch}</span>}
             <span className="page-row-dim">{PUSH_STATE_LABEL[row.ship.pushState]}</span>
             {row.ship.prUrl && (
               <span className="page-row-dim">
-                <a href={row.ship.prUrl} target="_blank" rel="noreferrer"><Icon name="pullRequest" size={11} /> PR</a>
+                <a href={row.ship.prUrl} target="_blank" rel="noreferrer"><Icon name="pullRequest" size={12} /> PR</a>
               </span>
             )}
             <span className="page-row-dim">{relativeTime(row.at, Date.now())}</span>

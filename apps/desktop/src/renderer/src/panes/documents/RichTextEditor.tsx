@@ -73,7 +73,7 @@ function RichToolbar({ editor }: { editor: Ed }) {
   const btn = (label: string, icon: Parameters<typeof Icon>[0]["name"], active: boolean, run: () => void) => (
     <button className="icon-btn" aria-label={label} aria-pressed={active} title={label}
       onClick={() => { run(); editor.commands.focus(); }}>
-      <Icon name={icon} size={13} />
+      <Icon name={icon} size={14} />
     </button>
   );
   return (

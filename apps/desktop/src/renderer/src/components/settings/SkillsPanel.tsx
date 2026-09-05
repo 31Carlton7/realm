@@ -76,7 +76,7 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
         ) : (
           <>
             <div className="skills-filter">
-              <Icon name="search" size={13} className="skills-filter-glyph" />
+              <Icon name="search" size={14} className="skills-filter-glyph" />
               <input type="text" className="skills-filter-input" placeholder={`Search ${all.length} skills…`}
                 aria-label="Search skills" value={query} onChange={(e) => setQuery(e.target.value)} />
               <label className="skills-filter-toggle">

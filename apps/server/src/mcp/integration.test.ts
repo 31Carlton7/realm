@@ -1,8 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { tempDir } from "@realm/test-utils";
 import WebSocket from "ws";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
 import { sessionEvent, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
@@ -59,7 +57,7 @@ async function client(port: number) {
 }
 
 async function boot() {
-  const home = mkdtempSync(join(tmpdir(), "realm-mcp-int-"));
+  const home = tempDir("realm-mcp-int-");
   const claude = new RecordingAdapter("claude");
   app = await createApp({ home, port: 0, adapters: { claude } });
   const c = await client(app.port);

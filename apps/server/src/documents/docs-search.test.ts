@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { scoreOf, searchDocs, walkFiles } from "./docs-search";
 import { TextExtractor } from "./text-extract";
 import { makePdf } from "./test-pdf";
 
 function course() {
-  const root = mkdtempSync(join(tmpdir(), "realm-course-"));
+  const root = tempDir("realm-course-");
   mkdirSync(join(root, "lectures"));
   mkdirSync(join(root, "guides"));
   mkdirSync(join(root, "slides"));

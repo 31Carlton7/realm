@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 
 /* `media.ts` imports `net` and `protocol` for the scheme; neither is touched by anything under
    test here, and pulling in the real electron module in node would fail at import. */
@@ -11,7 +11,7 @@ vi.mock("electron", () => ({ net: {}, protocol: {}, nativeImage: { createFromPat
 const { expandHome, servablePath, statMedia } = await import("./media");
 
 let home: string;
-beforeEach(async () => { home = await mkdtemp(join(tmpdir(), "realm-media-test-")); });
+beforeEach(async () => { home = tempDir("realm-media-test-"); });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 const put = async (rel: string, bytes = "x") => {

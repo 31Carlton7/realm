@@ -1,8 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tempDir } from "@realm/test-utils";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { openDatabase } from "../db/database";
 import { McpServersStore, type McpServerRow } from "../store/mcp";
@@ -14,7 +13,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 let servers: McpServersStore;
 beforeEach(() => {
-  const db = openDatabase(join(mkdtempSync(join(tmpdir(), "realm-mcp-hub-")), "realm.db"));
+  const db = openDatabase(join(tempDir("realm-mcp-hub-"), "realm.db"));
   servers = new McpServersStore(db);
 });
 

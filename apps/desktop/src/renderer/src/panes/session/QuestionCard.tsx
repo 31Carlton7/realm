@@ -119,12 +119,12 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
         <h3 className="question-title">{q.question}</h3>
         {questions.length > 1 && (
           <div className="question-pager">
-            <button className="icon-btn" aria-label="Previous question" disabled={page === 0} onClick={() => setPage(page - 1)}><Icon name="chevronLeft" size={13} /></button>
+            <button className="icon-btn" aria-label="Previous question" disabled={page === 0} onClick={() => setPage(page - 1)}><Icon name="chevronLeft" size={14} /></button>
             <span>{page + 1} of {questions.length}</span>
-            <button className="icon-btn" aria-label="Next question" disabled={page + 1 >= questions.length} onClick={() => setPage(page + 1)}><Icon name="chevronRight" size={13} /></button>
+            <button className="icon-btn" aria-label="Next question" disabled={page + 1 >= questions.length} onClick={() => setPage(page + 1)}><Icon name="chevronRight" size={14} /></button>
           </div>
         )}
-        <button className="icon-btn question-close" aria-label="Skip question" onClick={onSkip}><Icon name="close" size={13} /></button>
+        <button className="icon-btn question-close" aria-label="Skip question" onClick={onSkip}><Icon name="close" size={14} /></button>
       </div>
 
       <div className="question-options">
@@ -138,13 +138,13 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
               <span className="question-option-label">{o.label}</span>
               {o.description && <span className="question-option-desc">{o.description}</span>}
             </span>
-            {q.multiSelect && picked.includes(o.label) && <Icon name="check" size={13} />}
+            {q.multiSelect && picked.includes(o.label) && <Icon name="check" size={14} />}
           </button>
         ))}
 
         {othering ? (
           <div className="question-option question-other-edit">
-            <kbd className="question-num"><Icon name="edit" size={11} /></kbd>
+            <kbd className="question-num"><Icon name="edit" size={12} /></kbd>
             <input ref={otherInput} className="question-other-input" value={otherText} placeholder="Type your answer…"
               aria-label="Your answer" onChange={(e) => setOtherText(e.target.value)} />
             <button className="btn primary question-other-submit" disabled={!otherText.trim()} onClick={() => commit(otherText.trim())}>Answer</button>
@@ -153,7 +153,7 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
           <button ref={(el) => { rows.current[q.options.length] = el; }} className="question-option question-other"
             aria-label="Something else" data-selected={selected === q.options.length || undefined}
             onFocus={() => setSelected(q.options.length)} onClick={() => setOthering(true)}>
-            <kbd className="question-num"><Icon name="edit" size={11} /></kbd>
+            <kbd className="question-num"><Icon name="edit" size={12} /></kbd>
             <span className="question-option-body"><span className="question-option-label">Something else</span></span>
             <span className="question-skip" role="button" tabIndex={-1}
               onClick={(e) => { e.stopPropagation(); skipQuestion(); }}>Skip</span>

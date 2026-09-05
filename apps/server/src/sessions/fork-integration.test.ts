@@ -1,9 +1,10 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import type { StartOptions } from "@realm/adapters";
 import { createApp, type App } from "../app";
@@ -50,7 +51,7 @@ class RecordingFake extends FakeAdapter {
 
 describe("fork + search over rpc (Plan 16)", () => {
   it("indexes live session text profile-scoped; forks into a new worktree whose session starts with the carried context", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-forkint-"));
+    const home = tempDir("realm-forkint-");
     if (!resolve(home).startsWith(resolve(tmpdir()))) throw new Error(`refusing to run against ${home}`);
     const fake = new RecordingFake({ script: [{ on: "go", emit: [{ kind: "text", text: "the walrus is assembled" }] }], delayMs: 5 });
     app = await createApp({ home, port: 0, adapters: { fake } });

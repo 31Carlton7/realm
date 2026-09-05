@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { sessionEvent, type Checkpoint } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
@@ -30,7 +30,7 @@ function initRepo(dir: string): void {
 }
 
 function harness() {
-  const home = mkdtempSync(join(tmpdir(), "realm-fork-"));
+  const home = tempDir("realm-fork-");
   const db = openDatabase(join(home, "realm.db"));
   const profiles = new ProfilesStore(db);
   const spaces = new SpacesStore(db, home);

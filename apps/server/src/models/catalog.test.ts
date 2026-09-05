@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { MODEL_CATALOG_KEY, MODEL_CATALOG_URL } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
@@ -14,7 +13,7 @@ const body = (name = "Anthropic: Claude Opus 5", completion = "0.000025") => ({
 });
 
 function harness(fetchImpl: typeof fetch, now = () => 1000) {
-  const home = mkdtempSync(join(tmpdir(), "realm-catalog-"));
+  const home = tempDir("realm-catalog-");
   const settings = new SettingsStore(openDatabase(join(home, "realm.db")));
   return { settings, service: new ModelCatalogService({ settings, fetchImpl, now, ttlMs: 100 }) };
 }

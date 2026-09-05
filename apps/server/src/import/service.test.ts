@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { IMPORT_MEMORY_MARKER_OPEN, IMPORTED_SPACE_NAME } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { dbPath } from "../paths";
@@ -60,8 +61,8 @@ type Harness = {
 };
 
 function harness(): Harness {
-  const home = mkdtempSync(join(tmpdir(), "realm-import-home-"));
-  const fixtures = mkdtempSync(join(tmpdir(), "realm-import-src-"));
+  const home = tempDir("realm-import-home-");
+  const fixtures = tempDir("realm-import-src-");
   const roots: ImportRoots = {
     claude: join(fixtures, "claude"), codex: join(fixtures, "codex"), cursor: join(fixtures, "cursor"),
     extraSkillDirs: [join(fixtures, "agents", "skills")],

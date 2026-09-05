@@ -299,10 +299,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     <div className="browser-pane">
       <div className="browser-chrome">
         <button className="icon-btn" aria-label="Back" title="Back" disabled={!state?.canGoBack} onClick={() => nav("back")}>
-          <Icon name="chevronLeft" size={15} />
+          <Icon name="chevronLeft" size={14} />
         </button>
         <button className="icon-btn" aria-label="Forward" title="Forward" disabled={!state?.canGoForward} onClick={() => nav("forward")}>
-          <Icon name="chevronRight" size={15} />
+          <Icon name="chevronRight" size={14} />
         </button>
         {state?.loading ? (
           <button className="icon-btn" aria-label="Stop" title="Stop" onClick={() => nav("stop")}>
@@ -351,7 +351,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           Its height comes out of the view's, which the ResizeObserver already syncs. */}
       {(downloads.top || downloads.note) && (
         <div className="browser-notice" role="status">
-          <Icon name="attach" size={13} />
+          <Icon name="attach" size={12} />
           {/* The note, when there is one, is the answer to what the user just pressed — so it wins the
               text. The entry's own buttons stay put underneath it: a save that failed because the
               space has no project is one the user can retry after adding one, and swallowing the
@@ -378,7 +378,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       )}
       {picker.note && (
         <div className="browser-notice" role="status">
-          <Icon name="target" size={13} />
+          <Icon name="target" size={12} />
           <span className="browser-notice-text">{picker.note}</span>
           <button type="button" className="icon-btn" aria-label="Dismiss" onClick={picker.clearNote}>
             <Icon name="close" size={12} />

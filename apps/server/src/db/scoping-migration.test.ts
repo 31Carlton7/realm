@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { openDatabase } from "./database";
 import { migrations } from "./migrations";
 import { SettingsStore } from "../store/settings";
@@ -81,7 +81,7 @@ function writeV10Fixture(home: string): string {
 
 describe("v11 scoping migration", () => {
   it("changes NO space's effective set: pre-migration state comes out byte-identical", () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-scoping-mig-"));
+    const home = tempDir("realm-scoping-mig-");
     const path = writeV10Fixture(home);
 
     const db = openDatabase(path); // applies v11 (and whatever came after — W5's v12 rides along)

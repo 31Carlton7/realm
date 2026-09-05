@@ -1,8 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
 import { TerminalsStore } from "../store/terminals";
 import { waitFor } from "../test-utils";
@@ -21,7 +20,7 @@ async function client(port: number) {
 
 describe("TerminalService.restoreAll", () => {
   it("respawns ptys for persisted terminal rows on boot; prunes rows whose cwd is gone", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const home = tempDir("realm-home-");
     const app1 = await createApp({ home, port: 0 }); apps.push(app1);
     const c1 = await client(app1.port);
     const prof = (await c1.call("profiles.create", { name: "Work" })).result;
@@ -55,7 +54,7 @@ describe("terminal port blocks", () => {
     c.events.filter((e) => e.event === "terminal.data" && e.payload.terminalId === terminalId).map((e) => String(e.payload.data)).join("");
 
   it("exports the environment's port block into the shell, and keeps it across a restart", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const home = tempDir("realm-home-");
     const app1 = await createApp({ home, port: 0 }); apps.push(app1);
     const c1 = await client(app1.port);
     const prof = (await c1.call("profiles.create", { name: "Work" })).result;
@@ -78,7 +77,7 @@ describe("terminal port blocks", () => {
   });
 
   it("gives two spaces' terminals different blocks", async () => {
-    const home = mkdtempSync(join(tmpdir(), "realm-home-"));
+    const home = tempDir("realm-home-");
     const app1 = await createApp({ home, port: 0 }); apps.push(app1);
     const c = await client(app1.port);
     const prof = (await c.call("profiles.create", { name: "Work" })).result;

@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { RpcError } from "../store/rows";
 import { GraphifyService, type GraphifyRun } from "./service";
 
 const SPACE = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
 let root: string;
-beforeEach(() => { root = mkdtempSync(join(tmpdir(), "realm-graphify-")); });
+beforeEach(() => { root = tempDir("realm-graphify-"); });
 
 /** The node-link JSON graphify writes: `links`, not `edges`, and a `community` number per node. */
 const writeGraph = (graph: unknown, at = root): void => {

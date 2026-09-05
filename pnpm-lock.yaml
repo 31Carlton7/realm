@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@realm/test-utils':
+        specifier: workspace:*
+        version: link:packages/test-utils
       '@types/node':
         specifier: ^22.13.0
         version: 22.20.1
@@ -26,6 +29,9 @@ importers:
       '@realm/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@realm/test-utils':
+        specifier: workspace:*
+        version: link:../../packages/test-utils
       '@realm/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -171,6 +177,9 @@ importers:
         specifier: ^3.24.0
         version: 3.25.76
     devDependencies:
+      '@realm/test-utils':
+        specifier: workspace:*
+        version: link:../../packages/test-utils
       '@types/ws':
         specifier: ^8.5.12
         version: 8.18.1
@@ -190,6 +199,9 @@ importers:
         specifier: workspace:*
         version: link:../contracts
     devDependencies:
+      '@realm/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       tsx:
         specifier: ^4.19.0
         version: 4.23.12
@@ -202,6 +214,12 @@ importers:
       zod:
         specifier: ^3.24.0
         version: 3.25.76
+
+  packages/test-utils:
+    devDependencies:
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(tsx@4.23.12)
 
   packages/ui:
     dependencies:

@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, symlink, truncate, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, realpath, symlink, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
 import { AcpAdapter, acpBootFailureMessage, acpMcpServers, MAX_FS_READ_BYTES, pickAcpOption, sliceLines, type AcpAgentSpec } from "./acp-adapter";
 import { JsonRpcCallError } from "../jsonrpc/stdio";
@@ -209,7 +209,7 @@ describe("AcpAdapter", () => {
   });
 
   it("spawns the child in the session's cwd and lets session env override the spec's", async () => {
-    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const dir = await realpath(tempDir("realm-acp-"));
     const png = join(dir, "shot.png");
     await writeFile(png, Buffer.from([1, 2, 3, 4]));
     // The spec's env is a default for the agent; a session's own env is the more specific value and wins.
@@ -441,7 +441,7 @@ describe("AcpAdapter", () => {
   });
 
   it("serves fs/read_text_file, honouring line and limit", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const dir = tempDir("realm-acp-");
     const path = join(dir, "NOTES.txt");
     await writeFile(path, "one\ntwo\nthree\nfour\n");
     const { handle, evs } = await booted({ cwd: dir });
@@ -457,7 +457,7 @@ describe("AcpAdapter", () => {
   });
 
   it("serves fs/write_text_file", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const dir = tempDir("realm-acp-");
     const path = join(dir, "OUT.txt"); // does not exist yet: the target is resolved through its parent
     const { handle, evs } = await booted({ cwd: dir });
     await turn(handle, evs, `WRITEFILE ${path} written by the agent`);
@@ -470,7 +470,7 @@ describe("AcpAdapter", () => {
     // Absolute paths are all an agent needs to ask for ~/.ssh/id_rsa or ~/.aws/credentials, and none of this
     // reaches a permission card. Declaring fs:false would not take the capability away — but confining our own
     // handlers costs a well-behaved agent nothing, it just falls back to its own I/O.
-    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const dir = await realpath(tempDir("realm-acp-"));
     const work = join(dir, "work");
     await mkdir(work);
     const outside = join(dir, "SECRET.txt");
@@ -487,7 +487,7 @@ describe("AcpAdapter", () => {
   });
 
   it("refuses to write outside the working directory and leaves the target untouched", async () => {
-    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const dir = await realpath(tempDir("realm-acp-"));
     const work = join(dir, "work");
     await mkdir(work);
     const outside = join(dir, "ZSHRC");
@@ -504,7 +504,7 @@ describe("AcpAdapter", () => {
   });
 
   it("refuses a symlink inside the working directory that points outside it", async () => {
-    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const dir = await realpath(tempDir("realm-acp-"));
     const work = join(dir, "work");
     await mkdir(work);
     const outside = join(dir, "SECRET.txt");
@@ -523,7 +523,7 @@ describe("AcpAdapter", () => {
 
   it("refuses a sibling directory whose name merely starts with the working directory's", async () => {
     // /…/work-evil is not inside /…/work, however much a naive prefix test would like it to be.
-    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const dir = await realpath(tempDir("realm-acp-"));
     const work = join(dir, "work");
     await mkdir(work);
     await mkdir(join(dir, "work-evil"));
@@ -537,7 +537,7 @@ describe("AcpAdapter", () => {
   });
 
   it("refuses to read a file past the size cap", async () => {
-    const dir = await realpath(await mkdtemp(join(tmpdir(), "realm-acp-")));
+    const dir = await realpath(tempDir("realm-acp-"));
     const huge = join(dir, "HUGE.bin");
     await writeFile(huge, "");
     await truncate(huge, MAX_FS_READ_BYTES + 1); // sparse: no real bytes written
@@ -589,7 +589,7 @@ describe("AcpAdapter", () => {
   });
 
   it("inlines image attachments as base64 when the agent accepts images", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const dir = tempDir("realm-acp-");
     const png = join(dir, "shot.png");
     await writeFile(png, Buffer.from([1, 2, 3, 4]));
     const { handle, evs } = await booted();
@@ -602,7 +602,7 @@ describe("AcpAdapter", () => {
   });
 
   it("links images instead of inlining them when the agent does not accept images", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const dir = tempDir("realm-acp-");
     const png = join(dir, "shot.png");
     await writeFile(png, Buffer.from([1, 2, 3, 4]));
     const { handle, evs } = await booted({}, { env: { FAKE_ACP_NOIMAGE: "1" } });
@@ -830,7 +830,7 @@ describe("AcpAdapter", () => {
   });
 
   it("takes the child process down with the session", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const dir = tempDir("realm-acp-");
     const marker = join(dir, "child-exited");
     const { handle } = await booted({}, { env: { FAKE_ACP_EXIT_MARKER: marker } });
     expect(existsSync(marker)).toBe(false);
@@ -904,7 +904,7 @@ describe("AcpAdapter", () => {
   it("bounds initialize so a child that spawns and answers nothing cannot hang the session", async () => {
     // No timeout here and boot stays pending forever: dispose() -> App.close() never returns and the desktop
     // main process SIGTERMs the server out from under its agent children.
-    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const dir = tempDir("realm-acp-");
     const marker = join(dir, "child-exited");
     const adapter = newAdapter({ bootTimeoutMs: 200, env: { FAKE_ACP_MUTE_INITIALIZE: "1", FAKE_ACP_EXIT_MARKER: marker } });
     const handle = adapter.start(startOpts());
@@ -942,7 +942,7 @@ describe("AcpAdapter", () => {
   it("completes dispose even when the boot itself never settles", async () => {
     // The boot timeout is deliberately far longer than DISPOSE_TIMEOUT_MS here, so the only thing that can
     // resolve this dispose is the race in dispose() itself.
-    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const dir = tempDir("realm-acp-");
     const marker = join(dir, "child-exited");
     const adapter = newAdapter({ bootTimeoutMs: 60_000, env: { FAKE_ACP_MUTE_SESSION_NEW: "1", FAKE_ACP_EXIT_MARKER: marker } });
     const handle = adapter.start(startOpts());
@@ -955,7 +955,7 @@ describe("AcpAdapter", () => {
   });
 
   it("serves fs callbacks during a replay but cancels permission requests raised by it", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "realm-acp-"));
+    const dir = tempDir("realm-acp-");
     const path = join(dir, "REPLAY.txt");
     await writeFile(path, "replayed content");
     const { handle, evs } = await booted(
