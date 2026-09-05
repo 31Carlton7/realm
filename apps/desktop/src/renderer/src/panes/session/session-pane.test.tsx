@@ -9,6 +9,7 @@ import { SessionMeta, SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
 import { Markdown, renderMarkdown } from "./Markdown";
 import { toolSummary } from "./tool-summary";
+import { exited } from "../../components/popover-exit.test-fakes";
 
 const seeded = () => reduceAll([
   sessionEvent("user_message", { text: "hi", attachments: [] }),
@@ -35,11 +36,6 @@ async function mountKind(agentKind: "codex" | "acp:cursor") {
 
 /** Opens the prompter's combined model picker (agent + model in one popover). */
 const openPicker = () => fireEvent.click(screen.getByRole("button", { name: "Model" }));
-
-/** §6's popover exit keeps a dismissed menu or picker mounted for `--dur-press` and tells its parent
- *  at the end of it, so anything that closes one and then opens (or asserts the absence of) another
- *  has to let the first one leave. */
-const exited = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
 
 describe("SessionPane", () => {
   it("renders transcript blocks, shows permission card, and sends composer text", async () => {
@@ -1580,7 +1576,6 @@ describe("prompter model picker", () => {
     });
   });
 });
-
 
 /** A hub over a no-op transport and a stub xterm — the drawer only has to mount, not render a shell. */
 function fakeHub() {

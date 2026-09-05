@@ -75,8 +75,8 @@ describe("§6 motion ladder", () => {
 
   it("no component writes a duration of its own", () => {
     // The failure mode this closes is the one the ladder was built to end: four tokens existed, two
-    // of them with no users at all, while 41 `transition:` declarations wrote their own literals —
-    // so the ladder documented a system the stylesheet was not on.
+    // of them with no users at all, while 46 declarations wrote their own literals — so the ladder
+    // documented a system the stylesheet was not on.
     const bare = new Set([...css.replace(/\/\*[\s\S]*?\*\//g, "")
       .matchAll(/(?:transition|animation)[^;{}]*?(?<![\d.])([\d.]+m?s)\b/g)].map((m) => m[1]!));
     // Loop PERIODS are a tempo, not the duration of a change, and the stagger step is a delay
@@ -1392,6 +1392,8 @@ describe("the page measure", () => {
     // Every measure is wider than the widest pane the responsive rules claim (the notifications
     // split's 760). Below them a page is full-bleed and the cap is inert; above them nothing
     // re-flows. A measure that fell between would centre a page that was busy standing itself up.
+    expect(MEASURES.size, "no --page-measure rules found — the sweep below would pass vacuously")
+      .toBeGreaterThanOrEqual(3);
     for (const [sel, value] of MEASURES) expect(value, sel).toBeGreaterThan(760);
   });
 

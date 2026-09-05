@@ -22,6 +22,7 @@ const fireChange = (p: { environmentId: string; path: string; hash: string | nul
 import { DocumentsPane } from "./DocumentsPane";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
+import { exited } from "../../components/popover-exit.test-fakes";
 
 const DOCS_ID = "docs1";
 const ENV = "env-s1";
@@ -186,10 +187,6 @@ describe("DocumentsPane", () => {
  * buttons behind a text field, for a file that did not exist yet. These cover the shape that replaced
  * it — pick a kind, get a working document, rename it whenever (or never).
  */
-/** §6's popover exit keeps a dismissed menu or picker mounted for `--dur-press` and tells its parent
- *  at the end of it, so anything that closes one and then opens (or asserts the absence of) another
- *  has to let the first one leave. */
-const exited = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
 
 describe("DocumentsPane — making a document", () => {
   const addMenu = async () => {

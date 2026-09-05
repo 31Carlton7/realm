@@ -9,6 +9,7 @@ import { fakeApi, item, session } from "../state/store.test-fakes";
 import { setBrowserBridgesForTests } from "../panes/browser/browser-client";
 import { fakeBrowserBridges } from "../panes/browser/browser-bridges.test-fakes";
 import { reduceAll } from "../panes/session/transcript-model";
+import { exited } from "./popover-exit.test-fakes";
 
 // Item "A" below is a browser item, and BrowserPane (registered since Plan 11 W1) needs its bridges
 // and a ResizeObserver on mount. These tests are about the HOST — inert fakes are enough.
@@ -142,7 +143,6 @@ describe("PaneHost", () => {
     const { props, unmount } = renderHost();
     // A selected menu runs §6's exit before it tells the pane to unmount it, and a bare `click`
     // carries no pointerdown to commit that early — so each round trip waits the exit out.
-    const exited = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
     const openMenu = () => fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
     openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: /Split right/ }));

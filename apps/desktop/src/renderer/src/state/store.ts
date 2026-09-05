@@ -472,19 +472,19 @@ export const SETTING_THEME = "ui.theme";
  *  `ui.themeName` is what a single selection used to be stored under; it is READ as the fallback for
  *  both faces and never written again. A home last opened by an older build keeps the palette it had
  *  wherever that palette has a face, which for a dark-only one is the dark slot alone. */
-export const SETTING_THEME_NAME: Record<Mode, string> = { light: "ui.themeName.light", dark: "ui.themeName.dark" };
+const SETTING_THEME_NAME: Record<Mode, string> = { light: "ui.themeName.light", dark: "ui.themeName.dark" };
 const SETTING_THEME_NAME_LEGACY = "ui.themeName";
 /** Colours the user has moved off a palette's own seeds, keyed by palette and face. One row rather
  *  than a key per palette: they are read together on every boot and there is no palette whose
  *  override is interesting on its own. */
-export const SETTING_THEME_OVERRIDES = "ui.themeOverrides";
+const SETTING_THEME_OVERRIDES = "ui.themeOverrides";
 /** How far the ink ramp spreads below primary text, 0–100. Not per palette: it is a statement about
  *  the eyes reading the screen, not about One Dark. */
-export const SETTING_CONTRAST = "ui.contrast";
+const SETTING_CONTRAST = "ui.contrast";
 /** The UI and code faces, and the UI weight. One row: they are read together and set together. */
-export const SETTING_FONTS = "ui.fonts";
+const SETTING_FONTS = "ui.fonts";
 /** How opaque the sidebar's ground is over the macOS window material, in percent. */
-export const SETTING_GROUND_ALPHA = "ui.groundAlpha";
+const SETTING_GROUND_ALPHA = "ui.groundAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
@@ -572,9 +572,10 @@ export type AppState = {
   /** Which type faces the app wears. Not per palette — a face is a fact about reading, not about
    *  One Dark. */
   fonts: FontPref;
-  /** The sidebar's opacity over the macOS vibrancy material, 40–100. Persisted on every platform —
-   *  a preference set on a Mac should survive opening the same home somewhere without a material,
-   *  and come back unchanged. */
+  /** The sidebar's opacity over the macOS vibrancy material, 55–100 (`GROUND_ALPHA_RANGE`, whose
+   *  floor is where the nav labels start washing out). Persisted on every platform — a preference
+   *  set on a Mac should survive opening the same home somewhere without a material, and come back
+   *  unchanged. */
   groundAlpha: number;
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;

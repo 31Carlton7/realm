@@ -7,7 +7,7 @@
  *  gate is the fallback — `border-radius` plus `corner-shape: squircle`, which is a circular corner
  *  today and the real thing once Electron ships Chromium 139. */
 
-/** The CSS Painting API is not in lib.dom. Only the one call this file makes is declared. */
+/** The CSS Painting API is not in lib.dom. Only the two calls this file makes are declared. */
 declare const CSS: {
   registerProperty(definition: PropertyDefinition): void;
   paintWorklet?: { addModule(url: string): Promise<void> };

@@ -143,8 +143,10 @@ interface MacAccessStatus {
   host: { name: string; bundlePath: string; packaged: boolean };
 }
 /** Mirrors ComputerAccessRow/ComputerAccessStatus in main/computer-access.ts — the two grants the
- *  computer-control tools need. Only two states here, unlike the mac doctor rows: macOS answers both
- *  of these definitively, though it cannot tell "refused" from "never asked" for Accessibility. */
+ *  computer-control tools need. Only `granted` and `denied` are ever sent: macOS answers both of
+ *  these definitively, so unlike the mac doctor rows (five states, including `notRequested`) there
+ *  is nothing here to be undecided about — though it still cannot tell "refused" from "never asked"
+ *  for Accessibility. The union carries `unknown` anyway because it mirrors main's `TccState`. */
 interface ComputerAccessRow {
   id: "accessibility" | "screenRecording";
   label: string;

@@ -5,11 +5,7 @@ import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
 import { paneSlotOf } from "./ItemList";
-
-/** §6's popover exit keeps a dismissed menu or picker mounted for `--dur-press` and tells its parent
- *  at the end of it, so anything that closes one and then opens (or asserts the absence of) another
- *  has to let the first one leave. */
-const exited = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+import { exited } from "../popover-exit.test-fakes";
 
 async function mount(api = fakeApi()) {
   const store = createAppStore(api); await store.getState().boot();

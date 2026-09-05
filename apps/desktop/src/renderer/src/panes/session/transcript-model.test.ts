@@ -226,7 +226,6 @@ describe("feedback", () => {
       rate("m1", "down"),
     ];
     expect(reduceAll(events).feedback).toEqual({ m1: "down" });
-    expect(reduceAll(events.slice())).toEqual(reduceAll(events));
   });
 
   it("never touches the blocks — a verdict is about a message, not a thing in the scrollback", () => {

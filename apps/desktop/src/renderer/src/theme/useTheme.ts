@@ -41,8 +41,10 @@ export function suppressTransitions(root: HTMLElement, ms = SETTLE_MS): () => vo
 
 /** Resolves the two axes — the user's light/dark preference, and the palette that face wears — and
  *  stamps the result (plus the space colour) on `:root`. On the default theme the palette is still
- *  static CSS (BUI tokens in theme/tokens.css keyed on `data-mode`) and the only runtime writes are
- *  `--rl-space` and the two attributes.
+ *  static CSS (BUI tokens in theme/tokens.css keyed on `data-mode`). What is written on every apply,
+ *  default theme included, is `--rl-space`, the three font properties and `--ground-alpha`, plus the
+ *  two attributes — those are preferences rather than a second skin over a hand-tuned palette, so
+ *  there is no static value that staying silent would preserve (see `fontVars`).
  *
  *  The mode is the preference and nothing else. A palette cannot move it: each slot is offered only
  *  palettes that have its face, so "Monokai, which has no light face" is settled by what the dark

@@ -96,6 +96,13 @@ function decorate(vars: Record<string, string>, mode: Mode, ground: string, hue:
 }
 
 describe("the decorative wash never costs text its contrast floor", () => {
+  /* Every sweep below iterates FACES, and every one of them would pass on an empty list. The count
+     is also the "all seventeen faces" that grain.ts and tokens.css both state in prose, so pinning
+     it here is what stops a palette gaining or losing a face and leaving those two comments wrong. */
+  it("sweeps every face the app ships, so none of the guarantees below can pass vacuously", () => {
+    expect(FACES.length).toBe(17);
+  });
+
   for (const surface of SURFACES) {
     it(`${surface.name}: every ink tier clears its floor on all ${FACES.length} faces, at every hue the draw can land on`, () => {
       const misses: string[] = [];

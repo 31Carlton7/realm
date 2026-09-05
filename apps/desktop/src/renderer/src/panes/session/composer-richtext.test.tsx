@@ -100,8 +100,11 @@ describe("the prompter's rich-text mirror", () => {
     typeAt("@[abc]");
     const el = box();
     el.setSelectionRange(4, 4);
-    fireEvent.keyDown(el, { key: "Backspace" });
-    // Not consumed: the draft is untouched here because jsdom does not apply the default action.
+    // `true` is the claim the title makes: the handler let the key through, so the browser's own
+    // Backspace is what runs. jsdom does not apply that default action, so the untouched draft below
+    // says only that nothing REWROTE the text — on its own it would pass just as well against a
+    // handler that swallowed the key and did nothing.
+    expect(fireEvent.keyDown(el, { key: "Backspace" })).toBe(true);
     expect(store.getState().drafts.se1).toBe("@[abc]");
   });
 
