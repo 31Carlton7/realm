@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.6.0 — 2026-09-05
+
+The largest release so far: computer use, a real theming system, plan and ask modes, sub-agent
+visibility, and a long pass of interface work.
+
+**Computer use.** Realm can drive other macOS applications through the Accessibility APIs, via a
+Swift helper and a `realm-computer` tool provider. It is off until a space turns it on, refuses a
+list of applications no mode can lift (Realm itself, System Settings, password prompts, terminals),
+and raises a permission card per application that `bypassPermissions` does not skip — approving
+TextEdit never licenses Mail. A menu-bar indicator shows when an agent is driving, because at that
+moment Realm is by definition not the frontmost app.
+
+**Theming.** Seven palettes across seventeen light and dark faces, chosen independently per mode,
+with per-palette colour overrides, a contrast control, UI and code font pickers, JSON import/export,
+and an adjustable sidebar translucency. Every face is held to a WCAG floor per role, and overrides
+run through the same derivation so a moved background brings its whole surface ladder with it.
+
+**Plan and Ask modes.** Plans from Claude, Codex and ACP now render as a first-class card instead of
+being discarded. Ask is a read-only mode enforced by each backend rather than requested politely —
+and it is not offered where it cannot be enforced.
+
+**Sub-agents.** A `Task`'s tool calls nest under the call that spawned them, and a session shows the
+agents it is waiting on in a dock inside its own pane.
+
+**Browser.** Panes survive a space switch — the view is retained, unthrottled and still drivable,
+bounded by an LRU budget. Elements can be picked from a page and sent to the prompter as a chip.
+
+**Interface.** A genuine superellipse on the floating cards, drawn by a paint worklet because
+`corner-shape` is inert on this runtime. A motion ladder, trackless scrollbars, far fewer dividers,
+centred page content, an icon ladder, a plan strip above the prompter, and response actions — copy,
+retry, feedback and sources — on finished answers. Two sound cues, off-window only.
+
+**Tooling.** Agent CLIs and model catalogues are checked for updates on launch, read-only, with
+install and update one visible click away — and Realm refuses to update a CLI a different package
+manager installed.
+
+**Fixed.** Attachments in sent messages rendered at zero size. The prompter's shadow was drawn from
+its square box rather than its painted curve. The test suite leaked roughly a thousand scratch
+directories per run.
+
 ## v0.5.1 — 2026-09-04
 
 This maintenance release replaces the unsigned v0.5.0 downloads with a Developer ID signed and
