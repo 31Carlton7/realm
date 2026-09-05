@@ -52,6 +52,26 @@ export const blockKey = (b: Block, i: number): string =>
 
 export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null });
 
+export type UserBlock = Extract<Block, { kind: "user" }>;
+
+/**
+ * The message a retry would ask again: the last one the USER wrote.
+ *
+ * A `from`-bearing block is skipped rather than returned. Those are another session's words
+ * delivered into this one, and re-sending one would put the user's hand on a question they never
+ * asked — the same reason the bubble is attributed instead of drawn plain.
+ *
+ * Null means there is nothing to ask again, which is the honest state of a session before its first
+ * send and of one whose only messages arrived from a peer.
+ */
+export const lastUserMessage = (t: Transcript): UserBlock | null => {
+  for (let i = t.blocks.length - 1; i >= 0; i--) {
+    const b = t.blocks[i]!;
+    if (b.kind === "user" && !b.from) return b;
+  }
+  return null;
+};
+
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
 
 /** Pure reducer: normalized session events → what the transcript renders. Deltas accumulate into the open

@@ -17,7 +17,7 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION,
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
-import { emptyTranscript, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
+import { emptyTranscript, lastUserMessage, reduceTranscript, type Transcript } from "../panes/session/transcript-model";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
@@ -1047,6 +1047,10 @@ export type AppState = {
    *  to it, record the `user-dispatch` origin, and bring its pane in BESIDE without focusing it.
    *  The draft clears exactly as a normal send; an empty draft is a no-op. */
   dispatchDraft(sessionId: string): Promise<void>;
+  /** Ask the last user message again, as a NEW turn. Not a regenerate — no adapter can rewind a
+   *  conversation, so the superseded answer stays in the transcript and in the agent's context.
+   *  A no-op while a turn is live, and a no-op when the user has not sent anything yet. */
+  retryLastTurn(id: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
@@ -2693,6 +2697,39 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const items = await api.listItems(source.spaceId);
         if (isSpace(source.spaceId) && seq === itemsFetchSeq) set({ items });
         await get().openItemBesideQuiet(itemId);
+      },
+      /**
+       * Ask the last question again.
+       *
+       * This is NOT a regenerate, and the difference is the whole design. No agent Realm supports
+       * can rewind a conversation — the checkpoints sheet already tells the user so, and
+       * `sessions.fork` records `AGENT_CONVERSATION_REWIND` as false for every adapter — so the
+       * answer the reader was unhappy with is still in the agent's context and cannot be taken out
+       * of it. What this does is send the same words as a NEW turn, which is what the user could
+       * have done by retyping them. Nothing is removed from the transcript or the event log, and
+       * the superseded answer keeps its place: the record is what happened, and the agent
+       * remembers it either way.
+       *
+       * Refused while a turn is live, and refused here rather than only in the bar. The three
+       * adapters disagree about what a send mid-turn even means — Claude queues it behind the one
+       * running, Codex steers the turn in flight, ACP opens a second concurrent prompt — and none
+       * of those is "ask that again". There is deliberately no interrupt-then-send dance either:
+       * interrupting denies whatever permission prompt is open, and that is a decision the user
+       * did not make by pressing Retry.
+       *
+       * Mentions are re-scanned rather than replayed, because the persisted `user_message` never
+       * carried them — and re-scanning is what an ordinary send does too, so a retry resolves `@name`
+       * against the same live library a fresh send would. Element chips are not replayed at all:
+       * they point into a browser pane that has since navigated, and handing the agent a stale
+       * reference is worse than handing it none.
+       */
+      async retryLastTurn(id) {
+        const status = get().sessionStatus[id] ?? get().sessions[id]?.status ?? "idle";
+        if (status === "running" || status === "waiting_permission") return;
+        const t = get().transcripts[id]?.t; if (!t) return;
+        const msg = lastUserMessage(t); if (!msg) return;
+        const mentions = mentionIds(msg.text, new Set(mentionableIds(id)));
+        await api.sendMessage(id, msg.text, msg.attachments ?? [], mentions);
       },
       async interruptSession(id) { await api.interruptSession(id); },
       /**

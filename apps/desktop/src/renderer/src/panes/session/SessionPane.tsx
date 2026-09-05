@@ -176,6 +176,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const openSession = useApp((s) => s.openSession);
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);
+  const retryLastTurn = useApp((s) => s.retryLastTurn);
   const respondPermission = useApp((s) => s.respondPermission);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
@@ -323,7 +324,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
         sends={sends}
         mentionIds={liveMentionIds}
-        onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))} />
+        onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
+        onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }} />
       {/* Between the log and the prompter, not inside the scroller: a delegated child running RIGHT
           NOW is not history, and it must not scroll away from the reader who went back to re-read
           something. It draws nothing at all when this session is waiting on no one. */}

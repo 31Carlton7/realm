@@ -11,6 +11,8 @@ const model = (blocks: Block[]): TranscriptModel =>
 const assistant = (text: string, streaming: boolean, messageId = "m1"): Block =>
   ({ kind: "assistant", messageId, text, streaming, ts: 1 });
 
+const user = (text: string): Block => ({ kind: "user", text, ts: 0 });
+
 const row = () => document.querySelector(".msg-assistant-row")!;
 
 describe("the assistant message's action bar", () => {
@@ -66,5 +68,37 @@ describe("the assistant message's action bar", () => {
       transcript={model([assistant("first", false), assistant("second", false, "m2")])} />);
     expect(document.querySelector(".transcript-col > .msg-assistant-row[data-enter]")).not.toBeNull();
     expect(document.querySelector(".md[data-enter]")).toBeNull();
+  });
+
+  it("offers Retry on the newest answer only — the button acts on the last turn wherever it sits", () => {
+    render(<Transcript sessionStatus="idle" onDecide={() => {}} onRetry={() => {}}
+      transcript={model([user("one"), assistant("first", false), user("two"), assistant("second", false, "m2")])} />);
+    const bars = [...document.querySelectorAll(".msg-actions")];
+    expect(bars).toHaveLength(2);
+    expect(bars[0]!.querySelector('[aria-label="Retry"]')).toBeNull();
+    expect(bars[1]!.querySelector('[aria-label="Retry"]')).not.toBeNull();
+  });
+
+  it("does not offer Retry when there is nothing of the user's to ask again", () => {
+    render(<Transcript sessionStatus="idle" onDecide={() => {}} onRetry={() => {}}
+      transcript={model([assistant("unprompted", false)])} />);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("greys Retry while a turn is live rather than taking it away", () => {
+    const view = render(<Transcript sessionStatus="running" onDecide={() => {}} onRetry={() => {}}
+      transcript={model([user("one"), assistant("done", false)])} />);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled();
+    view.rerender(<Transcript sessionStatus="idle" onDecide={() => {}} onRetry={() => {}}
+      transcript={model([user("one"), assistant("done", false)])} />);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+  });
+
+  it("hands the click straight to the pane", () => {
+    const retried = vi.fn();
+    render(<Transcript sessionStatus="idle" onDecide={() => {}} onRetry={retried}
+      transcript={model([user("one"), assistant("done", false)])} />);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retried).toHaveBeenCalledTimes(1);
   });
 });

@@ -15,7 +15,15 @@ const COPIED_MS = 1400;
  * relaunch every message is complete at once, and forty bars fading in together reads as a fault
  * rather than as forty arrivals.
  */
-export function MessageActions({ text }: { text: string }) {
+export function MessageActions({ text, onRetry, retryBusy = false }: {
+  text: string;
+  /** Present only on the message a retry would land after, and only when there is a user message to
+   *  ask again — the bar does not offer a button it cannot honour. */
+  onRetry?: () => void;
+  /** A turn is in flight. The control stays in place and greys rather than leaving, because a
+   *  button that disappears for the seconds a run takes reads as one that was never there. */
+  retryBusy?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -34,6 +42,15 @@ export function MessageActions({ text }: { text: string }) {
         <Icon name="copy" size={14} className="copy-icon" />
         <Icon name="check" size={14} className="copied-icon" />
       </button>
+      {/* "Retry", not "Regenerate": this asks the question again as a new turn. The answer above it
+          stays where it is, because the agent's own context still holds it and a transcript that
+          disagreed with what the agent remembers would be the more expensive lie. */}
+      {onRetry && (
+        <button className="msg-action" aria-label="Retry" title="Ask the last message again"
+          disabled={retryBusy} onClick={onRetry}>
+          <Icon name="reload" size={14} />
+        </button>
+      )}
     </div>
   );
 }

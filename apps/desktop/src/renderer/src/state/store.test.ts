@@ -1168,6 +1168,71 @@ describe("app store", () => {
       expect(api.data.settings["ui.lastAgentKind"]).toBe("codex");
     });
 
+    describe("retryLastTurn", () => {
+      /** A session whose transcript is loaded and whose turn has ended — the state Retry is offered in. */
+      const idle = async (rows: StoredSessionEvent[]) => {
+        api = fakeApi({
+          items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+          sessions: [session("se1", "s1", { status: "idle" })],
+          sessionEvents: { se1: rows },
+        });
+        const store = createAppStore(api); await store.getState().boot();
+        await store.getState().openSession("se1");
+        return store;
+      };
+
+      it("sends the user's last words again, attachments included", async () => {
+        const store = await idle([
+          stored("se1", 1, sessionEvent("user_message", { text: "first", attachments: [] })),
+          stored("se1", 2, sessionEvent("assistant_text", { messageId: "m1", text: "one" })),
+          stored("se1", 3, sessionEvent("user_message", { text: "second", attachments: [{ path: "/tmp/a.png", mime: "image/png" }] })),
+          stored("se1", 4, sessionEvent("assistant_text", { messageId: "m2", text: "two" })),
+        ]);
+        await store.getState().retryLastTurn("se1");
+        expect(api.sent).toEqual([{ id: "se1", text: "second", attachments: [{ path: "/tmp/a.png", mime: "image/png" }] }]);
+      });
+
+      it("leaves the answer it is retrying exactly where it was", async () => {
+        // The mutant: dropping the superseded assistant block to make room for the new one. No
+        // adapter can rewind, so the agent still has that answer in context — a transcript that
+        // hid it would disagree with what the agent remembers.
+        const store = await idle([
+          stored("se1", 1, sessionEvent("user_message", { text: "ask", attachments: [] })),
+          stored("se1", 2, sessionEvent("assistant_text", { messageId: "m1", text: "a poor answer" })),
+        ]);
+        await store.getState().retryLastTurn("se1");
+        const blocks = store.getState().transcripts.se1!.t.blocks;
+        expect(blocks.map((b) => b.kind)).toEqual(["user", "assistant"]);
+        expect(blocks[1]).toMatchObject({ text: "a poor answer" });
+      });
+
+      it("refuses while a turn is live, on both of the statuses that mean it", async () => {
+        for (const status of ["running", "waiting_permission"] as const) {
+          const store = await idle([stored("se1", 1, sessionEvent("user_message", { text: "ask", attachments: [] }))]);
+          store.setState({ sessionStatus: { se1: status } });
+          await store.getState().retryLastTurn("se1");
+          expect(api.sent, status).toEqual([]);
+        }
+      });
+
+      it("will not re-ask a question a peer session asked", async () => {
+        // Plan 20's interjection: another agent's words in this transcript. Re-sending one would
+        // put the user's hand on a question they never wrote.
+        const store = await idle([
+          stored("se1", 1, sessionEvent("user_message", { text: "mine", attachments: [] })),
+          stored("se1", 2, sessionEvent("user_message", { text: "theirs", attachments: [], from: { sessionId: "se2", title: "Peer" } })),
+        ]);
+        await store.getState().retryLastTurn("se1");
+        expect(api.sent).toEqual([{ id: "se1", text: "mine", attachments: [] }]);
+      });
+
+      it("does nothing at all when the user has not sent anything yet", async () => {
+        const store = await idle([stored("se1", 1, sessionEvent("init", { providerSessionId: "p", model: "m", tools: [], cwd: "/tmp" }))]);
+        await store.getState().retryLastTurn("se1");
+        expect(api.sent).toEqual([]);
+      });
+    });
+
     it("sendMessage / interrupt / respondPermission / setSessionOptions call the api; options merge into the session", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().sendMessage("se1", "go");
