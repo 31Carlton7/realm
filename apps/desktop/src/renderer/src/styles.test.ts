@@ -80,8 +80,10 @@ describe("§6 motion ladder", () => {
     const bare = new Set([...css.replace(/\/\*[\s\S]*?\*\//g, "")
       .matchAll(/(?:transition|animation)[^;{}]*?(?<![\d.])([\d.]+m?s)\b/g)].map((m) => m[1]!));
     // Loop PERIODS are a tempo, not the duration of a change, and the stagger step is a delay
-    // between siblings rather than a duration at all. Neither belongs on the ladder.
-    for (const period of ["0.9s", "1.4s", "3.6s", "5s", "40ms"]) bare.delete(period);
+    // between siblings rather than a duration at all. Neither belongs on the ladder. 24s is the
+    // grain's drift: an ambient tempo an order of magnitude off the slowest rung, and putting it on
+    // the ladder would invite a UI transition to reach for it.
+    for (const period of ["0.9s", "1.4s", "3.6s", "5s", "24s", "40ms"]) bare.delete(period);
     expect([...bare].sort()).toEqual([]);
   });
 });
@@ -524,6 +526,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
       // track and the knob are one box and cannot drift out of register.
       "--media-progress",
+      // The decorative wash's geometry (theme/grain.ts): drawn once per launch per surface and set
+      // inline, because a value that is randomised cannot be written in a stylesheet. Every one is
+      // used with a fallback, so a surface that never receives them is still a finished surface.
+      "--grain-hue", "--grain-x", "--grain-y", "--grain-spread",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
@@ -1667,5 +1673,68 @@ describe("custom themes", () => {
         expect(want.syntax[role], `${mode} syntax.${role}`).toBe(hexIn(token, block));
       }
     }
+  });
+});
+
+describe("the decorative wash", () => {
+  const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+  const wash = bodiesFor(".wash").join(" ");
+  const grain = bodiesFor(".wash[data-grain]").join(" ");
+  /* Every selector that paints any part of the decoration. If a rule is ever added that puts it on a
+     pseudo-element or a child, these lists are what notice. */
+  const painters = RULES.filter((r) => /--grain-tex|--grain-lift|--grain-wash-l/.test(r.body)).flatMap((r) => r.selectors);
+
+  it("is painted as the surface's own background, never as a layer over it", () => {
+    // state/no-overlay.ts exists because a WebContentsView composites ABOVE everything React draws,
+    // so any floating surface has to be kept off its rect. A background cannot leave its own element
+    // and so can never join that problem; an absolutely-positioned child could.
+    expect(wash).toContain("background-image:");
+    for (const body of [wash, grain]) {
+      expect(body).not.toMatch(/position:\s*(absolute|fixed)/);
+      expect(body).not.toContain("inset:");
+      expect(body).not.toContain("z-index:");
+    }
+    expect(painters.filter((s) => /::(before|after)/.test(s))).toEqual([]);
+  });
+
+  it("keeps texture off a --canvas ground, where the contrast budget is zero", () => {
+    // theme/grain.test.ts measures it: the derivation puts --ink-3 at exactly its 2.4 floor on
+    // --canvas for six light faces, so a luminance excursion there has nothing to spend. `.page` is
+    // --canvas, and takes the luminance-neutral colour field alone.
+    const textured = RULES.filter((r) => r.body.includes("var(--grain-tex)")).flatMap((r) => r.selectors);
+    expect(textured).toEqual([".wash[data-grain]"]);
+    expect(wash).not.toContain("var(--grain-tex)");
+    expect(wash).not.toContain("var(--grain-lift)");
+  });
+
+  it("drifts by exactly one tile, so the loop closes on a seam that is not there", () => {
+    // feTurbulence stitchTiles makes the 160px tile repeat without a join; translating by any other
+    // distance would park the texture mid-tile and show one.
+    expect(grain).toContain("background-size: 160px 160px");
+    expect(blockAfter("@keyframes rl-grain-drift")).toContain("background-position: 160px 160px");
+  });
+
+  it("is genuinely still under reduced motion, and gone under reduced transparency", () => {
+    // The animation is on the ELEMENT, so the global `* { animation: none }` reaches it — which is
+    // only true while nothing here moves to a pseudo-element, hence the check above.
+    expect(grain).toContain("animation: rl-grain-drift");
+    const transparency = blocksAfter("@media (prefers-reduced-transparency: reduce)").join("\n").replace(/\s+/g, " ");
+    expect(transparency).toContain(".wash, .wash[data-grain] { background-image: none; }");
+  });
+
+  it("randomises hue and place, never the lightness the contrast proof rests on", () => {
+    // --grain-wash-l/-c are pinned per mode in tokens.css because they are what keeps the field off
+    // the luminance axis. If either became an inline value, grain.test.ts would still pass and the
+    // guarantee would be gone.
+    for (const name of ["--grain-wash-l", "--grain-wash-c", "--grain-wash-a", "--grain-lift", "--grain-tex"]) {
+      expect(tokensCss, name).toContain(`${name}:`);
+      expect(css, name).not.toMatch(new RegExp(`${name}\\s*:`));
+    }
+    // The light face flips the pin: .97 sits inside the light grounds' own band the way .10 sits
+    // below every dark one.
+    expect(tokensCss).toContain("--grain-wash-l: 0.17");
+    expect(tokensCss).toContain("--grain-wash-l: 0.98");
+    expect(wash).toContain("var(--grain-hue, 0)");
+    expect(wash).toContain("var(--grain-x, 50%)");
   });
 });

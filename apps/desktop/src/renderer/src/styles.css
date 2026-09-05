@@ -3376,3 +3376,51 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .plan-approve { background: var(--rl-accent); color: var(--rl-accent-contrast); font-weight: var(--fw-label); }
 .plan-reject { background: var(--hover); color: var(--ink-2); }
 .plan-reject:hover { background: var(--hover-2); color: var(--ink); }
+
+/* ── The decorative wash ──────────────────────────────────────────────────────
+   Worn by the surfaces a person sits on rather than passes through: Settings, Notifications, and
+   the first-run card. Everything else — every confirm, rename and delete sheet, the palette — stays
+   plain, because a decorated ground on a surface that exists to ask one question decorates the
+   question.
+
+   Two layers, and which of them a surface gets is decided by its GROUND, not by taste. The colour
+   field holds the ground's own lightness (theme/tokens.css) and so can go anywhere. The grain is a
+   luminance excursion and can only go where a lift can bank the budget for it first, which on the
+   measured faces means a `--surface` ground and not a `--canvas` one — so `.page` takes the field
+   alone.
+
+   Painted as background layers on the surface itself rather than as an absolutely-positioned child.
+   That is what keeps it out of the no-overlay problem (state/no-overlay.ts): a background cannot
+   extend past its own element, so it can never end up over the WebContentsView the way a floating
+   layer can. It is also why the sheet's field does not scroll away from under its own content —
+   a background is fixed to the border box, an inset:0 child is not.
+
+   `--grain-hue`, `--grain-x`, `--grain-y` and `--grain-spread` arrive inline from theme/grain.ts.
+   The fallbacks are what the surface looks like if they never do: centred, unrotated, still the
+   theme's accent. */
+.wash {
+  --grain-field: radial-gradient(var(--grain-spread, 90%) 76% at var(--grain-x, 50%) var(--grain-y, 0%),
+    oklch(from var(--accent) var(--grain-wash-l) var(--grain-wash-c) calc(h + var(--grain-hue, 0)) / var(--grain-wash-a)),
+    transparent 72%);
+  background-image: var(--grain-field);
+  background-repeat: no-repeat;
+}
+/* Grain over lift over field. The lift is flat, so it is a gradient of one colour — a solid has no
+   other way into the background-image stack, and under the speckles is where it has to sit. */
+.wash[data-grain] {
+  background-image: var(--grain-tex), linear-gradient(var(--grain-lift), var(--grain-lift)), var(--grain-field);
+  background-repeat: repeat, no-repeat, no-repeat;
+  background-size: 160px 160px, auto, auto;
+  background-position: 0 0, 0 0, 0 0;
+  /* One tile per cycle, so the loop closes on the seam `stitchTiles` made invisible. Slow enough to
+     be weather rather than motion; the first-run card is the only surface that wears it, because it
+     is the only decorated one a person passes through rather than sits on, and an ambient animation
+     on a pane somebody leaves open all day is a battery cost with no reader. */
+  animation: rl-grain-drift 24s linear infinite;
+}
+@keyframes rl-grain-drift { to { background-position: 160px 160px, 0 0, 0 0; } }
+/* Asked for less translucency: the decoration is the one thing here that is purely decorative, so it
+   goes rather than changing medium. The surface underneath is a finished design without it. */
+@media (prefers-reduced-transparency: reduce) {
+  .wash, .wash[data-grain] { background-image: none; }
+}
