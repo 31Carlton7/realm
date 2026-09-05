@@ -86,6 +86,23 @@ export function parseOklch(value: string): Oklch {
  *  asserted never to have. Any walk whose stopping condition is a floor measures this instead. */
 export const emitted = (o: Oklch): Oklch => parseOklch(css(o));
 
+/** Gamut-clipped sRGB, gamma-ENCODED, 0..1 per channel: the numbers the compositor holds.
+ *
+ *  `luminance` below reads the LINEAR channels, which is right for a colour that is simply named.
+ *  Anything that has to blend colours needs these instead, because alpha compositing happens in the
+ *  encoded space — mixing two colours on the linear channels and taking the luminance of the result
+ *  describes a pixel the screen will never show. */
+export function srgb(o: Oklch): [number, number, number] {
+  const [r, g, b] = toLinearRgb(o);
+  return [fromLinear(r), fromLinear(g), fromLinear(b)];
+}
+
+/** WCAG 2.x relative luminance of an sRGB triple — for a colour that was composited rather than
+ *  named, and so has no OKLCH form to ask. */
+export function srgbLuminance([r, g, b]: readonly number[]): number {
+  return 0.2126 * toLinear(r!) + 0.7152 * toLinear(g!) + 0.0722 * toLinear(b!);
+}
+
 /** WCAG 2.x relative luminance. */
 export function luminance(o: Oklch): number {
   const [r, g, b] = toLinearRgb(o);
