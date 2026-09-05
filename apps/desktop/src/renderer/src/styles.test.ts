@@ -1011,7 +1011,7 @@ describe("squircle surfaces", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
   const worklet = readFileSync(repoFile("apps/desktop/src/renderer/public/squircle-paint.js"), "utf8");
   const registrar = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/squircle.ts"), "utf8");
-  const SURFACES = [".composer", ".composer-drop-hint", ".composer-understrip", ".install-card", ".commit-card"];
+  const SURFACES = [".composer", ".composer-drop-hint", ".composer-todos", ".composer-understrip", ".install-card", ".commit-card"];
 
   it("every squircle surface keeps a circular-corner fallback AND the declarative form", () => {
     // `corner-shape` is a no-op on Chromium 138 (measured in squircle-live.mjs) and takes over at
@@ -1409,6 +1409,36 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
   it("the todo bar is the one accent fill, and finished items are struck through rather than dropped", () => {
     expect(bodiesFor(".todo-fill").join(" ")).toContain("background: var(--rl-accent)");
     expect(bodiesFor('.todo-list li[data-status="completed"] .todo-text').join(" ")).toContain("line-through");
+  });
+
+  it("the to-do strip takes the card's top radius, squares its bottom, and tucks under the card", () => {
+    // The whole point of the strip is that it is not a second card. Rounding the bottom, or letting
+    // the two boxes meet edge to edge instead of overlapping, puts a seam across the join and the
+    // pair reads as stacked cards again — which is the state this replaced.
+    const body = bodiesFor(".composer-todos").join(" ");
+    expect(body).toContain("border-radius: var(--r-squircle) var(--r-squircle) 0 0");
+    expect(body).toMatch(/margin:\s*0 0 -\d+px/);
+    // Full-width, so the side edges continue the card's rather than starting a narrower box. The
+    // under-strip below is inset on purpose; this one must not inherit that.
+    expect(body).not.toMatch(/margin:[^;]*\b(?!0)\d+px\s+-?\d+px\s*;/);
+    // Under the gate the corner is the painter's, and the bottom radius has to go with it.
+    const painted = bodiesFor(":root[data-squircle] .composer-todos").join(" ");
+    expect(painted).toContain("--sq-radius-bottom: 0px");
+    expect(painted).toContain("--sq-ring: var(--card-ring)");
+  });
+
+  it("the strip collapses on the house grid-row idiom, at the rung for a box changing size", () => {
+    expect(bodiesFor(".composer-todos-wrap").join(" "))
+      .toContain(`transition: grid-template-rows ${dur("--dur-base")} var(--ease-in-out-strong)`);
+    expect(bodiesFor(".composer-todos[data-open] .composer-todos-wrap").join(" ")).toContain("grid-template-rows: 1fr");
+    // Without the clip the collapsed rows still take their natural height and 0fr animates nothing.
+    expect(bodiesFor(".composer-todos-clip").join(" ")).toContain("overflow: hidden");
+  });
+
+  it("the strip's list is bounded and does not hand its scroll to the transcript behind it", () => {
+    const list = bodiesFor(".composer-todos .todo-list").join(" ");
+    expect(list).toMatch(/max-height:\s*\d+px/);
+    expect(list).toContain("overscroll-behavior: contain");
   });
 });
 

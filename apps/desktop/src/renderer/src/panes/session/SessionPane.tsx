@@ -13,6 +13,7 @@ import { Transcript } from "./Transcript";
 import { DelegatedRuns } from "./DelegatedRuns";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
+import { latestTodos } from "./session-todos";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
  *  re-render (and warn) forever. */
@@ -299,6 +300,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const hint = promptHint({
     blocks: transcript.blocks, gitInfo, status, inPlan: session.permissionMode === PLAN_PERMISSION_MODE,
   });
+  // Derived at render like the hint above, not memoised and not stored: one backward walk over
+  // blocks the pane already holds, and a slice beside the transcript could only disagree with it.
+  const todos = latestTodos(transcript.blocks);
   const blocked = isBlocked(availability) && status !== "running" && status !== "waiting_permission";
   const body = (
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}
@@ -314,7 +318,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       {blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))} />
-        : <Composer session={session} status={status} gitInfo={gitInfo}
+        : <Composer session={session} status={status} gitInfo={gitInfo} todos={todos}
             onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}

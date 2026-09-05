@@ -90,32 +90,54 @@ export function TerminalView({ output, exitCode }: { output: string; exitCode: n
   );
 }
 
-/** TodoWrite's plan (AICSS "To-do List"). The bar is the plan's real arithmetic — completed over
- *  total — and it is the one thing in the card readable from across the room, which is the point: a
- *  reader scrolling past a long run of tool calls wants to know how far through the agent is. */
-export function TodoList({ todos }: { todos: Todo[] }) {
+/** How far through, and what is happening right now. A fragment rather than a box, so the card's
+ *  head row and the strip's header button can each lay it out their own way. */
+export function TodoHeadline({ todos }: { todos: readonly Todo[] }) {
   const done = todos.filter((t) => t.status === "completed").length;
   const active = todos.find((t) => t.status === "in_progress");
   return (
+    <>
+      <span className="todo-count">{done} of {todos.length}</span>
+      {/* The in-flight item's own words for what it is doing ("Running the suite"), which is what
+          `activeForm` is for; without one the item's title stands in. */}
+      {active && <span className="todo-active shimmer-text">{active.activeForm ?? active.content}</span>}
+    </>
+  );
+}
+
+/** The plan's real arithmetic — completed over total. The one part readable from across the room,
+ *  which is why the strip keeps it out of the collapse. */
+export function TodoTrack({ todos }: { todos: readonly Todo[] }) {
+  const done = todos.filter((t) => t.status === "completed").length;
+  return (
+    <div className="todo-track" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={todos.length}>
+      <div className="todo-fill" style={{ width: `${todos.length ? (done / todos.length) * 100 : 0}%` }} />
+    </div>
+  );
+}
+
+export function TodoItems({ todos }: { todos: readonly Todo[] }) {
+  return (
+    <ul className="todo-list">
+      {todos.map((t, i) => (
+        <li key={i} data-status={t.status}>
+          {/* off-ladder: the dot is 13px, so the inline rung would fill it edge to edge. */}
+          <span className="todo-dot" aria-hidden="true">{t.status === "completed" && <Icon name="check" size={10} />}</span>
+          <span className="todo-text">{t.content}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** TodoWrite's plan (AICSS "To-do List"), as the tool card draws it: the whole list, at the point in
+ *  the log where the agent wrote it. The card is one moment; the strip above the prompter is now. */
+export function TodoList({ todos }: { todos: Todo[] }) {
+  return (
     <div className="todo">
-      <div className="todo-head">
-        <span className="todo-count">{done} of {todos.length}</span>
-        {/* The in-flight item's own words for what it is doing ("Running the suite"), which is what
-            `activeForm` is for; without one the item's title stands in. */}
-        {active && <span className="todo-active shimmer-text">{active.activeForm ?? active.content}</span>}
-      </div>
-      <div className="todo-track" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={todos.length}>
-        <div className="todo-fill" style={{ width: `${todos.length ? (done / todos.length) * 100 : 0}%` }} />
-      </div>
-      <ul className="todo-list">
-        {todos.map((t, i) => (
-          <li key={i} data-status={t.status}>
-            {/* off-ladder: the dot is 13px, so the inline rung would fill it edge to edge. */}
-            <span className="todo-dot" aria-hidden="true">{t.status === "completed" && <Icon name="check" size={10} />}</span>
-            <span className="todo-text">{t.content}</span>
-          </li>
-        ))}
-      </ul>
+      <div className="todo-head"><TodoHeadline todos={todos} /></div>
+      <TodoTrack todos={todos} />
+      <TodoItems todos={todos} />
     </div>
   );
 }
