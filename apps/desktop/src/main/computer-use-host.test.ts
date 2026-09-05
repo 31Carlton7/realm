@@ -129,6 +129,18 @@ describe("ComputerUseHost", () => {
     expect(calls[0]!.params.screenshot).toBe(true);
   });
 
+  it("passes a snapshot through with no image when the helper omitted one", async () => {
+    // Screen Recording is a separate grant from Accessibility and an optional one. Without it the
+    // helper returns the tree and no `screenshot` field, and that has to stay an ordinary result all
+    // the way up — turning it into a failure would make an optional grant a required one.
+    const { instance } = host({
+      snapshot: { snapshotId: "ax_1", pid: 7, bundleId: "com.apple.TextEdit", appName: "TextEdit", frontmost: true, truncated: false, elements: [element({ name: "Save" })] },
+    });
+    const snap = await instance.handleOp("computerSnapshot", { bundleId: "x", screenshot: true }) as { text: string; screenshot?: string };
+    expect(snap.screenshot).toBeUndefined();
+    expect(snap.text).toBe('[0] AXButton "Save" (10,20 30×40)');
+  });
+
   it("turns the helper's tag into a refusal the agent can branch on", async () => {
     const stale = Object.assign(new Error("snapshot ax_1 is no longer current"), { cause: "stale_snapshot" });
     const { instance } = host({ act: () => { throw stale; } });

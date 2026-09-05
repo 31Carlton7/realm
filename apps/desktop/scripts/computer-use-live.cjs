@@ -69,6 +69,31 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * same source twice. Returns null rather than an empty set when `lsappinfo` cannot be read, so a
  * missing tool is reported as a skip instead of as "nothing is running".
  */
+/**
+ * A JPEG's real pixel dimensions, from its SOF marker.
+ *
+ * Read rather than trusted, because the failure this exists to catch is a capture that succeeds and
+ * returns the wrong thing: since macOS 15 the deprecated `CGWindowListCreateImage` answers an
+ * ungranted caller with a black or desktop-only image instead of failing, and "some base64 came
+ * back" cannot tell that apart from a real window. Comparing against the app's own AX frame can.
+ */
+function jpegSize(buf) {
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xff) { i += 1; continue; }
+    const marker = buf[i + 1];
+    // SOF0..SOF15 carry the frame header; C4 (Huffman tables), C8 (JPEG extensions) and CC
+    // (arithmetic coding conditioning) share the range and are not frame headers.
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+    }
+    if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd9)) { i += 2; continue; }
+    i += 2 + buf.readUInt16BE(i + 2);
+  }
+  return null;
+}
+
 function runningBundleIds() {
   try {
     const out = execFileSync("/usr/bin/lsappinfo", ["list"], { encoding: "utf8", maxBuffer: 32 << 20 });
@@ -249,13 +274,20 @@ async function run() {
   ok("Calculator's accessibility tree comes back indexed", snap.elements.length > 0, `${snap.elements.length} element(s)`);
   ok("the rendered listing is addressable", /^\[\d+\] AX/m.test(snap.text), snap.text.split("\n")[0] ?? "");
 
-  // Clear first so the assertion does not depend on whatever the user last computed.
-  const clear = snap.elements.find((e) => /^(AC|C|All Clear|Clear)$/i.test(e.name));
-  if (clear) {
-    await host.handleOp("computerAct", { snapshotId: snap.snapshotId, action: { kind: "click", index: clear.index, button: "left", clickCount: 1, modifiers: [] } });
-    await sleep(400);
-  }
-  ok("Calculator exposes a clear button", Boolean(clear), clear ? `[${clear.index}] ${clear.name}` : "not found");
+  // Clear first, so the digit assertion does not depend on whatever was last computed — including by
+  // a previous run of this check. Escape rather than the clear BUTTON: Calculator relabels that
+  // button from "All Clear" to "Clear" once a digit is entered, and "Clear" drops only the current
+  // entry, so a run that followed another one started with digits still on the display. Escape is
+  // always all-clear, and it exercises the `key` action, which no other tier here does.
+  await host.handleOp("computerAct", { snapshotId: snap.snapshotId, action: { kind: "key", key: "Escape" } });
+  await sleep(400);
+  const cleared = await host.handleOp("computerSnapshot", { bundleId: CALCULATOR });
+  const display = (elements) => {
+    const shown = elements.filter((e) => e.value && /^-?[\d.,]+$/.test(e.value.trim()));
+    return shown.length > 0 ? shown[shown.length - 1].value.trim() : "";
+  };
+  ok("a synthetic key press reaches the app — Escape clears Calculator", display(cleared.elements) === "0",
+    `display reads ${display(cleared.elements) || "(nothing numeric)"}`);
 
   // Re-snapshot: the clear may have changed the tree, and acting on a stale index is exactly what
   // this design refuses to do.
@@ -270,14 +302,43 @@ async function run() {
     await sleep(500);
     // The proof: read the result back out of the tree rather than trusting the click's own report.
     const after = await host.handleOp("computerSnapshot", { bundleId: CALCULATOR });
-    const shows7 = after.elements.some((e) => e.value === "7" || (e.role === "AXStaticText" && e.value.trim() === "7"));
-    ok("the click really landed — Calculator's display now reads 7", shows7,
-      shows7 ? "" : `display values seen: ${after.elements.filter((e) => e.value).map((e) => e.value).slice(0, 8).join(" | ")}`);
+    // Exactly 7, against a display that was just proven to read 0: "contains a 7" would also be true
+    // of the 77 a previous run left behind.
+    ok("the click really landed — Calculator's display now reads 7", display(after.elements) === "7",
+      `display reads ${display(after.elements) || "(nothing numeric)"}`);
   }
 
   // A stale index from the FIRST snapshot must now be refused or re-resolved, never acted on blindly.
   const staleIndex = await host.handleOp("computerAct", { snapshotId: snap.snapshotId, action: { kind: "click", index: 9999, button: "left", clickCount: 1, modifiers: [] } });
   ok("an index that never existed is refused", staleIndex.ok === false, staleIndex.error);
+
+  // ---- tier 3: ScreenCaptureKit, whose grant is separate from Accessibility ------------------
+  //
+  // Both outcomes are supported states and both are asserted. Screen Recording is OPTIONAL: without
+  // it a snapshot must still return the tree and simply omit the image, because the tree is what
+  // acting depends on. Failing the whole op would make an optional grant a required one.
+  const shot = await host.handleOp("computerSnapshot", { bundleId: CALCULATOR, screenshot: true });
+  ok("a snapshot asking for an image still returns the tree", shot.elements.length > 0, `${shot.elements.length} element(s)`);
+
+  // The AX frame of Calculator's window, to measure the capture against.
+  const window = shot.elements.find((e) => e.role === "AXWindow") ?? shot.elements[0];
+
+  if (!grants.screenRecording) {
+    ok("without Screen Recording the image is omitted, not failed", shot.screenshot === undefined,
+      shot.screenshot === undefined ? "tree returned, screenshot absent" : "an image came back with no grant");
+    skip("the capture is of the app's own windows", "macOS has not granted this app Screen Recording — grant it in Realm's Settings → Permissions and re-run");
+  } else {
+    const jpeg = typeof shot.screenshot === "string" ? Buffer.from(shot.screenshot, "base64") : null;
+    ok("with Screen Recording the snapshot carries a real JPEG", jpeg !== null && jpeg.length > 0 && jpeg[0] === 0xff && jpeg[1] === 0xd8,
+      jpeg ? `${jpeg.length} bytes` : "no screenshot field");
+    const size = jpeg ? jpegSize(jpeg) : null;
+    // Measured against the window's own accessibility frame rather than against the display: a
+    // full-screen image would mean the filter captured the desktop, which is the exact wrong answer
+    // ScreenCaptureKit was chosen over CGWindowListCreateImage to avoid.
+    const near = (a, b) => Math.abs(a - b) <= Math.max(24, b * 0.2);
+    ok("the capture is of the app's own windows", Boolean(size && window && near(size.width, window.w) && near(size.height, window.h)),
+      size && window ? `captured ${size.width}×${size.height}, window is ${window.w}×${window.h}` : "no dimensions readable");
+  }
 
   helper.stop();
 }
