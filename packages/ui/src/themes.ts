@@ -74,7 +74,8 @@ export type ThemeDef = {
   light: ThemeSeed | null;
 };
 
-export type ThemeName = "realm" | "one" | "monokai" | "dracula" | "nord" | "solarized" | "gruvbox";
+export type ThemeName = "realm" | "one" | "monokai" | "dracula" | "nord" | "solarized" | "gruvbox"
+  | "catppuccin" | "github" | "rosepine";
 
 /* ── how a seed becomes a palette ──────────────────────────────────────────────
  * Every constant below was MEASURED off the shipped palette in theme/tokens.css, so a derived theme
@@ -705,6 +706,74 @@ export const THEMES: readonly ThemeDef[] = [
       bg: "#fbf1c7", ink: "#3c3836", accent: "#076678",
       green: "#79740e", orange: "#af3a03", red: "#9d0006",
       syntax: { comment: "#7c6f64", keyword: "#9d0006", string: "#79740e", number: "#8f3f71", title: "#b57614", type: "#427b58", attr: "#076678" },
+    },
+  },
+  {
+    /* Catppuccin — catppuccin/palette (palette.json), MIT © Catppuccin. Mocha and Latte, both faces.
+     * Comments are `overlay2`, which is the one syntax role Catppuccin states globally — its VS Code
+     * port sets the rest PER LANGUAGE, so there is no published keyword-or-string colour to vendor.
+     * The seven hues below are Catppuccin's; the assignment of hue to role is Realm's, and it follows
+     * the convention its ports converge on: mauve for keywords, green for strings, blue for the name
+     * being defined, yellow for types, peach for numbers, teal for attributes. */
+    name: "catppuccin",
+    label: "Catppuccin",
+    credit: "Catppuccin — MIT © Catppuccin",
+    blurb: "Mocha at night, Latte by day.",
+    dark: {
+      bg: "#1e1e2e", ink: "#cdd6f4", accent: "#cba6f7",
+      green: "#a6e3a1", orange: "#fab387", red: "#f38ba8",
+      syntax: { comment: "#9399b2", keyword: "#cba6f7", string: "#a6e3a1", number: "#fab387", title: "#89b4fa", type: "#f9e2af", attr: "#94e2d5" },
+    },
+    light: {
+      bg: "#eff1f5", ink: "#4c4f69", accent: "#8839ef",
+      green: "#40a02b", orange: "#fe640b", red: "#d20f39",
+      syntax: { comment: "#7c7f93", keyword: "#8839ef", string: "#40a02b", number: "#fe640b", title: "#1e66f5", type: "#df8e1d", attr: "#179299" },
+    },
+  },
+  {
+    /* GitHub — primer/github-vscode-theme, MIT © Primer. Values read off the SHIPPED theme JSON
+     * rather than off @primer/primitives: colors.js overrides three of them at build time, so the
+     * primitives' own `fg.default` and `accent.fg` are not what the editor draws.
+     * One deviation, and it is the ladder's rather than a matter of taste: GitHub Light's editor
+     * ground is #ffffff, and a light surface step CLIMBS from the page — off pure white there is
+     * nowhere to climb to, so every card would land back on the page and the ladder would collapse.
+     * The seed is `canvas.subtle` (#f6f8fa), which is GitHub's own chrome ground: what it paints its
+     * sidebar, panel and tab strip with, and the right analogue of Realm's `--page`. */
+    name: "github",
+    label: "GitHub",
+    credit: "GitHub — MIT © Primer",
+    blurb: "GitHub's own two, as the editor draws them.",
+    dark: {
+      bg: "#0d1117", ink: "#e6edf3", accent: "#2f81f7",
+      green: "#3fb950", orange: "#d29922", red: "#f85149",
+      syntax: { comment: "#8b949e", keyword: "#ff7b72", string: "#a5d6ff", number: "#79c0ff", title: "#d2a8ff", type: "#7ee787", attr: "#ffa657" },
+    },
+    light: {
+      bg: "#f6f8fa", ink: "#1f2328", accent: "#0969da",
+      green: "#1a7f37", orange: "#9a6700", red: "#cf222e",
+      syntax: { comment: "#6e7781", keyword: "#cf222e", string: "#0a3069", number: "#0550ae", title: "#8250df", type: "#116329", attr: "#953800" },
+    },
+  },
+  {
+    /* Rosé Pine — rose-pine/rose-pine-palette, MIT © Rosé Pine. Main and Dawn.
+     * Dawn's text is #575279, from the palette's TypeScript source and its shipped VS Code theme.
+     * The palette.json in that repo says #464261; it was added in a commit titled "temp: add json,
+     * toml, yaml", disagrees with every built artifact, and is not what anything renders.
+     * Rosé Pine publishes no green. "It worked" takes foam, the nearest tone it has, because a
+     * semantic colour has to survive a repaint and inventing a green would be inventing a hue. */
+    name: "rosepine",
+    label: "Rosé Pine",
+    credit: "Rosé Pine — MIT © Rosé Pine",
+    blurb: "Muted natural tones, night and dawn.",
+    dark: {
+      bg: "#191724", ink: "#e0def4", accent: "#c4a7e7",
+      green: "#9ccfd8", orange: "#f6c177", red: "#eb6f92",
+      syntax: { comment: "#6e6a86", keyword: "#31748f", string: "#f6c177", number: "#c4a7e7", title: "#ebbcba", type: "#9ccfd8", attr: "#908caa" },
+    },
+    light: {
+      bg: "#faf4ed", ink: "#575279", accent: "#907aa9",
+      green: "#56949f", orange: "#ea9d34", red: "#b4637a",
+      syntax: { comment: "#9893a5", keyword: "#286983", string: "#ea9d34", number: "#907aa9", title: "#d7827e", type: "#56949f", attr: "#797593" },
     },
   },
 ];
