@@ -1896,22 +1896,24 @@ describe("prompter attachments", () => {
     expect(marked[0]).toHaveTextContent("report.pdf");
   });
 
-  it("says something DIFFERENT for Codex — the same PDF, a path it will open", async () => {
+  it("says NOTHING under the chips for Codex — the same PDF is a path it will open, which is not a warning", async () => {
     await mountFor("codex", [picked("/x/report.pdf", "application/pdf")]);
     attach();
     await waitFor(() => expect(chips()).toHaveLength(1));
-    expect(notes().join(" ")).toContain("Codex");
-    expect(notes().join(" ")).toContain("file path");
-    expect(notes().join(" ")).not.toMatch(/ignores/);
+    // The named mutant: a note row for the "path" disposition. Every Codex message with a file then
+    // carries a sentence of narration about a handoff Codex completes on its own.
+    expect(notes()).toEqual([]);
     expect(document.querySelectorAll(".attach-tile[data-disposition='ignored']")).toHaveLength(0);
+    // The fate is still one hover away, on the tile.
+    expect(document.querySelector(".attach-tip")!.textContent).toContain("Codex gets the file path");
   });
 
-  it("says something DIFFERENT again for Cursor — a link", async () => {
+  it("and nothing for Cursor either — a link is the same kind of ordinary handoff", async () => {
     await mountFor("acp:cursor", [picked("/x/report.pdf", "application/pdf")]);
     attach();
     await waitFor(() => expect(chips()).toHaveLength(1));
-    expect(notes().join(" ")).toContain("Cursor");
-    expect(notes().join(" ")).toContain("link");
+    expect(notes()).toEqual([]);
+    expect(document.querySelector(".attach-tip")!.textContent).toContain("Cursor gets a link");
   });
 
   it("never names an agent other than the session's own", async () => {

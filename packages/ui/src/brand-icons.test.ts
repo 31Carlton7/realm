@@ -4,7 +4,7 @@ import { brandMarks, isBrandName } from "./brand-icons";
 describe("brand marks", () => {
   it("covers every provider the prompter can name", () => {
     expect(Object.keys(brandMarks).sort()).toEqual([
-      "claude", "cursor", "deepseek", "fx", "gemini", "githubCopilot", "goose", "grok", "openai", "opencode", "qwen",
+      "claude", "cursor", "deepseek", "fx", "gemini", "githubCopilot", "goose", "grok", "kimi", "openai", "opencode", "qwen", "zai",
     ]);
   });
 
@@ -23,7 +23,7 @@ describe("brand marks", () => {
     // Preserve the fill rule declared by the source SVGs; removing it turns their negative space
     // into solid blobs. Marks absent from this list intentionally use SVG's nonzero default.
     expect(Object.entries(brandMarks).filter(([, m]) => "evenOdd" in m).map(([n]) => n)).toEqual([
-      "openai", "opencode", "githubCopilot",
+      "openai", "opencode", "githubCopilot", "zai",
     ]);
   });
 

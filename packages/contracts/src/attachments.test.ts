@@ -114,20 +114,29 @@ describe("attachmentSummary", () => {
   });
 
   it("collapses repeats into one line, never one line per file", () => {
-    const rows = attachmentSummary("codex", [a("/a.png", "image/png"), a("/b.png", "image/png"), a("/c.pdf", "application/pdf")]);
-    expect(rows).toHaveLength(1); // codex treats both classes the same way
-    expect(rows[0]!.files).toEqual(["a.png", "b.png", "c.pdf"]);
+    const rows = attachmentSummary("claude", [a("/a.pdf", "application/pdf"), a("/b.txt", "text/plain"), a("/c.png", "image/png")]);
+    expect(rows).toHaveLength(1); // both non-images are dropped the same way; the image is fine
+    expect(rows[0]!.files).toEqual(["a.pdf", "b.txt"]);
   });
 
   it("is empty with nothing attached", () => {
     expect(attachmentSummary("claude", [])).toEqual([]);
   });
 
-  it("reports the SAME files differently per agent", () => {
+  it("says nothing about a handoff the agent will complete itself — a path or a link is not a warning", () => {
+    // The named mutant: put "path" and "link" back into NOTICE_ORDER and every Codex or Cursor message
+    // with a file grows a sentence of narration under its chips. The chip's tooltip still carries it.
+    const files = [a("/x/report.pdf", "application/pdf"), a("/x/shot.png", "image/png")];
+    expect(attachmentSummary("codex", files)).toEqual([]);
+    expect(attachmentSummary("acp:cursor", files)).toEqual([]);
+    expect(attachmentNote("codex", "application/pdf")).toMatch(/file path/);
+    expect(attachmentNote("acp:cursor", "application/pdf")).toMatch(/link/);
+  });
+
+  it("still warns for the one agent that drops the file on the floor", () => {
     const files = [a("/x/report.pdf", "application/pdf")];
-    expect(attachmentSummary("claude", files)[0]!.disposition).toBe("ignored");
-    expect(attachmentSummary("codex", files)[0]!.disposition).toBe("path");
-    expect(attachmentSummary("acp:cursor", files)[0]!.disposition).toBe("link");
+    expect(attachmentSummary("claude", files).map((r) => r.disposition)).toEqual(["ignored"]);
+    expect(attachmentSummary("fake", [a("/x/shot.png", "image/png")]).map((r) => r.disposition)).toEqual(["ignored"]);
   });
 });
 

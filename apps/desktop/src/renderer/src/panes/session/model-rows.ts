@@ -1,4 +1,5 @@
 import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
+import type { IconName } from "@realm/ui";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
@@ -240,6 +241,32 @@ export function filterRows(rows: ModelRow[], query: string): ModelRow[] {
  */
 export function modelVendor(row: ModelRow, info: Record<string, ModelInfo>): string | null {
   return info[row.key]?.vendor || null;
+}
+
+/**
+ * How a vendor is shown on the strip: as the model FAMILY it makes, beside its mark. The catalog says
+ * "Anthropic"; every row under that chip says "Claude", and the chip should speak the rows' language
+ * — the list's own group separators already do. Keyed on the catalog's spelling folded to letters,
+ * because the catalog has renamed makers before ("xAI" → "SpaceXAI") and a chip that fell back to the
+ * raw name on the day that happened would be the one chip on the strip with no mark. A maker this
+ * table does not know keeps its own name and goes markless, which is honest: the picker is not the
+ * place to guess at a trademark.
+ */
+const VENDOR_META: Record<string, { label: string; icon: IconName }> = {
+  openai: { label: "GPT", icon: "openai" },
+  anthropic: { label: "Claude", icon: "claude" },
+  google: { label: "Gemini", icon: "gemini" },
+  xai: { label: "Grok", icon: "grok" },
+  spacexai: { label: "Grok", icon: "grok" },
+  moonshotai: { label: "Kimi", icon: "kimi" },
+  moonshot: { label: "Kimi", icon: "kimi" },
+  zai: { label: "GLM", icon: "zai" },
+  deepseek: { label: "DeepSeek", icon: "deepseek" },
+  qwen: { label: "Qwen", icon: "qwen" },
+  alibaba: { label: "Qwen", icon: "qwen" },
+};
+export function vendorMeta(vendor: string): { label: string; icon: IconName | null } {
+  return VENDOR_META[vendor.toLowerCase().replace(/[^a-z]/g, "")] ?? { label: vendor, icon: null };
 }
 
 /** Every vendor present in `rows`, in first-appearance order — which is `modelRows`' order, so the

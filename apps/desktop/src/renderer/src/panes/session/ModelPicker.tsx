@@ -3,7 +3,7 @@ import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
-import { filterRows, filterVendor, flatten, groupRows, modelDetail, modelIdOn, modelVendor, vendorsOf, type ModelRow } from "./model-rows";
+import { filterRows, filterVendor, flatten, groupRows, modelDetail, modelIdOn, modelVendor, vendorMeta, vendorsOf, type ModelRow } from "./model-rows";
 
 /** How many favourites get a ⌘-digit shortcut. Nine because ⌘0 is not a tenth — it is a different
  *  key users read as "zero", and a tenth badge nobody can press is worse than no badge. */
@@ -213,15 +213,22 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
           the two compose, and reading them top to bottom is the order the question is asked in. */}
       {vendors.length > 0 && (
         <div ref={strip} className="mp-vendors" role="radiogroup" aria-label="Provider" onKeyDown={onVendorKey}>
-          {chips.map((v) => (
-            <button key={v ?? "all"} type="button" role="radio" aria-checked={v === vendor} className="mp-vendor"
-              // Dimmed, never disabled: a provider the query has emptied is still worth being able to
-              // land on, and the list says so in words when you do.
-              data-empty={v !== null && (vendorCounts.get(v) ?? 0) === 0 ? "" : undefined}
-              tabIndex={v === vendor ? 0 : -1} onClick={() => chooseVendor(v)}>
-              {v ?? "All"}
-            </button>
-          ))}
+          {chips.map((v) => {
+            // The chip wears the FAMILY's name and mark ("Claude", not "Anthropic"): the rows under it
+            // say Claude, the group separators say Claude, and the maker's corporate name was the
+            // one word on the strip nothing in the list repeated.
+            const meta = v === null ? null : vendorMeta(v);
+            return (
+              <button key={v ?? "all"} type="button" role="radio" aria-checked={v === vendor} className="mp-vendor"
+                // Dimmed, never disabled: a provider the query has emptied is still worth being able to
+                // land on, and the list says so in words when you do.
+                data-empty={v !== null && (vendorCounts.get(v) ?? 0) === 0 ? "" : undefined}
+                tabIndex={v === vendor ? 0 : -1} onClick={() => chooseVendor(v)}>
+                {meta?.icon && <Icon name={meta.icon} size={12} colored className="mp-vendor-mark" />}
+                {meta ? meta.label : "All"}
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="mp-body">
@@ -272,8 +279,8 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
             <div className="mp-empty">
               {/* Both constraints get named. With a provider lit, an empty list is as likely to be the
                   chip's doing as the query's, and "no models match" over a full catalog reads as a bug. */}
-              {query.trim() && vendor ? `No ${vendor} models match “${query.trim()}”.`
-                : vendor ? `Nothing from ${vendor} can run this session.`
+              {query.trim() && vendor ? `No ${vendorMeta(vendor).label} models match “${query.trim()}”.`
+                : vendor ? `No ${vendorMeta(vendor).label} model can run this session.`
                 : `No models match “${query.trim()}”.`}
               {vendor && <button type="button" className="mp-empty-all" onClick={() => chooseVendor(null)}>Show every provider</button>}
             </div>

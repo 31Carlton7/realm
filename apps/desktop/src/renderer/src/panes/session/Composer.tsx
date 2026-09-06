@@ -75,14 +75,14 @@ function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel
 }
 
 /**
- * Pending attachments (§4 row 1): one removable chip per file, then one note row per distinct fate
- * that is worth saying out loud.
+ * Pending attachments (§4 row 1): one removable chip per file, then a note row only for a fate worth
+ * saying out loud before send.
  *
- * The notes are the point of this row. The three adapters do three different things with the same
- * file — Claude DROPS a PDF without a word, Codex hands over paths, an ACP agent gets a link — and the
- * only moment that difference is actionable is before the message is sent. So the note names the agent
- * and says what will happen, and a file that will simply be discarded says so in the warning tone. A
- * file the agent reads as-is gets no row (see `attachmentSummary`); its fate is on the chip's tip.
+ * The adapters do different things with the same file — Claude DROPS a PDF without a word, Codex hands
+ * over paths, an ACP agent gets a link — and every one of them is on the chip's tooltip. Only the drop
+ * earns a row: it is the one outcome the user would not otherwise learn about, and the only moment it
+ * is actionable is before the message is sent. A handoff the agent completes itself (path, link) used
+ * to get a row too, and it read as narration under every Codex message; see `attachmentSummary`.
  */
 function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attachments: PickedAttachment[]; onRemove: (path: string) => void }) {
   if (attachments.length === 0) return null;

@@ -12,7 +12,6 @@ import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type CliJob, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
-import { grainVars } from "../../theme/grain";
 import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
 
@@ -43,7 +42,7 @@ export function engineVersionLabel(version: string): string {
 export function SettingsPage(_props: PaneProps) {
   const [tab, setTab] = useState<SettingsTab>("engines");
   return (
-    <div className="page settings-page-pane wash" style={grainVars("settings-page")}>
+    <div className="page settings-page-pane">
       <header className="page-head">
         <span className="page-glyph"><Icon name="settings-page" size={20} /></span>
         <div className="page-title">

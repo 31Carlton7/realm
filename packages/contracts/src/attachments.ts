@@ -145,14 +145,16 @@ export function attachmentNote(kind: AgentKind, mime: string): string {
   }
 }
 
-/** Only dispositions that need explanation. Inline is the expected happy path and stays quiet. */
-const NOTICE_ORDER: AttachmentDisposition[] = ["ignored", "link", "path"];
+/** Only a disposition the user can act on earns a row. Inline is the expected happy path; a path or a
+ *  link is an ordinary handoff — the agent still receives the file — and a sentence narrating it under
+ *  every Codex or Cursor message was chrome, not information. It stays on the chip's tooltip. */
+const NOTICE_ORDER: AttachmentDisposition[] = ["ignored"];
 
 /**
  * The prompter's note rows: one line per distinct disposition among the pending attachments, naming
  * the files it covers. Grouped rather than per-chip so four files do not print the same sentence four
- * times. Files read inline need no note: the row is reserved for a limitation or extra handoff the user
- * can act on.
+ * times. In practice that is one row or none: only a file the agent will silently DROP is worth a line
+ * before send, because it is the one outcome the user would not otherwise learn about.
  */
 export function attachmentSummary(kind: AgentKind, attachments: readonly Attachment[]): { disposition: AttachmentDisposition; note: string; files: string[] }[] {
   const groups = new Map<AttachmentDisposition, { disposition: AttachmentDisposition; note: string; files: string[] }>();

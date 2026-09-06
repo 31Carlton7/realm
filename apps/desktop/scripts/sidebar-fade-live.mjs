@@ -4,15 +4,18 @@
  * Boots the REAL app on a scratch REALM_HOME and proves the two things a jsdom test cannot, because
  * both need real layout and real compositing:
  *
- *   1. Clearance. Scrolled to the end, the LAST session row sits entirely above the fade band. The
- *      band is supposed to dissolve empty gutter, not the row someone scrolled down to read, and the
- *      only thing holding that apart is .space-body's bottom padding matching --fade-h.
- *   2. The blur actually composites. The sidebar is a macOS vibrancy column, not an opaque panel, and
- *      a backdrop-filter over a vibrant material is a different question from one over a solid
- *      surface — it can silently resolve to nothing. jsdom has neither a backdrop nor a filter.
+ *   1. Clearance. Scrolled to the end, the LAST session row sits entirely above the ramp. The ramp
+ *      is supposed to dissolve empty gutter, not the row someone scrolled down to read, and the only
+ *      thing holding that apart is .space-body's bottom padding matching --fade-h.
+ *   2. The mask actually dissolves, and paints nothing. The ramp is a mask on the scroller: over its
+ *      last --fade-h the rows' alpha runs to zero, so with a row parked under it the scroller's last
+ *      pixels read as the column's own ground — the same tone as untouched gutter — and taking the
+ *      mask away puts the row's glyphs back. It replaced a backdrop-blur band which, over this
+ *      translucent column, blurred the window's own transparency and composited toward black: a
+ *      dark smudge hanging above the space strip. The third check is the one that caught that.
  *
- * Both are paired with a mutant that reproduces the bug they pin: the padding is taken away for the
- * first, the backdrop-filter for the second, and each measurement has to move.
+ * Each is paired with a mutant that reproduces the bug it pins: the padding is taken away for the
+ * first, the mask for the second, and each measurement has to move.
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the process it started.
  */
@@ -99,30 +102,6 @@ const MEANLUM = (b64) => `(async () => {
   return +(sum / (px.length / 4)).toFixed(3);
 })()`;
 
-/** Mean horizontal gradient energy per row of a clip — how sharp the edges in it are. Blur destroys
- *  the hard boundaries of glyphs, so the same strip of rows measured with and without the backdrop
- *  filter differs here even though both are the same content at the same scroll offset. A hash
- *  comparison cannot be used: a vibrancy material dithers, so two captures of an untouched surface
- *  are already not bit-identical. */
-const SHARPNESS = (b64) => `(async () => {
-  const img = new Image();
-  img.src = "data:image/png;base64," + ${JSON.stringify(b64)};
-  await img.decode();
-  const cv = document.createElement("canvas");
-  cv.width = img.width; cv.height = img.height;
-  cv.getContext("2d").drawImage(img, 0, 0);
-  const px = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
-  const lum = (i) => 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-  let sum = 0, n = 0;
-  for (let y = 0; y < cv.height; y++) {
-    for (let x = 0; x < cv.width - 1; x++) {
-      const i = (y * cv.width + x) * 4;
-      sum += Math.abs(lum(i) - lum(i + 4)); n++;
-    }
-  }
-  return n ? +(sum / n).toFixed(4) : 0;
-})()`;
-
 async function main() {
   for (const p of [CDP_PORT, SERVER_PORT]) {
     if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);
@@ -194,12 +173,14 @@ async function main() {
     b.scrollTop = b.scrollHeight;
     const rows = [...b.querySelectorAll('.item')];
     const last = rows[rows.length - 1].getBoundingClientRect();
-    const fade = document.querySelector('.space-fade').getBoundingClientRect();
-    return { lastBottom: Math.round(last.bottom), lastTop: Math.round(last.top), fadeTop: Math.round(fade.top),
-             gap: Math.round(fade.top - last.bottom), fadeH: Math.round(fade.height) };
+    const s = b.getBoundingClientRect();
+    const fadeH = parseFloat(getComputedStyle(b).paddingBottom);
+    const fadeTop = s.bottom - fadeH;
+    return { lastBottom: Math.round(last.bottom), lastTop: Math.round(last.top), fadeTop: Math.round(fadeTop),
+             gap: Math.round(fadeTop - last.bottom), fadeH: Math.round(fadeH) };
   })()`);
   await sleep(250);
-  check("scrolled to the end, the last session sits entirely above the fade band",
+  check("scrolled to the end, the last session sits entirely above the ramp",
     clearance.gap >= 0, clearance);
 
   // The mutant: take the scroller's bottom padding away, which is the only thing buying that gap.
@@ -213,74 +194,80 @@ async function main() {
     b.scrollTop = b.scrollHeight;
     const rows = [...b.querySelectorAll('.item')];
     const last = rows[rows.length - 1].getBoundingClientRect();
-    const fade = document.querySelector('.space-fade').getBoundingClientRect();
-    return { gap: Math.round(fade.top - last.bottom) };
+    const s = b.getBoundingClientRect();
+    // The padding is gone, so the ramp's height has to come from the page's --fade-h directly.
+    const fadeH = parseFloat(getComputedStyle(b.closest('.space-page')).getPropertyValue('--fade-h'));
+    return { gap: Math.round((s.bottom - fadeH) - last.bottom) };
   })()`);
-  check("the mutant reproduces the bug (no bottom padding ⇒ the last session ends under the blur)",
+  check("the mutant reproduces the bug (no bottom padding ⇒ the last session ends under the ramp)",
     mutantClearance.gap < 0, { ...mutantClearance, withPadding: clearance.gap });
   await evalIn(c, `(() => { document.getElementById('mutant-pad').remove(); return true; })()`);
   await sleep(200);
 
-  /* ── 2. The blur composites over the vibrancy material ───────────────────────────────────── */
-  // Park the scroll mid-list so real rows are under the band, then measure the SAME pixels with the
-  // filter on and off. Same content, same offset — the only variable is the backdrop-filter.
+  /* ── 2. The mask dissolves a row to the ground, and the mutant puts it back ─────────────── */
+  // Park the scroll mid-list so real rows run under the ramp, then read the scroller's LAST rows of
+  // pixels: at the bottom edge the mask is fully transparent, so whatever row is there must have
+  // vanished into the column's ground. Same content, same offset — the only variable is the mask.
   const band = await evalIn(c, `(() => {
     const b = document.querySelector('.space-body');
     // Halfway down the SCROLLABLE range, not half the scroll height — the latter clamps to the end,
-    // where the bottom padding guarantees there are no rows under the band at all and the measurement
-    // below would be reading the empty gutter.
+    // where the bottom padding guarantees there are no rows under the ramp at all.
     b.scrollTop = Math.round((b.scrollHeight - b.clientHeight) / 2);
-    const f = document.querySelector('.space-fade').getBoundingClientRect();
     const s = b.getBoundingClientRect();
-    // The band's fully-blurred lower part, clipped to the scroller so the measurement never strays
-    // into the gutter below it.
-    const top = Math.round(f.top + f.height * 0.4), bottom = Math.round(Math.min(f.bottom, s.bottom));
+    const top = Math.round(s.bottom - 6), bottom = Math.round(s.bottom);
     const covered = [...b.querySelectorAll('.item')].filter((r) => {
       const q = r.getBoundingClientRect(); return q.bottom > top && q.top < bottom;
     }).length;
-    return { x: Math.round(s.left), y: top, width: Math.round(s.width), height: bottom - top, covered };
+    return { x: Math.round(s.left), y: top, width: Math.round(s.width), height: bottom - top, covered,
+             gutter: { x: Math.round(s.left), y: Math.round(s.bottom) + 2, width: Math.round(s.width), height: 6 } };
   })()`);
-  check("real rows are under the measured strip, so the comparison is not vacuous", band.covered > 0, { covered: band.covered, h: band.height });
+  check("a real row runs under the measured strip, so the comparison is not vacuous", band.covered > 0, { covered: band.covered });
 
   const clip = { x: band.x, y: band.y, width: band.width, height: band.height, scale: 1 };
   await sleep(300);
-  const blurredShot = (await c.send("Page.captureScreenshot", { format: "png", clip })).data;
-  const blurred = await evalIn(c, SHARPNESS(blurredShot));
+  const maskedShot = (await c.send("Page.captureScreenshot", { format: "png", clip })).data;
+  const masked = await evalIn(c, MEANLUM(maskedShot));
+  // The untouched column directly below the scroller: what a fully dissolved row should read as.
+  const groundLum = await evalIn(c, MEANLUM((await c.send("Page.captureScreenshot", { format: "png", clip: { ...band.gutter, scale: 1 } })).data));
 
   await evalIn(c, `(() => {
-    const st = document.createElement('style'); st.id = 'mutant-blur';
-    st.textContent = '.space-fade::before, .space-fade::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }';
+    const st = document.createElement('style'); st.id = 'mutant-mask';
+    st.textContent = '.space-body { mask-image: none !important; -webkit-mask-image: none !important; }';
     document.head.appendChild(st); return true; })()`);
   await sleep(350);
-  const sharpShot = (await c.send("Page.captureScreenshot", { format: "png", clip })).data;
-  const sharp = await evalIn(c, SHARPNESS(sharpShot));
-  await evalIn(c, `(() => { document.getElementById('mutant-blur').remove(); return true; })()`);
+  const unmaskedShot = (await c.send("Page.captureScreenshot", { format: "png", clip })).data;
+  const unmasked = await evalIn(c, MEANLUM(unmaskedShot));
+  await evalIn(c, `(() => { document.getElementById('mutant-mask').remove(); return true; })()`);
 
-  check("the band really blurs the rows under it — over macOS vibrancy, not just over an opaque panel",
-    blurred < sharp * 0.7, { blurred, sharp, ratio: +(blurred / sharp).toFixed(3) });
+  check("at the scroller's bottom edge a row has dissolved into the column's own ground",
+    Math.abs(masked - groundLum) < 2, { masked, ground: groundLum, delta: +(masked - groundLum).toFixed(3) });
+  check("the mutant reproduces the bug (no mask ⇒ the row is back, brighter than the ground)",
+    Math.abs(unmasked - groundLum) > 4, { unmasked, ground: groundLum });
 
-  /* ── 3. The band is invisible where it has nothing to dissolve ──────────────────────────── */
-  // Scrolled to the end, the band sits over the bottom padding — empty column. If a blur over this
-  // material tints what it samples, that shows up here as a tonal stripe across the sidebar with no
-  // content under it, which is a seam rather than a dissolve.
+  /* ── 3. The ramp is invisible where it has nothing to dissolve ──────────────────────────── */
+  // Scrolled to the end, the ramp sits over the bottom padding — empty column. This is the check the
+  // old backdrop-blur band failed: over a translucent column it composited toward black and painted a
+  // dark stripe across the sidebar with no content under it. A mask paints nothing, so the band and
+  // the gutter above it must read the same.
   const gutter = await evalIn(c, `(() => {
     const b = document.querySelector('.space-body');
     b.scrollTop = b.scrollHeight;
-    const f = document.querySelector('.space-fade').getBoundingClientRect();
     const s = b.getBoundingClientRect();
-    const inBand = { x: Math.round(s.left), y: Math.round(f.top + 20), width: Math.round(s.width), height: 16 };
-    // An equal slab of untouched gutter directly above the band, between the last row and the ramp.
-    return { inBand, above: { ...inBand, y: Math.round(f.top - 18) } };
+    const fadeH = parseFloat(getComputedStyle(b).paddingBottom);
+    const inBand = { x: Math.round(s.left), y: Math.round(s.bottom - fadeH + 20), width: Math.round(s.width), height: 16 };
+    // The reference is the column just BELOW the scroller: untouched ground with nothing over it.
+    // (Not the slab above the ramp — the last row ends exactly at the ramp's top, so that is a row.)
+    return { inBand, below: { ...inBand, y: Math.round(s.bottom) + 2, height: 6 } };
   })()`);
   await sleep(300);
   const bandLum = await evalIn(c, MEANLUM((await c.send("Page.captureScreenshot", { format: "png", clip: { ...gutter.inBand, scale: 1 } })).data));
-  const aboveLum = await evalIn(c, MEANLUM((await c.send("Page.captureScreenshot", { format: "png", clip: { ...gutter.above, scale: 1 } })).data));
-  check("over empty gutter the band leaves no tonal seam — it dissolves content, it does not paint a stripe",
-    Math.abs(bandLum - aboveLum) < 2, { inBand: bandLum, above: aboveLum, delta: +(bandLum - aboveLum).toFixed(3) });
+  const belowLum = await evalIn(c, MEANLUM((await c.send("Page.captureScreenshot", { format: "png", clip: { ...gutter.below, scale: 1 } })).data));
+  check("over empty gutter the ramp leaves no tonal seam — it dissolves content, it does not paint a stripe",
+    Math.abs(bandLum - belowLum) < 2, { inBand: bandLum, below: belowLum, delta: +(bandLum - belowLum).toFixed(3) });
 
   await sleep(300);
   const sidebar = await c.send("Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 280, height: 620, scale: 2 } });
-  for (const [tag, data] of [["band-blurred", blurredShot], ["band-sharp", sharpShot], ["sidebar", sidebar.data]]) {
+  for (const [tag, data] of [["edge-masked", maskedShot], ["edge-unmasked", unmaskedShot], ["sidebar", sidebar.data]]) {
     const out = path.join(os.tmpdir(), `realm-sidebar-fade-${tag}.png`);
     fs.writeFileSync(out, Buffer.from(data, "base64"));
     console.log(`SCREENSHOT ${tag} ${out}`);

@@ -208,45 +208,29 @@ kbd { font: 11px var(--font-mono); }
 
 .swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
 .swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; }
-/* position: relative so the bottom fade below hangs off the PAGE rather than off the scroller — a
-   backdrop-filter nested inside the scrolling box would ride along with the content it blurs. */
 .space-page { position: relative; flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 16px 8px; overflow: hidden;
   --fade-h: 44px; }
 /* A full band of bottom padding, not a fraction of one, for the reason the diff list needs the same:
    these are 32px rows of dense text, so a row that ends inside the ramp is a session you scrolled
    down to read and then cannot. Scrolled to the end, the last row sits entirely clear of the band and
-   the blur has only empty gutter under it. The scroller and the ramp read the one --fade-h so they
-   cannot drift apart. */
+   the ramp has only empty gutter under it. The scroller and the ramp read the one --fade-h so they
+   cannot drift apart.
+   The ramp is a MASK on the scroller itself: over its last --fade-h the rows' own alpha runs to zero,
+   and nothing is painted over them. That is what makes the dissolve seamless on this column, which is
+   not an opaque panel but --page at --ground-alpha over the macOS vibrancy material: a row that fades
+   out reveals exactly the ground that was always behind it, whatever that ground is — the material,
+   or the opaque page tone under reduced transparency. The two things a band over the rows could paint
+   were both wrong here. A colour wash to any fixed tone (what the transcript does, because it docks a
+   card on a solid pane) stripes a translucent column with a tone the material shows straight through.
+   And a backdrop blur, which this used to be, blurs the window's own transparency: a translucent
+   backdrop composites toward black under a filter, and the band rendered as a dark smudge hanging
+   above the space strip — and, on a short window, over the destinations. The mask is fixed to the
+   scroller's box, so it holds still while the content scrolls beneath it, and it needs no sibling
+   element and no reduced-transparency fallback. */
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px;
-  padding-bottom: var(--fade-h); }
-/* The same progressive blur the transcript uses (two backdrop layers behind masks that start at
-   different heights, so the blur RAMPS rather than stepping — one flat band shows its own top edge),
-   with one deliberate difference: no colour wash. The transcript washes to --rl-panel because it
-   docks a card at its bottom and the gap above that card has to be solid pane. Nothing docks here —
-   below is the space strip, its own row — and this column is macOS vibrancy, not an opaque panel, so
-   a wash to any fixed colour would paint a band the material shows straight through as a tonal seam.
-   The blur alone is the dissolve; the masks live on the blurring layers, never on the parent, since a
-   masked ancestor becomes a backdrop root and its children would blur an empty backdrop.
-   It spans the page's full width, past the rows' 16px rails: a band that stopped where the text does
-   would draw two vertical edges of its own. */
-.space-fade { position: absolute; inset: auto 0 0 0; height: var(--fade-h); pointer-events: none; z-index: 1; }
-.space-fade::before, .space-fade::after { content: ""; position: absolute; inset: 0; }
-.space-fade::before { backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 60%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 60%); }
-.space-fade::after { backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px);
-  mask-image: linear-gradient(to bottom, transparent 30%, #000 78%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 30%, #000 78%); }
-/* Asked for less translucency. Dropping the blur the way the transcript does would leave this fade
-   with nothing at all — it has no wash to fall back on — and the hard cut it exists to prevent would
-   come straight back. So the dissolve changes medium instead of going away: macOS renders the
-   vibrancy material opaque under this preference, which is the one condition where a ramp to a fixed
-   tone composites cleanly over this column. */
-@media (prefers-reduced-transparency: reduce) {
-  .space-fade::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .space-fade::after { backdrop-filter: none; -webkit-backdrop-filter: none;
-    background: linear-gradient(to bottom, transparent 0, var(--page) 88%); }
-}
+  padding-bottom: var(--fade-h);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent); }
 
 .space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0 8px; }
 .space-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: var(--fw-title); min-width: 0; letter-spacing: -0.01em; }
@@ -476,8 +460,11 @@ kbd { font: 11px var(--font-mono); }
    horizontal strips hide theirs — a scrollbar under a 26px row would be the tallest thing in it. */
 .mp-vendors { display: flex; align-items: center; gap: 4px; padding: 7px 12px; background: var(--rl-frame);
   overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-.mp-vendor { flex: none; padding: 3px 9px; border: 0; border-radius: var(--r-chip); background: transparent;
-  font: inherit; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; }
+.mp-vendor { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 0; border-radius: var(--r-chip);
+  background: transparent; font: inherit; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; }
+/* The maker's mark leads the family name, at the inline rung — the same mark the rows below wear at
+   16, so a chip and the models it narrows to are recognisably the same brand. */
+.mp-vendor-mark { flex: none; }
 .mp-vendor:hover { color: var(--rl-text-bright); background: var(--hover); }
 /* The lit chip wears the same raised-on-surface treatment as a chosen effort level, because it is
    the same kind of answer: one of a set, currently in force. */
@@ -1806,9 +1793,6 @@ button.panel-title:hover { background: var(--rl-hover); }
    the card, and the radii swapped end for end — so the prompter reads as one card with a narrower
    tab above it and a narrower tab below. The three-value margin is what keeps the insets equal; a
    four-value one could hold a strip that is the right WIDTH and still off the card's centre.
-   Only one of the under-strip's constraints fails to carry. That strip caps its rounding at
-   --r-panel because barely 26px of it shows and a corner cannot be rounder than half its box; a list
-   is tall enough to take the card's own --r-squircle, so it does.
    The bottom corners are square because the strip has no bottom edge to round: it sits 10px behind
    the card, which paints over it (.composer holds z-index 1).
    In normal flow inside .composer-dock, so the hero→docked transform carries it and it grows UPWARD
@@ -1838,13 +1822,14 @@ button.panel-title:hover { background: var(--rl-hover); }
    standing context, not a streaming state. In normal flow inside .composer-dock, so the hero→docked
    transform carries it and the absolutely-hung suggestions land below it. ── */
 /* Same rung and same ring as the card above it, so the two read as one object rather than a tab
-   stuck under a card. The bottom padding buys the height that rounding needs: both the worklet and
-   the browser clamp a corner to half the box, so on the old 42px box --r-squircle drew at 21 however
-   it was written. The padding goes symmetric at 12px, which costs 6px of height and buys a 24px
-   corner. The remaining gap to the card's 36 is geometry rather than a choice: matching it exactly
-   needs a 72px strip, three times the height of the chips it holds. */
+   stuck under a card. The top 10px of the strip sit behind the card (the negative margin), so the
+   padding that SHOWS is top minus that overlap: 20 − 10 above the chips, 10 below. Symmetric on
+   screen is the point — the old 12/12 read as 2 above and 12 below, a strip hanging off the card by
+   its chin. The height that leaves (54px) is what lets the bottom corners draw at the card's own
+   --r-squircle: a corner may run the full height of a side it does not share with another corner,
+   and the top corners here are square, so nothing has to be clamped to half the box. */
 .composer-understrip { display: flex; align-items: center; gap: 2px; min-width: 0;
-  margin: -10px 10px 0; padding: 12px 10px 12px; background: var(--rl-frame);
+  margin: -10px 10px 0; padding: 20px 10px 10px; background: var(--rl-frame);
   border-radius: 0 0 var(--r-squircle) var(--r-squircle); corner-shape: squircle; }
 .composer-understrip .ghost-chip { height: 24px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
@@ -2463,7 +2448,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* `min-height: 0` matters once the narrow block below turns `.page-body` into a column: without it
    the content column's auto minimum keeps it at full content height, and it overflows the pane
    instead of scrolling inside it. */
-.page-content { flex: 1; min-width: 0; min-height: 0; max-width: 720px; overflow-y: auto; padding-right: 4px; }
+/* The column is a scroller, and a scroller clips at its padding edge — so a selected theme card's
+   2px ring, or the 2px-offset focus outline on any control at the column's left edge, was sliced off
+   flat. 4px of bleed on the three clipping sides, pulled back out by the same negative margin so the
+   column's content stays exactly where the rail and the head expect it. `content-box` keeps the
+   720px measure a measure of CONTENT: the bleed is outside it, and the page-measure arithmetic below
+   (and the test that checks it) go on reading the one number. */
+.page-content { flex: 1; min-width: 0; min-height: 0; max-width: 720px; overflow-y: auto;
+  box-sizing: content-box; padding: 4px 4px 0; margin: -4px -4px 0; }
 /* The Tasks lens is the one tab that is a LIST BESIDE A PANEL rather than a single column of form,
    so it opts out of the 720px measure the other tabs are set in. Nothing else does. */
 .page-content[data-wide] { max-width: none; }

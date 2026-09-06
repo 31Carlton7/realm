@@ -64,10 +64,20 @@ registerPaint(
     paint(ctx, size, props) {
       const { width: w, height: h } = size;
       if (w <= 0 || h <= 0) return;
-      /* A radius past half the box turns the superellipse inside out at the midpoint. */
-      const cap = Math.min(w, h) / 2;
-      const rTop = Math.min(px(props.get("--sq-radius-top")), cap);
-      const rBot = Math.min(px(props.get("--sq-radius-bottom")), cap);
+      /* Radii that overrun a side are scaled back together, the way `border-radius` itself does it:
+       * the two corners on a side may not sum past that side, and the same factor goes on both so
+       * their proportion survives. That is a weaker cap than "half the box" for a surface with one
+       * square edge — the prompter's under-strip zeroes its top and so may run its bottom corners
+       * the full 36px on a 54px strip, which is exactly what its `border-radius` fallback draws.
+       * Under the old cap the two disagreed, and the worklet's answer was the smaller one. */
+      let rTop = Math.max(0, px(props.get("--sq-radius-top")));
+      let rBot = Math.max(0, px(props.get("--sq-radius-bottom")));
+      const f = Math.min(1,
+        rTop + rBot > 0 ? h / (rTop + rBot) : 1,
+        rTop > 0 ? w / (2 * rTop) : 1,
+        rBot > 0 ? w / (2 * rBot) : 1);
+      rTop *= f;
+      rBot *= f;
       trace(ctx, w, h, rTop, rBot);
 
       const fill = String(props.get("--sq-fill")).trim();

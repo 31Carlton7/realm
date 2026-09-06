@@ -741,35 +741,33 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(RULES.filter((r) => r.selectors.includes(".diff-fade")).map((r) => r.body).join(" ")).not.toContain("--fade-h:");
   });
 
-  it("the sidebar list clears its own fade the same way, and dissolves with blur alone", () => {
+  it("the sidebar list clears its own fade the same way, and dissolves by masking itself", () => {
     // Same invariant as the changes list: a full band of padding, and ONE declaration of the number,
     // so the ramp and the clearance that keeps the last session out of it cannot drift apart.
-    expect(bodiesFor(".space-body").join(" ")).toContain("padding-bottom: var(--fade-h)");
+    const body = bodiesFor(".space-body").join(" ");
+    expect(body).toContain("padding-bottom: var(--fade-h)");
     expect(bodiesFor(".space-page").join(" ")).toContain("--fade-h: 44px");
-    expect(RULES.filter((r) => r.selectors.includes(".space-fade")).map((r) => r.body).join(" ")).not.toContain("--fade-h:");
-    expect(bodiesFor(".space-fade").join(" ")).toContain("height: var(--fade-h)");
-    // No colour wash, unlike the transcript's: that one washes to --rl-panel because it docks a card
-    // and needs solid pane above it. This column is macOS vibrancy, so a ramp to any fixed tone would
-    // paint a stripe the material shows through. Verified on screen — sidebar-fade-live.mjs measures
-    // the band over empty gutter and holds it to the surrounding column's luminance.
-    // RULES flattens @media, so the two layers are identified by what they declare rather than by
-    // where they sit: the blurring rule is the one carrying the blur, and it must carry no colour.
-    const blurring = bodiesFor(".space-fade::after").filter((b) => b.includes("backdrop-filter: blur("));
-    expect(blurring, "the heavy blur layer").toHaveLength(1);
-    expect(blurring[0], "a colour wash on the blurring layer would stripe the material").not.toContain("background:");
-    expect(bodiesFor(".space-fade::before").filter((b) => b.includes("backdrop-filter: blur("))).toHaveLength(1);
-    // …and the wash exists exactly once in the whole sheet: the reduced-transparency fallback below.
-    expect(bodiesFor(".space-fade::after").filter((b) => b.includes("background:"))).toHaveLength(1);
+    expect(body).not.toContain("--fade-h:");
+    // The ramp is the scroller's own mask, reading the same --fade-h, and it runs to TRANSPARENT: the
+    // rows' alpha goes to zero and whatever ground was behind them shows — the vibrancy material, or
+    // the opaque page under reduced transparency. Nothing is painted over the rows. The two named
+    // mutants are the old band: a backdrop blur over this translucent column blurs the window's own
+    // transparency and composites toward black (a dark smudge above the strip, verified on screen);
+    // a colour wash to any fixed tone stripes the material. So no `.space-fade` rule may exist, and
+    // no rule on the scroller may blur or wash.
+    expect(body).toContain("mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent)");
+    expect(body).toContain("-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent)");
+    expect(body).not.toContain("backdrop-filter");
+    expect(body).not.toContain("background:");
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".space-fade")))).toEqual([]);
   });
 
-  it("reduced transparency swaps the sidebar fade's medium rather than removing it", () => {
-    // The transcript can drop its blur and keep its wash. This fade has no wash to fall back on, so
-    // dropping the blur alone would hand back the hard cut it exists to prevent — it gains the ramp
-    // in the same breath, in the one condition where a fixed tone composites cleanly here (macOS
-    // renders the vibrancy material opaque under this preference).
-    const reduced = blockAfter("@media (prefers-reduced-transparency: reduce)").replace(/\s+/g, " ");
-    expect(reduced).toContain(".space-fade::before");
-    expect(reduced).toContain("linear-gradient(to bottom, transparent 0, var(--page) 88%)");
+  it("the sidebar's dissolve needs no reduced-transparency fallback, because it paints nothing", () => {
+    // The transcript's band drops its blur under this preference and keeps its wash. The sidebar's
+    // mask has neither to drop: it is the same declaration on an opaque ground as on the material.
+    const reduced = blocksAfter("@media (prefers-reduced-transparency: reduce)").join("\n").replace(/\s+/g, " ");
+    expect(reduced).not.toContain(".space-fade");
+    expect(reduced).not.toContain(".space-body");
   });
 
   /* Dropping a file anywhere on the session pane. jsdom has no compositing, so the one thing these

@@ -560,16 +560,14 @@ describe("Arc sidebar", () => {
 });
 
 describe("the list's bottom fade", () => {
-  it("is a SIBLING of the scroller, not a child of it", async () => {
-    // The one structural fact the stylesheet cannot state: a backdrop-filter nested inside the
-    // scrolling box scrolls with the content it is supposed to be blurring, which looks correct at
-    // scrollTop 0 and wrong everywhere else. Its height and the padding that clears it are pinned in
-    // styles.test.ts; how much it actually blurs, in sidebar-fade-live.mjs.
+  it("is nothing but the scroller — no band element sits beside or inside it", async () => {
+    // The dissolve is a mask on .space-body (pinned in styles.test.ts; seen on screen in
+    // sidebar-fade-live.mjs). The named mutant is the old `.space-fade` sibling coming back: a
+    // backdrop-filter band over this translucent column blurs the window's own transparency and
+    // renders as a dark smudge above the space strip.
     await mount();
-    const fade = document.querySelector(".space-fade")!;
-    expect(fade).not.toBeNull();
-    expect(fade.closest(".space-body")).toBeNull();
-    expect(fade.previousElementSibling).toHaveClass("space-body");
+    expect(document.querySelector(".space-body")).not.toBeNull();
+    expect(document.querySelector(".space-fade")).toBeNull();
   });
 });
 

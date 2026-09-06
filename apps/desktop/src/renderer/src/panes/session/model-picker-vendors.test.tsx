@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { ModelPicker } from "./ModelPicker";
-import { filterVendor, modelRows, modelVendor, vendorsOf } from "./model-rows";
+import { filterVendor, modelRows, modelVendor, vendorMeta, vendorsOf } from "./model-rows";
 import type { AgentProbe } from "../../state/store";
 
 const probe = (kind: AgentProbe["kind"], models: AgentProbe["models"]): AgentProbe =>
@@ -66,11 +66,37 @@ describe("provider is the model's vendor, not the harness that runs it", () => {
   });
 });
 
+describe("a chip says the family, not the company", () => {
+  it("maps the catalog's maker to the name the rows already use, with its mark", () => {
+    expect(vendorMeta("Anthropic")).toEqual({ label: "Claude", icon: "claude" });
+    expect(vendorMeta("OpenAI")).toEqual({ label: "GPT", icon: "openai" });
+    expect(vendorMeta("Google")).toEqual({ label: "Gemini", icon: "gemini" });
+    expect(vendorMeta("MoonshotAI")).toEqual({ label: "Kimi", icon: "kimi" });
+    expect(vendorMeta("Z.ai")).toEqual({ label: "GLM", icon: "zai" });
+  });
+
+  it("survives the catalog renaming a maker — xAI and SpaceXAI are both Grok", () => {
+    expect(vendorMeta("xAI")).toEqual({ label: "Grok", icon: "grok" });
+    expect(vendorMeta("SpaceXAI")).toEqual({ label: "Grok", icon: "grok" });
+  });
+
+  it("keeps an unknown maker's own name and invents no mark for it", () => {
+    expect(vendorMeta("Mistral")).toEqual({ label: "Mistral", icon: null });
+  });
+});
+
 describe("the provider strip", () => {
   it("leads with the way back and offers every vendor the rows carry", () => {
     mount();
-    expect(stripChips()).toEqual(["All", "Anthropic", "OpenAI"]);
+    expect(stripChips()).toEqual(["All", "Claude", "GPT"]);
     expect(lit()).toBe("All");
+  });
+
+  it("every named chip wears its maker's mark; All wears none", () => {
+    mount();
+    expect(chip("Claude").querySelector("[data-brand='claude']")).not.toBeNull();
+    expect(chip("GPT").querySelector("[data-brand='openai']")).not.toBeNull();
+    expect(chip("All").querySelector("[data-brand]")).toBeNull();
   });
 
   it("is absent when no catalog arrived — an axis with one value is not a control", () => {
@@ -82,8 +108,8 @@ describe("the provider strip", () => {
   it("narrows the list, and the lit chip says which narrowing is in force", () => {
     mount();
     const before = listed();
-    fireEvent.click(chip("Anthropic"));
-    expect(lit()).toBe("Anthropic");
+    fireEvent.click(chip("Claude"));
+    expect(lit()).toBe("Claude");
     expect(listed().join(" ")).toContain("Claude Fable 5.1");
     expect(listed().join(" ")).not.toContain("GPT-5.6-Sol");
     fireEvent.click(chip("All"));
@@ -92,7 +118,7 @@ describe("the provider strip", () => {
 
   it("composes with the text query instead of replacing it", () => {
     mount();
-    fireEvent.click(chip("Anthropic"));
+    fireEvent.click(chip("Claude"));
     fireEvent.change(search(), { target: { value: "opus" } });
     // The named mutant: have the chip REPLACE the query (or the query clear the chip) and one of
     // these two lines goes — either GPT rows come back, or every Claude model does.
@@ -104,10 +130,10 @@ describe("the provider strip", () => {
   it("a provider the query has emptied is dimmed, still reachable, and says how to get back", () => {
     mount();
     fireEvent.change(search(), { target: { value: "gpt" } });
-    expect(chip("Anthropic")).toHaveAttribute("data-empty");
-    expect(chip("OpenAI")).not.toHaveAttribute("data-empty");
-    fireEvent.click(chip("Anthropic"));
-    expect(screen.getByRole("listbox", { name: "Models" })).toHaveTextContent(/No Anthropic models match/);
+    expect(chip("Claude")).toHaveAttribute("data-empty");
+    expect(chip("GPT")).not.toHaveAttribute("data-empty");
+    fireEvent.click(chip("Claude"));
+    expect(screen.getByRole("listbox", { name: "Models" })).toHaveTextContent(/No Claude models match/);
     fireEvent.click(screen.getByRole("button", { name: "Show every provider" }));
     expect(lit()).toBe("All");
     expect(listed().join(" ")).toContain("GPT");
@@ -115,7 +141,7 @@ describe("the provider strip", () => {
 
   it("still picks a model after a provider has narrowed the list", () => {
     const { picked } = mount();
-    fireEvent.click(chip("OpenAI"));
+    fireEvent.click(chip("GPT"));
     fireEvent.click(within(screen.getByRole("listbox", { name: "Models" })).getByText("GPT-5.6-Sol"));
     expect(picked).toEqual([["codex", "gpt-5.6-sol"]]);
   });
@@ -136,13 +162,13 @@ describe("the strip's arrows and the search field's arrows are different keys", 
     mount();
     const group = screen.getByRole("radiogroup", { name: "Provider" });
     fireEvent.keyDown(group, { key: "ArrowRight" });
-    expect(lit()).toBe("Anthropic");
+    expect(lit()).toBe("Claude");
     fireEvent.keyDown(group, { key: "ArrowRight" });
-    expect(lit()).toBe("OpenAI");
+    expect(lit()).toBe("GPT");
     fireEvent.keyDown(group, { key: "ArrowRight" });
     expect(lit()).toBe("All");
     fireEvent.keyDown(group, { key: "ArrowLeft" });
-    expect(lit()).toBe("OpenAI");
+    expect(lit()).toBe("GPT");
   });
 
   it("the strip is one tab stop: only the chip in force is reachable by Tab", () => {
