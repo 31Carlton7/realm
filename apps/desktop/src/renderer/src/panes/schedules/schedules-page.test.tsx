@@ -67,7 +67,7 @@ describe("the Scheduled tasks page", () => {
 
   it("pausing writes through the store rather than only flipping a checkbox", async () => {
     const { api } = await mount([schedule()]);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Pause Morning triage" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Morning triage is on" }));
     await waitFor(() => expect(api.calls).toContain("updateSchedule:sch1"));
   });
 

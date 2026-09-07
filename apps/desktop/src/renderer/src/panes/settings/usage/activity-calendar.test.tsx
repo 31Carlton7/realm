@@ -103,6 +103,11 @@ describe("the calendar card", () => {
     await waitFor(() => expect(screen.getByText(/2 days · 16 messages sent/)).toBeInTheDocument());
   });
 
+  it("counts in the singular where the count is one", async () => {
+    await mount([{ day: at(1), messages: 1, sessions: 1 }]);
+    await waitFor(() => expect(screen.getByText("1 day · 1 message sent")).toBeInTheDocument());
+  });
+
   it("says so plainly when there is nothing yet", async () => {
     await mount([]);
     await waitFor(() => expect(screen.getByText("No sent messages in the last year")).toBeInTheDocument());

@@ -116,36 +116,46 @@ window.__live = window.__live ?? {
   row() {
     const bar = document.querySelector(".composer-bar");
     const opts = document.querySelector(".composer-opts");
+    const strip = document.querySelector(".composer-understrip");
     const acts = document.querySelector(".composer-actions");
     if (!bar || !opts) return null;
     const optsBox = __live.box(opts);
-    const chip = (n) => {
+    const stripBox = strip ? __live.box(strip) : optsBox;
+    /* The argument is the group whose overflow would do the amputating: the control row for the
+       chips on it, the under-strip for the branch group, which now lives there. */
+    const chip = (within) => (n) => {
       const label = n.querySelector(".chip-label");
       return {
         cls: n.className.replace("ghost-chip", "").trim() || n.className,
         ...__live.box(n),
         // A label whose text is wider than its box is ellipsized; one whose right edge is past the
         // group's is amputated by overflow:hidden, which looks nothing like truncation.
-        cut: Math.round(__live.box(n).r) > optsBox.r + 1,
+        cut: Math.round(__live.box(n).r) > within.r + 1,
         ellipsis: !!label && label.scrollWidth > label.clientWidth + 1,
         text: (n.textContent || "").trim().slice(0, 40),
       };
     };
+    const git = document.querySelector(".composer-git");
     return {
       pane: __live.box(document.querySelector(".session-pane")).w,
       bar: __live.box(bar).w,
       opts: { ...optsBox, need: Math.round(opts.scrollWidth), have: Math.round(opts.clientWidth), collapsed: opts.hasAttribute("data-collapsed") },
+      strip: strip ? { ...stripBox, h: Math.round(strip.getBoundingClientRect().height) } : null,
       acts: acts ? __live.box(acts) : null,
-      // The git button's own children too: shrinking the BUTTON below its content's minimum spills
-      // the branch chip out through the group's clip, which reads identically to the button being
-      // sliced and is invisible if only the outer box is measured.
-      items: [...opts.children, ...(opts.querySelector(".composer-git")?.children ?? [])].map(chip),
+      // The control row's chips, plus the branch group's own children from the strip below it:
+      // shrinking that BUTTON below its content's minimum spills the branch chip out through its
+      // group's clip, which reads identically to the button being sliced and is invisible if only
+      // the outer box is measured.
+      items: [...[...opts.children].map(chip(optsBox)), ...[...(git?.children ?? [])].map(chip(stripBox))],
       // The two controls that must survive every width: you can always send, and you can always
       // see which model you are sending to.
       send: !!document.querySelector(".composer-send") && __live.box(document.querySelector(".composer-send")).r <= __live.box(bar).r + 1,
       model: document.querySelector(".model-chip") ? __live.box(document.querySelector(".model-chip")) : null,
-      git: document.querySelector(".composer-git") ? { ...__live.box(document.querySelector(".composer-git")), text: document.querySelector(".composer-git").textContent.trim() } : null,
-      gitTitle: document.querySelector(".composer-git")?.title ?? null,
+      git: git ? { ...__live.box(git), text: git.textContent.trim(), inStrip: !!git.closest(".composer-understrip") } : null,
+      gitTitle: git?.title ?? null,
+      // The context meter pins to the strip's far end; measured so a branch name growing into it is
+      // a failing assertion rather than something a screenshot has to be squinted at.
+      usage: document.querySelector(".session-usage") ? __live.box(document.querySelector(".session-usage")) : null,
     };
   },
 };
@@ -275,6 +285,15 @@ async function main() {
 
   const branchless = room.filter((s) => !s.git);
   check("the branch chip is present at every width it is offered at", branchless.length === 0, branchless.map((s) => s.width));
+
+  // It moved off the control row and onto the under-strip: the checkout and what it has changed are
+  // one question, and the row above is left holding only what changes the next send.
+  const offStrip = room.filter((s) => s.git && !s.git.inStrip);
+  check("the branch group rides the under-strip, not the control row", offStrip.length === 0, offStrip.map((s) => s.width));
+
+  const overrun = room.filter((s) => s.git && s.usage && s.git.r > s.usage.l - 1);
+  check("the branch name never grows into the context meter at the strip's end",
+    overrun.length === 0, overrun.map((s) => ({ width: s.width, git: s.git.r, usage: s.usage.l })));
 
   const truncated = room.filter((s) => s.git && s.items.some((i) => i.cls.includes("git-branch") && i.ellipsis));
   check("a branch too long for the pane is ellipsized rather than dropped or clipped",

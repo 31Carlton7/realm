@@ -1,5 +1,5 @@
 import { activityLevel, dayKey, dayRange, USAGE_CALENDAR_DAYS, type UsageDay } from "@realm/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../../state/store";
 
 const DAY_MS = 86_400_000;
@@ -53,7 +53,7 @@ export function monthLabels(weeks: readonly CalendarCell[][]): { index: number; 
   return out;
 }
 
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+const plural = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? "" : "s"}`;
 const readableDay = (day: string) => {
   const [y, m, d] = day.split("-").map(Number);
   return `${MONTHS[(m ?? 1) - 1]} ${d}, ${y}`;
@@ -78,6 +78,7 @@ const readableDay = (day: string) => {
 export function ActivityCalendar() {
   const usageActiveDays = useApp((s) => s.usageActiveDays);
   const run = useApp((s) => s.run);
+  const scroller = useRef<HTMLDivElement>(null);
   const [days, setDays] = useState<UsageDay[] | null>(null);
   // Frozen at mount: the grid's last column is "today", and a clock read on every render would
   // re-lay the whole calendar at midnight under a reader who is looking at it.
@@ -94,6 +95,14 @@ export function ActivityCalendar() {
   }, [usageActiveDays, run, now]);
 
   const weeks = useMemo(() => calendarWeeks(days ?? [], now), [days, now]);
+  /* Opened at the RIGHT end, on this week. A year is wider than the pane, and a graph that started at
+     last September would put the days a reader actually came for — the recent ones — off the far
+     edge behind a scrollbar that is deliberately not drawn. Runs once the rows land, because before
+     that the grid is a year of empty columns whose width is already final but whose content is not. */
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && days !== null) el.scrollLeft = el.scrollWidth;
+  }, [days, weeks]);
   const months = useMemo(() => monthLabels(weeks), [weeks]);
   const activeDays = (days ?? []).filter((d) => d.messages > 0).length;
   const messages = (days ?? []).reduce((n, d) => n + d.messages, 0);
@@ -105,10 +114,10 @@ export function ActivityCalendar() {
         <h3>Days you used Realm</h3>
         <span className="usage-card-sub">
           {days === null ? "Reading…" : activeDays === 0 ? "No sent messages in the last year"
-            : `${plural(activeDays, "day")} · ${messages.toLocaleString()} messages sent`}
+            : `${plural(activeDays, "day")} · ${plural(messages, "message")} sent`}
         </span>
       </header>
-      <div className="cal-scroll">
+      <div className="cal-scroll" ref={scroller}>
         <div className="cal">
           <div className="cal-months" aria-hidden="true">
             {/* Absolutely placed off the column index rather than laid out in the same grid: a label

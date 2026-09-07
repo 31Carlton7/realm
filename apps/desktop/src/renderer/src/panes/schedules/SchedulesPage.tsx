@@ -122,11 +122,11 @@ function ScheduleRow({ schedule, onEdit }: { schedule: Schedule; onEdit: () => v
         </div>
       </div>
       <div className="sched-actions">
-        <label className="sched-toggle">
-          <input type="checkbox" checked={schedule.enabled}
-            onChange={(e) => run(() => updateSchedule({ id: schedule.id, enabled: e.target.checked }))} />
-          <span className="visually-hidden">{schedule.enabled ? `Pause ${schedule.title}` : `Resume ${schedule.title}`}</span>
-        </label>
+        {/* The app's own switch, not a raw checkbox: an OS check-square in a row of stroked icon
+            buttons reads as a form control that wandered in, and this is a state, not a field. */}
+        <input type="checkbox" role="switch" className="switch sched-toggle" checked={schedule.enabled}
+          aria-label={`${schedule.title} is on`} title={schedule.enabled ? "Pause this schedule" : "Resume this schedule"}
+          onChange={(e) => run(() => updateSchedule({ id: schedule.id, enabled: e.target.checked }))} />
         <button className="icon-btn" title="Run now — does not move the schedule" aria-label={`Run ${schedule.title} now`}
           onClick={() => run(() => runScheduleNow(schedule.id, schedule.spaceId))}><Icon name="play" size={14} /></button>
         <button className="icon-btn" title="Edit" aria-label={`Edit ${schedule.title}`} onClick={onEdit}><Icon name="edit" size={14} /></button>

@@ -1901,10 +1901,26 @@ button.panel-title:hover { background: var(--rl-hover); }
   border-radius: 0 0 var(--r-squircle) var(--r-squircle); corner-shape: squircle; }
 .composer-understrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
-/* The branch group in its new home. It sits on a row holding two short chips and a 44px meter
-   instead of the control row's five, so it can afford a far smaller reservation — the same measured
-   figure minus the "+"/permission/mode/model/send cluster it no longer shares a line with. */
-.composer-understrip .composer-git { --branch-reserved: 232px; }
+/* The branch group in its new home, and the ladder by which the strip gives way.
+   `--branch-reserved` is everything of fixed width the strip must fit before the branch name gets
+   any: the machine chip, the workspace chip, the meter at the end, and the strip's own padding. It
+   is far larger than the number the branch chip carries on the control row (232) and that is the
+   whole point — at 232 the branch took its 240px cap and the WORKSPACE chip absorbed the shortfall,
+   ellipsizing a four-letter space name down to "L.". A branch is the long string on this row, it is
+   the one with a tooltip, and it is the one that should yield. Read off the sweep in
+   apps/desktop/scripts/composer-bar-live.mjs, which fails on any chip the strip has clipped. */
+.composer-understrip .composer-git { --branch-reserved: 348px; }
+/* …and the two things the strip drops before the branch name reaches its floor. The machine label
+   goes first: Realm runs agents on this Mac and no other, so at a narrow width the laptop glyph
+   says everything the name does, and the name is on the tooltip. Then the glyph itself. */
+@container (max-width: 520px) {
+  .composer-understrip .strip-machine .chip-label { display: none; }
+  .composer-understrip .composer-git { --branch-reserved: 260px; }
+}
+@container (max-width: 420px) {
+  .composer-understrip .strip-machine { display: none; }
+  .composer-understrip .composer-git { --branch-reserved: 212px; }
+}
 /* The strip's trailing cluster: the run label, then the context meter pinned to the end. One flex
    child rather than two `margin-left: auto` siblings, so "Thinking…" arriving mid-stream slides in
    beside the meter instead of shoving it. */
@@ -2661,7 +2677,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    state colour — and it carries a glyph too, because colour alone never says it. */
 .sched-skipped { display: inline-flex; align-items: center; gap: 4px; color: var(--rl-warning); }
 .sched-actions { display: flex; align-items: center; gap: 2px; flex: none; }
-.sched-toggle { display: inline-flex; align-items: center; margin-right: 4px; }
+.sched-toggle { margin: 0 6px 0 0; }
 .sched-confirm { width: auto; padding: 0 8px; font-size: 11px; }
 .sched-form { display: flex; flex-direction: column; gap: 12px; padding: 14px;
   border: 1px solid var(--rl-line-strong); border-radius: var(--r-panel); background: var(--rl-panel); margin-bottom: 8px; }
@@ -3436,8 +3452,13 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .cal-body { display: flex; gap: 6px; }
 .cal-weekdays { display: flex; flex-direction: column; gap: 2px; width: 24px; flex: none; }
 .cal-weekday { height: 12px; font-size: 10px; line-height: 12px; color: var(--rl-text-faint); }
-.cal-grid { border-collapse: separate; border-spacing: 2px; margin: -2px; }
-.cal-cell { width: 12px; height: 12px; padding: 0; border-radius: var(--r-sm); background: var(--inset); }
+/* `flex: none` and `table-layout: fixed` together are what make the graph SCROLL instead of squash.
+   A table is a shrinkable flex item and its auto layout will happily divide 53 columns across
+   whatever width it is given: measured at 10–11px per cell in a settings pane, against a rule that
+   still said 12. That is the failure a stylesheet read cannot see, and the reason
+   apps/desktop/scripts/new-surfaces-live.mjs measures a cell rather than trusting the declaration. */
+.cal-grid { border-collapse: separate; border-spacing: 2px; margin: -2px; flex: none; table-layout: fixed; }
+.cal-cell { width: 12px; min-width: 12px; height: 12px; padding: 0; border-radius: var(--r-sm); background: var(--inset); }
 .cal-cell[data-empty] { background: transparent; }
 .cal-cell[data-level="1"] { background: color-mix(in srgb, var(--rl-accent) 28%, var(--inset)); }
 .cal-cell[data-level="2"] { background: color-mix(in srgb, var(--rl-accent) 52%, var(--inset)); }

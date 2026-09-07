@@ -210,9 +210,16 @@ async function main() {
   // vanished into the column's ground. Same content, same offset — the only variable is the mask.
   const band = await evalIn(c, `(() => {
     const b = document.querySelector('.space-body');
-    // Halfway down the SCROLLABLE range, not half the scroll height — the latter clamps to the end,
-    // where the bottom padding guarantees there are no rows under the ramp at all.
-    b.scrollTop = Math.round((b.scrollHeight - b.clientHeight) / 2);
+    /* A row's MIDDLE is parked at the scroller's bottom edge, rather than scrolling to the middle of
+       the range and taking whatever lands there. Half the range is not a row boundary, so the strip
+       could fall on a row's rounded top corner — mostly gutter, low contrast — and the mutant that
+       puts the row back would then barely brighten it. Aiming at the row's centre band makes both
+       readings about the same ink, which is the comparison this is trying to make. */
+    const rows0 = [...b.querySelectorAll('.item')];
+    const target = rows0[Math.floor(rows0.length / 2)];
+    const s0 = b.getBoundingClientRect(), q = target.getBoundingClientRect();
+    const centreFromTop = (q.top + q.height / 2) - s0.top + b.scrollTop;
+    b.scrollTop = Math.max(0, Math.min(b.scrollHeight - b.clientHeight, Math.round(centreFromTop - b.clientHeight + 3)));
     const s = b.getBoundingClientRect();
     const top = Math.round(s.bottom - 6), bottom = Math.round(s.bottom);
     const covered = [...b.querySelectorAll('.item')].filter((r) => {

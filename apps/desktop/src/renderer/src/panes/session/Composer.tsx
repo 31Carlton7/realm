@@ -911,7 +911,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
         {machineName && (
           // Display only, deliberately: Realm runs agents on this Mac and no other. The selector
           // ships when remote execution does (roadmap: pairing) — no caret, no one-item dropdown.
-          <span className="ghost-chip" data-static title={`Agents run on this Mac — ${machineName}`}>
+          <span className="ghost-chip strip-machine" data-static title={`Agents run on this Mac — ${machineName}`}>
             <Icon name="laptop" size={12} className="chip-brand" />
             <span className="chip-label">{machineName}</span>
           </span>
