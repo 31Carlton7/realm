@@ -24,6 +24,7 @@
     "@testing-library/react": "^16.1.0",
     "@tiptap/core": "^3.31.0",
     "@tiptap/extension-image": "^3.31.0",
+    "@tiptap/extension-table": "^3.31.3",
     "@tiptap/pm": "^3.31.0",
     "@tiptap/react": "^3.31.0",
     "@tiptap/starter-kit": "^3.31.0",

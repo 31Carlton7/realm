@@ -2289,7 +2289,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   .cp-list, .activity-list, .task-detail-result, .notif-list, .notif-detail, .notif-split, .delegation-list,
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents */
-  .documents-tabs, .documents-picker, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
+  .documents-tabs, .documents-picker, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
   /* the prompter — only the pinned strip's copy of the list is bounded enough to scroll */
   .composer-todos .todo-list
 ) { scrollbar-width: thin; }
@@ -3212,7 +3212,15 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 }
 .documents-rich-sep { width: 1px; height: 16px; margin: 0 5px; background: var(--rl-line); }
 .documents-h { font-size: 11px; font-weight: var(--fw-title); padding: 2px 6px; }
-.documents-rich .tiptap, .documents-rich-surface { outline: none; padding: 18px 22px; overflow: auto; flex: 1 1 auto; min-height: 0; }
+/* The scroller. `EditorContent`'s own wrapper, which used to have no sizing at all — so the surface
+   inside it grew to its content and the pane scrolled nothing. `min-height: 0` is the half that
+   matters: a flex item's default `min-height: auto` refuses to shrink below its content, which is
+   exactly how a bounded column ends up 4148px tall. */
+.documents-rich-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+/* A grid item is `min-height: auto` too, and this one holds the editor. Without this the whole chain
+   above it can be bounded and the document still overflows the pane. */
+.documents-surface > * { min-height: 0; }
+.documents-rich .tiptap, .documents-rich-surface { outline: none; padding: 18px 22px; }
 /* Soft line breaks are preserved as real newlines in the model, so they must render as breaks. */
 .documents-rich-surface { white-space: pre-wrap; line-height: 1.65; font-size: 14px; }
 .documents-rich-surface > * + * { margin-top: 0.7em; }
@@ -3226,6 +3234,25 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .documents-rich-surface pre { background: var(--rl-raised); padding: 10px 12px; border-radius: var(--r-ctl); box-shadow: var(--shadow-hairline); overflow: auto; }
 .documents-rich-surface pre code { background: none; padding: 0; }
 .documents-rich-surface img { max-width: 100%; border-radius: var(--r-ctl); }
+/* Tables. `fixed` layout because a table in a document pane must not widen the column it lives in —
+   a long cell wraps instead, which is what a reader wants and what `auto` refuses to do. */
+.documents-rich-surface table {
+  width: 100%; table-layout: fixed; border-collapse: collapse; margin: 0.9em 0; font-size: 13px;
+}
+.documents-rich-surface th, .documents-rich-surface td {
+  padding: 6px 10px; text-align: left; vertical-align: top;
+  border: 1px solid var(--rl-line); overflow-wrap: anywhere;
+}
+/* The header row is the table's own label, so it carries the weight and the tint — a rule alone
+   leaves a reader counting rows to find out which one names the columns. */
+.documents-rich-surface th { background: var(--rl-frame); font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.documents-rich-surface th > p, .documents-rich-surface td > p { margin: 0; }
+/* ProseMirror's own cell-selection overlay, tinted to the theme rather than its default blue. */
+.documents-rich-surface .selectedCell::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: color-mix(in srgb, var(--rl-accent) 18%, transparent);
+}
+.documents-rich-surface td, .documents-rich-surface th { position: relative; }
 /* Content the schema cannot represent (tables, HTML, front-matter): shown as its exact source, and
    preserved byte-for-byte on save rather than edited here. */
 .documents-raw {

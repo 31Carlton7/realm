@@ -3,7 +3,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { Icon } from "@realm/ui";
-import { RawBlock, parseMarkdown, serializeMarkdown } from "./markdown-model";
+import { RawBlock, TABLE_EXTENSIONS, parseMarkdown, serializeMarkdown } from "./markdown-model";
 
 /**
  * The WYSIWYG half of the docs editor (Plan 17 W2). Markdown in, markdown out; the file on disk stays
@@ -24,7 +24,7 @@ export function RichTextEditor({ text, onChange }: { text: string; onChange: (ma
   const lastEmitted = useRef<string | null>(null);
 
   const editor = useEditor({
-    extensions: [StarterKit, Image.configure({ inline: true }), RawBlock],
+    extensions: [StarterKit, Image.configure({ inline: true }), ...TABLE_EXTENSIONS, RawBlock],
     editorProps: { attributes: { class: "documents-rich-surface", "aria-label": "Rich text editor" } },
     onUpdate: ({ editor: ed }) => {
       if (applying.current) return;
@@ -62,7 +62,14 @@ export function RichTextEditor({ text, onChange }: { text: string; onChange: (ma
   return (
     <div className="documents-rich">
       <RichToolbar editor={editor} />
-      <EditorContent editor={editor} />
+      {/* The class is load-bearing, not decorative. `EditorContent` renders a plain wrapper div
+          between this flex column and the ProseMirror element that actually scrolls, and a wrapper
+          with no `flex`/`min-height` sizes to its CONTENT — so the scroller inside it was never
+          bounded and a long document grew the pane instead of scrolling (measured: a 4148px surface
+          in an 860px pane). The scroll lives on the wrapper rather than on ProseMirror so that the
+          editor's own selection and caret handling never fight a scroll container it does not know
+          about. */}
+      <EditorContent editor={editor} className="documents-rich-scroll" />
     </div>
   );
 }

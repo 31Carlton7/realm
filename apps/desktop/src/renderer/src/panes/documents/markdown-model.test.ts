@@ -239,3 +239,70 @@ describe("document shape", () => {
     expect(serializeMarkdown(doc)).toBe("\n");
   });
 });
+
+describe("GFM tables", () => {
+  const TBL = "| Engine | Ships |\n| --- | --- |\n| Claude | yes |\n| Codex | no |\n";
+
+  it("parses into real table nodes with their cells intact", () => {
+    // The failure this replaced was silent and total: cells hold `block+`, markdown-it hands them
+    // INLINE tokens, so every cell was dropped and a table parsed into a stack of empty rows. The
+    // document still round-tripped (source preservation hid it), so only reading the pane showed it.
+    const doc = parseMarkdown(TBL);
+    expect(doc.firstChild?.type.name).toBe("table");
+    const rows = doc.firstChild!;
+    expect(rows.childCount).toBe(3);
+    expect(rows.child(0).child(0).type.name).toBe("tableHeader");
+    expect(rows.child(0).textContent).toBe("EngineShips");
+    expect(rows.child(2).textContent).toBe("Codexno");
+  });
+
+  it("no longer preserves a table as its own source", () => {
+    // It used to, and that was right while the schema had nowhere to put one. It is also exactly
+    // why a document full of tables read as raw markdown.
+    const doc = parseMarkdown(TBL);
+    expect(doc.content.content.some((n) => n.type.name === "rawBlock")).toBe(false);
+  });
+
+  it("round-trips an untouched table byte for byte", () => {
+    expect(canonicalize(TBL)).toBe(TBL);
+  });
+
+  it("writes an EDITED table back as GFM rather than losing it", () => {
+    // The whole reason tables were preserved rather than parsed: a construct the schema cannot hold
+    // is deleted on the first save. Now that it can hold one, the serializer has to be able to
+    // produce it — and this is the only path that proves it, because an unedited table never
+    // reaches the serializer at all.
+    const doc = parseMarkdown(TBL);
+    const table = doc.firstChild!;
+    // A fresh node object: no WeakMap entry, so the serializer's canonical path runs.
+    const rebuilt = docSchema.topNodeType.create(null, [docSchema.nodes.table!.create(null, table.content)]);
+    expect(serializeMarkdown(rebuilt)).toBe(TBL);
+  });
+
+  it("escapes a pipe inside a cell, which would otherwise shift every column after it", () => {
+    const src = "| A | B |\n| --- | --- |\n| x \\| y | z |\n";
+    const doc = parseMarkdown(src);
+    const rebuilt = docSchema.topNodeType.create(null, [docSchema.nodes.table!.create(null, doc.firstChild!.content)]);
+    expect(serializeMarkdown(rebuilt)).toBe(src);
+  });
+
+  it("pads a ragged row rather than writing it short", () => {
+    // ProseMirror allows a colspan; markdown does not. A short row written short moves every cell
+    // after it into the wrong column, which is a data corruption dressed as a formatting bug.
+    const two = docSchema.nodes.tableCell!;
+    const cell = (t: string) => two.create(null, docSchema.nodes.paragraph!.create(null, docSchema.text(t)));
+    const row = (...cells: string[]) => docSchema.nodes.tableRow!.create(null, cells.map(cell));
+    const table = docSchema.nodes.table!.create(null, [row("a", "b"), row("c")]);
+    expect(serializeMarkdown(docSchema.topNodeType.create(null, [table])))
+      .toBe("| a | b |\n| --- | --- |\n| c |  |\n");
+  });
+
+  it("flattens a multi-paragraph cell onto one line", () => {
+    // A GFM cell is one line and a ProseMirror cell may legally hold several blocks. A newline
+    // written into a cell ends the ROW, so this is the difference between a table and a mess.
+    const p = (t: string) => docSchema.nodes.paragraph!.create(null, docSchema.text(t));
+    const cell = docSchema.nodes.tableCell!.create(null, [p("one"), p("two")]);
+    const table = docSchema.nodes.table!.create(null, [docSchema.nodes.tableRow!.create(null, [cell])]);
+    expect(serializeMarkdown(docSchema.topNodeType.create(null, [table]))).toBe("| one two |\n| --- |\n");
+  });
+});

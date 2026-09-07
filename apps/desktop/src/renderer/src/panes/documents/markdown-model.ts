@@ -2,6 +2,7 @@ import { Node as TiptapNode, getSchema } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import MarkdownIt, { type Token } from "markdown-it";
+import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import { MarkdownParser, MarkdownSerializer, type MarkdownSerializerState } from "prosemirror-markdown";
 import type { Node as ProseNode, Schema } from "@tiptap/pm/model";
 
@@ -40,7 +41,22 @@ export const RawBlock = TiptapNode.create({
 // paragraph — so `![alt](src)` parsed into an empty paragraph and the image was silently deleted on the
 // first edit. Caught only because a mutation run exposed the fallback path that source preservation
 // normally hides.
-export const docSchema: Schema = getSchema([StarterKit, Image.configure({ inline: true }), RawBlock]);
+/**
+ * Tables are real nodes, not preserved source.
+ *
+ * They used to be `rawBlock`s, and that was the right answer while the schema had nowhere to put
+ * one — a construct the schema cannot hold is deleted on the first save, so preserving the bytes was
+ * the only honest option. It was also the reason a document full of tables read as raw markdown.
+ *
+ * `resizable: false` on purpose: a column width is a fact about a view, and markdown has nowhere to
+ * write one down. A resizable table would let someone drag a column and produce no change to the
+ * file — a control that silently does nothing is worse than no control.
+ */
+export const TABLE_EXTENSIONS = [
+  Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
+];
+
+export const docSchema: Schema = getSchema([StarterKit, Image.configure({ inline: true }), ...TABLE_EXTENSIONS, RawBlock]);
 
 /** GFM-ish: CommonMark plus strikethrough and tables. Tables become rawBlocks — enabling them is what
  *  lets the tokenizer RECOGNISE one, which is precisely what stops it being shredded into paragraphs. */
@@ -52,6 +68,12 @@ const HANDLED = new Set([
   "blockquote_open", "blockquote_close", "bullet_list_open", "bullet_list_close",
   "ordered_list_open", "ordered_list_close", "list_item_open", "list_item_close",
   "code_block", "fence", "hr", "inline", "text",
+  // GFM tables. `thead`/`tbody` are deliberately absent: markdown-it emits them, ProseMirror's table
+  // schema has no such node, and the spec below maps them to `ignore` so their children are hoisted
+  // straight into the table. Listing them here only keeps `foldUnsupported` from folding the whole
+  // table back into a rawBlock before the parser ever sees it.
+  "table_open", "table_close", "thead_open", "thead_close", "tbody_open", "tbody_close",
+  "tr_open", "tr_close", "th_open", "th_close", "td_open", "td_close",
 ]);
 
 /**
@@ -97,6 +119,31 @@ function foldInline(children: Token[]): Token[] {
   });
 }
 
+/** Build a token of the same class the stream is made of — markdown-it's `Token` is not exported in
+ *  a form this file can construct directly, so it is cloned off one that already exists. */
+const like = (t: Token, type: string, tag: string, nesting: number): Token =>
+  new (t.constructor as new (type: string, tag: string, nesting: number) => Token)(type, tag, nesting);
+
+/**
+ * Wrap each table cell's inline content in a paragraph.
+ *
+ * markdown-it puts an `inline` token straight inside `td_open`/`th_open`. ProseMirror's table cell
+ * holds `block+`, so inline content has nowhere to go and the cell is DROPPED — silently, leaving a
+ * table of empty rows, which is exactly what a first pass at this shipped. Synthesizing the
+ * paragraph here rather than loosening the cell's content spec keeps the schema the standard TipTap
+ * one, so every table command and every paste path still works against the shape they expect.
+ */
+function wrapCellContent(tokens: Token[]): Token[] {
+  const out: Token[] = [];
+  for (const t of tokens) {
+    if (t.type === "th_close" || t.type === "td_close") out.push(like(t, "paragraph_close", "p", -1));
+    out.push(t);
+    if (t.type === "th_open" || t.type === "td_open") out.push(like(t, "paragraph_open", "p", 1));
+  }
+  return out;
+}
+
+
 /**
  * Rewrite the token stream so unsupported top-level blocks become a single `raw_block` token.
  *
@@ -137,7 +184,7 @@ function buildParser(schema: Schema): MarkdownParser {
     // MarkdownParser only ever calls `tokenizer.parse`, so this wrapper is the seam where the token
     // stream gets folded before any node is built. Typed through `unknown` because the parameter is
     // declared as a whole MarkdownIt instance while only this one method is ever reached.
-    { parse: (text: string, env: Record<string, unknown>) => foldUnsupported(md.parse(text, env), text) } as unknown as ConstructorParameters<typeof MarkdownParser>[1],
+    { parse: (text: string, env: Record<string, unknown>) => wrapCellContent(foldUnsupported(md.parse(text, env), text)) } as unknown as ConstructorParameters<typeof MarkdownParser>[1],
     {
       paragraph: { block: "paragraph" },
       heading: { block: "heading", getAttrs: (tok) => ({ level: +tok.tag.slice(1) }) },
@@ -154,6 +201,14 @@ function buildParser(schema: Schema): MarkdownParser {
       alt: tok.children?.[0]?.content ?? null,
       }) },
       raw_block: { node: "rawBlock", getAttrs: (tok) => ({ source: tok.content }) },
+      table: { block: "table" },
+      // Hoisted away: markdown-it groups rows under thead/tbody, ProseMirror's table holds rows
+      // directly, and `ignore` is the spec's own word for "keep the children, drop the wrapper".
+      thead: { ignore: true },
+      tbody: { ignore: true },
+      tr: { block: "tableRow" },
+      th: { block: "tableHeader" },
+      td: { block: "tableCell" },
       em: { mark: "italic" },
       strong: { mark: "bold" },
       s: { mark: "strike" },
@@ -333,6 +388,40 @@ const serializer = new MarkdownSerializer(
     text: (state, node) => state.text(node.text ?? ""),
     // Verbatim, by definition: this node exists precisely because the schema cannot re-derive it.
     rawBlock: (state, node) => { state.write(node.attrs.source as string); state.closeBlock(node); },
+    /*
+     * GFM tables.
+     *
+     * Written whole rather than through `renderContent`, because a table is the one construct here
+     * whose markdown cannot be produced a row at a time: the delimiter line has to be emitted
+     * BETWEEN row one and row two, and it needs the column count, which only the whole node knows.
+     *
+     * The alignment row is plain `---` throughout. Alignment survives an UNTOUCHED table through
+     * source preservation like everything else; what is dropped is alignment on a table someone
+     * edited, and that is honest — ProseMirror's table schema has no alignment attribute, so
+     * inventing one on the way out would be writing back something the editor never held.
+     */
+    table: (state, node) => {
+      const rows: string[][] = [];
+      node.forEach((row) => {
+        const cells: string[] = [];
+        row.forEach((cell) => cells.push(cellText(cell)));
+        rows.push(cells);
+      });
+      const width = Math.max(0, ...rows.map((r) => r.length));
+      if (width === 0) { state.closeBlock(node); return; }
+      // A ragged row is padded rather than refused: ProseMirror allows a colspan, markdown does not,
+      // and a short row written short would shift every cell after it into the wrong column.
+      const line = (cells: string[]) => `| ${Array.from({ length: width }, (_, i) => cells[i] ?? "").join(" | ")} |`;
+      const out = [line(rows[0] ?? []), `| ${Array.from({ length: width }, () => "---").join(" | ")} |`,
+        ...rows.slice(1).map(line)];
+      state.write(out.join("\n"));
+      state.closeBlock(node);
+    },
+    // Reached only through `table` above, which renders its own children. Present so the serializer
+    // does not throw if a row or cell is ever serialized on its own (a paste, a future command).
+    tableRow: (state, node) => state.renderContent(node),
+    tableHeader: (state, node) => state.renderContent(node),
+    tableCell: (state, node) => state.renderContent(node),
   },
   {
     bold: { open: "**", close: "**", mixable: true, expelEnclosingWhitespace: true },
@@ -345,6 +434,20 @@ const serializer = new MarkdownSerializer(
     },
   },
 );
+
+/**
+ * One table cell as a single line of markdown.
+ *
+ * Cells are serialized through the same inline serializer everything else uses, then flattened: a
+ * cell may legally hold several paragraphs in ProseMirror and a GFM cell is one line, so newlines
+ * become spaces. Pipes are escaped — an unescaped `|` in a cell ends the cell, which would silently
+ * shift every column after it.
+ */
+function cellText(cell: ProseNode): string {
+  const wrapper = cell.type.schema.topNodeType.create(null, cell.content);
+  const raw = serializer.serialize(wrapper, { tightLists: true } as Parameters<MarkdownSerializer["serialize"]>[1]);
+  return raw.replace(/\s*\n+\s*/g, " ").replace(/\|/g, "\\|").trim();
+}
 
 /**
  * ProseMirror → Markdown. Preserved blocks give back their original bytes; only edited ones are
