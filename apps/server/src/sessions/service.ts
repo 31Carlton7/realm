@@ -11,6 +11,7 @@ import type { SpacesStore } from "../store/spaces";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
+import type { FailoverHooks } from "./failover";
 import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
 import type { CheckpointService } from "../checkpoints/service";
@@ -71,6 +72,9 @@ export class SessionService {
   private live = new Map<string, Live>();
   private closing = false;
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
+    /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
+     *  before: no retries, no handoffs, an error is an error. */
+    failover?: FailoverHooks;
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
@@ -163,9 +167,34 @@ export class SessionService {
     // that can refuse a message is a worse failure than not having one.
     await this.checkpointTurn(id, msg.text);
     const handle = this.ensureLive(id);
+    // Recorded BEFORE the message goes out, because the failure this enables recovery from can
+    // arrive on the very first event back. A new turn also clears the previous one's retry budget
+    // and chain position — those are per-turn, not per-session.
+    this.d.failover?.turnStarted(id, msg);
     this.maybeTitleFrom(id, msg.text);
     // The transcript records what the USER wrote — `@mac` and all. Only the wire below is rewritten.
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments }));
+    await handle.send(this.resolveMentions(id, msg));
+  }
+
+  /**
+   * Deliver a turn's message AGAIN, after a failover retry or a handoff (`FailoverService`).
+   *
+   * Deliberately not `send`, for three reasons that each matter:
+   *  - no second `user_message`, because the user typed it once and a transcript that shows it twice
+   *    is a transcript lying about what was asked;
+   *  - no second checkpoint, because the tree has not moved since the first one and a checkpoint per
+   *    retry would bury the real ones;
+   *  - no `maybeTitleFrom`, which would re-title a session on text it already considered.
+   *
+   * `ensureLive` is what makes a handoff work at all: the row's `agentKind` has already been
+   * rewritten by the time this runs, so this starts the NEW adapter.
+   */
+  async resendTurn(id: string, msg: SendMessage): Promise<void> {
+    if (this.closing) return;
+    if (!this.d.sessions.get(id)) return; // deleted while a backoff was pending
+    await this.ensurePorts(id);
+    const handle = this.ensureLive(id);
     await handle.send(this.resolveMentions(id, msg));
   }
 
@@ -256,6 +285,9 @@ export class SessionService {
     // interrupt, and unconditional — the run wait lives in the gateway, not the adapter, so it must
     // be cancelled even when the parent's adapter process is already gone.
     this.d.browserAgents?.parentInterrupted(id);
+    // A scheduled retry dies with the turn it belonged to. Resuming work somebody just cancelled is
+    // the rudest thing failover could do, and the one that would make people turn it off.
+    this.d.failover?.cancel(id);
     await this.live.get(id)?.handle.interrupt();
   }
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void {
@@ -446,6 +478,8 @@ export class SessionService {
     // And its browser-agent state (W5): as a parent, its run is cancelled; as a child, its persisted
     // record and act budget are forgotten — the restriction dies with the session.
     this.d.browserAgents?.release(id);
+    // And its carried handoff context, plus any retry still on a timer.
+    this.d.failover?.release(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (term) this.closeTerminalItem(term.refId);
@@ -461,6 +495,7 @@ export class SessionService {
   /** Shutdown: dispose live handles; rows/items stay so sessions resume next boot. */
   async closeAll(): Promise<void> {
     this.closing = true;
+    this.d.failover?.close();
     for (const id of [...this.live.keys()]) { await this.stop(id); this.d.gateway.release(id); this.d.browserPermissions?.release(id); }
   }
   /**
@@ -492,6 +527,11 @@ export class SessionService {
       if (resumable) this.d.sessions.update({ id: s.id, status: "idle" });
     }
   }
+
+  /** Tear the live adapter down without touching the row — failover's handoff needs exactly this, and
+   *  needs it BEFORE the row's `agentKind` moves: a handle outliving its own kind would keep pumping
+   *  the old agent's events into a session that now claims to be another one. */
+  async stopAgent(id: string): Promise<void> { await this.stop(id); }
 
   private async stop(id: string): Promise<void> {
     const l = this.live.get(id); if (!l) return;
@@ -629,7 +669,11 @@ export class SessionService {
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
     const agentContext = this.d.browserAgents?.extraSystemContext(id);
-    const joined = [baseContext, agentContext].filter((p): p is string => Boolean(p)).join("\n\n");
+    // A session that was handed over mid-turn carries the previous agent's conversation as written
+    // text. LAST, so it is the most recent thing the incoming agent reads — and re-injected on every
+    // start rather than sent once, because the adapter it is briefing can be restarted at any time.
+    const handoffContext = this.d.failover?.extraSystemContext(id);
+    const joined = [baseContext, agentContext, handoffContext].filter((p): p is string => Boolean(p)).join("\n\n");
     const systemContext = joined.length > 0 ? joined : undefined;
     let handle: AgentHandle;
     try {
@@ -663,6 +707,11 @@ export class SessionService {
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);
     if (ev.type === "init") this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
+    // Failover reads the error BEFORE it is persisted below, but does not suppress it: the failure
+    // genuinely happened, and a transcript that hid it would leave the following `retrying` or
+    // `handoff` line with nothing to explain. `before` is the row as it was when the turn failed —
+    // the handoff rewrites `agentKind`, so reading it afterwards would name the wrong agent.
+    if (ev.type === "error") this.d.failover?.onError(before, ev.payload.message);
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });

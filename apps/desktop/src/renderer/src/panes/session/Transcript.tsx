@@ -276,6 +276,20 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "run": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
               {b.stopped ? `Stopped after ${formatDuration(b.ms)}` : `${runLabelFor(b.startedAt).past} for ${formatDuration(b.ms)}`}
             </div>;
+            // The seam. Everything above it is one agent's voice and everything below is another's,
+            // so it is drawn AS a seam — a rule across the column with the sentence set into it —
+            // rather than as a card, which would read as one more thing an agent said.
+            case "handoff": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
+              {/* No glyph. The rule IS the mark — an icon here would make it a small card again,
+                  which is the one thing a seam must not read as. */}
+              <span>{b.note}</span>
+              {b.attempt > 0 && <span className="msg-handoff-tries">after {b.attempt} {b.attempt === 1 ? "retry" : "retries"}</span>}
+            </div>;
+            // Present tense, because this one is about right now: it is the only block in the
+            // transcript that will be replaced rather than joined by what comes next.
+            case "retrying": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
+              {b.attempt === 1 ? "Retrying…" : `Retrying (attempt ${b.attempt})…`}
+            </div>;
           }
         })}
         {permissions.map((p, i) => {

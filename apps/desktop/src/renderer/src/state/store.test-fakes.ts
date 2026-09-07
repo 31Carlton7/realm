@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
+import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { nextFireOf } from "@realm/contracts";
 import type { CliStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -174,6 +174,9 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
+  /** The space's failover policy. Defaults to the real default (retry on, no chain), so a test that
+   *  does not care about failover gets the behaviour a fresh install has. */
+  failover?: FailoverPolicy;
   /** What `cli.status` answers. Empty by default: a test that is not about the CLI manager should
    *  see no install or update offers at all. */
   cliStatus?: CliStatus[];
@@ -315,6 +318,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
     cliStatus: overrides.cliStatus ?? [],
     // The model catalog the picker's detail pane reads. Empty by default because that is the state
     // every test but a catalog test wants: prices are additive, and a fixture that invented them
@@ -662,8 +666,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
       sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}) });
     },
-    forkSession: async (checkpointId) => {
-      calls.push(`forkSession:${checkpointId}`);
+    forkSession: async (checkpointId, agentKind) => {
+      // The kind rides the call log, because "which agent did the fork land on" is the whole of what
+      // a cross-agent fork changes and a caller that dropped the argument would look identical.
+      calls.push(`forkSession:${checkpointId}${agentKind ? `:${agentKind}` : ""}`);
       await wait("forkSession");
       const cp = Object.values(data.checkpoints).flat().find((c) => c.id === checkpointId);
       if (!cp?.sessionId) throw new Error("FORK_NO_SESSION");
@@ -673,6 +679,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         kind: "worktree", portBlockStart: null, createdAt: 0, updatedAt: 0 };
       (data.environments[spaceId] ??= []).push(env);
       const sess = session(`se${++n}`, spaceId, { environmentId: env.id, cwd: env.path,
+        agentKind: agentKind ?? ancestor?.agentKind ?? "fake",
         title: `Fork: ${ancestor?.title ?? "session"}`, dispatchedBy: { kind: "fork", sessionId: cp.sessionId } });
       data.sessions.push(sess);
       const it = item(`i${n}`, spaceId, { kind: "session", refId: sess.id, title: sess.title });
@@ -767,6 +774,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`setSessionOptions:${id}`);
       const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
       const s = { ...data.sessions[i]!, ...o }; data.sessions[i] = s; return s;
+    },
+    failoverGet: async (spaceId) => { calls.push(`failoverGet:${spaceId}`); return data.failover; },
+    failoverSet: async (spaceId, policy) => {
+      calls.push(`failoverSet:${spaceId}`);
+      // Mirrors the server: unknown kinds are dropped rather than refused, so a test that asserts on
+      // what the store holds is asserting on the same shape the real server would have answered.
+      data.failover = { retry: policy.retry, chain: policy.chain.filter((k) => k !== "acp:qwen") };
+      return data.failover;
     },
     setSessionAgent: async (id, agentKind) => {
       calls.push(`setSessionAgent:${id}=${agentKind}`);

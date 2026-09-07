@@ -1235,10 +1235,17 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    ring, a header naming the fence's language beside a copy control, and a 12.5/1.65 mono body.
    Markdown.tsx builds the wrapper post-sanitize; the copy button reuses .tool-copy so the §6 icon
    swap (and its pinned 160ms cross-fade) is one rule for both surfaces. */
-.md-code { margin: 6px 0 8px; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--shadow-hairline); overflow: hidden; }
-.md-code-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); }
+/* Ringless and on the prompter's curve. A fenced block is the same KIND of surface the composer is —
+   a machine-text panel the reader's eye rests in — so it wears the same corner rather than the
+   routine 12px card one. The hairline ring goes with it: the surface fill already separates code
+   from the prose above it, and a ring around a rounded rect is the one thing that makes a large
+   radius look like a mistake instead of a decision. The head's divider goes for the same reason —
+   the language label and the copy control are chrome for this block, not a section of it. */
+.md-code { margin: 6px 0 8px; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface); overflow: hidden; }
+.md-code-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px 0 18px; }
 .md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
-.md-code pre { margin: 0; padding: 10px 12px; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.65; color: var(--syn-fg); }
+/* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12. */
+.md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.65; color: var(--syn-fg); }
 .md a { color: var(--rl-accent); text-decoration: underline; text-underline-offset: 2px; } /* Ara refresh §4: ink underline, no hue */
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
 /* A 1px low-alpha outline keeps an image's edge legible on any surface it lands on. Pure white in
@@ -1248,6 +1255,16 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The Quick Look render's half of the same pair (see `.ql-page`). It is a picture on the pane's own
    ground, so it flips exactly as every other picture in the app does. */
 :root[data-mode="light"] .ql-page { outline-color: rgba(0, 0, 0, 0.1); }
+/* The handover seam. A rule across the whole column with the sentence set into it, because that is
+   what it reports: everything above is one agent's voice, everything below is another's. Centred,
+   so it reads as a division of the transcript rather than as something either side said. */
+.msg-handoff {
+  display: flex; align-items: center; gap: 10px;
+  margin: 10px 0; color: var(--rl-text-dim); font-size: 11.5px; letter-spacing: 0.01em;
+  text-align: center; user-select: none;
+}
+.msg-handoff::before, .msg-handoff::after { content: ""; flex: 1; height: 1px; background: var(--rl-line); }
+.msg-handoff-tries { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .msg-thinking { font-size: 12px; }
 .thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); }
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
@@ -2117,6 +2134,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    - Nothing else. The soft LIFT stays on box-shadow (--shadow-card-lift, --rl-shadow): it is blurred
      several times wider than the two curves ever diverge, and a mask — the obvious alternative to
      painting the fill — would have clipped it away entirely. */
+:root[data-squircle] .md-code,
 :root[data-squircle] .composer,
 :root[data-squircle] .composer-drop-hint,
 :root[data-squircle] .composer-todos,
@@ -2170,6 +2188,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   box-shadow: none;
 }
+/* Fill only — no ring, and no ::before lift. A code block is content INSIDE a message, not a card
+   floating over the pane, and a shadow under one would lift it off the transcript it belongs to.
+   `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
+   with no background of its own, so there is nothing at the corners for the square clip to reveal. */
+:root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
 /* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
 :root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
   --sq-ring: var(--line-strong); --sq-ring-w: 1px;
@@ -2966,6 +2989,29 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .engines-list { gap: 4px; }
 .engine-row { display: flex; gap: 10px; padding: 9px 10px; border-radius: var(--r-ctl); }
 .engine-mark { flex: none; display: inline-flex; margin-top: 1px; }
+
+/* ── Failover: what happens to a turn the agent could not finish ─────────────────────────────── */
+/* A section heading inside a settings tab. 13px rather than the 11px of a hint: this names a group
+   of controls, and a group label set smaller than the copy inside it stops being a label. */
+.settings-head { margin: 20px 0 6px; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.settings-row-title { margin: 0; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.failover { display: flex; flex-direction: column; gap: 4px; }
+.failover .settings-row { align-items: center; }
+.failover-list { gap: 2px; margin-top: 6px; }
+.failover-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--r-ctl); }
+.failover-row[data-on] { background: var(--rl-frame); }
+/* Reserved whether or not it is filled, so switching a row on does not shove the whole list right.
+   Tabular because it is a rank, and a rank that shifts width is a rank that jitters as you reorder. */
+.failover-pos {
+  flex: none; width: 14px; text-align: center;
+  font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint);
+}
+.failover-name { flex: 1; min-width: 0; font-size: 13px; color: var(--rl-text-bright); }
+.failover-note { flex: none; font-size: 11px; color: var(--rl-text-faint); }
+/* Hidden until the row is on, because reordering something that is not in the chain means nothing —
+   but the buttons keep their box so the switches stay in one column down the list. */
+.failover-order { flex: none; display: inline-flex; gap: 2px; }
+.failover-order .icon-btn:disabled { opacity: 0.3; pointer-events: none; }
 .engine-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .engine-line { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .engine-name { font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }

@@ -61,6 +61,9 @@ function harness() {
     return { session, itemId: item.id };
   };
   const forks = new ForkService({
+    // Two kinds, so a cross-agent fork has somewhere to go and an unregistered one has somewhere to
+    // be refused.
+    adapters: { fake: {}, codex: {} } as never,
     checkpoints: cpStore, environments, envService, worktrees, sessionsStore, events, settings, git: cpGit,
     rpc: { broadcast: (event: string, payload: unknown) => broadcasts.push({ event, payload }) } as never,
     createSession,
@@ -263,5 +266,50 @@ describe("ForkService.fork — the workspace fork", () => {
     h.forks.release(session.id);
     expect(h.forks.extraSystemContext(session.id)).toBeUndefined();
     expect(h.settings.get(forkContextKey(session.id))).toBeNull();
+  });
+});
+
+describe("forking onto a different agent", () => {
+  /** An ancestor with a transcript and a checkpoint to fork from — the shape all three tests need. */
+  const forkable = async () => {
+    const h = harness();
+    const s = h.newSession();
+    h.events.append(s.id, sessionEvent("user_message", { text: "please change things", attachments: [] }, 1_000));
+    h.events.append(s.id, sessionEvent("assistant_text", { messageId: "m1", text: "changed them" }, 2_000));
+    const cp = await h.capture(s.id, "before the rewrite");
+    return { h, cp };
+  };
+
+  it("carries the conversation across but not the settings that belong to the old kind", { timeout: 20_000 }, async () => {
+    // The manual twin of failover's handoff, and coherent for the same reason: the provider
+    // conversation is not moved — no adapter can import another vendor's thread — it is carried
+    // across as the written summary the fork already builds.
+    const { h, cp } = await forkable();
+    const { session } = await h.forks.fork(cp.id, "codex");
+    expect(session.agentKind).toBe("codex");
+    // Model ids are per-kind: an `m1` picked for the fake agent means nothing to Codex, and carrying
+    // it would ask an adapter for a model from another vendor's catalogue.
+    expect(session.model).toBeNull();
+    expect(session.effort).toBeNull();
+    // The context is the whole point, and it survives the change of kind.
+    expect(String(h.settings.get(forkContextKey(session.id)))).toContain("changed them");
+  });
+
+  it("keeps every per-kind setting when the kind does not change", { timeout: 20_000 }, async () => {
+    const { h, cp } = await forkable();
+    const { session } = await h.forks.fork(cp.id);
+    expect(session.agentKind).toBe("fake");
+    expect(session.model).toBe("m1");
+    expect(session.effort).toBe("high");
+    expect(session.permissionMode).toBe("acceptEdits");
+  });
+
+  it("refuses a kind this build cannot run BEFORE it makes a worktree for it", { timeout: 20_000 }, async () => {
+    // The named mutant: check inside `createSession` instead. The throw would land after
+    // `createWorktree` and leave a worktree on disk that nothing ever adopts.
+    const { h, cp } = await forkable();
+    const before = h.environments.list(h.space.id).length;
+    await expect(h.forks.fork(cp.id, "acp:grok")).rejects.toThrow(/not registered/);
+    expect(h.environments.list(h.space.id)).toHaveLength(before);
   });
 });

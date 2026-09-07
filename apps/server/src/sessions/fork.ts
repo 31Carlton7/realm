@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import type { Environment, Session } from "@realm/contracts";
+import type { AgentKind, Environment, Session } from "@realm/contracts";
+import type { AdapterRegistry } from "@realm/adapters";
 import type { CheckpointsStore } from "../store/checkpoints";
 import type { EnvironmentsStore } from "../store/environments";
 import type { SessionsStore, SessionEventsStore } from "../store/sessions";
@@ -70,6 +71,9 @@ export function forkTitle(ancestorTitle: string): string {
 }
 
 export type ForkDeps = {
+  /** The one registry sessions are started from — so a fork can refuse a kind this build cannot run
+   *  BEFORE it makes a worktree for it. */
+  adapters: AdapterRegistry;
   checkpoints: CheckpointsStore;
   environments: EnvironmentsStore;
   envService: EnvironmentService;
@@ -108,7 +112,16 @@ export class ForkService {
     this.d.settings.set(forkContextKey(sessionId), null);
   }
 
-  async fork(checkpointId: string): Promise<{ session: Session; itemId: string; environment: Environment }> {
+  /**
+   * `agentKind` forks onto a DIFFERENT agent; omitted keeps the ancestor's.
+   *
+   * This is the manual twin of failover's handoff, and it is coherent for the same reason: the
+   * provider conversation is not moved — no adapter Realm ships can import another vendor's thread —
+   * it is carried across as the written summary this method already builds. What changes when the
+   * kind changes is that the ancestor's `model`, `effort` and `permissionMode` are dropped: model
+   * ids are per-kind, and a `claude-opus-5` on a Codex session is a lie.
+   */
+  async fork(checkpointId: string, agentKind?: AgentKind): Promise<{ session: Session; itemId: string; environment: Environment }> {
     const cp = this.d.checkpoints.require(checkpointId);
     if (!cp.sessionId) {
       throw new RpcError("FORK_NO_SESSION", "this checkpoint was not taken by a session's turn, so there is no session to fork");
@@ -117,6 +130,10 @@ export class ForkService {
     if (!ancestor) {
       throw new RpcError("FORK_SESSION_GONE", "the session this checkpoint belongs to has been deleted; there is nothing to fork");
     }
+    const kind = agentKind ?? ancestor.agentKind;
+    // Refused here rather than at `createSession`, so the worktree is never made for a fork that
+    // cannot be started. `createSession` checks too — this is the earlier of two, not the only one.
+    if (!this.d.adapters[kind]) throw new RpcError("AGENT_UNAVAILABLE", `${kind} is not registered`);
     const env = this.d.environments.get(cp.environmentId);
     if (!env) throw new NotFoundError("environment", cp.environmentId);
     if (!existsSync(env.path) || !await this.d.git.isRepository(env.path)) {
@@ -145,9 +162,14 @@ export class ForkService {
       // be incapable of.
       await this.d.git.extract({ cwd: forked.path, state: cp.state });
 
+      // Per-kind settings survive only a same-kind fork. `permissionMode` goes too: the modes each
+      // harness names are its own, and `createSession` resolves the new kind's default from null.
+      const sameKind = kind === ancestor.agentKind;
       ({ session, itemId } = this.d.createSession({
-        spaceId: env.spaceId, projectId: null, agentKind: ancestor.agentKind,
-        model: ancestor.model, effort: ancestor.effort, permissionMode: ancestor.permissionMode,
+        spaceId: env.spaceId, projectId: null, agentKind: kind,
+        model: sameKind ? ancestor.model : null,
+        effort: sameKind ? ancestor.effort : null,
+        permissionMode: sameKind ? ancestor.permissionMode : null,
         environmentId: forked.id, title: forkTitle(ancestor.title),
         dispatchedBy: { kind: "fork", sessionId: ancestor.id },
       }));

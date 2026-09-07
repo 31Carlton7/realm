@@ -234,3 +234,77 @@ describe("feedback", () => {
     expect(after.blocks).toBe(before.blocks);
   });
 });
+
+describe("a session that changed agents mid-turn", () => {
+  const retrying = (attempt: number) => sessionEvent("retrying", { reason: "transient", attempt, waitMs: 1000 });
+
+  it("banks the seam where it happened, so a reader can see whose voice is whose", () => {
+    // The whole point of persisting a handoff: everything above is one agent and everything below is
+    // another, and without the line a reader is left comparing two voices and guessing.
+    const t = reduceAll([
+      sessionEvent("assistant_text", { messageId: "m1", text: "from Claude" }),
+      sessionEvent("handoff", { from: "claude", to: "codex", reason: "usage_limit", note: "Claude hit its usage limit. Continuing on Codex.", attempt: 0 }),
+      sessionEvent("assistant_text", { messageId: "m2", text: "from Codex" }),
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["assistant", "handoff", "assistant"]);
+    expect(t.blocks[1]).toMatchObject({ kind: "handoff", from: "claude", to: "codex", attempt: 0 });
+  });
+
+  it("replaces the retry line rather than stacking it", () => {
+    // Attempt 2 says what attempt 1 said, one number later. A transcript that keeps every one of
+    // them is a transcript reporting the wait instead of the work.
+    const t = reduceAll([retrying(1), retrying(2), retrying(3)]);
+    expect(t.blocks).toHaveLength(1);
+    expect(t.blocks[0]).toMatchObject({ kind: "retrying", attempt: 3 });
+  });
+
+  it("draws the recovery INSTEAD of the failure it recovered from", () => {
+    // "Claude hit its usage limit" as a red alert, directly above "Claude hit its usage limit,
+    // continuing on Codex", tells the reader twice — and the first telling says the turn failed
+    // when it did not. Both events are still persisted; only one of them is drawn.
+    const t = reduceAll([
+      sessionEvent("error", { message: "Claude AI usage limit reached|123" }),
+      sessionEvent("handoff", { from: "claude", to: "codex", reason: "usage_limit", note: "n", attempt: 0 }),
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["handoff"]);
+  });
+
+  it("keeps the failure when the ladder runs out — that one IS final", () => {
+    // The other direction, and the reason the rule is symmetric rather than one-way: after the last
+    // retry fails there is no recovery to supersede it, and swallowing it would leave a transcript
+    // whose last word was "Retrying…" for a turn that stopped.
+    const t = reduceAll([retrying(3), sessionEvent("error", { message: "socket hang up" })]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["error"]);
+  });
+
+  it("never reaches back past the turn it is in", () => {
+    // Trailing only. An error from an earlier turn is that turn's history, and a later turn's
+    // recovery must not erase it.
+    const t = reduceAll([
+      sessionEvent("error", { message: "an old, unrelated failure" }),
+      sessionEvent("assistant_text", { messageId: "m1", text: "then we carried on" }),
+      sessionEvent("error", { message: "usage limit reached" }),
+      sessionEvent("handoff", { from: "claude", to: "codex", reason: "usage_limit", note: "n", attempt: 0 }),
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["error", "assistant", "handoff"]);
+    expect(t.blocks[0]).toMatchObject({ message: "an old, unrelated failure" });
+  });
+
+  it("clears the pending retry when the handoff lands", () => {
+    // The waiting is over — it just did not end the way the line above it was predicting. Leaving
+    // "Retrying…" above "Continuing on Codex" would show two contradictory promises at once.
+    const t = reduceAll([
+      retrying(1),
+      sessionEvent("handoff", { from: "claude", to: "codex", reason: "usage_limit", note: "n", attempt: 1 }),
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["handoff"]);
+  });
+
+  it("gives the two blocks distinct keys, so React does not reuse one as the other", () => {
+    const t = reduceAll([
+      retrying(1),
+      sessionEvent("handoff", { from: "claude", to: "codex", reason: "auth", note: "n", attempt: 1 }),
+    ]);
+    expect(new Set(t.blocks.map(blockKey)).size).toBe(t.blocks.length);
+  });
+});

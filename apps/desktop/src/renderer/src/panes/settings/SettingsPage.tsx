@@ -14,6 +14,7 @@ import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
+import { FailoverPanel } from "./FailoverPanel";
 
 type SettingsTab = "engines" | "usage" | "app" | "signins" | "import" | "permissions";
 const TABS: { id: SettingsTab; label: string }[] = [
@@ -168,6 +169,10 @@ function EnginesTab() {
       {agentProbe.length === 0
         ? <p className="env-empty">Checking the installed CLIs…</p>
         : <ul className="page-list engines-list">{kinds.map((k) => <EngineRow key={k} kind={k} />)}</ul>}
+      {/* Directly under the engine list, because it is a statement ABOUT that list: which of these
+          may take over when the one a session is on cannot finish. */}
+      <h3 className="settings-head">Failover</h3>
+      <FailoverPanel />
     </div>
   );
 }

@@ -18,6 +18,7 @@ import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageSummarySchema } from "./usage";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
+import { FailoverPolicySchema } from "./failover";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
@@ -1011,6 +1012,17 @@ export const Methods = {
    *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a
    *  model id from the old kind means nothing to the new one. */
   "sessions.setAgent": { params: z.object({ id: IdSchema, agentKind: AgentKindSchema }), result: SessionSchema },
+  /**
+   * The space's failover policy: whether a stalled turn retries, and which agents it may be handed
+   * to when retrying is not the answer (`failover.ts`).
+   *
+   * Space-scoped rather than session-scoped, because the chain is a statement about which agents you
+   * are willing to have do your work — and about who gets billed for it — which does not change from
+   * one session to the next. `set` returns what was actually stored: kinds this build has no adapter
+   * for are dropped rather than refused, so the client renders the truth instead of its request.
+   */
+  "failover.get": { params: z.object({ spaceId: IdSchema }), result: FailoverPolicySchema },
+  "failover.set": { params: z.object({ spaceId: IdSchema, policy: FailoverPolicySchema }), result: FailoverPolicySchema },
   /** Re-point an untouched session at another of its space's environments (the under-strip's workspace
    *  selector, Plan 12 W1). Server-guarded exactly like `setAgent`: rejected (SESSION_STARTED) once the
    *  session has any event — a transcript's cwds, checkpoints and terminal all belong to the checkout
@@ -1042,7 +1054,11 @@ export const Methods = {
    * transcript or agent setup to fork), when that session has since been deleted (FORK_SESSION_GONE),
    * and when the checkpoint's git objects are gone (CHECKPOINT_GONE).
    */
-  "sessions.fork": { params: z.object({ checkpointId: IdSchema }), result: z.object({ session: SessionSchema, itemId: IdSchema, environment: EnvironmentSchema }) },
+  /** `agentKind` forks the conversation onto a DIFFERENT agent — Claude's work continued by Codex.
+   *  Omitted keeps the ancestor's, which is the ordinary fork. A fork is the one place a session may
+   *  change agents by hand, and it is coherent there for the same reason failover's handoff is: the
+   *  provider conversation is not moved, it is carried across as written text. */
+  "sessions.fork": { params: z.object({ checkpointId: IdSchema, agentKind: AgentKindSchema.optional() }), result: z.object({ session: SessionSchema, itemId: IdSchema, environment: EnvironmentSchema }) },
   "sessions.delete":  { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 } as const;
 

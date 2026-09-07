@@ -98,8 +98,14 @@ function sectionFor(b: Block): string | null {
       return lines.join("\n");
     }
     case "error": return `> **Error:** ${b.message.split("\n").join("\n> ")}`;
+    // Exported, because it is the one line that explains why the voice below it is not the voice
+    // above it. A reader handed this file has no other way to tell.
+    case "handoff": return `> **Handover:** ${b.note}`;
     // The elapsed-time line is a fact about watching the session happen, not about what it produced.
     case "run": return null;
+    // Likewise: a retry that was still pending when the export ran is a fact about the moment of
+    // export, not about the session.
+    case "retrying": return null;
   }
 }
 

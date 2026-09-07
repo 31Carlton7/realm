@@ -65,6 +65,7 @@ import { SearchService } from "./search/service";
 import { ModelCatalogService } from "./models/catalog";
 import { UsageService } from "./usage/service";
 import { ForkService } from "./sessions/fork";
+import { FailoverService } from "./sessions/failover";
 import { ImportService } from "./import/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
@@ -199,6 +200,15 @@ export function defaultAdapters(): AdapterRegistry {
       { content: "Carry the plan as its own event", status: "completed", activeForm: "Carrying the plan as its own event" },
       { content: "Draw it as a plan", status: "completed", activeForm: "Drawing it as a plan" },
       { content: "Test it", status: "completed", activeForm: "Testing it" }] } }],
+  }, {
+    // Failover's surfaces are the same kind of thing as the plan card above: they exist for one
+    // event type each, and without a scripted failure the fake agent can never reach them. The
+    // message is the real Claude wording, so what this drives is the real classifier and not a
+    // special case — a space with a chain hands over, one without says why it could not.
+    on: "hit the limit", emit: [{ kind: "throw", message: "Claude AI usage limit reached|1788555903" }],
+  }, {
+    // Its milder sibling, for the retry line: a dropped socket, which never moves the session.
+    on: "drop the socket", emit: [{ kind: "throw", message: "read ECONNRESET" }],
   }] });
   return reg;
 }
@@ -377,6 +387,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
+  // Failover (fallbacks + forks): built after `sessions`, because it drives it — so the session
+  // service takes it as a late-bound hook object, the same knot `notifications` and `browserAgents`
+  // are tied with.
+  let failover: FailoverService | null = null;
   const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url),
     // A browser-agent child is only-mode (realm-browser and nothing else); an agent_run child — and
     // a reviewer child (W3) — is exclude-mode (the space's FULL surface minus the delegation
@@ -406,7 +420,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
   const sessionEvents = new SessionEventsStore(db);
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: opts.adapters ?? defaultAdapters(), skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator,
+  // Hoisted: `defaultAdapters()` builds live adapter instances, and failover must check membership
+  // against the SAME registry the session service starts agents from — two registries would let a
+  // chain accept an agent the sessions could not run.
+  const adapterRegistry = opts.adapters ?? defaultAdapters();
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
@@ -417,6 +435,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
     // (they share the one engine, which owns the registry); the per-child seams try each registry —
     // a session is a child of at most one.
+    failover: {
+      turnStarted: (id, msg) => failover?.turnStarted(id, msg),
+      cancel: (id) => failover?.cancel(id),
+      release: (id) => failover?.release(id),
+      close: () => failover?.close(),
+      onError: (session, message) => { failover?.onError(session, message); },
+      extraSystemContext: (id) => failover?.extraSystemContext(id),
+    },
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
       release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); },
@@ -506,9 +532,18 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   usage = new UsageService({ db, settings, catalog: modelCatalog, notifications });
   // Session forks (Plan 16 W3). `createSession` is SessionService's own create — the fork's session
   // is a session like any other (item, broadcast, adapter check), just dispatched by "fork".
-  forks = new ForkService({ checkpoints: new CheckpointsStore(db), environments, envService, worktrees,
+  forks = new ForkService({ adapters: adapterRegistry, checkpoints: new CheckpointsStore(db), environments, envService, worktrees,
     sessionsStore, events: sessionEvents, settings, git: checkpointGit, rpc,
     createSession: (input) => sessions.create(input) });
+  // Failover. Its three effects all land back on the session service — put an event on the
+  // transcript, replay the turn, tear the adapter down — which is why it is built here rather than
+  // beside the stores it reads.
+  failover = new FailoverService({
+    sessions: sessionsStore, events: sessionEvents, settings, adapters: adapterRegistry,
+    emit: (id, ev) => sessions.emitExternal(id, ev),
+    resend: (id, msg) => sessions.resendTurn(id, msg),
+    stop: (id) => sessions.stopAgent(id),
+  });
   // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
   // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or
   // under Realm's home. `roots` is left at its default here and overridden only by tests.
@@ -523,7 +558,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();

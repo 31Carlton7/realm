@@ -30,4 +30,5 @@ export * from "./usage";
 export * from "./documents";
 export * from "./runs";
 export * from "./schedules";
+export * from "./failover";
 export * from "./school";

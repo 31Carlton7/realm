@@ -1,6 +1,21 @@
-import type { Checkpoint, RestorePreview, RestoreResult } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, type AgentKind, type Checkpoint, type RestorePreview, type RestoreResult } from "@realm/contracts";
+import { useState } from "react";
 import { useApp } from "../state/store";
+import { Menu } from "./Menu";
 import { Sheet } from "./Sheet";
+
+/**
+ * The agents a fork may land on: the ancestor's own first, then every other selectable kind.
+ *
+ * The ancestor's kind leads because a same-agent fork is the ordinary case and a menu that buried it
+ * would be a menu punishing the common choice. It is listed rather than assumed because the point of
+ * the menu is that the choice is now visible — a plain "Fork" button that silently means "on Claude"
+ * hides exactly the decision this feature exists to offer.
+ */
+export function forkTargets(ancestor: AgentKind | null): AgentKind[] {
+  const rest = SELECTABLE_AGENT_KINDS.filter((k) => k !== ancestor);
+  return ancestor ? [ancestor, ...rest] : [...rest];
+}
 
 const KIND_LABEL: Record<Checkpoint["kind"], string> = {
   turn: "Turn", "pre-restore": "Undo point", manual: "Manual",
@@ -105,6 +120,12 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
   const capture = useApp((s) => s.captureCheckpoint);
   const closeSheet = useApp((s) => s.closeSheet);
   const run = useApp((s) => s.run);
+  /* The ancestor's kind comes off the CHECKPOINT's session, not the sheet's. The sheet is often
+     opened at environment level (`sessionId` null) over a list whose rows each belong to a different
+     session, and reading the sheet's would name the wrong agent — or, at environment level, none. */
+  const sessions = useApp((s) => s.sessions);
+  /** Which row's fork menu is open, whose agent it forks from, and the button it hangs off. */
+  const [forkMenu, setForkMenu] = useState<{ checkpointId: string; ancestor: AgentKind | null; at: HTMLElement } | null>(null);
   const now = Date.now();
 
   return (
@@ -130,7 +151,8 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
                   {/* Fork (Plan 16 W3): only for checkpoints a session's turn took — a fork carries an
                       ancestor transcript, and a manual/environment checkpoint has none to carry. */}
                   {c.sessionId && (
-                    <button type="button" className="btn-quiet" onClick={() => run(() => fork(c.id))}>Fork</button>
+                    <button type="button" className="btn-quiet" aria-haspopup="menu"
+                      onClick={(e) => setForkMenu({ checkpointId: c.id, ancestor: sessions[c.sessionId!]?.agentKind ?? null, at: e.currentTarget })}>Fork…</button>
                   )}
                   <button type="button" className="btn-quiet" onClick={() => run(() => ask(c.id))}>Restore</button>
                 </li>
@@ -141,7 +163,20 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
                 Fork opens a NEW worktree restored to that checkpoint, with a new session beside the old
                 one. It is a workspace fork: the agent&rsquo;s conversation cannot be rewound, so the
                 ancestor transcript is carried into the new session as text (capped, and it says so).
+                That is also what lets a fork run on a DIFFERENT agent — the transcript travels as
+                text either way, so continuing on Codex costs nothing a same-agent fork does not.
               </p>
+            )}
+            {/* At sheet level rather than inside the row, so it outlives the row's re-render while a
+                fork is in flight — and so exactly one is ever open. */}
+            {forkMenu && (
+              <Menu label="Fork onto" anchorRef={{ current: forkMenu.at }} onClose={() => setForkMenu(null)}
+                items={forkTargets(forkMenu.ancestor).map((k) => ({
+                  label: k === forkMenu.ancestor ? `Fork on ${AGENT_META[k].label}` : `Fork onto ${AGENT_META[k].label}`,
+                  // Undefined rather than the kind for a same-agent fork, so the wire carries exactly
+                  // what every existing fork carried and the server's default keeps meaning something.
+                  onSelect: () => run(() => fork(forkMenu.checkpointId, k === forkMenu.ancestor ? undefined : k)),
+                }))} />
             )}
             <div className="sheet-actions">
               <button type="button" className="btn-quiet" onClick={() => run(() => capture(environmentId, sessionId))}>Checkpoint now</button>

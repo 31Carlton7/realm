@@ -28,6 +28,28 @@ const P = {
     interrupted: z.boolean().optional() }),
   error: z.object({ message: z.string() }),
   /**
+   * The session changed agents mid-flight, because the one it was on could not finish the turn
+   * (`failover.ts` decides when). Persisted, and rendered — a session that changes hands has to say
+   * so, or the reader is left comparing two agents' voices and wondering which of them wrote what.
+   *
+   * `attempt` counts the same-agent retries that were spent before the handoff, so the record is
+   * complete: "we waited three times, then moved" is a different story to "we moved immediately",
+   * and only the first one explains where thirty seconds went.
+   */
+  handoff: z.object({
+    from: z.string(), to: z.string(),
+    reason: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]),
+    /** The sentence shown. Built server-side so every surface tells it identically. */
+    note: z.string(),
+    attempt: z.number().int(),
+  }),
+  /**
+   * A same-agent retry is about to happen, after `waitMs`. Ephemeral rather than persisted: it is a
+   * "hold on" for someone watching the pane right now, and a transcript reopened tomorrow should
+   * show the turn that eventually ran, not three announcements of it being about to.
+   */
+  retrying: z.object({ reason: z.enum(["provider_down", "transient"]), attempt: z.number().int(), waitMs: z.number().int() }),
+  /**
    * `contextTokens` is the size of the prompt the agent last SENT — everything the model read on that
    * turn, cache hits included. It is deliberately not derivable from the other three: `inputTokens`
    * on a `cumulative` series is the session's running total and grows without bound, so dividing it
@@ -127,6 +149,8 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("permission_response"),
   variant("status"),
   variant("error"),
+  variant("handoff"),
+  variant("retrying"),
   variant("usage"),
   variant("init"),
   variant("plan"),
@@ -142,7 +166,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

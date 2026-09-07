@@ -16,6 +16,21 @@ export type Block =
    *  absent throughout, so those transcripts nest nothing and read exactly as before. */
   | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; ts: number }
   | { kind: "error"; message: string; ts: number }
+  /**
+   * The session changed agents mid-turn, because the one it was on could not finish (failover).
+   *
+   * Rendered rather than swallowed, and rendered AT the point it happened rather than summarised at
+   * the top: everything above this line is one agent's voice and everything below is another's, and
+   * a reader comparing the two needs to know where the seam is. `attempt` is how many same-agent
+   * retries were spent first, which is what explains the gap in the timestamps.
+   */
+  | { kind: "handoff"; from: string; to: string; note: string; attempt: number; ts: number }
+  /**
+   * A retry is pending. Ephemeral in every sense — the event is not persisted, and the block is
+   * REPLACED by the next one rather than stacking, so three attempts leave one line saying what is
+   * happening now instead of three saying what already did.
+   */
+  | { kind: "retrying"; attempt: number; waitMs: number; ts: number }
   /** A plan the agent proposed. `text` is prose, `steps` a checklist, and at least one is present —
    *  which of them depends on the protocol, not on the agent's mood (see the `plan` event). A revised
    *  plan REPLACES this block rather than appending a second one, so `ts` stays the moment the plan
@@ -93,6 +108,14 @@ export const lastUserMessage = (t: Transcript): UserBlock | null => {
   return null;
 };
 
+/** Drop the trailing run of blocks that a failure/recovery event supersedes. Trailing only — an
+ *  error from an EARLIER turn is that turn's history and must survive whatever this one does. */
+const dropPending = (blocks: Block[]): Block[] => {
+  let end = blocks.length;
+  while (end > 0 && (blocks[end - 1]!.kind === "retrying" || blocks[end - 1]!.kind === "error")) end--;
+  return blocks.slice(0, end);
+};
+
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
 
 /** Pure reducer: normalized session events → what the transcript renders. Deltas accumulate into the open
@@ -128,7 +151,29 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       if (!t.pendingPermissions.some((p) => p.requestId === e.payload.requestId)) return t;
       return { ...t, pendingPermissions: t.pendingPermissions.filter((p) => p.requestId !== e.payload.requestId) };
     }
-    case "error": blocks.push({ kind: "error", message: e.payload.message, ts: e.ts }); return { ...t, blocks };
+    // A failure and the recovery from it are ONE thing, and only one of them should be on screen.
+    //
+    // The events are all persisted — the record stays complete, and a bug report still has the
+    // harness's own words. What changes is which of them the transcript draws, because "the agent
+    // hit its usage limit" printed as a red alert directly above "Claude hit its usage limit,
+    // continuing on Codex" tells the reader twice, and the first telling says the turn failed when
+    // it did not.
+    //
+    // The three cases, and why the pair below is symmetric rather than one-directional:
+    //   error → retrying   the wait supersedes the failure
+    //   error → handoff    the seam supersedes the failure
+    //   retrying → error   the ladder ran out; the failure supersedes the wait, and is final
+    case "error":
+      return { ...t, blocks: [...dropPending(blocks), { kind: "error", message: e.payload.message, ts: e.ts }] };
+    case "handoff":
+      return { ...t, blocks: [...dropPending(blocks),
+        { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt, ts: e.ts }] };
+    case "retrying": {
+      // Replace rather than stack: attempt 2 says what attempt 1 said, one number later, and a
+      // transcript that keeps both is a transcript reporting the wait instead of the work.
+      return { ...t, blocks: [...dropPending(blocks),
+        { kind: "retrying", attempt: e.payload.attempt, waitMs: e.payload.waitMs, ts: e.ts }] };
+    }
     case "plan": {
       const i = findLast(blocks, (b) => b.kind === "plan" && b.planId === e.payload.planId);
       const block: Block = {

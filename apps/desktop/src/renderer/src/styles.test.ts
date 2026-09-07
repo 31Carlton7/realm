@@ -686,11 +686,20 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(RULES.flatMap((r) => r.selectors).filter((s) => /^\.tool-(card|group)\[data-open\] [^>]/.test(s))).toEqual([]);
   });
 
-  it("fenced code is CodeBlock's editor panel: surface + hairline ring, a language header, 12.5/1.65 mono body", () => {
+  it("fenced code is a ringless panel on the prompter's curve, with a 12.5/1.65 mono body", () => {
+    /* Changed deliberately from the hairline-ringed 12px card this used to pin. A fenced block is
+       the same KIND of surface the composer is — a machine-text panel the eye rests in — so it
+       wears the same corner; and a ring around a large radius is the one thing that makes the
+       radius look like a mistake rather than a decision. The surface fill is what separates code
+       from prose, and it is doing that job alone now. */
     const panel = bodiesFor(".md-code").join(" ");
     expect(panel).toContain("background: var(--surface)");
-    expect(panel).toContain("box-shadow: var(--shadow-hairline)");
-    expect(bodiesFor(".md-code-head").join(" ")).toContain("border-bottom: 1px solid var(--line)");
+    expect(panel).toContain("border-radius: var(--r-squircle)");
+    expect(panel).toContain("corner-shape: squircle");
+    expect(panel).not.toContain("box-shadow: var(--shadow-hairline)");
+    // And the painted path, because `corner-shape` is inert in the Chromium this ships on: without
+    // this the block would render a plain round rect beside a composer wearing a real squircle.
+    expect(bodiesFor(":root[data-squircle] .md-code").join(" ")).toContain("--sq-fill: var(--surface)");
     const body = bodiesFor(".md-code pre").join(" ");
     expect(body).toContain("font-size: 12.5px");
     expect(body).toContain("line-height: 1.65");
@@ -1048,8 +1057,13 @@ describe("dividers", () => {
   it("the seams INSIDE one surface, between a head or a field and the rows below it, are kept", () => {
     // A card's head over its body, and a popover's search field over its list. These separate two
     // different KINDS of thing sharing one surface, which is what a hairline is for.
-    for (const sel of [".diff-head", ".fd-head", ".md-code-head", ".mp-search", ".palette-input", ".spaces-search"])
+    for (const sel of [".diff-head", ".fd-head", ".mp-search", ".palette-input", ".spaces-search"])
       expect(bodiesFor(sel).join(" "), sel).toMatch(/border-bottom: 1px solid/);
+    // `.md-code-head` is deliberately NOT in that list any more. The rule above is for a seam
+    // between two different KINDS of thing sharing a surface; a code block's head holds the
+    // language label and the copy control, which are chrome FOR the code rather than a section
+    // beside it. Ruling them apart drew a line across a panel with one thing in it.
+    expect(bodiesFor(".md-code-head").join(" ")).not.toMatch(/border-bottom: 1px solid/);
     // Footers hold their place while the body scrolls past them.
     for (const sel of [".permission-footer", ".question-footer", ".spaces-foot", ".mp-detail-foot"])
       expect(bodiesFor(sel).join(" "), sel).toMatch(/border-top: 1px solid/);

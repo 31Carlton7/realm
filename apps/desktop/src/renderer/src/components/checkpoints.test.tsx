@@ -168,21 +168,29 @@ describe("Fork from here (Plan 16 W3)", () => {
 
   it("offers Fork only on checkpoints a session's turn took, with the honest workspace-fork copy", async () => {
     await openWithSession();
-    expect(screen.getByRole("button", { name: "Fork" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fork…" })).toBeInTheDocument();
     expect(screen.getByText(/conversation cannot be rewound/)).toBeInTheDocument();
     expect(screen.getByText(/carried into the new session as text/)).toBeInTheDocument();
+    // …and the sentence that makes a cross-agent fork legible: it is the SAME mechanism, so landing
+    // on another agent costs nothing a same-agent fork does not.
+    expect(screen.getByText(/continuing on Codex costs nothing/)).toBeInTheDocument();
   });
 
   it("hides Fork (and the copy) for environment-level checkpoints — there is no session to fork", async () => {
     await open(); // default checkpoint(): sessionId null
-    expect(screen.queryByRole("button", { name: "Fork" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fork…" })).toBeNull();
     expect(screen.queryByText(/conversation cannot be rewound/)).toBeNull();
   });
 
   it("Fork calls sessions.fork, closes the sheet, and opens the NEW session's pane — the ancestor untouched", async () => {
     const { api, store } = await openWithSession();
     const rowsBefore = JSON.stringify(api.data.sessions.find((x) => x.id === "se1"));
-    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fork…" }));
+    // The ancestor's own agent leads the menu: a same-agent fork is the ordinary case, and a menu
+    // that buried it would punish the common choice.
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Fork on Fake agent" }));
+    // No `agentKind` on the wire for a same-agent fork — the server keeps the ancestor's, which is
+    // the behaviour every existing fork already had.
     await waitFor(() => expect(api.calls).toContain("forkSession:cp1"));
     await waitFor(() => expect(store.getState().sheet).toBeNull());
     const forked = api.data.sessions.find((x) => x.dispatchedBy?.kind === "fork")!;
@@ -194,5 +202,16 @@ describe("Fork from here (Plan 16 W3)", () => {
     });
     expect(store.getState().environments[forked.environmentId]).toMatchObject({ kind: "worktree" });
     expect(JSON.stringify(api.data.sessions.find((x) => x.id === "se1"))).toBe(rowsBefore);
+  });
+
+  it("forks onto a DIFFERENT agent when one is chosen", async () => {
+    // The manual twin of failover's handoff. The transcript travels as text either way, which is
+    // exactly why this is possible at all — and why it costs nothing a same-agent fork does not.
+    const { api } = await openWithSession();
+    fireEvent.click(screen.getByRole("button", { name: "Fork…" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Fork onto Codex" }));
+    await waitFor(() => expect(api.calls).toContain("forkSession:cp1:codex"));
+    const forked = api.data.sessions.find((x) => x.dispatchedBy?.kind === "fork")!;
+    expect(forked.agentKind).toBe("codex");
   });
 });

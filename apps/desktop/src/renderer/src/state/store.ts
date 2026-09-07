@@ -7,7 +7,7 @@ import {
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
+  type AgentKind, type Attachment, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -192,7 +192,7 @@ export type Api = {
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
   /** `sessions.fork` (Plan 16 W3): a new worktree restored to the checkpoint + a new session carrying
    *  the ancestor transcript as text. The ancestor is untouched. */
-  forkSession(checkpointId: string): Promise<{ session: Session; itemId: string; environment: Environment }>;
+  forkSession(checkpointId: string, agentKind?: AgentKind): Promise<{ session: Session; itemId: string; environment: Environment }>;
   /** `skills.list` for a space: the library folder and every skill in it, valid or not — the mention
    *  picker (W4) reads the skills, the settings panel (W5) also shows the root and the invalid rows. */
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
@@ -228,6 +228,8 @@ export type Api = {
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
   /** `sessions.setAgent` — rejected by the server once the session has any event. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
+  failoverGet(spaceId: string): Promise<FailoverPolicy>;
+  failoverSet(spaceId: string, policy: FailoverPolicy): Promise<FailoverPolicy>;
   /** `sessions.setEnvironment` — same guard: rejected once the session has any event. */
   setSessionEnvironment(id: string, environmentId: string): Promise<Session>;
   /** `sessions.moveToSpace` — same guard as setAgent/setEnvironment: rejected once the session has any event. */
@@ -1100,6 +1102,12 @@ export type AppState = {
   /** Switch an unstarted session's agent (prompter model picker). The server refuses once events exist —
    *  cross-agent rows go unavailable there, so this is only ever called while it is legal. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
+  /** The active space's failover policy, or null before it has been read. Null is "not known yet"
+   *  rather than "off" — a switch rendered off against an unread row would lie for one frame and
+   *  then jump. */
+  failover: FailoverPolicy | null;
+  loadFailover(): Promise<void>;
+  setFailover(policy: FailoverPolicy): Promise<void>;
   /** Move an unstarted session to another of its space's environments (the under-strip's workspace
    *  selector, Plan 12 W1). Same server guard as the agent switch — after the first event the chip is a
    *  label, so this is only ever called while it is legal. */
@@ -1443,7 +1451,8 @@ export type AppState = {
   captureCheckpoint(environmentId: string, sessionId: string | null): Promise<void>;
   /** "Fork from here" (Plan 16 W3): server makes worktree + session; this adopts the new pane and
    *  closes the sheet. The ancestor session and its checkout are untouched — workspace fork only. */
-  forkFromCheckpoint(checkpointId: string): Promise<void>;
+  /** `agentKind` forks onto a DIFFERENT agent; omitted keeps the ancestor's. */
+  forkFromCheckpoint(checkpointId: string, agentKind?: AgentKind): Promise<void>;
   /** Re-fetch this space's MCP servers. Called on `McpSection` mount (sheet open) and on `mcp.changed`
    *  while that space's settings sheet is the one showing. Applies the result only if the sheet is
    *  still open for this exact space — a slow response after the user closed or switched must not
@@ -2000,6 +2009,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
+      failover: null,
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
@@ -2929,6 +2939,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           set({ planReturn });
           await get().setSessionOptions(id, { permissionMode: back });
         }
+      },
+      async loadFailover() {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const policy = await api.failoverGet(sid);
+        // Re-read the space: an await long enough for the user to switch spaces would otherwise
+        // paint one space's chain onto another's settings.
+        if (get().activeSpaceId === sid) set({ failover: policy });
+      },
+      async setFailover(policy) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        // The server's answer, not the request: kinds this build has no adapter for are dropped
+        // rather than refused, so rendering the request would show a chain that was not saved.
+        const saved = await api.failoverSet(sid, policy);
+        if (get().activeSpaceId === sid) set({ failover: saved });
       },
       async setSessionAgent(id, agentKind) {
         mergeSession(await api.setSessionAgent(id, agentKind));
@@ -3877,8 +3901,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.captureCheckpoint(environmentId, sessionId);
         await get().refreshCheckpoints(environmentId, sessionId);
       },
-      async forkFromCheckpoint(checkpointId) {
-        const { session, itemId, environment } = await api.forkSession(checkpointId);
+      async forkFromCheckpoint(checkpointId, agentKind) {
+        const { session, itemId, environment } = await api.forkSession(checkpointId, agentKind);
         if (isSpace(session.spaceId)) {
           mergeSession(session);
           set({ environments: { ...get().environments, [environment.id]: environment } });
