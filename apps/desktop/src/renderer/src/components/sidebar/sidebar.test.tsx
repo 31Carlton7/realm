@@ -4,7 +4,7 @@ import { allItems, findLeafOfItem, type Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
-import { paneSlotOf } from "./ItemList";
+import { paneCellOf, paneSlotOf } from "./ItemList";
 import { exited } from "../popover-exit.test-fakes";
 
 async function mount(api = fakeApi()) {
@@ -450,9 +450,11 @@ describe("Arc sidebar", () => {
       items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
     });
     await mount(api);
-    // Two slots, two bars — not four cells with a column lit. The glyph draws the split it is
-    // describing, so the bar count is the pane count and `data-dir` is the axis CSS lays them along.
-    expect(glyphOf("Alpha")).toHaveAttribute("data-dir", "row");
+    // Two slots, two cells — the glyph draws the split it is describing, so a plain two-way split
+    // still looks exactly as it did. The grid's shape is now carried by --glyph-cols/--glyph-rows,
+    // because the mark has a second axis to show whenever the layout has one.
+    expect((glyphOf("Alpha") as HTMLElement).style.getPropertyValue("--glyph-cols")).toBe("2");
+    expect((glyphOf("Alpha") as HTMLElement).style.getPropertyValue("--glyph-rows")).toBe("1");
     expect(glyphOf("Alpha").querySelectorAll("span")).toHaveLength(2);
     expect(onCells(glyphOf("Alpha"))).toEqual([0]);
     expect(onCells(glyphOf("Beta"))).toEqual([1]);
@@ -468,7 +470,8 @@ describe("Arc sidebar", () => {
       items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
     });
     await mount(api);
-    expect(glyphOf("Alpha")).toHaveAttribute("data-dir", "col");
+    expect((glyphOf("Alpha") as HTMLElement).style.getPropertyValue("--glyph-cols")).toBe("1");
+    expect((glyphOf("Alpha") as HTMLElement).style.getPropertyValue("--glyph-rows")).toBe("2");
     expect(onCells(glyphOf("Alpha"))).toEqual([0]);
     expect(onCells(glyphOf("Beta"))).toEqual([1]);
   });
@@ -845,5 +848,53 @@ describe("archiving a session", () => {
     expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Unarchive" }));
     await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(false));
+  });
+});
+
+describe("paneCellOf — both axes, not one", () => {
+  const leaf = (id: string, itemId: string): Layout => ({ type: "leaf", id, itemId });
+  const split = (dir: "row" | "col", children: Layout[]): Layout =>
+    ({ type: "split", id: `s${dir}`, dir, sizes: children.map(() => 100 / children.length), children });
+
+  it("reports a plain split exactly as the old one-axis mark did", () => {
+    const l = split("row", [leaf("L1", "i1"), leaf("L2", "i2")]);
+    expect(paneCellOf(l, "i1")).toEqual({ col: 0, cols: 2, row: 0, rows: 1 });
+    expect(paneCellOf(l, "i2")).toEqual({ col: 1, cols: 2, row: 0, rows: 1 });
+  });
+
+  it("THE bug: two panes stacked inside one column no longer share a mark", () => {
+    /* `paneSlotOf` read the root split only, so both of these were "the right half" and nothing
+       else. This glyph exists for the reader who cannot otherwise tell two panes apart, so a mark
+       that cannot distinguish them is not a smaller answer — it is the wrong one. */
+    const l = split("row", [
+      leaf("L1", "i1"),
+      split("col", [leaf("L2", "i2"), leaf("L3", "i3")]),
+    ]);
+    expect(paneSlotOf(l, "i2")).toEqual(paneSlotOf(l, "i3"));   // the old answer: identical
+    expect(paneCellOf(l, "i2")).toEqual({ col: 1, cols: 2, row: 0, rows: 2 });
+    expect(paneCellOf(l, "i3")).toEqual({ col: 1, cols: 2, row: 1, rows: 2 });
+  });
+
+  it("takes the OUTERMOST split of each direction and stops there", () => {
+    // A layout nested three deep has no honest 2D picture, and a glyph that kept descending would
+    // start inventing one — the deepest row split must not overwrite the outermost one.
+    const l = split("row", [
+      leaf("L1", "i1"),
+      split("col", [leaf("L2", "i2"), split("row", [leaf("L3", "i3"), leaf("L4", "i4")])]),
+    ]);
+    expect(paneCellOf(l, "i4")).toEqual({ col: 1, cols: 2, row: 1, rows: 2 });
+  });
+
+  it("steps THROUGH a split too wide to draw rather than refusing outright", () => {
+    // A pane in the second row of a five-column strip still has an honest row to report, and
+    // reporting it beats reporting none.
+    const wide = split("row", ["a", "b", "c", "d", "e"].map((x, i) => leaf(`W${i}`, x)));
+    const l = split("col", [leaf("T", "top"), wide]);
+    expect(paneCellOf(l, "c")).toEqual({ col: 0, cols: 1, row: 1, rows: 2 });
+  });
+
+  it("says nothing when there is nothing true to say", () => {
+    expect(paneCellOf(leaf("L1", "i1"), "i1")).toBeNull();
+    expect(paneCellOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "gone")).toBeNull();
   });
 });

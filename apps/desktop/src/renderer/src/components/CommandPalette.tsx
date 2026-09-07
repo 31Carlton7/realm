@@ -89,14 +89,27 @@ const DESTINATIONS: [DestinationPageKind, string][] = [
   ["settings-page", "settings"],
 ];
 
+/** How long the closing palette stays mounted. Must match `--dur-drag` in the stylesheet, which is
+ *  what the exit animation runs for; a shorter value cuts the animation off mid-frame and a longer
+ *  one leaves a finished, invisible dialog holding focus. */
+export const PALETTE_EXIT_MS = 80;
+
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen);
-  if (!open) return null;
-  return <PaletteBody />;
+  /* Kept mounted through the exit. Unmounting on `open === false` is why this had no close animation
+     to begin with — there was nothing left on screen to animate. */
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) { setMounted(true); return; }
+    const t = setTimeout(() => setMounted(false), PALETTE_EXIT_MS);
+    return () => clearTimeout(t);
+  }, [open]);
+  if (!mounted) return null;
+  return <PaletteBody closing={!open} />;
 }
 
 /** Search across every space's items (recency-sorted, disambiguated), plus actions and themes. */
-function PaletteBody() {
+function PaletteBody({ closing }: { closing: boolean }) {
   const spaces = useApp((s) => s.spaces);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const items = useApp((s) => s.items);
@@ -394,7 +407,8 @@ function PaletteBody() {
   };
 
   return (
-    <div className="palette-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
+    <div className="palette-backdrop" data-closing={closing || undefined}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div className="palette" role="dialog" aria-label="Command palette" style={paletteStyle}>
         <div className="palette-input">
           <Icon name="search" size={16} />

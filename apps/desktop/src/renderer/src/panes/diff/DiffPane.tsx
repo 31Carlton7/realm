@@ -234,7 +234,7 @@ export function DiffPane({ item }: PaneProps) {
 
   if (!cwd) return <div className="pane-placeholder muted">This checkout no longer exists.</div>;
   if (!known && loading) return <div className="pane-placeholder muted">Reading the working tree…</div>;
-  if (known && summary === null) return <div className="pane-placeholder muted">{cwd} is not a git repository, so there is nothing to diff.</div>;
+  if (known && summary === null) return <NoRepository cwd={cwd} />;
 
   const files = summary?.files ?? [];
   const stageable = files.filter((f) => f.unstaged).map((f) => f.path);
@@ -300,6 +300,33 @@ export function DiffPane({ item }: PaneProps) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A checkout with no repository in it.
+ *
+ * This was one grey sentence with the whole absolute path inlined into it, which for a real path is
+ * a line of text nobody reads to the end of. What a person needs here is the folder itself — which
+ * one, where — and the one thing they can still do with it, which is go and look at it. The pane's
+ * subject is a directory, so the empty state draws a directory.
+ */
+function NoRepository({ cwd }: { cwd: string }) {
+  const name = cwd.replace(/\/+$/, "").split("/").pop() || cwd;
+  return (
+    <div className="pane-empty">
+      {/* off-ladder: the empty state's folder is a 64px illustration rather than a UI glyph — the
+          rungs stop at 20, which on this tile would read as a lost icon rather than a picture. */}
+      <div className="pane-empty-tile" aria-hidden="true"><Icon name="folder" size={28} /></div>
+      <h2 className="pane-empty-title">{name}</h2>
+      {/* The full path in mono, under the name rather than inside the sentence — it is machine text,
+          and it is what someone checks when the folder name alone is ambiguous. */}
+      <p className="pane-empty-path">{cwd}</p>
+      <p className="pane-empty-line">There is no git repository here, so there is nothing to diff.</p>
+      <button type="button" className="btn" onClick={() => { void window.realm?.media?.reveal(cwd); }}>
+        Reveal in Finder
+      </button>
     </div>
   );
 }

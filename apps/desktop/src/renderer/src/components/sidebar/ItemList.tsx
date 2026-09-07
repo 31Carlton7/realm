@@ -36,15 +36,61 @@ export function paneSlotOf(layout: Layout, itemId: string): { index: number; cou
   return index === -1 ? null : { index, count, dir: layout.dir };
 }
 
-/** One bar per slot of the top-level split, laid out along that split's own axis, with this item's
- *  slot lit. The bar count and direction come from the layout, so the mark is a small picture of the
- *  arrangement rather than a fixed grid the arrangement has to be squeezed into. */
+/** A cell of the glyph's grid: which column of how many, and which row of how many. */
+export type PaneCell = { col: number; cols: number; row: number; rows: number };
+
+/**
+ * Where a pane sits, on BOTH axes.
+ *
+ * `paneSlotOf` reads only the root split, which is why the glyph could say "the right half" and
+ * nothing else: split that half into two rows and every pane in it lit the same mark. The glyph is
+ * read by someone who cannot otherwise tell two panes apart, so a mark that cannot distinguish them
+ * is not a smaller answer — it is the wrong one.
+ *
+ * This walks the path DOWN to the item and takes the outermost split of each direction: the first
+ * horizontal one gives the column, the first vertical one gives the row. Two axes is where it stops
+ * deliberately — a layout nested three deep has no honest 2D picture, and the glyph would start
+ * inventing one.
+ *
+ * Null whenever there is nothing truthful to say: no split, the item is not in this tree, or every
+ * split on its path is wider than the glyph can draw.
+ */
+export function paneCellOf(layout: Layout, itemId: string): PaneCell | null {
+  let cell: PaneCell = { col: 0, cols: 1, row: 0, rows: 1 };
+  let node: Layout = layout;
+  let haveCols = false, haveRows = false;
+  while (node.type === "split") {
+    const i = node.children.findIndex((c) => allItems(c).includes(itemId));
+    if (i === -1) return null;
+    const n = node.children.length;
+    // A split too wide to draw is stepped THROUGH rather than refused: a pane in the second row of
+    // a five-column strip still has an honest row to report, and reporting it beats reporting none.
+    if (n >= 2 && n <= MAX_GLYPH_SLOTS) {
+      if (node.dir === "row" && !haveCols) { cell = { ...cell, col: i, cols: n }; haveCols = true; }
+      else if (node.dir === "col" && !haveRows) { cell = { ...cell, row: i, rows: n }; haveRows = true; }
+    }
+    node = node.children[i]!;
+  }
+  return haveCols || haveRows ? cell : null;
+}
+
+/**
+ * A small picture of the arrangement, with this item's cell lit.
+ *
+ * A real grid rather than a strip of bars along one axis: the strip could only say which COLUMN a
+ * pane was in (or which row), so two panes stacked inside the same column were given the same mark.
+ * The rows and columns come from the layout, so a plain two-way split still draws two cells and
+ * looks exactly as it did — the grid only appears when there is a second axis to show.
+ */
 export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
-  const slot = paneSlotOf(layout, itemId);
-  if (!slot) return null;
+  const cell = paneCellOf(layout, itemId);
+  if (!cell) return null;
   return (
-    <span className="item-glyph" data-dir={slot.dir} aria-hidden="true">
-      {Array.from({ length: slot.count }, (_, i) => <span key={i} data-on={i === slot.index || undefined} />)}
+    <span className="item-glyph" style={{ "--glyph-cols": cell.cols, "--glyph-rows": cell.rows } as React.CSSProperties}
+      aria-hidden="true">
+      {Array.from({ length: cell.cols * cell.rows }, (_, i) => (
+        <span key={i} data-on={(i % cell.cols === cell.col && Math.floor(i / cell.cols) === cell.row) || undefined} />
+      ))}
     </span>
   );
 }

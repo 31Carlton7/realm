@@ -315,9 +315,15 @@ kbd { font: 11px var(--font-mono); }
    width: two slots are 5.5px across here against 4.5px in the old grid, at 12px instead of 10px.
    No blanket opacity: the contrast between a lit bar and an unlit one IS the message, and dimming
    the whole mark flattened precisely that. */
-.item-glyph { width: 12px; height: 12px; flex: none; display: grid; gap: 1px; }
-.item-glyph[data-dir="row"] { grid-auto-flow: column; grid-auto-columns: 1fr; }
-.item-glyph[data-dir="col"] { grid-auto-flow: row; grid-auto-rows: 1fr; }
+/* A real grid, sized from the layout. It was a strip of bars along ONE axis, which meant two panes
+   stacked inside the same column got the same mark — and this glyph exists precisely for the reader
+   who cannot otherwise tell two panes apart. A plain two-way split still draws two cells and looks
+   exactly as it did; the second axis only appears when there is one. */
+.item-glyph {
+  width: 12px; height: 12px; flex: none; display: grid; gap: 1px;
+  grid-template-columns: repeat(var(--glyph-cols, 1), 1fr);
+  grid-template-rows: repeat(var(--glyph-rows, 1), 1fr);
+}
 .item-glyph span { background: var(--rl-line-strong); border-radius: 1px; }
 /* Glyph bars are neutral; the focused pane's row lifts them to ink (accent = ink now, V-C1 kept). */
 .item-glyph span[data-on] { background: var(--rl-text-dim); }
@@ -812,6 +818,23 @@ button.panel-title:hover { background: var(--rl-hover); }
 .panel-body { flex: 1; min-height: 0; position: relative; display: flex; }
 .pane-slot { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .pane-placeholder { flex: 1; display: grid; place-content: center; text-align: center; gap: 6px; color: var(--rl-text-dim); }
+/* A pane whose subject is a FOLDER, when there is nothing in it to show. It was one grey sentence
+   with an absolute path inlined into it — a line nobody reads to the end of. What a person needs is
+   which folder, where, and the one thing they can still do with it. */
+.pane-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: 48px 24px; text-align: center;
+}
+/* Outlined rather than filled: the folder is absent, not present, and a solid tile would read as a
+   thing that is there. */
+.pane-empty-tile {
+  display: grid; place-items: center; width: 64px; height: 64px; margin-bottom: 10px;
+  border: 1.5px dashed var(--rl-line-strong); border-radius: var(--r-panel); corner-shape: squircle;
+  color: var(--rl-text-faint);
+}
+.pane-empty-title { margin: 0; font-size: 17px; font-weight: var(--fw-title); color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.pane-empty-path { margin: 0; font: 11.5px var(--font-mono); color: var(--rl-text-faint); overflow-wrap: anywhere; max-width: 420px; }
+.pane-empty-line { margin: 6px 0 12px; font-size: 13px; color: var(--rl-text-dim); text-wrap: balance; }
 /* The divider IS the resize handle: a 1px line whose real hit area is the ::after overhang. */
 .resize-handle { flex: 0 0 1px; background: var(--rl-line); position: relative; }
 .resize-handle::after { content: ""; position: absolute; inset: -3px; }
@@ -2375,7 +2398,30 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* §6 "do NOT animate": the command palette is a 100×/day action (Raycast rule) — it appears and
    disappears instantly, and neither it nor its scrim may grow an enter animation. Deliberately
    stated rather than merely omitted, so the absence reads as a decision. */
-.palette, .palette-backdrop { animation: none; }
+/*
+ * The palette opens and closes.
+ *
+ * §6 used to put this on the do-NOT-animate list, and the reasoning was sound as far as it went:
+ * ⌘K is a hundred-times-a-day action and nobody should wait on it. What that reasoning misses is
+ * that the cost of an animation is its DURATION, not its existence — and 110ms in and 90ms out is
+ * under the threshold at which a person reads a delay at all, while being exactly what makes the
+ * palette read as arriving over the app rather than being teleported into it. Raycast, the rule's
+ * own source, animates its palette for the same reason.
+ *
+ * The exit is softer and shorter than the enter, per §6's own rule for exits: 4px of drift rather
+ * than 6, opacity only on the scale. `prefers-reduced-motion` kills both through the global rule.
+ */
+.palette { animation: rl-palette-in var(--dur-hover) var(--ease-out-strong); transform-origin: 50% 0; }
+.palette-backdrop { animation: rl-fade-in var(--dur-hover) var(--ease-out-strong); }
+@keyframes rl-palette-in { from { opacity: 0; scale: 0.97; translate: 0 -6px; } to { opacity: 1; scale: 1; translate: 0 0; } }
+@keyframes rl-fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* Closing. `pointer-events: none` because the palette outlives its own state for 90ms, and a click
+   aimed at what is behind it must not land on a dialog that is already gone as far as the app is
+   concerned. */
+.palette-backdrop[data-closing] { pointer-events: none; animation: rl-fade-out var(--dur-drag) var(--ease-out-strong) forwards; }
+.palette-backdrop[data-closing] .palette { animation: rl-palette-out var(--dur-drag) var(--ease-out-strong) forwards; }
+@keyframes rl-fade-out { to { opacity: 0; } }
+@keyframes rl-palette-out { to { opacity: 0; translate: 0 -4px; } }
 
 /* The overview is the opposite case to the palette above: an occasional, deliberate "show me
    everything" that covers the window, so it enters on the sheet's own timings rather than snapping. */

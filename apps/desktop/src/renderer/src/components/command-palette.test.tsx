@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, renderHook, act } from "@testing-library/react";
-import { CommandPalette, matchScore, relTime, usePaletteHotkey } from "./CommandPalette";
+import { CommandPalette, PALETTE_EXIT_MS, matchScore, relTime, usePaletteHotkey } from "./CommandPalette";
 import { StoreContext, createAppStore } from "../state/store";
 import { findLeafOfItem } from "@realm/contracts";
 import { fakeApi, item, session } from "../state/store.test-fakes";
@@ -437,5 +437,27 @@ describe("deep search (Plan 16 W2)", () => {
     fireEvent.change(input(), { target: { value: "t" } });
     await new Promise((r) => setTimeout(r, 250)); // well past the debounce
     expect(api.calls.some((c) => c.startsWith("search:"))).toBe(false);
+  });
+});
+
+describe("the palette's exit", () => {
+  it("stays mounted through its close animation, and stops taking clicks while it does", async () => {
+    /* Unmounting the moment `paletteOpen` went false is why this had no close animation at all —
+       there was nothing on screen left to animate. It now outlives its own state briefly, which is
+       what makes the scrim's `pointer-events: none` load-bearing rather than cosmetic: a click aimed
+       at what is behind must not land on a dialog the app already considers gone. */
+    const { store } = await mount();
+    expect(document.querySelector(".palette-backdrop")).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    try {
+      act(() => { store.getState().setPaletteOpen(false); });
+      const closing = document.querySelector(".palette-backdrop");
+      expect(closing, "still on screen while it animates out").toBeInTheDocument();
+      expect(closing).toHaveAttribute("data-closing");
+
+      act(() => { vi.advanceTimersByTime(PALETTE_EXIT_MS + 20); });
+      expect(document.querySelector(".palette-backdrop")).toBeNull();
+    } finally { vi.useRealTimers(); }
   });
 });

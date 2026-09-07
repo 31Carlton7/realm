@@ -556,6 +556,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // inline, because a value that is randomised cannot be written in a stylesheet. Every one is
       // used with a fallback, so a surface that never receives them is still a finished surface.
       "--grain-hue", "--grain-x", "--grain-y", "--grain-spread",
+      // The pane glyph's grid shape (sidebar/ItemList.tsx): how many columns and rows the layout
+      // actually has, set inline because the mark is a picture of a tree that changes per item.
+      // Both carry a fallback of 1, so a glyph that never receives them is still a single cell.
+      "--glyph-cols", "--glyph-rows",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
@@ -1248,13 +1252,29 @@ describe("§6 do-NOT-animate list", () => {
     expect(css).not.toMatch(/transition-property:\s*all\b/);
   });
 
-  it("the command palette and its scrim are instant — ⌘K is a 100×/day action (Raycast rule)", () => {
-    for (const sel of [".palette", ".palette-backdrop"]) {
-      for (const body of bodiesFor(sel)) {
-        expect(body.match(/animation:\s*([^;]*)/)?.[1]?.trim() ?? "none", `${sel} { ${body} }`).toBe("none");
-        expect(body, `${sel} { ${body} }`).not.toContain("transition");
-      }
-    }
+  it("the command palette opens and closes FAST — the ⌘K rule is about duration, not existence", () => {
+    /* This used to pin the palette as un-animated, on the reasoning that ⌘K is a hundred-times-a-day
+       action and nobody should wait on it. That reasoning was half right: the cost of an animation
+       is its DURATION. At 100ms in and 80ms out nobody reads a delay, and the palette reads as
+       arriving over the app rather than being teleported into it — which is what Raycast, the rule's
+       own source, does.
+
+       So the invariant becomes the one that actually protects the user: it may animate, but not for
+       long, and the exit must be shorter than the enter (§6's rule for exits). */
+    // Through LADDER, so the assertion is two facts: the rule reaches for a rung, and that rung is
+    // still short. Pinning a literal here would make this the second place the number lives.
+    const ms = (body: string): number => {
+      const rung = body.match(/animation:\s*[a-z-]+\s+var\((--dur-[a-z]+)\)/)?.[1];
+      return rung ? LADDER[rung] ?? 0 : 0;
+    };
+    const enter = ms(bodiesFor(".palette").join(" "));
+    const exit = ms(bodiesFor(".palette-backdrop[data-closing]").join(" "));
+    expect(enter, "the palette must animate at all now").toBeGreaterThan(0);
+    expect(enter, "…but never long enough to be felt").toBeLessThanOrEqual(140);
+    expect(exit, "exits are softer and shorter than enters").toBeLessThan(enter);
+    // And the closing scrim stops taking clicks: it outlives its own state, and a click meant for
+    // what is behind it must not land on a dialog the app already considers gone.
+    expect(bodiesFor(".palette-backdrop[data-closing]").join(" ")).toContain("pointer-events: none");
   });
 
   it("the prompter's drop target is instant — §6 does not animate anything during an active drag", () => {

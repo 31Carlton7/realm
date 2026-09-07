@@ -194,9 +194,16 @@ describe("DiffPane", () => {
     expect(screen.getByText(/Showing 1 of 4213 changed files/)).toBeInTheDocument();
   });
 
-  it("says a checkout that is not a repository has nothing to diff", async () => {
+  it("draws the FOLDER when a checkout has no repository, rather than a sentence with a path in it", async () => {
+    /* It was one grey line with the whole absolute path inlined — which for a real path is a line
+       nobody reads to the end of. The pane's subject is a directory, so the empty state draws one:
+       which folder, where, and the one thing you can still do with it. */
     await mount({}, { [CWD]: null });
-    expect(await screen.findByText(/is not a git repository/)).toBeInTheDocument();
+    expect(await screen.findByText(/no git repository here/)).toBeInTheDocument();
+    // The folder's own name, on its own, and the full path as machine text beneath it.
+    expect(screen.getByRole("heading", { name: CWD.split("/").pop()! })).toBeInTheDocument();
+    expect(screen.getByText(CWD)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reveal in Finder" })).toBeInTheDocument();
   });
 
   /**
