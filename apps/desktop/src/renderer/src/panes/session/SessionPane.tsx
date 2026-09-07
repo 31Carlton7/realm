@@ -26,53 +26,49 @@ const NO_MENTIONS: string[] = [];
 
 const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Needs permission", error: "Error", ended: "Ended" } as const;
 
-const fmtCost = (usd: number) => (usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(3)}`);
 
 /** PanelBar right-side meta for a session item: model label, cost (only once real spend exists), status dot.
  *  PanelBar owns the icon + title; this is everything the old .session-header showed on its right. */
 export function SessionMeta({ item }: { item: Item }) {
   const id = item.refId;
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
-  const usage = useApp((s) => s.transcripts[id]?.t.usage ?? null);
   return (
     <>
-      {/* Cost alone. The model used to lead this line and the turn count trailed the cost, and
-          neither earned the space: the prompter's own chip names the model a few pixels below —
-          and names it properly, where this printed whatever raw id the harness pins (Cursor's
-          run to `claude-fable-5-1[thinking=true,context=300k,effort=high]`) — while the turn
-          count answers a question nobody asked of a header. What is worth glancing at while a
-          session runs is what it is costing. */}
-      {usage && usage.costUsd > 0 && <span>{fmtCost(usage.costUsd)}</span>}
+      {/* The status dot, alone. The cost used to sit here; it now rides the summary button, which is
+          where the rest of what a session produced already lives — and a number in the bar was one
+          more thing competing with the title for a strip that has four buttons on the other end. */}
       <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
     </>
   );
 }
 
-/** PanelBar action cluster for a session item (Ara refresh §6): branch/diff, then the terminal
- *  toggle — uniform icon buttons, no text labels. Open-external is skipped: a session has nothing
- *  to open externally, and dead chrome is worse than none (§7). */
+/**
+ * PanelBar action cluster for a session: summary, then the three panes a session opens beside
+ * itself — terminal, documents, browser.
+ *
+ * The diff button is deliberately gone. It was the one action here duplicated a few pixels away:
+ * the prompter's under-strip carries the branch chip, and that chip IS the way into the diff — it
+ * also says which branch and how many files changed, which a bare icon in the bar never did.
+ */
 export function SessionPanelActions({ item }: { item: Item }) {
-  return (<><SessionSummaryButton item={item} /><SessionDiffButton item={item} /><SessionDocumentsButton item={item} /><SessionTerminalToggle item={item} /></>);
+  return (<>
+    <SessionSummaryButton item={item} />
+    <SessionTerminalToggle item={item} />
+    <SessionDocumentsButton item={item} />
+    <SessionBrowserButton item={item} />
+  </>);
 }
 
-/** Opens (or focuses) the diff pane for the session's environment — the same openDiff the prompter's
- *  branch chip drives; this is chrome-level access to it (Ara refresh §6). */
-function SessionDiffButton({ item }: { item: Item }) {
-  const id = item.refId;
-  // Gated on the environment being loaded — openDiff's own precondition. A button that could only
-  // no-op is dead chrome, and §7 says dead chrome is worse than none.
-  const environmentId = useApp((s) => {
-    const e = s.sessions[id]?.environmentId;
-    return e && s.environments[e] ? e : null;
-  });
-  const openDiff = useApp((s) => s.openDiff);
-  const exportSession = useApp((s) => s.exportSession);
+/** Opens a browser pane beside the session. Unlike documents and the terminal this is not rooted at
+ *  the environment — a browser is a place you go, not a view of a checkout — so it takes no
+ *  precondition and is always offered. */
+function SessionBrowserButton({ item }: { item: Item }) {
+  const newBrowser = useApp((s) => s.newBrowser);
   const run = useApp((s) => s.run);
-  if (!environmentId) return null;
   return (
-    <button className="icon-btn" aria-label={`Show changes for ${item.title}`} title="Changes"
-      onClick={() => run(() => openDiff(environmentId))}>
-      <Icon name="branch" size={14} />
+    <button className="icon-btn" aria-label={`Open a browser beside ${item.title}`} title="Browser"
+      onClick={() => run(() => newBrowser())}>
+      <Icon name="browser" size={14} />
     </button>
   );
 }

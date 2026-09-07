@@ -821,20 +821,17 @@ describe("SessionMeta", () => {
     return render(<StoreContext.Provider value={store}><SessionMeta item={item("i9", "s1", { kind: "session", refId: "se1", title: "Sess" })} /></StoreContext.Provider>);
   }
 
-  it("shows the status dot and the cost once costUsd > 0", () => {
-    mountMeta({ model: "fake-xl", status: "waiting_permission", costUsd: 0.5, numTurns: 3 });
+  it("shows the status dot, and nothing else", () => {
+    /* The meta slot has been emptied down to the dot in three passes now, and this is the last one:
+       the model went (the prompter's chip names it properly, where this printed whatever raw id the
+       harness pinned), the turn count went (never a question a header answers), and the cost has
+       moved onto the summary button — which is where the rest of what a session produced already
+       lives, and one fewer number competing with the title. */
+    mountMeta({ model: "claude-fable-5-1[thinking=true,context=300k,effort=high]", status: "waiting_permission", costUsd: 0.5, numTurns: 3 });
     expect(screen.getByLabelText("Status: Needs permission")).toHaveAttribute("data-status", "waiting_permission");
-    expect(screen.getByText("$0.50")).toBeInTheDocument();
-  });
-
-  it("shows the cost ALONE — not the model id, and not the turn count", () => {
-    // The header used to lead with the model and trail the cost with turns. The model is named
-    // properly by the prompter's own chip inches below, and printed here as whatever raw id the
-    // harness pinned; the turn count was never the question a header answers.
-    mountMeta({ model: "claude-fable-5-1[thinking=true,context=300k,effort=high]", costUsd: 0.5, numTurns: 3 });
     expect(screen.queryByText(/claude-fable/)).toBeNull();
     expect(screen.queryByText(/turn/)).toBeNull();
-    expect(screen.getByText("$0.50")).toBeInTheDocument();
+    expect(screen.queryByText("$0.50")).toBeNull();
   });
 
   it("renders no cost while costUsd is 0, even after turns", () => {

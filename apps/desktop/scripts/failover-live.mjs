@@ -236,6 +236,40 @@ async function main() {
   check("it names the agent and where the work went", /Continuing on Codex/.test(seam.label), seam.label);
   await shot(c, "seam", { x: seam.box.l - 12, y: seam.box.t - 40, width: seam.box.w + 24, height: 100 });
 
+  /* ── 2b. The summary side panel ─────────────────────────────────────────── */
+  const summaryBtn = `.panel-actions [aria-label^="Summary of"]`;
+  await until(() => evalIn(c, `!!document.querySelector('${summaryBtn}')`), 20000, "summary button");
+  await evalIn(c, `(() => { document.querySelector('${summaryBtn}').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.session-summary')`), 10000, "summary panel");
+  await sleep(400);
+  const panel = await evalIn(c, `(() => {
+    const p = document.querySelector('.session-summary');
+    const pane = document.querySelector('.session-pane');
+    const btn = document.querySelector('${summaryBtn}');
+    return { panel: __live.box(p), pane: __live.box(pane), win: { w: window.innerWidth, h: window.innerHeight },
+             on: btn.hasAttribute('data-on'), cost: (btn.querySelector('.summary-btn-cost') || {}).textContent,
+             spend: (p.querySelector('.summary-spend') || {}).textContent };
+  })()`);
+  check("the panel docks to the session pane's right edge", Math.abs(panel.panel.r - panel.pane.r) <= 1, panel);
+  /* The pane BODY, not the leaf. Docking to the leaf would put the panel over the bar that holds
+     its own toggle — a mistake only a real window shows, since every jsdom rect is zero. */
+  check("…and runs the pane body's full height, clearing the bar its toggle lives in",
+    Math.abs(panel.panel.t - panel.pane.t) <= 1 && Math.abs(panel.panel.b - panel.pane.b) <= 1, panel);
+  check("the button reads as ON while it is up", panel.on, panel);
+  check("the cost rides the button, not the pane bar", /\$/.test(panel.cost ?? ""), panel);
+  check("and the panel opens onto the spend rather than onto nothing", /\$/.test(panel.spend ?? ""), panel);
+
+  // A click in the transcript must not close it. That is the whole reason it is not a popover.
+  await evalIn(c, `(() => { document.querySelector('.transcript').click(); return true; })()`);
+  await sleep(250);
+  check("it survives a click in the transcript beside it",
+    await evalIn(c, `!!document.querySelector('.session-summary')`), undefined);
+  await shot(c, "summary-panel", { x: panel.panel.l - 24, y: panel.panel.t, width: panel.panel.w + 24, height: Math.min(560, panel.panel.h) });
+  await evalIn(c, `(() => { document.querySelector('${summaryBtn}').click(); return true; })()`);
+  await sleep(250);
+  check("and closes on the button that opened it",
+    !(await evalIn(c, `!!document.querySelector('.session-summary')`)), undefined);
+
   /* ── 3. The failover panel ──────────────────────────────────────────────── */
   await evalIn(c, `__live.dest("Settings")`);
   await until(() => evalIn(c, `!!document.querySelector('.failover-list')`), 15000, "failover panel");

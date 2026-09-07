@@ -1,9 +1,8 @@
 import { Icon, type IconName } from "@realm/ui";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { basenameOf, documentKindFor, isOpenablePath, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { Sheet } from "../../components/Sheet";
 import { Markdown } from "./Markdown";
 import { MediaLightbox } from "./media/MediaView";
@@ -11,8 +10,51 @@ import { useMediaFiles } from "./media/use-media";
 import { emptyTranscript } from "./transcript-model";
 import { isEmptySummary, summarize, type Output, type PlanEntry, type SessionSummary, type Upload } from "./session-summary";
 
+/** Cents below a penny, so a session that has spent $0.004 does not read as free. Lives here now
+ *  rather than in SessionPane, because this is the only surface that shows a cost. */
+const fmtCost = (usd: number) => (usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(3)}`);
+
 const NO_BLOCKS = emptyTranscript().blocks;
+const EMPTY_USAGE = emptyTranscript().usage;
 const STATUS_MARK: Record<string, string> = { pending: "○", in_progress: "◐", completed: "●" };
+
+/**
+ * The session PANE's rectangle, in viewport coordinates, as `right`/`top`/`height` insets.
+ *
+ * The panel docks to the pane rather than to the button, because a session pane is one column of a
+ * split and a panel measured from the button would hang over whatever is beside it. Re-measured on
+ * resize for the same reason: dragging a splitter must move the panel with the pane it belongs to.
+ */
+function usePaneRect(anchorRef: React.RefObject<HTMLElement | null>) {
+  const [rect, setRect] = useState<{ right: number; top: number; height: number } | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      /* Up to the leaf, then back DOWN to the session body.
+         The button lives in the PanelBar, which is the leaf's chrome — so `.session-pane` never
+         matched from here and the panel fell back to the whole window. Docking to the leaf instead
+         is not right either: the leaf includes the bar, so the panel would cover its own toggle.
+         The body is the box it should sit beside. Only a real window shows either mistake; in jsdom
+         every rect is zero and all three answers look identical. */
+      const leaf = anchorRef.current?.closest(".panel");
+      const pane = (leaf?.querySelector(".session-pane") ?? leaf) as HTMLElement | null;
+      // No pane to dock to (the button rendered on its own) falls back to the viewport's right edge
+      // rather than to nothing. A panel that hides itself when it cannot find its anchor is a panel
+      // that vanishes for a reason the user cannot see.
+      const b = pane?.getBoundingClientRect();
+      setRect(b
+        ? { right: Math.max(0, window.innerWidth - b.right), top: b.top, height: b.height }
+        : { right: 0, top: 0, height: window.innerHeight });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    // The splitter moves the pane without a window resize, so the pane itself is observed too.
+    const observed = anchorRef.current?.closest(".panel");
+    const ro = typeof ResizeObserver === "undefined" || !observed ? null : new ResizeObserver(measure);
+    ro?.observe(observed!);
+    return () => { window.removeEventListener("resize", measure); ro?.disconnect(); };
+  }, [anchorRef]);
+  return rect;
+}
 
 /**
  * The session's own summary: what it produced, what it was handed, and what it proposed.
@@ -31,6 +73,7 @@ export function SessionSummaryButton({ item }: { item: Item }) {
   const id = item.refId;
   const blocks = useApp((s) => s.transcripts[id]?.t.blocks ?? NO_BLOCKS);
   const environmentId = useApp((s) => s.sessions[id]?.environmentId ?? null);
+  const cost = useApp((s) => s.transcripts[id]?.t.usage.costUsd ?? 0);
   const summary = useMemo(() => summarize(blocks), [blocks]);
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -39,24 +82,45 @@ export function SessionSummaryButton({ item }: { item: Item }) {
    *  reached from. Files and plans go through the store's sheet slot instead (SheetHost), which is
    *  what keeps a modal from being painted over by a browser pane's native view. */
   const [lightbox, setLightbox] = useState<string | null>(null);
-  if (isEmptySummary(summary)) return null;
+  /* The gate is "has this session anything to report", and spend counts. Gating on the three lists
+     alone hid the cost with the button for a session that had run a turn and written nothing — the
+     exact case where "what is this costing me" is the live question. */
+  if (isEmptySummary(summary) && cost === 0) return null;
   return (
     <>
-      <button ref={btn} className="icon-btn" aria-label={`Summary of ${item.title}`} title="Outputs, sources and plans"
+      {/* `data-on` while the panel is up. The icon itself cannot fill — only the stroke pack ships
+          here — so the BUTTON fills instead, which is the ordinary toggle treatment and says the
+          same thing: this control is currently on. */}
+      <button ref={btn} className="icon-btn summary-btn" data-on={open || undefined}
+        aria-label={`Summary of ${item.title}`} title="Outputs, sources and plans"
         aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <Icon name="info" size={14} />
+        {/* The session's cost, on the control that already holds what the session produced. It used
+            to sit loose in the pane bar as a bare number competing with the title. */}
+        {cost > 0 && <span className="summary-btn-cost">{fmtCost(cost)}</span>}
       </button>
       {open && (
-        <SummaryPopover summary={summary} sessionId={id} environmentId={environmentId} anchorRef={btn} onClose={() => setOpen(false)}
-          onLightbox={(path) => { setLightbox(path); setOpen(false); }} />
+        <SummaryPanel summary={summary} sessionId={id} environmentId={environmentId} anchorRef={btn} onClose={() => setOpen(false)}
+          onLightbox={(path) => setLightbox(path)} />
       )}
       {lightbox && <SummaryLightbox path={lightbox} onClose={() => setLightbox(null)} />}
     </>
   );
 }
 
-/** The panel itself — three sections, each drawn only when it has rows. */
-function SummaryPopover({ summary, sessionId, environmentId, anchorRef, onClose, onLightbox }: {
+/**
+ * The panel itself — three sections, each drawn only when it has rows.
+ *
+ * A side panel docked to the session pane's right edge, not a popover hanging off its button. Two
+ * things follow from that and both were asked for by name:
+ *
+ *  - **It stays.** A popover closes on the next click anywhere, which made it useless for the thing
+ *    people actually do with it — read the list while scrolling the transcript for the message that
+ *    produced a file. It closes when the button is pressed again, or on Escape.
+ *  - **It is positioned against the PANE, not the button.** A session pane is one column of a split;
+ *    a panel measured from the button would hang over whatever is beside it.
+ */
+function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, onLightbox }: {
   summary: SessionSummary;
   sessionId: string;
   /** The session's checkout — the workspace a file opens against. */
@@ -66,7 +130,15 @@ function SummaryPopover({ summary, sessionId, environmentId, anchorRef, onClose,
   onLightbox: (path: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { pos } = useAnchoredPopover({ ref, anchorRef, align: "right", onClose });
+  const rect = usePaneRect(anchorRef);
+  const usage = useApp((s) => s.transcripts[sessionId]?.t.usage ?? EMPTY_USAGE);
+  // Escape only. Deliberately NOT an outside-click close: this panel's whole job is to stay readable
+  // while you work in the transcript beside it, and a dismiss-on-any-click panel cannot do that.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   const openSheet = useApp((s) => s.openSheet);
   const openDocumentPath = useApp((s) => s.openDocumentPath);
   const run = useApp((s) => s.run);
@@ -82,8 +154,22 @@ function SummaryPopover({ summary, sessionId, environmentId, anchorRef, onClose,
   };
   return createPortal(
     <div ref={ref} className="session-summary" role="dialog" aria-label="Session summary"
-      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
-        visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top right" }}>
+      style={{ position: "fixed", right: rect?.right ?? 0, top: rect?.top ?? 0, height: rect?.height ?? "100%" }}>
+      <div className="summary-panel-head">
+        <h3>Summary</h3>
+        <button type="button" className="icon-btn" aria-label="Close summary" onClick={onClose}>
+          <Icon name="close" size={12} />
+        </button>
+      </div>
+      <div className="summary-scroll">
+      {/* Spend first, because it is the one fact that is true from the first turn — and because a
+          panel whose three lists are still empty must not open onto nothing. */}
+      {(usage.costUsd > 0 || usage.numTurns > 0) && (
+        <div className="summary-spend">
+          <span>{fmtCost(usage.costUsd)}</span>
+          <span className="summary-spend-turns">{usage.numTurns === 1 ? "1 turn" : `${usage.numTurns} turns`}</span>
+        </div>
+      )}
       <Section title="Outputs" count={summary.outputs.length} icon="artifact">
         {summary.outputs.map((o) => <OutputRow key={rowKey(o)} output={o} onLightbox={onLightbox} onFile={openFile} />)}
       </Section>
@@ -103,6 +189,7 @@ function SummaryPopover({ summary, sessionId, environmentId, anchorRef, onClose,
           </button>
         ))}
       </Section>
+      </div>
     </div>,
     document.body,
   );

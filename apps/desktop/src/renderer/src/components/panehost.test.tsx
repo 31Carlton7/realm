@@ -234,13 +234,14 @@ describe("PaneHost", () => {
     unmount();
   });
 
-  it("a session item's PanelBar renders the paneMeta content (cost + status dot)", () => {
+  it("a session item's PanelBar renders the paneMeta content (the status dot)", () => {
     const sessionItem = item("S", "s1", { kind: "session", title: "Agent", refId: "se1" });
     const api = fakeApi({ sessions: [session("se1", "s1", { model: "fake-xl", status: "running" })], items: { s1: [sessionItem] } });
     const store = createAppStore(api);
     store.setState({
       sessions: { se1: session("se1", "s1", { model: "fake-xl" }) }, sessionStatus: { se1: "running" },
-      // The meta's only text is the running cost (the model moved out — the prompter's chip names it).
+      // The meta carries no text at all now: the model moved to the prompter's chip and the cost to
+      // the summary button. What is left is the dot, which is the one thing a header can say at a glance.
       transcripts: { se1: { lastSeq: 1, t: reduceAll([sessionEvent("usage", { costUsd: 0.5, inputTokens: 1, outputTokens: 1, numTurns: 3 })]) } },
     });
     render(
@@ -251,8 +252,10 @@ describe("PaneHost", () => {
     );
     const meta = document.querySelector<HTMLElement>(".panel-bar .panel-meta");
     expect(meta).not.toBeNull();
-    expect(within(meta!).getByText("$0.50")).toBeInTheDocument();
+    expect(within(meta!).queryByText("$0.50")).toBeNull();
     expect(meta!.querySelector('.status-dot[data-status="running"]')).toBeInTheDocument();
+    // …and the cost is on the summary button, where the rest of what the session produced lives.
+    expect(document.querySelector(".summary-btn-cost")?.textContent).toBe("$0.50");
   });
 
   it("remounts a leaf's pane when openItem swaps its itemId in place, so component-local state (composer draft) does not leak between sessions", () => {

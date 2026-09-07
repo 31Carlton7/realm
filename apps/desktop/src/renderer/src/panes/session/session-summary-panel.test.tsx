@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 import { reduceAll } from "./transcript-model";
@@ -98,5 +98,42 @@ describe("the session summary button", () => {
     openPanel();
     fireEvent.click(screen.getByRole("button", { name: /bundle.zip/ }));
     expect(store.getState().sheet).toEqual({ kind: "artifact", path: "/a/bundle.zip" });
+  });
+});
+
+describe("the summary as a side panel", () => {
+  it("stays open across clicks elsewhere — that is the whole reason it is not a popover", async () => {
+    /* The thing people do with this list is read it WHILE scrolling the transcript for the message
+       that produced a file. A dismiss-on-any-click popover cannot survive that, which is what made
+       the old shape useless for its own purpose. */
+    await mount([
+      (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/report.md" }, parentToolUseId: null })),
+      (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
+    ]);
+    openPanel();
+    expect(screen.getByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(document.body);
+    expect(screen.getByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
+    // …and closes on the button that opened it.
+    openPanel();
+    expect(screen.queryByRole("dialog", { name: "Session summary" })).toBeNull();
+  });
+
+  it("shows the session's spend, so the panel is never open onto nothing", async () => {
+    // The cost moved off the pane bar and onto this control. Gating the button on the three lists
+    // alone hid it — with the cost — for a session that had run a turn and written nothing, which is
+    // exactly when "what is this costing me" is the live question.
+    await mount([sessionEvent("usage", { costUsd: 0.42, inputTokens: 10, outputTokens: 10, numTurns: 2 })]);
+    expect(document.querySelector(".summary-btn-cost")?.textContent).toBe("$0.42");
+    openPanel();
+    const panel = screen.getByRole("dialog", { name: "Session summary" });
+    expect(within(panel).getByText("$0.42")).toBeInTheDocument();
+    expect(within(panel).getByText("2 turns")).toBeInTheDocument();
+  });
+
+  it("draws nothing at all for a session that has neither produced nor spent", async () => {
+    await mount([(sessionEvent("user_message", { text: "hello", attachments: [] }))]);
+    expect(screen.queryByRole("button", { name: /Summary/ })).toBeNull();
   });
 });
