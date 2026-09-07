@@ -441,6 +441,15 @@ kbd { font: 11px var(--font-mono); }
 .summary-plan-steps li[data-status="in_progress"] .summary-step-mark { color: var(--rl-accent); }
 .mention-row-id { flex: none; font-family: var(--font-mono); font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .mention-row-desc { flex: 1; min-width: 0; font-size: 11.5px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The `/` command picker shares the mention picker's surface and rows outright — to the person
+   typing, `@` and `/` are one gesture with two sigils, and giving them two looks would say they are
+   two mechanisms. It differs by exactly one thing: a leading glyph, because a command is an ACTION
+   and its verb is worth a mark where a skill's name is not. Narrower, too: a command's hint is a
+   short phrase where a skill's description is a sentence. */
+.slash-picker { width: min(320px, 80vw); }
+.slash-row { align-items: center; }
+.slash-row-glyph { flex: none; color: var(--rl-text-faint); }
+.slash-row[data-active] .slash-row-glyph { color: var(--rl-text-dim); }
 
 /* ── Skill picker ("+" → Skills): search over every skill on the machine ──
    Same popover shell as the model picker (surface, radius, raised shadow, hairline-under-search): the

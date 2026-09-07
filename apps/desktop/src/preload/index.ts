@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld("realm", {
    *  a PDF, a spreadsheet, source — where the alternative is a tile that does nothing. Refused in
    *  main for an extension its mime table does not know; see `openablePath`. */
   openAttachment: (path: string): Promise<void> => ipcRenderer.invoke("attachment:open", path),
+  /** Write text the renderer composed to a file the USER names in a native dialog; the saved path,
+   *  or null when they cancelled. No destination crosses this bridge — only a suggested filename,
+   *  which main reduces to a bare basename before it becomes a `defaultPath`. */
+  saveText: (input: { name: string; text: string }): Promise<string | null> => ipcRenderer.invoke("save-text", input),
   /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
   pickIconImage: (): Promise<PickedFile | null> => ipcRenderer.invoke("pick-icon-image"),
   /** Local media the transcript draws inline. Only `stat` and `poster` cross IPC — the bytes are

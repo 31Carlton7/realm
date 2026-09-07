@@ -15,6 +15,7 @@ import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
 import { latestTodos } from "./session-todos";
 import { SessionSummaryButton } from "./SessionSummary";
+import type { SlashCommand } from "./slash-commands";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
  *  re-render (and warn) forever. */
@@ -64,6 +65,7 @@ function SessionDiffButton({ item }: { item: Item }) {
     return e && s.environments[e] ? e : null;
   });
   const openDiff = useApp((s) => s.openDiff);
+  const exportSession = useApp((s) => s.exportSession);
   const run = useApp((s) => s.run);
   if (!environmentId) return null;
   return (
@@ -259,6 +261,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const refreshCliStatus = useApp((s) => s.refreshCliStatus);
   const cliRow = session ? cliStatus.find((r) => r.kind === session.agentKind) : undefined;
   const openDiff = useApp((s) => s.openDiff);
+  const exportSession = useApp((s) => s.exportSession);
   const submitKey = useApp((s) => s.submitKey);
   // Stable across renders: InstallCard registers it as a window "focus" listener.
   const reprobe = useCallback(() => { run(() => probeAgents(true)); }, [probeAgents, run]);
@@ -320,6 +323,31 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // blocks the pane already holds, and a slice beside the transcript could only disagree with it.
   const todos = latestTodos(transcript.blocks);
   const blocked = isBlocked(availability) && status !== "running" && status !== "waiting_permission";
+  /* The prompter's `/` commands.
+     Built here rather than in Composer for the same reason the prompt hint is: every one of them is
+     already the pane's — they wrap handlers that exist a few lines below, so the list can never
+     offer something the prompter cannot do. Derived at render rather than memoised: it is four
+     objects, and a memo whose deps are the six things these close over would cost more to keep
+     honest than it saves. */
+  const slashCommands: SlashCommand[] = [
+    {
+      id: "export", label: "Export session", hint: "Save this transcript as Markdown", icon: "download",
+      run: () => run(() => exportSession(id)),
+    },
+    // Each of the rest is gated on the thing it would act on actually existing: a command that could
+    // only no-op is the dead chrome the pane bar bans, and a picker is a worse place for one than a
+    // toolbar because the user typed its name expecting it to work.
+    ...(environments[session.environmentId] ? [{
+      id: "diff", label: "Show changes", hint: "Open the diff for this checkout", icon: "branch",
+      run: () => run(() => openDiff(session.environmentId)),
+    } as SlashCommand] : []),
+    { id: "attach", label: "Add files", hint: "Attach files to this message", icon: "attach", run: () => run(() => attachFromPicker(id)) },
+    ...(allSkills.length > 0 ? [{
+      id: "skills", label: "Manage skills", hint: "Open this space's skills", icon: "sparkles",
+      run: () => run(() => openSpacePage(session.spaceId, "skills")),
+    } as SlashCommand] : []),
+    { id: "connections", label: "Manage connections", hint: "Open this space's connectors", icon: "plug", run: () => run(() => openSpacePage(session.spaceId, "connections")) },
+  ];
   const body = (
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}
       data-dropping={fileDrop.dropping || undefined} {...fileDrop.handlers}>
@@ -374,7 +402,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageConnections={() => run(() => openSpacePage(session.spaceId, "connections"))}
             submitKey={submitKey}
             hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)}
-            promptHint={hint} usage={transcript.usage} />}
+            promptHint={hint} usage={transcript.usage} slashCommands={slashCommands} />}
       {/* Last child and BELOW the prompter's dock, so the glow passes under the card exactly as the
           transcript does — an affordance that blurred across the prompter would be the fade band's
           old bug wearing a different colour. Decorative: the drop is announced by what it does. */}

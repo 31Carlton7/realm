@@ -17,6 +17,9 @@ interface Window {
     /** Hand an attachment to the app the user reads that type in — the files Realm cannot draw.
      *  Optional for the same reason `media` is: without the bridge the tile stays a picture. */
     openAttachment?(path: string): Promise<void>;
+    /** Write text to a file the user names; the saved path, or null when cancelled. Optional like
+     *  the other late additions: jsdom has no bridge, and the caller says so rather than throwing. */
+    saveText?(input: { name: string; text: string }): Promise<string | null>;
     /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
     pickIconImage(): Promise<PickedFile | null>;
     /** Local media drawn inline in the transcript. Optional in the type on purpose: every call site

@@ -571,6 +571,69 @@ describe("permission keyboard (U-H4)", () => {
   });
 });
 
+describe("the prompter's / commands", () => {
+  const box = () => screen.getByRole("textbox", { name: /message/i });
+  const type = (text: string) => fireEvent.change(box(), { target: { value: text, selectionStart: text.length, selectionEnd: text.length } });
+  const rows = () => [...document.querySelectorAll(".slash-row .mention-row-id")].map((n) => n.textContent);
+
+  it("opens on a slash at the start of the draft, and never mid-sentence", async () => {
+    // A slash is a path separator, a division sign and half of every URL. The picker firing inside
+    // `src/renderer` while someone described a file is the failure the position-0 rule prevents.
+    await mountFresh();
+    type("/");
+    expect(document.querySelector(".slash-picker")).not.toBeNull();
+    type("look in src/renderer");
+    expect(document.querySelector(".slash-picker")).toBeNull();
+  });
+
+  it("narrows as the command is typed", async () => {
+    await mountFresh();
+    type("/");
+    expect(rows()).toContain("/export");
+    expect(rows().length).toBeGreaterThan(1);
+    type("/exp");
+    expect(rows()).toEqual(["/export"]);
+  });
+
+  it("runs on Enter and takes its own token out of the draft", async () => {
+    // The command RUNS; nothing about it is transmitted. That is the whole difference between this
+    // picker and the @-mention beside it, so a send must not follow.
+    const { api } = await mountFresh();
+    const saveText = vi.fn().mockResolvedValue("/tmp/out.md");
+    vi.stubGlobal("window", Object.assign(window, { realm: { ...(window as never as { realm?: object }).realm, saveText } }));
+    try {
+      type("/export");
+      fireEvent.keyDown(box(), { key: "Enter" });
+      await waitFor(() => expect(saveText).toHaveBeenCalledTimes(1));
+      expect(saveText.mock.calls[0]![0].name).toMatch(/\.md$/);
+      expect(api.sent).toEqual([]);
+      expect(box()).toHaveValue("");
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("Escape puts the picker away and leaves the draft alone", async () => {
+    await mountFresh();
+    type("/exp");
+    // The popover hook arms its Escape listener on a deferred tick after IT mounts; settle that first.
+    await act(async () => { await new Promise((res) => setTimeout(res, 1)); });
+    fireEvent.keyDown(box(), { key: "Escape" });
+    expect(document.querySelector(".slash-picker")).toBeNull();
+    expect(box()).toHaveValue("/exp");
+    // A fresh slash reopens it — the dismissal is about the token, not about the session.
+    type("");
+    type("/exp");
+    expect(document.querySelector(".slash-picker")).not.toBeNull();
+  });
+
+  it("offers nothing it cannot do — /diff is absent while the session has no loaded checkout", async () => {
+    // A command that could only no-op is worse in a picker than on a toolbar: the user typed its
+    // name expecting it to work.
+    await mountFresh();
+    type("/");
+    expect(rows()).not.toContain("/diff");
+  });
+});
+
 describe("composer context row (git chips)", () => {
   const gi = (over: Partial<{ branch: string; additions: number; deletions: number; dirty: number }> = {}) =>
     ({ branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0, ...over });

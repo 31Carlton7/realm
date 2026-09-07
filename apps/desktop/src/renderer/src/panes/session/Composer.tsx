@@ -6,6 +6,8 @@ import { useFileDrop } from "../../components/use-file-drop";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
+import { SlashPicker } from "./SlashPicker";
+import { filterSlashCommands, slashQueryAt, type SlashCommand } from "./slash-commands";
 import { modelIdOn, modelRows } from "./model-rows";
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
@@ -30,6 +32,8 @@ const staggerPlayed = new Set<string>();
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
 const EMPTY_USAGE: Usage = { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 };
+/** Stable empty default, for the same reason. */
+const NO_COMMANDS: SlashCommand[] = [];
 
 /** Branch + diff chips (W3): still the one way IN to the diff pane. The cwd and environment chips
  *  that used to lead this group are retired outright (prompter rework): the folder and the checkout
@@ -263,7 +267,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -344,6 +348,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** This session's latest usage sample — the under-strip's context ring and its hover panel. The
    *  empty default is what a pane with no transcript yet passes, and it draws no ring. */
   usage?: Usage;
+  /** What a `/` at the start of the draft may complete to. These RUN here; nothing in the list is
+   *  ever transmitted, which is the whole difference between this and an `@`-mention. Empty (the
+   *  default) means typing `/` opens nothing at all. */
+  slashCommands?: SlashCommand[];
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
@@ -500,6 +508,37 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   };
   const mentionCur = Math.min(mentionActive, mentionMatches.length - 1);
 
+  // ── `/` commands ───────────────────────────────────────────────────────
+  // Same shape as the mention picker above, and deliberately so: to the person typing, `@` and `/`
+  // are one gesture with two sigils. What differs is what a pick DOES — a mention becomes part of
+  // the message, a command runs and the draft is cleared of it.
+  const [slashActive, setSlashActive] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const slashToken = useMemo(
+    () => (slashCommands.length > 0 ? slashQueryAt(draft, Math.min(caret, draft.length)) : null),
+    [slashCommands.length, draft, caret],
+  );
+  const slashMatches = useMemo(
+    () => (slashToken ? filterSlashCommands(slashCommands, slashToken.query) : []),
+    [slashCommands, slashToken],
+  );
+  const slashOpen = slashToken !== null && slashMatches.length > 0 && !slashDismissed;
+  // Leaving the token clears the dismissal, so a fresh `/` reopens. There is only ever one slash
+  // token (it must open the draft), so unlike the mention's this is a plain boolean.
+  useEffect(() => { if (slashToken === null && slashDismissed) setSlashDismissed(false); }, [slashToken, slashDismissed]);
+  const slashCur = Math.min(slashActive, slashMatches.length - 1);
+  /** Run a command and take its token out of the draft. The token is removed BEFORE the command
+   *  runs, so one that opens a dialog does not leave `/export` sitting in the box behind it — and
+   *  anything else the user had typed after the token survives, because only the token is cut. */
+  const pickSlash = (c: SlashCommand) => {
+    if (!slashToken) return;
+    const rest = draft.slice(slashToken.end).replace(/^\s+/, "");
+    onDraftChange(rest);
+    pendingSel.current = { start: 0, end: 0 };
+    setSlashActive(0);
+    c.run();
+  };
+
   /** The "+" menu's Skills item: prime the @-mention picker — insert `@` at the caret (led by a space
    *  when it would otherwise glue onto a word, a shape mentionQueryAt refuses as an email) and put the
    *  caret after it; the existing picker takes over. Deliberately not a second picker. */
@@ -591,6 +630,14 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
       const el = e.currentTarget;
       applyEdit(toggleList(draft, el.selectionStart, el.selectionEnd, e.code === "Digit7"));
       return;
+    }
+    // Ahead of the mention branch, and they can never both be open: a mention token needs an `@`
+    // preceded by whitespace or nothing, and a slash token has to BE the start of the draft.
+    if (slashOpen) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setSlashActive(Math.min(slashMatches.length - 1, slashCur + 1)); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setSlashActive(Math.max(0, slashCur - 1)); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickSlash(slashMatches[slashCur]!); return; }
+      // Escape reaches us through the popover hook's own window listener → onClose → dismissal.
     }
     if (mentionOpen) {
       if (e.key === "ArrowDown") { e.preventDefault(); setMentionActive(Math.min(mentionMatches.length - 1, mentionCur + 1)); return; }
@@ -766,14 +813,19 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             </div>
           )}
           <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : `Ask ${AGENT_META[kind].label} anything…`} rows={1}
-            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); setHotChip(null); }}
+            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={() => setHotChip(null)}
             onKeyDown={onKeyDown} onPaste={onPaste} onScroll={syncScroll}
             aria-describedby={hint ? hintId : undefined}
-            aria-controls={mentionOpen ? "mention-list" : undefined}
-            aria-activedescendant={mentionOpen ? `mention-${mentionMatches[mentionCur]!.id}` : undefined} />
+            aria-controls={slashOpen ? "slash-list" : mentionOpen ? "mention-list" : undefined}
+            aria-activedescendant={slashOpen ? `slash-${slashMatches[slashCur]!.id}`
+              : mentionOpen ? `mention-${mentionMatches[mentionCur]!.id}` : undefined} />
         </div>
+        {slashOpen && (
+          <SlashPicker commands={slashMatches} activeIndex={slashCur} anchorRef={ta}
+            onPick={pickSlash} onHover={setSlashActive} onClose={() => setSlashDismissed(true)} />
+        )}
         {mentionOpen && (
           <MentionPicker skills={mentionMatches} activeIndex={mentionCur} anchorRef={ta}
             onPick={pickMention} onHover={setMentionActive}

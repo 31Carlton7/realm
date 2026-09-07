@@ -4,7 +4,7 @@ import {
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
-  AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
+  AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   type AgentKind, type Attachment, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
@@ -18,6 +18,7 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
+import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
@@ -1074,6 +1075,10 @@ export type AppState = {
    *  A no-op while a turn is live, and a no-op when the user has not sent anything yet. */
   retryLastTurn(id: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
+  /** Write this session's transcript out as Markdown, to a file the USER names in a native dialog.
+   *  Resolves the saved path, or null when they cancelled — and null too where there is no bridge to
+   *  ask with (jsdom, and a renderer that loaded before the preload). */
+  exportSession(id: string): Promise<string | null>;
   /** Rate one assistant message, or with null take an earlier rating back. Optimistic: the verdict
    *  is on screen before the round trip, because a thumb that waits on the disk reads as a dead
    *  button. The broadcast that follows lands on the same reducer and settles to the same state. */
@@ -2815,6 +2820,31 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.sendMessage(id, msg.text, msg.attachments ?? [], mentions);
       },
       async interruptSession(id) { await api.interruptSession(id); },
+      /**
+       * Export the transcript the pane is showing.
+       *
+       * Off the STORE's transcript, not a fresh fetch: what the reader asked to export is what they
+       * were reading, and a re-read could differ from it by whatever arrived in the meantime. The
+       * store's copy is complete — `openSession` loads the whole event log — so this is not a
+       * shortcut past a page boundary.
+       *
+       * The bridge is optional and the absence is answered with null rather than an error: there is
+       * no renderer-side fallback worth building (a download would land in a folder the user did not
+       * choose), and a command that quietly did nothing is better than one that throws into the
+       * pane's error toast for a reason the user cannot act on.
+       */
+      async exportSession(id) {
+        const t = get().transcripts[id]?.t;
+        const session = get().sessions[id];
+        if (!t || !session) return null;
+        const title = get().items.find((i) => i.kind === "session" && i.refId === id)?.title ?? session.title;
+        const now = Date.now();
+        const text = exportSessionMarkdown({
+          title, transcript: t, agentLabel: AGENT_META[session.agentKind].label,
+          model: session.model, cwd: session.cwd, now,
+        });
+        return (await window.realm?.saveText?.({ name: exportFileName(title, now), text })) ?? null;
+      },
       async rateMessage(sessionId, messageId, rating) {
         const entry = get().transcripts[sessionId];
         if (entry) {

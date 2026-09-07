@@ -1,8 +1,9 @@
 import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, DEFAULT_MIME, isImageMime, mimeForPath, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { startServer } from "./server-process";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
@@ -322,6 +323,25 @@ ipcMain.handle("credentials:set-presence-ttl", (_e, ms: number): number => secre
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0] ?? null;
+});
+
+/**
+ * Write text the renderer composed to a file the user names — the export path, and the only one.
+ *
+ * The renderer chooses NOTHING about where it lands: it hands over a suggested filename and the
+ * bytes, and the destination is whatever the user picks in the native dialog. A renderer-supplied
+ * path would be a write-anywhere primitive reachable from a page, which is not a thing this bridge
+ * should own; a dialog the user answered is consent that could not have been forged.
+ *
+ * The suggestion is reduced to a bare filename here rather than trusted: a `defaultPath` carrying
+ * `../` would open the dialog somewhere the caller chose, and the dialog is the whole safeguard.
+ */
+ipcMain.handle("save-text", async (_e, input: { name: string; text: string }): Promise<string | null> => {
+  const name = basename(String(input?.name ?? "")) || "export.md";
+  const r = await dialog.showSaveDialog({ defaultPath: join(app.getPath("downloads"), name) });
+  if (r.canceled || !r.filePath) return null;
+  await writeFile(r.filePath, String(input?.text ?? ""), "utf8");
+  return r.filePath;
 });
 
 /** The prompter's attach button. Multi-select, and it answers with mime and size alongside the path:
