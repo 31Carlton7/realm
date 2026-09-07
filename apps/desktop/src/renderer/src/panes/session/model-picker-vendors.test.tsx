@@ -69,7 +69,7 @@ describe("provider is the model's vendor, not the harness that runs it", () => {
 describe("a chip says the family, not the company", () => {
   it("maps the catalog's maker to the name the rows already use, with its mark", () => {
     expect(vendorMeta("Anthropic")).toEqual({ label: "Claude", icon: "claude" });
-    expect(vendorMeta("OpenAI")).toEqual({ label: "GPT", icon: "openai" });
+    expect(vendorMeta("OpenAI")).toEqual({ label: "Codex", icon: "openai" });
     expect(vendorMeta("Google")).toEqual({ label: "Gemini", icon: "gemini" });
     expect(vendorMeta("MoonshotAI")).toEqual({ label: "Kimi", icon: "kimi" });
     expect(vendorMeta("Z.ai")).toEqual({ label: "GLM", icon: "zai" });
@@ -88,14 +88,14 @@ describe("a chip says the family, not the company", () => {
 describe("the provider strip", () => {
   it("leads with the way back and offers every vendor the rows carry", () => {
     mount();
-    expect(stripChips()).toEqual(["All", "Claude", "GPT"]);
+    expect(stripChips()).toEqual(["All", "Claude", "Codex"]);
     expect(lit()).toBe("All");
   });
 
   it("every named chip wears its maker's mark; All wears none", () => {
     mount();
     expect(chip("Claude").querySelector("[data-brand='claude']")).not.toBeNull();
-    expect(chip("GPT").querySelector("[data-brand='openai']")).not.toBeNull();
+    expect(chip("Codex").querySelector("[data-brand='openai']")).not.toBeNull();
     expect(chip("All").querySelector("[data-brand]")).toBeNull();
   });
 
@@ -124,24 +124,24 @@ describe("the provider strip", () => {
     // these two lines goes — either GPT rows come back, or every Claude model does.
     expect(listed().join(" ")).toContain("Claude Opus 5");
     expect(listed().join(" ")).not.toContain("Claude Fable 5.1");
-    expect(listed().join(" ")).not.toContain("GPT");
+    expect(listed().join(" ")).not.toContain("Codex");
   });
 
   it("a provider the query has emptied is dimmed, still reachable, and says how to get back", () => {
     mount();
     fireEvent.change(search(), { target: { value: "gpt" } });
     expect(chip("Claude")).toHaveAttribute("data-empty");
-    expect(chip("GPT")).not.toHaveAttribute("data-empty");
+    expect(chip("Codex")).not.toHaveAttribute("data-empty");
     fireEvent.click(chip("Claude"));
     expect(screen.getByRole("listbox", { name: "Models" })).toHaveTextContent(/No Claude models match/);
     fireEvent.click(screen.getByRole("button", { name: "Show every provider" }));
     expect(lit()).toBe("All");
-    expect(listed().join(" ")).toContain("GPT");
+    expect(listed().join(" ")).toContain("Codex");
   });
 
   it("still picks a model after a provider has narrowed the list", () => {
     const { picked } = mount();
-    fireEvent.click(chip("GPT"));
+    fireEvent.click(chip("Codex"));
     fireEvent.click(within(screen.getByRole("listbox", { name: "Models" })).getByText("GPT-5.6-Sol"));
     expect(picked).toEqual([["codex", "gpt-5.6-sol"]]);
   });
@@ -164,11 +164,11 @@ describe("the strip's arrows and the search field's arrows are different keys", 
     fireEvent.keyDown(group, { key: "ArrowRight" });
     expect(lit()).toBe("Claude");
     fireEvent.keyDown(group, { key: "ArrowRight" });
-    expect(lit()).toBe("GPT");
+    expect(lit()).toBe("Codex");
     fireEvent.keyDown(group, { key: "ArrowRight" });
     expect(lit()).toBe("All");
     fireEvent.keyDown(group, { key: "ArrowLeft" });
-    expect(lit()).toBe("GPT");
+    expect(lit()).toBe("Codex");
   });
 
   it("the strip is one tab stop: only the chip in force is reachable by Tab", () => {

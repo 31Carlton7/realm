@@ -110,9 +110,8 @@ describe("SessionPane", () => {
     expect(screen.getByLabelText("running")).toBeInTheDocument(); // no result yet while the session is live
   });
 
-  it("empty transcript is the HERO prompter: greeting + title-only suggestion rows; clicking one fills the composer without sending", async () => {
-    const { api, store } = await mount("idle", reduceAll([]));
-    const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
+  it("empty transcript is the HERO prompter: a greeting and the card, and nothing else", async () => {
+    const { store } = await mount("idle", reduceAll([]));
     expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "hero");
     const title = document.querySelector(".hero-greeting");
     // One line out of greeting.ts's pool, picked from the session id — never "what should we build",
@@ -124,19 +123,12 @@ describe("SessionPane", () => {
     act(() => store.setState({ userName: "" }));
     expect(document.querySelector(".hero-greeting")).toHaveTextContent("What are we working on in Versed?");
     act(() => store.setState({ userName: "Carlton" }));
-    const chip = screen.getByRole("button", { name: /Say hello/ }); // default mount() session is agentKind "fake"
-    expect(chip.querySelector(".suggestion-title")).toHaveTextContent("Say hello");
-    // Ara refresh §3: rows are a leading glyph + one title line; the description line is retired
-    // from the UI (the data keeps it, nothing renders it).
-    expect(chip.querySelector(".suggestion-glyph")).not.toBeNull();
-    expect(chip.querySelector(".suggestion-desc")).toBeNull();
-    expect(chip).not.toHaveTextContent("A quick round trip through the fake agent");
-    fireEvent.click(chip);
-    const box = screen.getByRole("textbox", { name: /message/i });
-    expect((box as HTMLTextAreaElement).value).toBe("Hello!");
-    // Ara refresh §1: the placeholder names the session's agent, not "the agent".
-    expect(box).toHaveAttribute("placeholder", "Ask Fake agent anything…");
-    expect(sent).toEqual([]); // filled, not sent
+    // The starter chips are gone: four stock sentences under a box whose own placeholder already
+    // offers a session-specific one read as the app asking twice.
+    expect(document.querySelector(".suggestions")).toBeNull();
+    expect(document.querySelectorAll(".suggestion-chip")).toHaveLength(0);
+    // And the placeholder no longer names the engine — what you can ask does not depend on it.
+    expect(screen.getByRole("textbox", { name: /message/i })).toHaveAttribute("placeholder", "Ask anything");
     expect(screen.getByRole("button", { name: "Send" })).toHaveAttribute("data-state", "send"); // idle = send face up
   });
 
@@ -154,12 +146,6 @@ describe("SessionPane", () => {
     const col = document.querySelector(".transcript .transcript-col");
     expect(col).not.toBeNull();
     expect(col!.querySelector(".msg-user-row")).not.toBeNull(); // blocks render inside the rail column
-  });
-
-  it("suggestion chips are keyed by the session's agent kind, not shared across kinds", async () => {
-    await mountKind("codex");
-    expect(screen.getByRole("button", { name: /Build a feature/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Say hello/ })).toBeNull();
   });
 
   it("permission chip carries data-warning only in bypassPermissions (reached via the confirm); menu selections call setSessionOptions with the right key", async () => {
@@ -779,30 +765,6 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
   });
 });
 
-describe("suggestion stagger runs once per session (§6 'never re-animate on revisit')", () => {
-  /** Its own session id: the played-set is module-level and every other hero mount in this file
-   *  marks "se1", which would make a first-mount assertion here order-dependent. */
-  async function mountHero(id: string) {
-    const api = fakeApi({ sessions: [session(id, "s1", { status: "idle" })] });
-    const store = createAppStore(api); await store.getState().boot();
-    store.setState({ sessionStatus: { [id]: "idle" }, transcripts: { [id]: { lastSeq: 0, t: reduceAll([]) } } });
-    return render(<StoreContext.Provider value={store}><SessionPane item={item(`i-${id}`, "s1", { kind: "session", refId: id, title: "s" })} visible /></StoreContext.Provider>);
-  }
-
-  it("staggers on the first hero render and never again for that session, while a different session still gets its own", async () => {
-    const first = await mountHero("se-stagger-a");
-    expect(document.querySelector(".suggestions")).toHaveAttribute("data-animate");
-    first.unmount();
-    // Pane-slot keying remounts SessionPane on every tab-back; the chips must not replay.
-    const second = await mountHero("se-stagger-a");
-    expect(document.querySelector(".suggestions")).not.toHaveAttribute("data-animate");
-    second.unmount();
-    // ...but the guard is per session, not a global one-shot.
-    await mountHero("se-stagger-b");
-    expect(document.querySelector(".suggestions")).toHaveAttribute("data-animate");
-  });
-});
-
 describe("durable drafts (A-M9)", () => {
   it("a typed draft survives unmounting and remounting the pane, and is keyed to its own session", async () => {
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" }), session("se2", "s1", { status: "idle" })] });
@@ -824,14 +786,6 @@ describe("durable drafts (A-M9)", () => {
     expect((screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement).value).toBe("");
   });
 
-  it("a suggestion chip fills the store draft for that session", async () => {
-    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
-    const store = createAppStore(api); await store.getState().boot();
-    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
-    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
-    fireEvent.click(screen.getByRole("button", { name: /Say hello/ }));
-    expect(store.getState().drafts.se1).toBe("Hello!");
-  });
 });
 
 describe("SessionMeta", () => {

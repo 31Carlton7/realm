@@ -160,11 +160,11 @@ describe("§6 motion table", () => {
     expect(hover).not.toContain("transform");
   });
 
-  it("pressables scale to .97 over 120ms", () => {
+  it("pressables scale to .96 over 120ms", () => {
     const press = bodiesFor(".ghost-chip").join(" ");
     expect(press).toContain(`transform ${dur("--dur-press")} var(--ease-out-strong)`);
     for (const sel of [".btn:active:not(:disabled)", ".icon-btn:active:not(:disabled)", ".composer-send:active:not(:disabled)"])
-      expect(bodiesFor(sel).join(" "), sel).toContain("transform: scale(.97)");
+      expect(bodiesFor(sel).join(" "), sel).toContain("transform: scale(.96)");
   });
 
   it("the send↔stop icon swap cross-fades over 160ms with opacity, scale and blur", () => {
@@ -233,7 +233,7 @@ describe("§6 motion table", () => {
     const btn = bodiesFor(".msg-action").join(" ");
     expect(btn).toContain(`background-color ${dur("--dur-hover")} ease`);
     expect(btn).toContain(`transform ${dur("--dur-press")} var(--ease-out-strong)`);
-    expect(bodiesFor(".msg-action:active:not(:disabled)").join(" ")).toContain("transform: scale(.97)");
+    expect(bodiesFor(".msg-action:active:not(:disabled)").join(" ")).toContain("transform: scale(.96)");
     // A thumb's glyph is the same pressed or not, so the fill is the only thing saying which — one
     // rung past hover, the same reading .icon-btn's toggles get.
     expect(bodiesFor('.msg-action[aria-pressed="true"]').join(" ")).toContain("background: var(--hover-2)");
@@ -252,13 +252,6 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".composer-dock").join(" ")).toContain(`transition: transform ${dur("--dur-move")} var(--ease-in-out-strong)`);
   });
 
-  it("W2's suggestion-chip stagger keeps §6's 220ms / 40ms steps / 8px rise", () => {
-    const stagger = bodiesFor(".suggestions[data-animate] .suggestion-chip").join(" ");
-    expect(stagger).toContain(`rl-chip-in ${dur("--dur-rise")} var(--ease-out-strong)`);
-    // The step stays a literal: it is a delay BETWEEN siblings, not the duration of one of them.
-    expect(stagger).toContain("calc(var(--i) * 40ms)");
-    expect(blockAfter("@keyframes rl-chip-in")).toContain("translateY(8px)");
-  });
 
   it("the three in-flight states share one ping, and its ring survives prefers-reduced-motion", () => {
     // Only the ring moves; the core is untouched, so the row's dot column cannot jitter.
@@ -346,13 +339,6 @@ describe("Ara refresh §3/§4 geometry", () => {
     }
   });
 
-  it("suggestions are a single-column list, not a grid", () => {
-    const body = bodiesFor(".suggestions").join(" ");
-    expect(body).toContain("flex-direction: column");
-    expect(body).not.toContain("grid");
-    expect(bodiesFor(".suggestion-chip").join(" ")).toContain("background: transparent"); // transparent at rest, --rl-hover on hover
-    expect(bodiesFor(".suggestion-chip:hover").join(" ")).toContain("var(--rl-hover)");
-  });
 
   it("the send button is a 32px circle; the hero textarea starts at ~56px", () => {
     const send = bodiesFor(".composer-send").join(" ");
@@ -503,9 +489,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     ] as const) expect(root, token).toContain(`${token}: ${source}`);
   });
 
-  it("the radius scale is tembo's: tick 2, chip 6, control 8, card 12 (rows + panels), window 16", () => {
+  it("the radius scale is tembo's, one rung up at the control tier: tick 2, chip 8, control 10, card 12 (rows + panels), window 16", () => {
     const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
-    for (const decl of ["--r-sm: 2px", "--r-chip: 6px", "--r-ctl: 8px", "--r-row: 12px", "--r-panel: 12px", "--r-float: 16px"])
+    for (const decl of ["--r-sm: 2px", "--r-chip: 8px", "--r-ctl: 10px", "--r-row: 12px", "--r-panel: 12px", "--r-float: 16px"])
       expect(root, decl).toContain(decl);
     // No component may dodge the scale with a hardcoded control-ish radius (ticks/dots/pills excepted).
     expect(css).not.toMatch(/border-radius:\s*(?:4|6|8|10|12|14|16)px/);
@@ -766,6 +752,10 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // The clearance is the band PLUS room to breathe under it — the fade is still the one declared
     // number, and the extra is written in terms of it rather than as a second magic figure.
     expect(body).toContain("padding-bottom: calc(var(--fade-h) + 24px)");
+    // …and the same at the top, which needs it more: a row half-dissolved under the header is one
+    // you can see and cannot confidently click.
+    expect(body).toContain("padding-top: calc(var(--fade-top-h) + 4px)");
+
     expect(bodiesFor(".space-page").join(" ")).toContain("--fade-h: 44px");
     expect(body).not.toContain("--fade-h:");
     // The ramp is the scroller's own mask, reading the same --fade-h, and it runs to TRANSPARENT: the
@@ -775,8 +765,11 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // transparency and composites toward black (a dark smudge above the strip, verified on screen);
     // a colour wash to any fixed tone stripes the material. So no `.space-fade` rule may exist, and
     // no rule on the scroller may blur or wash.
-    expect(body).toContain("mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent)");
-    expect(body).toContain("-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent)");
+    // One gradient, two stops in and two out — the top edge dissolves the same way the bottom does,
+    // and both read their own declared height rather than a literal.
+    const RAMP = "linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent)";
+    expect(body).toContain(`mask-image: ${RAMP}`);
+    expect(body).toContain(`-webkit-mask-image: ${RAMP}`);
     expect(body).not.toContain("backdrop-filter");
     expect(body).not.toContain("background:");
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".space-fade")))).toEqual([]);

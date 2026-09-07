@@ -11,7 +11,6 @@ import { filterSlashCommands, slashQueryAt, type SlashCommand } from "./slash-co
 import { modelIdOn, modelRows } from "./model-rows";
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, formatEffort, type FastMode, type OverflowGroup } from "./ModelPicker";
-import { SUGGESTIONS } from "./suggestions";
 import { heroGreeting } from "./greeting";
 import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
@@ -23,11 +22,6 @@ import type { Todo } from "./rich/tool-view";
 // ~10 lines of 15px/1.55 plus the vertical padding (Ara refresh §1 raises the input to 15px; §4:
 // autogrows to 10 lines). Matches .composer-input's max-height in styles.css.
 const MAX_ROWS_PX = 254;
-
-/** Session ids whose suggestion chips already played their stagger-in. Module-level on purpose:
- *  §4 says "never re-animate on revisit", and pane-slot keying remounts this component on every
- *  tab-back — a mount-scoped flag would replay. Lives for the app run; a fresh launch replays once. */
-const staggerPlayed = new Set<string>();
 
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
@@ -267,7 +261,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, supportsFastMode }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, supportsFastMode }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -302,7 +296,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  picker's detail pane. `{}` is a supported state (never fetched, or offline). */
   modelInfo: Record<string, ModelInfo>;
   onToggleModelFavorite: (key: string) => void;
-  hero: boolean; spaceName: string; onSuggestion: (prompt: string) => void;
+  hero: boolean; spaceName: string;
   /** The person's first name, for the hero greeting. "" (the default) means the greeting keeps to
    *  the space — never a "Good evening, " with nothing after the comma. */
   userName?: string;
@@ -405,11 +399,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  get the string itself out of the one check. */
   const hint = promptHint && draft === "" ? promptHint : null;
   const hintId = `prompt-hint-${session.id}`;
-
-  // First-render-only stagger (§6): decided once at mount (so a mid-animation re-render — typing,
-  // status — never strips the attribute and snaps the chips), then marked as played for the app run.
-  const [stagger] = useState(() => hero && !staggerPlayed.has(session.id));
-  useEffect(() => { if (hero) staggerPlayed.add(session.id); }, [hero, session.id]);
 
   // The greeting is picked once per session (and re-picked only if the space is renamed or the name
   // arrives late from boot): the time of day is read at that moment, so an open hero never rewrites
@@ -824,7 +813,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               <span className="visually-hidden">Press Tab to fill in this suggested prompt.</span>
             </div>
           )}
-          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : `Ask ${AGENT_META[kind].label} anything…`} rows={1}
+          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : "Ask anything"} rows={1}
             value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={() => setHotChip(null)}
@@ -941,17 +930,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           <SessionUsage usage={usage} contextWindow={contextWindow} />
         </div>
       </div>
-      {hero && (
-        <div className="suggestions" data-animate={stagger || undefined}>
-          {SUGGESTIONS[kind].map((s, i) => (
-            <button key={s.title} type="button" className="suggestion-chip" style={{ "--i": i } as React.CSSProperties}
-              onClick={() => onSuggestion(s.prompt)}>
-              <Icon name="idea" size={16} className="suggestion-glyph" />
-              <span className="suggestion-title">{s.title}</span>
-            </button>
-          ))}
-        </div>
-      )}
+
     </div>
   );
 }

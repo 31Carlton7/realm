@@ -90,8 +90,12 @@
   --rl-shadow: 0 8px 28px oklch(0 0 0 / 0.34);   /* BUI dark --shadow-overlay, shadow half */
   /* radii: tembo's ladder — tick 2, chip 6, control 8, card 12, window 16 */
   --r-sm: 2px;                                   /* --radius-sm: ticks, rails, code marks */
-  --r-chip: 6px;                                 /* --radius-chip */
-  --r-ctl: 8px;                                  /* --radius-control */
+  /* Raised a rung each. A superellipse reads visually SMALLER than the arc it replaces at the same
+     radius, so a control keeping its old number would have looked squarer after the change, not
+     rounder — the ladder had to move with the corner shape. Everything below is concentric off
+     these two, so nothing had to be re-tuned per rule. */
+  --r-chip: 8px;                                 /* --radius-chip */
+  --r-ctl: 10px;                                 /* --radius-control */
   --r-row: 12px;                                 /* --radius-card (rows keep card rounding) */
   --r-panel: 12px;                               /* --radius-card: menus, pickers, permission card */
   --r-float: 16px;                               /* --radius-window: composer, sheets, palette */
@@ -106,8 +110,12 @@
      stated above: a superellipse reads visually smaller than a circular corner at the same radius,
      and the ratio that makes a 720px composer right makes a 60px bubble a lozenge. 20 is what reads
      like the 16px arc this replaces on a bubble two lines tall. */
-  --r-squircle-msg: 20px;
+  --r-squircle-msg: 26px;
   --sidebar-w: 280px; --prompter-w: 720px;
+  /* The band that dissolves the transcript under the pane bar. Shorter than --fade-h's 68: the
+     bottom band has a whole card to hide behind, this one only has to soften a line of text passing
+     an edge, and a tall one would blur the newest message the reader is scrolling toward. */
+  --fade-top-h: 40px;
   /* §6 easings — identical curves to BUI's @theme; --ease stays as the legacy alias. */
   --ease-out-strong: cubic-bezier(.23,1,.32,1);
   --ease-in-out-strong: cubic-bezier(.77,0,.175,1);
@@ -233,12 +241,17 @@ kbd { font: 11px var(--font-mono); }
    scroller's box, so it holds still while the content scrolls beneath it, and it needs no sibling
    element and no reduced-transparency fallback. */
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px;
-  /* The fade band plus room to breathe under it. At exactly --fade-h the last row stopped where the
-     mask started dissolving, so a fully scrolled list ended on a half-faded item and the strip below
-     looked like it was crowding the list rather than sitting under it. */
+  /* Clearance at BOTH ends: the band plus room to breathe. At exactly the band's height the last row
+     stopped where the mask started dissolving, so a fully scrolled list ended on a half-faded item.
+     The top needs the same, and needs it more — a row half-dissolved under the header is one you can
+     see and cannot confidently click, which is the whole reason this padding is generous. */
+  padding-top: calc(var(--fade-top-h) + 4px);
   padding-bottom: calc(var(--fade-h) + 24px);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent);
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent); }
+  /* Masked at both edges, and still a mask rather than a blur: this column is translucent, and a
+     backdrop-filter over it blurs the window's own transparency toward black — a dark smudge with
+     nothing behind it. A mask paints nothing at all. */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent); }
 
 .space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0 8px; }
 .space-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: var(--fw-title); min-width: 0; letter-spacing: -0.01em; }
@@ -1053,7 +1066,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    40px put the last paragraph inside the fade band and a few pixels off the prompter's top edge —
    the message the reader is most likely to still be reading was the one hardest to read. 72px clears
    the band (--fade-h, 68px) outright, so the final line lands on plain canvas. */
-.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 72px; }
+.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 44px 16px 72px; }
 /* The bottom padding above is the fade band's clearance: scrolled to the end, the last line
    rests in the band's untouched top third rather than under its blur. */
 /* Shared rails (§4): content rides the prompter's 680px column; the scrollbar stays at the pane edge
@@ -1083,13 +1096,27 @@ button.panel-title:hover { background: var(--rl-hover); }
   background: linear-gradient(to bottom, transparent 0, var(--rl-panel) 88%);
   mask-image: linear-gradient(to bottom, transparent 30%, #000 78%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 30%, #000 78%); }
+/* The same band at the TOP, mirrored. The pane bar lost its hairline, so a message scrolling up to
+   the bar's edge used to arrive there with a hard cut; this dissolves it the way the bottom band
+   dissolves the run into the prompter. Shorter than the bottom one — that band has a whole card to
+   hide behind, this one only has to soften a line of text passing an edge. */
+.transcript-fade-top { position: absolute; inset: 0 10px auto 0; height: var(--fade-top-h); pointer-events: none; z-index: 1; }
+.transcript-fade-top::before, .transcript-fade-top::after { content: ""; position: absolute; inset: 0; }
+.transcript-fade-top::before { backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  mask-image: linear-gradient(to top, transparent 0, #000 60%);
+  -webkit-mask-image: linear-gradient(to top, transparent 0, #000 60%); }
+.transcript-fade-top::after { backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px);
+  background: linear-gradient(to top, transparent 0, var(--rl-panel) 88%);
+  mask-image: linear-gradient(to top, transparent 30%, #000 78%);
+  -webkit-mask-image: linear-gradient(to top, transparent 30%, #000 78%); }
 /* Hero: the transcript is empty by definition, so the band has nothing to dissolve — two live
    backdrop-filter layers repainting behind the card for no visible result. */
-.session-pane[data-composer="hero"] .transcript-fade { display: none; }
+.session-pane[data-composer="hero"] .transcript-fade,
+.session-pane[data-composer="hero"] .transcript-fade-top { display: none; }
 /* Asked for less translucency: keep the fade (it is what stops the hard cut), drop the blur. */
 @media (prefers-reduced-transparency: reduce) {
-  .transcript-fade::before, .diff-fade::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .transcript-fade::after, .diff-fade::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .transcript-fade::before, .diff-fade::before, .transcript-fade-top::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .transcript-fade::after, .diff-fade::after, .transcript-fade-top::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
   /* The drop highlight, same treatment: the ring and its wash are what say "this pane takes the
      file", and neither needs the blur to say it. */
   .session-drop::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -1603,7 +1630,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .question-continue kbd { opacity: .7; }
 
 /* ── The prompter (§4): one floating card, two states, one element moving ─ */
-/* The dock carries geometry + position for BOTH states; greeting/suggestions/thinking hang off it
+/* The dock carries geometry + position for BOTH states; the greeting hangs off it
    absolutely so the hero→docked move is a single transform transition (§6: 320ms, interruptible). */
 /* z-index: the hero transform below makes the dock a stacking context, which traps .composer's own
    z-index inside it and drops the whole dock to layer 0 — under .transcript-fade (layer 1), whose
@@ -1632,22 +1659,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* Suggested prompts (Ara refresh §3): a single-column LIST at full prompter width under the card —
    transparent rows, hover fill, one 14px title line behind a faint leading glyph. */
-.suggestions { position: absolute; top: calc(100% + 12px); left: 0; right: 0;
-  display: flex; flex-direction: column; gap: 8px; }
-/* Below ~420px of pane the hero clamp has already pinned the card near the top and the grid would
-   run past the pane's bottom edge, clipped mid-chip by .panel's overflow. Chips are the optional
-   part of the hero — drop them cleanly and let the greeting and card keep the room. */
-@container (max-height: 420px) { .suggestions { display: none; } }
-.suggestion-chip { display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px; border-radius: var(--r-ctl);
-  background: transparent; min-width: 0; }
-.suggestion-chip:hover { background: var(--rl-hover); }
-.suggestion-glyph { color: var(--rl-text-faint); flex: none; }
-.suggestion-title { font-size: 14px; color: var(--rl-text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.suggestion-chip:hover .suggestion-title { color: var(--rl-text-bright); }
+/* The hero's suggestion chips are gone. They were four stock sentences under a box whose own
+   placeholder already offers a session-specific one, and the pair read as the app asking twice. */
 /* Stagger-in (§6): 220ms ease-out, 8px rise, 40ms steps — first render of a session's hero only
    (the data-animate guard is set from a module-level seen-set, so tab-backs never replay). */
-.suggestions[data-animate] .suggestion-chip { animation: rl-chip-in var(--dur-rise) var(--ease-out-strong) backwards; animation-delay: calc(var(--i) * 40ms); }
-@keyframes rl-chip-in { from { opacity: 0; transform: translateY(8px); } }
 
 /* The card (Plan 9 W3 — BUI PromptBar): a surface field on shadow-card (the hairline ring is part
    of the stack), --r-float, borderless. Focus is BUI's border-brighten — the ring steps to
@@ -1916,7 +1931,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    control row (11px on faint vs 12px on dim), on a frame fill sliding out from beneath the card
    (z-index 1 on .composer keeps the card on top). Drawn unconditionally — where a session runs is
    standing context, not a streaming state. In normal flow inside .composer-dock, so the hero→docked
-   transform carries it and the absolutely-hung suggestions land below it. ── */
+   transform carries it untouched. ── */
 /* Same rung and same ring as the card above it, so the two read as one object rather than a tab
    stuck under a card. The top 10px of the strip sit behind the card (the negative margin), so the
    padding that SHOWS is top minus that overlap: 16 − 10 above the chips, 6 below. Symmetric on
@@ -2266,18 +2281,31 @@ button.panel-title:hover { background: var(--rl-hover); }
    never `all`, never geometry. */
 .item-row, .item-close, .item-shelf, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
 .delegation-row, .delegation-item,
-.strip-space, .strip-profile, .space-card, .suggestion-chip, .palette-opt, .permission-option, .menu [role^="menuitem"],
+.strip-space, .strip-profile, .space-card, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 /* Press (§6): 120ms to scale .97 on every pressable — buttons, chips, send, permission options.
    Full-width rows (.tool-row, .item-row) are left out: a wide surface shrinking reads as a glitch. */
-.btn, .icon-btn, .ghost-chip, .suggestion-chip, .composer-send, .permission-option, .tool-copy, .msg-action {
+.btn, .icon-btn, .ghost-chip, .composer-send, .permission-option, .tool-copy, .msg-action {
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, transform var(--dur-press) var(--ease-out-strong);
 }
 .btn:active:not(:disabled), .icon-btn:active:not(:disabled), .ghost-chip:active:not(:disabled),
-.suggestion-chip:active:not(:disabled), .composer-send:active:not(:disabled),
-.permission-option:active:not(:disabled), .tool-copy:active:not(:disabled), .msg-action:active:not(:disabled) { transform: scale(.97); }
+.composer-send:active:not(:disabled),
+.permission-option:active:not(:disabled), .tool-copy:active:not(:disabled), .msg-action:active:not(:disabled) { transform: scale(.96); }
+
+/* The continuous corner, on every control that has one.
+   Declarative only: `corner-shape` lands in Chromium 139 and Electron 37.10.3 ships 138, so today
+   this changes nothing and on the next Electron bump every one of these picks up the prompter's
+   curve at once. The paint worklet is deliberately NOT extended here — it is per-element, and these
+   are hundreds of elements per window against the handful of singleton surfaces it draws now. The
+   radii above are what make the difference visible in the meantime. */
+.btn, .icon-btn, .ghost-chip, .composer-chip, .msg-action, .tool-copy,
+.item-row, .new-row, .dest-row, .seg-opt, .mp-seg-opt, .mp-vendor, .mp-use,
+.permission-option, .question-option, .question-skip, .palette-opt, .menu [role^="menuitem"],
+.summary-row, .sched-row, .suggestion-title, .switch, .field input, .field select, .field textarea {
+  corner-shape: squircle;
+}
 .drop-zone { transition: opacity var(--dur-drag) linear; }
 
 /* §6 "do NOT animate: theme/mode switching". useTheme sets this for a beat around a palette rewrite;

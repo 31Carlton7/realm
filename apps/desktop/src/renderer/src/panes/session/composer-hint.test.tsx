@@ -5,7 +5,6 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
-import { SUGGESTIONS } from "./suggestions";
 
 /**
  * The suggested prompt, wired up. `prompt-hint.test.ts` proves WHICH sentence a session gets; this
@@ -106,20 +105,17 @@ describe("the prompter's suggested prompt", () => {
     it("keeps the plain placeholder, and ⇥ promises nothing", async () => {
       await mount(null); // not a git checkout
       expect(hint()).toBeNull();
-      expect(box().placeholder).toBe("Ask Fake agent anything…");
+      expect(box().placeholder).toBe("Ask anything");
       tab();
       await act(async () => { await new Promise((res) => setTimeout(res, 1)); });
       expect(box().value).toBe("");
     });
 
-    it("leaves the hero's chips exactly as they were — the hint never competes with them", async () => {
-      // The fake agent has ONE starter. A hint drawn from the same list would have to either
-      // duplicate that chip or empty the hero; it does neither, because it never draws from it.
+    it("is the only offer the hero makes — the starter chips under it are gone", async () => {
+      // Two lists of suggested sentences in one view was the app asking twice; the hint is the one
+      // that is about THIS session, so it is the one that stayed.
       await mount(null);
-      const chips = Array.from(document.querySelectorAll(".suggestion-chip"));
-      expect(chips).toHaveLength(SUGGESTIONS.fake.length);
-      fireEvent.click(chips[0]!);
-      expect(box().value).toBe(SUGGESTIONS.fake[0]!.prompt);
+      expect(document.querySelectorAll(".suggestion-chip")).toHaveLength(0);
     });
   });
 });

@@ -27,7 +27,11 @@ export type Block =
    *  an Allow button for twenty minutes did not work for twenty minutes. `startedAt` rides along as
    *  the label's seed, so the settled line says "Cooked for 2m" under the "Cooking…" the reader was
    *  just watching (see run-label.ts). */
-  | { kind: "run"; ms: number; startedAt: number; ts: number };
+  | { kind: "run"; ms: number; startedAt: number; ts: number;
+      /** The user pressed stop. The line says so instead of reporting the work as finished — and it
+       *  is the only thing the transcript keeps about a cancelled turn, because the harness's own
+       *  diagnostic for one is a fact about an API call, not about anything the reader did. */
+      stopped?: boolean };
 
 export type Rating = "up" | "down";
 export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string };
@@ -168,7 +172,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
         default: {
           if (!run) return t;
           const waited = run.waitedMs + (run.waitingSince === null ? 0 : e.ts - run.waitingSince);
-          blocks.push({ kind: "run", ms: Math.max(0, e.ts - run.startedAt - waited), startedAt: run.startedAt, ts: e.ts });
+          blocks.push({ kind: "run", ms: Math.max(0, e.ts - run.startedAt - waited), startedAt: run.startedAt, ts: e.ts,
+            ...(e.payload.interrupted ? { stopped: true } : {}) });
           return { ...t, blocks, run: null };
         }
       }

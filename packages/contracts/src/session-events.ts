@@ -20,7 +20,12 @@ const P = {
   /** `answers` present only for question-shaped tools (AskUserQuestion): question text -> chosen label.
    *  Persisted so a replayed transcript records what was actually answered, not just that it was allowed. */
   permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }),
-  status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]) }),
+  status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]),
+    /** The turn ended because the USER pressed stop, not because the agent finished or failed.
+     *  Present only on the settle that an interrupt produced. It is what lets the transcript say
+     *  "Stopped" instead of banking the harness's own diagnostic as an error the user has to read —
+     *  a cancelled turn is not a fault, and reporting it as one is the loudest lie in the log. */
+    interrupted: z.boolean().optional() }),
   error: z.object({ message: z.string() }),
   /**
    * `contextTokens` is the size of the prompt the agent last SENT — everything the model read on that

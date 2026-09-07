@@ -401,7 +401,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onAddFolder={() => run(() => pickAndLinkProject())}
             onManageConnections={() => run(() => openSpacePage(session.spaceId, "connections"))}
             submitKey={submitKey}
-            hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)}
+            hero={hero} spaceName={space?.name ?? "this space"}
             promptHint={hint} usage={transcript.usage} slashCommands={slashCommands}
             supportsFastMode={transcript.init?.supportsFastMode} />}
       {/* Last child and BELOW the prompter's dock, so the glow passes under the card exactly as the

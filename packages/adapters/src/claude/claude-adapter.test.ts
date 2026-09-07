@@ -349,6 +349,41 @@ describe("ClaudeAdapter", () => {
     });
   });
 
+  it("a turn the user stopped settles as STOPPED, not as an error", async () => {
+    /* The SDK reports a cancelled turn as an error result carrying its own diagnostic
+       (`[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null`). That is true of
+       the API call and useless to the person who pressed the button — they know why it stopped. The
+       named mutant: dropping the `interrupted` latch, which puts a red error block in the transcript
+       every single time anyone stops a turn. */
+    const a = new ClaudeAdapter({ query: fakeQuery({ errorResult: true, hang: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const seen: SessionEvent[] = [];
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle", (e) => seen.push(e));
+    await h.send({ text: "hi", attachments: [] });
+    await h.interrupt();
+    await c;
+    expect(types(seen)).not.toContain("error");
+    const settle = seen.find((e) => e.type === "status" && e.payload.status === "idle");
+    expect(settle?.type === "status" && settle.payload.interrupted).toBe(true);
+    // The usage still lands: the tokens were spent, and a cancelled turn is not a free one.
+    expect(types(seen)).toContain("usage");
+    await h.dispose();
+  });
+
+  it("a turn that genuinely failed still reports its error", async () => {
+    // The latch is armed by `interrupt` alone. Without that half, "quiet on cancel" would become
+    // "quiet on failure", which is the worse bug of the two.
+    const a = new ClaudeAdapter({ query: fakeQuery({ errorResult: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const seen: SessionEvent[] = [];
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle", (e) => seen.push(e));
+    await h.send({ text: "hi", attachments: [] });
+    await c; await h.dispose();
+    expect(types(seen)).toContain("error");
+    const settle = seen.find((e) => e.type === "status" && e.payload.status === "idle");
+    expect(settle?.type === "status" && settle.payload.interrupted).toBeUndefined();
+  });
+
   it("send after dispose emits a single error and nothing else", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ hang: true }) as never });
     const h = a.start({ cwd: "/tmp", mcpServers: [] });

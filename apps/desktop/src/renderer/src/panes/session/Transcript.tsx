@@ -170,6 +170,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   // only messages came from a peer has nothing of the user's to re-send.
   const retryKey = onRetry && lastUserMessage(transcript) ? lastAssistantKey : null;
   const busy = sessionStatus === "running" || sessionStatus === "waiting_permission";
+  /* The bar waits for the whole TURN to settle, not just for this message to stop streaming.
+     An agent that finishes a sentence and then runs six more tools has a complete message and an
+     unfinished answer, and a Retry offered there would re-ask a question that is still being
+     answered — while Copy would take half of what is coming. `busy` is exactly that distinction. */
+  const settled = !busy;
   // Per message, not per transcript: a turn's fetches belong to the answer they were made for, and
   // one list at the bottom would credit the newest message with everything ever read.
   const sourcesByKey = useMemo(() => {
@@ -248,7 +253,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                 {b.text && <UserText text={b.text} mentionIds={mentionIds} />}
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
-              actions={key === lastAssistantKey}
+              actions={settled && key === lastAssistantKey}
               onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}
@@ -260,7 +265,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             // The shimmer the reader was watching, settled: same verb, past tense, with the wait it
             // cost them. It stays in the scrollback rather than vanishing with the spinner — "how
             // long did that take" is a question asked after the fact, not during.
-            case "run": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>{runLabelFor(b.startedAt).past} for {formatDuration(b.ms)}</div>;
+            // A turn the user stopped says so, on the same quiet line and in the same place. It does
+            // not get the run's playful past tense: "Simmered for 4s" reads as a job that finished.
+            case "run": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
+              {b.stopped ? `Stopped after ${formatDuration(b.ms)}` : `${runLabelFor(b.startedAt).past} for ${formatDuration(b.ms)}`}
+            </div>;
           }
         })}
         {permissions.map((p, i) => {
@@ -283,8 +292,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0).present}…</span></div>}
         </div>
       </div>
-      {/* The transcript dissolves into the prompter instead of being clipped by it — a sibling of the
-          scroller (not a child) so its backdrop-filter still sees the text scrolling underneath. */}
+      {/* The transcript dissolves at BOTH edges instead of being clipped at either — siblings of the
+          scroller (not children) so their backdrop-filter still sees the text scrolling underneath.
+          The top band matters now that the pane bar rules no line: without it a message scrolling up
+          to the bar arrives at a hard cut. */}
+      <div className="transcript-fade-top" aria-hidden="true" />
       <div className="transcript-fade" aria-hidden="true" />
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={12} /> New messages</button>}
     </div>

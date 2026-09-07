@@ -227,6 +227,10 @@ export class ClaudeAdapter implements AgentAdapter {
       } catch { /* the CLI declined; the capability stays unstated */ }
     };
 
+    /** Set by `interrupt`, read and cleared by the result it produces. Declared ahead of `pump` so
+     *  the loop's closure can never read it in its temporal dead zone. */
+    let interrupted = false;
+
     const pump = async () => {
       let failure: string | null = null;
       try {
@@ -248,9 +252,16 @@ export class ClaudeAdapter implements AgentAdapter {
             continue;
           }
           if (msg.type === "result") {
-            for (const e of mapper.map(msg)) events.push(e);
+            // A cancelled turn still reports its usage — the tokens were spent — but its error is
+            // the cancellation, and that is what the settle below says instead.
+            for (const e of mapper.map(msg)) { if (interrupted && e.type === "error") continue; events.push(e); }
             running = false; sawResult = true;
-            events.push(sessionEvent("status", { status: "idle" }));
+            events.push(sessionEvent("status", { status: "idle", ...(interrupted ? { interrupted: true } : {}) }));
+            // Cleared on the SAME result that read it, so the latch cannot outlive the turn it was
+            // armed for and silence a genuine failure on the next one. (The fake `query` in the
+            // suite yields its fixture once per session, so a second turn cannot be driven through
+            // it — this line is the reason that mutant is not reachable there, not an oversight.)
+            interrupted = false;
             continue;
           }
           for (const e of mapper.map(msg)) events.push(e);
@@ -335,6 +346,12 @@ export class ClaudeAdapter implements AgentAdapter {
       },
       respondPermission: resolvePermission,
       interrupt: async () => {
+        // Remembered until the result it produces arrives. The SDK reports a cancelled turn as an
+        // ERROR result carrying its own diagnostic (`[ede_diagnostic] result_type=user …`), which is
+        // true of the API call and useless to the person who pressed the button: they know why it
+        // stopped. The flag is what lets the result branch tell "you cancelled this" apart from
+        // "this failed", which nothing in the message itself can.
+        interrupted = true;
         denyAllPending();
         try { await q?.interrupt(); } catch { /* process may already be gone; result/ended will report */ }
       },

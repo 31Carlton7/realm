@@ -99,6 +99,7 @@ describe("the assistant message's action bar", () => {
   });
 
   it("goes away while the next answer is still streaming — the bar never sits under stale prose", () => {
+    // (Also covered by the settled-turn rule below; this pins the message-level half of it.)
     // A finished message followed by a live one: the finished message is no longer the newest, and
     // the streaming one has no bar yet, so the transcript shows none. The mutant: falling back to
     // "the last COMPLETE message", which would leave a Retry button under the previous turn while
@@ -114,10 +115,16 @@ describe("the assistant message's action bar", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
-  it("greys Retry while a turn is live rather than taking it away", () => {
+  it("waits for the TURN to settle, not just for the message to stop streaming", () => {
+    // An agent that finishes a sentence and then runs six more tools has a complete message and an
+    // unfinished answer. Retry there would re-ask a question still being answered, and Copy would
+    // take half of what is coming — so the whole bar waits on the session's status.
     const view = render(<Transcript sessionStatus="running" onDecide={() => {}} onRetry={() => {}}
       transcript={model([user("one"), assistant("done", false)])} />);
-    expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled();
+    expect(document.querySelector(".msg-actions")).toBeNull();
+    view.rerender(<Transcript sessionStatus="waiting_permission" onDecide={() => {}} onRetry={() => {}}
+      transcript={model([user("one"), assistant("done", false)])} />);
+    expect(document.querySelector(".msg-actions")).toBeNull();
     view.rerender(<Transcript sessionStatus="idle" onDecide={() => {}} onRetry={() => {}}
       transcript={model([user("one"), assistant("done", false)])} />);
     expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();

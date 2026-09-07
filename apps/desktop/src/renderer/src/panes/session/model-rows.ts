@@ -253,7 +253,11 @@ export function modelVendor(row: ModelRow, info: Record<string, ModelInfo>): str
  * place to guess at a trademark.
  */
 const VENDOR_META: Record<string, { label: string; icon: IconName }> = {
-  openai: { label: "GPT", icon: "openai" },
+  // "Codex", not "GPT": the chip names the family as REALM reaches it, and every OpenAI model in
+  // this list is one the Codex CLI runs. The list's own group separator a few pixels below says
+  // "CODEX" too, and a strip that disagreed with the headings under it would be teaching two names
+  // for one thing.
+  openai: { label: "Codex", icon: "openai" },
   anthropic: { label: "Claude", icon: "claude" },
   google: { label: "Gemini", icon: "gemini" },
   xai: { label: "Grok", icon: "grok" },
