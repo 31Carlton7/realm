@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 import { reduceAll } from "./transcript-model";
@@ -22,7 +22,7 @@ async function mount(events: Event[]) {
       <SessionSummaryButton item={item("i9", "s1", { kind: "session", refId: "se1", title: "A session" })} />
     </StoreContext.Provider>,
   );
-  return { store, ...view };
+  return { api, store, ...view };
 }
 
 const openPanel = () => fireEvent.click(screen.getByRole("button", { name: "Summary of A session" }));
@@ -75,13 +75,28 @@ describe("the session summary button", () => {
     expect(store.getState().sheet).toEqual({ kind: "session-plan", sessionId: "se1", planId: "p1" });
   });
 
-  it("a non-media output opens the artifact sheet for its path", async () => {
-    const { store } = await mount([
+  it("a file the documents pane can show opens THERE, not in a modal about the Finder", async () => {
+    /* The gap this closes: an agent writes six files, the summary lists them, and every one opened a
+       sheet whose only real action was "leave for the Finder" — so the artifacts a session produced
+       were the one thing you could not look at inside Realm. */
+    const { api, store } = await mount([
       (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/report.md" }, parentToolUseId: null })),
       (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
     ]);
     openPanel();
     fireEvent.click(screen.getByRole("button", { name: /report.md/ }));
-    expect(store.getState().sheet).toEqual({ kind: "artifact", path: "/a/report.md" });
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("openDocumentPath:"))).toBe(true));
+    expect(store.getState().sheet).toBeNull();
+  });
+
+  it("…and one it has no view for still gets the sheet", async () => {
+    // A `.zip`, a binary. The sheet is the honest answer there: naming the file and offering the OS.
+    const { store } = await mount([
+      (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/bundle.zip" }, parentToolUseId: null })),
+      (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
+    ]);
+    openPanel();
+    fireEvent.click(screen.getByRole("button", { name: /bundle.zip/ }));
+    expect(store.getState().sheet).toEqual({ kind: "artifact", path: "/a/bundle.zip" });
   });
 });

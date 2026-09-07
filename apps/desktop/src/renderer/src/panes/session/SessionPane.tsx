@@ -15,6 +15,7 @@ import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
 import { latestTodos } from "./session-todos";
 import { SessionSummaryButton } from "./SessionSummary";
+import { PathMenu, asRef } from "./PathMenu";
 import type { SlashCommand } from "./slash-commands";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
@@ -270,6 +271,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // intent: ⌘⇧↩ dispatches the draft into a NEW session (store.dispatchDraft, bound in hotkeys.ts)
   // and must leave this scroller exactly where the reader parked it.
   const [sends, setSends] = useState(0);
+  /** The file path whose menu is open, and the element it was clicked on. */
+  const [pathMenu, setPathMenu] = useState<{ path: string; at: HTMLElement } | null>(null);
   /* The whole pane takes a dropped file, not just the prompter: with a transcript on screen the card
      is a strip at the bottom, and aiming at it with a file in hand is the chore this removes. The
      session id is closed over here, so a four-pane split lands each file in the pane it was dropped
@@ -352,6 +355,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}
       data-dropping={fileDrop.dropping || undefined} {...fileDrop.handlers}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
+        onPath={(p, at) => setPathMenu({ path: p, at })}
         sends={sends}
         mentionIds={liveMentionIds}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
@@ -408,6 +412,13 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
           transcript does — an affordance that blurred across the prompter would be the fade band's
           old bug wearing a different colour. Decorative: the drop is announced by what it does. */}
       {fileDrop.dropping && <div className="session-drop" aria-hidden="true" />}
+      {/* Opened from a path in the prose. Owned by the PANE rather than by the message, because the
+          menu outlives the render that produced it — a streaming turn re-renders the transcript
+          constantly, and a menu parented to a message would be torn down under the pointer. */}
+      {pathMenu && (
+        <PathMenu path={pathMenu.path} anchorRef={asRef(pathMenu.at)} environmentId={session.environmentId}
+          onClose={() => setPathMenu(null)} />
+      )}
     </div>
   );
   if (!panelOpen) return body;

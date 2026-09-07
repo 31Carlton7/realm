@@ -7,6 +7,7 @@ import { mathExtension } from "./rich/math";
 import { mediaExtension, mediaRefsIn } from "./media/md-media";
 import { MediaFrame, MediaLightbox } from "./media/MediaView";
 import { useMediaByCandidate } from "./media/use-media";
+import { markPaths } from "./file-paths";
 
 marked.setOptions({ gfm: true, breaks: false });
 /* Fenced code is tokenised here rather than left as plain text (Plan 24 W1). It happens BEFORE
@@ -141,13 +142,27 @@ export function renderMarkdown(text: string, cite: readonly string[] = []): stri
   return decorate(DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true }, ADD_ATTR: ["target"] }), cite);
 }
 
+/** The sanitized html with its file paths marked (see `file-paths.ts`). Split from `renderMarkdown`
+ *  so the citation tests can read one without the other, and so a caller that has no session to open
+ *  a path INTO can skip the pass entirely. */
+export function renderMarkdownWithPaths(text: string, cite: readonly string[] = []): string {
+  const doc = new DOMParser().parseFromString(renderMarkdown(text, cite), "text/html");
+  markPaths(doc.body);
+  return doc.body.innerHTML;
+}
+
 /** Assistant prose: markdown → sanitized HTML. The text itself is whatever has actually arrived:
  *  deltas pace the stream, there is no reveal timer, so a re-render can never replay it.
  *
  *  §6's entrance is NOT this component's to carry: the rule reaches `.transcript-col`'s direct
  *  children, and the prose has a wrapper above it that owns the mark instead. */
-export function Markdown({ text, className = "", cite = NO_CITATIONS }: { text: string; className?: string; cite?: readonly string[] }) {
-  const html = useMemo(() => renderMarkdown(text, cite), [text, cite]);
+export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath }: {
+  text: string; className?: string; cite?: readonly string[];
+  /** A path in the prose was clicked. Absent (a read-only mount, a plan sheet) leaves paths as plain
+   *  text — a control that cannot do anything is worse than none. */
+  onPath?: (path: string, at: HTMLElement) => void;
+}) {
+  const html = useMemo(() => (onPath ? renderMarkdownWithPaths(text, cite) : renderMarkdown(text, cite)), [text, cite, onPath]);
   const body = useRef<HTMLDivElement>(null);
   const media = useMediaPortals(body, html);
   // Copy buttons live inside dangerouslySetInnerHTML, so they are wired by delegation; the ✓ hold
@@ -155,6 +170,8 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS }: { text: 
   const timers = useRef(new Map<Element, ReturnType<typeof setTimeout>>());
   useEffect(() => () => { for (const t of timers.current.values()) clearTimeout(t); }, []);
   const onClick = (e: ReactMouseEvent) => {
+    const path = e.target instanceof Element ? e.target.closest<HTMLElement>(".md-path") : null;
+    if (path && onPath) { onPath(path.getAttribute("data-path") ?? "", path); return; }
     const btn = e.target instanceof Element ? e.target.closest(".md-copy") : null;
     if (!btn) return;
     const code = btn.closest(".md-code")?.querySelector("pre")?.textContent ?? "";
@@ -170,7 +187,16 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS }: { text: 
           innerHTML, so media parked inside the prose would never appear. A node the effect below
           made is an ordinary foreign node, and portals into it land. The string is the same
           DOMPurify-clean html either way. */}
-      <div ref={body} onClick={onClick} />
+      <div ref={body} onClick={onClick} onKeyDown={(e) => {
+        // The inline-code paths are `<code role="button" tabindex="0">`, which the browser does not
+        // activate on Enter or Space the way it does a real `<button>`. The bare-text ones are real
+        // buttons and already work; handling both here costs one branch and keeps them equivalent.
+        if (e.key !== "Enter" && e.key !== " ") return;
+        const el = e.target instanceof Element ? e.target.closest<HTMLElement>("code.md-path") : null;
+        if (!el || !onPath) return;
+        e.preventDefault();
+        onPath(el.getAttribute("data-path") ?? "", el);
+      }} />
       {media}
     </div>
   );

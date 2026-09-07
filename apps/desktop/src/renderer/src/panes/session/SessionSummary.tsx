@@ -1,7 +1,7 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { basenameOf, isOpenablePath, type Item } from "@realm/contracts";
+import { basenameOf, documentKindFor, isOpenablePath, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { Sheet } from "../../components/Sheet";
@@ -30,6 +30,7 @@ const STATUS_MARK: Record<string, string> = { pending: "○", in_progress: "◐"
 export function SessionSummaryButton({ item }: { item: Item }) {
   const id = item.refId;
   const blocks = useApp((s) => s.transcripts[id]?.t.blocks ?? NO_BLOCKS);
+  const environmentId = useApp((s) => s.sessions[id]?.environmentId ?? null);
   const summary = useMemo(() => summarize(blocks), [blocks]);
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -46,7 +47,7 @@ export function SessionSummaryButton({ item }: { item: Item }) {
         <Icon name="info" size={14} />
       </button>
       {open && (
-        <SummaryPopover summary={summary} sessionId={id} anchorRef={btn} onClose={() => setOpen(false)}
+        <SummaryPopover summary={summary} sessionId={id} environmentId={environmentId} anchorRef={btn} onClose={() => setOpen(false)}
           onLightbox={(path) => { setLightbox(path); setOpen(false); }} />
       )}
       {lightbox && <SummaryLightbox path={lightbox} onClose={() => setLightbox(null)} />}
@@ -55,9 +56,11 @@ export function SessionSummaryButton({ item }: { item: Item }) {
 }
 
 /** The panel itself — three sections, each drawn only when it has rows. */
-function SummaryPopover({ summary, sessionId, anchorRef, onClose, onLightbox }: {
+function SummaryPopover({ summary, sessionId, environmentId, anchorRef, onClose, onLightbox }: {
   summary: SessionSummary;
   sessionId: string;
+  /** The session's checkout — the workspace a file opens against. */
+  environmentId: string | null;
   anchorRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   onLightbox: (path: string) => void;
@@ -65,7 +68,18 @@ function SummaryPopover({ summary, sessionId, anchorRef, onClose, onLightbox }: 
   const ref = useRef<HTMLDivElement>(null);
   const { pos } = useAnchoredPopover({ ref, anchorRef, align: "right", onClose });
   const openSheet = useApp((s) => s.openSheet);
-  const openFile = (path: string) => { openSheet({ kind: "artifact", path }); onClose(); };
+  const openDocumentPath = useApp((s) => s.openDocumentPath);
+  const run = useApp((s) => s.run);
+  /* A file the pane can EDIT opens in the documents pane, not in a sheet offering to hand it to the
+     OS. That was the gap: an agent writes six files, the summary lists them, and every one of them
+     opened a modal whose only real action was "leave for the Finder" — so the artifacts a session
+     produced were the one thing you could not look at inside Realm. The sheet survives for the rest:
+     a `.zip`, a binary, anything the pane has no view for. */
+  const openFile = (path: string) => {
+    onClose();
+    if (documentKindFor(path) === "unsupported") { openSheet({ kind: "artifact", path }); return; }
+    run(() => openDocumentPath(path, environmentId));
+  };
   return createPortal(
     <div ref={ref} className="session-summary" role="dialog" aria-label="Session summary"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,

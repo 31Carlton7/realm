@@ -15,6 +15,7 @@ import { formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { runLabelFor } from "./run-label";
 import { useEnterTracker } from "./transcript-enter";
+import { IdleSummary } from "./IdleSummary";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 
@@ -92,8 +93,11 @@ function UserAttachments({ attachments }: { attachments: readonly { path: string
  * strip that appeared, changed and disappeared as the sentence completed would be worse than one
  * that waits for the full stop.
  */
-function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, sources = NO_SOURCES }: {
+function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, onPath, sources = NO_SOURCES }: {
   text: string; streaming: boolean; enter: boolean; cwd: string | null;
+  /** A file path in the prose was clicked. Absent in the read-only mounts, which leave paths as
+   *  plain text rather than drawing a control that opens nothing. */
+  onPath?: (path: string, at: HTMLElement) => void;
   /** Draw the copy/retry/rate bar under this message. True on the newest answer only — see the
    *  `lastAssistantKey` note in `Transcript`. */
   actions?: boolean;
@@ -110,7 +114,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
     // direct children only, and the message stopped being one the moment it grew a wrapper.
     <div className="msg-assistant-row" data-enter={enter || undefined}
       data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
-      <Markdown className="msg-assistant" text={text} cite={cite} />
+      <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} />
       <MediaStrip files={files} />
       {actions && !streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
       {!streaming && sources.length > 0 && <MessageSources sources={sources} />}
@@ -121,7 +125,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
    *  the turn that just finished, and a button on message three of forty would silently act on
@@ -140,6 +144,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
    *  scrolled to — and because the pin is `atBottom` itself, it holds across the RPC until the
    *  `user_message` block lands, which is what stops a send answering itself with the pill. */
   sends?: number;
+  /** Open a file path the agent named. Absent leaves prose paths inert — see `AssistantMessage`. */
+  onPath?: (path: string, at: HTMLElement) => void;
   /** Skill ids the space currently offers — what a user bubble's `@name` is recognised against, by
    *  the same scan the composer uses. Empty means nothing chips, which is the honest state for a
    *  session whose agent Realm cannot inject skills into at all. */
@@ -253,7 +259,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                 {b.text && <UserText text={b.text} mentionIds={mentionIds} />}
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
-              actions={settled && key === lastAssistantKey}
+              actions={settled && key === lastAssistantKey} onPath={onPath}
               onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}
@@ -290,6 +296,10 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
             anything that moves would re-roll the verb on every streaming delta. */}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0).present}…</span></div>}
+        {/* Last in the column, so it reads as the closing line of the session rather than as another
+            message in it. Draws nothing while a turn is live, and nothing on a session with nothing
+            to count. */}
+        <IdleSummary blocks={transcript.blocks} status={sessionStatus} lastActivity={lastText?.ts ?? null} />
         </div>
       </div>
       {/* The transcript dissolves at BOTH edges instead of being clipped at either — siblings of the

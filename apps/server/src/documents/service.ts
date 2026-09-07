@@ -1,5 +1,5 @@
 import { readdir, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import {
   documentTemplate, emptyGuideProgress, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace, type GuideProgress,
@@ -81,13 +81,23 @@ export class DocumentService {
   async openPath(p: { spaceId: string; environmentId?: string; path: string }): Promise<{ documentsId: string; itemId: string; environmentId: string }> {
     const { documentsId, itemId } = this.open({ spaceId: p.spaceId, environmentId: p.environmentId });
     const ws = this.get(documentsId);
-    const abs = resolveInRoot(this.rootOf(ws), p.path);
+    const root = this.rootOf(ws);
+    /* An ABSOLUTE path is relativized here rather than refused.
+       `openPaths` is a relative-path contract and stays one — but the callers that matter now are
+       the transcript's own clickable paths, and what an agent writes into its prose is absolute
+       (`/Users/…/scholarships/PROFILE.md`). Turning that into a tab is the whole point, and asking
+       every caller to know the workspace root first would be asking them to reimplement `relInRoot`.
+       Outside the root is still a refusal, with a message that says so rather than one about
+       traversal. */
+    const rel = isAbsolute(p.path) ? relInRoot(root, p.path) : p.path;
+    if (rel === null) throw new RpcError("BAD_PATH", `${p.path} is outside this workspace`);
+    const abs = resolveInRoot(root, rel);
     let st;
-    try { st = await stat(abs); } catch { throw new RpcError("NOT_FOUND", `no such file: ${p.path}`); }
-    if (!st.isFile()) throw new RpcError("BAD_PATH", `${p.path} is not a file`);
-    const openPaths = ws.openPaths.includes(p.path) ? ws.openPaths : [...ws.openPaths, p.path];
-    await this.setTabs(documentsId, openPaths, p.path);
-    this.d.rpc.broadcast("documents.openRequested", { spaceId: ws.spaceId, environmentId: ws.environmentId, documentsId, itemId, path: p.path });
+    try { st = await stat(abs); } catch { throw new RpcError("NOT_FOUND", `no such file: ${rel}`); }
+    if (!st.isFile()) throw new RpcError("BAD_PATH", `${rel} is not a file`);
+    const openPaths = ws.openPaths.includes(rel) ? ws.openPaths : [...ws.openPaths, rel];
+    await this.setTabs(documentsId, openPaths, rel);
+    this.d.rpc.broadcast("documents.openRequested", { spaceId: ws.spaceId, environmentId: ws.environmentId, documentsId, itemId, path: rel });
     return { documentsId, itemId, environmentId: ws.environmentId };
   }
 

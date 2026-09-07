@@ -73,6 +73,28 @@ describe("documents.openPath", () => {
     expect((await c.call("documents.openPath", { spaceId: space.id, path: "../x.md" })).error?.code).toBe("BAD_PATH");
     c.close();
   });
+
+  it("takes an ABSOLUTE path inside the root and relativizes it onto the tab strip", async () => {
+    /* What an agent writes into its prose is absolute — `/Users/…/scholarships/PROFILE.md` — and the
+       transcript's clickable paths hand that straight here. Asking the caller to know the workspace
+       root first would be asking it to reimplement `relInRoot`. `openPaths` stays relative. */
+    const { c, space, documentsId, root } = await setup();
+    await writeFile(join(root, "deep.md"), "# d");
+    await c.call("documents.openPath", { spaceId: space.id, path: join(root, "deep.md") });
+    const ws = (await c.call("documents.get", { documentsId })).result;
+    expect(ws.openPaths).toEqual(["deep.md"]);
+    expect(ws.activePath).toBe("deep.md");
+    c.close();
+  });
+
+  it("…and refuses an absolute path outside it, saying which thing was wrong", async () => {
+    // Not a traversal message: the path is well-formed, it just belongs to somewhere else on disk.
+    const { c, space } = await setup();
+    const err = (await c.call("documents.openPath", { spaceId: space.id, path: "/etc/hosts" })).error;
+    expect(err?.code).toBe("BAD_PATH");
+    expect(err?.message).toContain("outside this workspace");
+    c.close();
+  });
 });
 
 describe("documents.progressRead / progressRecord", () => {

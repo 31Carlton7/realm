@@ -1215,6 +1215,20 @@ button.panel-title:hover { background: var(--rl-hover); }
 .md h1, .md h2, .md h3, .md h4 { margin: 12px 0 6px; font-weight: var(--fw-title); line-height: 1.3; }
 .md h1 { font-size: 17px; font-weight: var(--fw-strong); letter-spacing: -0.01em; } .md h2 { font-size: 15px; font-weight: var(--fw-strong); } .md h3 { font-size: 13px; color: var(--rl-text-bright); }
 .md code { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip); background: var(--rl-raised); }
+/* ── A file path the agent named, made clickable (file-paths.ts) ─────────
+   Two forms, one look. Inline code that IS a path keeps its code styling and gains an affordance;
+   an absolute path in running text becomes a button that borrows that same styling, so the reader
+   cannot tell which markup the agent happened to use — and should not have to.
+
+   Underlined on hover rather than tinted at rest: these sit INSIDE prose, often several to a
+   paragraph, and a paragraph where six phrases are accent-coloured is a paragraph nobody reads. The
+   pointer and the underline are the affordance; the tooltip says what a click does. */
+button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip);
+  background: var(--rl-raised); color: inherit; vertical-align: baseline; }
+.md .md-path { cursor: pointer; text-decoration-color: transparent; text-underline-offset: 2px;
+  transition: color var(--dur-hover) ease, text-decoration-color var(--dur-hover) ease; }
+.md .md-path:hover { color: var(--rl-accent); text-decoration: underline; text-decoration-color: currentColor; }
+.md .md-path:focus-visible { outline: 2px solid color-mix(in srgb, var(--rl-accent) 55%, transparent); outline-offset: 1px; }
 .md pre { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--rl-frame); overflow-x: auto; }
 .md pre code { padding: 0; background: none; }
 /* Plan 9 W2 — BUI CodeBlock: fenced code is an editor panel now — a surface card behind a hairline
@@ -1269,6 +1283,12 @@ button.panel-title:hover { background: var(--rl-hover); }
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
    these down a long session does not jitter as the digits change. */
 .msg-run { font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* The closing line of a session nobody has touched in a while. Quieter than the run label above it
+   and italic, because it is the one line in the transcript that is Realm talking about the session
+   rather than anything that happened in it — a register the reader should be able to tell apart
+   without reading the words. */
+.msg-idle-summary { margin: 6px 0 0; font-size: 11.5px; font-style: italic; line-height: 1.5;
+  color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
