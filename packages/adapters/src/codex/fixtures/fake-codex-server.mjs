@@ -42,6 +42,13 @@
  * unanswered (a child that spawns and handshakes but never opens a thread).
  */
 
+// `--version`, so the adapter's probe can ask this fixture the same question it asks a real codex.
+// Overridable, to stand in for the user upgrading the CLI under a running Realm.
+if (process.argv.slice(2)[0] === "--version") {
+  process.stdout.write(`codex-cli ${process.env.FAKE_CODEX_VERSION ?? "1.2.3"}\n`);
+  process.exit(0);
+}
+
 let nextThreadN = 0;
 let nextTurnN = 0;
 let nextItemN = 0;

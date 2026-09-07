@@ -557,6 +557,26 @@ describe("permission keyboard (U-H4)", () => {
   });
 });
 
+describe("the prompter wears its mode", () => {
+  const card = () => document.querySelector(".composer")!;
+
+  it("is neutral in Build and tinted in the two read-only modes", async () => {
+    // Ask and Plan both mean "the agent will not change anything on disk", which is the most
+    // consequential fact about the next send. Build is the default; a colour that is always on says
+    // nothing, so it stays exactly as it was.
+    const { store } = await mountFresh();
+    expect(card()).toHaveAttribute("data-mode", "build");
+    act(() => store.setState({ sessions: { ...store.getState().sessions, se1: { ...store.getState().sessions.se1!, permissionMode: "plan" } } }));
+    expect(card()).toHaveAttribute("data-mode", "plan");
+  });
+
+  it("says the mode in WORDS too — the colour is never the only telling", async () => {
+    const { store } = await mountFresh();
+    act(() => store.setState({ sessions: { ...store.getState().sessions, se1: { ...store.getState().sessions.se1!, permissionMode: "plan" } } }));
+    expect(screen.getByRole("button", { name: "Mode" })).toHaveTextContent("Plan");
+  });
+});
+
 describe("the prompter's / commands", () => {
   const box = () => screen.getByRole("textbox", { name: /message/i });
   const type = (text: string) => fireEvent.change(box(), { target: { value: text, selectionStart: text.length, selectionEnd: text.length } });

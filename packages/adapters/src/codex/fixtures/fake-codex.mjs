@@ -7,7 +7,8 @@ if (args[0] === "--version") {
   if (process.env.FAKE_CODEX_EMPTY_VERSION) {
     process.stdout.write("\n");
   } else {
-    process.stdout.write("codex-cli 1.2.3\n");
+    // Overridable, so a test can stand in for the user upgrading the CLI under a running Realm.
+    process.stdout.write(`codex-cli ${process.env.FAKE_CODEX_VERSION ?? "1.2.3"}\n`);
   }
   process.exit(0);
 }

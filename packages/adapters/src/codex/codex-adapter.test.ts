@@ -990,6 +990,30 @@ describe("CodexAdapter model catalog", () => {
     expect(again.models).toBeNull();
   });
 
+  it("re-asks after the binary changes — an upgrade takes effect without relaunching Realm", async () => {
+    /* The latch is a fact about a BINARY, and the binary changes under a long-running server: you
+       upgrade the CLI, the new build answers `model/list` perfectly well, and Realm goes on serving
+       the static fallback until the app is restarted — with no way to tell why "Check for new
+       models" keeps finding nothing. The named mutant: dropping the version comparison, which is
+       exactly the state this reproduces. */
+    process.env.FAKE_CODEX_NO_MODEL_LIST = "1";
+    const adapter = newAdapter();
+    expect((await adapter.probe()).models).toBeNull();
+    expect(adapter.modelListEnumerable).toBe(false);
+
+    // Same binary, still refused: the latch has not gone soft.
+    delete process.env.FAKE_CODEX_NO_MODEL_LIST;
+    expect((await adapter.probe()).models).toBeNull();
+
+    // A new version — the upgrade — and the capability is asked about again.
+    process.env.FAKE_CODEX_VERSION = "9.9.9";
+    try {
+      const upgraded = await adapter.probe();
+      expect(upgraded.models).not.toBeNull();
+      expect(adapter.modelListEnumerable).toBe(true);
+    } finally { delete process.env.FAKE_CODEX_VERSION; }
+  });
+
   it("reports models:null when the CLI itself is unavailable", async () => {
     const r = await new CodexAdapter({ bin: "/definitely/not/a/codex/binary" }).probe();
     expect(r.available).toBe(false);

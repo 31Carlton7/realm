@@ -7,17 +7,19 @@ import type { Block } from "./transcript-model";
  * render of every visible session pane, so it must not call an agent, and a suggestion that changed
  * under the user between renders would be a moving target for the key that accepts it.
  *
- * The register is plain and short on purpose: this is a sentence someone reads at a glance and
- * accepts with one key, not a brief. A hint that has to be parsed is slower than typing.
+ * The register is plain and SHORT on purpose — a handful of words, never a sentence carrying the
+ * session's own text back at it. Every hint here used to embed the user's last request and, on a
+ * failure, the error's message too, which produced things like
+ * `Fix "EISDIR: illegal operation on a directory, read…" while working on give me a to…` — a line
+ * nobody can read at a glance and nobody would accept with one key. The context belongs to the
+ * session; the hint only has to name the next move.
  *
  * "Based on the current session" means literally that — the transcript's last turn, the working tree
- * and the mode, in that order of specificity. Nothing here falls back to `suggestions.ts`: those
- * static starters are the hero's chips, sitting two inches below this line, and the one thing this
- * feature could make worse is saying the same sentence twice in the same view.
+ * and the mode, in that order of specificity.
  *
- * So returning `null` is a real answer, and the common one on a fresh session in a clean checkout:
- * the prompter keeps its plain "Ask <agent> anything…" and the chips keep the offer. ⇥ promises
- * something only when there is something specific to promise.
+ * Returning `null` is a real answer, and the common one on a fresh session in a clean checkout: the
+ * prompter keeps its plain "Ask anything". ⇥ promises something only when there is something
+ * specific to promise.
  */
 export function promptHint(ctx: {
   blocks: readonly Block[];
@@ -31,73 +33,44 @@ export function promptHint(ctx: {
   // written. The hint returns on its own the moment the turn settles.
   if (status === "running" || status === "waiting_permission") return null;
 
-  const reviewChanges = gitInfo && gitInfo.dirty > 0
-    ? freshChangesHint(gitInfo)
-    : null;
+  const reviewChanges = gitInfo && gitInfo.dirty > 0 ? freshChangesHint(gitInfo) : null;
 
-  // Nothing has happened yet: the working tree is the only session-specific fact there is. Work in
-  // flight outranks work already committed — uncommitted changes are the thing still being decided.
+  // Nothing has happened yet: the working tree is the only session-specific fact there is.
   if (blocks.length === 0) {
     if (reviewChanges) return reviewChanges;
-    if (gitInfo && gitInfo.ahead > 0) {
-      return `Write a PR description for the ${gitInfo.ahead} ${gitInfo.ahead === 1 ? "commit" : "commits"} on ${gitInfo.branch}.`;
-    }
+    if (gitInfo && gitInfo.ahead > 0) return "Write a PR description.";
     return null;
   }
 
-  // The last turn — everything after the last thing the user said. An agent-opened transcript (no
-  // user block at all) is its own single turn.
+  // The last turn — everything after the last thing the user said.
   const lastUser = findLastIndex(blocks, (b) => b.kind === "user");
   const turn = blocks.slice(lastUser + 1);
-  const request = lastUser >= 0 && blocks[lastUser]?.kind === "user"
-    ? subjectOf(blocks[lastUser].text)
-    : null;
   const files = filesIn(turn);
 
-  // A failed tool or run names the actual thing that broke. Quoting its short detail is far more
-  // useful than pointing vaguely upward at "that error".
-  const last = blocks.at(-1);
-  const failure = lastFailure(turn) ?? (last?.kind === "error" ? short(last.message, 68) : null);
-  if (failure || status === "error") {
-    const target = request ? ` while working on ${request}` : "";
-    return failure
-      ? `Fix “${failure}”${target}.`
-      : `Find what went wrong${target} and fix it.`;
-  }
+  /* Only a turn that ENDED badly offers to fix something.
+     This used to fire on any errored tool call in the turn, which is the wrong reading of one: an
+     agent that hits an EISDIR, notices, and goes on to answer the question has not failed — it has
+     recovered, and the tool error is a step in a successful turn. Offering "Fix …" under a finished
+     answer was the app inventing a problem, and quoting the error's text into the prompt made a
+     long sentence out of it. The session's own status is the only thing that knows the difference. */
+  if (status === "error") return "Find what went wrong and fix it.";
 
-  // Plan mode: retain the subject that caused the plan and ask for the valuable second half of the
-  // work too — testing its riskiest assumption. This reads like a continuation of this conversation,
-  // not a stock button label.
-  //
-  // Gated on an actual plan block, not on the agent merely having finished speaking. "Which files
-  // should I look at first?" is a completed assistant message too, and offering to implement the
-  // plan under it promised a plan that did not exist. A `plan` event is the agent saying it has one.
-  if (inPlan && turn.some((b) => b.kind === "plan")) {
-    return request
-      ? `Build the plan for ${request}.`
-      : "Build the plan.";
-  }
+  // Plan mode: the agent has drafted; the next move is to do it. Gated on an actual plan block, not
+  // on the agent merely having finished speaking — "which files should I look at?" is a completed
+  // message too, and offering to implement a plan that does not exist promised nothing.
+  if (inPlan && turn.some((b) => b.kind === "plan")) return "Build the plan.";
 
-  // It wrote code. Name what changed and why it changed; the files are taken from the actual tool
-  // calls, while the subject comes from the user's latest request.
+  // It wrote code. One file is worth naming; two are a list, and a list is longer than the sentence.
   if (turn.some((b) => b.kind === "tool" && WRITE_TOOLS.has(b.name))) {
-    const where = files.length ? ` in ${joinFiles(files)}` : "";
-    return request
-      ? `Write tests for ${request}${where}.`
-      : `Write tests for the changes${where}.`;
+    return files.length === 1 ? `Write tests for ${files[0]}.` : "Write tests for the changes.";
   }
 
-  // A read-only investigation already established a trail through the repo. Offer to follow that
-  // trail instead of collapsing back to the unrelated dirty-tree fallback.
-  if (files.length && request) {
-    return `Walk me through ${request} in ${joinFiles(files)}.`;
-  }
+  // A read-only investigation left a trail. Follow it, without restating what was asked.
+  if (files.length === 1) return `Walk me through ${files[0]}.`;
+  if (files.length > 1) return "Walk me through what you found.";
 
-  // Even a tool-free answer has a session-specific subject. The next useful move is to make the
-  // answer concrete; this is intentionally absent when there was no user request to anchor it to.
-  if (request && turn.some((b) => b.kind === "assistant" && !b.streaming)) {
-    return `Show me the code behind ${request}.`;
-  }
+  // A tool-free answer. The useful next move is to make it concrete.
+  if (turn.some((b) => b.kind === "assistant" && !b.streaming)) return "Show me the code behind that.";
   return reviewChanges;
 }
 
@@ -107,25 +80,9 @@ const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "appl
 
 const PATH_TOOLS = new Set([...WRITE_TOOLS, "Read", "View", "read_file"]);
 
-/** Turn a request into a compact noun phrase that can be embedded in the next prompt. This is not
- *  pretending to understand prose: it only removes common conversational/action wrappers, preserves
- *  the user's own words, and declines noisy or tiny results. */
-const subjectOf = (text: string): string | null => {
-  let value = text.replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
-  value = value
-    .replace(/^(?:please\s+)?(?:can|could|would)\s+you\s+/i, "")
-    .replace(/^(?:please\s+)?(?:help me\s+)?(?:add|build|create|debug|design|explain|fix|implement|improve|investigate|make|plan|refactor|review|test|update|write)\s+/i, "")
-    .replace(/^(?:me|my|our|the|an?)\s+/i, "");
-  if (/^[A-Z][a-z]/.test(value)) value = value[0]!.toLowerCase() + value.slice(1);
-  value = short(value, 58);
-  return value.length >= 4 ? value : null;
-};
-
 const freshChangesHint = (git: GitInfo): string => {
   const topic = branchTopic(git.branch);
-  if (topic) return `Review my ${topic} changes.`;
-  const files = `${git.dirty} uncommitted ${git.dirty === 1 ? "file" : "files"}`;
-  return `Review my ${files} on ${git.branch}.`;
+  return topic ? `Review my ${topic} changes.` : "Review my changes.";
 };
 
 /** main/master/develop carry no subject. A descriptive branch does, and is often the only context a
@@ -154,30 +111,6 @@ const filesIn = (blocks: readonly Block[]): string[] => {
 const displayPath = (path: string): string => {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts.slice(-2).join("/") || path;
-};
-
-const joinFiles = (files: readonly string[]): string => files.length === 1
-  ? files[0]!
-  : `${files[0]} and ${files[1]}`;
-
-const lastFailure = (blocks: readonly Block[]): string | null => {
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const block = blocks[i]!;
-    if (block.kind === "error") return short(block.message, 68);
-    if (block.kind === "tool" && block.result?.isError) {
-      const command = typeof block.input.command === "string" ? short(block.input.command, 52) : null;
-      return command || short(block.result.content, 68) || `${block.name} failed`;
-    }
-  }
-  return null;
-};
-
-const short = (text: string, max: number): string => {
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  if (oneLine.length <= max) return oneLine;
-  const cut = oneLine.slice(0, max - 1);
-  const word = cut.replace(/\s+\S*$/, "");
-  return `${word.length >= Math.floor(max * .6) ? word : cut}…`;
 };
 
 const findLastIndex = <T,>(xs: readonly T[], pred: (x: T) => boolean): number => {

@@ -162,6 +162,14 @@ export class CodexAdapter implements AgentAdapter {
   /** Same feature-detect discipline for `model/list`: a build without it degrades to the static picker
    *  fallback (`models: null`), never a failed probe. Sticky, because -32601 is a fact about the binary. */
   private modelListSupported = true;
+  /** The version the latches above were learned against.
+   *
+   *  They are facts about a BINARY, and the binary changes under a long-running server: someone
+   *  upgrades the CLI while Realm is open, the new build answers `model/list` perfectly well, and
+   *  Realm goes on serving the static fallback until the app is restarted — with no way for the user
+   *  to tell why "Check for new models" keeps finding nothing. Re-checking on a version change is
+   *  what makes an upgrade take effect without a relaunch. */
+  private latchedVersion: string | null = null;
 
   constructor(deps: { bin?: string; args?: string[]; bootTimeoutMs?: number } = {}) {
     this.bin = deps.bin;
@@ -181,7 +189,18 @@ export class CodexAdapter implements AgentAdapter {
   get connection(): Promise<CodexConnection> | null { return this.conn; }
 
   async probe(): Promise<ProbeResult> {
-    const p = await probeCodex(this.bin);
+    // The adapter's OWN args, so the probe runs the command the adapter would run. With no args —
+    // production, where `bin` is the `codex` binary itself — this is `codex --version`, unchanged.
+    // With them it is the same wrapper the sessions go through, which is the only honest thing to
+    // ask for a version, and the only way the latch below can ever see one change.
+    const p = await probeCodex(this.bin, [...(this.args ?? []), "--version"]);
+    // A different binary is a different set of capabilities. Both latches are re-armed together —
+    // they were learned from the same process and there is no reason one would outlive the other.
+    if (p.available && p.version !== this.latchedVersion) {
+      this.latchedVersion = p.version;
+      this.modelListSupported = true;
+      this.extraRootsSupported = true;
+    }
     const models = p.available ? await this.listModels() : null;
     return { kind: this.kind, ...p, models };
   }

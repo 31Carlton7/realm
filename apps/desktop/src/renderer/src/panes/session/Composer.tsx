@@ -1,6 +1,6 @@
 import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useFileDrop } from "../../components/use-file-drop";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
@@ -448,12 +448,55 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     if (hit !== hotChip) setHotChip(hit);
   };
 
-  useLayoutEffect(() => {
+  /**
+   * Size the box to its content.
+   *
+   * Collapsing to 0 first is what makes it SHRINK as well as grow: `scrollHeight` on a box that is
+   * already tall enough reports the box, not the text. The written value is compared before it is
+   * applied so this is idempotent — which is what lets the observer below call it without cycling.
+   */
+  const measure = useCallback(() => {
     const el = ta.current; if (!el) return;
+    const prev = el.style.height;
     el.style.height = "0px";
-    el.style.height = `${Math.min(MAX_ROWS_PX, el.scrollHeight)}px`;
-    syncScroll(); // growing past max-height starts scrolling; the mirror must follow in the same frame
-  }, [draft]);
+    const next = `${Math.min(MAX_ROWS_PX, el.scrollHeight)}px`;
+    el.style.height = next;
+    if (next !== prev) syncScroll(); // growing past max-height starts scrolling; the mirror follows in the same frame
+  }, [syncScroll]);
+
+  useLayoutEffect(() => { measure(); }, [draft, measure]);
+
+  /**
+   * Re-measure when the WIDTH changes, and once the webfont has landed.
+   *
+   * Keying the measurement on the draft alone left the height stale in two ways that both look like
+   * "the prompter is a different height for no reason":
+   *
+   *  - **A pane resize re-wraps the text and nothing re-measured it.** A three-line draft dragged
+   *    narrower needs four lines and kept a three-line box, scrolling instead of growing.
+   *  - **The first measurement can happen before Inter has loaded**, and an EMPTY box is the case
+   *    that shows it: its height is one line of whatever font was resolved at that instant, so a
+   *    pane that mounted during the font swap kept a box a pixel or two off every other pane's, for
+   *    the life of the session. That is the one the user notices, because two prompters sitting side
+   *    by side in a split disagree.
+   *
+   * Only width is acted on: the observed box's HEIGHT is the thing this effect writes, and reacting
+   * to it would be a loop even with the idempotence guard above holding it to two passes.
+   */
+  const lastWidth = useRef(0);
+  useEffect(() => {
+    const el = ta.current; if (!el) return;
+    void (document as Document & { fonts?: FontFaceSet }).fonts?.ready.then(measure).catch(() => {});
+    if (typeof ResizeObserver === "undefined") return; // jsdom
+    const ro = new ResizeObserver(([entry]) => {
+      const w = entry?.contentRect.width ?? 0;
+      if (w === lastWidth.current) return;
+      lastWidth.current = w;
+      measure();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [measure]);
 
   // ── @-mention picker (W4) ──────────────────────────────────────────────
   // The caret is tracked as state (onSelect fires for typing, clicks and arrow moves alike) because
@@ -778,7 +821,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
       <TodoStrip todos={todos} />
       {/* The whole card is the drop target — aiming at a 44px textarea with a file in hand is a chore.
           §6 forbids animating during a drag, so the state change is a static ring, not a transition. */}
-      <div className="composer" data-dropping={drop.dropping || undefined} {...drop.handlers}>
+      {/* The card wears the MODE. Ask and Plan both mean "the agent will not change anything", and
+          that is the single most consequential fact about the next send — worth more than a chip in
+          a row of chips, which is where it used to live alone. Build is the default and stays
+          neutral: a colour that is always on is a colour that says nothing. */}
+      <div className="composer" data-mode={mode} data-dropping={drop.dropping || undefined} {...drop.handlers}>
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
         {/* A mention whose skill vanished after typing (W4): warning tone, same row language as the
             attachment fates — the last moment the degradation is actionable is before send. */}
