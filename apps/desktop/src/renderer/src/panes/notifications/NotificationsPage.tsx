@@ -3,7 +3,7 @@ import { Icon } from "@realm/ui";
 import type { Notification, NotificationCategory } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { PermissionCard } from "../session/PermissionCard";
-import { grainVars } from "../../theme/grain";
+import { Sheet } from "../../components/Sheet";
 import type { PaneProps } from "../registry";
 
 const CATEGORY_ICON: Record<NotificationCategory, string> = {
@@ -34,11 +34,14 @@ const timeOf = (ts: number) => new Date(ts).toLocaleTimeString(undefined, { hour
  * unread rows carry the dot; a PENDING permission row is actionable through the SAME PermissionCard
  * the session pane renders (reused, never forked — see PendingPermissionInline).
  *
- * **Master–detail, at full width.** The list is a column of selectable rows and the row you pick opens
- * in the detail column beside it — the page fills its pane rather than the ~720px reading column the
- * other destination pages cap themselves at, because two columns need the room and a feed is scanned,
- * not read. Selection is the page's own coordinate, so it is also what the pane's back/forward arrows
- * step through (`selectNotification` → `navigateInPane`).
+ * **One centred column, and a modal for the row you pick.** It was a master–detail split at full
+ * width, and that shape was wrong for what this page holds: the detail column stood empty most of
+ * the time (nothing is selected until you click), the rule between the two halves ran down a page
+ * that had one thing on it, and a feed of one-line rows does not need 968px to be scanned. A single
+ * measured column reads like the list it is, and the detail — which is a thing you finish and
+ * dismiss, not a place you work — opens over it. Selection is still the page's own coordinate, so
+ * the pane's back/forward arrows step through it (`selectNotification` → `navigateInPane`); closing
+ * the modal clears it.
  *
  * **Scope: the user.** Not the space, and not the profile. The feed is one table with no space filter,
  * the unread count spans every space, and the SELECTION lives in one user-level store field — so
@@ -72,93 +75,113 @@ export function NotificationsPage({ item }: PaneProps) {
   const selected = notifications.find((n) => n.id === selectedId) ?? null;
 
   return (
-    <div className="page notifications-page-pane wash" style={grainVars("notifications-page")}>
+    /* No `wash`. This was the one pane in the app wearing the accent gradient, and a decorated
+       ground under a list of things that need attention competes with the attention. */
+    <div className="page notifications-page-pane">
       <header className="page-head">
-        <span className="page-glyph"><Icon name="notifications-page" size={20} /></span>
-        <div className="page-title">
-          <h1>Notifications</h1>
-          <span className="page-sub">{unread > 0 ? `${unread} unread — everything that waited on you, across every space.` : "Everything that waited on you, across every space."}</span>
-        </div>
+        <div className="page-title"><h1>Notifications</h1></div>
+        {/* The count rides the header as a fact rather than a sentence. "3 unread" is the only part
+            of the old sub-title that was not restating the page's own name. */}
+        {unread > 0 && <span className="notif-unread-count">{unread} unread</span>}
         {unread > 0 && (
           <button className="btn notif-mark-all" onClick={() => run(() => markNotificationsRead("all"))}>Mark all read</button>
         )}
       </header>
-      <div className="page-body notif-split">
-        {notifications.length === 0 ? (
-          <p className="notif-empty muted">Nothing has needed you. Permission requests, finished sessions and connection trouble will land here.</p>
-        ) : (
-          <>
-            <div className="notif-list">
+      <div className="page-body">
+        <div className="page-content notif-feed">
+          {notifications.length === 0 ? (
+            <div className="notif-empty">
+              <p className="notif-empty-line">Nothing has needed you.</p>
+              <p className="notif-empty-sub">Permission requests, finished sessions and connection trouble land here.</p>
+            </div>
+          ) : (
+            <>
               {groups.map((g) => (
                 <section key={g.label} className="notif-day" aria-label={g.label}>
                   <h2 className="notif-day-label">{g.label}</h2>
-                  {g.rows.map((n) => (
-                    <NotificationRow key={n.id} n={n} selected={n.id === selectedId}
-                      onSelect={() => run(() => selectNotification(item.id, n.id))} />
-                  ))}
+                  <ul className="notif-cards">
+                    {g.rows.map((n) => (
+                      <NotificationRow key={n.id} n={n} selected={n.id === selectedId}
+                        onSelect={() => run(() => selectNotification(item.id, n.id))} />
+                    ))}
+                  </ul>
                 </section>
               ))}
               {cursor && <button className="btn notif-more" onClick={() => run(() => loadMoreNotifications())}>Load more</button>}
-            </div>
-            <div className="notif-detail" aria-label="Notification detail">
-              {selected
-                ? <NotificationDetail n={selected} />
-                : <p className="notif-detail-empty muted">Select a notification to read it here.</p>}
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
+      {/* Over the feed rather than beside it. Reading one of these is something you finish and
+          dismiss; it is not a place you work, and it does not deserve half the page while empty. */}
+      {selected && <NotificationSheet n={selected} onClose={() => run(() => selectNotification(item.id, null))} />}
     </div>
   );
 }
 
 /**
- * One selectable row. A plain `<button>`, not a clickable div: the list is a set of choices, and the
- * whole row is the target. That it is a button is also why the pending permission card lives in the
- * DETAIL column and not inline here — Allow/Deny are buttons, and buttons do not nest.
+ * One card. A plain `<button>`, not a clickable div: the list is a set of choices, and the whole
+ * card is the target. That it is a button is also why the pending permission card lives in the
+ * MODAL and not inline here — Allow/Deny are buttons, and buttons do not nest.
  */
 function NotificationRow({ n, selected, onSelect }: { n: Notification; selected: boolean; onSelect: () => void }) {
   return (
-    <button type="button" className="notif-row" onClick={onSelect} aria-label={n.title}
-      aria-current={selected || undefined} data-selected={selected || undefined}
-      data-unread={n.readAt === null || undefined} data-category={n.category}>
-      <span className="notif-glyph"><Icon name={CATEGORY_ICON[n.category]} size={16} /></span>
-      <span className="notif-main">
-        <span className="notif-line">
-          {n.readAt === null && <span className="notif-dot" aria-label="Unread" />}
-          <span className="notif-title">{n.title}</span>
-          <span className="notif-time">{timeOf(n.createdAt)}</span>
+    <li>
+      <button type="button" className="notif-row" onClick={onSelect} aria-label={n.title}
+        aria-current={selected || undefined} data-selected={selected || undefined}
+        data-unread={n.readAt === null || undefined} data-category={n.category}>
+        <span className="notif-glyph"><Icon name={CATEGORY_ICON[n.category]} size={16} /></span>
+        <span className="notif-main">
+          <span className="notif-line">
+            <span className="notif-title">{n.title}</span>
+            {/* The kind, named. The glyph alone made a reader learn nine icons to know whether a row
+                was a permission or a finished run — and design.md bans state carried by mark alone. */}
+            <span className="notif-kind">{CATEGORY_LABEL[n.category]}</span>
+            <span className="notif-time">{timeOf(n.createdAt)}</span>
+          </span>
+          {n.body && <span className="notif-body">{n.body}</span>}
         </span>
-        {n.body && <span className="notif-body">{n.body}</span>}
-      </span>
-    </button>
+        {n.readAt === null && <span className="notif-dot" aria-label="Unread" />}
+      </button>
+    </li>
   );
 }
 
 /**
- * The selected row, in full: what it was, when, what it said, and everything it can still do — the
- * inline PermissionCard for a still-pending request, and the jump to its session.
+ * The selected notification, over the feed.
+ *
+ * "Mark as read" is offered here and nowhere else per-row, because this is the only place a reader
+ * has actually read one. It is also the one action the old detail column never had: rows were marked
+ * read as a side effect of selection, so a row you opened by accident was silently consumed and a row
+ * you meant to come back to had no way to stay unread.
  */
-function NotificationDetail({ n }: { n: Notification }) {
+function NotificationSheet({ n, onClose }: { n: Notification; onClose: () => void }) {
+  const markNotificationsRead = useApp((s) => s.markNotificationsRead);
   const openNotificationTarget = useApp((s) => s.openNotificationTarget);
   const run = useApp((s) => s.run);
   const pendingPermission = n.category === "permission" && n.actedAt === null;
   return (
-    <article className="notif-detail-card" aria-label={n.title}>
-      <header className="notif-detail-head">
-        <span className="notif-glyph"><Icon name={CATEGORY_ICON[n.category]} size={16} /></span>
-        <span className="notif-detail-kind">{CATEGORY_LABEL[n.category]}</span>
-        <span className="notif-time">{dayLabel(n.createdAt)} · {timeOf(n.createdAt)}</span>
-      </header>
-      <h2 className="notif-detail-title">{n.title}</h2>
-      {n.body && <p className="notif-detail-body">{n.body}</p>}
-      {pendingPermission && <PendingPermissionInline n={n} />}
-      {/* Jumping to the session is the fallback affordance and is ALWAYS present on session rows —
-          answering here can only exist while the session still waits. */}
-      {n.sessionId && (
-        <button className="btn notif-jump" onClick={() => run(() => openNotificationTarget(n))}>Go to session</button>
-      )}
-    </article>
+    <Sheet title={CATEGORY_LABEL[n.category]} onClose={onClose} width={520}>
+      {/* An `<article>` inside the dialog: the sheet is the container, the notification is the thing.
+          It is also what names this row for a screen reader — the sheet's own title is the kind. */}
+      <article className="notif-sheet" aria-label={n.title}>
+        <p className="notif-sheet-when">{dayLabel(n.createdAt)} · {timeOf(n.createdAt)}</p>
+        <h2 className="notif-detail-title">{n.title}</h2>
+        {n.body && <p className="notif-detail-body">{n.body}</p>}
+        {pendingPermission && <PendingPermissionInline n={n} />}
+        <div className="sheet-actions">
+          {n.readAt === null
+            ? <button type="button" className="btn-quiet" onClick={() => run(() => markNotificationsRead([n.id]))}>Mark as read</button>
+            : <span className="notif-sheet-read">Read</span>}
+          <span className="diff-head-spacer" />
+          {/* Always present on a session row — answering in place can only exist while the session
+              still waits, and jumping is the affordance that never stops working. */}
+          {n.sessionId && (
+            <button type="button" className="btn" onClick={() => run(() => openNotificationTarget(n))}>Go to session</button>
+          )}
+        </div>
+      </article>
+    </Sheet>
   );
 }
 

@@ -80,7 +80,7 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
               <input type="text" className="skills-filter-input" placeholder={`Search ${all.length} skills…`}
                 aria-label="Search skills" value={query} onChange={(e) => setQuery(e.target.value)} />
               <label className="skills-filter-toggle">
-                <input type="checkbox" checked={onlyEnabled} onChange={(e) => setOnlyEnabled(e.target.checked)} />
+                <input type="checkbox" className="checkbox" checked={onlyEnabled} onChange={(e) => setOnlyEnabled(e.target.checked)} />
                 On only ({enabledCount})
               </label>
             </div>

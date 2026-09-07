@@ -55,11 +55,8 @@ export function SchedulesPage({ item }: PaneProps) {
   return (
     <div className="page schedules-page">
       <header className="page-head">
-        <span className="page-glyph"><Icon name="schedules-page" size={20} /></span>
-        <div className="page-title">
-          <h1>Scheduled tasks</h1>
-          <span className="page-sub">Goals {space.name} starts on a clock. Each firing creates a run.</span>
-        </div>
+        <div className="page-title"><h1>Scheduled tasks</h1></div>
+        <span className="page-vantage">{space.name}</span>
         <button className="btn primary sched-new" onClick={() => { setEditing(null); setComposing(true); }}>
           <Icon name="add" size={14} /> New schedule
         </button>

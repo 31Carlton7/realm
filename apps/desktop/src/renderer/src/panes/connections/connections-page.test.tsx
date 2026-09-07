@@ -32,14 +32,16 @@ describe("the Connections page (Plan 12 W4)", () => {
     // MCP_SECRET_STORAGE_NOTE is a property of the servers listed, on screen whenever the page is.
     expect(screen.getByText(MCP_SECRET_STORAGE_NOTE)).toBeInTheDocument();
     // The provider rows ride along.
-    expect(screen.getByRole("checkbox", { name: "Provider realm-browser in this space" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Provider realm-browser in this space" })).toBeInTheDocument();
   });
 
   it("keeps its vantage when opened for a non-active space", async () => {
     const { api } = await mount({}, "s2");
     await waitFor(() => expect(api.calls).toContain("listMcpServers:s2"));
     expect(api.calls).not.toContain("listMcpServers:s1");
-    expect(screen.getByText(/seen from Homework/)).toBeInTheDocument();
+    // The vantage moved out of a sub-title paragraph and into the header beside the title, but it
+    // is still the only place the page says WHICH space it is showing — so it is still asserted.
+    expect(document.querySelector(".page-vantage")?.textContent).toBe("Homework");
   });
 
   it("says so when the page's space is gone", async () => {

@@ -18,6 +18,9 @@ async function mount(overrides: Parameters<typeof fakeApi>[0] = {}) {
   return { store, api };
 }
 
+/* The two per-space "enabled" toggles are SWITCHES, not checkboxes. A switch is a setting that takes
+   effect the moment you flip it — which these do, straight down the rpc. A checkbox is a choice
+   inside a set you are about to act on, which is what the tool allowlist below still is. */
 describe("McpSection", () => {
   it("says a fresh space has no MCP servers rather than rendering an empty list", async () => {
     await mount();
@@ -32,7 +35,7 @@ describe("McpSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add server" }));
     await waitFor(() => expect(screen.getByText("Everything")).toBeInTheDocument());
     const row = screen.getByText("Everything").closest(".mcp-row") as HTMLElement;
-    expect(within(row).getByRole("checkbox", { name: "Enabled" })).toBeChecked();
+    expect(within(row).getByRole("switch", { name: "Enabled" })).toBeChecked();
     expect(store.getState().mcpServers.some((s) => s.name === "Everything" && s.enabled)).toBe(true);
   });
 
@@ -40,7 +43,7 @@ describe("McpSection", () => {
     const srv = mcpServer("m1", { name: "srv1", enabled: true, tools: [] });
     const { api } = await mount({ mcpServers: [srv] });
     const row = (await screen.findByText("srv1")).closest(".mcp-row") as HTMLElement;
-    fireEvent.click(within(row).getByRole("checkbox", { name: "Enabled" }));
+    fireEvent.click(within(row).getByRole("switch", { name: "Enabled" }));
     // The named mutant (Plan 12 W3): the panel, re-mounted inside the space page, sending the
     // toggle for some other space than the one whose page this is.
     await waitFor(() => expect(api.calls).toContain("setMcpEnabled:s1:m1=false"));
@@ -259,7 +262,7 @@ describe("scoped server groups (W4)", () => {
   it("the inherited row's Enabled toggle rides the per-space wire with the vantage space id (named mutant: writing the defining scope)", async () => {
     const { api } = await mount({ mcpServers: scopedServers() });
     const row = (await screen.findByText("shared")).closest(".mcp-row") as HTMLElement;
-    fireEvent.click(within(row).getByRole("checkbox", { name: "Enabled" }));
+    fireEvent.click(within(row).getByRole("switch", { name: "Enabled" }));
     await waitFor(() => expect(api.calls).toContain("setMcpEnabled:s1:m-shared=false"));
     expect(api.calls.some((c) => c.startsWith("promoteMcpServer") || c.startsWith("demoteMcpServer"))).toBe(false);
   });
@@ -298,11 +301,11 @@ describe("scoped server groups (W4)", () => {
 
   it("Realm's own tools render as provider rows whose switch rides mcp.setProviderEnabled for THIS space", async () => {
     const { api } = await mount();
-    const toggle = await screen.findByRole("checkbox", { name: "Provider realm-browser in this space" });
+    const toggle = await screen.findByRole("switch", { name: "Provider realm-browser in this space" });
     expect(toggle).toBeChecked(); // default ON — Realm's own code
     fireEvent.click(toggle);
     await waitFor(() => expect(api.calls).toContain("setMcpProviderEnabled:s1:realm-browser=false"));
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Provider realm-browser in this space" })).not.toBeChecked());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Provider realm-browser in this space" })).not.toBeChecked());
   });
 
   it("a provider row has no status dot — in-process, there is no connection to have checked", async () => {

@@ -11,7 +11,7 @@ import { PermissionCard } from "./PermissionCard";
 import { PlanCard, PlanDecision, isPlanDecision } from "./PlanCard";
 import { QuestionCard, questionCardFor } from "./QuestionCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
-import { formatDuration, groupTranscript, withEnter } from "./tool-group";
+import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { runLabelFor } from "./run-label";
 import { useEnterTracker } from "./transcript-enter";
@@ -274,7 +274,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             // A turn the user stopped says so, on the same quiet line and in the same place. It does
             // not get the run's playful past tense: "Simmered for 4s" reads as a job that finished.
             case "run": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
-              {b.stopped ? `Stopped after ${formatDuration(b.ms)}` : `${runLabelFor(b.startedAt).past} for ${formatDuration(b.ms)}`}
+              <span>{b.stopped ? `Stopped after ${formatDuration(b.ms)}` : `${runLabelFor(b.startedAt).past} for ${formatDuration(b.ms)}`}</span>
+              {/* When it finished. A duration alone reads the same whether the run ended a minute
+                  ago or last Tuesday, and a transcript you come back to is where that matters. The
+                  full date rides the tooltip, because a clock time is ambiguous across midnight. */}
+              <span className="msg-run-at" title={finishedOn(b.ts)}>{finishedAt(b.ts)}</span>
             </div>;
             // The seam. Everything above it is one agent's voice and everything below is another's,
             // so it is drawn AS a seam — a rule across the column with the sentence set into it —

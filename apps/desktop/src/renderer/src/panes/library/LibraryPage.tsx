@@ -33,11 +33,11 @@ export function LibraryPage({ item }: PaneProps) {
   return (
     <div className="page library-page-pane">
       <header className="page-head">
-        <span className="page-glyph"><Icon name="library-page" size={20} /></span>
-        <div className="page-title">
-          <h1>Library</h1>
-          <span className="page-sub">Skills and memory, grouped by where each is defined — seen from {space.name}.</span>
-        </div>
+        <div className="page-title"><h1>Library</h1></div>
+        {/* The vantage, kept. It used to live in the sub-title paragraph, and that paragraph went —
+            but WHICH space a scope-grouped page is seen from is a fact about what it is showing, not
+            decoration, and it is the only place that fact appears. */}
+        <span className="page-vantage">{space.name}</span>
       </header>
       <div className="page-body">
         <fieldset className="page-rail">

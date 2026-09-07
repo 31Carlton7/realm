@@ -41,7 +41,9 @@ describe("the Library page (Plan 12 W4)", () => {
     const { api } = await mount({}, "s2"); // active space stays s1 (boot default)
     await waitFor(() => expect(api.calls).toContain("listSkills:s2"));
     expect(api.calls).not.toContain("listSkills:s1");
-    expect(screen.getByText(/seen from Homework/)).toBeInTheDocument();
+    // The vantage moved out of a sub-title paragraph and into the header beside the title, but it
+    // is still the only place the page says WHICH space it is showing — so it is still asserted.
+    expect(document.querySelector(".page-vantage")?.textContent).toBe("Homework");
   });
 
   it("Memory: the space doc sits under This space with its editor; the profile doc under From Work with the override toggle", async () => {

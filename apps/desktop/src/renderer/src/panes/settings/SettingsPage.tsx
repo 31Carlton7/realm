@@ -45,11 +45,7 @@ export function SettingsPage(_props: PaneProps) {
   return (
     <div className="page settings-page-pane">
       <header className="page-head">
-        <span className="page-glyph"><Icon name="settings-page" size={20} /></span>
-        <div className="page-title">
-          <h1>Settings</h1>
-          <span className="page-sub">Engines, spend and usage, app preferences, saved sign-ins, importing from the agent CLIs, and what macOS lets Realm do.</span>
-        </div>
+        <div className="page-title"><h1>Settings</h1></div>
       </header>
       <div className="page-body">
         <fieldset className="page-rail">

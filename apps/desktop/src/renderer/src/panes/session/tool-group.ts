@@ -124,6 +124,24 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
  *  "6m 12s", "1h 4m". A settled sub-second run says "<1s" rather than the lie "0s". Seconds drop
  *  past the hour: at that length they are noise, and "124m 3s" is arithmetic the reader should not
  *  have to do. Shared with the per-run line the transcript settles on (Transcript's `run` block). */
+/**
+ * When a turn finished, as a clock time — the answer to "was that just now, or before lunch?".
+ *
+ * A duration alone cannot answer it: "Cooked for 2m" reads the same whether the run ended a minute
+ * ago or last Tuesday, and a transcript you come back to is exactly where that matters. Locale
+ * formatting, because a clock is one of the few things in this app that is genuinely the reader's
+ * convention rather than ours.
+ */
+export function finishedAt(ts: number): string {
+  return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+/** The same moment in full, for the line's `title` — a time with no date is ambiguous the moment a
+ *  session spans midnight, and the tooltip is where that ambiguity is cheap to resolve. */
+export function finishedOn(ts: number): string {
+  return new Date(ts).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
 export function formatDuration(ms: number): string {
   const secs = Math.round(ms / 1000);
   if (secs < 1) return "<1s";

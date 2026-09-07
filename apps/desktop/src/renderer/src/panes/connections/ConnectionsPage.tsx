@@ -22,11 +22,8 @@ export function ConnectionsPage({ item }: PaneProps) {
   return (
     <div className="page connections-page-pane">
       <header className="page-head">
-        <span className="page-glyph"><Icon name="connections-page" size={20} /></span>
-        <div className="page-title">
-          <h1>Connections</h1>
-          <span className="page-sub">MCP servers and Realm's own tools, grouped by where each is defined — seen from {space.name}.</span>
-        </div>
+        <div className="page-title"><h1>Connections</h1></div>
+        <span className="page-vantage">{space.name}</span>
       </header>
       <div className="page-body">
         <div className="page-content">

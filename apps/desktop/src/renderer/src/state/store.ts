@@ -3796,14 +3796,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSetting(NOTIFICATIONS_SOUND_VOLUME_KEY, v);
         set({ soundVolume: v });
       },
+      /**
+       * Select a feed row — which is now ONLY a selection.
+       *
+       * It used to mark the row read as a side effect, on the reasoning that opening a row is having
+       * seen it. Two things were wrong with that. A row opened by accident was silently consumed,
+       * with no way to put it back; and once the detail became a modal offering "Mark as read", that
+       * button would have been dead the moment it was drawn — the row was already read behind it.
+       *
+       * Marking read is now something the reader does: the modal's button for one row, "Mark all
+       * read" for the feed. `openNotificationTarget` still marks on the way past, because ACTING on
+       * a notification — jumping to the session it names — genuinely is consuming it.
+       */
       async selectNotification(pageItemId, id) {
         set({ notificationsSelectedId: id });
         get().navigateInPane(pageItemId, id);
-        // Read state is stamped by OPENING a row, not by the arrows: `stepPaneNav` only re-seats the
-        // selection, so retracing the trail re-shows rows without touching read state (they were read
-        // the first time through) and can never spend a markRead on a row the user is walking past.
-        const n = id ? get().notifications.find((x) => x.id === id) : null;
-        if (n && n.readAt === null) await get().markNotificationsRead([n.id]);
       },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);

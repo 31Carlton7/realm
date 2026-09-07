@@ -1299,7 +1299,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
    these down a long session does not jitter as the digits change. */
-.msg-run { font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.msg-run { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* Dimmer than the duration beside it. "How long did that take" is the question the line is answering;
+   "when did it end" is the one you only ask on the way back to an old session. */
+.msg-run-at { color: color-mix(in srgb, var(--rl-text-faint) 72%, transparent); }
 /* The closing line of a session nobody has touched in a while. Quieter than the run label above it
    and italic, because it is the one line in the transcript that is Realm talking about the session
    rather than anything that happened in it — a register the reader should be able to tell apart
@@ -2286,7 +2289,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
   /* page panes */
-  .cp-list, .activity-list, .task-detail-result, .notif-list, .notif-detail, .notif-split, .delegation-list,
+  .cp-list, .activity-list, .task-detail-result, .notif-feed, .delegation-list,
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents */
   .documents-tabs, .documents-picker, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
@@ -2682,6 +2685,57 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    toggle reads as live and on. .45 is the disabled opacity every other control here uses. */
 .switch:disabled { opacity: .45; cursor: default; }
 
+/**
+ * The checkbox — Realm's, not the OS's.
+ *
+ * Nine of these shipped as the raw macOS control: a hard blue square with a system tick, sitting in
+ * lists that are otherwise entirely this app's. It read as an unstyled bug, which is exactly what it
+ * was.
+ *
+ * A checkbox rather than a switch, deliberately. A switch is a setting that takes effect the moment
+ * you flip it; a checkbox is a choice inside a set you are about to act on — which import rows to
+ * bring in, which tools to allow, which thresholds to watch. Using a switch for those would promise
+ * an immediacy the surrounding Import / Save button contradicts.
+ */
+.checkbox {
+  /* 16px on the chip rung, not a hand-picked 15/5: the radius ladder has no rung between the tick
+     and the chip, and a control that invents one is how a ladder stops being one. At half the side
+     the corner is a superellipse rather than a rounded square, which is the point. */
+  appearance: none; flex: none; width: 16px; height: 16px; margin: 0;
+  border: 1.5px solid var(--rl-line-strong); border-radius: var(--r-chip); corner-shape: squircle;
+  background: var(--field); cursor: pointer; position: relative;
+  transition: background var(--dur-press) var(--ease-out-strong),
+              border-color var(--dur-press) var(--ease-out-strong),
+              scale var(--dur-press) var(--ease-out-strong);
+}
+.checkbox:hover:not(:disabled) { border-color: var(--rl-accent); }
+.checkbox:active:not(:disabled) { scale: 0.96; }
+.checkbox:checked { background: var(--rl-accent); border-color: var(--rl-accent); }
+/* The tick is drawn, not typed: a glyph would inherit the reader's font stack and land at a
+   different size and baseline on every machine. Two borders of a rotated box is the same mark
+   everywhere. `--rl-accent-contrast` is the theme's own partner for the accent fill — the same
+   token `.btn.primary` sets its label in, so the tick can never go invisible on a light accent. */
+.checkbox::after {
+  content: ""; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px;
+  border: solid var(--rl-accent-contrast); border-width: 0 1.5px 1.5px 0;
+  rotate: 45deg; opacity: 0; scale: 0.25; filter: blur(4px);
+  transition: opacity var(--dur-press) var(--ease-out-strong), scale var(--dur-press) var(--ease-out-strong),
+              filter var(--dur-press) var(--ease-out-strong);
+}
+.checkbox:checked::after { opacity: 1; scale: 1; filter: blur(0px); }
+/* Indeterminate is its own mark, not a half-drawn tick: a bar says "some of these", where a faded
+   check says "we are not sure whether this is on". */
+.checkbox:indeterminate { background: var(--rl-accent); border-color: var(--rl-accent); }
+.checkbox:indeterminate::after {
+  left: 3px; top: 6.5px; width: 7px; height: 0; rotate: none;
+  border-width: 0 0 1.5px 0; opacity: 1; scale: 1; filter: none;
+}
+.checkbox:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
+.checkbox:disabled { opacity: .45; cursor: default; }
+/* A checkbox is 15px, well under the 40px a pointer wants. The row it sits in is the real target
+   wherever there is one; where the input stands alone, this gives it the reach. */
+.checkbox::before { content: ""; position: absolute; inset: -8px; }
+
 .memory-doc { min-height: 140px; padding: 8px 9px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; font: 12px/1.5 var(--font-mono); resize: vertical; }
 .memory-doc:focus { border-color: var(--rl-accent); }
 .memory-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -2714,7 +2768,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    The number is what the page's own parts add up to, so below it nothing moves and above it the
    surplus becomes equal margins rather than a right-hand void. */
 .page { --page-measure: 768px; }                                 /* 24px gutter + 720px column + 24px */
-.page:has(.page-rail, .notif-split) { --page-measure: 968px; }   /* + the 180px rail and its 20px gap */
+.page:has(.page-rail) { --page-measure: 968px; }   /* + the 180px rail and its 20px gap */
 .page:has(.page-content[data-wide]) { --page-measure: 1348px; }  /* the Tasks lens's own 1100px cap */
 /* `width: 100%` is load-bearing: an auto cross-axis margin switches off a flex item's stretch, so
    without it each band would shrink to fit its own longest line instead of filling the cap. */
@@ -2723,15 +2777,31 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    stated here rather than with its own look — after the narrow block below, it could not be
    overridden there (a container query carries no extra specificity). */
 .profile-spaces { padding-inline: 24px; }
-.page-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 20px 24px 14px; }
+/* A page's title sits where its CONTENT starts, not where the window does. On a railed page the
+   content column begins past the rail, and a title left-aligned to the window instead pointed at the
+   tab list rather than at the thing it names. The two rail measurements are variables so the indent
+   and the rail can never drift apart. */
+.page { --page-rail-w: 180px; --page-rail-gap: 20px; }
+.page-head { flex: none; display: flex; align-items: baseline; gap: 12px; padding: 22px 24px 12px; }
+.page:has(.page-rail) .page-head { padding-left: calc(24px + var(--page-rail-w) + var(--page-rail-gap)); }
 .page-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, currentColor 14%, transparent); }
-.page-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; margin-right: auto; }
-.page-title h1 { margin: 0; font-size: 17px; font-weight: var(--fw-strong); color: var(--rl-text-bright);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.page-sub { font-size: 12px; color: var(--rl-text-dim); }
-.page-body { flex: 1; min-height: 0; display: flex; align-items: stretch; gap: 20px; padding: 0 24px 20px; }
-.page-rail { flex: none; width: 180px; display: flex; flex-direction: column; gap: 2px; align-self: flex-start;
+.page-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* The one fact a page's sub-title was carrying that the title does not: which space it is seen from,
+   or how many of a thing it holds. Beside the title rather than under it, because it is an answer of
+   a few words and a paragraph's worth of chrome for it was most of what made these headers heavy. */
+.page-vantage { flex: none; margin-right: auto; font-size: 12.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* Nothing to the left of the actions? Then the title takes the slack. */
+.page-head > .page-title:last-of-type:not(:has(~ .page-vantage)) { margin-right: auto; }
+/* 22px, up from 17. The title is the only thing in the header now, so it carries the page on its
+   own — and the title rung is where design.md puts a product title. */
+.page-title h1 { margin: 0; font-size: 22px; font-weight: var(--fw-title); letter-spacing: -0.02em;
+  color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* `.page-sub` is gone with the glyph. Every one of them restated the page's own tab list in a
+   sentence — "Engines, spend and usage, app preferences, saved sign-ins…" above a rail already
+   reading Engines / Usage / App / Sign-ins. */
+.page-body { flex: 1; min-height: 0; display: flex; align-items: stretch; gap: var(--page-rail-gap); padding: 0 24px 20px; }
+.page-rail { flex: none; width: var(--page-rail-w); display: flex; flex-direction: column; gap: 2px; align-self: flex-start;
   margin: 0; padding: 0; border: none; background: none; }
 .page-rail .settings-tab { flex: none; text-align: left; padding: 6px 10px; font-size: 13px; border-radius: var(--r-ctl); }
 /* `min-height: 0` matters once the narrow block below turns `.page-body` into a column: without it
@@ -2754,7 +2824,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    its trailing action fall under the title instead of crushing it, and every row's action cluster
    takes its own line rather than pinching the text it acts on down to one character per line. */
 @container (max-width: 640px) {
-  .page-head { flex-wrap: wrap; gap: 10px; padding: 14px 16px 10px; }
+  .page-head, .page:has(.page-rail) .page-head { flex-wrap: wrap; gap: 10px; padding: 14px 16px 10px; }
   /* Only the trailing action is meant to fall to a second line. Given a shrinkable basis the title
      stays beside its glyph; left at `auto` its full text is the basis, and the glyph ended up
      stranded alone on the first line. */
@@ -2930,51 +3000,80 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 
 /* ——— Plan 12 W5: the Notifications page. Quiet feed rows on the page pattern; unread is a dot and a
    brighter title, never a wash. The inline permission card is the session pane's own component. ——— */
-.notifications-page-pane .page-head { align-items: flex-start; }
+
 /* The feed is SCANNED, not read: it spends its width on a second column instead of the ~720px
    reading column the other destination pages cap themselves at (there is no `.page-content` here at
    all), which is why it shares the rail pages' measure rather than the bare column's. It answers
    to the PANE's width and not the window's — `.page` is the inline-size container every page shares
    — because this page is as likely to be half of a split as it is to be the whole screen. */
-.notif-split { gap: 0; }
-.notif-list { flex: 1 1 380px; min-width: 0; max-width: 480px; overflow-y: auto; padding-right: 16px; }
-.notif-detail { flex: 2 1 0; min-width: 0; overflow-y: auto; padding-left: 20px; border-left: 1px solid var(--rl-hairline); }
-.notif-detail-empty { font-size: 13px; padding: 12px 0; }
-.notif-detail-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-.notif-detail-head { display: flex; align-items: center; gap: 8px; width: 100%; }
-.notif-detail-kind { font-size: 10.5px; font-weight: var(--fw-title); text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
+
+
+
+
+
+
+
 .notif-detail-title { margin: 0; font-size: 15px; font-weight: var(--fw-title); color: var(--rl-text-bright); overflow-wrap: anywhere; text-wrap: balance; }
 .notif-detail-body { margin: 0; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); overflow-wrap: anywhere; }
-.notif-detail-card .notif-inline-card { width: 100%; }
+
 /* Too narrow for two columns: stack them and let the whole body scroll as one, rather than pinching
    the list and the detail into two unreadable gutters. The threshold is wider than the other pages'
    640 because this split needs BOTH columns readable at once — the list alone claims up to 480px, so
    at 640 the detail was a 140px gutter that could not hold a title. */
-@container (max-width: 760px) {
-  .notif-split { flex-direction: column; overflow-y: auto; }
-  .notif-list, .notif-detail { flex: none; max-width: none; overflow: visible; padding-right: 0; padding-left: 0; }
-  .notif-detail { border-left: none; border-top: 1px solid var(--rl-hairline); padding-top: 14px; margin-top: 6px; }
+/* The narrow pass has nothing left to stack: the split is gone, and one measured column of cards
+   already reflows on its own. */
+.notif-mark-all { flex: none; }
+/* The feed takes the shared reading column — no measure of its own in either direction.
+   It used to opt OUT upward, to a 968px two-column page whose detail half stood empty until
+   something was selected. The first fix opted out downward instead, capping the feed at 560 and
+   centring it, and that was wrong for a subtler reason: the page then centred the cards and the
+   header independently, leaving the title 76px to the left of the list it names. A page whose
+   header and content share one column has neither problem, and is what every other destination
+   page already does. */
+.notif-feed { max-width: none; }
+.notif-unread-count { flex: none; font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* Centred, because an empty feed IS the page, and a sentence pinned to its left reads as a load
+   that has not finished. */
+.notif-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 64px 24px; text-align: center; }
+.notif-empty-line { margin: 0; font-size: 14px; color: var(--rl-text-dim); }
+.notif-empty-sub { margin: 0; font-size: 12.5px; color: var(--rl-text-faint); text-wrap: balance; }
+.notif-day { display: flex; flex-direction: column; margin-bottom: 20px; }
+.notif-day-label { margin: 0 0 8px; font-size: 11px; font-weight: var(--fw-title); color: var(--rl-text-faint); }
+.notif-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* A card, not a row: separated by air and a surface rather than by a rule, which is what lets each
+   one carry a body line without the list reading as a wall. */
+.notif-row {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 11px 12px;
+  text-align: left; color: var(--rl-text-dim); font: inherit; cursor: pointer;
+  background: var(--rl-frame); border: none; border-radius: var(--r-panel); corner-shape: squircle;
+  transition: background var(--dur-press) var(--ease-out-strong), scale var(--dur-press) var(--ease-out-strong);
 }
-.notif-mark-all { margin-left: auto; flex: none; }
-.notif-empty { font-size: 13px; padding: 12px 0; }
-.notif-day { display: flex; flex-direction: column; margin-bottom: 18px; }
-.notif-day-label { margin: 0 0 4px; font-size: 10.5px; font-weight: var(--fw-title); text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
-.notif-row { display: flex; gap: 10px; width: 100%; padding: 10px 8px; text-align: left; color: var(--rl-text-dim);
-  background: none; border: none; border-radius: var(--r-ctl); font: inherit; cursor: pointer; }
+.notif-row:active { scale: 0.96; }
 .notif-row:hover { background: var(--rl-hover); }
 .notif-row[data-selected] { background: var(--rl-active); }
+/* An unread card is lifted by its SURFACE, not only by a dot — a 6px mark and a colour are the two
+   things design.md will not let carry a state on their own. */
+.notif-row[data-unread] { background: var(--rl-raised); color: var(--rl-text-bright); }
 .notif-row[data-selected] .notif-title { color: var(--rl-text-bright); }
-.notif-row[data-unread] { color: var(--rl-text-bright); }
-.notif-glyph { flex: none; display: inline-flex; align-items: flex-start; margin-top: 1px; color: var(--rl-text-faint); }
+.notif-glyph { flex: none; display: inline-flex; margin-top: 2px; color: var(--rl-text-faint); }
 .notif-row[data-unread] .notif-glyph { color: inherit; }
 .notif-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; text-align: left; }
-.notif-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.notif-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); align-self: center; }
-.notif-title { font-size: 13px; font-weight: var(--fw-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notif-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.notif-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); margin-top: 6px; }
+/* 13.5px and wrapping. A title clipped mid-word to hold one line stops being a title, and a card
+   has the room for two. */
+.notif-title { flex: 1 1 auto; min-width: 0; font-size: 13.5px; font-weight: var(--fw-label); overflow-wrap: anywhere; }
+/* The kind, named. The glyph alone made a reader learn nine icons to tell a permission from a
+   finished run. */
+.notif-kind { flex: none; font-size: 11px; color: var(--rl-text-faint); }
 .notif-row[data-unread] .notif-title { color: var(--rl-text-bright); font-weight: var(--fw-title); }
-.notif-time { flex: none; margin-left: auto; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.notif-body { font-size: 12px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.notif-time { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.notif-body { font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .notif-inline-card { margin-top: 4px; }
+.notif-sheet { display: flex; flex-direction: column; gap: 10px; }
+.notif-sheet-when { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.notif-sheet-read { align-self: center; font-size: 11.5px; color: var(--rl-text-faint); }
+
 .notif-jump { align-self: flex-start; height: auto; padding: 0; margin-top: 1px; font-size: 11.5px; color: var(--rl-text-dim); background: none; border: none; box-shadow: none; }
 .notif-jump:hover:not(:disabled) { color: var(--rl-accent); background: none; text-decoration: underline; }
 .notif-more { align-self: flex-start; margin: 4px 0 12px; }

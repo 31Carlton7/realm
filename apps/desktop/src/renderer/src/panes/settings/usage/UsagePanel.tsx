@@ -316,7 +316,7 @@ function BudgetCard({ data, onSave }: { data: UsageSummary; onSave: (b: UsageBud
           <legend>Alert at</legend>
           {[0.5, 0.8, 1, 1.25].map((x) => (
             <label key={x} className="budget-threshold" data-selected={thresholds.includes(x) || undefined}>
-              <input type="checkbox" checked={thresholds.includes(x)}
+              <input type="checkbox" className="checkbox" checked={thresholds.includes(x)}
                 onChange={(e) => setThresholds(e.target.checked ? [...thresholds, x].sort((a, b) => a - b) : thresholds.filter((y) => y !== x))} />
               {Math.round(x * 100)}%
             </label>

@@ -24,10 +24,16 @@ const washed = (el: HTMLElement) => {
 };
 
 describe("which surfaces wear the decorative wash", () => {
-  it("Notifications takes the colour field, and no texture", async () => {
+  it("Notifications is plain too — it was the last page wearing the field, and it wore it worst", async () => {
+    /* Reversed deliberately. Settings lost the wash because a tint over a form reads as bleed into
+       the controls; Notifications had the same problem for a sharper reason — a decorated ground
+       under a list of things asking for your attention competes with the attention. That left the
+       app with exactly one washed pane, which is not a system, it is a leftover.
+
+       The named mutant is `className="page notifications-page-pane wash"` coming back. */
     const { container } = await mount(<NotificationsPage item={page("notifications-page")} visible />);
-    const root = washed(container.querySelector<HTMLElement>(".notifications-page-pane")!);
-    // `.page` is a --canvas ground, where the contrast budget for a luminance excursion is zero.
+    const root = container.querySelector<HTMLElement>(".notifications-page-pane")!;
+    expect(root.classList.contains("wash")).toBe(false);
     expect(root.hasAttribute("data-grain")).toBe(false);
   });
 

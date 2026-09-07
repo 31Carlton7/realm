@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { RUN_LABELS, runLabelFor } from "./run-label";
+import { finishedAt } from "./tool-group";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
@@ -70,7 +71,13 @@ describe("what the transcript says about the run", () => {
       { kind: "run", ms: 4_000, startedAt: a, ts: a + 4_000 },
       { kind: "run", ms: 9_000, startedAt: b, ts: b + 9_000 },
     ])} />);
-    expect([...document.querySelectorAll(".msg-run")].map((el) => el.textContent))
+    // The duration only — the finish time rides a span of its own beside it, which `textContent`
+    // would otherwise fold into this string.
+    expect([...document.querySelectorAll(".msg-run > span:first-child")].map((el) => el.textContent))
       .toEqual([`${runLabelFor(a).past} for 4s`, `${runLabelFor(b).past} for 9s`]);
+    // And each line says WHEN it ended: a duration alone reads the same whether the run finished a
+    // minute ago or last Tuesday.
+    expect([...document.querySelectorAll(".msg-run-at")].map((el) => el.textContent))
+      .toEqual([finishedAt(a + 4_000), finishedAt(b + 9_000)]);
   });
 });

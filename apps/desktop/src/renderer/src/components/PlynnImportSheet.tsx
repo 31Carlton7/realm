@@ -75,7 +75,7 @@ export function PlynnImportSheet() {
               {state.meetings.map((m) => (
                 <li key={m.file}>
                   <label className="lecture-row" data-imported={m.imported || undefined}>
-                    <input type="checkbox" checked={checked.has(m.file)} onChange={() => toggle(m.file)} aria-label={`Import ${m.title}`} />
+                    <input type="checkbox" className="checkbox" checked={checked.has(m.file)} onChange={() => toggle(m.file)} aria-label={`Import ${m.title}`} />
                     <Icon name="mic" size={14} />
                     <span className="lecture-title">{m.title}</span>
                     <span className="lecture-meta muted">{fmtWhen(m.startedAt)} · {fmtSize(m.sizeBytes)}{m.imported ? " · imported" : ""}</span>

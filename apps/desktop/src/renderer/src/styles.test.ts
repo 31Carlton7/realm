@@ -1384,8 +1384,12 @@ describe("the page measure", () => {
   const px = (v: string): number => Number(v.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? NaN);
 
   const GUTTER = px(decl(".page-body", "padding").split(" ")[1]!);
-  const GAP = px(decl(".page-body", "gap"));
-  const RAIL = px(decl(".page-rail", "width"));
+  /* The rail's width and the gap beside it are variables now, because the header's indent is
+     computed from both and a literal in either place would let the two drift. Read from the
+     declaration rather than the use, so this still measures what the layout actually uses. */
+  const pageVar = (name: string): number => px(decl(".page", name));
+  const GAP = pageVar("--page-rail-gap");
+  const RAIL = pageVar("--page-rail-w");
   const COLUMN = px(decl(".page-content", "max-width"));
   const LENS = px(decl(".task-lens", "max-width"));
 
@@ -1397,6 +1401,17 @@ describe("the page measure", () => {
     expect(MEASURES.get(sel), `no --page-measure on \`${sel}\``).toBeGreaterThan(0);
     return MEASURES.get(sel)!;
   };
+
+  it("the header's indent is built from the SAME two numbers the rail is", () => {
+    /* The title now starts where the content column does, which on a railed page means clearing the
+       rail. Written as a literal, that number silently stops matching the moment the rail moves —
+       so the indent is `calc(gutter + rail + gap)` off the variables, and this is what says so. */
+    const indent = decl(".page:has(.page-rail) .page-head", "padding-left");
+    expect(indent).toContain("--page-rail-w");
+    expect(indent).toContain("--page-rail-gap");
+    expect(decl(".page-rail", "width")).toBe("var(--page-rail-w)");
+    expect(decl(".page-body", "gap")).toBe("var(--page-rail-gap)");
+  });
 
   it("head, rail and content are ONE centred block — the title stays over the column it introduces", () => {
     // The mutant: drop `.page-head` from this rule. The form centres itself in the pane and the title
@@ -1414,7 +1429,7 @@ describe("the page measure", () => {
     // Bare column, column beside the rail, and the Tasks lens beside the rail. Change `.page-rail`'s
     // width or `.page-content`'s measure and the cap that no longer matches fails here.
     expect(measure(".page")).toBe(GUTTER * 2 + COLUMN);
-    expect(measure(".page:has(.page-rail, .notif-split)")).toBe(GUTTER * 2 + RAIL + GAP + COLUMN);
+    expect(measure(".page:has(.page-rail)")).toBe(GUTTER * 2 + RAIL + GAP + COLUMN);
     expect(measure(".page:has(.page-content[data-wide])")).toBe(GUTTER * 2 + RAIL + GAP + LENS);
   });
 
@@ -1422,16 +1437,16 @@ describe("the page measure", () => {
     // The space page has a rail AND a wide content, so both selectors hit it; `[data-wide]` is what
     // makes the wider one win. Losing that is a lens squeezed into the reading measure.
     expect(measure(".page:has(.page-content[data-wide])"))
-      .toBeGreaterThan(measure(".page:has(.page-rail, .notif-split)"));
+      .toBeGreaterThan(measure(".page:has(.page-rail)"));
   });
 
-  it("the notifications split shares the rail pages' cap, because 720 leaves it no second column", () => {
-    // The mutant: let it fall through to the bare default. The list alone claims 480, so the detail
-    // becomes the ~220px gutter that could not hold a title — the failure the 760px stacking
-    // threshold exists to avoid, reintroduced above that threshold where stacking cannot save it.
-    const detail = measure(".page:has(.page-rail, .notif-split)") - GUTTER * 2
-      - px(decl(".notif-list", "max-width")) - px(decl(".notif-detail", "padding-left"));
-    expect(detail).toBeGreaterThan(300);
+  it("the notifications feed takes the shared reading column, opting out in NEITHER direction", () => {
+    /* Two reversals, and the second is the subtle one. It used to opt out UPWARD, to a 968px
+       two-column page whose detail half stood empty until something was selected. Capping the feed
+       narrower and centring it looked like the fix, and was not: the page then centred the cards and
+       the header independently, leaving the title 76px to the left of the list it names. */
+    expect(decl(".notif-feed", "max-width")).toBe("none");
+    expect(MEASURES.has(".notifications-page-pane")).toBe(false);
   });
 
   it("no cap can bind inside the narrow pass, so the two never fight", () => {
@@ -1520,10 +1535,12 @@ describe("narrow panes", () => {
     expect(tight).toMatch(/\.diff-staged-count \{[^}]*flex-basis: 100%/);
   });
 
-  it("the notifications split waits for room for BOTH columns, not just the list", () => {
-    // The list alone claims up to 480px, so the old 640 threshold left the detail a 140px gutter
-    // that could not hold a title.
-    expect(blockAfter("@container (max-width: 760px)")).toMatch(/\.notif-split \{[^}]*flex-direction: column/);
+  it("the notifications feed needs no narrow pass at all", () => {
+    /* There was a 760px threshold here that stacked a two-column split. The split is gone — one
+       measured column of cards reflows on its own — and a container query for a layout that no
+       longer exists is the kind of dead rule the next person spends an afternoon on. */
+    expect(css).not.toContain(".notif-split");
+    expect(css).not.toContain(".notif-detail {");
   });
 
   it("every override sits AFTER the shorthand it overrides — a container query adds no specificity", () => {

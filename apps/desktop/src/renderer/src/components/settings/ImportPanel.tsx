@@ -235,7 +235,7 @@ function SessionSection({ sessions, targetOf, setTargets, targetLabel, selected,
             {g.rows.map((s) => (
               <li key={s.key} className="import-row" data-off={!selected(s) || undefined}>
                 <label className="import-row-check">
-                  <input type="checkbox" checked={selected(s)} disabled={s.imported} onChange={(e) => toggle(s.key, e.target.checked)} />
+                  <input type="checkbox" className="checkbox" checked={selected(s)} disabled={s.imported} onChange={(e) => toggle(s.key, e.target.checked)} />
                 </label>
                 <Icon name={AGENT_META[s.agentKind].icon} size={14} colored />
                 <span className="import-row-title" title={s.path}>{s.title}</span>
@@ -275,7 +275,7 @@ function MemorySection({ memories, targetOf, setTargets, targetLabel, selected, 
         {memories.map((m) => (
           <li key={m.key} className="import-row" data-off={!selected(m) || undefined}>
             <label className="import-row-check">
-              <input type="checkbox" checked={selected(m)} onChange={(e) => toggle(m.key, e.target.checked)} />
+              <input type="checkbox" className="checkbox" checked={selected(m)} onChange={(e) => toggle(m.key, e.target.checked)} />
             </label>
             <span className="import-row-title" title={m.path}>{m.cwd || m.path}</span>
             <span className="muted import-row-meta">
@@ -312,7 +312,7 @@ function SkillSection({ skills, selected, toggle }: {
         {skills.map((s) => (
           <li key={s.key} className="import-row" data-off={!selected(s) || undefined}>
             <label className="import-row-check">
-              <input type="checkbox" checked={selected(s)} disabled={s.imported} onChange={(e) => toggle(s.key, e.target.checked)} />
+              <input type="checkbox" className="checkbox" checked={selected(s)} disabled={s.imported} onChange={(e) => toggle(s.key, e.target.checked)} />
             </label>
             <span className="import-row-title" title={s.path}>{s.key}</span>
             <span className="muted import-row-meta">{s.origins.join(", ")}{s.imported && " · already in the library"}</span>

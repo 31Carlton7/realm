@@ -49,11 +49,7 @@ export function ProfilePage({ item }: PaneProps) {
   return (
     <div className="page profile-page-pane">
       <header className="page-head">
-        <span className="page-glyph"><Icon name={profile.icon} size={20} /></span>
-        <div className="page-title">
-          <h1>{profile.name}</h1>
-          <span className="page-sub">Skills, connections and memory defined here reach every space of this profile.</span>
-        </div>
+        <div className="page-title"><h1>{profile.name}</h1></div>
       </header>
       {/* The profile's spaces as jump chips: the page's subject is a group of spaces, and each chip
           goes to one of them (the space switcher's own path — never a second navigation scheme). */}

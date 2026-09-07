@@ -48,20 +48,21 @@ describe("the Notifications page (Plan 12 W5)", () => {
     expect(within(old).queryByLabelText("Unread")).toBeNull();
   });
 
-  it("the page body IS the split, which is how the page earns a measure wide enough for two columns", async () => {
-    // styles.css caps `.page:has(.notif-split)` alongside the rail pages rather than at the bare
-    // 720px reading column, because the list alone claims 480 of it. Rename the class and the detail
-    // silently becomes a gutter too narrow for a title.
+  it("is one measured column of cards, with no decorated ground under it", async () => {
+    /* Both halves are deliberate reversals. The page was a two-column split at 968px whose detail
+       column stood empty until something was selected — a rule down the middle of a page with one
+       thing on it. And it was the only pane in the app wearing the accent wash, which competes with
+       the attention a list of things needing attention is asking for. */
     const { container } = await mount({ notifications: [notification("n1", { title: "a row" })] });
     await waitFor(() => expect(screen.getByText("a row")).toBeInTheDocument());
-    expect(container.querySelector(".page > .page-body")).toHaveClass("notif-split");
+    expect(container.querySelector(".notif-feed")).toBeInTheDocument();
+    expect(container.querySelector(".page")).not.toHaveClass("wash");
   });
 
   it("shows a quiet, honest empty state", async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Nothing has needed you/)).toBeInTheDocument());
     expect(screen.queryByText("Mark all read")).toBeNull(); // no dead chrome over an empty feed
-    expect(screen.queryByLabelText("Notification detail")).toBeNull(); // nor an empty detail column
   });
 
   it("Mark all read goes through the global markRead and the rows settle read", async () => {
@@ -72,24 +73,21 @@ describe("the Notifications page (Plan 12 W5)", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "row one" })).not.toHaveAttribute("data-unread"));
   });
 
-  it("opens the selected row in the detail column, marks it read, and shows nothing until one is picked", async () => {
-    const { api, store } = await mount({ notifications: [
+  it("opens the selected row over the feed, and draws no modal until one is picked", async () => {
+    const { store } = await mount({ notifications: [
       notification("n1", { title: "row one", body: "what happened" }),
       notification("n2", { title: "row two", createdAt: 100 }),
     ] });
     await waitFor(() => expect(screen.getByText("row one")).toBeInTheDocument());
-    // Nothing selected: the detail column is present but empty, and no row is current.
-    expect(screen.getByText("Select a notification to read it here.")).toBeInTheDocument();
+    // Nothing selected: nothing is drawn. The old shape kept an empty detail column standing.
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("button", { name: "row one" })).not.toHaveAttribute("aria-current");
 
     await select("row one");
     const detail = screen.getByRole("article", { name: "row one" });
     expect(within(detail).getByText("what happened")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "row one" })).toHaveAttribute("aria-current", "true");
-    // Opening a row IS having seen it.
-    await waitFor(() => expect(api.calls).toContain("markNotificationsRead:n1"));
-    await waitFor(() => expect(screen.getByRole("button", { name: "row one" })).not.toHaveAttribute("data-unread"));
-    // The list stays put beside the detail — this is master-detail, not a page swap.
+    // The feed stays behind it — this is a modal over the page, not a page swap.
     expect(screen.getByRole("button", { name: "row two" })).toBeInTheDocument();
 
     // The selection is USER-level state, not the pane's and not the space's.
@@ -99,7 +97,24 @@ describe("the Notifications page (Plan 12 W5)", () => {
     expect(screen.getByRole("button", { name: "row one" })).not.toHaveAttribute("aria-current");
   });
 
-  it("a selection whose row leaves the feed falls back to the empty detail rather than a stale card", async () => {
+  it("marking read is something the READER does, not a side effect of looking", async () => {
+    /* Selecting a row used to mark it read. Two things were wrong with that: a row opened by
+       accident was silently consumed with no way to put it back, and the modal's own "Mark as read"
+       would have been dead the moment it was drawn. */
+    const { api } = await mount({ notifications: [notification("n1", { title: "row one" })] });
+    await waitFor(() => expect(screen.getByText("row one")).toBeInTheDocument());
+    await select("row one");
+    expect(api.calls.some((c) => c.startsWith("markNotificationsRead"))).toBe(false);
+    expect(screen.getByRole("button", { name: "row one" })).toHaveAttribute("data-unread");
+
+    screen.getByText("Mark as read").click();
+    await waitFor(() => expect(api.calls).toContain("markNotificationsRead:n1"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "row one" })).not.toHaveAttribute("data-unread"));
+    // And the button retires rather than offering to do it again.
+    expect(screen.queryByText("Mark as read")).toBeNull();
+  });
+
+  it("a selection whose row leaves the feed closes the modal rather than showing a stale card", async () => {
     const { store } = await mount({ notifications: [notification("n1", { title: "row one" })] });
     await waitFor(() => expect(screen.getByText("row one")).toBeInTheDocument());
     await select("row one");
@@ -115,7 +130,7 @@ describe("the Notifications page (Plan 12 W5)", () => {
       notifications: [notification("n1", { category: "permission", sessionId: "se1", refId: "r1", actedAt: null, title: "Fake agent session", body: "Run ls?" })],
     });
     await waitFor(() => expect(screen.getByRole("button", { name: "Fake agent session" })).toBeInTheDocument());
-    // The card belongs to the DETAIL: an unselected feed offers no decisions.
+    // The card belongs to the MODAL: an unselected feed offers no decisions.
     expect(screen.queryByRole("group", { name: "Permission request" })).toBeNull();
     await select("Fake agent session");
     // The card is the real component — same role, same options — fed by openSession's fetch.

@@ -118,7 +118,7 @@ function RealmProviders({ spaceId }: { spaceId: string }) {
             </div>
             <div className="env-actions">
               <label className="mcp-enable">
-                <input type="checkbox" aria-label={`Provider ${p.name} in this space`} checked={p.enabled}
+                <input type="checkbox" role="switch" className="switch" aria-label={`Provider ${p.name} in this space`} checked={p.enabled}
                   onChange={(e) => run(() => setMcpProviderEnabled(spaceId, p.name, e.target.checked))} />
                 Enabled
               </label>
@@ -191,7 +191,7 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <label className="mcp-enable">
           {/* Always the per-space wire, whatever the scope: for an inherited server the server side
               flips this space's override, never the defining scope's state (the named W4 mutant). */}
-          <input type="checkbox" checked={server.enabled}
+          <input type="checkbox" role="switch" className="switch" checked={server.enabled}
             title={inherited ? `Defined in ${profileName} — this switch is this space's override.` : undefined}
             onChange={(e) => run(() => setMcpEnabled(spaceId, server.id, e.target.checked))} />
           Enabled
@@ -275,7 +275,7 @@ function McpToolsPolicy({ spaceId, server }: { spaceId: string; server: McpServe
             {server.tools.map((t) => (
               <li key={t.name}>
                 <label>
-                  <input type="checkbox" checked={isAllowed(t.name)} onChange={(e) => toggle(t.name, e.target.checked)} />
+                  <input type="checkbox" className="checkbox" checked={isAllowed(t.name)} onChange={(e) => toggle(t.name, e.target.checked)} />
                   <span className="mcp-tool-name">{t.name}</span>
                 </label>
               </li>
