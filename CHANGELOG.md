@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.6.1 — 2026-09-06
+
+A fixes release for the prompter, the sidebar and Settings, from a round of screenshot review.
+
+**Prompter.** The note under the attachment chips no longer narrates a handoff the agent completes
+itself — Codex getting a path, Cursor getting a link — for any provider. Only a file the agent will
+silently drop still earns a warning; the rest stays on the chip's tooltip. The strip under the card
+now sits evenly, ten pixels above and below its chips instead of two and twelve, and its bottom
+corners draw at the card's own squircle: the paint worklet reduces radii the way `border-radius`
+does, rather than clamping every corner to half the box.
+
+**Model picker.** The provider strip says the model family — Claude, GPT, Gemini, Grok, Kimi, GLM —
+beside its mark, matching the list's own separators, instead of the maker's corporate name. Kimi and
+Z.ai marks are new; a maker Realm has no mark for keeps its name and gets none invented.
+
+**Sidebar.** The list's bottom fade was a backdrop blur over the translucent column, which blurs the
+window's own transparency and rendered as a dark smudge above the space strip. The list now
+dissolves by masking the scroller itself, which paints nothing over the rows, on the vibrancy
+material and under reduced transparency alike.
+
+**Settings.** The decorative wash is gone from the page. The content column no longer clips the
+selection ring off the theme and appearance cards at its left edge.
+
 ## v0.6.0 — 2026-09-05
 
 The largest release so far: computer use, a real theming system, plan and ask modes, sub-agent
