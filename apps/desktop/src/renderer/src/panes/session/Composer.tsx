@@ -10,7 +10,7 @@ import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashQueryAt, type SlashCommand } from "./slash-commands";
 import { modelIdOn, modelRows } from "./model-rows";
 import { SkillPicker } from "./SkillPicker";
-import { ModelPicker, formatEffort, type OverflowGroup } from "./ModelPicker";
+import { ModelPicker, formatEffort, type FastMode, type OverflowGroup } from "./ModelPicker";
 import { SUGGESTIONS } from "./suggestions";
 import { heroGreeting } from "./greeting";
 import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
@@ -267,7 +267,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, supportsFastMode }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -352,6 +352,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  ever transmitted, which is the whole difference between this and an `@`-mention. Empty (the
    *  default) means typing `/` opens nothing at all. */
   slashCommands?: SlashCommand[];
+  /** Whether the harness has said THIS session's model can run fast mode (the `init` event's own
+   *  answer). Undefined is "not stated", and the picker offers no switch — never a disabled one,
+   *  because there is nothing the user could do about a capability nobody has claimed. */
+  supportsFastMode?: boolean;
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
@@ -682,6 +686,14 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // chip's gray suffix names the level, and this list is the picker's permanent Effort section.
   // Deliberately narrow (no `MenuItem[]`): OverflowGroup's item shape, which has no separator arm.
   const effortItems = EFFORT_LEVELS.map((l) => ({ label: formatEffort(l), checked: session.effort === l, onSelect: () => onOptions({ effort: l }) }));
+  /* The switch and the truth, kept apart. `on` is what the session asked for and lives in its row;
+     `state`/`reason` are what the last finished turn reported and live on the usage sample — see the
+     `usage` event's own note for why those can differ, routinely. Built only when the harness has
+     said the model can run it at all. */
+  const fast: FastMode | undefined = supportsFastMode
+    ? { on: session.fastMode, state: usage.fastMode ?? null, reason: usage.fastModeReason ?? null,
+        onChange: (on) => onOptions({ fastMode: on }) }
+    : undefined;
   // Only the modes this agent can actually be put INTO. Build is always offered — it is the absence
   // of the other two, not a capability — and a menu row for a mode nothing would enforce is the lie
   // the per-kind tables exist to prevent.
@@ -886,7 +898,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 beside it. The chip still wears the harness's mark, so nothing it said is lost. */}
             <ModelPicker kind={kind} model={session.model} effort={session.effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
-              onPick={onPickModel} effortItems={effortItems} overflow={overflow} />
+              onPick={onPickModel} effortItems={effortItems} overflow={overflow} fast={fast} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's

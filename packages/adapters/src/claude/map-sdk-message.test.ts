@@ -109,6 +109,39 @@ describe("map-sdk-message", () => {
       expect(e?.type === "usage" && e.payload.contextTokens).toBe(4_000);
     });
 
+    it("reports what fast mode DID, and why it could not, rather than what was asked for", () => {
+      const e = createSdkMapper().map({
+        type: "result", subtype: "success", session_id: "s", uuid: "u", is_error: false, num_turns: 1,
+        total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, modelUsage: {}, permission_denials: [],
+        fast_mode_state: "off", fast_mode_disabled_reason: "free",
+      } as never).find((x) => x.type === "usage");
+      expect(e?.type === "usage" && e.payload.fastMode).toBe("off");
+      expect(e?.type === "usage" && e.payload.fastModeReason).toBe("free");
+    });
+
+    it("carries no reason once it is actually serving", () => {
+      const e = createSdkMapper().map({
+        type: "result", subtype: "success", session_id: "s", uuid: "u", is_error: false, num_turns: 1,
+        total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, modelUsage: {}, permission_denials: [],
+        fast_mode_state: "on", fast_mode_disabled_reason: "pending",
+      } as never).find((x) => x.type === "usage");
+      expect(e?.type === "usage" && e.payload.fastMode).toBe("on");
+      expect(e?.type === "usage" && "fastModeReason" in e.payload).toBe(false);
+    });
+
+    it("leaves the state unstated for a build that does not report it, and for one that reports nonsense", () => {
+      // Absent is "this build does not say", which is a different thing from `off` — and coercing an
+      // unrecognised string into `off` would report a newer build's new state as a refusal.
+      for (const state of [undefined, "turbo"]) {
+        const e = createSdkMapper().map({
+          type: "result", subtype: "success", session_id: "s", uuid: "u", is_error: false, num_turns: 1,
+          total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, modelUsage: {}, permission_denials: [],
+          ...(state === undefined ? {} : { fast_mode_state: state }),
+        } as never).find((x) => x.type === "usage");
+        expect(e?.type === "usage" && "fastMode" in e.payload, String(state)).toBe(false);
+      }
+    });
+
     it("says nothing rather than zero when the result carried no usage — a zero would claim the model read nothing", () => {
       const e = result(undefined);
       expect(e?.type === "usage" && e.payload.contextTokens).toBeUndefined();

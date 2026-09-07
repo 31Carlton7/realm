@@ -13,7 +13,7 @@ let broadcasts: { event: string; payload: { notification: Notification | null; u
 
 const session = (extra: Partial<Session> = {}): Session => ({
   id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId: "01BX5ZZKBKACTAV9WEVGEMMVRZ", projectId: null, agentKind: "fake",
-  model: null, effort: null, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FA0", cwd: "/tmp",
+  model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FA0", cwd: "/tmp",
   status: "running", providerSessionId: null, title: "Fix the login flow", lastEventSeq: 0, terminalItemId: null,
   dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra,
 });

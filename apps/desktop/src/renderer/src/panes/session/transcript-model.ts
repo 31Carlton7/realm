@@ -35,7 +35,12 @@ export type Usage = { costUsd: number; inputTokens: number; outputTokens: number
   /** The last prompt's size in tokens, when the agent stated one — see the `usage` event's own note.
    *  Undefined for every engine that cannot say, which is most of them; the prompter draws no context
    *  meter there rather than a full or an empty one. */
-  contextTokens?: number };
+  contextTokens?: number;
+  /** What fast mode actually DID on the last turn, as the harness reported it — never what the
+   *  session asked for. Undefined where the engine does not report it at all. */
+  fastMode?: "off" | "cooldown" | "on";
+  /** Why it could not serve, in the harness's own vocabulary. */
+  fastModeReason?: string };
 export type Transcript = {
   blocks: Block[];
   /** Open permission requests, oldest first (an agent may ask for several tools at once). */
@@ -43,7 +48,11 @@ export type Transcript = {
   usage: Usage;
   /** `availableModes`: the agent's OWN session modes as the init event carried them (Plan 14 W3) —
    *  undefined when the agent named none. Per-session ground truth for the ACP Build/Plan chip. */
-  init: { model: string; tools: string[]; providerSessionId: string; availableModes?: AcpSessionMode[] } | null;
+  init: { model: string; tools: string[]; providerSessionId: string; availableModes?: AcpSessionMode[];
+    /** Whether the harness says this session's model can run fast mode. Undefined is "not stated",
+     *  which is what every engine but `claude` leaves it as — and what the prompter reads as "offer
+     *  no switch" rather than as "no". */
+    supportsFastMode?: boolean } | null;
   /** The run in flight: when it started, and the permission-prompt time to take off its clock.
    *  `waitingSince` is the open half of that accounting. Null between runs. */
   run: { startedAt: number; waitedMs: number; waitingSince: number | null } | null;
@@ -135,7 +144,12 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };
     }
     case "usage": return { ...t, usage: e.payload };
-    case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId, ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}) } };
+    // Replaced, not merged. A resume sends a fresh handshake under a new `providerSessionId`, and the
+    // Claude adapter restates the whole record when it learns whether the model can run fast mode —
+    // in both cases the newer event is the more complete description of the same session.
+    case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId,
+      ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}),
+      ...(e.payload.supportsFastMode === undefined ? {} : { supportsFastMode: e.payload.supportsFastMode }) } };
     case "status": {
       const run = t.run;
       switch (e.payload.status) {

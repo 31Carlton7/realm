@@ -1004,7 +1004,9 @@ export const Methods = {
    *  label, multi-select comma-joined. Deliberately a record of strings rather than a free-form input
    *  override — the UI answers a question, it never gets to rewrite the tool's arguments. */
   "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }), result: z.object({ ok: z.literal(true) }) },
-  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional() }), result: SessionSchema },
+  /** `fastMode` is a REQUEST — see `Session.fastMode`. The server records it and hands it to the
+   *  adapter; whether the harness honours it comes back on the `usage` event. */
+  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },
   /** Re-point an untouched session at another agent. Server-guarded: rejected (SESSION_STARTED) once the
    *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a
    *  model id from the old kind means nothing to the new one. */

@@ -312,12 +312,30 @@ describe("§6 motion table", () => {
 });
 
 describe("Ara refresh §3/§4 geometry", () => {
-  it("the user message is Ara's signature: raised card, window radius (BUI 14), 14px 16px padding, 85% wide, left-aligned text", () => {
-    // Plan 9 W1 re-pin: the literal 14px became var(--r-float), which the bridge pins to BUI's
-    // --radius-window (14px) — same geometry, now on the token scale.
+  it("the user message is Ara's signature: raised card, the prompter's curve, 14px 16px padding, 85% wide, left-aligned text", () => {
+    // The radius moved off the circular ladder onto the squircle one: a sent message is the same
+    // object the composer was holding a moment earlier, and the two now share a corner. Its own rung
+    // (--r-squircle-msg) rather than the composer's, because a superellipse reads visually smaller
+    // than the arc of the same radius and the ratio that suits a 720px card makes a bubble a lozenge.
     const body = bodiesFor(".msg-user").join(" ");
-    for (const decl of ["text-align: left", "max-width: 85%", "border-radius: var(--r-float)", "padding: 14px 16px", "background: var(--rl-raised)"])
+    for (const decl of ["text-align: left", "max-width: 85%", "border-radius: var(--r-squircle-msg)",
+                        "corner-shape: squircle", "padding: 14px 16px", "background: var(--rl-raised)"])
       expect(body, decl).toContain(decl);
+  });
+
+  it("the bubble keeps the circular fallback AND the painted form, like every other squircle surface", () => {
+    // `corner-shape` is a no-op until Chromium 139, and `paint()` with no registered painter renders
+    // nothing at all — so dropping either half strands the bubble as a square card or an invisible one.
+    const painted = bodiesFor(":root[data-squircle] .msg-user").join(" ");
+    expect(painted).toContain("background: paint(rl-squircle)");
+    expect(painted).toContain("border-radius: 0");
+    expect(painted).toContain("--sq-fill: var(--rl-raised)");
+    // The peer-attributed bubble's ring has to move onto the painted curve with it: a box-shadow ring
+    // is drawn on the rounded rect whatever the fill does, so it would cross a corner the fill has
+    // already bulged past.
+    const from = bodiesFor(":root[data-squircle] .msg-user-row[data-from] .msg-user").join(" ");
+    expect(from).toContain("--sq-ring:");
+    expect(from).toContain("box-shadow: none");
   });
 
   it("transcript prose reads at 15px/1.6 — user card and assistant prose alike", () => {
@@ -1018,10 +1036,26 @@ describe("dividers", () => {
     expect(bodiesFor(".diff-file[data-open] + .diff-file").join(" ")).toContain("border-top: 1px solid");
   });
 
-  it("the seams where content passes under a fixed edge are kept", () => {
-    // These are the ones that stop being decoration the moment anything scrolls: a pane's own bar, a
-    // sticky head over a list, a card's head over its body, a popover's search field over its rows.
-    for (const sel of [".panel-bar", ".diff-head", ".fd-head", ".md-code-head", ".mp-search", ".palette-input", ".spaces-search"])
+  it("no bar that merely sits ABOVE a pane's body rules a line across it", () => {
+    /* The three that came out, and why the justification they carried was wrong.
+       Each was defended as a scroll seam — "content scrolls beneath it" — and not one of them is
+       sticky or absolutely positioned. They are `flex: none` rows above their pane's body, so the
+       scrollers inside that body clip at their own top edge and nothing has ever passed under any of
+       them. What the lines actually drew was a horizontal stripe across the top of every pane in
+       every split.
+       What separates a pane from what is AROUND it is untouched, and is asserted below. */
+    for (const sel of [".panel-bar", ".group-bar", ".browser-chrome"])
+      expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom: *1px/);
+    // The claim is falsifiable, so it is checked: none of the three is sticky, which is the only way
+    // content could pass under one.
+    for (const sel of [".panel-bar", ".group-bar", ".browser-chrome"])
+      expect(bodiesFor(sel).join(" "), sel).not.toContain("position: sticky");
+  });
+
+  it("the seams INSIDE one surface, between a head or a field and the rows below it, are kept", () => {
+    // A card's head over its body, and a popover's search field over its list. These separate two
+    // different KINDS of thing sharing one surface, which is what a hairline is for.
+    for (const sel of [".diff-head", ".fd-head", ".md-code-head", ".mp-search", ".palette-input", ".spaces-search"])
       expect(bodiesFor(sel).join(" "), sel).toMatch(/border-bottom: 1px solid/);
     // Footers hold their place while the body scrolls past them.
     for (const sel of [".permission-footer", ".question-footer", ".spaces-foot", ".mp-detail-foot"])

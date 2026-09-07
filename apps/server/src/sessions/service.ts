@@ -291,9 +291,12 @@ export class SessionService {
     this.get(id);
     this.onEvent(id, sessionEvent("feedback", { messageId, rating }));
   }
-  async setOptions(id: string, o: { model?: string; effort?: string; permissionMode?: string }): Promise<Session> {
+  async setOptions(id: string, o: { model?: string; effort?: string; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
     const s = this.d.sessions.update({ id, ...o });
-    await this.live.get(id)?.handle.setOptions({ model: o.model, permissionMode: o.permissionMode });
+    // The row moves whether or not a process is live. A session that has not started yet keeps the
+    // request in the column and hands it over at `start` (ensureLive reads the row), which is what
+    // makes the switch mean the same thing before the first message as after it.
+    await this.live.get(id)?.handle.setOptions({ model: o.model, permissionMode: o.permissionMode, fastMode: o.fastMode });
     return s;
   }
 
@@ -630,7 +633,7 @@ export class SessionService {
     const systemContext = joined.length > 0 ? joined : undefined;
     let handle: AgentHandle;
     try {
-      handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, mcpServers, resume: s.providerSessionId,
+      handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
         skills,
         systemContext,
         env: env ? portEnv(env) : {},

@@ -195,6 +195,36 @@ export class ClaudeAdapter implements AgentAdapter {
       env: { ...process.env, ...opts.env },
       stderr: onStderr,
       pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,
+      // Asked for at start AND re-assertable mid-session (see setOptions). Passing it here rather
+      // than only through `applyFlagSettings` is what makes the FIRST turn of a session that was
+      // switched on before it started run fast — the flag layer can only be written once a query
+      // exists, and by then the first prompt is already on its way.
+      ...(opts.fastMode ? { fastMode: true } : {}),
+    };
+
+    /**
+     * Ask the CLI whether the model this session landed on can run fast mode, and say so once.
+     *
+     * The `init` event is emitted a second time, carrying the SAME four facts plus this one. Not a
+     * partial: the first event is pushed from the message the CLI sent, this answer needs a round
+     * trip that has not happened yet, and a second event whose `tools` was an empty array to satisfy
+     * the schema would be a false statement in a persisted log. So the whole record is restated —
+     * `reduceTranscript` replaces its `init` with the newer one, and the transcript ends holding the
+     * more complete of the two.
+     *
+     * Everything here fails quietly. `supportedModels` is a control request a CLI may decline, the
+     * model may be missing from the list, and the field is optional in the SDK's own type — all
+     * three mean "not stated", and a prompter that offered the switch on a guess would be offering a
+     * control whose only outcome is a `model_not_allowed`.
+     */
+    const reportFastModeSupport = async (init: { providerSessionId: string; model: string; tools: string[]; cwd: string }) => {
+      try {
+        const rows = await q?.supportedModels();
+        if (!rows || disposed) return;
+        const hit = rows.find((r) => r.value === init.model || r.resolvedModel === init.model);
+        if (hit?.supportsFastMode === undefined) return;
+        events.push(sessionEvent("init", { ...init, supportsFastMode: hit.supportsFastMode }));
+      } catch { /* the CLI declined; the capability stays unstated */ }
     };
 
     const pump = async () => {
@@ -204,6 +234,16 @@ export class ClaudeAdapter implements AgentAdapter {
         for await (const msg of q) {
           if (msg.type === "system" && (msg as { subtype?: string }).subtype === "init") {
             for (const e of mapper.map(msg)) events.push(e);
+            // Whether fast mode is even offerable is the HARNESS's answer, not a table here: model
+            // lists go stale, and a switch offered on a model that cannot run it is a control whose
+            // only outcome is a disabled_reason. Asked once per session, after the handshake that
+            // makes `supportedModels` answerable, and never awaited on the message loop — a CLI that
+            // declines leaves the capability unstated and the prompter offers nothing.
+            const i = msg as { session_id?: unknown; model?: unknown; tools?: unknown; cwd?: unknown };
+            void reportFastModeSupport({
+              providerSessionId: String(i.session_id ?? ""), model: String(i.model ?? ""),
+              tools: Array.isArray(i.tools) ? i.tools.map(String) : [], cwd: String(i.cwd ?? opts.cwd),
+            });
             if (!running) events.push(sessionEvent("status", { status: "idle" })); // init arrives after the first send in streaming mode
             continue;
           }
@@ -300,6 +340,10 @@ export class ClaudeAdapter implements AgentAdapter {
       },
       setOptions: async (o) => {
         if (o.model) await q?.setModel(o.model);
+        // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
+        // layer `query()`'s inline `settings` writes, above user and project settings and below
+        // managed policy. There is no `setFastMode`, and there does not need to be.
+        if (o.fastMode !== undefined) await q?.applyFlagSettings({ fastMode: o.fastMode });
         if (o.permissionMode) {
           // Realm's own record moves FIRST: it is what the gate above reads, and it must hold even
           // if the SDK call throws.

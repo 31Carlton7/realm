@@ -266,6 +266,15 @@ export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 export const SessionSchema = z.object({
   id: IdSchema, spaceId: IdSchema, projectId: IdSchema.nullable(), agentKind: AgentKindSchema,
   model: z.string().nullable(), effort: z.string().nullable(), permissionMode: z.string(),
+  /**
+   * Fast mode: the user has ASKED for the quicker path on this session.
+   *
+   * A request, never a report. Whether it is actually serving is the harness's answer and arrives on
+   * the `usage` event (`fastMode`) — a plan that does not include it, a model that cannot run it, or
+   * a rate-limit cooldown all leave this `true` and that `off`. The UI must read the second one to
+   * say what is happening, or it will show a switch that claims something the agent is not doing.
+   */
+  fastMode: z.boolean(),
   /** The environment this session runs in. Several sessions may share one. */
   environmentId: IdSchema,
   /** Derived from the environment's `path`, not stored on the session — read-only for every consumer. */

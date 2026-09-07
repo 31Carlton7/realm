@@ -43,6 +43,10 @@ export type StartOptions = {
   model?: string | null;
   effort?: string | null;
   permissionMode?: string;
+  /** The session has ASKED for fast mode. Only `claude` acts on it; every other adapter ignores it,
+   *  and none of them is obliged to report back — the honest answer for an engine with no such
+   *  concept is silence, which the prompter reads as "no switch to offer". */
+  fastMode?: boolean;
   systemContext?: string;
   /** Since Plan 9 W3, `apps/server` always sends exactly ONE entry: the gateway's own `http` endpoint —
    *  enablement or not, `fake` included (its adapter simply never reads it). Only tests pass `[]`. */
@@ -83,7 +87,7 @@ export interface AgentHandle {
    *  question surface ignore it and answer the plain allow/deny they always did. */
   respondPermission(requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void;
   interrupt(): Promise<void>;
-  setOptions(opts: { model?: string; permissionMode?: string }): Promise<void>;
+  setOptions(opts: { model?: string; permissionMode?: string; fastMode?: boolean }): Promise<void>;
   dispose(): Promise<void>;
 }
 

@@ -26,6 +26,10 @@ type FakeOpts = {
   capture?: unknown[];
   /** record the Options object the adapter handed `query` (start-time option assertions) */
   captureOptions?: Record<string, unknown>[];
+  /** what `supportedModels()` answers; omitted means the control request is declined (a CLI may). */
+  models?: { value: string; supportsFastMode?: boolean }[];
+  /** record every `applyFlagSettings` merge (the mid-session fast-mode path). */
+  flagSettings?: Record<string, unknown>[];
 };
 function fakeQuery(opts: FakeOpts, calls: string[] = []) {
   return ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: Record<string, unknown> }) => {
@@ -56,7 +60,14 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
       }
       if (opts.hang) { for await (const _ of { [Symbol.asyncIterator]: () => it }) { /* drain until input closes */ } }
     })();
-    return Object.assign(gen, { interrupt: async () => { calls.push("interrupt"); }, setPermissionMode: async () => {}, setModel: async () => {} });
+    return Object.assign(gen, {
+      interrupt: async () => { calls.push("interrupt"); }, setPermissionMode: async () => {}, setModel: async () => {},
+      supportedModels: async () => {
+        if (!opts.models) throw new Error("control request declined");
+        return opts.models;
+      },
+      applyFlagSettings: async (settings: Record<string, unknown>) => { opts.flagSettings?.push(settings); },
+    });
   };
 }
 const collectUntil = (events: AsyncIterable<SessionEvent>, stop: (e: SessionEvent, all: SessionEvent[]) => boolean, onEach?: (e: SessionEvent) => void) =>
@@ -264,6 +275,80 @@ describe("ClaudeAdapter", () => {
     expect(seen[0]!.type === "error" && seen[0]!.payload.message).toMatch(/attachment/i);
     await h.dispose(); await c;
   });
+  describe("fast mode", () => {
+    // The fixture's init message names this model; the adapter joins it against `supportedModels()`.
+    const MODEL = "claude-opus-5";
+
+    it("asks the CLI whether THIS model can run it, and restates init with the answer", async () => {
+      // Not a table here: a hardcoded list of fast-capable models goes stale, and a switch offered on
+      // a model that cannot run it is a control whose only outcome is a `model_not_allowed`.
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, models: [{ value: MODEL, supportsFastMode: true }] }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      const seen: SessionEvent[] = []; const c = collectUntil(h.events, () => false, (e) => seen.push(e));
+      await h.send({ text: "hi", attachments: [] });
+      await new Promise<void>((res) => { const t = setInterval(() => { if (seen.some((e) => e.type === "init" && e.payload.supportsFastMode !== undefined)) { clearInterval(t); res(); } }, 5); });
+      await h.dispose(); await c;
+      const inits = seen.filter((e) => e.type === "init");
+      // The second init restates the WHOLE record, not a partial: an event whose `tools` was an empty
+      // array to satisfy the schema would be a false statement in a persisted log.
+      const last = inits.at(-1)!;
+      expect(last.type === "init" && last.payload.supportsFastMode).toBe(true);
+      expect(last.type === "init" && last.payload.tools).toEqual(inits[0]!.type === "init" ? inits[0]!.payload.tools : null);
+      expect(last.type === "init" && last.payload.providerSessionId).toBe(inits[0]!.type === "init" ? inits[0]!.payload.providerSessionId : null);
+    });
+
+    it("says nothing at all when the CLI declines the question, or does not know the model", async () => {
+      // Both are "not stated", and the prompter reads that as "offer no switch" — never as "no".
+      for (const models of [undefined, [{ value: "some-other-model", supportsFastMode: true }]]) {
+        const a = new ClaudeAdapter({ query: fakeQuery({ ...(models ? { models } : {}) }) as never });
+        const h = a.start({ cwd: "/tmp", mcpServers: [] });
+        const seen: SessionEvent[] = [];
+        const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle", (e) => seen.push(e));
+        await h.send({ text: "hi", attachments: [] });
+        await c; await h.dispose();
+        expect(seen.filter((e) => e.type === "init" && e.payload.supportsFastMode !== undefined)).toEqual([]);
+      }
+    });
+
+    it("hands the request to `query` at start, so a session switched on before its first message runs fast on it", async () => {
+      // The flag layer can only be written once a query exists, and by then the first prompt is on
+      // its way — so the start option is what makes turn one honour the switch.
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [], fastMode: true });
+      const c = collectUntil(h.events, () => false);
+      await h.send({ text: "hi", attachments: [] });
+      await h.dispose(); await c;
+      expect(captureOptions[0]!.fastMode).toBe(true);
+    });
+
+    it("leaves the option off the start entirely when it was not asked for", async () => {
+      // `fastMode: false` and an absent key mean the same thing to the SDK, but sending the key
+      // writes the flag layer and would override a user's own Claude Code setting with a default.
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      const c = collectUntil(h.events, () => false);
+      await h.send({ text: "hi", attachments: [] });
+      await h.dispose(); await c;
+      expect("fastMode" in captureOptions[0]!).toBe(false);
+    });
+
+    it("moves it mid-session through the flag settings layer — there is no setFastMode", async () => {
+      const flagSettings: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      const c = collectUntil(h.events, () => false);
+      await h.send({ text: "hi", attachments: [] });
+      await h.setOptions({ fastMode: true });
+      await h.setOptions({ fastMode: false });
+      // A setOptions that says nothing about speed must not touch the layer at all.
+      await h.setOptions({ model: "claude-sonnet-5" });
+      await h.dispose(); await c;
+      expect(flagSettings).toEqual([{ fastMode: true }, { fastMode: false }]);
+    });
+  });
+
   it("send after dispose emits a single error and nothing else", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ hang: true }) as never });
     const h = a.start({ cwd: "/tmp", mcpServers: [] });

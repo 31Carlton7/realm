@@ -2,11 +2,12 @@ import type { Db } from "../db/database";
 import { newId, SessionEventSchema, type AgentKind, type DispatchedBy, type DispatchKind, type Session, type SessionEvent, type SessionStatus, type StoredSessionEvent } from "@realm/contracts";
 import { NotFoundError, RpcError, now } from "./rows";
 
-type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null;
+type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null; fast_mode: number;
   permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number;
   terminal_item_id: string | null; dispatched_by_kind: DispatchKind | null; dispatched_by_session_id: string | null; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
+  fastMode: r.fast_mode === 1,
   permissionMode: r.permission_mode, environmentId: r.environment_id, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
   lastEventSeq: r.last_event_seq, terminalItemId: r.terminal_item_id,
   dispatchedBy: r.dispatched_by_kind ? { kind: r.dispatched_by_kind, sessionId: r.dispatched_by_session_id } : null,
@@ -22,7 +23,7 @@ const toSession = (r: Row): Session => ({
 const SELECT = "SELECT s.*, e.path AS cwd FROM sessions s JOIN environments e ON e.id = s.environment_id";
 
 export type SessionUpdate = { id: string; status?: SessionStatus; providerSessionId?: string | null; lastEventSeq?: number; title?: string;
-  model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind };
+  model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind; fastMode?: boolean };
 
 export class SessionsStore {
   constructor(private db: Db) {}
@@ -60,14 +61,16 @@ export class SessionsStore {
   }
   update(input: SessionUpdate): Session {
     const cur = this.get(input.id); if (!cur) throw new NotFoundError("session", input.id);
-    this.db.prepare("UPDATE sessions SET status = ?, provider_session_id = ?, last_event_seq = ?, title = ?, model = ?, effort = ?, permission_mode = ?, agent_kind = ?, updated_at = ? WHERE id = ?")
+    this.db.prepare("UPDATE sessions SET status = ?, provider_session_id = ?, last_event_seq = ?, title = ?, model = ?, effort = ?, permission_mode = ?, agent_kind = ?, fast_mode = ?, updated_at = ? WHERE id = ?")
       .run(input.status ?? cur.status,
         input.providerSessionId === undefined ? cur.providerSessionId : input.providerSessionId,
         input.lastEventSeq ?? cur.lastEventSeq, input.title ?? cur.title,
         input.model === undefined ? cur.model : input.model,
         input.effort === undefined ? cur.effort : input.effort,
         input.permissionMode ?? cur.permissionMode,
-        input.agentKind ?? cur.agentKind, now(), input.id);
+        input.agentKind ?? cur.agentKind,
+        (input.fastMode === undefined ? cur.fastMode : input.fastMode) ? 1 : 0,
+        now(), input.id);
     return this.get(input.id)!;
   }
   /** Re-point the session at another environment. Deliberately not part of `update` (whose callers only

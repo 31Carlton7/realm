@@ -467,4 +467,11 @@ export const migrations: string[] = [
   -- full of paused schedules costs the tick nothing.
   CREATE INDEX schedules_due ON schedules(next_run_at) WHERE enabled = 1;
   `,
+  // v24 — fast mode, per session. A plain nullable column with a 0 default, so every existing
+  // session comes back with it off, which is what a session that never asked for it means.
+  //
+  // A REQUEST is what is stored, deliberately: whether the harness served it is a fact about a turn,
+  // not about the session, and it rides the `usage` event instead. Storing the outcome here would
+  // give the switch two sources of truth that disagree the moment a rate limit lands.
+  `ALTER TABLE sessions ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0;`,
 ];

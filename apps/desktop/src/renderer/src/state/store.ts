@@ -41,7 +41,7 @@ export type UpdateMcpServerInput = {
   command?: string; args?: string[]; env?: Record<string, string>;
   url?: string; headers?: Record<string, string>;
 };
-export type SessionOptions = { model?: string; effort?: string; permissionMode?: string };
+export type SessionOptions = { model?: string; effort?: string; permissionMode?: string; fastMode?: boolean };
 /** A pending attachment as the prompter holds it. `path`/`mime` are the wire fields; `name` labels the
  *  chip and `size` is what the MAX_ATTACHMENT_BYTES check reads — neither is transmitted. */
 export type PickedAttachment = Attachment & { name: string; size: number };

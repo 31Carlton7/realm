@@ -102,6 +102,11 @@
      reads this, and the fallback border-radius reads it too, so the painted and unpainted forms
      cannot drift apart. */
   --r-squircle: 36px;
+  /* The same curve at message scale. Not derived from --r-squircle by arithmetic, for the reason
+     stated above: a superellipse reads visually smaller than a circular corner at the same radius,
+     and the ratio that makes a 720px composer right makes a 60px bubble a lozenge. 20 is what reads
+     like the 16px arc this replaces on a bubble two lines tall. */
+  --r-squircle-msg: 20px;
   --sidebar-w: 280px; --prompter-w: 720px;
   /* §6 easings — identical curves to BUI's @theme; --ease stays as the legacy alias. */
   --ease-out-strong: cubic-bezier(.23,1,.32,1);
@@ -476,7 +481,9 @@ kbd { font: 11px var(--font-mono); }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-picker-row-desc { font-size: 11.5px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-picker-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
-.skill-picker-manage { padding: 8px 11px; border-top: 1px solid var(--rl-hairline); text-align: left;
+/* Spacing, not a rule: the row is already the only one in the list that is a verb rather than a
+   skill, and its own margin says so. */
+.skill-picker-manage { padding: 8px 11px; margin-top: 4px; text-align: left;
   font-size: 12px; color: var(--rl-text-dim); transition: color var(--dur-hover) ease; }
 .skill-picker-manage:hover { color: var(--rl-text-bright); }
 
@@ -603,6 +610,11 @@ kbd { font: 11px var(--font-mono); }
   display: flex; flex-direction: column; gap: 7px; }
 .mp-seg-group { display: flex; align-items: center; gap: 9px; }
 .mp-seg-label { flex: none; width: 62px; font-size: 10px; font-weight: var(--fw-title); letter-spacing: .05em; text-transform: uppercase; color: var(--rl-text-faint); }
+/* Speed carries a note under its switch, so its row wraps where the others never do. The note is
+   indented to the label's own gutter so it reads as belonging to the control above it. */
+.mp-fast { flex-wrap: wrap; }
+.mp-fast-note { flex-basis: 100%; margin: 2px 0 0 71px; font-size: 11px; line-height: 1.4; color: var(--rl-text-faint); }
+.mp-fast-note[data-tone="warning"] { color: var(--rl-warning); }
 /* One row, always: the old effort strip wrapped its five levels onto a second line at this width,
    which read as a layout bug. Equal columns keep them on one. */
 .mp-seg { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px;
@@ -631,7 +643,7 @@ kbd { font: 11px var(--font-mono); }
 .ip-search { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-bottom: 1px solid var(--rl-hairline); color: var(--rl-text-faint); }
 .ip-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .ip-search input::placeholder { color: var(--rl-text-faint); }
-.ip-emoji-groups { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--rl-hairline); }
+.ip-emoji-groups { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px 8px; }
 .ip-emoji-group-btn { padding: 3px 7px; border-radius: var(--r-chip); font-size: 10.5px; color: var(--rl-text-dim); background: var(--rl-panel); }
 .ip-emoji-group-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .ip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; max-height: min(46vh, 300px); overflow-y: auto; }
@@ -647,8 +659,10 @@ kbd { font: 11px var(--font-mono); }
    The app has no topbar by design; this appears only when a space has more than one group or a pane
    is focused full-screen, so a space that uses neither is pixel-identical to before. It carries the
    window drag the top edge would otherwise lose, with its own controls opted back out. */
+/* Seamless for the same reason the pane bar is: a `flex: none` row above the host, with nothing
+   passing under it. Two stacked hairlines at the top of the window was the worst case of it. */
 .group-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 10px 0 12px;
-  border-bottom: 1px solid var(--rl-hairline); background: var(--rl-panel); -webkit-app-region: drag; }
+  background: var(--rl-panel); -webkit-app-region: drag; }
 .group-bar button, .group-bar input { -webkit-app-region: no-drag; }
 .group-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .group-tab { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--r-ctl);
@@ -697,12 +711,20 @@ kbd { font: 11px var(--font-mono); }
    itself against the LEAF it fills, not the window — a pane can be a tenth of the host. */
 .panel { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0;
   background: var(--rl-panel); overflow: hidden; container-type: inline-size; }
-/* 16px left rail, aligned with the transcript and composer (V-S2). */
-.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--rl-hairline); font-size: 14px; -webkit-app-region: drag; }
+/* 16px left rail, aligned with the transcript and composer (V-S2).
+
+   NO bottom seam. The line that used to be here was justified as a scroll seam — "content scrolls
+   beneath it" — and that was simply not true of this element: the bar is `flex: none` above the
+   pane's body, they are siblings, and every scroller inside the body clips at its OWN top edge.
+   Nothing has ever passed under it. What the line actually did was rule a horizontal stripe across
+   the top of every pane in every split, which is most of what made the app read as gridded.
+
+   What still separates a pane from what is around it is unchanged and load-bearing: `.resize-handle`
+   between panes, and the sidebar's own `border-right`. Those are boundaries between surfaces. This
+   was a boundary inside one. */
+.panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 16px; font-size: 14px; -webkit-app-region: drag; }
 .panel-bar button, .panel-bar input { -webkit-app-region: no-drag; }
-/* Focused-pane mark (§5): a 2px ink underline on the title itself — not a full-width bar — plus the
-   header icon lifted to ink. The pane-header keeps its 1px --rl-line bottom border: content scrolls
-   beneath it, so it is a scroll seam (§5 wants it sticky-only; the header here is always sticky). */
+/* Focused-pane mark (§5): the header icon lifted to ink, and the title brightened. */
 /* Focused pane: the title brightens instead of underlining — the ink bar read as decoration
    (and as a permanent oddity with a single pane), but focus must stay legible in a split. */
 .panel .panel-title { color: var(--rl-text-dim); }
@@ -769,7 +791,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    Chrome sits ABOVE the native WebContentsView; the view's bounds start below it. Every control is
    an inline toolbar button — no dropdowns, no menus (W2's no-overlay invariant starts here). */
 .browser-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.browser-chrome { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 8px; border-bottom: 1px solid var(--rl-hairline); }
+/* No seam: below this sits a native view showing a page, which is white far more often than not.
+   A hairline between dark chrome and a white document is a line drawn along an edge that is already
+   the strongest tonal step in the window. */
+.browser-chrome { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 8px; }
 .browser-address { flex: 1; min-width: 0; display: flex; margin-left: 6px; }
 .browser-address input { flex: 1; min-width: 0; height: 28px; padding: 0 10px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 12.5px; font-variant-numeric: tabular-nums; }
@@ -860,7 +885,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; }
 .swatch[data-selected] { border-color: var(--rl-text-bright); }
 .hex { width: 90px; height: 26px; padding: 0 8px; border-radius: var(--r-chip); border: 1px solid var(--rl-line); background: var(--rl-panel); font: 12px var(--font-mono); }
-.danger-zone { justify-content: flex-start; align-items: center; border-top: 1px solid var(--rl-hairline); padding-top: 12px; }
+/* The gap is what sets it apart, not a rule across the form. What makes this section dangerous is
+   the colour of the button in it. */
+.danger-zone { justify-content: flex-start; align-items: center; margin-top: 8px; padding-top: 12px; }
 .danger-zone .muted { flex: 1; }
 
 .palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: var(--scrim-soft); }
@@ -1084,7 +1111,13 @@ button.panel-title:hover { background: var(--rl-hover); }
   padding: 2px 6px; border-radius: var(--r-ctl); font-size: 0.88em;
   color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); }
 .msg-chip[data-kind="element"] { color: var(--rl-text-bright); background: var(--inset); }
-.msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: left;
+/* The sent message wears the prompter's corner, one rung down. It is the same object a moment later —
+   what you typed, now in the log — and giving it the composer's continuous curve is what makes the
+   send read as a move rather than a hand-off between two differently-shaped boxes. Declarative
+   `corner-shape` here is the fallback's own upgrade path; today the curve comes from the worklet
+   (see the squircle block below). */
+.msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-squircle-msg); corner-shape: squircle;
+  background: var(--rl-raised); text-align: left;
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Plan 20: a message another SESSION delivered. An attribution line plus a muted accent ring, so it
    reads as "an agent asked this" rather than as something the user typed. */
@@ -2016,6 +2049,24 @@ button.panel-title:hover { background: var(--rl-hover); }
   --sq-radius-top: var(--r-squircle);
   --sq-radius-bottom: var(--r-squircle);
 }
+/* The sent bubble, on the message rung. Its own rule rather than a sixth selector above, because it
+   carries a different radius and — unlike every surface up there, of which a pane holds exactly one —
+   there is one of these per message. The painter runs per element, so this is the one place the
+   worklet is used at count; it stays cheap because a bubble's box only changes on a resize. */
+:root[data-squircle] .msg-user {
+  border-radius: 0;
+  background: paint(rl-squircle);
+  --sq-fill: var(--rl-raised);
+  --sq-radius-top: var(--r-squircle-msg);
+  --sq-radius-bottom: var(--r-squircle-msg);
+}
+/* A message another SESSION delivered keeps its accent ring — traced on the painted curve now,
+   rather than as a box-shadow around a rounded rect the fill has already bulged past. */
+:root[data-squircle] .msg-user-row[data-from] .msg-user {
+  --sq-ring: color-mix(in srgb, var(--rl-accent) 30%, transparent);
+  --sq-ring-w: var(--hairline-w);
+  box-shadow: none;
+}
 /* The lift, cast from the painted curve rather than from the border box.
  *
  * `box-shadow` is drawn from the border box, and these surfaces set `border-radius: 0` because their
@@ -2412,7 +2463,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    can't say (auth is a different axis from connectivity; see McpServerRow). */
 .mcp-reauth-badge { font-size: 10px; padding: 1px 6px; border-radius: var(--r-chip); line-height: 1.5;
   background: color-mix(in srgb, var(--rl-warning) 14%, transparent); color: var(--rl-warning); }
-.mcp-form { padding: 10px 0 2px; border-top: 1px solid var(--rl-hairline); margin-top: 4px; gap: 10px; }
+.mcp-form { padding: 10px 0 2px; margin-top: 8px; gap: 10px; }
 .mcp-auth-choice { display: flex; gap: 12px; font-size: 12px; color: var(--rl-text-dim); }
 .mcp-auth-choice label { display: flex; align-items: center; gap: 5px; }
 .mcp-secrets { gap: 6px; }

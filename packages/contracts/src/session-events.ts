@@ -33,7 +33,21 @@ const P = {
    * before this field existed parses without it. A reader with no value draws no context meter.
    */
   usage: z.object({ costUsd: z.number(), inputTokens: z.number(), outputTokens: z.number(), numTurns: z.number(),
-    contextTokens: z.number().optional() }),
+    contextTokens: z.number().optional(),
+    /**
+     * What fast mode ACTUALLY did on this turn, as the harness reported it — not what the session
+     * asked for. `cooldown` is its own state rather than a flavour of `off`: it means the request
+     * was honoured and then paused by a rate limit, which is a different thing to tell the user
+     * than "your plan does not include this".
+     *
+     * On the `usage` event because that event is Realm's name for "the four numbers off the result",
+     * and this is a fifth fact off the same result — the same reason `contextTokens` is here.
+     * Absent from every engine that has no such concept, which is all of them but `claude`.
+     */
+    fastMode: z.enum(["off", "cooldown", "on"]).optional(),
+    /** Why it could not serve, verbatim from the harness (`free`, `model_not_allowed`, …). Present
+     *  only alongside a `fastMode` that is not `on`, and only when the harness said. */
+    fastModeReason: z.string().optional() }),
   /** A plan the agent proposed. Both shapes are carried because the three protocols send genuinely
    *  different artifacts and neither derives from the other:
    *
@@ -85,6 +99,11 @@ const P = {
      *  Absent for agents whose plan support is static (Claude, Codex) and for ACP builds that
      *  returned no `modes`. */
     availableModes: z.array(z.object({ id: z.string(), name: z.string(), description: z.string().optional() })).optional(),
+    /** Whether the harness says THIS session's model can run fast mode, read from its own model list
+     *  rather than from a table here (claude-adapter.ts asks `supportedModels()` after the handshake).
+     *  Absent means the question was not answered — an agent that has no such concept, or a list the
+     *  CLI declined — and the prompter offers nothing rather than guessing. */
+    supportsFastMode: z.boolean().optional(),
   }),
 } as const;
 

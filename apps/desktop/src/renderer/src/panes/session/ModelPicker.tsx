@@ -41,7 +41,51 @@ export type OverflowGroup = { label: string; items: { label: string; checked?: b
  *  chip's suffix and the picker's effort buttons, so the two can never disagree. */
 export const formatEffort = (e: string): string => (e === "xhigh" ? "XHigh" : e.charAt(0).toUpperCase() + e.slice(1));
 
-export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, effortItems, overflow }: {
+/**
+ * Fast mode as the picker knows it: what the session ASKED for, and what the harness last DID.
+ *
+ * The two are separate fields because they disagree routinely — a plan that does not include it, a
+ * rate limit, a model swapped mid-session — and a switch that showed only the request would keep
+ * claiming a speed the agent is not running at. `state` is null until a turn has finished, which is
+ * the honest reading of "nothing has been reported yet" rather than "off".
+ */
+export type FastMode = {
+  /** The session's own switch. */
+  on: boolean;
+  /** What the last finished turn reported, or null when none has. */
+  state: "off" | "cooldown" | "on" | null;
+  /** The harness's reason, in its own vocabulary. */
+  reason: string | null;
+  onChange: (on: boolean) => void;
+};
+
+/** The harness's reason codes, said out loud. An unrecognised code is shown verbatim rather than
+ *  swallowed: a build newer than this one knows something worth passing on. */
+const FAST_REASON: Record<string, string> = {
+  free: "your plan does not include fast mode",
+  preference: "it is turned off in Claude Code's own settings",
+  extra_usage_disabled: "extra usage is turned off for this account",
+  network_error: "the request to enable it did not get through",
+  not_first_party: "this route does not offer it",
+  disabled_by_env: "an environment variable turns it off here",
+  model_not_allowed: "this model cannot run it",
+  sdk_opt_in_required: "this Claude Code build needs it enabled explicitly",
+  pending: "it is still being set up",
+  unknown: "the harness did not say why",
+};
+
+/** One line under the switch, or null when there is nothing to correct. Silent in the ordinary
+ *  cases — asked for and serving, or not asked for at all — because a note that appears every time
+ *  is a note nobody reads by the third session. */
+export function fastModeNote(f: FastMode): string | null {
+  if (!f.on) return null;
+  if (f.state === null) return "Takes effect on the next turn.";
+  if (f.state === "on") return null;
+  if (f.state === "cooldown") return "Paused by a rate limit — it will resume on its own.";
+  return `Not running: ${FAST_REASON[f.reason ?? "unknown"] ?? f.reason ?? "the harness did not say why"}.`;
+}
+
+export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, effortItems, overflow, fast }: {
   kind: AgentKind;
   model: string | null;
   /** The session's effort level — the chip's gray suffix. `null` (unset) shows nothing at all. */
@@ -56,6 +100,10 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
   onPick: (kind: AgentKind, modelId: string | null) => void;
   /** The effort options, permanently housed in the popover. Same shape as an overflow group's items. */
   effortItems: OverflowGroup["items"];
+  /** Fast mode, or absent where the harness has not said this model can run it — which is every
+   *  engine but `claude`, and every Claude model whose list entry says no. A switch offered on a
+   *  guess is a control whose only outcome is a refusal. */
+  fast?: FastMode;
   overflow?: OverflowGroup[];
 }) {
   const btn = useRef<HTMLButtonElement>(null);
@@ -79,18 +127,19 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <ModelPopover rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
-        onToggleFavorite={onToggleFavorite} effortItems={effortItems} overflow={overflow} />}
+        onToggleFavorite={onToggleFavorite} effortItems={effortItems} overflow={overflow} fast={fast} />}
     </>
   );
 }
 
-function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite, effortItems, overflow }: {
+function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite, effortItems, overflow, fast }: {
   rows: ModelRow[];
   info: Record<string, ModelInfo>;
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   onClose: () => void; onPick: (kind: AgentKind, modelId: string | null) => void;
   onToggleFavorite: (key: string) => void;
   effortItems: OverflowGroup["items"];
+  fast?: FastMode;
   overflow?: OverflowGroup[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -289,7 +338,7 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
         {activeRow && route && (
           <ModelDetail row={activeRow} route={route} info={info}
             onRoute={(h) => setRoutes({ ...routes, [activeRow.key]: h })}
-            onUse={() => pick(activeRow, route)} effortItems={effortItems} overflow={overflow} onClose={close} />
+            onUse={() => pick(activeRow, route)} effortItems={effortItems} overflow={overflow} fast={fast} onClose={close} />
         )}
       </div>
     </div>,
@@ -309,10 +358,10 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
  * no catalog entry at all, and a picker that hid them or invented a price would be worse than one
  * that shows the sentence and stops.
  */
-function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, onClose }: {
+function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, fast, onClose }: {
   row: ModelRow; route: AgentKind; info: Record<string, ModelInfo>;
   onRoute: (h: AgentKind) => void; onUse: () => void;
-  effortItems: OverflowGroup["items"]; overflow?: OverflowGroup[]; onClose: () => void;
+  effortItems: OverflowGroup["items"]; overflow?: OverflowGroup[]; fast?: FastMode; onClose: () => void;
 }) {
   const { note, catalog } = modelDetail(row, info);
   const harness = AGENT_NOTES[route];
@@ -375,6 +424,23 @@ function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, 
             </div>
           </div>
         ))}
+        {/* Speed sits with effort because it is the same kind of choice — how the answer is produced,
+            not which model produces it — and because both are properties only some models have.
+            Unlike effort, this one does NOT close the popover on click: the note below it is the
+            point, and a control that dismissed the surface carrying its own answer would be telling
+            the user something they never get to read. */}
+        {fast && (
+          <div className="mp-seg-group mp-fast" role="group" aria-label="Speed">
+            <span className="mp-seg-label">Speed</span>
+            <div className="mp-seg">
+              {([["Standard", false], ["Fast", true]] as const).map(([label, on]) => (
+                <button key={label} type="button" className="mp-seg-opt" aria-pressed={fast.on === on}
+                  onClick={() => fast.onChange(on)}>{label}</button>
+              ))}
+            </div>
+            {fastModeNote(fast) && <p className="mp-fast-note" data-tone={fast.state === "on" || fast.state === null ? undefined : "warning"}>{fastModeNote(fast)}</p>}
+          </div>
+        )}
         <button type="button" className="mp-use" disabled={!!row.blockedReason} onClick={onUse}>
           {row.selected && row.kind === route ? "Keep model" : "Use model"}
         </button>

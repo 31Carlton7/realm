@@ -34,6 +34,10 @@ function exitPlanText(name: string, input: Record<string, unknown>): string | nu
  * - `assistant_text` is de-duplicated per (messageId, text) because the SDK can re-emit the same assistant message;
  *   the dedupe set is cleared on `result`.
  */
+/** The three states the SDK documents. Anything else is a build newer than this one, and an
+ *  unrecognised string is safer left unstated than coerced into `off`. */
+const FAST_STATES = new Set(["off", "cooldown", "on"]);
+
 export function createSdkMapper() {
   const streamMsgIds = new Map<string | null, string>(); // parent_tool_use_id -> current streaming message id
   const emittedText = new Set<string>();
@@ -90,7 +94,7 @@ export function createSdkMapper() {
           break;
         }
         case "result": {
-          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }; result?: string; errors?: string[] };
+          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }; result?: string; errors?: string[]; fast_mode_state?: string; fast_mode_disabled_reason?: string };
           // The turn's whole prompt, which is what "context used" means: fresh input plus everything
           // served from (or written into) the prompt cache. The SDK documents `usage` as PER-TURN in
           // streaming-input sessions — unlike `total_cost_usd` beside it, which is the running total —
@@ -100,7 +104,16 @@ export function createSdkMapper() {
           const cx = r.usage
             ? r.usage.input_tokens + (r.usage.cache_read_input_tokens ?? 0) + (r.usage.cache_creation_input_tokens ?? 0)
             : undefined;
-          out.push(sessionEvent("usage", { costUsd: r.total_cost_usd, inputTokens: r.usage?.input_tokens ?? 0, outputTokens: r.usage?.output_tokens ?? 0, numTurns: r.num_turns, ...(cx === undefined ? {} : { contextTokens: cx }) }));
+          // What fast mode DID, as against what the session asked for. Carried only when the result
+          // said — the field is optional in the SDK's own type, and an absent state means "this build
+          // does not report it", which is a different thing from `off`.
+          const fast = FAST_STATES.has(String(r.fast_mode_state)) ? (r.fast_mode_state as "off" | "cooldown" | "on") : undefined;
+          const reason = fast !== undefined && fast !== "on" && typeof r.fast_mode_disabled_reason === "string"
+            ? r.fast_mode_disabled_reason : undefined;
+          out.push(sessionEvent("usage", { costUsd: r.total_cost_usd, inputTokens: r.usage?.input_tokens ?? 0, outputTokens: r.usage?.output_tokens ?? 0, numTurns: r.num_turns,
+            ...(cx === undefined ? {} : { contextTokens: cx }),
+            ...(fast === undefined ? {} : { fastMode: fast }),
+            ...(reason === undefined ? {} : { fastModeReason: reason }) }));
           if (r.subtype !== "success" || r.is_error) out.push(sessionEvent("error", { message: r.errors?.join("\n") || r.result || r.subtype }));
           emittedText.clear();
           streamMsgIds.clear();
