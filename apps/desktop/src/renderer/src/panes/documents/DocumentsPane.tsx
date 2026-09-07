@@ -12,6 +12,7 @@ import {
   canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected, type Buffer,
 } from "./buffers";
 import { PreviewFrame } from "./PreviewFrame";
+import { QuickLookView } from "./QuickLookView";
 
 /** How long the editor stays quiet before autosaving. Long enough not to write on every keystroke,
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
@@ -33,7 +34,13 @@ const NEW_KINDS: { kind: DocumentKind; menu: string; stem: string; ext: string }
 
 /** A PDF is bytes, not text: no buffer is read for it, and its tab can never be dirty. The frame
  *  streams it from the preview server instead (Plan 22). */
-const isBinaryKind = (path: string): boolean => documentKindFor(path) === "pdf";
+/** Files the pane opens WITHOUT reading their bytes: a PDF, and everything Quick Look renders for
+ *  us. Both are shown by pointing a frame at the preview server, so pulling a `.docx` through
+ *  `readDocument` would only produce mojibake and a failed open. */
+const isBinaryKind = (path: string): boolean => {
+  const k = documentKindFor(path);
+  return k === "pdf" || k === "preview";
+};
 
 const baseName = (p: string) => p.split("/").pop() ?? p;
 
@@ -129,6 +136,12 @@ export function DocumentsPane({ item }: PaneProps) {
       if (environmentId !== ws.environmentId) return;
       if (!buffersRef.current[path]) return; // a file this pane does not have open
       if (hash === null) { setBuffer(path, (b) => externalChange(b, null, null)); return; }
+      /* A file the pane never read has nothing to re-read: its "text" is the empty string and always
+         was. Adopting the event's hash directly is what makes the preview LIVE — the frame and the
+         image below are keyed on `baseHash`, so an agent rewriting a PDF or a `.docx` in place
+         re-renders it. Before this, a binary's hash stayed "" for the life of the tab and the view
+         kept showing whatever it first loaded. */
+      if (isBinaryKind(path)) { setBuffer(path, (b) => ({ ...b, baseHash: hash })); return; }
       // The event carries only a hash; the text is fetched so a clean buffer can adopt it and a
       // dirty one can show a real diff rather than "something changed".
       void readDocument(documentsId, path)
@@ -394,7 +407,7 @@ function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onR
         : <button type="button" className="documents-name" title={`${buffer.path} — click to rename`}
             onClick={() => onRenaming(true)}>{documentStem(buffer.path)}</button>}
       <span className="documents-state t-xs muted" data-state={state} role="status">{stateLabel}</span>
-      {structured && structured !== "pdf" && (
+      {structured && structured !== "pdf" && structured !== "render" && (
         <span className="documents-modes" role="group" aria-label="Editor mode">
           <button type="button" aria-pressed={mode === "rich"} onClick={() => onSetMode("rich")}>{structuredLabel(structured)}</button>
           <button type="button" aria-pressed={mode === "source"} onClick={() => onSetMode("source")}>Source</button>
@@ -433,12 +446,16 @@ const iconFor = (path: string): DocIcon => iconForKind(documentKindFor(path));
 
 /** Which kinds have a view other than their source, and what that view is. A PDF is the odd one: it
  *  has no text to show, so it is preview-only and gets no toggle. */
-function structuredViewFor(kind: DocumentKind): "rich" | "grid" | "preview" | "pdf" | null {
+/** `preview` is the GUIDE preview (an html file rendered as itself); `render` is a Quick Look
+ *  picture of a file Realm has no editor for. Two different surfaces with one English word between
+ *  them, so the names are kept apart here rather than in each reader's head. */
+function structuredViewFor(kind: DocumentKind): "rich" | "grid" | "preview" | "pdf" | "render" | null {
   return kind === "doc" || kind === "slides" ? "rich"
-    : kind === "sheet" ? "grid" : kind === "html" ? "preview" : kind === "pdf" ? "pdf" : null;
+    : kind === "sheet" ? "grid" : kind === "html" ? "preview"
+    : kind === "pdf" ? "pdf" : kind === "preview" ? "render" : null;
 }
-const structuredLabel = (v: "rich" | "grid" | "preview" | "pdf"): string =>
-  v === "grid" ? "Grid" : v === "preview" ? "Preview" : v === "pdf" ? "PDF" : "Rich";
+const structuredLabel = (v: "rich" | "grid" | "preview" | "pdf" | "render"): string =>
+  v === "grid" ? "Grid" : v === "preview" ? "Preview" : v === "pdf" ? "PDF" : v === "render" ? "Preview" : "Rich";
 
 function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onTakeTheirs: () => void }) {
   return (
@@ -462,11 +479,14 @@ function Editor({ buffer, kind, mode, documentsId, onChange }: {
   // The toggle itself lives in the head bar beside the name — the editor only has to know which view
   // it is drawing. A PDF has no text, so it is preview-only regardless of the mode (Plan 22).
   const structured = structuredViewFor(kind);
-  const showStructured = structured !== null && (mode === "rich" || structured === "pdf");
+  // A PDF and a Quick Look render have no text at all, so neither has a source view to toggle to.
+  const showStructured = structured !== null && (mode === "rich" || structured === "pdf" || structured === "render");
   return (
     <div className="documents-editor" data-kind={kind}>
       <div className="documents-surface">
-        {showStructured && (structured === "preview" || structured === "pdf") ? (
+        {showStructured && structured === "render" ? (
+          <QuickLookView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash} />
+        ) : showStructured && (structured === "preview" || structured === "pdf") ? (
           // The frame reloads on the DISK hash: while the user edits the source, the preview keeps
           // showing the last saved version, and the autosave tick (or an agent's write) refreshes it.
           <PreviewFrame key={buffer.path} documentsId={documentsId} path={buffer.path}

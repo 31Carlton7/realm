@@ -169,6 +169,28 @@ window.__live = window.__live ?? {
 };
 void 0`;
 
+/** The server's own RPC socket. The fake agent has to be selected over the wire, and a sent message
+ *  is what puts a user bubble on screen to measure. */
+function rpc(port) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+  let id = 0;
+  const pending = new Map();
+  const ready = new Promise((res) => ws.addEventListener("open", res));
+  ws.addEventListener("message", (m) => {
+    const msg = JSON.parse(m.data);
+    if (msg.id !== undefined) pending.get(msg.id)?.(msg);
+  });
+  return {
+    ready,
+    call: (method, params) => new Promise((res, rej) => {
+      const i = String(++id);
+      pending.set(i, (msg) => (msg.ok ? res(msg.result) : rej(new Error(`${method}: ${msg.error?.message}`))));
+      ws.send(JSON.stringify({ id: i, method, params }));
+    }),
+    close: () => ws.close(),
+  };
+}
+
 async function evalIn(c, expr) {
   const r = await c.send("Runtime.evaluate", { expression: HELPERS + ";\n" + expr, awaitPromise: true, returnByValue: true });
   if (r.exceptionDetails) throw new Error(`page exception: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
@@ -202,6 +224,7 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
+      REALM_ENABLE_FAKE_AGENT: "1", // the sent message the bubble check measures has to come from somewhere
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
@@ -323,6 +346,32 @@ async function main() {
   const stripOff = await evalIn(c, `__live.cornerFill(${JSON.stringify(fallbackShot)}, ".composer-understrip", "bl")`);
   check("the under-strip's bottom corners are painted too — they fill more than the fallback's arc",
     stripOn.fraction > stripOff.fraction + 0.03, { gateOn: stripOn.fraction, gateOff: stripOff.fraction, R: stripOn.R });
+
+  /* ── the sent message wears the same curve, one rung down ────────────────
+     Measured as a DIFFERENCE rather than against an absolute area, like the under-strip above: at
+     20px the corner is small enough that a fixed fraction would be pinning antialiasing as much as
+     shape, but a bubble that fills more of its corner with the gate on than with it off can only be
+     the worklet doing it. */
+  const api = rpc(SERVER_PORT);
+  await api.ready;
+  const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session");
+  await api.call("sessions.setAgent", { id: sessions[0].id, agentKind: "fake" });
+  await api.call("sessions.send", { id: sessions[0].id, text: "a sent message, to measure the corner of", attachments: [], mentions: [] });
+  await until(() => evalIn(c, `!!document.querySelector('.msg-user')`), 20000, "a user bubble");
+  await sleep(400);
+  // Both shots are taken AFTER the bubble exists. The mutant's own `fallbackShot` above predates the
+  // send, so measuring the corner in it samples the pane's ground twice and reports no boundary at
+  // all — which is a failing check about nothing rather than about the shape.
+  const bubbleOffShot = await shotOf(c); // the gate is still off from the mutant above
+  const bubbleOff = await evalIn(c, `__live.cornerFill(${JSON.stringify(bubbleOffShot)}, ".msg-user", "tl")`);
+  await evalIn(c, `(() => { document.documentElement.setAttribute("data-squircle", ""); return true; })()`);
+  await sleep(350);
+  const bubbleOnShot = await shotOf(c);
+  const bubbleOn = await evalIn(c, `__live.cornerFill(${JSON.stringify(bubbleOnShot)}, ".msg-user", "tl")`);
+  check("the sent message's corner is painted too — it fills more than the fallback's arc",
+    !bubbleOn.error && !bubbleOff.error && bubbleOn.fraction > bubbleOff.fraction + 0.03,
+    { gateOn: bubbleOn.fraction ?? bubbleOn, gateOff: bubbleOff.fraction ?? bubbleOff, R: bubbleOn.R });
+  api.close();
 
   await evalIn(c, `(() => {
     document.documentElement.setAttribute("data-squircle", "");

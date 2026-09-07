@@ -1180,6 +1180,9 @@ describe("light mode", () => {
     [".btn.destructive", "ink on a filled control"],
     // The base half of a pair: the rule immediately below it flips the outline for light mode.
     [".md img", "paired with a light override"],
+    // The base half of a pair, like `.md img` above it: a Quick Look render is a picture on the
+    // pane's own ground, and the rule below flips its outline for light mode.
+    [".ql-page", "paired with a light override"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -1193,9 +1196,11 @@ describe("light mode", () => {
     expect(offenders.sort()).toEqual([]);
   });
 
-  it("the one literal that is half a pair really does have its other half", () => {
-    expect(bodiesFor(".md img").join(" ")).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
-    expect(bodiesFor(':root[data-mode="light"] .md img').join(" ")).toContain("outline-color: rgba(0, 0, 0, 0.1)");
+  it("every literal that is half a pair really does have its other half", () => {
+    for (const sel of [".md img", ".ql-page"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
+      expect(bodiesFor(`:root[data-mode="light"] ${sel}`).join(" "), sel).toContain("outline-color: rgba(0, 0, 0, 0.1)");
+    }
   });
 
   it("the scrims are the one colour that has to differ per mode", () => {

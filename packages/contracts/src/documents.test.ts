@@ -25,10 +25,29 @@ describe("documentKindFor", () => {
 
   it("answers unsupported for binaries and extensionless files", () => {
     expect(documentKindFor("image.png")).toBe("unsupported");
-    expect(documentKindFor("report.docx")).toBe("unsupported");
     expect(documentKindFor("Makefile")).toBe("unsupported");
     // A dotfile is name-only; its leading dot must not read as an extension.
     expect(documentKindFor(".gitignore")).toBe("unsupported");
+  });
+
+  it("answers preview for the formats macOS can render and Realm cannot edit", () => {
+    // These used to be `unsupported`, which meant the picker listed them and refused to open them —
+    // and the only way to look at one was to leave for the Finder. They open read-only now, as the
+    // picture Quick Look renders.
+    for (const name of ["report.docx", "Q3.xlsx", "deck.pptx", "notes.pages", "budget.numbers",
+                        "talk.key", "memo.rtf", "book.epub", "sheet.ods"]) {
+      expect(documentKindFor(name), name).toBe("preview");
+    }
+  });
+
+  it("does not take a format Realm has a real editor for", () => {
+    // The named mutant: adding `csv` or `md` to the preview set, which would swap an editable
+    // document for a picture of one.
+    expect(documentKindFor("data.csv")).toBe("sheet");
+    expect(documentKindFor("notes.md")).toBe("doc");
+    expect(documentKindFor("paper.tex")).toBe("latex");
+    expect(documentKindFor("guide.html")).toBe("html");
+    expect(documentKindFor("spec.pdf")).toBe("pdf");
   });
 });
 

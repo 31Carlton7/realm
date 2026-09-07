@@ -2,7 +2,12 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: realm-media:; media-src realm-media:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src http://127.0.0.1:*" />
+    <!-- `img-src` names the loopback preview listener because a Quick Look render of a `.docx` is
+         served from it as a PNG (QuickLookView.tsx). That origin is already trusted here for
+         `frame-src` and `connect-src`, and an image from it can do strictly less than the frame
+         already can — it cannot script, navigate or post. It is Realm's own token-gated listener
+         either way. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: realm-media: http://127.0.0.1:*; media-src realm-media:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src http://127.0.0.1:*" />
     <title>Realm</title>
   </head>
   <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>

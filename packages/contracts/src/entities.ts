@@ -151,7 +151,7 @@ export type DocumentEntry = z.infer<typeof DocumentEntrySchema>;
  * slide deck shown read-only beside the session working on it. Neither goes through the Markdown or
  * sheet models.
  */
-export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "unsupported"]);
+export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "preview", "unsupported"]);
 export type DocumentKind = z.infer<typeof DocumentKindSchema>;
 
 /**

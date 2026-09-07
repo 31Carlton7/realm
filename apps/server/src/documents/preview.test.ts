@@ -8,9 +8,9 @@ import { makePdf } from "./test-pdf";
 const servers: DocumentPreviewServer[] = [];
 afterEach(async () => { for (const s of servers.splice(0)) await s.close(); });
 
-async function boot(katexDir?: string | null, visNetworkDir?: string | null) {
+async function boot(katexDir?: string | null, visNetworkDir?: string | null, quickLook?: ConstructorParameters<typeof DocumentPreviewServer>[0]["quickLook"]) {
   const root = tempDir("realm-preview-");
-  const s = new DocumentPreviewServer({ rootOf: (id) => (id === "ws1" ? root : null), katexDir, visNetworkDir });
+  const s = new DocumentPreviewServer({ rootOf: (id) => (id === "ws1" ? root : null), katexDir, visNetworkDir, quickLook });
   servers.push(s);
   const port = await s.listen();
   const get = async (path: string, init?: RequestInit) => {
@@ -126,6 +126,30 @@ describe("DocumentPreviewServer", () => {
     // break identically, but the reason would no longer be visible in the markup.
     expect(r.text).toContain("unpkg.com");
     expect((await get(`${base}/_realm/vis-network/vis-network.min.js`)).status).toBe(404);
+  });
+
+  it("serves a format Realm cannot edit as the picture macOS renders of it", async () => {
+    // Streaming the `.docx` itself would hand the frame a zip it can only offer to download — the
+    // "opens in the OS, not in Realm" outcome the preview path exists to replace.
+    const png = Buffer.from("\x89PNG\r\n\x1a\n-render");
+    const { root, get, base } = await boot(null, null, {
+      render: async (_abs, outDir) => { writeFileSync(join(outDir, "out.png"), png); },
+    });
+    writeFileSync(join(root, "report.docx"), "PK\x03\x04 not really a zip");
+    const r = await get(`${base}/ws1/report.docx`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toBe("image/png");
+    expect(r.text).toContain("-render");
+  });
+
+  it("says it has no preview rather than answering with the file's own bytes", async () => {
+    // The named mutant: falling through to the byte-streaming path when the generator declines. The
+    // frame would then show a download prompt for a document the pane claimed it could display.
+    const { root, get, base } = await boot(null, null, { render: async () => { /* writes nothing */ } });
+    writeFileSync(join(root, "locked.pptx"), "encrypted");
+    const r = await get(`${base}/ws1/locked.pptx`);
+    expect(r.status).toBe(415);
+    expect(r.text).not.toContain("encrypted");
   });
 
   it("info() and urlFor() describe the listener; info() throws before listen", () => {

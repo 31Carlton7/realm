@@ -1200,6 +1200,9 @@ button.panel-title:hover { background: var(--rl-hover); }
    dark mode / pure black in light — a tinted neutral would pick up the ground and read as dirt. */
 .md img { max-width: 100%; border-radius: var(--r-chip); outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
 :root[data-mode="light"] .md img { outline-color: rgba(0, 0, 0, 0.1); }
+/* The Quick Look render's half of the same pair (see `.ql-page`). It is a picture on the pane's own
+   ground, so it flips exactly as every other picture in the app does. */
+:root[data-mode="light"] .ql-page { outline-color: rgba(0, 0, 0, 0.1); }
 .msg-thinking { font-size: 12px; }
 .thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); }
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
@@ -2177,7 +2180,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 :where(
   /* chrome and navigation */
   .space-body, .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
-  .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .session-summary,
+  .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .session-summary, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
@@ -2966,9 +2969,14 @@ button.panel-title:hover { background: var(--rl-hover); }
    position: relative because the open-a-file picker floats over the editor. */
 .documents-pane { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; height: 100%; min-height: 0; }
 
+/* No seam. The tab strip and the head bar below it are both chrome above the same content, and a
+   hairline under each ruled the pane twice in 60px — which, with the pane bar's own line above them,
+   made three horizontal rules before a single word of the document. The head keeps its seam because
+   it is the boundary between the chrome and the content; this one only separated chrome from more
+   chrome, and the tabs' own pill shapes already say where they end. */
 .documents-tabs {
   display: flex; align-items: center; gap: 2px; padding: 6px 8px; overflow-x: auto;
-  border-bottom: 1px solid var(--rl-line); flex: 0 0 auto; overflow-y: hidden;
+  flex: 0 0 auto; overflow-y: hidden;
 }
 .documents-tab { display: flex; align-items: center; border-radius: var(--r-ctl); flex: 0 0 auto;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
@@ -3137,6 +3145,28 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* ---- Plan 22: previews, lecture sheets ---------------------------------------------------- */
 .documents-frame { width: 100%; height: 100%; border: 0; background: var(--rl-panel); display: block; }
 .documents-frame[data-kind="pdf"] { background: #525659; }
+/* ── Quick Look renders (QuickLookView.tsx) ──────────────────────────────
+   A picture of a document, on the same slate ground Chromium's PDF viewer uses — a rendered page is
+   white, and floating a white sheet on the pane's own dark ground reads as a broken layout rather
+   than as a document. The scroller is the wrapper, so a tall render scrolls rather than shrinking to
+   fit a pane and becoming unreadable. */
+/* On the PANE's own ground, not the slate the PDF viewer uses.
+   Quick Look renders in the user's system appearance — measured: a Mac in Dark mode returns an
+   opaque rgb(30,30,30) page, and `qlmanage` has no flag to ask for anything else. So the render
+   already agrees with the app's mode, and a fixed slate behind it would be a third tone between the
+   pane and a page that already matches it. The Finder previews these files the same way. */
+.ql-view { overflow: auto; background: var(--rl-panel); display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 16px; }
+/* Width-constrained, never height-constrained: legibility is a function of how wide the text renders,
+   and a page scaled to fit the pane's height is a page nobody can read.
+
+   The render is OPAQUE edge to edge — `qlmanage -t` letterboxes into a square and fills it — so the
+   element's box really is the page's box, and the app's standard image outline is what gives it an
+   edge against a ground of the same tone. Paired for light mode below, like `.md img`. */
+.ql-page { max-width: min(100%, 900px); height: auto; border-radius: var(--r-sm);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+.ql-note { margin: 0; max-width: 62ch; text-align: center; font-size: 11.5px; line-height: 1.5;
+  color: var(--rl-text-faint); }
 .sheet-lede { margin: 0; font-size: 12.5px; color: var(--rl-text-dim); line-height: 1.5; }
 .sheet-lede code { font-size: 11.5px; }
 .lecture-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; }

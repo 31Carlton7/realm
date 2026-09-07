@@ -13,6 +13,29 @@ export const DOCUMENT_MAX_BYTES = 2 * 1024 * 1024;
 const SHEET_EXT = new Set(["csv", "tsv"]);
 
 /**
+ * Files macOS can preview and Realm cannot edit — Word, Excel, PowerPoint, the iWork three, and the
+ * open-format and e-book equivalents.
+ *
+ * These open READ-ONLY, as a picture of the document rendered by Quick Look: the same thing the
+ * Finder's space bar shows, which is the one renderer on the machine that already knows all of these
+ * formats. Realm bundles no converter for any of them, and a pane that offered an editor for a
+ * `.docx` it could only mangle would be worse than one that shows the file and says so.
+ *
+ * The trade is stated where it is made (`quicklook.ts`): a preview is an image, so there is no text
+ * to select and long documents may render as a first page. That is what makes this a `preview` kind
+ * rather than a `doc`.
+ */
+const PREVIEW_EXT = new Set([
+  "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  "pages", "numbers", "key",
+  "rtf", "odt", "ods", "odp", "epub",
+]);
+
+/** Whether Realm shows this file as a rendered preview rather than in an editor. Exported so the
+ *  server's preview listener and the pane agree about which files take the Quick Look path. */
+export const isPreviewKind = (path: string): boolean => documentKindFor(path) === "preview";
+
+/**
  * Path → editor, by extension alone. Deliberately pure and content-blind so it can run on a directory
  * listing where nothing has been read yet.
  *
@@ -28,6 +51,7 @@ export function documentKindFor(path: string): DocumentKind {
   if (ext === "tex") return "latex";
   if (ext === "html" || ext === "htm") return "html";
   if (ext === "pdf") return "pdf";
+  if (PREVIEW_EXT.has(ext)) return "preview";
   if (SHEET_EXT.has(ext)) return "sheet";
   if (ext === "md" || ext === "markdown") {
     return /\.(slides|deck)\.(md|markdown)$/.test(name) ? "slides" : "doc";

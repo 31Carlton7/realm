@@ -3,10 +3,11 @@ import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { dirname, extname, join, resolve, sep } from "node:path";
-import { DOCUMENT_MAX_BYTES } from "@realm/contracts";
+import { DOCUMENT_MAX_BYTES, isPreviewKind } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { resolveInRoot } from "./paths";
 import { GUIDE_CSS, GUIDE_JS } from "./guide-runtime";
+import { QuickLookRenderer, type QuickLookDeps } from "./quicklook";
 
 /**
  * The document preview server (Plan 22 W1): a loopback HTTP listener the documents pane frames
@@ -43,6 +44,9 @@ export type PreviewDeps = {
   katexDir?: string | null;
   /** Directory holding `vis-network.min.js`; null leaves a remote bundle URL alone. */
   visNetworkDir?: string | null;
+  /** Test seam for the Quick Look path: production leaves this alone and shells out to `qlmanage`,
+   *  which would otherwise make the suite depend on which generators this Mac has installed. */
+  quickLook?: QuickLookDeps;
 };
 
 const MIME: Record<string, string> = {
@@ -91,6 +95,9 @@ export function defaultVisNetworkDir(): string | null {
 
 export class DocumentPreviewServer {
   private server: HttpServer | null = null;
+  /** Quick Look renders for the formats Realm cannot edit. Held by the server so its cache lives as
+   *  long as the listener, and is dropped with it. */
+  private readonly quickLook: QuickLookRenderer;
   private port: number | null = null;
   readonly token: string;
   private readonly katexDir: string | null;
@@ -100,6 +107,7 @@ export class DocumentPreviewServer {
     this.token = randomBytes(18).toString("base64url");
     this.katexDir = d.katexDir === undefined ? defaultKatexDir() : d.katexDir;
     this.visNetworkDir = d.visNetworkDir === undefined ? defaultVisNetworkDir() : d.visNetworkDir;
+    this.quickLook = new QuickLookRenderer(d.quickLook);
   }
 
   async listen(): Promise<number> {
@@ -129,6 +137,7 @@ export class DocumentPreviewServer {
   }
 
   async close(): Promise<void> {
+    this.quickLook.clear();
     const s = this.server; this.server = null; this.port = null;
     if (!s) return;
     s.closeAllConnections?.();
@@ -157,6 +166,18 @@ export class DocumentPreviewServer {
     if (!st.isFile()) return this.fail(res, 404, "not found");
     const ext = extname(abs).slice(1).toLowerCase();
     const mime = MIME[ext] ?? "application/octet-stream";
+    /* A format Realm has no editor for, served as a picture of itself (quicklook.ts). It goes ahead
+       of the byte-streaming path below because streaming a `.docx` to a frame would hand the browser
+       a zip it can only offer to download — which is the "opens in the OS, not in Realm" outcome
+       this replaces. A generator that declined answers 415 rather than an empty image: the pane can
+       say "macOS could not preview this" and offer to open it elsewhere, which a blank frame cannot. */
+    if (isPreviewKind(abs)) {
+      const png = await this.quickLook.png(abs);
+      if (!png) return this.fail(res, 415, "no preview available for this file");
+      res.writeHead(200, { "content-type": "image/png", "content-length": png.length });
+      res.end(req.method === "HEAD" ? undefined : png);
+      return;
+    }
     if (ext === "html" || ext === "htm") {
       if (st.size > DOCUMENT_MAX_BYTES) return this.fail(res, 413, "document too large to preview");
       const raw = await readFile(abs, "utf8");

@@ -287,6 +287,64 @@ async function main() {
   check("the intensity scale is spelled out beside the graph", cal.legend, undefined);
   await shot(c, "calendar", { x: cal.scroll.l - 20, y: cal.scroll.t - 60, width: 760, height: 220 });
 
+  /* ── 4. A format Realm has no editor for, opened in a pane ───────────────
+     An `.rtf` because it is a real member of the preview set that this script can WRITE — the point
+     is to drive the actual `qlmanage`, so the file has to be one macOS will really render, and a
+     stub `.docx` is a zip that no generator would look at twice. */
+  const rtf = String.raw`{\rtf1\ansi\deff0 {\fonttbl{\f0 Helvetica;}}\fs40 Realm preview test\par\fs24 A second line of body text.\par}`;
+  const spaces = await api.call("spaces.list", {});
+  fs.writeFileSync(path.join(spaces[0].folderPath, "memo.rtf"), rtf);
+  // Driven entirely through the UI from here: the session's Documents button, then the pane's own
+  // file picker. That path is the one the change is about — a `.rtf` used to be listed and REFUSED
+  // there, and the only way to look at it was to leave for the Finder.
+  await evalIn(c, `(() => { [...document.querySelectorAll('.space-body .item-row')][0].click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('[aria-label^="Open documents for"]')`), 20000, "the documents button");
+  await evalIn(c, `(() => { document.querySelector('[aria-label^="Open documents for"]').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 20000, "documents pane");
+  await sleep(400);
+  // "Open a file…" is a Menu item behind the pane's own new-document button, so the menu opens first.
+  await evalIn(c, `(() => { document.querySelector('.pane-placeholder .btn').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('[role="menuitem"]')`), 15000, "the new menu");
+  await evalIn(c, `(() => {
+    [...document.querySelectorAll('[role="menuitem"]')].find((x) => /Open a file/i.test(x.textContent || '')).click();
+    return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.documents-picker')`), 15000, "the file picker");
+  const row = await until(() => evalIn(c, `(() => {
+    const b = [...document.querySelectorAll('.documents-picker-list button')].find((x) => (x.textContent || '').includes('memo.rtf'));
+    return b ? { disabled: b.disabled } : null; })()`), 15000, "the memo.rtf row");
+  // The row used to be disabled: `documentKindFor` answered `unsupported` for every one of these.
+  check("a format Realm cannot edit is offerable in the picker rather than listed and refused", !row.disabled, row);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.documents-picker-list button')].find((x) => (x.textContent || '').includes('memo.rtf')).click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.ql-page')`), 25000, "the rendered page");
+  // The image has to have DECODED — a broken src would still be an element in the DOM, and the
+  // pane's own error state is what a failed render is supposed to look like.
+  const render = await until(async () => {
+    const r = await evalIn(c, `(() => {
+      const img = document.querySelector('.ql-page');
+      return { w: img.naturalWidth, h: img.naturalHeight, box: __live.box(img), note: !!document.querySelector('.ql-note'),
+               failed: !!document.querySelector('.documents-error') };
+    })()`);
+    return r.w > 0 ? r : null;
+  }, 25000, "the render to decode");
+  check("macOS really rendered the file — the pane is showing a decoded image, not an error",
+    render.w >= 400 && !render.failed, render);
+  check("the render is width-constrained, so a page stays legible rather than scaled to fit a pane",
+    render.box.w <= 900 + 1, render.box);
+  check("the limit is stated under the render rather than left to be discovered", render.note, undefined);
+  await shot(c, "quicklook", { x: 280, y: 0, width: 700, height: 560 });
+
+  /* ── 5. The seams that came out ──────────────────────────────────────────
+     A stylesheet read cannot tell a rule that was deleted from one that is being overridden, so the
+     computed value is what is asked. */
+  const seams = await evalIn(c, `(() => {
+    const read = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).borderBottomWidth : null; };
+    return { panelBar: read('.panel-bar'), sidebar: getComputedStyle(document.querySelector('.sidebar')).borderRightWidth,
+             handles: document.querySelectorAll('.resize-handle').length };
+  })()`);
+  check("a pane's bar rules no line across the top of its body", seams.panelBar === "0px", seams);
+  check("…and the boundaries that separate SURFACES are untouched",
+    seams.sidebar !== "0px", seams);
+
   check("no renderer console errors", c.events.length === 0, c.events.slice(0, 5));
   api.close();
   c.close();
