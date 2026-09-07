@@ -548,7 +548,15 @@ export type Sheet =
   /** Plan 22: start a lecture (title prompt), wrap one up (pick which), import Plynn recordings. */
   | { kind: "new-lecture" }
   | { kind: "wrap-up-lecture" }
-  | { kind: "plynn-import" };
+  | { kind: "plynn-import" }
+  /** One file out of a session's summary (Outputs / Sources): its path, and the offer to hand it to
+   *  the OS. Carries the path alone rather than the row it was opened from — a row is derived, and a
+   *  copy of one in the sheet slot could go stale against the transcript it came from. */
+  | { kind: "artifact"; path: string }
+  /** One plan out of a session's summary, named by the session that proposed it and the plan's own
+   *  id. Read live for the same reason: a plan the agent revises while the sheet is open should show
+   *  the revision, not the snapshot that was taken when the row was clicked. */
+  | { kind: "session-plan"; sessionId: string; planId: string };
 
 export type AppState = {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also

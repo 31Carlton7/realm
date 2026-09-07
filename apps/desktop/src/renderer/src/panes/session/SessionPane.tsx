@@ -14,6 +14,7 @@ import { DelegatedRuns } from "./DelegatedRuns";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
 import { latestTodos } from "./session-todos";
+import { SessionSummaryButton } from "./SessionSummary";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
  *  re-render (and warn) forever. */
@@ -49,7 +50,7 @@ export function SessionMeta({ item }: { item: Item }) {
  *  toggle — uniform icon buttons, no text labels. Open-external is skipped: a session has nothing
  *  to open externally, and dead chrome is worse than none (§7). */
 export function SessionPanelActions({ item }: { item: Item }) {
-  return (<><SessionDiffButton item={item} /><SessionDocumentsButton item={item} /><SessionTerminalToggle item={item} /></>);
+  return (<><SessionSummaryButton item={item} /><SessionDiffButton item={item} /><SessionDocumentsButton item={item} /><SessionTerminalToggle item={item} /></>);
 }
 
 /** Opens (or focuses) the diff pane for the session's environment — the same openDiff the prompter's

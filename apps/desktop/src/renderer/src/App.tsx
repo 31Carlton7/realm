@@ -3,6 +3,7 @@ import { Sidebar } from "./components/sidebar/Sidebar";
 import { SidebarToggle } from "./components/sidebar/SidebarToggle";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
+import { ArtifactSheet, SessionPlanSheet } from "./panes/session/SessionSummary";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
@@ -104,6 +105,8 @@ function SheetHost() {
   if (sheet.kind === "new-lecture") return <NewLectureSheet />;
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
+  if (sheet.kind === "artifact") return <ArtifactSheet path={sheet.path} />;
+  if (sheet.kind === "session-plan") return <SessionPlanSheet sessionId={sheet.sessionId} planId={sheet.planId} />;
   return null;
 }
 

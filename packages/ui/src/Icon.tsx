@@ -21,6 +21,8 @@ import {
   PlayIcon, PauseIcon, VolumeHighIcon, VolumeOffIcon,
   // The reader's verdict on an assistant message (MessageActions.tsx).
   ThumbsUpIcon, ThumbsDownIcon,
+  // The session's summary panel (SessionSummary.tsx).
+  InformationCircleIcon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -34,7 +36,7 @@ export const icons = {
   send: SentIcon, stop: StopIcon, sparkles: SparklesIcon, chevronDown: ArrowDown01Icon, arrowDown: ArrowDown02Icon, arrowUp: ArrowUp02Icon,
   checkCircle: CheckmarkCircle02Icon, errorCircle: CancelCircleIcon, alert: Alert02Icon, bot: BotIcon, tool: Wrench01Icon, code: CodeIcon, idea: IdeaIcon,
   copy: Copy01Icon, plan: Task01Icon, attach: Attachment01Icon, image: Image01Icon, reload: RefreshIcon,
-  thumbsUp: ThumbsUpIcon, thumbsDown: ThumbsDownIcon,
+  thumbsUp: ThumbsUpIcon, thumbsDown: ThumbsDownIcon, info: InformationCircleIcon,
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
   // Pane focus (zoom one pane to the whole host) and its inverse; `group` is a pane group's tab.

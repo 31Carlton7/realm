@@ -403,6 +403,42 @@ kbd { font: 11px var(--font-mono); }
 .mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
   transition: background-color var(--dur-hover) ease; }
 .mention-row[data-active] { background: var(--hover); }
+
+/* ── The session summary panel (SessionSummary.tsx) ──────────────────────
+   Anchored under the pane bar's info button, right-aligned, on the same surface and the same layered
+   shadow as every other floating list here. Sections are headed rather than tabbed: three short
+   lists read faster stacked than they do behind two clicks, and any section with nothing in it is
+   simply not drawn. */
+.session-summary { z-index: 100; width: min(340px, 90vw); max-height: min(64vh, 480px); overflow-y: auto; padding: 6px;
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
+/* Spacing separates the sections, not a rule. Each one already announces itself with a heading, and
+   a hairline over the top of that says the same thing twice — which is the app-wide divider rule
+   styles.test.ts pins. */
+.summary-section + .summary-section { margin-top: 10px; }
+.summary-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 8px 5px;
+  font-size: 11px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.summary-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.summary-rows { display: flex; flex-direction: column; }
+.summary-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 6px 8px;
+  text-align: left; border-radius: var(--r-ctl); color: var(--rl-text-dim); font-size: 12.5px;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.summary-row:hover { background: var(--hover); color: var(--rl-text-bright); }
+.summary-row-glyph { flex: none; color: var(--rl-text-faint); }
+.summary-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.summary-row-meta { flex: none; font-size: 11px; color: var(--rl-text-faint); }
+/* The artifact sheet: the path is machine state, so it reads in mono and wraps at any character —
+   a long path must not push the sheet wider than the column it was centered over. */
+.summary-file-path { margin: 0 0 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5;
+  color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.summary-file-note { margin: 0 0 10px; font-size: 12px; color: var(--rl-warning); }
+.summary-plan-prose { font-size: 13.5px; }
+.summary-plan-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.summary-plan-steps li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--rl-text-dim); }
+.summary-step-mark { flex: none; color: var(--rl-text-faint); font-size: 10px; }
+.summary-plan-steps li[data-status="completed"] { color: var(--rl-text-faint); }
+.summary-plan-steps li[data-status="completed"] .summary-step-mark { color: var(--rl-success); }
+.summary-plan-steps li[data-status="in_progress"] { color: var(--rl-text-bright); }
+.summary-plan-steps li[data-status="in_progress"] .summary-step-mark { color: var(--rl-accent); }
 .mention-row-id { flex: none; font-family: var(--font-mono); font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .mention-row-desc { flex: 1; min-width: 0; font-size: 11.5px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -2060,7 +2096,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 :where(
   /* chrome and navigation */
   .space-body, .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
-  .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content,
+  .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .session-summary,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
