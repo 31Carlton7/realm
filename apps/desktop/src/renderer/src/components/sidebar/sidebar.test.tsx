@@ -677,7 +677,7 @@ describe("browser driving dot (Plan 11 W4)", () => {
 });
 
 describe("sidebar destinations (Plan 12 W4)", () => {
-  it("Library, Connections, Notifications and Settings sit between the New-session block and the space section (W5 filled the seam)", async () => {
+  it("Library, Connections, Notifications, Scheduled tasks and Settings sit between the New-session block and the space section", async () => {
     await mount();
     const nav = screen.getByRole("navigation", { name: "Destinations" });
     expect(within(nav).getByRole("button", { name: "Library" })).toBeInTheDocument();
@@ -687,7 +687,10 @@ describe("sidebar destinations (Plan 12 W4)", () => {
     // app-level page like its three neighbours, and it was the one thing in a spaces rail that
     // wasn't a space.
     expect(within(nav).getByRole("button", { name: "Settings" })).toBeInTheDocument();
-    expect(within(nav).getAllByRole("button")).toHaveLength(4);
+    // Scheduled tasks is an app-level destination for the same reason Settings is: it is somewhere
+    // you GO to see what is armed, and the runs it creates outlive whichever session set them up.
+    expect(within(nav).getByRole("button", { name: "Scheduled tasks" })).toBeInTheDocument();
+    expect(within(nav).getAllByRole("button")).toHaveLength(5);
     // No unread pill at zero — a permanent 0 would be the dead chrome this nav bans.
     expect(within(nav).queryByLabelText(/unread/)).toBeNull();
     // Placement: the nav follows the sb-top block (search + New session) and precedes the swiper.

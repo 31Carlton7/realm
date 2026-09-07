@@ -2,7 +2,8 @@
 import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import type { CliStatus, ModelInfo, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
+import { nextFireOf } from "@realm/contracts";
+import type { CliStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -125,6 +126,7 @@ export type FakeData = {
   importScan?: ImportScan; importResult?: ImportResult;
   usageSummary?: UsageSummary;
   usageActiveDays?: UsageDay[];
+  schedules?: Schedule[];
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -325,6 +327,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     guideProgress: overrides.guideProgress ?? {},
     usageSummary: overrides.usageSummary ?? emptyUsageSummary(),
     usageActiveDays: overrides.usageActiveDays ?? [],
+    schedules: overrides.schedules ?? [],
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
@@ -898,6 +901,37 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.modelCatalog;
     },
     usageActiveDays: async (p) => { calls.push(`usageActiveDays:${p.from}:${p.to}`); return data.usageActiveDays; },
+    listSchedules: async (spaceId) => { calls.push(`listSchedules:${spaceId}`); return data.schedules.filter((r) => r.spaceId === spaceId); },
+    createSchedule: async (input) => {
+      calls.push(`createSchedule:${input.spaceId}`);
+      const made: Schedule = {
+        id: `sch${data.schedules.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
+        cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
+        nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
+        createdAt: Date.now(), updatedAt: Date.now(),
+      };
+      data.schedules = [made, ...data.schedules];
+      return made;
+    },
+    updateSchedule: async (input) => {
+      calls.push(`updateSchedule:${input.id}`);
+      const before = data.schedules.find((r) => r.id === input.id)!;
+      const next: Schedule = { ...before, ...input, constraints: input.constraints ?? before.constraints };
+      data.schedules = data.schedules.map((r) => (r.id === input.id ? next : r));
+      return next;
+    },
+    deleteSchedule: async (id) => {
+      calls.push(`deleteSchedule:${id}`);
+      const before = data.schedules.length;
+      data.schedules = data.schedules.filter((r) => r.id !== id);
+      return { deleted: data.schedules.length < before };
+    },
+    runScheduleNow: async (id) => {
+      calls.push(`runScheduleNow:${id}`);
+      const next = data.schedules.map((r) => (r.id === id ? { ...r, lastRunAt: Date.now(), lastRunId: "run1", lastSkippedAt: null } : r));
+      data.schedules = next;
+      return next.find((r) => r.id === id)!;
+    },
     usageSummary: async (p) => {
       calls.push(`usageSummary:${p.bucket}:${p.spaceId ?? "*"}`);
       await wait("usageSummary");

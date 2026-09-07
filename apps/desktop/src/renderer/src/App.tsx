@@ -189,6 +189,13 @@ export function App() {
     // A durable run moved (created, dispatched, blocked, settled). Held-only like ships: the payload
     // carries the fresh row, so a Tasks lens already showing the space applies it without a refetch.
     const offRun = rpc().on("runs.changed", (p) => store.getState().applyRunsChanged(p));
+    // A schedule was created, edited, deleted or fired. Held-only like ships: the payload carries no
+    // row (a schedule changes rarely, and a deletion has no row to carry), so a page already showing
+    // this space re-lists and everyone else does nothing.
+    const offSched = rpc().on("schedules.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (st.schedules[spaceId]) st.run(() => st.refreshSchedules(spaceId));
+    });
     // A checkpoint was taken, restored or pruned. Only re-listed when the sheet is actually showing
     // that environment: this fires on every turn, and a store holding a list nobody is looking at is
     // work for nothing.
@@ -290,7 +297,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offSh(); offRun(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offE(); offT(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

@@ -823,6 +823,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; color: var(--rl-text-dim); }
 .field input, .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
+/* A multi-line field is the same control with room: same ring, same ground, same radius — only the
+   height and the wrapping differ, so a form mixing the two reads as one form. */
+.field textarea { padding: 7px 9px; border-radius: var(--r-ctl); border: 1px solid var(--rl-line); background: var(--field);
+  color: var(--rl-text-bright); outline: none; font: inherit; line-height: 1.5; resize: vertical; }
+.field textarea:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
 /* One focus-ring formula for every text-entry surface (§3): neutral ink at 35%, 2px. */
 .field input:focus, .field select:focus, .rename:focus, .hex:focus {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
@@ -2631,6 +2636,43 @@ button.panel-title:hover { background: var(--rl-hover); }
    `.page-content` and was invisible (found by looking at the running app; jsdom has no layout, so no
    test could have caught it). Both columns are `flex: 1 1 <basis>`, so the panel drops under the
    list when the pane cannot hold them side by side. */
+/* ── Scheduled tasks (SchedulesPage.tsx) ─────────────────────────────────
+   A list of rows, not a table: each schedule is three lines of prose (what it is, what it does, when
+   it next runs) plus a cluster of verbs, and a grid would spend its widest column on a goal that
+   wants to wrap. Rows separate by their own card, so no rule is drawn between them. */
+.schedules-page .page-head .sched-new { margin-left: auto; align-self: center; }
+.sched-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sched-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px;
+  border: 1px solid var(--rl-line); border-radius: var(--r-panel); background: var(--rl-panel); }
+/* A paused schedule is quieter, not struck through: it is armed-but-waiting, and the row still has
+   to be readable enough to edit. */
+.sched-row:not([data-enabled]) { opacity: .62; }
+.sched-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sched-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.sched-name { font-size: 13.5px; font-weight: var(--fw-strong); color: var(--rl-text-bright); }
+/* The recurrence, in mono where it is an expression and in prose where it is a sentence — the one
+   element takes both, because `describeCron` decides which and the reader should not have to. */
+.sched-cron { font-size: 11.5px; color: var(--rl-text-dim); }
+.sched-goal { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); max-width: 68ch;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sched-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
+.sched-next { color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* A missed firing is the one thing on this row that is a problem, so it is the one thing wearing a
+   state colour — and it carries a glyph too, because colour alone never says it. */
+.sched-skipped { display: inline-flex; align-items: center; gap: 4px; color: var(--rl-warning); }
+.sched-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.sched-toggle { display: inline-flex; align-items: center; margin-right: 4px; }
+.sched-confirm { width: auto; padding: 0 8px; font-size: 11px; }
+.sched-form { display: flex; flex-direction: column; gap: 12px; padding: 14px;
+  border: 1px solid var(--rl-line-strong); border-radius: var(--r-panel); background: var(--rl-panel); margin-bottom: 8px; }
+.sched-when { display: flex; gap: 8px; align-items: center; }
+.sched-when select { flex: 1 1 auto; min-width: 0; }
+/* Mono, and never narrower than the five fields it holds: this is machine state the user is typing. */
+.sched-cron-input { flex: 0 0 168px; font-family: var(--font-mono); font-size: 11.5px; }
+.sched-preview { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+.sched-preview[data-invalid] { color: var(--rl-warning); }
+.sched-form-actions { display: flex; gap: 8px; }
+
 .task-lens-list { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .task-lens-new { display: flex; flex-direction: column; gap: 6px; }
 /* The collapsed trigger sizes to its own words; only the OPEN composer takes the column's width. */

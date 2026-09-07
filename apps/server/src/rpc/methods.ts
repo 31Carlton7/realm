@@ -33,6 +33,7 @@ import type { NotificationsService } from "../notifications/service";
 import type { UsageService } from "../usage/service";
 import type { GraphifyService } from "../graphify/service";
 import type { RunService } from "../runs/service";
+import type { ScheduleService } from "../schedules/service";
 import type { ReviewService } from "../delegation/review";
 import type { DelegationEngine } from "../delegation/engine";
 import type { SearchService } from "../search/service";
@@ -53,7 +54,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; forks: ForkService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
   delegation: DelegationEngine;
 };
@@ -501,6 +502,20 @@ export function registerMethods(d: Deps): void {
   // count, the sidebar pill's one source; the service broadcasts `notifications.changed` itself.
   // Durable runs. `create` returns as soon as the row exists — dispatch and every later transition
   // reach the client as `runs.changed`, so no handler here waits on an agent.
+  // Scheduled tasks. Space-checked on the read and the create like every other scoped path; the
+  // by-id methods let the service raise NotFoundError itself, since it has to load the row anyway.
+  reg("schedules.list", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.schedules.list(p.spaceId);
+  });
+  reg("schedules.create", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.schedules.create(p);
+  });
+  reg("schedules.update", (p) => d.schedules.update(p));
+  reg("schedules.delete", (p) => ({ deleted: d.schedules.remove(p.id) }));
+  reg("schedules.runNow", (p) => d.schedules.runNow(p.id));
+
   reg("runs.list", (p) => d.runs.list(p));
   reg("runs.get", (p) => d.runs.get(p.id));
   reg("runs.create", (p) => d.runs.create({ spaceId: p.spaceId, goal: p.goal, title: p.title, constraints: p.constraints, dedupeKey: p.dedupeKey, maxAttempts: p.maxAttempts, deadlineAt: p.deadlineAt }));

@@ -22,3 +22,5 @@ import { SettingsPage } from "./settings/SettingsPage";
 registerPane("settings-page", SettingsPage);
 import { ProfilePage } from "./profile/ProfilePage";
 registerPane("profile-page", ProfilePage);
+import { SchedulesPage } from "./schedules/SchedulesPage";
+registerPane("schedules-page", SchedulesPage);

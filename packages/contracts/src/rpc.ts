@@ -17,6 +17,7 @@ import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchRes
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageSummarySchema } from "./usage";
+import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
@@ -787,6 +788,20 @@ export const Methods = {
    * time, newest first; cursor pagination exactly as `ships.list` / `notifications.list`. `states`
    * narrows to a subset (the Tasks lens asks for the three live states); an empty array means all.
    */
+  /* ── scheduled tasks ─────────────────────────────────────────────────────
+     A schedule creates RUNS; it does not execute anything itself, so there is no state machine here
+     to expose and no `approve`/`cancel` twin of the runs API. Everything below is CRUD plus one
+     button (`runNow`), and every change is announced with `schedules.changed`. */
+  "schedules.list": { params: z.object({ spaceId: IdSchema }), result: z.array(ScheduleSchema) },
+  /** Refused when the expression will never fire. Validated here rather than at fire time: a
+   *  schedule with a bad expression would otherwise sit in the list looking armed and do nothing,
+   *  and for unattended work that failure can go unnoticed for weeks. */
+  "schedules.create": { params: CreateScheduleSchema, result: ScheduleSchema },
+  "schedules.update": { params: UpdateScheduleSchema, result: ScheduleSchema },
+  "schedules.delete": { params: z.object({ id: IdSchema }), result: z.object({ deleted: z.boolean() }) },
+  /** Fire once, now, WITHOUT moving the schedule's own clock — see `ScheduleService.runNow`. Answers
+   *  the schedule, whose `lastRunId` now names the run this created. */
+  "schedules.runNow": { params: z.object({ id: IdSchema }), result: ScheduleSchema },
   "runs.list": {
     params: z.object({ spaceId: IdSchema, states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
     result: z.object({ runs: z.array(RunSchema), nextCursor: z.string().nullable() }),
@@ -1113,6 +1128,11 @@ export const Events = {
    *  lens applies it directly — the `notifications.changed` posture, no refetch race. `run` is null
    *  only for a bulk change with no single subject, where a held list refetches instead. */
   "runs.changed": z.object({ spaceId: IdSchema, run: RunSchema.nullable() }),
+  /** A space's schedules changed — created, edited, deleted, or fired. Carries no row: unlike a run,
+   *  a schedule changes rarely and a held list can simply refetch, and the alternative (a fresh row
+   *  per event) would have to carry a DELETION as a null and re-introduce the ambiguity `run: null`
+   *  already documents. */
+  "schedules.changed": z.object({ spaceId: IdSchema }),
   /** An environment's persisted review verdict changed (Plan 13 W3): a review settled (`review` is
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */

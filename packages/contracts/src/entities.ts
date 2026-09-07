@@ -54,7 +54,7 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  `documents` (Plan 17 W1) takes the `diff` route for the same reason: a document workspace is a view
  *  of a CHECKOUT, so several sessions sharing an environment share its documents. Its `refId` is a
  *  `document_workspaces` row id, and that row carries the environment. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page"]);
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -77,6 +77,9 @@ export const PAGE_REF_IDS = {
   // `item.spaceId`, never stored in the item, so a space moved between profiles moves its page's
   // subject with it (and a page can never keep editing a profile its space has left).
   "profile-page": "00000000000000000000000005",
+  // Scheduled tasks. Space-scoped like the rest: a schedule names the space its runs are created in,
+  // so the page's vantage is the space its item lives in.
+  "schedules-page": "00000000000000000000000006",
 } as const;
 export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 

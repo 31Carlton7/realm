@@ -434,4 +434,37 @@ export const migrations: string[] = [
   // Index-only, no schema change: nothing to backfill, nothing that can fail on an existing home,
   // and every query it speeds up returns the same rows without it.
   `CREATE INDEX session_events_messages ON session_events(ts, session_id) WHERE type = 'user_message';`,
+  // v23 — scheduled tasks. A schedule OWNS no execution: it creates runs, and `runs` already answers
+  // every question about attempts, restarts and the human gate. So this table holds only the WHEN,
+  // plus the log of what the last firing did.
+  //
+  // `next_run_at` is stored rather than derived at read time, and that is the concurrency design: the
+  // runner claims a schedule by writing the next occurrence into this column in the same statement
+  // that reads it as due, so two ticks landing together cannot both fire it. Deriving it from the
+  // expression on every read would make the claim impossible to express as one write.
+  //
+  // ON DELETE CASCADE from spaces, like every other space-scoped table: deleting a space must not
+  // leave a timer pointing into it. `last_run_id` deliberately has NO foreign key — "this schedule
+  // produced run X" stays a true and useful statement after X is deleted, the same log posture
+  // `sessions.dispatched_by_session_id` and the notifications feed already take.
+  `
+  CREATE TABLE schedules (
+    id TEXT PRIMARY KEY,
+    space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    goal TEXT NOT NULL,
+    cron TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    constraints_json TEXT,
+    next_run_at INTEGER,
+    last_run_at INTEGER,
+    last_run_id TEXT,
+    last_skipped_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL);
+  CREATE INDEX schedules_space ON schedules(space_id, created_at);
+  -- The runner's ONE query, across every space: the due ones. Partial on the enabled flag so a home
+  -- full of paused schedules costs the tick nothing.
+  CREATE INDEX schedules_due ON schedules(next_run_at) WHERE enabled = 1;
+  `,
 ];

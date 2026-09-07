@@ -7,7 +7,7 @@ import {
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
+  type AgentKind, type Attachment, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -376,6 +376,11 @@ export type Api = {
   listShips(spaceId: string, cursor?: string | null, limit?: number): Promise<{ ships: Ship[]; nextCursor: string | null }>;
   /** `runs.list` (durable runs): one page of a space's runs, newest first. `states` narrows; an
    *  empty array means every state. */
+  listSchedules(spaceId: string): Promise<Schedule[]>;
+  createSchedule(input: CreateScheduleInput): Promise<Schedule>;
+  updateSchedule(input: UpdateScheduleInput): Promise<Schedule>;
+  deleteSchedule(id: string): Promise<{ deleted: boolean }>;
+  runScheduleNow(id: string): Promise<Schedule>;
   listRuns(spaceId: string, states?: RunState[], cursor?: string | null, limit?: number): Promise<{ runs: Run[]; nextCursor: string | null }>;
   /** `runs.create` — queue a durable run. Returns the row plus whether it was newly created (a
    *  `dedupeKey` collision returns the live run instead of a second one). */
@@ -425,6 +430,7 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   // Static like the rest: the page header renders the live profile name; the item row's title has
   // nothing to go stale against (Plan 14 W2).
   "profile-page": "Profile",
+  "schedules-page": "Scheduled tasks",
 };
 
 /**
@@ -806,6 +812,9 @@ export type AppState = {
   /** `runs.list` first page by space id — the Tasks lens's run half. Absent = never asked, which is
    *  what keeps `runs.changed` from fetching for a space nobody is looking at. */
   runs: Record<string, Run[]>;
+  /** Held per space, like runs and ships: a space whose schedules nobody has opened has nothing to
+   *  go stale, and `schedules.changed` only refetches for the ones a page is actually showing. */
+  schedules: Record<string, Schedule[]>;
   /** Which run the Tasks lens has selected, PER SPACE — the same posture as `spacePageTab`, so two
    *  space pages open side by side do not fight over one selection. */
   selectedRunId: Record<string, string | null>;
@@ -1400,6 +1409,16 @@ export type AppState = {
   /** Re-fetch one space's ship log (first page — the History tab's glance, not an archive browser);
    *  what the History tab mounts and the `ships.changed` broadcast triggers for held spaces. */
   refreshShips(spaceId: string): Promise<void>;
+  /** Re-fetch one space's schedules. What the Scheduled tasks page mounts, and what
+   *  `schedules.changed` triggers for spaces already held. */
+  refreshSchedules(spaceId: string): Promise<void>;
+  /** The four schedule writes. Each re-lists rather than folding a row in: unlike a run, a schedule
+   *  changes rarely, so a refetch costs nothing and there is one code path instead of two. */
+  createSchedule(input: CreateScheduleInput): Promise<void>;
+  updateSchedule(input: UpdateScheduleInput): Promise<void>;
+  deleteSchedule(id: string, spaceId: string): Promise<void>;
+  /** Fire once now, without moving the schedule's own clock (see `ScheduleService.runNow`). */
+  runScheduleNow(id: string, spaceId: string): Promise<void>;
   /** Re-fetch one space's runs (first page). What the Tasks tab mounts and what `runs.changed`
    *  triggers for spaces already held. */
   refreshRuns(spaceId: string): Promise<void>;
@@ -1985,7 +2004,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
       machineName: "", userName: "", connectors: {}, browserAllowlists: {}, computerAllowedApps: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -3809,6 +3828,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { ships } = await api.listShips(spaceId);
         set({ ships: { ...get().ships, [spaceId]: ships } });
       },
+      async refreshSchedules(spaceId) {
+        const rows = await api.listSchedules(spaceId);
+        set({ schedules: { ...get().schedules, [spaceId]: rows } });
+      },
+      async createSchedule(input) { await api.createSchedule(input); await get().refreshSchedules(input.spaceId); },
+      async updateSchedule(input) {
+        const next = await api.updateSchedule(input);
+        await get().refreshSchedules(next.spaceId);
+      },
+      async deleteSchedule(id, spaceId) { await api.deleteSchedule(id); await get().refreshSchedules(spaceId); },
+      async runScheduleNow(id, spaceId) { await api.runScheduleNow(id); await get().refreshSchedules(spaceId); },
       async refreshRuns(spaceId) {
         const { runs } = await api.listRuns(spaceId);
         set({ runs: { ...get().runs, [spaceId]: runs } });

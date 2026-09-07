@@ -25,7 +25,11 @@ export function Destinations() {
       <DestRow kind="notifications-page" label="Notifications">
         {unread > 0 && <span className="status-pill dest-count" data-tone="warning" aria-label={`${unread} unread`}>{unread}</span>}
       </DestRow>
-      {/* Settings moved here off the space strip's left slot: it is an app-level page like the three
+      {/* Work this space starts on a clock. It sits with the app-level pages rather than inside the
+          space page because it is a DESTINATION — somewhere you go to see what is armed — and
+          because its runs outlive whichever session was open when they were set up. */}
+      <DestRow kind="schedules-page" label="Scheduled tasks" />
+      {/* Settings moved here off the space strip's left slot: it is an app-level page like the four
           above it, and the strip is a rail about spaces — the gear was the only thing in it that
           wasn't one, and it cost the strip a slot it needed. Ungated like its neighbours, because
           `openDestinationPage` already no-ops with no active space; a disabled row is what this nav

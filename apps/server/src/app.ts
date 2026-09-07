@@ -49,6 +49,8 @@ import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
 import { RunsStore } from "./store/runs";
 import { RunService } from "./runs/service";
+import { ScheduleService } from "./schedules/service";
+import { SchedulesStore } from "./store/schedules";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
@@ -369,6 +371,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // session-event hook below — the same forward-reference `runs` takes, for the same reason.
   let usage: UsageService | null = null;
   let runs: RunService | null = null;
+  // Declared alongside `runs` and for the same reason: `close()` below runs on a boot that may have
+  // failed before this was constructed, so the handle has to exist as null from the top.
+  let schedules: ScheduleService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -472,6 +477,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // rides the session-event hook above (runs/service.ts).
   runs = new RunService({ store: new RunsStore(db), settings, sessions, rpc, environments: envService, skills, notifications,
     fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind });
+  // Scheduled tasks: the clock in front of the runs above. It owns a timer and they deliberately do
+  // not — every fact this one acts on is a column, so a restart replays from the row rather than
+  // from anything the process was holding (schedules/service.ts). Started after boot recovery below,
+  // not here, so a catch-up firing lands in a world whose live runs have already been reconciled.
+  schedules = new ScheduleService({ store: new SchedulesStore(db), runs, rpc });
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
@@ -513,13 +523,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
   runs.recoverOnBoot();
+  // …and only then does the clock start. A schedule that came due while the app was closed fires on
+  // this first tick, and it must not race the recovery that decides which runs are still alive.
+  schedules.start();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
@@ -534,6 +547,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, gateway: mcpGateway,
     close: async () => {
       search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
+      schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
       runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
       terminals.closeAll();
       cliInstaller.disposeAll();

@@ -29,4 +29,5 @@ export * from "./catalog";
 export * from "./usage";
 export * from "./documents";
 export * from "./runs";
+export * from "./schedules";
 export * from "./school";
