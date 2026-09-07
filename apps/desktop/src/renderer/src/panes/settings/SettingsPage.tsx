@@ -164,7 +164,7 @@ function EnginesTab() {
       )}
       {agentProbe.length === 0
         ? <p className="env-empty">Checking the installed CLIs…</p>
-        : <ul className="page-list engines-list">{kinds.map((k) => <EngineRow key={k} kind={k} />)}</ul>}
+        : <ul className="engines-list">{kinds.map((k) => <EngineCard key={k} kind={k} />)}</ul>}
       {/* Directly under the engine list, because it is a statement ABOUT that list: which of these
           may take over when the one a session is on cannot finish. */}
       <h3 className="settings-head">Failover</h3>
@@ -173,7 +173,21 @@ function EnginesTab() {
   );
 }
 
-function EngineRow({ kind }: { kind: AgentKind }) {
+/**
+ * One engine, as a card.
+ *
+ * It was a flat row that flattened four different questions into one run-on sentence — "Installed ·
+ * 0.146.0 · signed in · v0.153.4 available" — and then, for anything not ready, stacked a command
+ * block and up to three explanatory paragraphs underneath it. With twelve engines and most of them
+ * not installed, that is the wall of text this page was.
+ *
+ * Two changes carry the redesign. The facts split into a status pill and small labelled chips, so
+ * "is it there", "which version", "am I signed in" and "is there a newer one" are four things you
+ * can find rather than one sentence you have to parse. And the prose — install commands, login
+ * hints, probe reasons — folds behind a disclosure, opened by default only when the engine needs
+ * something from you. A ready engine is one line; a broken one still explains itself in full.
+ */
+function EngineCard({ kind }: { kind: AgentKind }) {
   const agentProbe = useApp((s) => s.agentProbe);
   const cli = useApp((s) => s.cliStatus).find((r) => r.kind === kind);
   const job = useApp((s) => s.cliJobs[kind]);
@@ -185,64 +199,83 @@ function EngineRow({ kind }: { kind: AgentKind }) {
   const a = agentAvailability(kind, agentProbe);
   const { install, login } = AGENT_CLI_COMMANDS[kind];
   // The one command a click would run, and the label for the click. The server decided both; the
-  // row only renders them, so a button can never offer something the server would refuse.
+  // card only renders them, so a button can never offer something the server would refuse.
   const offer = cli && cli.action !== "none" && cli.command
     ? { command: cli.command, action: cli.action, label: cli.action === "install" ? "Install" : "Update" }
     : null;
   const offered = (SELECTABLE_AGENT_KINDS as readonly AgentKind[]).includes(kind);
-  // Signed-in identity, exactly as far as the probe carries it: a boolean at best (Claude's keychain
-  // and both ACP agents report null = "couldn't tell", which renders as nothing, not as either claim).
-  const identity = p?.loggedIn === true ? "signed in" : p?.loggedIn === false ? "signed out" : null;
-  // Folded into the status line rather than shown as its own badge: "what version am I on" and "is
-  // there a newer one" are one sentence.
-  const behind = cli?.updateAvailable && cli.latest ? `${engineVersionLabel(cli.latest)} available` : null;
-  const status = !p ? "Checking…"
-    : p.available ? ["Installed", p.version ? engineVersionLabel(p.version) : null, identity, behind].filter(Boolean).join(" · ")
-    : "Not installed";
+  const blocked = isBlocked(a) && kind !== "fake";
+  const state = !p ? "unknown" : !p.available ? "missing" : p.loggedIn === false ? "logged_out" : "ready";
+  const STATE_LABEL = { unknown: "Checking…", missing: "Not installed", logged_out: "Signed out", ready: "Ready" };
+
+  /* The facts, as chips. Each is a separate answer, and only the ones there is an answer FOR are
+     drawn — an engine that is not installed has no version, and a probe that could not tell whether
+     you are signed in (Claude's keychain, every ACP agent) says nothing rather than guessing. */
+  const chips: { label: string; tone?: "warn" }[] = [];
+  if (p?.available && p.version) chips.push({ label: engineVersionLabel(p.version) });
+  if (p?.loggedIn === true) chips.push({ label: "Signed in" });
+  if (cli?.updateAvailable && cli.latest) chips.push({ label: `${engineVersionLabel(cli.latest)} available`, tone: "warn" });
+  if (!offered && kind !== "fake") chips.push({ label: "Not offered for new sessions" });
+
+  // Everything wordy. Open by default only when the engine needs something FROM YOU — a job in
+  // flight, or a block to clear. Deliberately not a refusal: "there is a newer version and Realm
+  // will not install it for you" is worth knowing and not worth two sentences of your attention
+  // unprompted, and the chip above already says a newer version exists.
+  const details = [
+    offer ? "offer" : null,
+    !offer && a.state === "missing" && install ? "install" : null,
+    a.state === "logged_out" && login ? "login" : null,
+    cli?.refusal ? "refusal" : null,
+    blocked ? "hint" : null,
+    p && !p.available && p.reason ? "reason" : null,
+  ].filter(Boolean);
+  const wantsYou = Boolean(job) || blocked;
+
   return (
-    <li className="engine-row" aria-label={`${meta.label}: ${status}`}>
-      <span className="engine-mark"><Icon name={meta.icon} size={18} colored /></span>
-      <div className="engine-main">
-        <div className="engine-line">
-          <span className="engine-name">{meta.label}</span>
-          <span className="engine-status" data-state={!p ? "unknown" : p.available ? "installed" : "missing"}>{status}</span>
-        </div>
-        {/* A kind Realm keeps registered but will not offer says so, and only that — the how-to-fix
-            sentence below is shared with every other blocked row. */}
-        {!offered && kind !== "fake" && <p className="settings-hint">Not offered for new sessions.</p>}
-        {offer
-          ? <CommandCopy command={offer.command} action={
-              <button type="button" className="btn primary engine-run" disabled={job?.state === "running"}
-                onClick={() => run(() => runCliAction(kind, offer.action as "install" | "update"))}>
-                {offer.label}
-              </button>
-            } />
-          // No offer: the command is still shown, because a user who must run it themselves needs to
-          // read it. This is the whole surface for a kind Realm will not install for them.
-          : <>
-              {a.state === "missing" && install && <CommandCopy command={install} />}
-              {a.state === "logged_out" && login && <CommandCopy command={login} />}
-            </>}
-        {/* Signing in is never Realm's to run — it is a browser flow or an API key, and a command
-            that would sit waiting on a prompt Realm has closed. */}
-        {offer && a.state === "logged_out" && login && <CommandCopy command={login} />}
-        {/* An update Realm found but will not apply says why, right where the button would be — with
-            the copy it is talking about, because "which one?" is the next question for anyone who
-            has ended up with two of something on their PATH. */}
-        {cli?.refusal && <p className="settings-hint">{cli.refusal}{cli.binPath ? ` (${cli.binPath})` : ""}</p>}
-        {job && <CliJobPanel job={job} onDismiss={() => dismissCliJob(kind)} />}
-        {/* The login hint on ANY blocked row, not just un-offered ones. It used to hang off `!offered`,
-            which was fine only while every kind with something awkward to explain was also withheld.
-            Gemini broke that the moment it was offered again: `login` is null for it (there is no login
-            command — it needs an API key, Vertex credentials, or a gateway), so the row would have gone
-            from a full explanation to nothing but "Not installed". A blocked agent must always say what
-            would unblock it. */}
-        {isBlocked(a) && kind !== "fake" && <p className="settings-hint">{AGENT_LOGIN_HINTS[kind]}</p>}
-        {p && !p.available && p.reason && <p className="settings-hint">{p.reason}</p>}
+    <li className="engine-card" aria-label={`${meta.label}: ${STATE_LABEL[state]}`} data-state={state}>
+      <div className="engine-head">
+        <span className="engine-mark"><Icon name={meta.icon} size={20} colored /></span>
+        <span className="engine-name">{meta.label}</span>
+        <span className="engine-pill" data-state={state}>{STATE_LABEL[state]}</span>
+        {offer && (
+          <button type="button" className="btn primary engine-run" disabled={job?.state === "running"}
+            onClick={() => run(() => runCliAction(kind, offer.action as "install" | "update"))}>
+            {offer.label}
+          </button>
+        )}
       </div>
+      {chips.length > 0 && (
+        <div className="engine-chips">
+          {chips.map((c) => <span key={c.label} className="engine-chip" data-tone={c.tone}>{c.label}</span>)}
+        </div>
+      )}
+      {details.length > 0 && (
+        <details className="engine-details" open={wantsYou || undefined}>
+          <summary>{blocked ? "What to do" : "Details"}</summary>
+          <div className="engine-details-body">
+            {offer && <CommandCopy command={offer.command} />}
+            {!offer && a.state === "missing" && install && <CommandCopy command={install} />}
+            {/* Signing in is never Realm's to run — it is a browser flow or an API key, and a command
+                that would sit waiting on a prompt Realm has closed. */}
+            {a.state === "logged_out" && login && <CommandCopy command={login} />}
+            {/* An update Realm found but will not apply says why, with the copy it is talking about —
+                "which one?" is the next question for anyone with two of something on their PATH. */}
+            {cli?.refusal && <p className="settings-hint">{cli.refusal}{cli.binPath ? ` (${cli.binPath})` : ""}</p>}
+            {/* The login hint on ANY blocked card, not just un-offered ones. It used to hang off
+                `!offered`, which held only while every kind with something awkward to explain was
+                also withheld. Gemini broke that when it was offered again: `login` is null for it
+                (it needs an API key, Vertex credentials, or a gateway), so the card would have gone
+                from a full explanation to nothing but "Not installed". */}
+            {blocked && <p className="settings-hint">{AGENT_LOGIN_HINTS[kind]}</p>}
+            {p && !p.available && p.reason && <p className="settings-hint">{p.reason}</p>}
+          </div>
+        </details>
+      )}
+      {job && <CliJobPanel job={job} onDismiss={() => dismissCliJob(kind)} />}
     </li>
   );
 }
+
 
 const THEME_CHOICES: { pref: ThemePref; label: string }[] = [
   { pref: "system", label: "System" }, { pref: "light", label: "Light" }, { pref: "dark", label: "Dark" },

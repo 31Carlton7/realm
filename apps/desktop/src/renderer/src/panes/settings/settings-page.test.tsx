@@ -99,12 +99,17 @@ describe("Engines tab", () => {
   });
 
   it("renders each CLI's honest state: installed + version, signed-out, missing — and login-unknowable renders as NOTHING, not a claim", async () => {
+    /* The facts used to be welded into one accessible name — "Claude: Installed · v2.1.223 · signed
+       in · v2.2 available" — because they were welded into one sentence on screen. They are a status
+       pill and separate chips now, so each is asserted where it actually lives. */
     await mount();
-    // Claude: installed with version; loggedIn null (keychain) must claim neither signed in nor out.
-    const claude = await screen.findByRole("listitem", { name: /Claude: Installed · v2\.1\.223$/ });
-    expect(within(claude).queryByText(/signed/)).toBeNull();
+    // Claude: ready, with its version; loggedIn null (keychain) must claim neither signed in nor out.
+    const claude = await screen.findByRole("listitem", { name: /Claude: Ready/ });
+    expect(within(claude).getByText("v2.1.223")).toBeInTheDocument();
+    expect(within(claude).queryByText(/Signed/)).toBeNull();
     // Codex: installed and explicitly signed out — with the LOGIN command, not the install one.
-    const codex = screen.getByRole("listitem", { name: /Codex: Installed · v0\.48\.0 · signed out/ });
+    const codex = screen.getByRole("listitem", { name: /Codex: Signed out/ });
+    expect(within(codex).getByText("v0.48.0")).toBeInTheDocument();
     expect(within(codex).getByText(AGENT_CLI_COMMANDS.codex.login!)).toBeInTheDocument();
     expect(within(codex).queryByText(AGENT_CLI_COMMANDS.codex.install!)).toBeNull();
     // Cursor: missing — with the exact install command.
@@ -133,7 +138,7 @@ describe("Engines tab", () => {
     await mount();
     // opencode probes installed. Kills a mutation that drops the `isBlocked` guard and prints the
     // login hint on every row, which would tell a working agent to go and sign in.
-    const ok = await screen.findByRole("listitem", { name: /OpenCode: Installed/ });
+    const ok = await screen.findByRole("listitem", { name: /OpenCode: Ready/ });
     expect(within(ok).queryByText(/opencode auth login/)).toBeNull();
   });
 

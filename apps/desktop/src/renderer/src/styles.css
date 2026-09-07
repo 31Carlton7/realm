@@ -3085,41 +3085,53 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Narrow: the check buttons drop below the lede rather than squeezing it into a six-word gutter.
    Placed after the `flex: 1` above on purpose — a container query carries no extra specificity. */
 @container (max-width: 640px) { .engines-head .page-lede { flex-basis: 100%; } }
-.engines-list { gap: 4px; }
-.engine-row { display: flex; gap: 10px; padding: 9px 10px; border-radius: var(--r-ctl); }
-.engine-mark { flex: none; display: inline-flex; margin-top: 1px; }
-
-/* ── Failover: what happens to a turn the agent could not finish ─────────────────────────────── */
-/* A section heading inside a settings tab. 13px rather than the 11px of a hint: this names a group
-   of controls, and a group label set smaller than the copy inside it stops being a label. */
-.settings-head { margin: 20px 0 6px; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
-.settings-row-title { margin: 0; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
-.failover { display: flex; flex-direction: column; gap: 4px; }
-.failover .settings-row { align-items: center; }
-.failover-list { gap: 2px; margin-top: 6px; }
-.failover-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--r-ctl); }
-.failover-row[data-on] { background: var(--rl-frame); }
-/* Reserved whether or not it is filled, so switching a row on does not shove the whole list right.
-   Tabular because it is a rank, and a rank that shifts width is a rank that jitters as you reorder. */
-.failover-pos {
-  flex: none; width: 14px; text-align: center;
-  font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint);
+/* ── Engines: one card per agent ─────────────────────────────────────────────────────────────── */
+.engines-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+/* A card, not a row. Twelve engines each carrying a status, a version, a sign-in and sometimes a
+   command block is more than a hairline-separated list can hold legibly. */
+.engine-card {
+  display: flex; flex-direction: column; gap: 8px; padding: 14px 16px;
+  background: var(--rl-frame); border-radius: var(--r-panel); corner-shape: squircle;
 }
-.failover-name { flex: 1; min-width: 0; font-size: 13px; color: var(--rl-text-bright); }
-.failover-note { flex: none; font-size: 11px; color: var(--rl-text-faint); }
-/* Hidden until the row is on, because reordering something that is not in the chain means nothing —
-   but the buttons keep their box so the switches stay in one column down the list. */
-.failover-order { flex: none; display: inline-flex; gap: 2px; }
-.failover-order .icon-btn:disabled { opacity: 0.3; pointer-events: none; }
-.engine-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.engine-line { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.engine-name { font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
-.engine-status { font-size: 12px; color: var(--rl-text-dim); }
-.engine-status[data-state="missing"] { color: var(--rl-warning); }
-.engine-status[data-state="unknown"] { color: var(--rl-text-faint); }
-/* The run button sits inside the command chip, so the command and the thing that runs it are one
-   object — reading it and clicking it are never two places on the page. */
+/* The one that needs you is the one that stands out — a warm edge rather than a colour on the text,
+   so it survives being read by someone who cannot tell the two apart. */
+.engine-card[data-state="missing"], .engine-card[data-state="logged_out"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--orange) 34%, transparent);
+}
+.engine-head { display: flex; align-items: center; gap: 10px; }
+.engine-mark { flex: none; display: inline-flex; }
+/* 15px, up from 13. It is the card's title and the only thing on the page you scan for. */
+.engine-name { flex: 1; min-width: 0; font-size: 15px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+/* The status as a pill rather than the head of a run-on sentence. Four states, each with a word. */
+.engine-pill {
+  flex: none; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: var(--fw-label);
+  background: var(--rl-hover); color: var(--rl-text-dim);
+}
+.engine-pill[data-state="ready"] { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+.engine-pill[data-state="missing"], .engine-pill[data-state="logged_out"] {
+  background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange);
+}
 .engine-run { flex: none; }
+/* The facts, split apart. "Installed · 0.146.0 · signed in · v0.153.4 available" was four answers
+   welded into one sentence you had to parse to find any of them. */
+.engine-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.engine-chip {
+  padding: 2px 8px; border-radius: var(--r-chip); corner-shape: squircle;
+  background: var(--rl-hover); color: var(--rl-text-dim); font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.engine-chip[data-tone="warn"] { color: var(--orange); }
+/* The prose, folded. Open by default only when the engine wants something from you — which is the
+   whole of how this page stopped being a wall: a ready engine is a title and some chips. */
+.engine-details > summary {
+  list-style: none; cursor: pointer; font-size: 12px; color: var(--rl-text-faint);
+  padding: 2px 0; width: fit-content;
+}
+.engine-details > summary::-webkit-details-marker { display: none; }
+.engine-details > summary:hover { color: var(--rl-text-dim); }
+.engine-details > summary::before { content: "▸ "; }
+.engine-details[open] > summary::before { content: "▾ "; }
+.engine-details-body { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
 /* A running or finished install. Monospace, scrollable, capped: a package manager's output is read
    at the tail, and an unbounded block would push every row below it off the page. */
 .cli-job { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: var(--r-chip);

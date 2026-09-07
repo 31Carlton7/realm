@@ -36,9 +36,14 @@ afterEach(cleanup);
 const codexRow = () => screen.getByRole("listitem", { name: /^Codex:/ });
 
 describe("an engine row with an update available", () => {
-  it("says which version is available in the same sentence as the one installed", async () => {
+  it("says which version is available beside the one installed", async () => {
+    /* These were one sentence in the card's accessible name. They are separate chips now, which is
+       the point of the redesign: "which version am I on" and "is there a newer one" are two
+       questions, and welding them meant reading the whole string to answer either. */
     await mount({ cliStatus: [behind] });
-    await waitFor(() => expect(codexRow()).toHaveAccessibleName(/v0\.146\.0 · signed in · v0\.153\.4 available/));
+    await waitFor(() => expect(within(codexRow()).getByText("v0.146.0")).toBeInTheDocument());
+    expect(within(codexRow()).getByText("Signed in")).toBeInTheDocument();
+    expect(within(codexRow()).getByText("v0.153.4 available")).toBeInTheDocument();
   });
 
   it("shows the exact command before the button that runs it", async () => {
@@ -88,7 +93,7 @@ describe("an engine row Realm will not update", () => {
   it("still says a newer version exists, and says why it is not offering a button", async () => {
     // The named mutant: hiding the update because it cannot be applied. Both halves are the user's.
     await mount({ cliStatus: [brewInstalled] });
-    await waitFor(() => expect(codexRow()).toHaveAccessibleName(/v0\.153\.4 available/));
+    await waitFor(() => expect(within(codexRow()).getByText("v0.153.4 available")).toBeInTheDocument());
     // With the copy it means: "which one?" is the next question for anyone with two on their PATH.
     expect(within(codexRow()).getByText(/Homebrew.*\/opt\/homebrew\/bin\/codex/)).toBeInTheDocument();
     expect(within(codexRow()).queryByRole("button", { name: "Update" })).toBeNull();

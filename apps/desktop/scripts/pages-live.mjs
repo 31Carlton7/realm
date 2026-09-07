@@ -210,6 +210,28 @@ async function main() {
   }
   await shot(c, "settings-head", { x: 0, y: 0, width: 1500, height: 260 });
 
+  /* ── 1b. Engine cards ───────────────────────────────────────────────────── */
+  await evalIn(c, `__live.dest("Settings")`);
+  await until(() => evalIn(c, `!!document.querySelector('.engine-card')`), 20000, "engine cards");
+  await sleep(600);
+  const eng = await evalIn(c, `(() => {
+    const cards = [...document.querySelectorAll('.engine-card')];
+    const first = cards[0];
+    return { count: cards.length,
+             ready: cards.filter((el) => el.getAttribute('data-state') === 'ready').length,
+             openDetails: cards.filter((el) => el.querySelector('details[open]')).length,
+             pills: cards.filter((el) => el.querySelector('.engine-pill')).length,
+             box: __live.box(first), list: __live.box(document.querySelector('.engines-list')),
+             nameSize: getComputedStyle(first.querySelector('.engine-name')).fontSize,
+             // A ready card is one line of card plus its chips; a blocked one opens its prose.
+             readyHeights: cards.filter((el) => el.getAttribute('data-state') === 'ready').map((el) => Math.round(el.getBoundingClientRect().height)) };
+  })()`);
+  check("every engine is a card with a status pill", eng.pills === eng.count, eng);
+  check("a ready engine stays short — its prose is folded", eng.readyHeights.every((h) => h < 130), eng);
+  check("only the engines that need something open themselves", eng.openDetails < eng.count, eng);
+  check("cards do not overflow the list", eng.box.r <= eng.list.r + 1, eng);
+  await shot(c, "engines", { x: eng.list.l - 16, y: eng.list.t - 60, width: eng.list.w + 32, height: 560 });
+
   /* ── 2. The checkbox ────────────────────────────────────────────────────── */
   await evalIn(c, `__live.dest("Settings")`);
   await until(() => evalIn(c, `!!document.querySelector('.page-rail .settings-tab')`), 15000, "settings");
