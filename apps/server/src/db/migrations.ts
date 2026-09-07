@@ -420,4 +420,18 @@ export const migrations: string[] = [
   // Index-only, no schema change: nothing to backfill, nothing that can fail on an existing home, and
   // the migration is a no-op for correctness — every query it speeds up returns the same rows without it.
   `CREATE INDEX session_events_usage ON session_events(ts, session_id) WHERE type = 'usage';`,
+  // v22 — the activity calendar's index, on exactly the v21 pattern and for the same reason. The
+  // calendar asks one question ("the `user_message` rows in the last year, by local day") which the
+  // `(session_id, seq)` index cannot serve, so without this it is a full scan of every transcript
+  // ever written — the same scan v21 exists to have removed.
+  //
+  // PARTIAL again: a `user_message` row is written once per SEND, which is the rarest event type in
+  // the table by a wide margin (a single turn writes dozens of tool and text rows against it), so
+  // this index covers a smaller fraction of the table than v21's does and its cost on the append
+  // path is smaller still. `session_id` rides along so the distinct-session count per day is
+  // answered from the index rather than a row fetch per event.
+  //
+  // Index-only, no schema change: nothing to backfill, nothing that can fail on an existing home,
+  // and every query it speeds up returns the same rows without it.
+  `CREATE INDEX session_events_messages ON session_events(ts, session_id) WHERE type = 'user_message';`,
 ];

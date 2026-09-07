@@ -3,7 +3,7 @@ import {
   USAGE_BUDGET_KEY, USAGE_REPORTING, canonicalModelKey, parseUsageBudget,
   thresholdsCrossed,
   type AgentKind, type ModelInfo, type Session, type SessionEvent, type UsageBucketKind,
-  type UsageBudget, type UsageSample, type UsageSummary,
+  type UsageBudget, type UsageDay, type UsageSample, type UsageSummary,
 } from "@realm/contracts";
 import type { Db } from "../db/database";
 import type { SettingsStore } from "../store/settings";
@@ -70,6 +70,37 @@ export class UsageService {
       activity: this.activity(p),
       budget: { budget, monthSpendUsd: monthSpend, monthStart, projectedUsd },
     });
+  }
+
+  /**
+   * Days Realm was used, over the calendar's window — one row per LOCAL day that saw at least one
+   * sent message, with how many.
+   *
+   * Not a slice of `summary`. The summary's per-bucket series carries money and tokens only, on
+   * purpose (a session spans buckets, so counting it in each would double-count it), and money and
+   * tokens are exactly what nine of the eleven engines never report. "Did I use Realm that day" has
+   * to be answerable for a Cursor session too, so the measure is a message sent — which every engine
+   * has, because Realm itself wrote the row.
+   *
+   * Grouped by SQLite's own `localtime`, which is this machine's zone. Realm is a local app: the
+   * calendar being drawn is the calendar of the Mac the events happened on, and there is no second
+   * zone for the two to disagree about.
+   *
+   * Days with nothing are absent rather than zero-filled — the client builds the grid from the range
+   * (`dayRange`) so an empty week is a visible gap rather than a compressed axis, and shipping a
+   * year of zeroes over the wire to say the same thing would be 365 rows of nothing.
+   */
+  activeDays(p: { from: number; to: number }): UsageDay[] {
+    const rows = this.d.db.prepare(`
+      SELECT date(ts / 1000, 'unixepoch', 'localtime') AS day,
+             COUNT(*) AS messages,
+             COUNT(DISTINCT session_id) AS sessions
+        FROM session_events
+       WHERE type = 'user_message' AND ts BETWEEN ? AND ?
+       GROUP BY day
+       ORDER BY day
+    `).all(p.from, p.to) as Row[];
+    return rows.map((r) => ({ day: str(r.day), messages: num(r.messages), sessions: num(r.sessions) }));
   }
 
   /* ── budget alerts ──────────────────────────────────────────────────────── */

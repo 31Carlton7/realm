@@ -3,15 +3,16 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 import { reduceAll } from "./transcript-model";
-import { sessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { sessionEvent } from "@realm/contracts";
 import { SessionSummaryButton } from "./SessionSummary";
 
 afterEach(() => cleanup());
 
-let seq = 0;
-const ev = (e: ReturnType<typeof sessionEvent>): StoredSessionEvent => ({ ...e, seq: ++seq, ts: seq * 1000 } as StoredSessionEvent);
+/** `sessionEvent` already stamps a `ts`; the reducer reads nothing else off the envelope, so the
+ *  events go in exactly as the adapters emit them. */
+type Event = ReturnType<typeof sessionEvent>;
 
-async function mount(events: StoredSessionEvent[]) {
+async function mount(events: Event[]) {
   const api = fakeApi();
   const store = createAppStore(api);
   await store.getState().boot();
@@ -31,23 +32,23 @@ const rowNames = () => [...document.querySelectorAll(".summary-row-name")].map((
 describe("the session summary button", () => {
   it("is not drawn at all for a session that has produced, received and proposed nothing", async () => {
     // A permanently-empty panel behind a permanent button is the dead chrome the pane bar bans.
-    await mount([ev(sessionEvent("user_message", { text: "hello", attachments: [] }))]);
+    await mount([(sessionEvent("user_message", { text: "hello", attachments: [] }))]);
     expect(screen.queryByRole("button", { name: /Summary/ })).toBeNull();
   });
 
   it("appears the moment the session has something to summarise", async () => {
     await mount([
-      ev(sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/made.ts" }, parentToolUseId: null })),
-      ev(sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
+      (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/made.ts" }, parentToolUseId: null })),
+      (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
     ]);
     expect(screen.getByRole("button", { name: "Summary of A session" })).toBeInTheDocument();
   });
 
   it("lists outputs, uploads and plans under their own headings, and omits a section with nothing in it", async () => {
     await mount([
-      ev(sessionEvent("user_message", { text: "look", attachments: [{ path: "/u/spec.pdf", mime: "application/pdf" }] })),
-      ev(sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/made.ts" }, parentToolUseId: null })),
-      ev(sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
+      (sessionEvent("user_message", { text: "look", attachments: [{ path: "/u/spec.pdf", mime: "application/pdf" }] })),
+      (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/made.ts" }, parentToolUseId: null })),
+      (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
     ]);
     openPanel();
     // No plan was proposed, so there is no Plans heading — not a "Plans 0".
@@ -56,7 +57,7 @@ describe("the session summary button", () => {
   });
 
   it("a link the agent offered leaves for the OS browser rather than opening a viewer", async () => {
-    await mount([ev(sessionEvent("assistant_text", { messageId: "m1", text: "Deployed to https://app.test/live" }))]);
+    await mount([(sessionEvent("assistant_text", { messageId: "m1", text: "Deployed to https://app.test/live" }))]);
     openPanel();
     const link = screen.getByRole("link", { name: /app.test/ });
     expect(link).toHaveAttribute("href", "https://app.test/live");
@@ -67,7 +68,7 @@ describe("the session summary button", () => {
   it("a plan row opens the plan sheet, named by session and plan id rather than by a copy of the plan", async () => {
     // A copy in the sheet slot could go stale against the transcript it came from; the sheet re-reads.
     const { store } = await mount([
-      ev(sessionEvent("plan", { planId: "p1", text: "# Rewrite the parser", steps: [{ text: "one", status: "pending" }] })),
+      (sessionEvent("plan", { planId: "p1", text: "# Rewrite the parser", steps: [{ text: "one", status: "pending" }] })),
     ]);
     openPanel();
     fireEvent.click(screen.getByRole("button", { name: /Rewrite the parser/ }));
@@ -76,8 +77,8 @@ describe("the session summary button", () => {
 
   it("a non-media output opens the artifact sheet for its path", async () => {
     const { store } = await mount([
-      ev(sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/report.md" }, parentToolUseId: null })),
-      ev(sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
+      (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/report.md" }, parentToolUseId: null })),
+      (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
     ]);
     openPanel();
     fireEvent.click(screen.getByRole("button", { name: /report.md/ }));

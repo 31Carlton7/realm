@@ -7,7 +7,7 @@ import {
   AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageSummary,
+  type AgentKind, type Attachment, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -255,6 +255,8 @@ export type Api = {
   /** `usage.summary` — the whole Usage tab for one range in one call, so no two numbers on the page
    *  can disagree about which slice they describe. */
   usageSummary(p: { from: number; to: number; bucket: UsageBucketKind; spaceId: string | null; profileId: string | null }): Promise<UsageSummary>;
+  /** Days Realm was used, for the activity calendar. Unscoped by design — see `usage.activeDays`. */
+  usageActiveDays(p: { from: number; to: number }): Promise<UsageDay[]>;
   /** `usage.setBudget`. Answers the STORED budget (thresholds normalized), which is what the panel
    *  then renders — so a threshold the server dropped never lingers on screen as if it had stuck. */
   setUsageBudget(budget: UsageBudget): Promise<UsageBudget>;
@@ -1125,6 +1127,8 @@ export type AppState = {
    *  a range's worth of rows that only one panel ever looks at, and parking it globally would keep
    *  it alive for every pane that never opens Settings. */
   usageSummary(p: { from: number; to: number; bucket: UsageBucketKind; spaceId: string | null; profileId: string | null }): Promise<UsageSummary>;
+  /** Days Realm was used, for the activity calendar. Unscoped by design — see `usage.activeDays`. */
+  usageActiveDays(p: { from: number; to: number }): Promise<UsageDay[]>;
   setUsageBudget(budget: UsageBudget): Promise<UsageBudget>;
   /** Scan the agent CLIs' stores. Returns the answer rather than storing it: a scan is hundreds of
    *  candidates the Import panel holds while the user edits targets, and parking that in the global
@@ -2953,6 +2957,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ computerAllowedApps: { ...get().computerAllowedApps, [spaceId]: stored } });
       },
       usageSummary(p) { return api.usageSummary(p); },
+      usageActiveDays(p) { return api.usageActiveDays(p); },
       setUsageBudget(budget) { return api.setUsageBudget(budget); },
       importScan() { return api.importScan(); },
       async importApply(selection) {

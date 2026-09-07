@@ -67,6 +67,59 @@ beforeEach(() => {
 
 const range = { from: day(1, 0), to: day(30, 23), bucket: "day" as const, spaceId: null, profileId: null };
 
+describe("UsageService.activeDays", () => {
+  const window = { from: day(1, 0), to: day(30, 23) };
+
+  it("counts sent messages per LOCAL day, and the distinct sessions behind them", () => {
+    makeSession("s1");
+    makeSession("s2");
+    appendEvent("s1", day(2, 9), "user_message", { text: "one", attachments: [] });
+    appendEvent("s1", day(2, 17), "user_message", { text: "two", attachments: [] });
+    appendEvent("s2", day(2, 20), "user_message", { text: "three", attachments: [] });
+    appendEvent("s1", day(5, 11), "user_message", { text: "four", attachments: [] });
+    expect(service().activeDays(window)).toEqual([
+      { day: "2026-09-02", messages: 3, sessions: 2 },
+      { day: "2026-09-05", messages: 1, sessions: 1 },
+    ]);
+  });
+
+  it("measures messages, not tokens — so an engine that reports no usage still shows up", () => {
+    // Nine of the eleven engines report no usage at all. A spend- or token-coloured calendar would
+    // go blank for every Cursor session and quietly become a graph of which engine reports usage.
+    makeSession("s1", { agentKind: "acp:cursor", model: null });
+    appendEvent("s1", day(4, 9), "user_message", { text: "hi", attachments: [] });
+    expect(service().activeDays(window)).toEqual([{ day: "2026-09-04", messages: 1, sessions: 1 }]);
+  });
+
+  it("counts only what the USER sent — a day of tool rounds and answers is not a day of its own", () => {
+    // The mutant: dropping the `type` predicate. A single turn writes dozens of tool and text rows,
+    // so counting every event would make the intensity a measure of how chatty the agent was.
+    makeSession("s1");
+    appendEvent("s1", day(6, 9), "assistant_text", { messageId: "m1", text: "hello" });
+    appendEvent("s1", day(6, 9), "tool_call", { toolUseId: "t1", name: "Read", input: {}, parentToolUseId: null });
+    appendUsage("s1", day(6, 9), { costUsd: 1, inputTokens: 10, outputTokens: 5, numTurns: 1 });
+    expect(service().activeDays(window)).toEqual([]);
+  });
+
+  it("omits a day with nothing rather than sending a zero for it", () => {
+    // A year of zeroes on the wire says exactly what their absence says; the client builds the grid
+    // from the range, so an empty week is a visible gap either way.
+    makeSession("s1");
+    appendEvent("s1", day(2, 9), "user_message", { text: "one", attachments: [] });
+    const out = service().activeDays(window);
+    expect(out).toHaveLength(1);
+    expect(out.every((d) => d.messages > 0)).toBe(true);
+  });
+
+  it("holds to its window at both ends", () => {
+    makeSession("s1");
+    appendEvent("s1", day(1, 0) - 1, "user_message", { text: "before", attachments: [] });
+    appendEvent("s1", day(10, 9), "user_message", { text: "inside", attachments: [] });
+    appendEvent("s1", day(30, 23) + 1, "user_message", { text: "after", attachments: [] });
+    expect(service().activeDays(window).map((d) => d.day)).toEqual(["2026-09-10"]);
+  });
+});
+
 describe("UsageService.summary", () => {
   it("reads a Claude session's own dollars off its running totals", () => {
     makeSession("s1");

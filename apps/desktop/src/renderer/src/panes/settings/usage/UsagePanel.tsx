@@ -6,6 +6,7 @@ import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../../state/store";
 import { BreakdownBars, BudgetMeter, Legend, Sparkline, StackedColumns, seriesColor } from "./Charts";
+import { ActivityCalendar } from "./ActivityCalendar";
 
 /**
  * Settings → Usage: what the agents did, what it cost, and how that sits against a budget.
@@ -171,6 +172,11 @@ function UsageBody({ data, metric, dimension, setDimension, rows, value, format,
       </section>
 
       <BudgetCard data={data} onSave={onSaveBudget} />
+
+      {/* Outside the filter row's scope on purpose — see ActivityCalendar. Placed after the budget so
+          the page reads money first, then rhythm: the tiles and the meter answer "what is this
+          costing", and the calendar answers a different question about the same year. */}
+      <ActivityCalendar />
 
       <section className="usage-card">
         <header className="usage-card-head">

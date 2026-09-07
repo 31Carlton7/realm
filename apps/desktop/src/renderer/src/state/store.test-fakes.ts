@@ -2,7 +2,7 @@
 import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import type { CliStatus, ModelInfo, SearchResults, UsageBudget, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { CliStatus, ModelInfo, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -124,6 +124,7 @@ export type FakeData = {
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
   importScan?: ImportScan; importResult?: ImportResult;
   usageSummary?: UsageSummary;
+  usageActiveDays?: UsageDay[];
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -323,6 +324,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
     guideProgress: overrides.guideProgress ?? {},
     usageSummary: overrides.usageSummary ?? emptyUsageSummary(),
+    usageActiveDays: overrides.usageActiveDays ?? [],
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
@@ -895,6 +897,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       await wait("modelCatalog");
       return data.modelCatalog;
     },
+    usageActiveDays: async (p) => { calls.push(`usageActiveDays:${p.from}:${p.to}`); return data.usageActiveDays; },
     usageSummary: async (p) => {
       calls.push(`usageSummary:${p.bucket}:${p.spaceId ?? "*"}`);
       await wait("usageSummary");

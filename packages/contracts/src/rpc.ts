@@ -16,7 +16,7 @@ import { DelegatedRunSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
-import { UsageBucketSchema, UsageBudgetSchema, UsageSummarySchema } from "./usage";
+import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageSummarySchema } from "./usage";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
@@ -899,6 +899,18 @@ export const Methods = {
       profileId: IdSchema.nullable().default(null),
     }),
     result: UsageSummarySchema,
+  },
+  /**
+   * Days Realm was used, for the activity calendar — one row per local day that saw a sent message.
+   *
+   * Its own method rather than a field on `usage.summary` because it answers a different question
+   * over a different window: the summary is scoped by the page's filter row, and this is a year of
+   * every space regardless of what that row says. Folding it in would make the calendar change when
+   * a reader narrowed the chart to one space, which is not what "days I used Realm" means.
+   */
+  "usage.activeDays": {
+    params: z.object({ from: z.number().int(), to: z.number().int() }),
+    result: z.array(UsageDaySchema),
   },
   /** Write the monthly ceiling and its alert thresholds. Answers the STORED budget (thresholds
    *  normalized), so the client renders what was actually saved rather than what it sent. */

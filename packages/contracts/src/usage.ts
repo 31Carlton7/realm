@@ -223,6 +223,76 @@ export function defaultBucketFor(days: number | null): UsageBucketKind {
   return "month";
 }
 
+/* ──────────────────────────── days used ──────────────────────────── */
+
+/**
+ * One calendar day Realm saw use, and how much.
+ *
+ * `day` is a LOCAL calendar date as `YYYY-MM-DD`, not an epoch, and that is the whole reason this is
+ * its own shape rather than a slice of the summary's series. A heat map's cell IS a day on a wall
+ * calendar — the reader is looking for "the week I was heads-down" — and an epoch would have to be
+ * converted back to one on the client, in a zone that may not be the one the row was filed under.
+ * Realm runs on the machine whose calendar this is, so the server's local zone is the right one and
+ * the string carries the answer rather than the arithmetic.
+ *
+ * `messages` is the intensity: user messages sent that day. Deliberately not tokens or dollars —
+ * nine of the eleven engines report neither, and a year of "how much did I use this" that went blank
+ * for every Cursor session would be measuring the reporting rather than the use. A message sent is a
+ * message sent whatever ran it.
+ */
+export type UsageDay = { day: string; messages: number; sessions: number };
+
+export const UsageDaySchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  messages: z.number().int().nonnegative(),
+  sessions: z.number().int().nonnegative(),
+});
+
+/** How far back the activity calendar reaches. A year, so the graph is one row of weeks per month
+ *  and a full seasonal cycle fits — the same window every contribution graph has settled on. */
+export const USAGE_CALENDAR_DAYS = 371; // 53 whole weeks, so the grid starts on a week boundary
+
+/** A local date as `YYYY-MM-DD`. The one place the format is written, so the server's grouping and
+ *  the client's grid can never disagree about what a day is called. */
+export function dayKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Every day key from `from` to `to` inclusive, in local-calendar order. Built from the RANGE rather
+ *  than from the data, exactly as `bucketRange` is: a quiet week has to stay visible as a gap. */
+export function dayRange(from: number, to: number, limit = 800): string[] {
+  const out: string[] = [];
+  const d = new Date(from);
+  d.setHours(0, 0, 0, 0);
+  const end = new Date(to);
+  end.setHours(0, 0, 0, 0);
+  while (d.getTime() <= end.getTime() && out.length < limit) {
+    out.push(dayKey(d.getTime()));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+/**
+ * The intensity ladder a calendar cell is painted at: 0 for a day with nothing, then four steps.
+ *
+ * Thresholds are RELATIVE to the reader's own busiest day rather than fixed, because "a lot of Realm"
+ * is not a constant — twelve messages is a heavy day for one person and a quiet hour for another, and
+ * a fixed scale would paint one calendar solid and the other blank. The quartiles are of the maximum,
+ * not of the distribution: a median-based scale makes a typical day look extreme, which is the wrong
+ * lie for a graph whose whole job is to show where the peaks were.
+ */
+export function activityLevel(messages: number, max: number): 0 | 1 | 2 | 3 | 4 {
+  if (messages <= 0) return 0;
+  if (max <= 0) return 0;
+  const f = messages / max;
+  if (f <= 0.25) return 1;
+  if (f <= 0.5) return 2;
+  if (f <= 0.75) return 3;
+  return 4;
+}
+
 /* ────────────────────────────── budget ────────────────────────────── */
 
 /** `settings` row holding the budget. Generic table, so no migration (the `models.catalog` posture). */

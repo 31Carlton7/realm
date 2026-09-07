@@ -397,6 +397,22 @@ describe("migration v9 — MCP gateway", () => {
     db.close();
   });
 
+  it("carries the usage and activity indexes onto an existing home, without touching a row", () => {
+    // Both are index-only migrations (v21, v22) on the biggest table Realm has, and both are
+    // pointless if a home that predates them never gains them — an unindexed `session_events` turns
+    // the usage page and the activity calendar back into full scans of every transcript ever
+    // written. Asserted on a REPLAYED v8 fixture, not a fresh home, because that is the case where
+    // an append-only chain can silently skip a step.
+    const { db } = migrated();
+    const idx = (db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as { name: string }[]).map((i) => i.name);
+    expect(idx).toEqual(expect.arrayContaining(["session_events_usage", "session_events_messages"]));
+    // PARTIAL, both of them: a plain index over the whole table would carry an entry for every tool
+    // result ever stored to earn the same lookups.
+    const sql = (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'session_events_messages'").get() as { sql: string }).sql;
+    expect(sql).toContain("WHERE type = 'user_message'");
+    db.close();
+  });
+
   it("mcp_call_log starts empty, with the indexes a session/ts listing needs", () => {
     const { db } = migrated();
     expect((db.prepare("SELECT COUNT(*) AS n FROM mcp_call_log").get() as { n: number }).n).toBe(0);

@@ -3362,6 +3362,42 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .usage-card-head .usage-card-sub { font-size: 11.5px; color: var(--rl-text-faint); }
 .usage-card-head .seg { margin-left: auto; }
 
+/* ── The activity calendar (ActivityCalendar.tsx) ────────────────────────
+   A year of days, weeks across and weekdays down. 12px cells on a 14px pitch: small enough that 53
+   weeks fit a settings pane at its usual width, large enough to stay a pointer target. It scrolls
+   horizontally rather than shrinking, because a cell below ~10px stops being distinguishable from
+   its neighbour and the graph turns into a texture.
+
+   The four levels step the ACCENT's opacity rather than walking a hue. This is a sequential scale of
+   one quantity, and a rainbow across it would read as four categories; it also keeps the whole graph
+   inside the accent's role as a condiment for state and progress. Level 0 is a well, not a tint, so
+   an unused day reads as absence rather than as a very small amount. */
+/* No bar, like the app's other horizontal strips: at 12px per cell a scrollbar under this would be
+   as tall as a row of the graph itself and would read as an eighth weekday. Two-finger scroll reaches
+   the whole year, and the year is also summarised in words in the card's own subtitle, so nothing
+   here is only reachable by dragging. */
+.cal-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: none; }
+.cal { display: inline-flex; flex-direction: column; gap: 4px; min-width: min-content; }
+/* Reserves the label row's height and gives the absolutely-placed names something to sit in. The
+   left inset matches the weekday gutter below it, so a month name lines up with its own first week. */
+.cal-months { position: relative; height: 12px; margin-left: 30px; }
+.cal-month { position: absolute; top: 0; font-size: 10px; line-height: 12px; color: var(--rl-text-faint); white-space: nowrap; }
+.cal-body { display: flex; gap: 6px; }
+.cal-weekdays { display: flex; flex-direction: column; gap: 2px; width: 24px; flex: none; }
+.cal-weekday { height: 12px; font-size: 10px; line-height: 12px; color: var(--rl-text-faint); }
+.cal-grid { border-collapse: separate; border-spacing: 2px; margin: -2px; }
+.cal-cell { width: 12px; height: 12px; padding: 0; border-radius: var(--r-sm); background: var(--inset); }
+.cal-cell[data-empty] { background: transparent; }
+.cal-cell[data-level="1"] { background: color-mix(in srgb, var(--rl-accent) 28%, var(--inset)); }
+.cal-cell[data-level="2"] { background: color-mix(in srgb, var(--rl-accent) 52%, var(--inset)); }
+.cal-cell[data-level="3"] { background: color-mix(in srgb, var(--rl-accent) 76%, var(--inset)); }
+.cal-cell[data-level="4"] { background: var(--rl-accent); }
+/* Today is ringed rather than recoloured: its level is a fact about the day's traffic and must not
+   be overwritten by the fact that it happens to be now. */
+.cal-cell[data-today] { box-shadow: 0 0 0 1px var(--rl-text-dim); }
+.cal-legend { display: flex; align-items: center; gap: 4px; margin-left: auto; font-size: 10.5px; color: var(--rl-text-faint); }
+.cal-key { display: inline-block; flex: none; }
+
 /* ——— the plot ——— */
 .chart-wrap { position: relative; }
 .chart { display: block; width: 100%; height: 240px; overflow: visible; }

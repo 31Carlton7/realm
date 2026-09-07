@@ -97,6 +97,7 @@ export const liveApi = (): Api => ({
   runCli: (kind, action) => rpc().call("cli.run", { kind, action }),
   modelCatalog: async (force) => (await rpc().call("models.catalog", { force })).rows,
   usageSummary: (p) => rpc().call("usage.summary", p),
+  usageActiveDays: (p) => rpc().call("usage.activeDays", p),
   setUsageBudget: (budget) => rpc().call("usage.setBudget", budget),
   importScan: () => rpc().call("import.scan", {}),
   importApply: (selection) => rpc().call("import.apply", selection),
