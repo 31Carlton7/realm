@@ -86,4 +86,33 @@ describe("map-sdk-message", () => {
     expect(r.map((e) => e.type)).toEqual(["usage", "error"]);
     expect(m.map(asst([{ type: "text", text: "same" }], null, "m1") as never).map((e) => e.type)).toEqual(["assistant_text"]);
   });
+
+  describe("contextTokens — the size of the prompt this turn actually sent", () => {
+    const result = (usage: unknown) => createSdkMapper().map({
+      type: "result", subtype: "success", session_id: "s", uuid: "u", is_error: false, num_turns: 3,
+      total_cost_usd: 1.5, usage, modelUsage: {}, permission_denials: [], result: "ok",
+    } as never).find((e) => e.type === "usage");
+
+    it("counts the cache alongside the fresh input — a cached prompt is still a prompt the model read", () => {
+      // The mutant: emitting `input_tokens` alone. With prompt caching that is the SMALL half by an
+      // order of magnitude, so a 190k-token conversation would report as 4k of context used and the
+      // meter would sit near empty right up to the moment the window overflowed.
+      const e = result({ input_tokens: 4_000, output_tokens: 900, cache_read_input_tokens: 180_000, cache_creation_input_tokens: 6_000 });
+      expect(e?.type === "usage" && e.payload.contextTokens).toBe(190_000);
+      // …and the other three numbers are untouched by it.
+      expect(e?.type === "usage" && e.payload.inputTokens).toBe(4_000);
+      expect(e?.type === "usage" && e.payload.costUsd).toBe(1.5);
+    });
+
+    it("tolerates a result whose usage names no cache fields at all", () => {
+      const e = result({ input_tokens: 4_000, output_tokens: 900 });
+      expect(e?.type === "usage" && e.payload.contextTokens).toBe(4_000);
+    });
+
+    it("says nothing rather than zero when the result carried no usage — a zero would claim the model read nothing", () => {
+      const e = result(undefined);
+      expect(e?.type === "usage" && e.payload.contextTokens).toBeUndefined();
+      expect(e?.type === "usage" && "contextTokens" in e.payload).toBe(false);
+    });
+  });
 });

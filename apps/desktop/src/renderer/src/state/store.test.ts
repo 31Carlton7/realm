@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, firstLeaf, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { allItems, findLeafOfItem, firstLeaf, itemIdOfLeaf, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
@@ -2890,6 +2890,72 @@ describe("openDestinationPage", () => {
     expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(other);
     // Still one page: a placement is about WHERE it lands, never about how many there are.
     expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1);
+  });
+
+  it("takes a pane of its OWN rather than evicting the session in the focused one, and zooms it", async () => {
+    // The complaint this answers: reaching Settings cost you whatever session was focused. An app
+    // tool splits off instead, so the arrangement survives — and then zooms, because a settings form
+    // in half a split is worse than useless. The two named mutants: dropping the `beside` flag (the
+    // session's item leaves the layout), and dropping the zoom (the page arrives at half width).
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    const working = store.getState().items[0]!; // the space's seeded terminal
+    await store.getState().openItem(working.id);
+    const workingLeaf = store.getState().focusedLeafId!;
+
+    await store.getState().openDestinationPage("settings-page");
+    const page = store.getState().items.find((i) => i.kind === "settings-page")!;
+    const pageLeaf = findLeafOfItem(store.getState().layout!, page.id)!;
+    expect(pageLeaf.id).not.toBe(workingLeaf);
+    // The pane the user was in is still there, still holding what it held.
+    expect(itemIdOfLeaf(store.getState().layout!, workingLeaf)).toBe(working.id);
+    expect(store.getState().zoomedLeafId()).toBe(pageLeaf.id);
+    expect(store.getState().focusedLeafId).toBe(pageLeaf.id);
+  });
+
+  it("with nothing else open it does not zoom — a lone pane looks the same either way", async () => {
+    // Zooming a one-leaf group buys nothing and grows an "Unfocus" control offering to return the
+    // user to the arrangement they are already looking at.
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openDestinationPage("library-page");
+    expect(store.getState().zoomedLeafId()).toBeNull();
+  });
+
+  it("opening a session afterwards drops the zoom, so the click is not swallowed by the page filling the window", async () => {
+    // A zoomed group renders only its zoomed leaf, so without this the sidebar click would move the
+    // focus behind the Settings page and the screen would not change at all. The named mutant:
+    // leaving `revealing` out of openItem's "go there" branch.
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    const working = store.getState().items[0]!;
+    await store.getState().openItem(working.id);
+    const workingLeaf = store.getState().focusedLeafId!;
+    await store.getState().openDestinationPage("connections-page");
+    expect(store.getState().zoomedLeafId()).not.toBeNull();
+
+    await store.getState().openItem(working.id);
+    expect(store.getState().focusedLeafId).toBe(workingLeaf);
+    expect(store.getState().zoomedLeafId()).toBeNull();
+  });
+
+  it("⌥-click still means THIS pane, and does not then fill the window over the top of it", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    const working = store.getState().items[0]!;
+    await store.getState().openItem(working.id);
+    const home = store.getState().focusedLeafId!;
+    await store.getState().splitFocused("row");
+    const other = store.getState().focusedLeafId!;
+    await store.getState().openDestinationPage("library-page", "here");
+    const page = store.getState().items.find((i) => i.kind === "library-page")!;
+    expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(other);
+    expect(store.getState().zoomedLeafId()).toBeNull();
+    expect(itemIdOfLeaf(store.getState().layout!, home)).toBe(working.id);
   });
 
   it("destinationPageElsewhere is the gate both surfaces read — false whenever the placement would change nothing", async () => {

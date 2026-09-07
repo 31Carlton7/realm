@@ -14,6 +14,8 @@ import { heroGreeting } from "./greeting";
 import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 import { TodoStrip } from "./TodoStrip";
+import { SessionUsage } from "./SessionUsage";
+import type { Usage } from "./transcript-model";
 import type { Todo } from "./rich/tool-view";
 
 // ~10 lines of 15px/1.55 plus the vertical padding (Ara refresh §1 raises the input to 15px; §4:
@@ -24,6 +26,10 @@ const MAX_ROWS_PX = 254;
  *  §4 says "never re-animate on revisit", and pane-slot keying remounts this component on every
  *  tab-back — a mount-scoped flag would replay. Lives for the app run; a fresh launch replays once. */
 const staggerPlayed = new Set<string>();
+
+/** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
+ *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
+const EMPTY_USAGE: Usage = { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 };
 
 /** Branch + diff chips (W3): still the one way IN to the diff pane. The cwd and environment chips
  *  that used to lead this group are retired outright (prompter rework): the folder and the checkout
@@ -78,11 +84,12 @@ function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel
  * Pending attachments (§4 row 1): one removable chip per file, then a note row only for a fate worth
  * saying out loud before send.
  *
- * The adapters do different things with the same file — Claude DROPS a PDF without a word, Codex hands
- * over paths, an ACP agent gets a link — and every one of them is on the chip's tooltip. Only the drop
- * earns a row: it is the one outcome the user would not otherwise learn about, and the only moment it
- * is actionable is before the message is sent. A handoff the agent completes itself (path, link) used
- * to get a row too, and it read as narration under every Codex message; see `attachmentSummary`.
+ * The adapters do different things with the same file — Claude inlines an image and is handed every
+ * other file's path, Codex takes paths for everything, an ACP agent gets a link — and every one of
+ * them is on the chip's tooltip. Only a file the agent will DROP earns a row: it is the one outcome
+ * the user would not otherwise learn about, and the only moment it is actionable is before the
+ * message is sent. A handoff the agent completes itself (path, link) used to get a row too, and it
+ * read as narration under every Codex message; see `attachmentSummary`.
  */
 function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attachments: PickedAttachment[]; onRemove: (path: string) => void }) {
   if (attachments.length === 0) return null;
@@ -100,7 +107,10 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
       {attachmentSummary(kind, attachments).map((row) => (
         <p key={row.disposition} className="composer-attach-note" data-disposition={row.disposition}>
           {row.disposition === "ignored" && <Icon name="alert" size={12} className="attach-note-glyph" />}
-          <span>{row.note}</span>
+          {/* A real space, not the flex gap. The gap separates the two boxes on screen but leaves the
+              row's text content — what a screen reader announces and what a copy takes — reading
+              "…never see them:report.pdf", which is the run-on the colon was added to fix. */}
+          <span>{row.note}{" "}</span>
           <span className="attach-note-files">{row.files.join(", ")}</span>
         </p>
       ))}
@@ -253,7 +263,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [] }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", onSuggestion, mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -331,6 +341,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** The session-derived suggested prompt (`prompt-hint.ts`), or null when there is nothing specific
    *  to offer. Shown as the hint text over the empty box and filled in by ⇥. */
   promptHint?: string | null;
+  /** This session's latest usage sample — the under-strip's context ring and its hover panel. The
+   *  empty default is what a pane with no transcript yet passes, and it draws no ring. */
+  usage?: Usage;
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
@@ -516,9 +529,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   ];
 
   // Attachment-only messages (Plan 14 W5): a send needs text OR at least one attachment this agent
-  // will actually receive. Attachments whose disposition is `ignored` (non-images on Claude, anything
-  // on the fake agent) can't carry a message by themselves — the adapter would deliver literally
-  // nothing — so they don't unlock the button, and its tooltip says why.
+  // will actually receive. Attachments whose disposition is `ignored` — today only the fake agent's,
+  // which reads none of them — can't carry a message by themselves, because the adapter would deliver
+  // literally nothing, so they don't unlock the button and its tooltip says why.
   const deliverable = attachments.some((a) => attachmentDisposition(kind, a.mime) !== "ignored");
   const send = () => { const t = draft.trim(); if (!t && !deliverable) return; onSend(t); onDraftChange(""); };
 
@@ -642,6 +655,16 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const rows = useMemo(
     () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, favorites: modelFavorites }),
     [kind, session.model, agentProbe, canSwitchAgent, modelFavorites]);
+  /* The active model's context window, joined through the SAME canonical key the picker's rows use —
+     the session stores a per-harness wire id (`gpt-5.3-codex[reasoning=medium]`), which no catalog is
+     keyed by, so the selected ROW is the only thing that can bridge the two. Null whenever the
+     catalog has no entry for the model, which is ordinary rather than exceptional: every adapter
+     "Default" row and a good many real models have none, and the ring is simply not drawn there. */
+  const contextWindow = useMemo(() => {
+    const selected = rows.find((r) => r.selected);
+    return (selected && modelInfo[selected.key]?.context) ?? null;
+  }, [rows, modelInfo]);
+
   const permissionItems = PERMISSION_MODES.map((m) => ({
     label: m.label, checked: session.permissionMode === m.id,
     onSelect: () => {
@@ -797,7 +820,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             {!canPlan && !canAsk && acpModesPending && (
               <ChipMenu ariaLabel="Mode" title="Waiting for the agent's modes" icon="tool" label="Build" items={[]} />
             )}
-            <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
             {confirmBypass && (
               <button className="composer-chip bypass-confirm"
                 onClick={() => { setConfirmBypass(false); onOptions({ permissionMode: "bypassPermissions" }); }}>
@@ -844,7 +866,16 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
         )}
         <ChipMenu ariaLabel="Workspace" icon={envIcon} label={envLabel} items={envItems}
           title={canSwitchAgent ? `Workspace: ${envLabel}` : `Workspace: ${envLabel} — a session's checkout can only change before its first message`} />
-        {status === "running" && <div className="composer-thinking"><span>Thinking…</span></div>}
+        {/* The branch group moved down here off the control row. Where the session runs and what it
+            has changed are the same question — a checkout and its dirty files — so they belong on the
+            same line, and the control row above is left holding only things that change what the NEXT
+            send does. It buys that row back the width the branch name was renting, which is why
+            `--branch-reserved` is restated for this context below. */}
+        <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
+        <div className="understrip-end">
+          {status === "running" && <div className="composer-thinking"><span>Thinking…</span></div>}
+          <SessionUsage usage={usage} contextWindow={contextWindow} />
+        </div>
       </div>
       {hero && (
         <div className="suggestions" data-animate={stagger || undefined}>

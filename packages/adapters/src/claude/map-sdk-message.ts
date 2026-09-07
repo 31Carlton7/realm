@@ -90,8 +90,17 @@ export function createSdkMapper() {
           break;
         }
         case "result": {
-          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number }; result?: string; errors?: string[] };
-          out.push(sessionEvent("usage", { costUsd: r.total_cost_usd, inputTokens: r.usage?.input_tokens ?? 0, outputTokens: r.usage?.output_tokens ?? 0, numTurns: r.num_turns }));
+          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }; result?: string; errors?: string[] };
+          // The turn's whole prompt, which is what "context used" means: fresh input plus everything
+          // served from (or written into) the prompt cache. The SDK documents `usage` as PER-TURN in
+          // streaming-input sessions — unlike `total_cost_usd` beside it, which is the running total —
+          // so this is the last prompt's size, not a sum, and it can fall as well as rise (a compaction
+          // is exactly that). Omitted when the result carried no usage at all: a zero would claim the
+          // model read nothing.
+          const cx = r.usage
+            ? r.usage.input_tokens + (r.usage.cache_read_input_tokens ?? 0) + (r.usage.cache_creation_input_tokens ?? 0)
+            : undefined;
+          out.push(sessionEvent("usage", { costUsd: r.total_cost_usd, inputTokens: r.usage?.input_tokens ?? 0, outputTokens: r.usage?.output_tokens ?? 0, numTurns: r.num_turns, ...(cx === undefined ? {} : { contextTokens: cx }) }));
           if (r.subtype !== "success" || r.is_error) out.push(sessionEvent("error", { message: r.errors?.join("\n") || r.result || r.subtype }));
           emittedText.clear();
           streamMsgIds.clear();

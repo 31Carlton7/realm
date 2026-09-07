@@ -373,7 +373,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageConnections={() => run(() => openSpacePage(session.spaceId, "connections"))}
             submitKey={submitKey}
             hero={hero} spaceName={space?.name ?? "this space"} onSuggestion={(p) => setDraft(id, p)}
-            promptHint={hint} />}
+            promptHint={hint} usage={transcript.usage} />}
       {/* Last child and BELOW the prompter's dock, so the glow passes under the card exactly as the
           transcript does — an affordance that blurred across the prompter would be the fade band's
           old bug wearing a different colour. Decorative: the drop is announced by what it does. */}

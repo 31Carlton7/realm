@@ -1851,6 +1851,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const gs = get().groups ?? groupsFromLayout(null);
       return writeGroups(setActiveLayout(gs, layout), extra);
     };
+    /**
+     * Drop a zoom that is standing in front of the pane we are about to send the user to.
+     *
+     * A zoomed group renders ONLY its zoomed leaf (PaneHost), so activating an item in any other leaf
+     * would move the focus somewhere invisible: the click lands, the keyboard moves, and the screen
+     * does not change. Returning `gs` untouched whenever the zoom is already correct (or absent) is
+     * what keeps this off the persist path for the overwhelming majority of opens — the caller's
+     * `writeGroups` sees the same object and the layout write is the only change.
+     *
+     * `null` means "we do not know which leaf yet", which is not a reason to disturb anything.
+     */
+    const revealing = (gs: SpaceGroups, leafId: string | null): SpaceGroups => {
+      if (!leafId) return gs;
+      const z = activeGroup(gs).zoomedLeafId;
+      return z === null || z === leafId ? gs : groupsUnzoom(gs);
+    };
     /** Cross-group uniqueness, applied BEFORE any active-group op that opens `itemId`: the layout ops
      *  only ever see one tree, so without this an item open in another group would end up claimed by
      *  two arrangements at once. Returns the group set to build the op on top of. */
@@ -1912,6 +1928,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (snap.spaceId !== get().activeSpaceId) return { sheetSnap: null };
       return writeLayout(reconcileLayout(snap.saved, get().items), { sheetSnap: null });
     };
+    /**
+     * Zoom the active group onto whichever leaf now holds this item.
+     *
+     * Skipped when the item is the ONLY pane: a group with one leaf looks identical zoomed and
+     * unzoomed, so the zoom would buy nothing and cost an "Unfocus" control offering to return the
+     * user to the arrangement they are already looking at. A no-op too when the item ended up in a
+     * group that is not on screen, and when the group is already zoomed onto it (`focusPaneFull`
+     * returns the same groups object and skips the write).
+     */
+    const zoomItemPane = async (itemId: string) => {
+      const layout = get().layout ?? emptyLayout();
+      // A root that is a leaf IS the only leaf — a split always holds at least two.
+      if (layout.type === "leaf") return;
+      const leaf = findLeafOfItem(layout, itemId);
+      if (leaf) await get().focusPaneFull(leaf.id);
+    };
+
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside = false, edge?: DropEdge) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
@@ -2247,7 +2280,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (focused && occupant !== null && occupant !== itemId && !findLeafOfItem(current, itemId)) {
           const layout = splitLeaf(current, focused, "row", itemId);
           const leaf = findLeafOfItem(layout, itemId);
-          set(writeLayout(layout, { focusedLeafId: leaf?.id ?? get().focusedLeafId }));
+          // A split made under a live zoom would put the new pane behind the zoomed one, invisible.
+          const gs2 = setActiveLayout(get().groups ?? groupsFromLayout(null), layout);
+          set(writeGroups(revealing(gs2, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? get().focusedLeafId }));
           await persist();
           return;
         }
@@ -2289,9 +2324,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           if (holder) {
             const leaf = findLeafOfItem(holder.layout, itemId)!;
             if (holder.id !== gs!.activeGroupId) {
-              set(writeGroups(groupsSetActive(gs!, holder.id), { focusedLeafId: leaf.id }));
+              set(writeGroups(revealing(groupsSetActive(gs!, holder.id), leaf.id), { focusedLeafId: leaf.id }));
               await persist();
-            } else set({ focusedLeafId: leaf.id });
+            } else {
+              // Same group: the focus move is free, but a zoom parked on ANOTHER leaf would swallow
+              // it — the pane the user just asked for is not the one on screen. Only then is this a
+              // write at all.
+              const revealed = revealing(gs!, leaf.id);
+              if (revealed === gs) set({ focusedLeafId: leaf.id });
+              else { set(writeGroups(revealed, { focusedLeafId: leaf.id })); await persist(); }
+            }
             return;
           }
         } else detached(itemId); // an explicit target moves the pane INTO the active group
@@ -2299,7 +2341,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const target = leafId ?? get().focusedLeafId;
         const layout = layoutOpen(current, target, itemId);
         const leaf = findLeafOfItem(layout, itemId);
-        set(writeLayout(layout, { focusedLeafId: leaf?.id ?? null }));
+        const gs2 = setActiveLayout(get().groups ?? groupsFromLayout(null), layout);
+        set(writeGroups(revealing(gs2, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? null }));
         await persist();
       },
       async closeFromLayout(itemId) {
@@ -3348,6 +3391,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // (mid-boot) → no-op, openSpacePage's guard.
         const spaceId = get().activeSpaceId;
         if (!spaceId) return null;
+        /* An app tool is not a session, and the plain activation says so twice: it takes a leaf of its
+           OWN rather than evicting whatever the focused pane was holding, and then it zooms.
+
+           The eviction was the real complaint. Settings, Library, Notifications and Connections are
+           app-level pages a person dips into and leaves, and reaching one used to cost them the
+           session that happened to be focused — the arrangement they were working in was spent to
+           read a preference. Splitting instead preserves it, and zooming means the page still gets
+           the whole window while it is being read, which is what these pages actually want: a
+           settings form in a third of a three-way split is worse than useless.
+
+           Unzoom (⌃⌘F / the pane's own control) puts the workspace back exactly as it was, so the
+           split the page arrived in is a place to return to rather than a state to clean up.
+
+           ⌥-click is untouched and deliberately does NOT zoom: "put it here" is the user naming a
+           pane, and filling the window immediately afterwards would contradict the instruction they
+           just gave. */
+        const zoomOwnPane = placement !== "here";
         // One page per space, deduped by KIND (`items` only ever holds the active space's items).
         // The named W4 mutant: a second click accumulating a second Library pane.
         const existing = get().items.find((i) => i.kind === kind);
@@ -3356,12 +3416,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // home to wherever the pane already sits. With nothing focused there is no "here" to mean, so
           // the null falls through to homing on its own rather than needing a second branch.
           await get().openItem(existing.id, placement === "here" ? get().focusedLeafId : null);
+          if (zoomOwnPane) await zoomItemPane(existing.id);
           return existing.id;
         }
         // Static title (the page header owns the live copy); refId is the kind's well-known sentinel —
         // there is no row behind these pages, and identity is really the kind (see PAGE_REF_IDS).
         const created = await api.createItem(spaceId, kind, DESTINATION_PAGE_TITLES[kind], PAGE_REF_IDS[kind]);
-        await adoptItem(spaceId, created.id, null);
+        await adoptItem(spaceId, created.id, placement === "here" ? get().focusedLeafId : null, zoomOwnPane);
+        if (zoomOwnPane) await zoomItemPane(created.id);
         return created.id;
       },
       destinationPageElsewhere(kind) {

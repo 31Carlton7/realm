@@ -228,7 +228,10 @@ kbd { font: 11px var(--font-mono); }
    scroller's box, so it holds still while the content scrolls beneath it, and it needs no sibling
    element and no reduced-transparency fallback. */
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px;
-  padding-bottom: var(--fade-h);
+  /* The fade band plus room to breathe under it. At exactly --fade-h the last row stopped where the
+     mask started dissolving, so a fully scrolled list ended on a half-faded item and the strip below
+     looked like it was crowding the list rather than sitting under it. */
+  padding-bottom: calc(var(--fade-h) + 24px);
   mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent);
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent); }
 
@@ -969,7 +972,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 }
 
 .transcript-wrap { flex: 1; min-height: 0; position: relative; display: flex; }
-.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 40px; }
+/* The bottom pad is deliberately generous. It is what a scrolled-to-the-end transcript rests on, and
+   40px put the last paragraph inside the fade band and a few pixels off the prompter's top edge —
+   the message the reader is most likely to still be reading was the one hardest to read. 72px clears
+   the band (--fade-h, 68px) outright, so the final line lands on plain canvas. */
+.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 72px; }
 /* The bottom padding above is the fade band's clearance: scrolled to the end, the last line
    rests in the band's untouched top third rather than under its blur. */
 /* Shared rails (§4): content rides the prompter's 680px column; the scrollbar stays at the pane edge
@@ -1018,14 +1025,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Ara refresh §4: the user's message is a raised card on the column's RIGHT edge — radius 14,
    14px 16px padding, 85% max. */
 /* A chip in a sent message. Unlike the composer's, this one may have a shape: nothing in a bubble
-   shares a box with a caret, so padding and a border cost nothing here. `vertical-align: baseline`
-   with a line-height of 1 keeps a chip from stretching the line it sits in. */
+   shares a box with a caret, so padding costs nothing here. `vertical-align: baseline` with a
+   line-height of 1 keeps a chip from stretching the line it sits in.
+   No ring: the tint and the accent ink already separate the chip from the prose around it, and
+   surface contrast comes before a border. At 0.88em inside a sentence the extra hairline was
+   reading as a rendered box around every skill name rather than as a highlight of one word. */
 .msg-chip { display: inline-flex; align-items: center; vertical-align: baseline; line-height: 1;
   padding: 2px 6px; border-radius: var(--r-ctl); font-size: 0.88em;
-  color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 26%, transparent); }
-.msg-chip[data-kind="element"] { color: var(--rl-text-bright); background: var(--inset);
-  box-shadow: inset 0 0 0 1px var(--rl-hairline); }
+  color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); }
+.msg-chip[data-kind="element"] { color: var(--rl-text-bright); background: var(--inset); }
 .msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-float); background: var(--rl-raised); text-align: left;
   font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Plan 20: a message another SESSION delivered. An attribution line plus a muted accent ring, so it
@@ -1634,9 +1642,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .attach-tile:hover .attach-remove, .attach-remove:focus-visible { opacity: 1; }
 .attach-remove:hover { background: rgb(0 0 0 / .82); }
 /* The honesty row: what THIS agent does with these files, named before the message goes. */
-.composer-attach-note { display: flex; align-items: baseline; gap: 5px; margin: 6px 0 0; padding: 0 12px; font-size: 11px; line-height: 1.45; color: var(--rl-text-faint); }
+/* No flex `gap`: the sentence carries its own trailing space (Composer.tsx), so a gap here would
+   double it. The glyph keeps its separation as a margin of its own. */
+.composer-attach-note { display: flex; align-items: baseline; margin: 6px 0 0; padding: 0 12px; font-size: 11px; line-height: 1.45; color: var(--rl-text-faint); }
 .composer-attach-note[data-disposition="ignored"] { color: var(--rl-warning); }
-.composer-attach-note .attach-note-glyph { flex: none; align-self: center; }
+.composer-attach-note .attach-note-glyph { flex: none; align-self: center; margin-right: 5px; }
 .composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 10.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
@@ -1823,20 +1833,67 @@ button.panel-title:hover { background: var(--rl-hover); }
    transform carries it and the absolutely-hung suggestions land below it. ── */
 /* Same rung and same ring as the card above it, so the two read as one object rather than a tab
    stuck under a card. The top 10px of the strip sit behind the card (the negative margin), so the
-   padding that SHOWS is top minus that overlap: 20 − 10 above the chips, 10 below. Symmetric on
+   padding that SHOWS is top minus that overlap: 16 − 10 above the chips, 6 below. Symmetric on
    screen is the point — the old 12/12 read as 2 above and 12 below, a strip hanging off the card by
-   its chin. The height that leaves (54px) is what lets the bottom corners draw at the card's own
-   --r-squircle: a corner may run the full height of a side it does not share with another corner,
-   and the top corners here are square, so nothing has to be clamped to half the box. */
+   its chin. The strip now also carries the branch group, which makes it the row a reader glances at
+   rather than one they read, so it is 10px shorter than it was: 6/6 around a 22px chip is 34px of
+   visible strip against the old 44. The height that leaves is still what lets the bottom corners
+   draw at the card's own --r-squircle: a corner may run the full height of a side it does not share
+   with another corner, and the top corners here are square, so nothing is clamped to half the box.
+
+   Nothing in the strip is selectable. Every one of these is a control or a label ON a control — a
+   branch name, a machine name, a percentage — and dragging across the row to open the diff would
+   otherwise leave the whole strip highlighted behind the pane that opened. The one thing a reader
+   might genuinely want to copy, the branch name, is on the button's own tooltip. */
 .composer-understrip { display: flex; align-items: center; gap: 2px; min-width: 0;
-  margin: -10px 10px 0; padding: 20px 10px 10px; background: var(--rl-frame);
+  margin: -10px 10px 0; padding: 16px 10px 6px; background: var(--rl-frame);
+  user-select: none; -webkit-user-select: none;
   border-radius: 0 0 var(--r-squircle) var(--r-squircle); corner-shape: squircle; }
-.composer-understrip .ghost-chip { height: 24px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
+.composer-understrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
-/* "Thinking…" hangs off the strip's far end, so arriving mid-stream costs the chips no motion. */
-.composer-thinking { margin-left: auto; padding: 0 8px; font-size: 11px; color: var(--rl-text-dim); }
+/* The branch group in its new home. It sits on a row holding two short chips and a 44px meter
+   instead of the control row's five, so it can afford a far smaller reservation — the same measured
+   figure minus the "+"/permission/mode/model/send cluster it no longer shares a line with. */
+.composer-understrip .composer-git { --branch-reserved: 232px; }
+/* The strip's trailing cluster: the run label, then the context meter pinned to the end. One flex
+   child rather than two `margin-left: auto` siblings, so "Thinking…" arriving mid-stream slides in
+   beside the meter instead of shoving it. */
+.understrip-end { margin-left: auto; display: flex; align-items: center; gap: 4px; flex: none; }
+.composer-thinking { padding: 0 6px; font-size: 11px; color: var(--rl-text-dim); }
 /* Plan 9 W3: the label shimmers (BUI LoadingState), not pulses — same gradient as .shimmer-text. */
 .composer-thinking span { display: inline-block; }
+
+/* ── The session's context meter (under-strip, far end) ──────────────────
+   A ring, not a bar and not a number: the question it answers all day is "have I got room", which
+   is a shape. The percentage rides beside it in tabular figures so the digits do not jitter as the
+   ring fills, and everything the ring compresses is in the panel one hover (or one Tab) below.
+   The whole control is absent — not empty, not greyed — for a session whose engine reports no
+   tokens, which is nine of the eleven. */
+.session-usage { position: relative; display: flex; align-items: center; flex: none; }
+.session-usage-btn { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 6px;
+  border-radius: var(--r-ctl); background: transparent; color: var(--rl-text-faint); font-size: 11px;
+  font-variant-numeric: tabular-nums; }
+.session-usage-btn:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
+.usage-ring { flex: none; display: block; }
+.usage-ring-track { stroke: var(--rl-line-strong); }
+/* Slot colour by state, never a gradient across it — the three steps are three different things to
+   do next. The ring answers with shape first; the percentage beside it is what carries the state
+   without colour, so a reader who cannot tell the hues apart loses nothing. */
+.usage-ring-fill { stroke: var(--rl-accent); transition: stroke-dasharray var(--dur-move) var(--ease-out-strong), stroke var(--dur-hover) ease; }
+.session-usage-btn[data-tone="warning"] .usage-ring-fill { stroke: var(--orange); }
+.session-usage-btn[data-tone="warning"] { color: var(--orange); }
+.session-usage-btn[data-tone="danger"] .usage-ring-fill { stroke: var(--rl-danger); }
+.session-usage-btn[data-tone="danger"] { color: var(--rl-danger); }
+@media (prefers-reduced-motion: reduce) { .usage-ring-fill { transition: none; } }
+/* Opens UPWARD and right-aligned, like every other popover on this row: below it is the window edge.
+   A menu surface with the shared layered shadow — never a single heavy drop shadow. */
+.session-usage-panel { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 30; min-width: 168px;
+  display: flex; flex-direction: column; gap: 3px; padding: 8px 10px;
+  background: var(--surface); border-radius: var(--r-panel); box-shadow: var(--shadow-raised);
+  font-size: 11px; }
+.session-usage-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.session-usage-label { color: var(--rl-text-faint); }
+.session-usage-value { color: var(--rl-text-bright); font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 10.5px; }
 /* The "+" menu (Plan 12 W1): the in-place Connectors submenu's header rows and health dots. */
 .plus-submenu-label { display: inline-flex; align-items: center; gap: 6px; }
 .plus-submenu-label .plus-submenu-caret { color: var(--rl-text-faint); }

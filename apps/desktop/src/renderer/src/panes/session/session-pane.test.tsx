@@ -584,9 +584,14 @@ describe("composer context row (git chips)", () => {
     return { store, ...r };
   }
 
-  it("renders branch + diff + dirty chips from store gitInfo for the session's cwd, in the control row's left group", async () => {
+  it("renders branch + diff + dirty chips from store gitInfo for the session's cwd, in the UNDER-strip", async () => {
     await mountWithGit(gi({ branch: "feat/x", additions: 12, deletions: 3, dirty: 4 }));
-    expect(document.querySelector(".composer-opts .git-branch")).toHaveTextContent("feat/x");
+    // The branch group lives beside the workspace chip now, not on the control row: the checkout and
+    // what it has changed are one question, and the control row is left holding only the things that
+    // change what the next send does. Asserted as "in the strip AND not on the row" so a group that
+    // ended up in both places fails rather than passing on the half that was looked for.
+    expect(document.querySelector(".composer-understrip .git-branch")).toHaveTextContent("feat/x");
+    expect(document.querySelector(".composer-opts .composer-git")).toBeNull();
     expect(document.querySelector(".git-diff .diff-add")).toHaveTextContent("+12");
     expect(document.querySelector(".git-diff .diff-del")).toHaveTextContent("−3");
     expect(document.querySelector(".git-dirty")).toHaveTextContent("4 changed");
@@ -610,9 +615,10 @@ describe("composer context row (git chips)", () => {
 });
 
 describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
-  it("left group runs '+' · permission · mode · branch, in that DOM order and nothing else", async () => {
-    // The user's row: attach leads, the Ask/Build chips sit against it, the branch chip trails.
-    // The cwd, environment and effort chips are gone — an extra child here is a regression.
+  it("left group runs '+' · permission · mode, in that DOM order and nothing else", async () => {
+    // The user's row: attach leads, the Ask/Build chips sit against it. The branch group moved down
+    // to the under-strip; the cwd, environment and effort chips are gone outright. An extra child
+    // here is a regression.
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude" })] });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } },
@@ -623,8 +629,8 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     expect(children[0]).toBe(screen.getByRole("button", { name: "Add" })); // the "+" — now a menu (Plan 12 W1)
     expect(children[1]).toBe(screen.getByRole("button", { name: "Permission mode" }));
     expect(children[2]).toBe(screen.getByRole("button", { name: "Mode" }));
-    expect(children[3]).toBe(document.querySelector(".composer-git"));
-    expect(children).toHaveLength(4);
+    expect(children).toHaveLength(3);
+    expect(document.querySelector(".composer-understrip .composer-git")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Effort" })).toBeNull();
     const actions = document.querySelector(".composer-actions")!;
     expect(actions.contains(screen.getByRole("button", { name: "Model" }))).toBe(true);
@@ -959,19 +965,28 @@ describe("attachment-only send (Plan 14 W5)", () => {
     await waitFor(() => expect(api.sent).toEqual([{ id: "se1", text: "", attachments: [{ path: "/tmp/a.png", mime: "image/png" }] }]));
   });
 
-  it("attachments the agent IGNORES cannot carry a message alone — Send stays off and says why", async () => {
-    // The named mutant's UI half: Claude drops non-images entirely, so a PDF-only send would deliver
-    // literally nothing. The gate refuses; the tooltip names the agent and the fix.
+  it("a PDF alone now unlocks Send — Claude is handed its path rather than dropping it", async () => {
+    // The reverse of what this used to assert. Claude's non-image disposition is `path`: the adapter
+    // names the file in the message text (claude-adapter.ts `fileListFor`), so a PDF-only send really
+    // does deliver something and the gate has no reason to refuse it.
     const { api, store } = await mountFresh();
     act(() => store.setState({ pendingAttachments: { se1: [pdf] } }));
     const btn = screen.getByRole("button", { name: "Send" });
+    expect(btn).not.toBeDisabled();
+    expect(btn.title).toBe("Send (⌘↵)");
+    void api;
+  });
+
+  it("…but an agent that genuinely reads none of them still refuses, and says why", async () => {
+    // The gate itself is unchanged, and `fake` is what still exercises it: its adapter never looks at
+    // `attachments`, so an attachment-only send there would deliver literally nothing.
+    const { api, store } = await mountFresh({ agentKind: "fake" });
+    act(() => store.setState({ pendingAttachments: { se1: [pdf] } }));
+    const btn = screen.getByRole("button", { name: "Send" });
     expect(btn).toBeDisabled();
-    expect(btn.title).toBe("Claude ignores these attachments — add a message to send");
+    expect(btn.title).toBe("Fake agent ignores these attachments — add a message to send");
     fireEvent.click(btn);
     expect(api.sent).toEqual([]);
-    // One ignored + one deliverable: the deliverable one unlocks the send again.
-    act(() => store.setState({ pendingAttachments: { se1: [pdf, png] } }));
-    expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
   });
 
   it("an empty draft with no attachments still sends nothing", async () => {
@@ -1877,23 +1892,28 @@ describe("prompter attachments", () => {
     expect(api.calls).toContain("pickFiles");
   });
 
-  it("says what CLAUDE will do — and warns that a PDF is dropped on the floor", async () => {
+  it("says NOTHING under the chips for Claude — a PDF is a path it will open, not a file it loses", async () => {
     await mountFor("claude", [picked("/x/shot.png", "image/png"), picked("/x/report.pdf", "application/pdf")]);
     attach();
     await waitFor(() => expect(chips()).toHaveLength(2));
+    // Both files reach the agent: the image inline, the PDF as a path in the message text. Neither
+    // outcome is one the user could not otherwise learn, so neither earns a row. The mutant this
+    // kills is the old `other: "ignored"` in DISPOSITIONS, which brings the warning back — along
+    // with the dropped file behind it.
+    expect(notes()).toHaveLength(0);
+    expect(document.querySelectorAll(".attach-tile[data-disposition='ignored']")).toHaveLength(0);
+  });
+
+  it("still warns for an agent that really does drop the file, and the sentence leads INTO the names", async () => {
+    await mountFor("fake", [picked("/x/report.pdf", "application/pdf"), picked("/x/shot.png", "image/png")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(2));
     const warn = notes().find((t) => /ignores/.test(t))!;
-    expect(warn).toContain("Claude");
-    expect(warn).toContain("ignores non-image attachments");
-    expect(warn).toContain("report.pdf");
-    expect(warn).not.toContain("shot.png"); // the image is fine, and must not be tarred with it
-    // The image gets no note of its own: being read is the expected outcome, and a row saying so
-    // would only compete with the one warning that matters.
-    expect(notes()).toHaveLength(1);
-    expect(notes().join(" ")).not.toMatch(/reads image attachments inline/);
-    // The doomed chip wears the warning fate; the image does not.
-    const marked = Array.from(document.querySelectorAll(".attach-tile[data-disposition='ignored']"));
-    expect(marked).toHaveLength(1);
-    expect(marked[0]).toHaveTextContent("report.pdf");
+    expect(warn).toContain("Fake agent");
+    // The reported bug: the sentence stopped dead in front of the list it was introducing, so the row
+    // read "…will never see them.report.pdf". A colon is what makes the names finish the sentence.
+    expect(warn).toContain("will never see them: report.pdf");
+    expect(warn).not.toMatch(/them\.report/);
   });
 
   it("says NOTHING under the chips for Codex — the same PDF is a path it will open, which is not a warning", async () => {
@@ -1931,7 +1951,7 @@ describe("prompter attachments", () => {
     const tip = document.querySelector(".attach-tip")!.textContent!;
     expect(tip).toContain("report.pdf");
     expect(tip).toContain("2.0 KB");
-    expect(tip).toContain("Claude ignores non-image attachments");
+    expect(tip).toContain("Claude gets the file path in your message and opens it itself.");
     // No directory. The path used to be here because the chip TRUNCATED its label and a bare
     // basename could be ambiguous; nothing truncates now, and for the common case — a pasted
     // screenshot under Realm's own tmp — the folder was three lines of noise over the answer.

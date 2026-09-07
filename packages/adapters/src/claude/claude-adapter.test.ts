@@ -216,15 +216,41 @@ describe("ClaudeAdapter", () => {
     expect(content).toHaveLength(1);
     expect(content[0]).toMatchObject({ type: "image" });
   });
-  it("attachment-only where Claude ignores everything: the minimal honest stub, never empty content", async () => {
-    // The named mutant: no text + non-image attachments (which this adapter skips) would otherwise be
-    // a literally empty content array, which the API rejects. The prompter's send-gate refuses this
-    // combination; the stub is the wire-level net for any other caller.
+  it("names a non-image attachment's path in the text instead of dropping it", async () => {
+    // These used to hit a bare `continue`: the file was attached, the prompter warned it would be
+    // lost, and the agent was told nothing. It is handed the path now — `claude` runs on this machine
+    // with Read and Bash already pointed at the filesystem, so the path is worth more than the bytes
+    // would be. The mutant: restoring the `continue`, which silently empties this list.
     const capture: unknown[] = [];
     const a = new ClaudeAdapter({ query: fakeQuery({ capture }) as never });
     const h = a.start({ cwd: "/tmp", mcpServers: [] });
     const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
-    await h.send({ text: "", attachments: [{ path: "/tmp/notes.pdf", mime: "application/pdf" }] });
+    await h.send({ text: "have a look", attachments: [{ path: "/tmp/notes.pdf", mime: "application/pdf" }] });
+    await c; await h.dispose();
+    const content = (capture[0] as { message: { content: Array<Record<string, unknown>> } }).message.content;
+    expect(content).toEqual([{ type: "text", text: "have a look\n\nAttached files:\n- /tmp/notes.pdf" }]);
+  });
+
+  it("an attachment-only send of ordinary files carries the list alone, with no leading blank lines", async () => {
+    const capture: unknown[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ capture }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await h.send({ text: "", attachments: [{ path: "/tmp/a.pdf", mime: "application/pdf" }, { path: "/tmp/b.csv", mime: "text/csv" }] });
+    await c; await h.dispose();
+    const content = (capture[0] as { message: { content: Array<Record<string, unknown>> } }).message.content;
+    expect(content).toEqual([{ type: "text", text: "Attached files:\n- /tmp/a.pdf\n- /tmp/b.csv" }]);
+  });
+
+  it("the empty-content stub still stands for a send the adapter can carry nothing of", async () => {
+    // The named mutant: an empty content array, which the API rejects. With the file list folded into
+    // the text this is now reachable only with neither words nor attachments — the prompter's
+    // send-gate refuses that up front, so the stub is the wire-level net for any other caller.
+    const capture: unknown[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ capture }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await h.send({ text: "", attachments: [] });
     await c; await h.dispose();
     const content = (capture[0] as { message: { content: Array<Record<string, unknown>> } }).message.content;
     expect(content).toEqual([{ type: "text", text: "(attached files)" }]);

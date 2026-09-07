@@ -233,6 +233,7 @@ export class ClaudeAdapter implements AgentAdapter {
     };
     const pumpDone = pump();
 
+    /** Images become base64 blocks — the one path whose bytes genuinely have to fit in the request. */
     const readAttachments = async (m: UserMessage): Promise<Array<Record<string, unknown>>> => {
       const blocks: Array<Record<string, unknown>> = [];
       for (const a of m.attachments) {
@@ -243,6 +244,22 @@ export class ClaudeAdapter implements AgentAdapter {
         blocks.push({ type: "image", source: { type: "base64", media_type: a.mime, data } });
       }
       return blocks;
+    };
+
+    /**
+     * Non-image attachments, named in the message text for the agent to open itself — the same
+     * handoff `codex-adapter.ts` performs, in the same words, so a PDF dropped on either engine
+     * reaches it the same way.
+     *
+     * These used to hit a bare `continue` and vanish: the user attached a file, the prompter warned
+     * that it would be dropped, and the agent was told nothing at all. Inlining them instead was
+     * never the answer — `claude` runs ON this machine with Read, Grep and Bash already pointed at
+     * the filesystem, so a path is strictly more useful than a base64 blob would be, and it costs
+     * the request nothing. The agent decides whether the file is worth opening.
+     */
+    const fileListFor = (m: UserMessage): string | null => {
+      const files = m.attachments.filter((a) => !a.mime.startsWith("image/"));
+      return files.length === 0 ? null : `Attached files:\n${files.map((a) => `- ${a.path}`).join("\n")}`;
     };
 
     return {
@@ -259,12 +276,19 @@ export class ClaudeAdapter implements AgentAdapter {
         // dispatches a slash command; mid-text it is literal characters. The rest of the message rides
         // as the command's argument. `name` is the frontmatter name, which is how the plugin registers
         // the skill (a prepend built from the directory id would target nothing when the two differ).
-        const text = m.skill ? `/realm:${m.skill.name} ${m.text}` : m.text;
+        const prompt = m.skill ? `/realm:${m.skill.name} ${m.text}` : m.text;
+        /* The file list rides at the END of the text, after the user's own words and after the slash
+           command's argument — a `/realm:name` only dispatches from position 0, and the list is the
+           command's argument as much as the prose is. With no text at all it stands alone rather than
+           being preceded by blank lines. */
+        const fileList = fileListFor(m);
+        const text = fileList ? (prompt ? `${prompt}\n\n${fileList}` : fileList) : prompt;
         // Attachment-only messages (Plan 14 W5): the Messages API rejects an empty text block, so one
-        // is only included when there is text. Images can carry a message alone — but a send whose
-        // attachments were ALL skipped above (Claude ignores non-images) would be literally empty
-        // content, which the API also rejects; the minimal honest stub says what the user did. The
-        // prompter's send-gate refuses that combination up front, so this is the wire-level net.
+        // is only included when there is text — and with the file list folded in above, an
+        // attachment-only send of ordinary files now HAS text. The stub survives for the one case
+        // left that would otherwise be literally empty content (which the API also rejects): a send
+        // with neither words nor attachments the adapter can carry. The prompter's send-gate refuses
+        // that up front, so this is the wire-level net.
         const content: Array<Record<string, unknown>> = [...(text ? [{ type: "text", text }] : []), ...images];
         if (content.length === 0) content.push({ type: "text", text: "(attached files)" });
         input.push({ type: "user", message: { role: "user", content: content as never }, parent_tool_use_id: null, session_id: "" } as SDKUserMessage);

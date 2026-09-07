@@ -22,7 +22,18 @@ const P = {
   permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }),
   status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]) }),
   error: z.object({ message: z.string() }),
-  usage: z.object({ costUsd: z.number(), inputTokens: z.number(), outputTokens: z.number(), numTurns: z.number() }),
+  /**
+   * `contextTokens` is the size of the prompt the agent last SENT — everything the model read on that
+   * turn, cache hits included. It is deliberately not derivable from the other three: `inputTokens`
+   * on a `cumulative` series is the session's running total and grows without bound, so dividing it
+   * by a context window would report 400% on a long session that never came close to filling one.
+   *
+   * Optional, and absent is a real answer rather than zero: only an adapter that can state the figure
+   * emits it (today `claude`, off the SDK result's per-turn `usage`), and every persisted row written
+   * before this field existed parses without it. A reader with no value draws no context meter.
+   */
+  usage: z.object({ costUsd: z.number(), inputTokens: z.number(), outputTokens: z.number(), numTurns: z.number(),
+    contextTokens: z.number().optional() }),
   /** A plan the agent proposed. Both shapes are carried because the three protocols send genuinely
    *  different artifacts and neither derives from the other:
    *

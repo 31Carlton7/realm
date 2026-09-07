@@ -92,8 +92,11 @@ function UserAttachments({ attachments }: { attachments: readonly { path: string
  * strip that appeared, changed and disappeared as the sentence completed would be worse than one
  * that waits for the full stop.
  */
-function AssistantMessage({ text, streaming, enter, cwd, onRetry, retryBusy, rating, onRate, sources = NO_SOURCES }: {
+function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, sources = NO_SOURCES }: {
   text: string; streaming: boolean; enter: boolean; cwd: string | null;
+  /** Draw the copy/retry/rate bar under this message. True on the newest answer only — see the
+   *  `lastAssistantKey` note in `Transcript`. */
+  actions?: boolean;
   onRetry?: () => void; retryBusy?: boolean; rating?: Rating | null; onRate?: (rating: Rating | null) => void;
   /** The pages this turn actually fetched. Empty for the overwhelming majority of messages, which
    *  is the honest answer: an agent that ran no fetch tool read nothing to cite. */
@@ -109,7 +112,7 @@ function AssistantMessage({ text, streaming, enter, cwd, onRetry, retryBusy, rat
       data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
       <Markdown className="msg-assistant" text={text} cite={cite} />
       <MediaStrip files={files} />
-      {!streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
+      {actions && !streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
       {!streaming && sources.length > 0 && <MessageSources sources={sources} />}
     </div>
   );
@@ -151,16 +154,21 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   const lastLen = lastText && "text" in lastText ? lastText.text?.length ?? 0 : 0;
   // Permission cards only make sense while the adapter is actually waiting; stale requests (crash, restart) are closed server-side.
   const permissions = sessionStatus === "waiting_permission" ? transcript.pendingPermissions : [];
-  // Retry belongs to the newest assistant message, and only when there is something to ask again —
-  // a session whose only messages came from a peer has nothing of the user's to re-send.
-  const retryKey = useMemo(() => {
-    if (!onRetry || !lastUserMessage(transcript)) return null;
+  /* The newest answer in the transcript — the only message that wears an action bar.
+     A bar under every finished message meant forty of them in a long session, all but one of which
+     acted on something the reader had scrolled past; the copy the reader actually reaches for is
+     the answer that just arrived. Keyed rather than indexed so the bar follows the message, not a
+     position: a block appended mid-render must not move the bar onto the wrong text. */
+  const lastAssistantKey = useMemo(() => {
     for (let i = transcript.blocks.length - 1; i >= 0; i--) {
       const b = transcript.blocks[i]!;
       if (b.kind === "assistant") return blockKey(b, i);
     }
     return null;
-  }, [onRetry, transcript]);
+  }, [transcript.blocks]);
+  // Retry rides that same message, and only when there is something to ask again — a session whose
+  // only messages came from a peer has nothing of the user's to re-send.
+  const retryKey = onRetry && lastUserMessage(transcript) ? lastAssistantKey : null;
   const busy = sessionStatus === "running" || sessionStatus === "waiting_permission";
   // Per message, not per transcript: a turn's fetches belong to the answer they were made for, and
   // one list at the bottom would credit the newest message with everything ever read.
@@ -240,6 +248,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                 {b.text && <UserText text={b.text} mentionIds={mentionIds} />}
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
+              actions={key === lastAssistantKey}
               onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}

@@ -31,7 +31,11 @@ export type Block =
 
 export type Rating = "up" | "down";
 export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string };
-export type Usage = { costUsd: number; inputTokens: number; outputTokens: number; numTurns: number };
+export type Usage = { costUsd: number; inputTokens: number; outputTokens: number; numTurns: number;
+  /** The last prompt's size in tokens, when the agent stated one — see the `usage` event's own note.
+   *  Undefined for every engine that cannot say, which is most of them; the prompter draws no context
+   *  meter there rather than a full or an empty one. */
+  contextTokens?: number };
 export type Transcript = {
   blocks: Block[];
   /** Open permission requests, oldest first (an agent may ask for several tools at once). */

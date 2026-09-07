@@ -74,13 +74,38 @@ describe("the assistant message's action bar", () => {
     expect(document.querySelector(".transcript-col > .msg-assistant-row[data-enter]")).not.toBeNull();
   });
 
-  it("offers Retry on the newest answer only — the button acts on the last turn wherever it sits", () => {
+  it("appears under the newest answer alone — earlier messages carry no bar at all", () => {
     render(<Transcript sessionStatus="idle" onDecide={() => {}} onRetry={() => {}}
       transcript={model([user("one"), assistant("first", false), user("two"), assistant("second", false, "m2")])} />);
     const bars = [...document.querySelectorAll(".msg-actions")];
-    expect(bars).toHaveLength(2);
-    expect(bars[0]!.querySelector('[aria-label="Retry"]')).toBeNull();
-    expect(bars[1]!.querySelector('[aria-label="Retry"]')).not.toBeNull();
+    expect(bars).toHaveLength(1);
+    // …and it is the LAST row's bar, not the first one's. The mutant: gating on index 0.
+    const rows = [...document.querySelectorAll(".msg-assistant-row")];
+    expect(rows[0]!.querySelector(".msg-actions")).toBeNull();
+    expect(rows[1]!.querySelector(".msg-actions")).toBe(bars[0]);
+    expect(bars[0]!.querySelector('[aria-label="Retry"]')).not.toBeNull();
+  });
+
+  it("moves to the answer that just arrived rather than staying on the one it was under", () => {
+    const view = render(<Transcript sessionStatus="idle" onDecide={() => {}} onRetry={() => {}}
+      transcript={model([user("one"), assistant("first", false)])} />);
+    expect(screen.getByRole("button", { name: "Copy message" }).closest(".msg-assistant-row")!
+      .querySelector(".msg-assistant")!.textContent).toContain("first");
+    view.rerender(<Transcript sessionStatus="idle" onDecide={() => {}} onRetry={() => {}}
+      transcript={model([user("one"), assistant("first", false), user("two"), assistant("second", false, "m2")])} />);
+    const copies = screen.getAllByRole("button", { name: "Copy message" });
+    expect(copies).toHaveLength(1);
+    expect(copies[0]!.closest(".msg-assistant-row")!.querySelector(".msg-assistant")!.textContent).toContain("second");
+  });
+
+  it("goes away while the next answer is still streaming — the bar never sits under stale prose", () => {
+    // A finished message followed by a live one: the finished message is no longer the newest, and
+    // the streaming one has no bar yet, so the transcript shows none. The mutant: falling back to
+    // "the last COMPLETE message", which would leave a Retry button under the previous turn while
+    // the current one is still running.
+    render(<Transcript sessionStatus="running" onDecide={() => {}} onRetry={() => {}}
+      transcript={model([user("one"), assistant("first", false), assistant("still going", true, "m2")])} />);
+    expect(document.querySelectorAll(".msg-actions")).toHaveLength(0);
   });
 
   it("does not offer Retry when there is nothing of the user's to ask again", () => {
@@ -106,13 +131,16 @@ describe("the assistant message's action bar", () => {
     expect(retried).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the verdict already on the message, and only on that message", () => {
-    render(<Transcript sessionStatus="idle" onDecide={() => {}} onRate={() => {}}
+  it("shows the verdict recorded on the message the bar is actually under", () => {
+    const view = render(<Transcript sessionStatus="idle" onDecide={() => {}} onRate={() => {}}
       transcript={{ ...model([assistant("one", false), assistant("two", false, "m2")]), feedback: { m2: "down" } }} />);
-    const bars = [...document.querySelectorAll(".msg-actions")];
-    expect(bars[0]!.querySelector('[aria-label="Bad response"]')).toHaveAttribute("aria-pressed", "false");
-    expect(bars[1]!.querySelector('[aria-label="Bad response"]')).toHaveAttribute("aria-pressed", "true");
-    expect(bars[1]!.querySelector('[aria-label="Good response"]')).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Bad response" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Good response" })).toHaveAttribute("aria-pressed", "false");
+    // The same feedback map read against a transcript whose newest message is unrated: the bar shows
+    // that message's verdict, not the highest-rated one anywhere in the log.
+    view.rerender(<Transcript sessionStatus="idle" onDecide={() => {}} onRate={() => {}}
+      transcript={{ ...model([assistant("one", false), assistant("two", false, "m2"), assistant("three", false, "m3")]), feedback: { m2: "down" } }} />);
+    expect(screen.getByRole("button", { name: "Bad response" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("rates the message by its own id, not by where it sits", () => {
@@ -121,8 +149,7 @@ describe("the assistant message's action bar", () => {
     const onRate = vi.fn();
     render(<Transcript sessionStatus="idle" onDecide={() => {}} onRate={onRate}
       transcript={model([assistant("one", false), assistant("two", false, "m2")])} />);
-    const bars = [...document.querySelectorAll(".msg-actions")];
-    fireEvent.click(bars[1]!.querySelector('[aria-label="Good response"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "Good response" }));
     expect(onRate).toHaveBeenCalledWith("m2", "up");
   });
 

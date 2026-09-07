@@ -52,8 +52,8 @@ describe("isImageMime", () => {
 describe("attachmentDisposition mirrors the adapters", () => {
   it("Claude inlines images and DROPS everything else (claude-adapter.ts `continue`)", () => {
     expect(attachmentDisposition("claude", "image/png")).toBe("inline");
-    expect(attachmentDisposition("claude", "application/pdf")).toBe("ignored");
-    expect(attachmentDisposition("claude", "text/plain")).toBe("ignored");
+    expect(attachmentDisposition("claude", "application/pdf")).toBe("path");
+    expect(attachmentDisposition("claude", "text/plain")).toBe("path");
   });
   it("Codex takes a path for everything (localImage / the Attached files list)", () => {
     expect(attachmentDisposition("codex", "image/png")).toBe("path");
@@ -84,15 +84,18 @@ describe("attachmentNote", () => {
   it("is different per agent for the SAME file — the whole point of showing it", () => {
     const pdf = "application/pdf";
     const notes = KINDS.map((k) => attachmentNote(k, pdf));
-    expect(attachmentNote("claude", pdf)).toMatch(/ignores non-image/);
+    expect(attachmentNote("claude", pdf)).toMatch(/file path/);
     expect(attachmentNote("codex", pdf)).toMatch(/file path/);
     expect(attachmentNote("acp:cursor", pdf)).toMatch(/link/);
     expect(new Set(notes).size).toBeGreaterThan(1);
   });
   it("distinguishes an ignored image from an ignored non-image", () => {
+    // `fake` is the only kind left that ignores anything, and it ignores everything — so the
+    // non-image wording has no live speaker. It is kept because the branch is reachable the moment
+    // any kind's `image` disposition becomes `ignored` while its `other` is not.
     expect(attachmentNote("fake", "image/png")).toMatch(/ignores attachments/);
     expect(attachmentNote("fake", "image/png")).not.toMatch(/non-image/);
-    expect(attachmentNote("claude", "text/plain")).toMatch(/ignores non-image attachments/);
+    expect(attachmentNote("claude", "text/plain")).toMatch(/file path/);
   });
 });
 
@@ -100,12 +103,22 @@ describe("attachmentSummary", () => {
   const a = (path: string, mime: string) => ({ path, mime });
 
   it("groups by disposition and lists the basenames each line covers", () => {
-    const rows = attachmentSummary("claude", [
+    const rows = attachmentSummary("fake", [
       a("/x/one.png", "image/png"), a("/x/report.pdf", "application/pdf"),
       a("/x/two.png", "image/png"), a("/x/notes.txt", "text/plain"),
     ]);
     expect(rows.map((r) => r.disposition)).toEqual(["ignored"]);
-    expect(rows[0]!.files).toEqual(["report.pdf", "notes.txt"]);
+    expect(rows[0]!.files).toEqual(["one.png", "report.pdf", "two.png", "notes.txt"]);
+  });
+
+  it("hands the note to the row as a lead-in, so the filenames finish the sentence", () => {
+    // The reported bug read as one run-on string — "…will never see them.example.pdf" — because the
+    // sentence stopped dead in front of the list it was introducing. The chip tooltip still gets the
+    // standalone sentence; only the row that is followed by filenames is re-punctuated.
+    const [row] = attachmentSummary("fake", [a("/x/example.pdf", "application/pdf")]);
+    expect(row!.note.endsWith(":")).toBe(true);
+    expect(row!.note).not.toMatch(/\.$/);
+    expect(attachmentNote("fake", "application/pdf").endsWith(".")).toBe(true);
   });
 
   it("says nothing about a file the agent will simply read", () => {
@@ -114,13 +127,21 @@ describe("attachmentSummary", () => {
   });
 
   it("collapses repeats into one line, never one line per file", () => {
-    const rows = attachmentSummary("claude", [a("/a.pdf", "application/pdf"), a("/b.txt", "text/plain"), a("/c.png", "image/png")]);
-    expect(rows).toHaveLength(1); // both non-images are dropped the same way; the image is fine
+    const rows = attachmentSummary("fake", [a("/a.pdf", "application/pdf"), a("/b.txt", "text/plain")]);
+    expect(rows).toHaveLength(1); // both are dropped the same way, so they share the one sentence
     expect(rows[0]!.files).toEqual(["a.pdf", "b.txt"]);
   });
 
   it("is empty with nothing attached", () => {
     expect(attachmentSummary("claude", [])).toEqual([]);
+  });
+
+  it("says nothing at all for Claude any more — it no longer drops a file on the floor", () => {
+    // Claude reads images inline and is handed every other file's PATH in the message text, exactly
+    // as Codex is (claude-adapter.ts `fileListFor`). Nothing is silently discarded, so nothing needs
+    // announcing before send. The mutant: putting `other: "ignored"` back, which resurrects both the
+    // warning row and the dropped file behind it.
+    expect(attachmentSummary("claude", [a("/x/report.pdf", "application/pdf"), a("/x/shot.png", "image/png")])).toEqual([]);
   });
 
   it("says nothing about a handoff the agent will complete itself — a path or a link is not a warning", () => {
@@ -134,8 +155,7 @@ describe("attachmentSummary", () => {
   });
 
   it("still warns for the one agent that drops the file on the floor", () => {
-    const files = [a("/x/report.pdf", "application/pdf")];
-    expect(attachmentSummary("claude", files).map((r) => r.disposition)).toEqual(["ignored"]);
+    expect(attachmentSummary("fake", [a("/x/report.pdf", "application/pdf")]).map((r) => r.disposition)).toEqual(["ignored"]);
     expect(attachmentSummary("fake", [a("/x/shot.png", "image/png")]).map((r) => r.disposition)).toEqual(["ignored"]);
   });
 });

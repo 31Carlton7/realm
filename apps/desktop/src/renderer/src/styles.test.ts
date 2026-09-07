@@ -745,7 +745,9 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // Same invariant as the changes list: a full band of padding, and ONE declaration of the number,
     // so the ramp and the clearance that keeps the last session out of it cannot drift apart.
     const body = bodiesFor(".space-body").join(" ");
-    expect(body).toContain("padding-bottom: var(--fade-h)");
+    // The clearance is the band PLUS room to breathe under it — the fade is still the one declared
+    // number, and the extra is written in terms of it rather than as a second magic figure.
+    expect(body).toContain("padding-bottom: calc(var(--fade-h) + 24px)");
     expect(bodiesFor(".space-page").join(" ")).toContain("--fade-h: 44px");
     expect(body).not.toContain("--fade-h:");
     // The ramp is the scroller's own mask, reading the same --fade-h, and it runs to TRANSPARENT: the
