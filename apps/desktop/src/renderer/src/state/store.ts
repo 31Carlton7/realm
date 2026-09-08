@@ -1258,7 +1258,10 @@ export type AppState = {
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
   /** Open (or focus) the document workspace for an environment — the `openDiff` gesture, for files.
    *  `environmentId` omitted uses the space's primary checkout, which is the sidebar's "Documents". */
-  openDocuments(environmentId?: string | null, targetLeafId?: string | null): Promise<void>;
+  /** `beside` splits right and opens there instead of taking over the focused pane — the same
+   *  argument `newBrowser` takes, and for the same reason: a pane opened FROM another pane is a
+   *  second view, not a replacement for the one you asked from. */
+  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: boolean): Promise<void>;
   /**
    * Plan 22. Put one file on screen: the server adds it to the workspace's tab strip (creating the
    * workspace when needed) and the item comes into the layout. `documents.openRequested` — which
@@ -3394,7 +3397,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
         await adoptItem(sid, created.id, targetLeafId, true);
       },
-      async openDocuments(environmentId = null, targetLeafId = null) {
+      async openDocuments(environmentId = null, targetLeafId = null, beside = false) {
         const sid = get().activeSpaceId; if (!sid) return;
         // No local "is it already open?" check, unlike openDiff: the SERVER enforces one workspace per
         // environment and returns the existing pair, so this call is idempotent and already answers
@@ -3404,7 +3407,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { itemId } = await api.createDocuments(sid, environmentId ?? undefined);
         const layout = get().layout;
         if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
-        await adoptItem(sid, itemId, targetLeafId);
+        await adoptItem(sid, itemId, targetLeafId, beside);
       },
       async openDocumentPath(path, environmentId = null) {
         const sid = get().activeSpaceId; if (!sid) return;

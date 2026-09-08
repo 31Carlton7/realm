@@ -94,8 +94,12 @@ function SessionDocumentsButton({ item }: { item: Item }) {
   const run = useApp((s) => s.run);
   if (!environmentId) return null;
   return (
+    /* Beside, not instead. This button is pressed FROM a session to read something alongside it, and
+       taking the session's own pane to do that left the reader with a back button as the only way
+       home — the browser button two along has opened beside for exactly this reason since it
+       existed. An empty focused leaf is still filled rather than split; see `openItemBeside`. */
     <button className="icon-btn" aria-label={`Open documents for ${item.title}`} title="Documents"
-      onClick={() => run(() => openDocuments(environmentId))}>
+      onClick={() => run(() => openDocuments(environmentId, null, true))}>
       <Icon name="documents" size={14} />
     </button>
   );

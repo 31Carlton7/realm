@@ -536,6 +536,27 @@ describe("app store", () => {
       await store.getState().openItemBeside("i1");
       expect(store.getState().layout!.type).toBe("leaf");
     });
+
+    it("the documents button opens BESIDE the session, instead of taking its pane", async () => {
+      /* The complaint: pressing Documents from a session replaced the session, leaving the back
+         button as the only way home. It is pressed to read something ALONGSIDE the session — the
+         browser button two along has opened beside since it existed, and this is the same gesture.
+         The mutant: drop the flag at the call site and the session is evicted again. */
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i1");
+      await store.getState().openDocuments(null, null, true);
+      const open = allItems(store.getState().layout!);
+      expect(open).toContain("i1");
+      expect(open.length).toBe(2);
+    });
+
+    it("…and still fills an empty leaf rather than splitting one that has nothing in it", async () => {
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openDocuments(null, null, true);
+      expect(store.getState().layout!.type).toBe("leaf");
+    });
   });
 
   describe("dispatch (Plan 13 W2)", () => {
