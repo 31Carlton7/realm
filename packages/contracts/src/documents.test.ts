@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_MAX_BYTES, documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, refineDocumentKind } from "./documents";
+import { DOCUMENT_MAX_BYTES, documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, refineDocumentKind, shouldSurfaceWrite, writtenPathOf } from "./documents";
 
 describe("documentKindFor", () => {
   it("routes each extension to its editor", () => {
@@ -204,5 +204,35 @@ describe("documentExtension / documentStem", () => {
     expect(documentExtension("README")).toBe("");
     expect(documentStem("README")).toBe("README");
     expect(documentExtension(".gitignore")).toBe(""); // a leading dot is not an extension
+  });
+});
+
+describe("surfacing a document an agent wrote", () => {
+  it("opens a document it CREATED", () => {
+    expect(shouldSurfaceWrite("Write", { file_path: "/w/notes.md" })).toBe("/w/notes.md");
+    expect(shouldSurfaceWrite("Write", { file_path: "/w/budget.csv" })).toBe("/w/budget.csv");
+  });
+
+  it("ignores a kind the pane cannot render", () => {
+    // Opening a `.ts` in a documents pane puts source code behind a rich-text editor, and a `.zip`
+    // opens nothing at all. The pane is for documents; this is the line that keeps it that way.
+    expect(shouldSurfaceWrite("Write", { file_path: "/w/index.ts" })).toBeNull();
+    expect(shouldSurfaceWrite("Write", { file_path: "/w/bundle.zip" })).toBeNull();
+  });
+
+  it("ignores an EDIT — a refactor across twenty files must not open twenty tabs", () => {
+    /* The distinction that makes this bearable: a file the agent created is the case where someone
+       asked for a document and would like to see it. A file it changed is work in progress. */
+    expect(shouldSurfaceWrite("Edit", { file_path: "/w/notes.md" })).toBeNull();
+    expect(shouldSurfaceWrite("MultiEdit", { file_path: "/w/notes.md" })).toBeNull();
+  });
+
+  it("takes the path under whatever name the harness gives it", () => {
+    expect(writtenPathOf({ path: "/w/a.md" })).toBe("/w/a.md");
+    expect(writtenPathOf({ filePath: "/w/b.md" })).toBe("/w/b.md");
+    expect(writtenPathOf({ notebook_path: "/w/c.ipynb" })).toBe("/w/c.ipynb");
+    // Most tools name no file, which is why this returns rather than throws.
+    expect(writtenPathOf({ command: "ls" })).toBeNull();
+    expect(writtenPathOf({ file_path: "   " })).toBeNull();
   });
 });

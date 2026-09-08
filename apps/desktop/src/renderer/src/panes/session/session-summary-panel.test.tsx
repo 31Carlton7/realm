@@ -125,7 +125,9 @@ describe("the summary as a side panel", () => {
     // alone hid it — with the cost — for a session that had run a turn and written nothing, which is
     // exactly when "what is this costing me" is the live question.
     await mount([sessionEvent("usage", { costUsd: 0.42, inputTokens: 10, outputTokens: 10, numTurns: 2 })]);
-    expect(document.querySelector(".summary-btn-cost")?.textContent).toBe("$0.42");
+    // Not ON the button — that is a glyph in a four-button strip. Inside the panel, where a number
+    // has room to be labelled.
+    expect(document.querySelector(".summary-btn-cost")).toBeNull();
     openPanel();
     const panel = screen.getByRole("dialog", { name: "Session summary" });
     expect(within(panel).getByText("$0.42")).toBeInTheDocument();

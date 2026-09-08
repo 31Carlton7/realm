@@ -24,7 +24,8 @@ type Any = any;
 async function client(port: number) {
   const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
   const pending = new Map<string, (v: Any) => void>();
-  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); });
+  const events: Any[] = [];
+  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); else events.push(m); });
   let n = 0;
   const call = (method: string, params: unknown) => new Promise<Any>((res, rej) => {
     const id = String(++n);
@@ -32,7 +33,7 @@ async function client(port: number) {
     pending.set(id, (v) => { clearTimeout(timer); res(v); });
     ws.send(JSON.stringify({ id, method, params }));
   });
-  return { call, close: () => ws.close() };
+  return { call, events, close: () => ws.close() };
 }
 
 /** Remembers every StartOptions it was handed — the seam that proves the briefing reaches a start. */
@@ -134,6 +135,52 @@ describe("failover over rpc", () => {
     });
     expect((await c.call("sessions.get", { id: session.id })).result.agentKind).toBe("fake");
     expect(second.starts).toHaveLength(0);
+    c.close();
+  });
+});
+
+describe("a document the agent writes", () => {
+  it("opens in the documents pane, rather than arriving as a path in grey text", async () => {
+    /* The gap behind "I asked for a doc and the docs pane never opened": Realm knew about the file
+       the moment the tool call landed and did nothing with it. `documents.openRequested` is the
+       broadcast the renderer already lands quietly beside the session — this is what emits it. */
+    const home = tempDir("realm-writedoc-");
+    const fake = new RecordingFake({ script: [{ on: "go", emit: [
+      { kind: "tool", name: "Write", input: { file_path: "notes.md" }, result: "ok" },
+    ] }] });
+    app = await createApp({ home, port: 0, adapters: { fake } });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+    // The file has to exist: `openPath` refuses a tab on nothing, because an empty editor that
+    // cannot save is a worse outcome than no tab.
+    const { documentsId } = (await c.call("documents.create", { spaceId: sp.id })).result;
+    await c.call("documents.write", { documentsId, path: "notes.md", text: "# n", baseHash: null });
+
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => c.events.some((e: Any) => e.event === "documents.openRequested"));
+    const opened = c.events.find((e: Any) => e.event === "documents.openRequested");
+    expect(opened.payload.path).toBe("notes.md");
+    c.close();
+  });
+
+  it("stays out of the way for an edit, and for a file the pane cannot render", async () => {
+    // A refactor across twenty files must not open twenty tabs, and a `.ts` does not belong behind
+    // a rich-text editor.
+    const home = tempDir("realm-writedoc2-");
+    const fake = new RecordingFake({ script: [{ on: "go", emit: [
+      { kind: "tool", name: "Edit", input: { file_path: "notes.md" }, result: "ok" },
+      { kind: "tool", name: "Write", input: { file_path: "index.ts" }, result: "ok" },
+    ] }] });
+    app = await createApp({ home, port: 0, adapters: { fake } });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    expect(c.events.some((e: Any) => e.event === "documents.openRequested")).toBe(false);
     c.close();
   });
 });

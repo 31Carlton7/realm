@@ -74,7 +74,11 @@
   --rl-warning: var(--orange);                   /* BUI --orange */
   /* terminals stay dark in both modes, one step below BUI's dark --page (cool-tinted,
      oklch(.17 .004 264) ≈ #0e0f11). Hex literal: xterm parses it once at hub creation. */
-  --rl-terminal-bg: #1c1d1f; /* the session pane's dark ground (BUI dark --canvas), so the drawer no longer reads as a darker well */
+  /* The SESSION PANE's own ground, not a fixed grey. It was `#1c1d1f`, chosen to match the pane —
+     and it did, for the one theme it was picked against. Under any themed palette (the purple one,
+     say) the pane is tinted and the terminal beside it is neutral, and the drawer reads as a
+     different app. Following the token means it can never drift again. */
+  --rl-terminal-bg: var(--rl-panel);
   /* ...and the ink drawn ON it, which is white in both app modes for the same reason the ground is
      dark in both. Named rather than written as a literal because a bare rgba(255,255,255,.55) in a
      stylesheet reads as a light-mode bug to anyone sweeping for them — it has been mistaken for one. */
@@ -137,6 +141,10 @@
   --rl-hover: oklch(0 0 0 / 0.05);
   --rl-active: oklch(0 0 0 / 0.07);
   --rl-shadow: var(--shadow-lg);                 /* shadow-plugin's smooth lg stack (BUI light --shadow-overlay, shadow half) */
+  /* The terminal stays dark on the light face. It follows `--rl-panel` in dark mode so it matches
+     the session pane it sits beside — but xterm draws light-on-dark and Realm sets only its
+     background, so a light ground here would be white text on white. */
+  --rl-terminal-bg: #1c1d1f;
 }
 * { box-sizing: border-box; }
 /* 14/20 rather than 14/1.5: tembo pairs every type step with an explicit line
@@ -172,8 +180,21 @@ kbd { font: 11px var(--font-mono); }
    — the app's one adjustable ground, composed in tokens.css so the user's setting and
    prefers-reduced-transparency both reach it. --page flips with data-mode, so one rule serves both
    themes and every palette. */
-.sidebar { width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
-  background: var(--sidebar-ground); border-right: var(--hairline-w) solid var(--rl-hairline); -webkit-app-region: drag; }
+/* The sidebar floats rather than butts against the window.
+   It was a full-height column flush to the left edge with a rule down its right side — the shape of
+   a panel bolted on, which is what "make the whole menu rounded" is asking to undo. Inset on all
+   four sides and rounded all the way round, it reads as one surface sitting ON the window. The rule
+   goes with the edge it used to divide: a floating surface separates itself. */
+.sidebar {
+  width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
+  margin: var(--sidebar-inset); border-radius: var(--r-float); corner-shape: squircle;
+  background: var(--sidebar-ground); -webkit-app-region: drag;
+}
+:root[data-squircle] .sidebar {
+  border-radius: 0; background: paint(rl-squircle);
+  --sq-fill: var(--sidebar-ground);
+  --sq-radius-top: var(--r-float); --sq-radius-bottom: var(--r-float);
+}
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
 /* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
    sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
@@ -468,10 +489,16 @@ kbd { font: 11px var(--font-mono); }
 .summary-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 /* The toggle, filled while its panel is up. The icon cannot fill — only the stroke pack ships — so
    the control does, which is the ordinary way a toggle says it is on. */
-.summary-btn { gap: 5px; width: auto; padding-inline: 6px; }
 .summary-btn[data-on] { background: var(--rl-active); color: var(--rl-text-bright); }
-/* The session's cost, on the control that already holds what the session produced. */
-.summary-btn-cost { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+/* What the session was about — the last thing asked, and the first line of the answer. The ask is
+   quoted rather than styled as a heading: it is the user's own words, and the panel is reporting
+   them back rather than titling a section with them. */
+.summary-recap { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px 10px; }
+.summary-recap-asked {
+  margin: 0; padding-left: 8px; border-left: var(--hairline-w) solid var(--rl-line-strong);
+  font-size: 12px; line-height: 1.45; color: var(--rl-text-faint);
+}
+.summary-recap-answered { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-bright); }
 /* Spend, at the top of the panel. The one fact that is true from the first turn, which is what
    keeps the panel from opening onto nothing while the three lists are still empty. */
 .summary-spend {

@@ -156,7 +156,6 @@ function NotificationRow({ n, selected, onSelect }: { n: Notification; selected:
  * you meant to come back to had no way to stay unread.
  */
 function NotificationSheet({ n, onClose }: { n: Notification; onClose: () => void }) {
-  const markNotificationsRead = useApp((s) => s.markNotificationsRead);
   const openNotificationTarget = useApp((s) => s.openNotificationTarget);
   const run = useApp((s) => s.run);
   const pendingPermission = n.category === "permission" && n.actedAt === null;
@@ -170,9 +169,9 @@ function NotificationSheet({ n, onClose }: { n: Notification; onClose: () => voi
         {n.body && <p className="notif-detail-body">{n.body}</p>}
         {pendingPermission && <PendingPermissionInline n={n} />}
         <div className="sheet-actions">
-          {n.readAt === null
-            ? <button type="button" className="btn-quiet" onClick={() => run(() => markNotificationsRead([n.id]))}>Mark as read</button>
-            : <span className="notif-sheet-read">Read</span>}
+          {/* Read state, not a control. Opening a row marks it read, so a button here would be dead
+              the moment it was drawn — which is the whole reason it is a label now. */}
+          <span className="notif-sheet-read">{n.readAt === null ? "Unread" : "Read"}</span>
           <span className="diff-head-spacer" />
           {/* Always present on a session row — answering in place can only exist while the session
               still waits, and jumping is the affordance that never stops working. */}

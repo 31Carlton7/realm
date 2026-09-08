@@ -127,12 +127,28 @@ describe("sub-agents the HARNESS is running", () => {
     expect(dockText()).toEqual(["audit the mapper", "check the tests"]);
   });
 
-  it("offers no jump for one — there is no pane to jump to", async () => {
-    // A control that could only no-op is worse than none. The elapsed clock is the honest part.
+  it("points at the tool card rather than at a pane — that is where the run's own calls land", async () => {
+    /* There is no session behind a harness sub-agent, so a jump to a pane would be a button that
+       cannot work. There IS somewhere to look: the tool card in the transcript, which fills with the
+       run's nested calls as they arrive. The row scrolls to it and opens it. */
     await mountWith(task("t1", "audit the mapper"));
     await waitFor(() => expect(dockText()).toEqual(["audit the mapper"]));
-    expect(document.querySelector(".delegation-item")?.tagName).toBe("DIV");
     expect(screen.getAllByText("in the agent")).toHaveLength(1);
+    const card = document.querySelector('[data-tool-use-id="t1"]')!;
+    const toggle = card.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Show audit the mapper in the transcript" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("names a Workflow by the name in its own script", async () => {
+    /* The case that made this card look broken: a request for ten research agents produced one
+       `Workflow` call, not ten `Task` ones, so a list that knew only about Task showed nothing at
+       all. A Workflow names itself in its script's `meta`, which is the only place its name is. */
+    await mountWith([sessionEvent("tool_call", { toolUseId: "w1", name: "Workflow",
+      input: { script: "export const meta = { name: 'diamond-stuart-research', description: 'Parallel research' }" },
+      parentToolUseId: null })]);
+    await waitFor(() => expect(dockText()).toEqual(["diamond-stuart-research"]));
   });
 
   it("drops one the moment its result lands", async () => {

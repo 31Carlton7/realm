@@ -26,9 +26,14 @@ const ASKED_META = { icon: "session", label: "Asked a question (agent_ask)" };
  * the link to that session: it cannot be dragged away from what it describes, and it leaves when the
  * session's runs do.
  */
-/** Tool names that spawn a sub-agent INSIDE the harness. Claude's `Task`, and the `Agent` alias some
- *  harnesses report — the same pair `tool-summary.ts` already gives the bot glyph to. */
-const SUBAGENT_TOOLS = new Set(["Task", "Agent"]);
+/**
+ * Tool names that spawn sub-agents INSIDE the harness.
+ *
+ * `Workflow` is here because it is what a real run turned out to use — a request for ten research
+ * agents produced one `Workflow` call, not ten `Task` ones, so a list that knew only about `Task`
+ * showed nothing for exactly the case that prompted asking for this card.
+ */
+const SUBAGENT_TOOLS = new Set(["Task", "Agent", "Workflow"]);
 
 /**
  * Sub-agents the HARNESS is running, read off the transcript.
@@ -51,9 +56,23 @@ function harnessSubagents(blocks: readonly Block[], now: number): { id: string; 
       && b.parentToolUseId === undefined)
     .map((b) => ({
       id: b.toolUseId,
-      label: String(b.input.description ?? b.input.prompt ?? "Sub-agent").slice(0, 80),
+      // `name` is what a Workflow calls itself; `description` is Task's. Falling through both before
+      // the prompt, because a prompt's first eighty characters are usually boilerplate.
+      label: labelOf(b.input).slice(0, 80),
       ms: Math.max(0, now - b.ts),
     }));
+}
+
+/** What to call an in-flight sub-agent run. A Workflow names itself in its script's `meta`, which is
+ *  the only place its name exists — so it is dug out rather than left as "Sub-agent". */
+function labelOf(input: Record<string, unknown>): string {
+  const direct = input.description ?? input.name;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const script = typeof input.script === "string" ? input.script : "";
+  const named = script.match(/name:\s*['"`]([^'"`]+)['"`]/)?.[1];
+  if (named) return named;
+  const prompt = input.prompt;
+  return typeof prompt === "string" && prompt.trim() ? prompt.trim() : "Sub-agent";
 }
 
 export function DelegatedRuns({ sessionId }: { sessionId: string }) {
@@ -67,6 +86,23 @@ export function DelegatedRuns({ sessionId }: { sessionId: string }) {
   const inHarness = useMemo(() => harnessSubagents(blocks, Date.now()), [blocks]);
   if ((!running || running.length === 0) && inHarness.length === 0) return null;
   return <Dock sessionId={sessionId} running={running ?? NO_RUNS} harness={inHarness} />;
+}
+
+/**
+ * Scroll the transcript to a tool card and open it.
+ *
+ * By DOM rather than through the store, because a tool card's open/closed state is component-local
+ * (ToolCard owns it, so a card keeps its state as the transcript re-renders around it) and there is
+ * no store field to set. `click()` on the row's own button is the same gesture a user would make.
+ */
+function revealToolCard(toolUseId: string): void {
+  const card = document.querySelector<HTMLElement>(`[data-tool-use-id="${CSS.escape(toolUseId)}"]`);
+  if (!card) return;
+  // Optional-called: jsdom has no `scrollIntoView`, and a throw here would take the OPEN with it —
+  // the part that matters. Scrolling is the nicety; showing the card is the job.
+  card.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  const toggle = card.querySelector<HTMLButtonElement>("button[aria-expanded]");
+  if (toggle && toggle.getAttribute("aria-expanded") === "false") toggle.click();
 }
 
 const NO_BLOCKS: readonly Block[] = [];
@@ -151,12 +187,16 @@ function Dock({ sessionId, running, harness }: {
               than none. The elapsed clock is the honest part — it is what "still running" means. */}
           {harness.map((h) => (
             <li key={h.id}>
-              <div className="delegation-item" aria-label={`${h.label} — running inside the agent`}>
+              {/* It CAN be looked at, just not in a pane: the tool card in the transcript is where
+                  this run's own calls appear as they land, so the row scrolls to it and opens it.
+                  A jump to a pane would be a button that cannot work — there is no session here. */}
+              <button type="button" className="delegation-item" aria-label={`Show ${h.label} in the transcript`}
+                onClick={() => revealToolCard(h.id)}>
                 <Icon name="bot" size={14} />
                 <span className="delegation-title">{h.label}</span>
                 <span className="delegation-dim">in the agent</span>
                 <span className="delegation-dim">{formatDuration(h.ms)}</span>
-              </div>
+              </button>
             </li>
           ))}
         </ul>

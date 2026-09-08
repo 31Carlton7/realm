@@ -67,7 +67,7 @@ function SessionBrowserButton({ item }: { item: Item }) {
   const run = useApp((s) => s.run);
   return (
     <button className="icon-btn" aria-label={`Open a browser beside ${item.title}`} title="Browser"
-      onClick={() => run(() => newBrowser())}>
+      onClick={() => run(() => newBrowser(null, true))}>
       <Icon name="browser" size={14} />
     </button>
   );

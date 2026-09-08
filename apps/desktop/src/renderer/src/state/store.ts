@@ -945,7 +945,8 @@ export type AppState = {
   pickAndLinkProject(): Promise<void>;
   newTerminal(targetLeafId?: string | null): Promise<void>;
   /** New browser pane in the active space (opens into the target/focused leaf). */
-  newBrowser(targetLeafId?: string | null): Promise<void>;
+  /** `beside` opens it in a split next to the focused pane instead of replacing it. */
+  newBrowser(targetLeafId?: string | null, beside?: boolean): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
   /** Shelve (or restore) a row. Archiving closes the pane first — a hidden row whose pane is still on
    *  screen is the one state the sidebar could not explain — so this is `updateItem` plus that close,
@@ -2289,10 +2290,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { itemId } = await api.createTerminal(sid);
         await adoptItem(sid, itemId, targetLeafId);
       },
-      async newBrowser(targetLeafId = null) {
+      /**
+       * `beside` splits rather than replaces. A browser opened from a session's pane bar is a place
+       * to look at something WHILE the session works — evicting the session to show it is the exact
+       * opposite of what the button is for. Explicit rather than always-on: the sidebar's own "new
+       * browser" is a navigation, and that one should land where you are looking.
+       */
+      async newBrowser(targetLeafId = null, beside = false) {
         const sid = get().activeSpaceId; if (!sid) return;
         const { itemId } = await api.createBrowser(sid);
-        await adoptItem(sid, itemId, targetLeafId);
+        await adoptItem(sid, itemId, targetLeafId, beside);
       },
       async updateItem(input) {
         const sid = get().activeSpaceId;
@@ -3811,6 +3818,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async selectNotification(pageItemId, id) {
         set({ notificationsSelectedId: id });
         get().navigateInPane(pageItemId, id);
+        /* Opening a row IS having seen it.
+         *
+         * This went away for a version, on the reasoning that a row opened by accident should not be
+         * silently consumed. In practice the opposite is the annoyance: a feed you have read through
+         * that still says nine unread, and a per-row button to press for each one. The modal keeps
+         * showing the read state; what it no longer needs is a button to set it. */
+        const n = id ? get().notifications.find((x) => x.id === id) : null;
+        if (n && n.readAt === null) await get().markNotificationsRead([n.id]);
       },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);

@@ -1166,7 +1166,13 @@ describe("dividers", () => {
     // A table's rules ARE its structure, and the sidebar's edge is the app's one column boundary.
     expect(bodiesFor(".md th").join(" ")).toContain("border-bottom: var(--hairline-w) solid");
     expect(bodiesFor(".usage-table th").join(" ")).toContain("border-bottom: var(--hairline-w) solid");
-    expect(bodiesFor(".sidebar").join(" ")).toContain("border-right: var(--hairline-w) solid");
+    /* The sidebar's rule is gone with the edge it divided. It was a full-height column flush to the
+       window with a line down its right side — the shape of a panel bolted on. It floats now, inset
+       and rounded all the way round, and a detached surface separates itself. */
+    const sidebar = bodiesFor(".sidebar").join(" ");
+    expect(sidebar).not.toContain("border-right");
+    expect(sidebar).toContain("margin: var(--sidebar-inset)");
+    expect(sidebar).toContain("border-radius: var(--r-float)");
   });
 
   it("the two option lists in the transcript separate their rows the same way", () => {

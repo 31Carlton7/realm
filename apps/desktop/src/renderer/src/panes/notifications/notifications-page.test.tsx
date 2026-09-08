@@ -97,21 +97,18 @@ describe("the Notifications page (Plan 12 W5)", () => {
     expect(screen.getByRole("button", { name: "row one" })).not.toHaveAttribute("aria-current");
   });
 
-  it("marking read is something the READER does, not a side effect of looking", async () => {
-    /* Selecting a row used to mark it read. Two things were wrong with that: a row opened by
-       accident was silently consumed with no way to put it back, and the modal's own "Mark as read"
-       would have been dead the moment it was drawn. */
+  it("opening a row IS having seen it", async () => {
+    /* This went away for a version, on the reasoning that a row opened by accident should not be
+       silently consumed. In practice the opposite is the annoyance: a feed you have read through
+       that still says nine unread, and a button to press for each one. The modal reports the state;
+       it does not ask you to set it. */
     const { api } = await mount({ notifications: [notification("n1", { title: "row one" })] });
     await waitFor(() => expect(screen.getByText("row one")).toBeInTheDocument());
     await select("row one");
-    expect(api.calls.some((c) => c.startsWith("markNotificationsRead"))).toBe(false);
-    expect(screen.getByRole("button", { name: "row one" })).toHaveAttribute("data-unread");
-
-    screen.getByText("Mark as read").click();
     await waitFor(() => expect(api.calls).toContain("markNotificationsRead:n1"));
     await waitFor(() => expect(screen.getByRole("button", { name: "row one" })).not.toHaveAttribute("data-unread"));
-    // And the button retires rather than offering to do it again.
-    expect(screen.queryByText("Mark as read")).toBeNull();
+    // A label, never a control: a button here would be dead the moment it was drawn.
+    expect(screen.queryByRole("button", { name: "Mark as read" })).toBeNull();
   });
 
   it("a selection whose row leaves the feed closes the modal rather than showing a stale card", async () => {
@@ -172,7 +169,9 @@ describe("the Notifications page (Plan 12 W5)", () => {
     });
     await select("row two");
     await waitFor(() => expect(screen.getByRole("group", { name: "Permission request" })).toBeInTheDocument());
-    expect(screen.getByText("Read")).toBeInTheDocument(); // r2's card, not "whatever is pending first"
+    // r2's card, not "whatever is pending first". Scoped to the permission card: the sheet also
+    // carries a "Read"/"Unread" state label now, and a bare text match finds both.
+    expect(within(screen.getByRole("group", { name: "Permission request" })).getByText("Read")).toBeInTheDocument();
     screen.getByRole("button", { name: "Allow" }).click();
     await waitFor(() => expect(api.calls).toContain("respondPermission:se1:r2:allow"));
     expect(api.calls.filter((c) => c.startsWith("respondPermission"))).toEqual(["respondPermission:se1:r2:allow"]);

@@ -8,7 +8,7 @@ import { Markdown } from "./Markdown";
 import { MediaLightbox } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 import { emptyTranscript } from "./transcript-model";
-import { isEmptySummary, summarize, type Output, type PlanEntry, type SessionSummary, type Upload } from "./session-summary";
+import { isEmptySummary, recapOf, summarize, type Output, type PlanEntry, type SessionSummary, type Upload } from "./session-summary";
 
 /** Cents below a penny, so a session that has spent $0.004 does not read as free. Lives here now
  *  rather than in SessionPane, because this is the only surface that shows a cost. */
@@ -94,10 +94,10 @@ export function SessionSummaryButton({ item }: { item: Item }) {
       <button ref={btn} className="icon-btn summary-btn" data-on={open || undefined}
         aria-label={`Summary of ${item.title}`} title="Outputs, sources and plans"
         aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        {/* The glyph alone. The cost rode this button for a version and was too much for a control
+            in a four-button strip — it is inside the panel, where the rest of the session's numbers
+            already are, and where a number has room to be labelled. */}
         <Icon name="info" size={14} />
-        {/* The session's cost, on the control that already holds what the session produced. It used
-            to sit loose in the pane bar as a bare number competing with the title. */}
-        {cost > 0 && <span className="summary-btn-cost">{fmtCost(cost)}</span>}
       </button>
       {open && (
         <SummaryPanel summary={summary} sessionId={id} environmentId={environmentId} anchorRef={btn} onClose={() => setOpen(false)}
@@ -132,6 +132,8 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
   const ref = useRef<HTMLDivElement>(null);
   const rect = usePaneRect(anchorRef);
   const usage = useApp((s) => s.transcripts[sessionId]?.t.usage ?? EMPTY_USAGE);
+  const blocks = useApp((s) => s.transcripts[sessionId]?.t.blocks ?? NO_BLOCKS);
+  const recap = useMemo(() => recapOf(blocks), [blocks]);
   // Escape only. Deliberately NOT an outside-click close: this panel's whole job is to stay readable
   // while you work in the transcript beside it, and a dismiss-on-any-click panel cannot do that.
   useEffect(() => {
@@ -162,7 +164,17 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
         </button>
       </div>
       <div className="summary-scroll">
-      {/* Spend first, because it is the one fact that is true from the first turn — and because a
+      {/* What the session was ABOUT, first. The three lists below say what it produced, and none of
+          them answers the question a panel called "Summary" is actually being asked — a filename
+          tells you nothing about why the file exists. Derived from the last exchange rather than
+          generated: it is the transcript rearranged, which is what everything else here is. */}
+      {recap && (
+        <div className="summary-recap">
+          {recap.asked && <p className="summary-recap-asked">{recap.asked}</p>}
+          {recap.answered && <p className="summary-recap-answered">{recap.answered}</p>}
+        </div>
+      )}
+      {/* Spend next, because it is the one fact that is true from the first turn — and because a
           panel whose three lists are still empty must not open onto nothing. */}
       {(usage.costUsd > 0 || usage.numTurns > 0) && (
         <div className="summary-spend">

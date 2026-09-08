@@ -235,3 +235,41 @@ export function recordGuideAttempt(p: GuideProgress, topic: string, attempt: Gui
 export function weakTopics(p: GuideProgress, threshold = 0.8): string[] {
   return Object.entries(p.topics).filter(([, t]) => t.last < threshold).map(([k]) => k).sort();
 }
+
+/**
+ * Tools whose input names a file the agent WROTE.
+ *
+ * Shared rather than re-listed, because two places now branch on it and they must not drift: the
+ * transcript's own summary (what a session produced) and the server's document surfacing (what to
+ * show the user). A tool missing from one list and present in the other would mean a file that
+ * appears in the summary but never opens, or the reverse.
+ */
+export const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "create_file", "str_replace_editor",
+]);
+
+/** The `file_path` / `path` an input carries, whatever the harness calls it. Null when the tool did
+ *  not name one — which is most tools, and is why this returns rather than throws. */
+export function writtenPathOf(input: Record<string, unknown>): string | null {
+  for (const key of ["file_path", "filePath", "path", "notebook_path"]) {
+    const v = input[key];
+    if (typeof v === "string" && v.trim() !== "") return v;
+  }
+  return null;
+}
+
+/**
+ * Should Realm open this written file in the documents pane?
+ *
+ * Only a kind the pane can actually render, which is the whole point — opening a `.ts` in a
+ * documents pane would put source code behind a rich-text editor, and opening a `.zip` would open
+ * nothing. A `WRITE` (a file that did not exist) rather than an `Edit`, because an agent editing
+ * twenty files during a refactor must not open twenty tabs; a document it CREATED is the case where
+ * the user asked for a document and would like to see it.
+ */
+export function shouldSurfaceWrite(toolName: string, input: Record<string, unknown>): string | null {
+  if (toolName !== "Write" && toolName !== "create_file") return null;
+  const path = writtenPathOf(input);
+  if (path === null) return null;
+  return documentKindFor(path) === "unsupported" ? null : path;
+}

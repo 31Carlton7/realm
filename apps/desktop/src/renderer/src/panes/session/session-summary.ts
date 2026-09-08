@@ -161,3 +161,39 @@ export function summarize(blocks: readonly Block[]): SessionSummary {
  *  to produce, receive or propose anything. */
 export const isEmptySummary = (s: SessionSummary): boolean =>
   s.outputs.length === 0 && s.uploads.length === 0 && s.plans.length === 0;
+
+/** The last exchange: what the user asked, and how the agent answered. */
+export type Recap = { asked: string; answered: string } | null;
+
+/** One line of prose, clipped. A recap is a glance, not a re-read — and the first sentence of an
+ *  agent's answer is reliably its verdict, because that is how they are trained to write. */
+const firstLine = (text: string, max: number): string => {
+  const line = text.split("\n").map((l) => l.replace(/^[#>\-*\s]+/, "").trim()).find(Boolean) ?? "";
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+};
+
+/**
+ * What this session was about, from its most recent exchange.
+ *
+ * The three lists say what a session PRODUCED. None of them says what it was for — which is the
+ * question a panel titled "Summary" is actually being asked, and the reason the old one read as
+ * thin: a filename tells you nothing about why it exists.
+ *
+ * Derived, never generated. This is the last thing the user asked and the first line of the answer
+ * they got, both already on screen; a model-written summary would cost a call, could be wrong, and
+ * would be the one thing in this panel that is not simply the transcript rearranged.
+ *
+ * A message another session delivered is skipped for `asked`, the same as everywhere else: those are
+ * a peer's words, and attributing them to the user would be a lie the panel repeats every time it
+ * opens.
+ */
+export function recapOf(blocks: readonly Block[]): Recap {
+  let asked = "", answered = "";
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]!;
+    if (!answered && b.kind === "assistant" && !b.streaming && b.text.trim()) answered = firstLine(b.text, 160);
+    if (!asked && b.kind === "user" && !b.from && b.text.trim()) asked = firstLine(b.text, 120);
+    if (asked && answered) break;
+  }
+  return asked || answered ? { asked, answered } : null;
+}

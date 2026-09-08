@@ -119,7 +119,10 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
      canvas cannot outlive the work, and a failure leaves a failed card rather than a shimmer. */
   const work = state === "running" ? mediaWorkFor(block.name, block.input) : null;
   return (
-    <div className="tool-card" data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
+    /* The id on the element, so anything that needs to point AT a specific call can find it — the
+       delegation dock scrolls a running sub-agent's row to its card this way. */
+    <div className="tool-card" data-tool-use-id={block.toolUseId}
+      data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
       <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={(e) => setOpen(expand(e, !open))}>
         <span className="tool-status" aria-label={state === "running" ? "running" : state === "ok" ? "done" : state === "error" ? "failed" : "no result"}>
           {/* 16, not the 14 the settled glyphs use: the orb fills the status slot, and 40 dots at

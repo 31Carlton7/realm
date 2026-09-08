@@ -11,6 +11,7 @@ import type { SpacesStore } from "../store/spaces";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
+import { shouldSurfaceWrite } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
 import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
@@ -75,6 +76,9 @@ export class SessionService {
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
      *  before: no retries, no handoffs, an error is an error. */
     failover?: FailoverHooks;
+    /** The documents service, for surfacing a file the agent wrote. Optional like every other
+     *  nicety here: a server built without it simply shows nothing. */
+    documents?: { openPath(p: { spaceId: string; environmentId?: string; path: string }): Promise<unknown> };
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
@@ -528,6 +532,22 @@ export class SessionService {
     }
   }
 
+  /**
+   * Open a document the agent created, if it created one.
+   *
+   * Fire-and-forget and failure-tolerant by design: this is a nicety on the transcript's own event
+   * rail, and a document that cannot be opened (deleted between the call and the result, outside the
+   * workspace, a path the agent invented) must never disturb the turn that produced it.
+   */
+  private surfaceWrittenDocument(id: string, toolName: string, input: Record<string, unknown>): void {
+    if (!this.d.documents) return;
+    const path = shouldSurfaceWrite(toolName, input);
+    if (path === null) return;
+    const s = this.d.sessions.get(id); if (!s) return;
+    void this.d.documents.openPath({ spaceId: s.spaceId, environmentId: s.environmentId, path })
+      .catch(() => {});
+  }
+
   /** Tear the live adapter down without touching the row — failover's handoff needs exactly this, and
    *  needs it BEFORE the row's `agentKind` moves: a handle outliving its own kind would keep pumping
    *  the old agent's events into a session that now claims to be another one. */
@@ -712,6 +732,18 @@ export class SessionService {
     // `handoff` line with nothing to explain. `before` is the row as it was when the turn failed —
     // the handoff rewrites `agentKind`, so reading it afterwards would name the wrong agent.
     if (ev.type === "error") this.d.failover?.onError(before, ev.payload.message);
+    /* A document the agent just WROTE gets shown.
+     *
+     * This is the gap behind "I asked for a doc and the docs pane never opened": Realm knew about
+     * the file the moment the tool call landed and did nothing with it, so a document you asked for
+     * arrived as a line of grey text naming a path. `documents.openPath` is the same call the docs
+     * agent tool makes, and it broadcasts `documents.openRequested`, which the renderer already
+     * knows how to land quietly beside the session.
+     *
+     * Narrow on purpose (`shouldSurfaceWrite`): a CREATED file, of a kind the pane can render. An
+     * edit across twenty files must not open twenty tabs, and a `.ts` does not belong behind a
+     * rich-text editor. */
+    if (ev.type === "tool_call") this.surfaceWrittenDocument(id, ev.payload.name, ev.payload.input);
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });

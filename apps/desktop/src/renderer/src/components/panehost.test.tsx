@@ -254,8 +254,9 @@ describe("PaneHost", () => {
     expect(meta).not.toBeNull();
     expect(within(meta!).queryByText("$0.50")).toBeNull();
     expect(meta!.querySelector('.status-dot[data-status="running"]')).toBeInTheDocument();
-    // …and the cost is on the summary button, where the rest of what the session produced lives.
-    expect(document.querySelector(".summary-btn-cost")?.textContent).toBe("$0.50");
+    // …and it is not on the summary button either. That control is a glyph in a four-button strip;
+    // the cost lives INSIDE the panel, where a number has room to be labelled.
+    expect(document.querySelector(".summary-btn-cost")).toBeNull();
   });
 
   it("remounts a leaf's pane when openItem swaps its itemId in place, so component-local state (composer draft) does not leak between sessions", () => {
