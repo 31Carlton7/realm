@@ -5,6 +5,7 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
+import { sessionEvent } from "@realm/contracts";
 
 const KID: DelegatedRun = { sessionId: "se2", startedAt: 0, detached: false, owned: true };
 const PEER: DelegatedRun = { sessionId: "se3", startedAt: 0, detached: false, owned: false };
@@ -95,5 +96,61 @@ describe("the delegating session's dock", () => {
     // before the question arrived and keeps doing it after — `agent_ask` neither spawned it nor owns
     // it, and its own row says nothing about this session at all.
     await waitFor(() => expect(screen.getByRole("button", { name: /A colleague/ })).toHaveAccessibleName(/Asked a question/));
+  });
+});
+
+describe("sub-agents the HARNESS is running", () => {
+  /* A different animal to a delegated run, and the difference is why these were invisible: an
+     `agent_run` creates a real Realm session with a row, a pane and a place in the layout, and the
+     dock listed those. Claude's own `Task` tool creates none of that — the subagent lives and dies
+     inside the CLI process — so ten of them in flight showed nothing at all. */
+  const task = (id: string, description: string, done = false) => [
+    sessionEvent("tool_call", { toolUseId: id, name: "Task", input: { description }, parentToolUseId: null }),
+    ...(done ? [sessionEvent("tool_result", { toolUseId: id, content: "ok", isError: false })] : []),
+  ];
+
+  /** The DOCK's own rows. The same text is also in the transcript's tool card for that call — which
+   *  is right, and is why every assertion here is scoped rather than global. */
+  const dockText = () => [...document.querySelectorAll(".delegation-item .delegation-title")].map((n) => n.textContent);
+
+  async function mountWith(events: ReturnType<typeof sessionEvent>[], delegatedRuns: Record<string, DelegatedRun[]> = {}) {
+    const api = fakeApi({ items: ITEMS, sessions: SESSIONS, delegatedRuns });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "running" }, transcripts: { se1: { lastSeq: 0, t: reduceAll(events) } } });
+    await store.getState().openItem("i9");
+    return render(<StoreContext.Provider value={store}><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
+  }
+
+  it("shows a card for in-flight Task calls, which have no session behind them", async () => {
+    await mountWith([...task("t1", "audit the mapper"), ...task("t2", "check the tests")]);
+    await waitFor(() => expect(screen.getByText("2 agents running")).toBeInTheDocument());
+    expect(dockText()).toEqual(["audit the mapper", "check the tests"]);
+  });
+
+  it("offers no jump for one — there is no pane to jump to", async () => {
+    // A control that could only no-op is worse than none. The elapsed clock is the honest part.
+    await mountWith(task("t1", "audit the mapper"));
+    await waitFor(() => expect(dockText()).toEqual(["audit the mapper"]));
+    expect(document.querySelector(".delegation-item")?.tagName).toBe("DIV");
+    expect(screen.getAllByText("in the agent")).toHaveLength(1);
+  });
+
+  it("drops one the moment its result lands", async () => {
+    await mountWith([...task("t1", "audit the mapper", true)]);
+    expect(document.querySelector(".delegation-dock")).toBeNull();
+  });
+
+  it("counts a Task alongside a real delegated run, in one card", async () => {
+    await mountWith(task("t1", "audit the mapper"), { se1: [KID] });
+    await waitFor(() => expect(screen.getByText("2 agents running")).toBeInTheDocument());
+  });
+
+  it("does not list a call made UNDER a Task — that is the Task's business, not a second row", async () => {
+    await mountWith([
+      ...task("t1", "audit the mapper"),
+      sessionEvent("tool_call", { toolUseId: "t2", name: "Task", input: { description: "nested" }, parentToolUseId: "t1" }),
+    ]);
+    await waitFor(() => expect(screen.getByText("1 agent running")).toBeInTheDocument());
+    expect(dockText()).toEqual(["audit the mapper"]);
   });
 });

@@ -1947,8 +1947,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    than the glyphs do, so the two layers stay character-for-character aligned. */
 .ch-mention { color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); border-radius: 3px;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 14%, transparent); }
-.ch-element { color: var(--rl-text-bright); background: var(--inset); border-radius: 3px;
-  box-shadow: 0 0 0 2px var(--inset), inset 0 0 0 1px var(--rl-hairline); }
+/* A picked element wears the SAME chip as a skill mention. It used to be a grey inset box behind a
+   hairline, which in a prompter that already renders inline code that way read as code rather than
+   as a chip — and it is not code, it is a thing the user pointed at and is about to send. The two
+   are told apart by what they SAY (@[button#submit] against @realm:skill), which is the difference
+   that matters, rather than by two chip treatments a reader has to learn. */
+.ch-element { color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); border-radius: 3px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 14%, transparent); }
 /* Declared but no longer resolvable: the `@` goes as plain text. Same warning tone as the note the
    card already shows under it, so the two read as one statement about the same token. */
 .ch-mention-stale { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 12%, transparent); border-radius: 3px; text-decoration: underline dotted; text-underline-offset: 2px; }
@@ -1958,7 +1963,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    tint the chip already wears. `data-hot` is set by Composer.tsx from the textarea above. */
 .ch-mention[data-hot] { background: color-mix(in srgb, var(--rl-accent) 26%, transparent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 26%, transparent); }
-.ch-element[data-hot] { background: var(--rl-hover); box-shadow: 0 0 0 2px var(--rl-hover), inset 0 0 0 1px var(--rl-line-strong); }
+.ch-element[data-hot] { background: color-mix(in srgb, var(--rl-accent) 26%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 26%, transparent); }
 /* No pill of its own at rest and none on hover: a run that grew a ring only under the pointer would
    read as an element chip, and this one is going out as plain text. */
 .ch-mention-stale[data-hot] { background: color-mix(in srgb, var(--rl-warning) 24%, transparent); }
@@ -2140,9 +2145,17 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    The whole control is absent — not empty, not greyed — for a session whose engine reports no
    tokens, which is nine of the eleven. */
 .session-usage { position: relative; display: flex; align-items: center; flex: none; }
-.session-usage-btn { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 6px;
-  border-radius: var(--r-ctl); background: transparent; color: var(--rl-text-faint); font-size: 11px;
-  font-variant-numeric: tabular-nums; }
+.session-usage-btn { position: relative; display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 6px;
+  border-radius: var(--r-ctl); corner-shape: squircle; background: transparent; color: var(--rl-text-faint); font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--dur-hover) ease, color var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong); }
+/* The control is 22px in a strip that has no room for more, so the TARGET is extended rather than
+   the control. Vertical only: the under-strip's neighbours sit to its left and right, and hit areas
+   that overlap are worse than small ones. */
+.session-usage-btn::before { content: ""; position: absolute; inset: -9px 0; }
+.session-usage-btn:active { scale: 0.96; }
+/* A number that changes every turn, in a strip whose other contents must not shift when it does. */
+.usage-pct { font-variant-numeric: tabular-nums; }
 .session-usage-btn:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
 .usage-ring { flex: none; display: block; }
 .usage-ring-track { stroke: var(--rl-line-strong); }
@@ -2159,8 +2172,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    A menu surface with the shared layered shadow — never a single heavy drop shadow. */
 .session-usage-panel { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 30; min-width: 168px;
   display: flex; flex-direction: column; gap: 3px; padding: 8px 10px;
-  background: var(--surface); border-radius: var(--r-panel); box-shadow: var(--shadow-raised);
-  font-size: 11px; }
+  background: var(--surface); border-radius: var(--r-panel); corner-shape: squircle; box-shadow: var(--shadow-raised);
+  font-size: 11px;
+  /* §6's popover rung, unfolding out of its trigger — the same enter every other popover in the app
+     uses, and the origin says which control it came from. */
+  animation: rl-usage-in var(--dur-pop) var(--ease-out-strong); transform-origin: bottom right; }
+@keyframes rl-usage-in { from { opacity: 0; scale: 0.97; translate: 0 4px; } to { opacity: 1; scale: 1; translate: 0 0; } }
 .session-usage-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .session-usage-label { color: var(--rl-text-faint); }
 .session-usage-value { color: var(--rl-text-bright); font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 10.5px; }

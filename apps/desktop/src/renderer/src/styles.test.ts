@@ -373,8 +373,13 @@ describe("Ara refresh §3/§4 geometry", () => {
   });
 
   it("a hovered chip is the same chip lifted, never a new shape", () => {
-    expect(bodiesFor(".ch-element[data-hot]").join(" ")).toContain("background: var(--rl-hover)");
-    expect(bodiesFor(".ch-mention[data-hot]").join(" ")).toContain("var(--rl-accent) 26%");
+    // Both chips now lift the same way, because both now ARE the same chip. A picked element used
+    // to be a grey inset box behind a hairline, which in a prompter that already renders inline
+    // code that way read as code — and it is not code, it is something the user pointed at and is
+    // about to send. They are told apart by what they say, not by two treatments to learn.
+    for (const sel of [".ch-element[data-hot]", ".ch-mention[data-hot]"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("var(--rl-accent) 26%");
+    }
     // At rest this run wears no pill, and growing one under the pointer would read as an element
     // chip — a token that resolves to nothing dressing up as one that resolves to something.
     expect(bodiesFor(".ch-mention-stale[data-hot]").join(" ")).not.toContain("box-shadow");

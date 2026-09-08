@@ -1,9 +1,10 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DelegatedRun } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
 import { formatDuration } from "./tool-group";
+import type { Block } from "./transcript-model";
 import { useElapsed } from "./use-elapsed";
 
 /** A peer `agent_ask` reached is NOT a session this one spawned: it was doing its own work before the
@@ -25,20 +26,60 @@ const ASKED_META = { icon: "session", label: "Asked a question (agent_ask)" };
  * the link to that session: it cannot be dragged away from what it describes, and it leaves when the
  * session's runs do.
  */
+/** Tool names that spawn a sub-agent INSIDE the harness. Claude's `Task`, and the `Agent` alias some
+ *  harnesses report — the same pair `tool-summary.ts` already gives the bot glyph to. */
+const SUBAGENT_TOOLS = new Set(["Task", "Agent"]);
+
+/**
+ * Sub-agents the HARNESS is running, read off the transcript.
+ *
+ * These are a different animal to a delegated run and the difference is why they were invisible:
+ * `agent_run` creates a real Realm session, with a row, a pane and a place in the layout, and the
+ * dock below lists those. Claude's own `Task` tool creates none of that — the subagent lives and
+ * dies inside the CLI process, and Realm never hears about it except as a tool call that has not
+ * come back yet. So ten `Task` calls in flight showed nothing at all here.
+ *
+ * What they get is the same card and honestly less than a real run does: elapsed time and what they
+ * were asked, but no jump — there is no pane to jump to. Pretending otherwise would be a button that
+ * cannot work.
+ */
+function harnessSubagents(blocks: readonly Block[], now: number): { id: string; label: string; ms: number }[] {
+  return blocks
+    .filter((b): b is Extract<Block, { kind: "tool" }> =>
+      b.kind === "tool" && SUBAGENT_TOOLS.has(b.name) && b.result === null
+      // A call made UNDER another Task is that Task's business, not a second row here.
+      && b.parentToolUseId === undefined)
+    .map((b) => ({
+      id: b.toolUseId,
+      label: String(b.input.description ?? b.input.prompt ?? "Sub-agent").slice(0, 80),
+      ms: Math.max(0, now - b.ts),
+    }));
+}
+
 export function DelegatedRuns({ sessionId }: { sessionId: string }) {
   const running = useApp((s) => s.delegatedRuns[sessionId]);
+  const blocks = useApp((s) => s.transcripts[sessionId]?.t.blocks ?? NO_BLOCKS);
   const refreshDelegatedRuns = useApp((s) => s.refreshDelegatedRuns);
   const run = useApp((s) => s.run);
   // Covers the runs that began before this window connected — a reload, a second window, a pane
   // opened ten minutes into a delegation. Every later change arrives on `delegation.changed`.
   useEffect(() => { run(() => refreshDelegatedRuns(sessionId)); }, [sessionId, refreshDelegatedRuns, run]);
-  if (!running || running.length === 0) return null;
-  return <Dock sessionId={sessionId} running={running} />;
+  const inHarness = useMemo(() => harnessSubagents(blocks, Date.now()), [blocks]);
+  if ((!running || running.length === 0) && inHarness.length === 0) return null;
+  return <Dock sessionId={sessionId} running={running ?? NO_RUNS} harness={inHarness} />;
 }
+
+const NO_BLOCKS: readonly Block[] = [];
+const NO_RUNS: readonly DelegatedRun[] = [];
 
 /** Split out so the hooks below only ever run for a session that actually has runs — and so the
  *  open/closed choice is discarded with the dock rather than surviving until the next delegation. */
-function Dock({ sessionId, running }: { sessionId: string; running: readonly DelegatedRun[] }) {
+function Dock({ sessionId, running, harness }: {
+  sessionId: string;
+  running: readonly DelegatedRun[];
+  /** Sub-agents the harness is running in-process — no session, no pane, no jump. */
+  harness: { id: string; label: string; ms: number }[];
+}) {
   const sessions = useApp((s) => s.sessions);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const items = useApp((s) => s.items);
@@ -47,13 +88,16 @@ function Dock({ sessionId, running }: { sessionId: string; running: readonly Del
   const run = useApp((s) => s.run);
   const [open, setOpen] = useState(true);
   const rows = [...running].sort((a, b) => a.startedAt - b.startedAt);
-  const since = rows[0]!.startedAt;
+  const total = rows.length + harness.length;
+  // The oldest thing in flight, whichever kind it is — the header's clock is "how long has this
+  // session been waiting on anyone", and starting it at the newest would keep resetting it.
+  const since = Math.min(...rows.map((r) => r.startedAt), ...harness.map((h) => Date.now() - h.ms));
   // Always ticking: this component only exists while the engine is holding runs open, so the clock
   // stops by unmounting rather than by a flag. One clock for every row too — reading `Date.now()`
   // per row instead would have them disagree with the header by however long the render took.
   const elapsed = useElapsed(since, true);
   const now = since + elapsed;
-  const count = rows.length === 1 ? "1 agent" : `${rows.length} agents`;
+  const count = total === 1 ? "1 agent" : `${total} agents`;
   const title = sessions[sessionId]?.title ?? "this session";
 
   const jump = (childId: string) => {
@@ -102,6 +146,19 @@ function Dock({ sessionId, running }: { sessionId: string; running: readonly Del
               </li>
             );
           })}
+          {/* The harness's own sub-agents, after the runs that have panes. No jump and no status dot:
+              there is no session behind one of these, and a control that could only no-op is worse
+              than none. The elapsed clock is the honest part — it is what "still running" means. */}
+          {harness.map((h) => (
+            <li key={h.id}>
+              <div className="delegation-item" aria-label={`${h.label} — running inside the agent`}>
+                <Icon name="bot" size={14} />
+                <span className="delegation-title">{h.label}</span>
+                <span className="delegation-dim">in the agent</span>
+                <span className="delegation-dim">{formatDuration(h.ms)}</span>
+              </div>
+            </li>
+          ))}
         </ul>
       )}
     </div>
