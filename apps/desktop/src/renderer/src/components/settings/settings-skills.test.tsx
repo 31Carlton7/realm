@@ -180,7 +180,11 @@ describe("scoped skill groups (W4)", () => {
   it("Move to profile: the confirm states the reach semantics; Cancel fires nothing", async () => {
     const { api } = await mount(scoped);
     const row = screen.getByText("mine").closest(".settings-row") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "Move to profile…" }));
+    /* The scope move went behind the row's ⋯ menu. It is a rare, consequential action — it changes
+       which spaces see the skill — and as a text button beside the switch it read as the row's other
+       main control rather than as the occasional one. */
+    fireEvent.click(within(row).getByRole("button", { name: /^More for / }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to profile…" }));
     expect(within(row).getByText("Move “mine” to Work? Other spaces in Work will see it; spaces that had it stay as they are.")).toBeInTheDocument();
     fireEvent.click(within(row).getByRole("button", { name: "Cancel" }));
     expect(api.calls.some((c) => c.startsWith("promoteSkill"))).toBe(false);
@@ -189,7 +193,11 @@ describe("scoped skill groups (W4)", () => {
   it("confirming Move to profile fires skills.promote with the vantage space id and the skill id — never demote (named mutant)", async () => {
     const { api } = await mount(scoped);
     const row = screen.getByText("mine").closest(".settings-row") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "Move to profile…" }));
+    /* The scope move went behind the row's ⋯ menu. It is a rare, consequential action — it changes
+       which spaces see the skill — and as a text button beside the switch it read as the row's other
+       main control rather than as the occasional one. */
+    fireEvent.click(within(row).getByRole("button", { name: /^More for / }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to profile…" }));
     fireEvent.click(within(row).getByRole("button", { name: "Move to profile" }));
     await waitFor(() => expect(api.calls).toContain("promoteSkill:s1:mine"));
     expect(api.calls.some((c) => c.startsWith("demoteSkill"))).toBe(false);
@@ -200,7 +208,8 @@ describe("scoped skill groups (W4)", () => {
   it("the symmetric demote from the inherited group fires skills.demote with the same ids", async () => {
     const { api } = await mount(scoped);
     const row = screen.getByText("shared").closest(".settings-row") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "Move to this space…" }));
+    fireEvent.click(within(row).getByRole("button", { name: /^More for / }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to this space…" }));
     expect(within(row).getByText("Keep “shared” in this space only? Other spaces in Work will stop seeing it; this space keeps it as it is.")).toBeInTheDocument();
     fireEvent.click(within(row).getByRole("button", { name: "Move to this space" }));
     await waitFor(() => expect(api.calls).toContain("demoteSkill:s1:shared"));
@@ -214,5 +223,42 @@ describe("scoped skill groups (W4)", () => {
     const broken = within(everywhere).getByText("broken").closest(".settings-row") as HTMLElement;
     expect(within(broken).getByText(/SKILL\.md has no description frontmatter/)).toBeInTheDocument();
     expect(within(broken).queryByRole("button", { name: /Move to/ })).toBeNull();
+  });
+});
+
+describe("the restructured skills page", () => {
+  it("clamps a description rather than letting it fill the screen, and opens it in place", async () => {
+    /* Every skill's full "use when…" paragraph sat under its name at reading weight, so four skills
+       filled a screen and the list could not be skimmed for the one you wanted. The whole text stays
+       reachable — in `title`, and by clicking. */
+    await mount({ skills: { s1: [skillRow("mac", { description: "A very long description ".repeat(20) })] } });
+    const desc = await screen.findByRole("button", { name: /A very long description/ });
+    expect(desc).toHaveAttribute("aria-expanded", "false");
+    expect(desc.title).toContain("A very long description");
+    fireEvent.click(desc);
+    expect(desc).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("folds its four trailing blocks into two questions", async () => {
+    // A library hint, a sources table, a per-agent list and a standing warning, all stacked under
+    // the list at equal weight — the same pile that made the memory page unreadable. None of them is
+    // something you DO.
+    await mount({ skills: { s1: [skillRow("mac")] } });
+    await screen.findByText("mac");
+    const summaries = [...document.querySelectorAll(".skills-details > summary")].map((n) => n.textContent);
+    expect(summaries).toEqual(["Where these come from", "How each agent uses them"]);
+    // Both closed while there is a list to read.
+    expect(document.querySelectorAll(".skills-details[open]")).toHaveLength(0);
+  });
+
+  it("opens 'where these come from' when the list is empty, because that IS the question then", async () => {
+    // `mount` waits for a row, and there are none — so this one renders directly.
+    const api = fakeApi({ skills: { s1: [] } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><SkillsPanel spaceId="s1" /></StoreContext.Provider>);
+    await screen.findByText(/No skills yet/);
+    const open = [...document.querySelectorAll(".skills-details[open] > summary")].map((n) => n.textContent);
+    expect(open).toEqual(["Where these come from"]);
   });
 });

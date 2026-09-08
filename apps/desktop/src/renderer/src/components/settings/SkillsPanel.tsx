@@ -1,7 +1,8 @@
 import { AGENT_META, SELECTABLE_AGENT_KINDS, skillSupportNote, type Skill, type SkillSource } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../state/store";
+import { Menu } from "../Menu";
 import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
 
 /**
@@ -100,39 +101,58 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
             )}
           </>
         )}
-        {skills && all.length > 0 && (
-          <p className="settings-hint">
-            Skills in Realm's own library are on by default; skills found in your installed folders are
-            off until you switch them on. Library: <code className="env-path">{root}</code>
+      </div>
+
+      {/*
+        Two questions, each behind its own disclosure.
+        This was four blocks stacked under the list at equal weight — a library-path hint, a sources
+        table, a per-agent notes list, and a standing warning — which is the same pile that made the
+        memory page unreadable. None of them is something you DO; they are all things you occasionally
+        need to know, and they sort cleanly into two questions with two answers.
+      */}
+      {/* Open by default when the list is EMPTY. "Where does Realm look?" is a question you only
+          have occasionally — except when nothing showed up, which is the one moment it is the whole
+          question, and a folder that was read and found nothing is the answer. Folding it away then
+          would answer "I added that folder and nothing appeared" with silence. */}
+      <details className="skills-details" open={skills !== undefined && all.length === 0 ? true : undefined}>
+        <summary>Where these come from</summary>
+        <div className="skills-details-body">
+          {all.length > 0 && (
+            <p className="settings-hint">
+              Skills in Realm's own library are on by default; skills found in your installed folders
+              are off until you switch them on. Library: <code className="env-path">{root}</code>
+            </p>
+          )}
+          <SourcesField spaceId={spaceId} sources={sources} />
+        </div>
+      </details>
+
+      <details className="skills-details">
+        <summary>How each agent uses them</summary>
+        <div className="skills-details-body">
+          <ul className="settings-list skills-agent-list">
+            {SELECTABLE_AGENT_KINDS.map((kind) => (
+              <li key={kind} className="settings-agent-row">
+                <Icon name={AGENT_META[kind].icon} size={14} colored />
+                <span className="settings-agent-note">
+                  {skillSupportNote(kind)}
+                  {/* Disclosure #2, stated where it is true: Codex extra roots are per-connection. */}
+                  {kind === "codex" && " Codex reads skill roots per connection, not per space: skills enabled in any space are visible to Codex sessions in every space."}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {/* Inside this disclosure rather than at the page's foot: it IS how Claude uses them, which
+              is the question the disclosure asks. As a standing note under everything it was a
+              warning nobody had a reason to be reading at the moment they read it. */}
+          <p className="settings-note" role="note">
+            Enabling any skill isolates this space's Claude sessions from your own settings files — they
+            run with the skills switched on here and nothing else, so anything you want out of your
+            installed folders has to be switched on above. Your <code>CLAUDE.md</code> files are
+            re-injected by Realm to compensate.
           </p>
-        )}
-      </div>
-      <SourcesField spaceId={spaceId} sources={sources} />
-      <div className="field">
-        <span>What each agent does with this library</span>
-        <ul className="settings-list">
-          {SELECTABLE_AGENT_KINDS.map((kind) => (
-            <li key={kind} className="settings-agent-row">
-              <Icon name={AGENT_META[kind].icon} size={14} colored />
-              <span className="settings-agent-note">
-                {skillSupportNote(kind)}
-                {/* Disclosure #2, stated where it is true: Codex extra roots are per-connection. */}
-                {kind === "codex" && " Codex reads skill roots per connection, not per space: skills enabled in any space are visible to Codex sessions in every space."}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {/* At the FOOT, not the head.
-          It is a consequence of switching something on, not an instruction for reading the page —
-          and a warning at the top is read once, before it means anything, then never again. Down
-          here it sits where a reader arrives having just used the switches it is about. */}
-      <p className="settings-note settings-note-foot" role="note">
-        Enabling any skill isolates this space's Claude sessions from your own settings files — they run
-        with the skills switched on here and nothing else, so anything you want out of your installed
-        folders has to be switched on above. Your <code>CLAUDE.md</code> files are re-injected by Realm
-        to compensate.
-      </p>
+        </div>
+      </details>
     </div>
   );
 }
@@ -199,6 +219,9 @@ function SkillRow({ spaceId, skill: sk }: { spaceId: string; skill: Skill }) {
   const demoteSkill = useApp((s) => s.demoteSkill);
   const run = useApp((s) => s.run);
   const [confirming, setConfirming] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuBtn = useRef<HTMLButtonElement>(null);
 
   const inherited = sk.scope.kind === "profile";
   // Promote resolves the profile from the VANTAGE space server-side; the confirm names the same one.
@@ -206,19 +229,38 @@ function SkillRow({ spaceId, skill: sk }: { spaceId: string; skill: Skill }) {
   const profileId = sk.scope.kind === "profile" ? sk.scope.profileId : space?.profileId;
   const profileName = profiles.find((p) => p.id === profileId)?.name ?? "profile";
 
+  /*
+   * A row you can SCAN.
+   *
+   * Every skill's full "use when…" paragraph used to sit under its name at reading weight, so four
+   * skills filled a screen and the list could not be skimmed for the one you wanted. A description
+   * is what you read once, deciding; the name and the switch are what you come back for. The text
+   * clamps to two lines and carries the whole of itself in `title`, so nothing is lost — and
+   * `expanded` opens it in place for a reader who wants it without a tooltip.
+   *
+   * "Move to profile…" went behind the ⋯ menu. It is a rare, consequential action — it changes which
+   * spaces see the skill — and as a text button beside the switch it read as the row's other main
+   * control rather than as the occasional one.
+   */
   return (
-    <li className="settings-row" data-invalid={!sk.valid || undefined}>
+    <li className="settings-row skill-row" data-invalid={!sk.valid || undefined}>
       <div className="settings-row-main">
         <span className="settings-row-name">{sk.name}</span>
-        {sk.valid
-          ? <span className="settings-row-desc">{sk.description}</span>
-          : <span className="settings-row-problem"><Icon name="alert" size={12} /> {sk.reason}</span>}
+        {sk.valid ? (
+          <button type="button" className="skill-desc" aria-expanded={expanded} title={sk.description}
+            data-expanded={expanded || undefined} onClick={() => setExpanded((v) => !v)}>
+            {sk.description}
+          </button>
+        ) : (
+          <span className="settings-row-problem"><Icon name="alert" size={12} /> {sk.reason}</span>
+        )}
       </div>
       {/* Movement only for valid rows: moving a broken skill between scopes would dignify a row that
           no agent will ever see. Invalid rows keep exactly what they had — the reason line. */}
-      {sk.valid && !confirming && (
-        <button type="button" className="btn-quiet scope-move" onClick={() => setConfirming(true)}>
-          {inherited ? "Move to this space…" : "Move to profile…"}
+      {sk.valid && (
+        <button ref={menuBtn} type="button" className="icon-btn skill-more" aria-haspopup="menu" aria-expanded={menuOpen}
+          aria-label={`More for ${sk.name}`} onClick={() => setMenuOpen((v) => !v)}>
+          <Icon name="more" size={14} />
         </button>
       )}
       {/* Invalid skills carry no toggle: they are never handed to an agent whatever the flag says, and
@@ -227,6 +269,13 @@ function SkillRow({ spaceId, skill: sk }: { spaceId: string; skill: Skill }) {
         <input type="checkbox" role="switch" className="switch" aria-label={`Skill ${sk.name} in this space`}
           title={inherited ? `Defined in ${profileName} — this switch is this space's override.` : undefined}
           checked={sk.enabled} onChange={(e) => run(() => setSkillEnabled(spaceId, sk.id, e.target.checked))} />
+      )}
+      {menuOpen && (
+        <Menu anchorRef={menuBtn} align="right" label={`Actions for ${sk.name}`} onClose={() => setMenuOpen(false)}
+          items={[{
+            label: inherited ? "Move to this space…" : "Move to profile…",
+            onSelect: () => setConfirming(true),
+          }]} />
       )}
       {confirming && (
         <MoveScopeConfirm direction={inherited ? "demote" : "promote"} name={sk.name} profileName={profileName}

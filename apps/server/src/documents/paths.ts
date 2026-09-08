@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { RpcError } from "../store/rows";
 
@@ -38,8 +39,32 @@ export function resolveInRoot(root: string, rel: string): string {
  * watcher drops events for files it should never have been told about.
  */
 export function relInRoot(root: string, abs: string): string | null {
-  const rootAbs = resolve(root);
-  const target = resolve(abs);
+  const lexical = under(resolve(root), resolve(abs));
+  if (lexical !== null) return lexical;
+  /*
+   * The lexical comparison missed. Try again with symlinks resolved, because on macOS the commonest
+   * reason to miss is not an escape at all: `/tmp` is a symlink to `/private/tmp`, so an agent that
+   * reports `/private/tmp/…/notes.md` for a file sitting in a workspace Realm knows as `/tmp/…` is
+   * naming the same file by another true name. That mismatch rejected documents the agent had just
+   * written INSIDE the space — the "outside this workspace" that broke opening them.
+   *
+   * The lexical pass stays FIRST, and that ordering is the whole scope of this change: a path that
+   * was already accepted is still accepted by the same rule, and realpath only ever ADDS the
+   * symlinked-root case. It is deliberately not a hardening — a symlink inside the root that points
+   * out of it passes the lexical check today and still does. Making realpath primary would change
+   * containment for every caller (including `resolveInRoot`, the write path), which is a decision
+   * about the whole document surface rather than about opening a file the agent just wrote.
+   */
+  try {
+    return under(realpathSync(root), realpathSync(abs));
+  } catch {
+    // A path that does not exist cannot be realpath'd, and "I could not check" is not "it is inside".
+    return null;
+  }
+}
+
+/** `target` as a `/`-separated path under `rootAbs`, or null when it is not under it at all. */
+function under(rootAbs: string, target: string): string | null {
   if (target === rootAbs) return "";
   if (!target.startsWith(rootAbs + sep)) return null;
   return relative(rootAbs, target).split(sep).join("/");
