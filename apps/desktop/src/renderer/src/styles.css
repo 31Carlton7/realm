@@ -4304,9 +4304,9 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* ── The generating canvas (aicss.dev/components/image-generation) ─────────
    A placeholder the SHAPE of the thing being made, not a spinner. The difference is the whole
    point: a spinner says something is happening, a canvas of the right proportions says the picture
-   is being drawn and it will land here. Two decorative layers over a sunken well — a slow sweeping
-   glow and a fine dot grid — plus the kind's glyph, so a canvas is legible as image-or-video before
-   the caption is read. */
+   is being drawn and it will land here. Two dot grids on one lattice over a sunken well — a faint
+   one across the whole canvas, and an ink one shown only through two soft ellipses that wander —
+   so the canvas reads as being filled in, in the place it will be filled in. */
 .gen-wrap { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
 /* No max-width/max-height pair here: `aspect-ratio` clamps each side independently against them and
    stops preserving the ratio, which turned a 9:16 canvas square. The width is computed from the
@@ -4316,29 +4316,56 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
   display: grid; place-items: center;
   border-radius: var(--r-row); background: var(--rl-frame); box-shadow: var(--shadow-hairline);
 }
-.gen-glow {
-  position: absolute; inset: -40%;
-  background: conic-gradient(from 0deg, transparent 0deg, var(--rl-accent) 60deg, transparent 140deg);
-  opacity: .16; animation: gen-sweep 3.6s linear infinite;
-}
+/* Both layers sit on ONE 11px lattice, and `background-repeat: space` is what keeps them on it:
+   it distributes whole dots to the edges, so a canvas of any width ends on a full dot rather than a
+   sliced one. The 2px inset holds the lattice off the corner radius, where a dot cut by the clip
+   reads as a rendering fault rather than as grain. */
 .gen-dots {
-  position: absolute; inset: 0;
-  background-image: radial-gradient(circle at center, var(--ink-3) 0.5px, transparent 0.5px);
-  background-size: 9px 9px; opacity: .28; animation: gen-drift 5s linear infinite;
+  position: absolute; inset: 2px;
+  background-image: radial-gradient(circle, var(--ink-3) 0.7px, transparent 1.3px);
+  background-size: 11px 11px; background-repeat: space; opacity: .22;
 }
-.gen-glyph { position: relative; color: var(--rl-text-faint); }
-@keyframes gen-sweep { to { transform: rotate(1turn); } }
-@keyframes gen-drift { to { background-position: 9px 9px; } }
+/* The same lattice again in ink, revealed only through two soft ellipses that wander the canvas.
+   Masking a fixed grid rather than moving a painted shape is the whole idea: the dots never travel,
+   so what the eye reads is a picture RESOLVING in place, not a light being swept across a surface.
+   The sweep this replaced was the second reading, and it also washed the canvas in accent — §"the
+   blue accent is a condiment" — where this one is drawn in the same ink the picture will be.
+   The resting size and position are declared here as well as in the keyframes, so that under
+   prefers-reduced-motion the global kill leaves a legible half-drawn frame instead of an
+   unmasked one. */
+.gen-glow {
+  position: absolute; inset: 2px;
+  background-image: radial-gradient(circle, var(--ink) 1.1px, transparent 1.6px);
+  background-size: 11px 11px; background-repeat: space; opacity: .85;
+  mask-image: radial-gradient(ellipse at center, #000 0%, transparent 60%),
+              radial-gradient(ellipse at center, #000 0%, transparent 62%);
+  mask-repeat: no-repeat, no-repeat;
+  mask-size: 52% 46%, 40% 40%; mask-position: 16% 20%, 30% 32%;
+  animation: gen-morph 3.6s var(--ease-in-out-strong) infinite;
+}
+/* Four stops rather than a path: each is a place on the canvas the reveal settles at, and the two
+   ellipses are deliberately out of step with each other so the pair never reads as one blob sliding
+   around. Unprefixed only — this renderer is Chromium 138, which has had unprefixed `mask-*` since
+   120, and a prefixed twin of an animated property is a second set of numbers to keep in step. */
+@keyframes gen-morph {
+  0%, 100% { mask-size: 52% 46%, 40% 40%; mask-position: 16% 20%, 30% 32%; }
+  25% { mask-size: 46% 58%, 44% 38%; mask-position: 84% 16%, 66% 30%; }
+  50% { mask-size: 60% 44%, 38% 46%; mask-position: 82% 84%, 62% 68%; }
+  75% { mask-size: 48% 54%, 46% 40%; mask-position: 14% 82%, 34% 66%; }
+}
+/* The frame size, when the command actually stated one. Machine state, so mono and tabular; pinned
+   to the corner opposite the reveal's resting position so the two are never on top of each other.
+   Raised rather than a step on the neutral ladder: the well under it is already `--rl-frame`, so a
+   chip taking the same token would be a shape nobody can see, and its whole job here is to OCCLUDE
+   the lattice running under the number rather than to decorate the corner. */
+.gen-res {
+  position: absolute; top: 8px; right: 8px; z-index: 1;
+  font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums;
+  color: var(--rl-text-faint); background: var(--rl-raised); padding: 2px 7px; border-radius: 999px;
+}
 .gen-meta { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 11.5px; }
 .gen-label { flex: none; }
 .gen-detail { color: var(--rl-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-@media (prefers-reduced-motion: reduce) {
-  /* The global kill above stops the sweep and the drift. A frozen conic gradient reads as a
-     rendering artefact rather than as work in progress, so the glow goes entirely and the dot grid
-     stays as a static, legible "nothing here yet". */
-  .gen-glow { display: none; }
-}
 
 /* ——— Settings → App: the background transparency slider ——————————————————————
    A native range on the app's accent, with the value beside it in tabular figures so the number does

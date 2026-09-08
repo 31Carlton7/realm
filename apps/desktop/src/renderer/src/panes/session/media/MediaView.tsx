@@ -270,12 +270,28 @@ export function genWidthPx(aspect: string, max = GEN_MAX_PX): number {
   return Math.round(w * Math.min(max / w, max / h));
 }
 
-export function GeneratingCanvas({ kind, label, detail, aspect = "1 / 1" }: {
-  kind: "image" | "video"; label: string;
+/**
+ * The frame size to print in the canvas's corner, or null when there is none to print.
+ *
+ * `aspect` carries two different things and only one of them is a resolution. When `aspectIn` found
+ * a `1920x1080` in the command it is the real frame the agent asked for, and saying so is the most
+ * useful thing this placeholder can add. When nothing was found the value is a FALLBACK RATIO —
+ * `1 / 1`, `16 / 9` — and rendering "1 × 1" in a corner would be Realm inventing a number the agent
+ * never wrote. Three digits is the line, and it is the same line `aspectIn` already draws for the
+ * same reason: below it, a pair of adjacent numbers is not a frame size.
+ */
+export function genResolution(aspect: string): string | null {
+  const [w, h] = aspect.split("/").map((n) => n.trim());
+  return w && h && /^\d{3,5}$/.test(w) && /^\d{3,5}$/.test(h) ? `${w} × ${h}` : null;
+}
+
+export function GeneratingCanvas({ label, detail, aspect = "1 / 1" }: {
+  label: string;
   /** The prompt, or the command's own description — what is being made, in the agent's words. */
   detail?: string | null;
   aspect?: string;
 }) {
+  const resolution = genResolution(aspect);
   return (
     <div className="gen-wrap">
       {/* `aspectRatio` stays alongside the width so that a column too narrow for it clamps the width
@@ -283,9 +299,14 @@ export function GeneratingCanvas({ kind, label, detail, aspect = "1 / 1" }: {
       <div className="gen-canvas" style={{ aspectRatio: aspect, width: genWidthPx(aspect) }} role="img" aria-label={label}>
         {/* Both decorative: the label below is what a screen reader is given, and a shimmer read
             aloud is noise. */}
-        <span className="gen-glow" aria-hidden="true" />
         <span className="gen-dots" aria-hidden="true" />
-        <Icon name={kind === "video" ? "video" : "image"} size={18} className="gen-glyph" />
+        <span className="gen-glow" aria-hidden="true" />
+        {/* No kind glyph. It said the same thing as the label one line below it, and a mark parked
+            in the middle of the canvas is the one place the reveal cannot go — the wander is what
+            this placeholder now says, so it gets the canvas. `MediaWork.kind` is not passed in at
+            all any more: it decides the label and the fallback aspect upstream, which is where the
+            image/video distinction actually does work. */}
+        {resolution && <span className="gen-res">{resolution}</span>}
       </div>
       <div className="gen-meta">
         <span className="gen-label shimmer-text">{label}</span>

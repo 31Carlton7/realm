@@ -86,7 +86,7 @@ describe("§6 motion ladder", () => {
     // between siblings rather than a duration at all. Neither belongs on the ladder. 24s is the
     // grain's drift: an ambient tempo an order of magnitude off the slowest rung, and putting it on
     // the ladder would invite a UI transition to reach for it.
-    for (const period of ["0.9s", "1.4s", "3.6s", "5s", "24s", "40ms"]) bare.delete(period);
+    for (const period of ["0.9s", "1.4s", "3.6s", "24s", "40ms"]) bare.delete(period);
     expect([...bare].sort()).toEqual([]);
   });
 });

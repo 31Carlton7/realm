@@ -4,7 +4,7 @@ import { mediaUrl, type MediaFile } from "@realm/contracts";
 import { Markdown } from "../Markdown";
 import { Transcript } from "../Transcript";
 import { emptyTranscript } from "../transcript-model";
-import { GeneratingCanvas, MediaStrip, formatTime, genWidthPx } from "./MediaView";
+import { GeneratingCanvas, MediaStrip, formatTime, genResolution, genWidthPx } from "./MediaView";
 import { resetMediaCache } from "./use-media";
 
 /** What main would answer for a real file. */
@@ -176,19 +176,45 @@ describe("genWidthPx", () => {
   });
 });
 
+describe("genResolution", () => {
+  it("prints a frame size the command actually stated", () => {
+    expect(genResolution("1080 / 1920")).toBe("1080 × 1920");
+  });
+
+  it("prints nothing for a fallback RATIO, which is not a resolution", () => {
+    // `mediaWorkFor` falls back to these two when the command named no dimensions. "1 × 1" in the
+    // corner of a canvas would be a number Realm made up.
+    expect(genResolution("1 / 1")).toBeNull();
+    expect(genResolution("16 / 9")).toBeNull();
+  });
+
+  it("prints nothing for anything that is not two plain three-to-five digit numbers", () => {
+    for (const bad of ["", "1080", "1080 / ", "abc / def", "1080 / 19200000", "10.5 / 20.5", "-100 / 200"])
+      expect(genResolution(bad), bad).toBeNull();
+  });
+});
+
 describe("GeneratingCanvas", () => {
   it("is a placeholder the shape of the thing coming, captioned with what is being made", () => {
     const { container } = render(
-      <GeneratingCanvas kind="video" label="Encoding video" detail="Encode all three mockup videos" aspect="1080 / 1920" />);
+      <GeneratingCanvas label="Encoding video" detail="Encode all three mockup videos" aspect="1080 / 1920" />);
     expect(screen.getByRole("img", { name: "Encoding video" }))
       .toHaveStyle({ aspectRatio: "1080 / 1920", width: "180px" });
     expect(screen.getByText("Encode all three mockup videos")).toBeInTheDocument();
-    // The shimmer and the glow are decoration; the caption is what a screen reader is given.
+    // Both dot layers are decoration; the caption is what a screen reader is given.
     for (const el of container.querySelectorAll(".gen-glow, .gen-dots"))
       expect(el).toHaveAttribute("aria-hidden", "true");
   });
+
+  it("prints the frame size when the command stated one, and nothing when it did not", () => {
+    const { container, rerender } = render(<GeneratingCanvas label="Encoding video" aspect="1080 / 1920" />);
+    expect(container.querySelector(".gen-res")).toHaveTextContent("1080 × 1920");
+    rerender(<GeneratingCanvas label="Generating image" aspect="1 / 1" />);
+    expect(container.querySelector(".gen-res")).toBeNull();
+  });
+
   it("carries no progress it cannot know", () => {
-    const { container } = render(<GeneratingCanvas kind="image" label="Rendering image" />);
+    const { container } = render(<GeneratingCanvas label="Rendering image" />);
     expect(container.querySelector("progress")).toBeNull();
     expect(container.querySelector("[role='progressbar']")).toBeNull();
   });

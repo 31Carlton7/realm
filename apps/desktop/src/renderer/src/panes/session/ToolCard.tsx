@@ -146,7 +146,7 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
       {/* Outside the expander on purpose: the placeholder's whole job is to be seen while the work
           happens, and a canvas the reader has to open a card to find would be a spinner with extra
           steps. It leaves of its own accord when the result lands. */}
-      {work && <GeneratingCanvas kind={work.kind} label={work.label} detail={work.detail} aspect={work.aspect} />}
+      {work && <GeneratingCanvas label={work.label} detail={work.detail} aspect={work.aspect} />}
       {/* The sub-agent's own ledger, hanging off the call that spawned it and ABOVE the expander:
           what the child is doing is the thing worth seeing, and burying it under the raw input and
           result wells would make it something the reader has to go looking for. */}
