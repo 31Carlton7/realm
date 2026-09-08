@@ -61,6 +61,16 @@ type MacCapabilitySpec = {
   argv: readonly string[] | null;
   /** True when raising the prompt necessarily launches the target app (AppleScript's `tell`). */
   launchesApp: boolean;
+  /**
+   * The application bundle this capability is ABOUT, for its icon.
+   *
+   * `null` where there is no app: Full Disk Access is a setting, not a program, and a stand-in glyph
+   * beside it would say there is an app to think about when there is not.
+   *
+   * A missing bundle (the iWork apps are not installed by default) yields no icon rather than an
+   * error — the same outcome as `null`, which is why the renderer treats the two the same.
+   */
+  appPath: string | null;
 };
 
 /**
@@ -69,21 +79,21 @@ type MacCapabilitySpec = {
  * Full Disk Access last because it is the only one that cannot be granted from here at all.
  */
 export const MAC_CAPABILITIES: Record<MacCapabilityId, MacCapabilitySpec> = {
-  calendar: { label: "Calendar", group: "data", pane: "calendars", argv: ["calendar", "calendars", "--json"], launchesApp: false },
-  reminders: { label: "Reminders", group: "data", pane: "reminders", argv: ["reminders", "lists", "--json"], launchesApp: false },
+  calendar: { label: "Calendar", group: "data", pane: "calendars", argv: ["calendar", "calendars", "--json"], launchesApp: false, appPath: "/System/Applications/Calendar.app" },
+  reminders: { label: "Reminders", group: "data", pane: "reminders", argv: ["reminders", "lists", "--json"], launchesApp: false, appPath: "/System/Applications/Reminders.app" },
   // `find` needs a query; a string no contact can match keeps the probe read-only AND empty.
-  contacts: { label: "Contacts", group: "data", pane: "contacts", argv: ["contacts", "find", "realm-permission-check", "--json"], launchesApp: false },
-  "automation:Mail": { label: "Mail", group: "automation", pane: "automation", argv: ["mail", "accounts", "--json"], launchesApp: true },
-  "automation:Messages": { label: "Messages", group: "automation", pane: "automation", argv: ["messages", "chats", "--json"], launchesApp: true },
-  "automation:Notes": { label: "Notes", group: "automation", pane: "automation", argv: ["notes", "folders", "--json"], launchesApp: true },
-  "automation:Music": { label: "Music", group: "automation", pane: "automation", argv: ["music", "now", "--json"], launchesApp: true },
-  "automation:TV": { label: "TV", group: "automation", pane: "automation", argv: ["tv", "now", "--json"], launchesApp: true },
-  "automation:Shortcuts": { label: "Shortcuts", group: "automation", pane: "automation", argv: ["shortcuts", "list", "--json"], launchesApp: true },
-  "automation:Finder": { label: "Finder", group: "automation", pane: "automation", argv: ["finder", "disks", "--json"], launchesApp: true },
-  "automation:Keynote": { label: "Keynote", group: "automation", pane: "automation", argv: ["keynote", "docs", "--json"], launchesApp: true },
-  "automation:Pages": { label: "Pages", group: "automation", pane: "automation", argv: ["pages", "docs", "--json"], launchesApp: true },
-  "automation:Numbers": { label: "Numbers", group: "automation", pane: "automation", argv: ["numbers", "docs", "--json"], launchesApp: true },
-  fullDiskAccess: { label: "Full Disk Access", group: "disk", pane: "fullDisk", argv: null, launchesApp: false },
+  contacts: { label: "Contacts", group: "data", pane: "contacts", argv: ["contacts", "find", "realm-permission-check", "--json"], launchesApp: false, appPath: "/System/Applications/Contacts.app" },
+  "automation:Mail": { label: "Mail", group: "automation", pane: "automation", argv: ["mail", "accounts", "--json"], launchesApp: true, appPath: "/System/Applications/Mail.app" },
+  "automation:Messages": { label: "Messages", group: "automation", pane: "automation", argv: ["messages", "chats", "--json"], launchesApp: true, appPath: "/System/Applications/Messages.app" },
+  "automation:Notes": { label: "Notes", group: "automation", pane: "automation", argv: ["notes", "folders", "--json"], launchesApp: true, appPath: "/System/Applications/Notes.app" },
+  "automation:Music": { label: "Music", group: "automation", pane: "automation", argv: ["music", "now", "--json"], launchesApp: true, appPath: "/System/Applications/Music.app" },
+  "automation:TV": { label: "TV", group: "automation", pane: "automation", argv: ["tv", "now", "--json"], launchesApp: true, appPath: "/System/Applications/TV.app" },
+  "automation:Shortcuts": { label: "Shortcuts", group: "automation", pane: "automation", argv: ["shortcuts", "list", "--json"], launchesApp: true, appPath: "/System/Applications/Shortcuts.app" },
+  "automation:Finder": { label: "Finder", group: "automation", pane: "automation", argv: ["finder", "disks", "--json"], launchesApp: true, appPath: "/System/Library/CoreServices/Finder.app" },
+  "automation:Keynote": { label: "Keynote", group: "automation", pane: "automation", argv: ["keynote", "docs", "--json"], launchesApp: true, appPath: "/Applications/Keynote.app" },
+  "automation:Pages": { label: "Pages", group: "automation", pane: "automation", argv: ["pages", "docs", "--json"], launchesApp: true, appPath: "/Applications/Pages.app" },
+  "automation:Numbers": { label: "Numbers", group: "automation", pane: "automation", argv: ["numbers", "docs", "--json"], launchesApp: true, appPath: "/Applications/Numbers.app" },
+  fullDiskAccess: { label: "Full Disk Access", group: "disk", pane: "fullDisk", argv: null, launchesApp: false, appPath: null },
 };
 
 export function isMacCapabilityId(x: unknown): x is MacCapabilityId {

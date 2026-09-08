@@ -8,7 +8,8 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   paletteFor, seedFor, themeModes, themeSwatches,
   type FontId, type FontWeight, type Mode, type ThemeName, type ThemeOverride, type ThemeSeed } from "@realm/ui";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
+import { Sheet } from "../../components/Sheet";
 import { Spinner } from "../../components/Spinner";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type CliJob, type SubmitKey } from "../../state/store";
@@ -826,6 +827,10 @@ function SignInsTab() {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** Whether the add-a-sign-in sheet is up. Closed by a successful save, so the list behind it is
+   *  the confirmation — a sheet that stayed open over the row it just made would ask "did that
+   *  work?" of someone who can see that it did. */
+  const [adding, setAdding] = useState(false);
 
   const canSave = origin.trim() !== "" && value !== "" && !saving;
 
@@ -837,6 +842,9 @@ function SignInsTab() {
       // Cleared on success AND only on success: a rejected save keeps what the user typed so they can
       // fix the address without retyping the password.
       setOrigin(""); setUsername(""); setLabel(""); setValue("");
+      // …and the sheet closes, so the new row IS the confirmation. A sheet left open over the thing
+      // it just made asks "did that work?" of someone who can see that it did.
+      setAdding(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "That sign-in could not be saved.");
     } finally {
@@ -860,13 +868,32 @@ function SignInsTab() {
         </p>
       )}
 
-      <div className="field"><span>Saved sign-ins</span>
+      <div className="field">
+        <div className="mcp-section-head">
+          <span>Saved sign-ins</span>
+          {/* A saved sign-in is a secret. Composing one is a sequence — an address, a username, a
+              password, and the pinning rule that governs all three — and it sat permanently open in
+              the middle of the page, four fields deep, whether or not anyone was adding anything.
+              In a sheet it is something you start and finish. */}
+          <button type="button" className="btn" disabled={status !== null && !status.available}
+            onClick={() => setAdding(true)}>
+            <Icon name="add" size={14} /> Add a sign-in
+          </button>
+        </div>
         {credentials === null ? <p className="env-empty">Loading…</p> : credentials.length === 0 ? (
-          <p className="env-empty">No saved sign-ins yet.</p>
+          <div className="creds-empty">
+            <p className="creds-empty-line">No saved sign-ins yet.</p>
+            <p className="creds-empty-sub">
+              One saved here can be typed into a page by an agent that never sees it. Realm checks the
+              page is really on the site you saved it for, asks you to approve that specific fill, and
+              asks for Touch ID — every time.
+            </p>
+          </div>
         ) : (
-          <ul className="settings-list">
+          <ul className="settings-list creds-list">
             {credentials.map((c) => (
               <li key={c.id} className="settings-row" aria-label={`${c.origin}${c.username ? `: ${c.username}` : ""}`}>
+                <span className="creds-mark" aria-hidden="true"><Icon name="lock" size={16} /></span>
                 <div className="settings-row-main">
                   <span className="settings-row-name">{c.origin}</span>
                   <span className="settings-row-desc">{[c.username, c.label].filter(Boolean).join(" · ") || "No username or label"}</span>
@@ -878,7 +905,9 @@ function SignInsTab() {
         )}
       </div>
 
-      <div className="field"><span>Add a sign-in</span>
+      {adding && (
+      <Sheet title="Add a sign-in" onClose={() => setAdding(false)} width={480}>
+      <div className="form creds-form">
         <label className="settings-input-label">Site address
           <input type="url" inputMode="url" placeholder="https://example.com" value={origin}
             onChange={(e) => setOrigin(e.target.value)} />
@@ -896,14 +925,24 @@ function SignInsTab() {
           <input type="password" autoComplete="new-password" value={value} onChange={(e) => setValue(e.target.value)} />
         </label>
         {error !== null && <p className="settings-hint" role="alert">{error}</p>}
-        <button type="button" className="btn-quiet" disabled={!canSave} onClick={() => { void save(); }}>
-          {saving ? "Saving…" : "Save sign-in"}
-        </button>
+        {/* The pinning rule, next to the field it constrains rather than under the button. It is
+            the thing a person needs BEFORE typing an address, not after committing one. */}
         <p className="settings-hint">
           Realm pins the sign-in to exactly this address. A sign-in saved for https://example.com will
           not fill on https://login.example.com or on any lookalike — subdomains are different sites.
         </p>
+        <div className="sheet-actions">
+          <span className="diff-head-spacer" />
+          <button type="button" className="btn" onClick={() => setAdding(false)}>Cancel</button>
+          <button type="button" className="btn primary" disabled={!canSave}
+            onClick={() => { void save(); }}>
+            {saving && <Spinner size={12} />}
+            {saving ? "Saving…" : "Save sign-in"}
+          </button>
+        </div>
       </div>
+      </Sheet>
+      )}
 
       <div className="field"><span>Touch ID</span>
         <fieldset className="settings-tabs" aria-label="Ask for Touch ID">
@@ -974,6 +1013,42 @@ function UpdatesField() {
   );
 }
 
+/**
+ * The real macOS icon for each capability's app, fetched once and cached for the window's life.
+ *
+ * A permissions page that names Calendar, Reminders and Mail in words asks the reader to translate;
+ * their own icons are the thing they already recognise. Realm draws no stand-in — a capability with
+ * no app (Full Disk Access) and one whose app is not installed (the iWork bundles are optional) both
+ * answer null, and those rows show nothing rather than a generic placeholder that would claim there
+ * is an app to think about.
+ */
+const APP_ICONS = new Map<string, string | null>();
+function useAppIcon(id: string): string | null {
+  const macAppIcon = useApp((s) => s.macAppIcon);
+  /* Read THROUGH the cache on every render, and re-render when it fills. The obvious shape — hold
+     the url in state, set it when the promise lands — loses the answer whenever the effect's
+     cleanup runs before that: the cache fills, `live` is already false, and nothing ever reads the
+     cache again because `useState`'s initialiser only runs at mount. That is not hypothetical; it
+     is what shipped and why the icons were missing in a real window while the IPC answered fine. */
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (APP_ICONS.has(id)) return;
+    // Marked pending BEFORE the await, so a second row for the same app does not ask twice.
+    APP_ICONS.set(id, null);
+    void macAppIcon(id)
+      .then((url) => { APP_ICONS.set(id, url); if (url) redraw(); })
+      .catch(() => { /* stays null; the row simply shows nothing */ });
+  }, [id, macAppIcon]);
+  return APP_ICONS.get(id) ?? null;
+}
+
+/** The icon slot. Absent rather than empty when there is no app: a blank box in a column of icons
+ *  reads as an image that failed to load. */
+function AppIcon({ id }: { id: string }) {
+  const icon = useAppIcon(id);
+  return icon ? <img className="tcc-app-icon" src={icon} alt="" aria-hidden="true" /> : null;
+}
+
 const TCC_STATE_LABEL = { granted: "Granted", denied: "Not granted", unknown: "Can't be checked until used" } as const;
 
 function PermissionsTab() {
@@ -1022,6 +1097,7 @@ function ComputerAccessSection() {
           <ul className="settings-list">
             {status.rows.map((r) => (
               <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`}>
+                <AppIcon id={r.id} />
                 <div className="settings-row-main">
                   <span className="settings-row-name">{r.label}</span>
                   <span className="tcc-state" data-state={r.state}>
@@ -1167,6 +1243,7 @@ function MacAccessRowView({ row }: { row: MacAccessRow }) {
   const mine = granting === row.id;
   return (
     <li className="settings-row tcc-row" aria-label={`${row.label}: ${MAC_STATE_LABEL[row.state]}`}>
+      <AppIcon id={row.id} />
       <div className="settings-row-main">
         <span className="settings-row-name">{row.label}</span>
         <span className="tcc-state" data-state={MAC_STATE_TONE[row.state]}>
@@ -1216,6 +1293,7 @@ function RealmAccessSection() {
         <ul className="settings-list">
           {rows.map((r) => (
             <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`}>
+              <AppIcon id={r.id} />
               <div className="settings-row-main">
                 <span className="settings-row-name">{r.label}</span>
                 <span className="tcc-state" data-state={r.state}>

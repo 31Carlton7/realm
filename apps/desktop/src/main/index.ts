@@ -19,7 +19,7 @@ import { ComputerUseHost } from "./computer-use-host";
 import { ComputerDrivingIndicator } from "./computer-driving";
 import { computerAccessRows, isComputerAccessId, type ComputerAccessStatus } from "./computer-access";
 import {
-  MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
+  MAC_CAPABILITIES, MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
 import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
@@ -472,6 +472,26 @@ async function macAccessStatus(): Promise<MacAccessStatus> {
 }
 
 ipcMain.handle("mac:status", (): Promise<MacAccessStatus> => macAccessStatus());
+/**
+ * The real macOS icon for a capability's app, as a data URL.
+ *
+ * The permissions page names Calendar, Reminders, Mail and the rest; showing the ACTUAL app icon
+ * beside each is the difference between a list of words and a list of things the reader already
+ * recognises. Realm draws no stand-in: a capability with no app (Full Disk Access) and one whose app
+ * is not installed (the iWork bundles are optional) both answer null, and the row shows nothing.
+ *
+ * The renderer names a capability ID, never a path — `MAC_CAPABILITIES` owns the paths, so no IPC
+ * payload can point `getFileIcon` at an arbitrary file.
+ */
+ipcMain.handle("mac:app-icon", async (_e, id: unknown): Promise<string | null> => {
+  if (!isMacCapabilityId(id)) return null;
+  const path = MAC_CAPABILITIES[id].appPath;
+  if (path === null || !existsSync(path)) return null;
+  try {
+    const icon = await app.getFileIcon(path, { size: "normal" });
+    return icon.isEmpty() ? null : icon.toDataURL();
+  } catch { return null; }
+});
 
 /** Raise ONE capability's macOS prompt, then re-read the audit so what renders is the answer the
  *  user just gave. The renderer names a capability id; the argv comes from mac-access.ts's closed

@@ -783,6 +783,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.failover = { retry: policy.retry, chain: policy.chain.filter((k) => k !== "acp:qwen") };
       return data.failover;
     },
+    // No icons in a fake window: there is no macOS behind it, and a stand-in would make the tests
+    // assert a picture Realm never draws.
+    macAppIcon: async () => null,
     setSessionAgent: async (id, agentKind) => {
       calls.push(`setSessionAgent:${id}=${agentKind}`);
       const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);

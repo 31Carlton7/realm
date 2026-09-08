@@ -1769,15 +1769,29 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    the selected pill (both are BUI surface-ground fills — the card is opaque --surface now). */
 .permission-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: var(--r-ctl);
   text-align: left; font-size: 13px; color: var(--ink-2); }
+/* Hover and selection are the same shape, one step apart — a fill, never an outline.
+   Selection used to add a ring, so moving the pointer over a row made it grow a border the row
+   below did not have; two rows in the same list disagreeing about whether they have an edge is the
+   thing that reads as broken. */
 .permission-option:hover { background: var(--hover); color: var(--ink); }
-.permission-option[data-selected] { background: var(--hover-2); color: var(--ink); font-weight: var(--fw-label); }
+.permission-option[data-selected] { background: var(--hover-2); color: var(--ink); font-weight: var(--fw-label); box-shadow: none; }
+/* The pointer wins over the keyboard's cursor while it is down: two highlighted rows is one too
+   many, and the one under the hand is the one about to be chosen. */
+.permission-option[data-selected]:hover { background: var(--hover-2); }
 .permission-option[data-decision="deny"][data-selected] { color: var(--rl-danger); }
 .permission-option-label { flex: 1; min-width: 0; }
 /* kbd number chips: BUI's inset fill + hairline ring. */
 .permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-chip);
   background: var(--inset); box-shadow: var(--shadow-hairline); color: var(--ink-3); font-size: 11px; flex: none; }
 .permission-option[data-selected] .permission-num { color: var(--ink); }
-.permission-option-kbd { color: var(--rl-text-faint); font-size: 11px; flex: none; }
+/* The shortcut hints line up as a COLUMN, not as three ragged right edges.
+   `⏎`, `⇧⏎` and `⌘⏎` are one, two and two glyphs of different widths, so right-aligning each on its
+   own made the three rows disagree about where the hint starts — a jitter you read as sloppiness
+   before you work out what it is. A fixed box, right-aligned inside it, is one edge for all three. */
+.permission-option-kbd {
+  flex: none; width: 40px; text-align: right;
+  color: var(--rl-text-faint); font-size: 11px; font-variant-numeric: tabular-nums;
+}
 
 /* Footer (ApprovalCard's primitive-card-footer): hairline-topped, bleeding to the card edge —
    navigation hints left, accent Submit pill right. */
@@ -2925,6 +2939,22 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Browser origins (Plan 14 W4): the add form is one inline row inside the field. */
 .origin-add { display: flex; gap: 8px; }
 .origin-add input { flex: 1; }
+/* Sign-ins: one card per secret, with a lock to say what kind of thing it is. Single column —
+   an origin is a long string and two of them side by side would both ellipsize. */
+.creds-list { grid-template-columns: 1fr; }
+.creds-mark { flex: none; display: inline-flex; margin-top: 1px; color: var(--rl-text-faint); }
+/* The app's own icon. No outline and no tile: a macOS app icon is already a finished picture with
+   its own shape, and putting it in a box would be a frame around a frame. */
+.tcc-app-icon { flex: none; width: 22px; height: 22px; margin-top: 1px; }
+.tcc-row { display: flex; align-items: flex-start; }
+.creds-list .settings-row { display: flex; align-items: flex-start; }
+/* The empty state carries the ONE thing a person needs before saving a secret in an app: what
+   happens to it. It was a lede at the top of the page, read once and never again; here it is read
+   by exactly the person about to add their first. */
+.creds-empty { display: flex; flex-direction: column; gap: 6px; padding: 22px 4px; }
+.creds-empty-line { margin: 0; font-size: 13.5px; color: var(--rl-text-dim); }
+.creds-empty-sub { margin: 0; max-width: 62ch; font-size: 12.5px; line-height: 1.55; color: var(--rl-text-faint); }
+.creds-form { gap: 12px; }
 .settings-note code { font: 11px var(--font-mono); }
 /* The foot note: separated by air and a rule above it rather than by a tinted box, which at the
    bottom of a page reads as a banner nobody put there on purpose. */

@@ -71,6 +71,9 @@ contextBridge.exposeInMainWorld("realm", {
     status: (): Promise<MacAccessStatus> => ipcRenderer.invoke("mac:status"),
     grant: (id: string): Promise<MacAccessStatus> => ipcRenderer.invoke("mac:grant", id),
     openSettings: (id: string): Promise<void> => ipcRenderer.invoke("mac:open-settings", id),
+    /** The real macOS icon for a capability's app, as a data URL — null where there is no app, or
+     *  where its bundle is not installed. */
+    appIcon: (id: string): Promise<string | null> => ipcRenderer.invoke("mac:app-icon", id),
     /** Select the .app in Finder — Full Disk Access has no prompt, only a list to drag it into. */
     revealApp: (): Promise<void> => ipcRenderer.invoke("mac:reveal-app"),
   },

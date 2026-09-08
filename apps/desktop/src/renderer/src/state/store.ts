@@ -291,6 +291,9 @@ export type Api = {
    *  user clicks. Takes a CAPABILITY id; main owns the command. */
   macAccessGrant(id: string): Promise<MacAccessStatus>;
   macAccessOpenSettings(id: string): Promise<void>;
+  /** The real macOS icon for a capability's app, as a data URL. Null where there is no app (Full
+   *  Disk Access) or where its bundle is not installed — the renderer shows nothing for both. */
+  macAppIcon(id: string): Promise<string | null>;
   /** Select Realm's .app in Finder — the start of the drag into Full Disk Access. */
   macAccessRevealApp(): Promise<void>;
   /** Computer control's two grants — a prompt-free read. */
@@ -1352,6 +1355,8 @@ export type AppState = {
   /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
   openTccPane(pane: string): Promise<void>;
   /** Re-run `mac doctor` into `macAccess`. Prompt-free, so the tab may call it freely. */
+  /** The real macOS icon for a capability's app, as a data URL, or null. */
+  macAppIcon(id: string): Promise<string | null>;
   refreshMacAccess(): Promise<void>;
   /** Raise ONE capability's prompt. A no-op while another prompt is up (macOS shows one dialog at
    *  a time) and on any row that cannot be prompted — the page never asks for what cannot be asked. */
@@ -3626,6 +3631,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async removeCredential(id) { await api.credentialRemove(id); await get().refreshCredentials(); },
       async setCredentialPresenceTtl(ms) { await api.credentialSetPresenceTtl(ms); await get().refreshCredentials(); },
       async openTccPane(pane) { await api.openTccPane(pane); },
+      /** Straight through: an icon is a fact about the machine, with nothing in the store to keep in
+       *  step. The caller memoises what it gets (`APP_ICONS`). */
+      macAppIcon(id) { return api.macAppIcon(id); },
 
       async refreshMacAccess() { set({ macAccess: await api.macAccessStatus() }); },
       async grantMacAccess(id) {

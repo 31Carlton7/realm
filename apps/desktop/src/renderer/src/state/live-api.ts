@@ -113,6 +113,7 @@ export const liveApi = (): Api => ({
   macAccessStatus: () => window.realm.macAccess.status(),
   macAccessGrant: (id) => window.realm.macAccess.grant(id),
   macAccessOpenSettings: (id) => window.realm.macAccess.openSettings(id),
+  macAppIcon: (id) => window.realm.macAccess.appIcon(id),
   macAccessRevealApp: () => window.realm.macAccess.revealApp(),
   computerAccessStatus: () => window.realm.computerAccess.status(),
   computerAccessRequest: (id) => window.realm.computerAccess.request(id),

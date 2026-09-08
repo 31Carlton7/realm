@@ -746,6 +746,15 @@ describe("Sign-ins tab", () => {
     return r;
   }
 
+  /** The tab with the add-a-sign-in sheet open. The form is a MODAL now: composing a secret is a
+   *  sequence you start and finish, not four fields sitting open in the middle of a page whether or
+   *  not anyone is adding anything. */
+  async function addForm(overrides: FakeData = {}) {
+    const r = await signIns(overrides);
+    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
+    return r;
+  }
+
   it("lists enrolled sign-ins by origin, username and label — with NO reveal affordance", async () => {
     await signIns({ credentials: [cred] });
     const row = await screen.findByRole("listitem", { name: "https://example.com: ada" });
@@ -758,6 +767,7 @@ describe("Sign-ins tab", () => {
   it("saves a sign-in through a native password field, and clears it on success", async () => {
     const { api } = await signIns();
     await screen.findByText("No saved sign-ins yet.");
+    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
 
     const password = screen.getByLabelText("Password");
     expect(password).toHaveAttribute("type", "password");
@@ -767,13 +777,19 @@ describe("Sign-ins tab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save sign-in" }));
 
     await waitFor(() => expect(api.calls).toContain("credentialAdd:https://example.com"));
-    await waitFor(() => expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe(""));
+    // The sheet closes on success, so the new row IS the confirmation. Reopening it is what proves
+    // the fields were CLEARED rather than merely unmounted — a form that comes back holding the
+    // password you just saved is the mutant this guards.
+    await waitFor(() => expect(screen.queryByLabelText("Password")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
+    expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Site address") as HTMLInputElement).value).toBe("");
     // The list re-reads from main rather than being patched locally with what was typed.
     expect(api.calls.filter((c) => c === "credentialList").length).toBeGreaterThan(1);
   });
 
   it("Save stays disabled until there is both an address and a password", async () => {
-    await signIns();
+    await addForm();
     const save = screen.getByRole("button", { name: "Save sign-in" });
     expect(save).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "https://example.com" } });
@@ -784,6 +800,7 @@ describe("Sign-ins tab", () => {
 
   it("a rejected save shows main's reason and KEEPS what was typed (mutant: the password cleared on failure)", async () => {
     const { api } = await signIns();
+    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
     api.credentialAdd = async () => { throw new Error('"nope" is not an http(s) address Realm can pin a sign-in to.'); };
 
     fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "nope" } });
@@ -814,6 +831,9 @@ describe("Sign-ins tab", () => {
   it("states the two-factor limit and the exact-origin rule rather than leaving them to be discovered", async () => {
     await signIns();
     expect(await screen.findByText(/Two-factor steps are not automated/)).toBeInTheDocument();
+    // The origin rule lives beside the address field it constrains — a person needs it BEFORE
+    // typing an address, not under the button that commits one.
+    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
     expect(screen.getByText(/subdomains are different sites/)).toBeInTheDocument();
   });
 

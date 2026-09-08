@@ -53,6 +53,9 @@ interface Window {
       grant(id: string): Promise<MacAccessStatus>;
       openSettings(id: string): Promise<void>;
       revealApp(): Promise<void>;
+      /** The real macOS icon for a capability's app, as a data URL. Null where there is no app
+       *  (Full Disk Access) or where the bundle is not installed — the row shows nothing for both. */
+      appIcon(id: string): Promise<string | null>;
     };
     /** Computer control's two grants (Permissions tab). `status` never prompts; `request`
      *  deliberately does, from a click on that row — see computer-access.ts for why asking lives
