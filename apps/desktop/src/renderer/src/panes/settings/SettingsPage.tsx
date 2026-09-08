@@ -229,8 +229,20 @@ function EngineCard({ kind }: { kind: AgentKind }) {
   const { install, login } = AGENT_CLI_COMMANDS[kind];
   // The one command a click would run, and the label for the click. The server decided both; the
   // card only renders them, so a button can never offer something the server would refuse.
+  /* Three offers, not two. An update with a known newer version NAMES it and takes the primary
+     button. An update where nothing newer is known is the CLI's own updater — five of them ship one,
+     and it resolves latest against the vendor's channel rather than the npm registry Realm watches,
+     which is the only channel cursor-agent has at all. That one is a quiet button and says what it
+     really does: it goes and looks. Calling it "Update" would promise an update nobody has found. */
   const offer = cli && cli.action !== "none" && cli.command
-    ? { command: cli.command, action: cli.action, label: cli.action === "install" ? "Install" : "Update" }
+    ? {
+        command: cli.command,
+        action: cli.action,
+        label: cli.action === "install" ? "Install"
+          : cli.updateAvailable && cli.latest ? `Update to ${engineVersionLabel(cli.latest)}`
+          : "Check for updates",
+        primary: cli.action === "install" || cli.updateAvailable,
+      }
     : null;
   const offered = (SELECTABLE_AGENT_KINDS as readonly AgentKind[]).includes(kind);
   const blocked = isBlocked(a) && kind !== "fake";
@@ -272,7 +284,7 @@ function EngineCard({ kind }: { kind: AgentKind }) {
         <span className="engine-name">{meta.label}</span>
         <span className="engine-pill" data-state={state}>{STATE_LABEL[state]}</span>
         {offer ? (
-          <button type="button" className="btn primary engine-run" disabled={job?.state === "running"}
+          <button type="button" className={`btn engine-run${offer.primary ? " primary" : ""}`} disabled={job?.state === "running"}
             onClick={() => run(() => runCliAction(kind, offer.action as "install" | "update"))}>
             {job?.state === "running" && <Spinner size={12} />}
             {job?.state === "running" ? "Working…" : offer.label}

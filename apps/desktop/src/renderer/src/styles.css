@@ -98,8 +98,12 @@
      radius, so a control keeping its old number would have looked squarer after the change, not
      rounder — the ladder had to move with the corner shape. Everything below is concentric off
      these two, so nothing had to be re-tuned per rule. */
-  --r-chip: 8px;                                 /* --radius-chip */
-  --r-ctl: 10px;                                 /* --radius-control */
+  /* Raised again with the control corner. Every button and selectable row in the app is on the
+     app's curve now, and the two rungs below are what a control whose height is set by its CONTENT
+     gets — the primitives that know their own height (.btn, .search, .palette-opt…) take
+     `height × --sq-ratio-ctl` instead. 13 IS that formula at the 32px a padded row lands on. */
+  --r-chip: 10px;                                /* --radius-chip */
+  --r-ctl: 13px;                                 /* --radius-control */
   --r-row: 12px;                                 /* --radius-card (rows keep card rounding) */
   --r-panel: 12px;                               /* --radius-card: menus, pickers, permission card */
   --r-float: 16px;                               /* --radius-window: composer, sheets, palette */
@@ -225,7 +229,7 @@ kbd { font: 11px var(--font-mono); }
 .app[data-sidebar-collapsed] .main > .group-bar:first-child { min-height: 40px; }
 /* ink-3 → ink-2 on hover, matching .search: the glyph itself IS the state, no fill change. */
 .sb-toggle { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
-  border-radius: var(--r-ctl); color: var(--rl-text-faint); }
+  border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-faint); }
 .sb-toggle:hover { color: var(--rl-text-bright); background: var(--field); }
 /* Plan 9 W3 — BUI SidebarNav's chat-search field: field fill behind a hairline ring, 13/500,
    ink-3 → ink-2 as the pointer arrives (the fill itself does not change; the field IS the state). */
@@ -234,9 +238,9 @@ kbd { font: 11px var(--font-mono); }
    36px onto a 30px control makes a pill, and copying `--r-ctl` makes it a plain button that happens
    to sit above a squircle. The ratio is the thing that transfers. */
 .search {
-  --search-h: 30px;
-  display: flex; align-items: center; gap: 8px; width: 100%; height: var(--search-h); padding: 0 11px;
-  border-radius: calc(var(--search-h) * var(--sq-ratio)); corner-shape: squircle;
+  --search-h: 34px;
+  display: flex; align-items: center; gap: 8px; width: 100%; height: var(--search-h); padding: 0 12px;
+  border-radius: calc(var(--search-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   background: var(--surface); box-shadow: var(--shadow-card); border: none; color: var(--rl-text-faint);
   font: inherit; font-size: 13px; text-align: left; cursor: pointer;
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong);
@@ -286,7 +290,7 @@ kbd { font: 11px var(--font-mono); }
 .space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .space-header-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
-.icon-btn { display: grid; place-items: center; width: 28px; --btn-h: 28px; height: var(--btn-h); border-radius: calc(var(--btn-h) * var(--sq-ratio)); corner-shape: squircle; color: var(--rl-text-dim); }
+.icon-btn { display: grid; place-items: center; width: 28px; --btn-h: 28px; height: var(--btn-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* A toggle whose glyph does NOT change has to say so with its fill, and these had no on-state at all:
    the rich-text toolbar's Bold and the terminal drawer's ⌘J looked identical pressed and unpressed.
@@ -325,7 +329,7 @@ kbd { font: 11px var(--font-mono); }
    --hover-2 only reads on its own opaque ground, and this column is macOS material. */
 .item[data-active] { background: var(--rl-active); }
 .item[data-active] .item-row { color: var(--rl-text-bright); }
-.item-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px; font-weight: var(--fw-medium); color: var(--rl-text-dim); border-radius: var(--r-ctl); }
+.item-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px; font-weight: var(--fw-medium); color: var(--rl-text-dim); border-radius: var(--r-ctl); corner-shape: squircle; }
 .item:hover .item-row { color: var(--rl-text-bright); }
 /* One elastic column, and it is the title. The status dot and the glyph both used to carry
    `margin-left: auto`, which splits the free space BETWEEN them: a session that was both running and
@@ -367,7 +371,7 @@ kbd { font: 11px var(--font-mono); }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
 /* Ara refresh §5: the row sits at the sidebar's top now, first row under the search field. */
 .new-item { flex: none; }
-.new-row { color: var(--rl-text-dim); width: 100%; border-radius: var(--r-ctl); min-height: 32px; }
+.new-row { color: var(--rl-text-dim); width: 100%; border-radius: var(--r-ctl); corner-shape: squircle; min-height: 32px; }
 .new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 
 .space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 10px; }
@@ -454,7 +458,7 @@ kbd { font: 11px var(--font-mono); }
    driven from the textarea's own keyboard, so there is no :focus styling to define. */
 .mention-picker { z-index: 100; width: min(380px, 80vw); max-height: min(40vh, 280px); overflow-y: auto; padding: 6px;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
-.mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
+.mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle; cursor: pointer;
   transition: background-color var(--dur-hover) ease; }
 .mention-row[data-active] { background: var(--hover); }
 
@@ -517,7 +521,7 @@ kbd { font: 11px var(--font-mono); }
 .summary-count { margin-left: auto; font-variant-numeric: tabular-nums; }
 .summary-rows { display: flex; flex-direction: column; }
 .summary-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 6px 8px;
-  text-align: left; border-radius: var(--r-ctl); color: var(--rl-text-dim); font-size: 12.5px;
+  text-align: left; border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-dim); font-size: 12.5px;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .summary-row:hover { background: var(--hover); color: var(--rl-text-bright); }
 .summary-row-glyph { flex: none; color: var(--rl-text-faint); }
@@ -565,7 +569,7 @@ kbd { font: 11px var(--font-mono); }
 .skill-picker-group + .skill-picker-group { margin-top: 6px; }
 .skill-picker-group-label { padding: 5px 8px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .04em;
   text-transform: uppercase; color: var(--rl-text-faint); }
-.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
+.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle; cursor: pointer;
   transition: background-color var(--dur-hover) ease; }
 .skill-picker-row[data-active] { background: var(--hover); }
 .skill-picker-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -590,7 +594,7 @@ kbd { font: 11px var(--font-mono); }
   --search-h: 34px;
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
   height: var(--search-h); padding: 0 12px;
-  border: none; border-radius: calc(var(--search-h) * var(--sq-ratio)); corner-shape: squircle;
+  border: none; border-radius: calc(var(--search-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   background: var(--field); box-shadow: none;
 }
 .skills-filter:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--rl-line-strong); }
@@ -662,7 +666,7 @@ kbd { font: 11px var(--font-mono); }
    hairline under the search is what separates them; a second cue was one too many. */
 .mp-vendors { display: flex; align-items: center; gap: 4px; padding: 7px 12px;
   overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-.mp-vendor { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 0; border-radius: var(--r-chip);
+.mp-vendor { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 0; border-radius: var(--r-chip); corner-shape: squircle;
   background: transparent; font: inherit; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; }
 /* The maker's mark leads the family name, at the inline rung — the same mark the rows below wear at
    16, so a chip and the models it narrows to are recognisably the same brand. */
@@ -675,7 +679,7 @@ kbd { font: 11px var(--font-mono); }
    clickable — the list answers in words, and dropping the chip would move the rest under the pointer. */
 .mp-vendor[data-empty] { opacity: .4; }
 /* The way back out of an empty provider, in the one place the user is looking when they need it. */
-.mp-empty-all { display: block; margin: 9px auto 0; padding: 4px 11px; border: 0; border-radius: var(--r-ctl);
+.mp-empty-all { display: block; margin: 9px auto 0; padding: 4px 11px; border: 0; border-radius: var(--r-ctl); corner-shape: squircle;
   background: var(--hover); color: var(--rl-text-bright); font: inherit; font-size: 11.5px; cursor: pointer; }
 .mp-empty-all:hover { background: var(--hover-2); }
 /* The two columns share ONE height, set here rather than on either child: the detail pane grows with
@@ -698,7 +702,7 @@ kbd { font: 11px var(--font-mono); }
    rows rather than competing with them. */
 .mp-group-label { padding: 5px 8px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .06em;
   text-transform: uppercase; color: var(--rl-text-faint); }
-.mp-row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
+.mp-row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; --btn-h: 32px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: pointer;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-row[data-active] { background: var(--hover); }
 /* Unavailable, not hidden: dimmed and non-interactive, but still readable and still explaining
@@ -772,12 +776,12 @@ kbd { font: 11px var(--font-mono); }
 /* One row, always: the old effort strip wrapped its five levels onto a second line at this width,
    which read as a layout bug. Equal columns keep them on one. */
 .mp-seg { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px;
-  padding: 2px; border-radius: var(--r-ctl); background: var(--hover); }
-.mp-seg-opt { padding: 3px 4px; border-radius: calc(var(--r-ctl) - 2px); border: 0; background: none; font: inherit;
+  padding: 2px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--hover); }
+.mp-seg-opt { padding: 3px 4px; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; border: 0; background: none; font: inherit;
   font-size: 11px; color: var(--rl-text-dim); cursor: pointer; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
-.mp-use { align-self: flex-end; margin-top: 3px; padding: 6px 13px; border: 0; border-radius: var(--r-ctl);
+.mp-use { align-self: flex-end; margin-top: 3px; padding: 6px 13px; border: 0; --btn-h: 30px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   background: var(--rl-accent); color: var(--rl-accent-contrast); font: inherit; font-size: 12px; font-weight: var(--fw-label); cursor: pointer; }
 .mp-use:disabled { opacity: .45; cursor: default; }
 
@@ -798,7 +802,7 @@ kbd { font: 11px var(--font-mono); }
 .ip-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .ip-search input::placeholder { color: var(--rl-text-faint); }
 .ip-emoji-groups { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px 8px; }
-.ip-emoji-group-btn { padding: 3px 7px; border-radius: var(--r-chip); font-size: 11px; color: var(--rl-text-dim); background: var(--rl-panel); }
+.ip-emoji-group-btn { padding: 3px 7px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 11px; color: var(--rl-text-dim); background: var(--rl-panel); }
 .ip-emoji-group-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .ip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; max-height: min(46vh, 300px); overflow-y: auto; }
 .ip-emoji { font-size: 18px; }
@@ -819,7 +823,7 @@ kbd { font: 11px var(--font-mono); }
   background: var(--rl-panel); -webkit-app-region: drag; }
 .group-bar button, .group-bar input { -webkit-app-region: no-drag; }
 .group-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.group-tab { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--r-ctl);
+.group-tab { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--r-ctl); corner-shape: squircle;
   font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; }
 .group-tab:hover { background: var(--rl-hover); }
 .group-tab[data-active] { background: var(--rl-active); color: var(--rl-text-bright); }
@@ -1056,7 +1060,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Text buttons take the prompter's curve at their own height, the same way the search field does.
    `--r-ctl` made them plain rounded rects in a window whose signature surface is a squircle; the
    ratio is what carries the shape down to a 30px control. */
-.btn { --btn-h: 30px; height: var(--btn-h); padding: 0 12px; border-radius: calc(var(--btn-h) * var(--sq-ratio)); corner-shape: squircle; border: none;
+.btn { --btn-h: 30px; height: var(--btn-h); padding: 0 12px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; border: none;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   flex-shrink: 0; white-space: nowrap;
   background: var(--surface); box-shadow: var(--shadow-btn); }
@@ -1096,7 +1100,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
 .palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
-.palette-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-ctl); cursor: pointer; }
+.palette-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; --btn-h: 34px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: pointer; }
 .palette-opt.selected, .palette-opt:hover { background: var(--hover); }
 .palette-opt.disabled { opacity: .45; cursor: default; }
 .palette-sec { padding: 8px 10px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
@@ -1350,7 +1354,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    surface contrast comes before a border. At 0.88em inside a sentence the extra hairline was
    reading as a rendered box around every skill name rather than as a highlight of one word. */
 .msg-chip { display: inline-flex; align-items: center; vertical-align: baseline; line-height: 1;
-  padding: 2px 6px; border-radius: var(--r-ctl); font-size: 0.88em;
+  padding: 2px 6px; border-radius: var(--r-ctl); corner-shape: squircle; font-size: 0.88em;
   color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); }
 .msg-chip[data-kind="element"] { color: var(--rl-text-bright); background: var(--inset); }
 /* The sent message wears the prompter's corner, one rung down. It is the same object a moment later —
@@ -1397,7 +1401,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    four urls between two messages cost every reader to serve the one who went looking. */
 .msg-sources { display: flex; flex-direction: column; gap: 6px; }
 .msg-sources-toggle { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
-  padding: 3px 7px 3px 5px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); }
+  padding: 3px 7px 3px 5px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim); }
 .msg-sources-toggle:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* The chevron points at the list when it is open — the one rotation §6 allows on a disclosure,
    on the swap rung because it is a glyph changing state rather than a box changing size. */
@@ -1477,7 +1481,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .msg-handoff::before, .msg-handoff::after { content: ""; flex: 1; height: 1px; background: var(--rl-line); }
 .msg-handoff-tries { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .msg-thinking { font-size: 12px; }
-.thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); }
+.thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); corner-shape: squircle; }
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
 .md.thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); }
 .msg-error { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r-ctl); color: var(--rl-danger); background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); }
@@ -1492,7 +1496,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    composer's surface would make it read as another control. */
 .delegation-dock { flex: none; padding: 0 16px 6px; display: flex; flex-direction: column; gap: 2px; }
 .delegation-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px;
-  border-radius: var(--r-ctl); text-align: left; font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+  border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .delegation-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .delegation-row[aria-expanded="true"] .tool-chevron { transform: rotate(90deg); }
 .delegation-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1544,14 +1548,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    status glyph (spinner → muted ink-3 check, driven by the block's real settled state), then the
    name at 12.5/550 ink, the target as a mono field-fill chip (ToolChips' chip), measured +/− counts
    on edits, and a trailing chevron. */
-.tool-card { border-radius: var(--r-ctl); font-size: 12px; }
+.tool-card { border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; }
 .tool-card[data-open] { background: var(--rl-panel); box-shadow: var(--rl-edge); }
-.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px; border-radius: var(--r-ctl); text-align: left; color: var(--ink); }
+.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
 /* Open, the row is the card's head rather than a free-standing control: it keeps the card's top
    corners and squares off against the body's divider. Rounding all four corners left the hover
    fill curving away from the hairline at both ends — two dark notches sitting on the divider. */
-.tool-card[data-open] > .tool-row { border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
+.tool-card[data-open] > .tool-row { border-radius: var(--r-ctl) var(--r-ctl) 0 0; corner-shape: squircle; }
 .tool-chevron { color: var(--rl-text-faint); transition: transform var(--dur-base) var(--ease-in-out-strong); flex: none; margin-left: auto; }
 /* Direct children throughout: a card now contains its sub-agent's cards, and a descendant selector
    would have opening the parent rotate every chevron and unfold every body beneath it. */
@@ -1580,7 +1584,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    settled ink-2 once every step has its result — and the opened trace hangs off ThinkingState's solid
    1px rail (the dashed connector is gone: BUI truth). */
 .tool-group { border-radius: var(--r-ctl); font-size: 12px; }
-.tool-group-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.tool-group-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tool-group-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
@@ -1821,7 +1825,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .permission-options { display: flex; flex-direction: column; gap: 1px; }
 /* Option rows on ApprovalCard's opaque-fill hover ladder: --hover under the pointer, --hover-2 for
    the selected pill (both are BUI surface-ground fills — the card is opaque --surface now). */
-.permission-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: var(--r-ctl);
+.permission-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
   text-align: left; font-size: 13px; color: var(--ink-2); }
 /* Hover and selection are the same shape, one step apart — a fill, never an outline.
    Selection used to add a ring, so moving the pointer over a row made it grow a border the row
@@ -1869,7 +1873,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .question-close { flex: none; }
 
 .question-options { display: flex; flex-direction: column; gap: 1px; }
-.question-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 8px; border-radius: var(--r-ctl);
+.question-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
   text-align: left; font-size: 13px; color: var(--ink-2); }
 .question-option:hover { background: var(--hover); color: var(--ink); }
 .question-option[data-selected] { background: var(--hover-2); color: var(--ink); }
@@ -2158,7 +2162,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer-git .diff-del { color: var(--rl-danger); }
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
    them now (W3) — a picker until the session's first event, a plain label after. */
-.ghost-chip { display: inline-flex; align-items: center; gap: 4px; --btn-h: 28px; height: var(--btn-h); padding: 0 8px; border-radius: calc(var(--btn-h) * var(--sq-ratio)); corner-shape: squircle;
+.ghost-chip { display: inline-flex; align-items: center; gap: 4px; --btn-h: 28px; height: var(--btn-h); padding: 0 8px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   color: var(--rl-text-dim); font-size: 12px; font-weight: var(--fw-medium); background: transparent; max-width: 200px; min-width: 0; }
 .ghost-chip:hover:not([data-static]) { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Nothing to pick: rendered as a <span> (see ChipMenu) — a label, never a dimmed control. */
@@ -2173,7 +2177,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    chip-label (which truncates), never inside it, and never shrunk: the level should survive a
    squeezed row even when the model name ellipsizes. */
 .model-chip .chip-effort { flex: none; color: var(--rl-text-faint); }
-.composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
+.composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
 .bypass-confirm { color: var(--orange); background: var(--orange-tint); cursor: pointer; }
 .bypass-confirm:hover { background: color-mix(in srgb, var(--orange) 24%, transparent); }
@@ -2395,6 +2399,65 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   --sq-radius-top: var(--r-squircle);
   --sq-radius-bottom: var(--r-squircle);
 }
+/* ── Painted CONTROLS ──────────────────────────────────────────────────────
+   The surfaces above are one-per-pane and wear a 36px corner, where a superellipse and a circular
+   arc are plainly different shapes. These are the buttons and the rows you pick from, at a 12–14px
+   corner where the two curves diverge by about a pixel — and they are still painted, because they
+   sit INSIDE those surfaces. A palette row on a circular corner inside a palette on a superellipse
+   is the one place the difference reads, and it reads as sloppiness rather than as geometry.
+
+   Painting means the fill moves to `--sq-fill`: `background` is spent on `paint()`, so a state that
+   changed the background has to change the custom property instead, or the control paints its
+   RESTING fill in every state — or, if the base rule's background never moves, nothing at all. Each
+   rule below mirrors one `background` declaration above, in the same order, so the cascade that
+   decided which fill wins up there decides it down here too.
+
+   Everything else button-shaped keeps `corner-shape: squircle` and its border-radius fallback: the
+   declaration is already correct and lands for free when Chromium 139 reaches Electron. */
+:root[data-squircle] .btn,
+:root[data-squircle] .ghost-chip,
+:root[data-squircle] .mp-use,
+:root[data-squircle] .palette-opt {
+  border-radius: 0;
+  background: paint(rl-squircle);
+  --sq-radius-top: calc(var(--btn-h) * var(--sq-ratio-ctl));
+  --sq-radius-bottom: calc(var(--btn-h) * var(--sq-ratio-ctl));
+}
+/* The button's shadow, split the way .palette's was: its two layers were a hairline ring and a 1px
+   drop, and both were drawn on the border box — which is a square here. The ring goes to the
+   painter, the drop becomes a filter that follows the painted alpha.
+
+   The variants that carried --fill-bevel (primary, destructive) lose it. A bevel is an INSET
+   shadow, clipped to the padding box, so its 1px top line runs the full width including the ~13px
+   of each top corner the fill does not reach — a bright nub hanging outside the button. There is no
+   painter input for a one-edge highlight, and a nub is worse than no bevel. */
+:root[data-squircle] .btn { --sq-fill: var(--surface); box-shadow: none; filter: var(--shadow-btn-filter); --sq-ring: var(--btn-ring); --sq-ring-w: var(--hairline-w); }
+:root[data-squircle] .btn.primary,
+:root[data-squircle] .btn.destructive,
+:root[data-squircle] .btn.danger,
+:root[data-squircle] .btn.primary:disabled { box-shadow: none; filter: none; --sq-ring-w: 0; }
+:root[data-squircle] .btn:hover:not(:disabled) { --sq-fill: var(--inset); }
+:root[data-squircle] .btn.primary { --sq-fill: var(--rl-accent); }
+:root[data-squircle] .btn.primary:hover:not(:disabled) { --sq-fill: var(--accent-ink); }
+:root[data-squircle] .btn.danger { --sq-fill: transparent; }
+:root[data-squircle] .btn.danger:hover:not(:disabled) { --sq-fill: var(--hover); }
+:root[data-squircle] .btn.destructive { --sq-fill: var(--rl-danger); }
+:root[data-squircle] .btn.primary:disabled { --sq-fill: var(--rl-raised); }
+:root[data-squircle] .btn.primary:disabled[aria-busy="true"] { --sq-fill: var(--rl-accent); }
+:root[data-squircle] .mp-use { --sq-fill: var(--rl-accent); }
+/* A chip is transparent until you point at it, so the painter draws nothing most of the time. */
+:root[data-squircle] .ghost-chip { --sq-fill: transparent; }
+:root[data-squircle] .ghost-chip:hover:not([data-static]) { --sq-fill: var(--rl-hover); }
+:root[data-squircle] .ghost-chip[data-warning] { --sq-fill: var(--orange-tint); }
+:root[data-squircle] .composer-git:hover .ghost-chip { --sq-fill: var(--rl-hover); }
+:root[data-squircle] .composer[data-mode="ask"] .ghost-chip[aria-label="Mode"] { --sq-fill: color-mix(in srgb, var(--rl-success) 12%, transparent); }
+:root[data-squircle] .composer[data-mode="plan"] .ghost-chip[aria-label="Mode"] { --sq-fill: color-mix(in srgb, var(--rl-warning) 12%, transparent); }
+/* The selected row in ⌘K: the app's corner, and NO ring. What marks it is the fill; a border on a
+   painted corner would be a second, competing outline of the same shape. */
+:root[data-squircle] .palette-opt { --sq-fill: transparent; }
+:root[data-squircle] .palette-opt.selected,
+:root[data-squircle] .palette-opt:hover { --sq-fill: var(--hover); }
+
 /* The sent bubble, on the message rung. Its own rule rather than a sixth selector above, because it
    carries a different radius and — unlike every surface up there, of which a pane holds exactly one —
    there is one of these per message. The painter runs per element, so this is the one place the
@@ -2433,6 +2496,16 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   background: paint(rl-squircle);
   filter: var(--shadow-card-lift-filter);
 }
+/* ⌘K's lift, the same way. This is the square at the palette's corners: its `box-shadow` (four
+   layers, one of them a ring) drew from the border box, which under the painted regime is a
+   RECTANGLE with no radius at all — so a hard-cornered halo sat over the curve the worklet had
+   drawn correctly underneath. The overlay lift becomes a `drop-shadow`, which traces rendered
+   alpha, and the box-shadow goes. */
+:root[data-squircle] .palette {
+  box-shadow: none;
+  --sq-ring: var(--overlay-lighten-500); --sq-ring-w: var(--hairline-w);
+  filter: var(--shadow-overlay-filter);
+}
 :root[data-squircle] .composer, :root[data-squircle] .commit-card {
   --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   box-shadow: none;
@@ -2454,15 +2527,15 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    own inputs or the curve would come back square. */
 :root[data-squircle] .search {
   --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
-  --sq-radius-top: calc(var(--search-h) * var(--sq-ratio));
-  --sq-radius-bottom: calc(var(--search-h) * var(--sq-ratio));
+  --sq-radius-top: calc(var(--search-h) * var(--sq-ratio-ctl));
+  --sq-radius-bottom: calc(var(--search-h) * var(--sq-ratio-ctl));
   box-shadow: none;
 }
 :root[data-squircle] .search:hover { --sq-ring: var(--line-strong); }
 :root[data-squircle] .skills-filter {
   --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
-  --sq-radius-top: calc(var(--search-h) * var(--sq-ratio));
-  --sq-radius-bottom: calc(var(--search-h) * var(--sq-ratio));
+  --sq-radius-top: calc(var(--search-h) * var(--sq-ratio-ctl));
+  --sq-radius-bottom: calc(var(--search-h) * var(--sq-ratio-ctl));
   box-shadow: none;
 }
 :root[data-squircle] .skills-filter:focus-within { --sq-ring: var(--line-strong); }
@@ -2511,7 +2584,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .onboarding-lead { margin: 0 0 4px; font-size: 12.5px; line-height: 1.5; }
 .cli-field { border: none; margin: 0; padding: 0; min-width: 0; }
 .cli-field legend { padding: 0; font-size: 12px; color: var(--rl-text-dim); }
-.cli-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; padding: 8px 10px; border-radius: var(--r-ctl);
+.cli-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
   color: var(--rl-text-dim); background: transparent; cursor: pointer; }
 .cli-row:hover { background: var(--rl-hover); }
 /* Selected ≠ outlined (§2.7): translucent pill fill + bright text. */
@@ -2762,7 +2835,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .diff-actions { flex: none; display: flex; gap: 4px; opacity: 0; }
 .diff-row:hover .diff-actions, .diff-row:focus-within .diff-actions { opacity: 1; }
 /* Quiet inline action: a text button, not a control with a box (§3 ghost tier). */
-.btn-quiet { --btn-h: 22px; height: var(--btn-h); padding: 0 7px; border-radius: calc(var(--btn-h) * var(--sq-ratio)); corner-shape: squircle; font-size: 11.5px; color: var(--rl-text-dim); background: transparent; }
+.btn-quiet { --btn-h: 22px; height: var(--btn-h); padding: 0 7px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; font-size: 11.5px; color: var(--rl-text-dim); background: transparent; }
 .btn-quiet:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
 .btn-quiet.danger { color: var(--rl-danger); }
 .diff-body { padding: 0 0 6px 26px; }
@@ -2864,7 +2937,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    the stale-count warning in amber — because they are the same question asked about a different
    destructive act, and two different-looking confirms would teach the user to stop reading. */
 .cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
-.cp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-ctl); }
+.cp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-ctl); corner-shape: squircle; }
 .cp-row:hover { background: var(--rl-hover); }
 /* The undo point is the one row whose meaning differs from its neighbours, so it is the one row that
    is allowed a colour. */
@@ -2978,8 +3051,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* ── Space settings, W5: the skills / connections / memory tabs ───────────── */
 /* Tabs are native radios in segmented-control clothing (the onboarding idiom: arrows move, one tab
    stop, checked state for free). Selected ≠ outlined — §2.7's translucent fill + bright text. */
-.settings-tabs { display: flex; gap: 2px; margin: 0 0 12px; padding: 2px; border: none; border-radius: var(--r-ctl); background: var(--rl-hover); }
-.settings-tab { flex: 1; text-align: center; padding: 5px 10px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); cursor: pointer; }
+.settings-tabs { display: flex; gap: 2px; margin: 0 0 12px; padding: 2px; border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-hover); }
+.settings-tab { flex: 1; text-align: center; padding: 5px 10px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim); cursor: pointer; }
 .settings-tab:hover { color: var(--rl-text-bright); }
 .settings-tab[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: var(--fw-label); }
 .settings-tab input { position: absolute; opacity: 0; pointer-events: none; }
@@ -3049,7 +3122,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .settings-input-label input {
   --field-h: 34px;
   width: 100%; height: var(--field-h); padding: 0 12px;
-  border: none; border-radius: calc(var(--field-h) * var(--sq-ratio)); corner-shape: squircle;
+  border: none; border-radius: calc(var(--field-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 13px; outline: none;
   transition: box-shadow var(--dur-hover) ease;
 }
@@ -3241,7 +3314,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .page-body { flex: 1; min-height: 0; display: flex; align-items: stretch; gap: var(--page-rail-gap); padding: 0 24px 20px; }
 .page-rail { flex: none; width: var(--page-rail-w); display: flex; flex-direction: column; gap: 2px; align-self: flex-start;
   margin: 0; padding: 0; border: none; background: none; }
-.page-rail .settings-tab { flex: none; text-align: left; padding: 6px 10px; font-size: 13px; border-radius: var(--r-ctl); }
+.page-rail .settings-tab { flex: none; text-align: left; padding: 6px 10px; font-size: 13px; border-radius: var(--r-ctl); corner-shape: squircle; }
 /* `min-height: 0` matters once the narrow block below turns `.page-body` into a column: without it
    the content column's auto minimum keeps it at full content height, and it overflows the pane
    instead of scrolling inside it. */
@@ -3306,7 +3379,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .page-empty p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .page-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .page-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; text-align: left;
-  border: none; border-radius: var(--r-ctl); background: none; color: var(--rl-text-dim); font-size: 13px; cursor: pointer; }
+  border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: none; color: var(--rl-text-dim); font-size: 13px; cursor: pointer; }
 .page-row:hover { background: var(--rl-hover); }
 /* The TITLE is the row's elastic column — it claims the free space and ellipsises, and everything
    after it packs against the right edge. It used to size to its content while `.page-row-dim` and
@@ -3346,7 +3419,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .schedules-page .page-head .sched-new { margin-left: auto; align-self: center; }
 .sched-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .sched-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--rl-panel); }
+  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-panel); }
 /* A paused schedule is quieter, not struck through: it is armed-but-waiting, and the row still has
    to be readable enough to edit. */
 .sched-row:not([data-enabled]) { opacity: .62; }
@@ -3434,14 +3507,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .profile-chip:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* The sidebar header's whole title row is the page's front door. */
 .space-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; margin: -2px -4px;
-  border: none; border-radius: var(--r-chip); background: none; color: inherit; font: inherit; cursor: pointer; }
+  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; font: inherit; cursor: pointer; }
 .space-title:hover { background: var(--rl-hover); }
 
 /* ——— Plan 12 W4: sidebar destinations + scope groups. The destination rows sit between the New-session
    block and the space swiper — quiet 32px rows in the item-row idiom (text-dim, hover-brighten). The
    scope groups are the shared ScopeGroups sections every scoped list renders through. ——— */
 .sb-destinations { flex: none; display: flex; flex-direction: column; padding: 0 16px 6px; }
-.sb-destinations .dest-row { min-height: 32px; width: 100%; border-radius: var(--r-ctl); }
+.sb-destinations .dest-row { min-height: 32px; width: 100%; border-radius: var(--r-ctl); corner-shape: squircle; }
 .sb-destinations .dest-row:hover { color: var(--rl-text-bright); }
 /* W5: the Notifications row's unread count — the StatusPill idiom, pushed to the row's far edge.
    The tone's status dot is suppressed: a number is not a state, and dot-plus-count reads as two
@@ -3592,7 +3665,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .failover { display: flex; flex-direction: column; gap: 4px; }
 .failover .settings-row { align-items: center; }
 .failover-list { gap: 2px; margin-top: 6px; }
-.failover-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--r-ctl); }
+.failover-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--r-ctl); corner-shape: squircle; }
 .failover-row[data-on] { background: var(--rl-frame); }
 /* Reserved whether or not it is filled, so switching a row on does not shove the whole list right.
    Tabular because it is a rank, and a rank that shifts width jitters as you reorder. */
@@ -3698,7 +3771,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   display: flex; align-items: center; gap: 2px; padding: 6px 8px; overflow-x: auto;
   flex: 0 0 auto; overflow-y: hidden;
 }
-.documents-tab { display: flex; align-items: center; border-radius: var(--r-ctl); flex: 0 0 auto;
+.documents-tab { display: flex; align-items: center; border-radius: var(--r-ctl); corner-shape: squircle; flex: 0 0 auto;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .documents-tab:hover { background: var(--rl-hover); }
 .documents-tab[data-active] { background: var(--rl-active); }
@@ -3918,7 +3991,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .sheet-lede code { font-size: 11.5px; }
 .lecture-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; }
 .lecture-row {
-  display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl);
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
   background: none; color: var(--rl-text-bright); font: inherit; text-align: left;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
@@ -3980,7 +4053,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .media-video:focus-within .media-controls { opacity: 1; }
 .media-btn {
   display: grid; place-items: center; width: 22px; height: 22px; flex: none;
-  border: none; border-radius: var(--r-chip); background: none; color: inherit; cursor: pointer;
+  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; cursor: pointer;
   transition: background-color var(--dur-hover) ease;
 }
 .media-btn:hover { background: rgb(255 255 255 / .18); }
@@ -4012,7 +4085,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .media-detail { flex: none; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .media-action {
   flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto;
-  padding: 2px 5px; border: none; border-radius: var(--r-chip); background: none;
+  padding: 2px 5px; border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none;
   color: var(--rl-text-faint); font: inherit; font-size: 11px; cursor: pointer;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
@@ -4140,7 +4213,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; max-width: 420px; }
 .mode-card {
   display: flex; flex-direction: column; gap: 7px; padding: 7px; cursor: pointer;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--rl-panel);
+  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-panel);
   transition: box-shadow var(--dur-hover) ease;
 }
 .mode-card input { position: absolute; opacity: 0; pointer-events: none; }
@@ -4184,7 +4257,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; }
 .theme-card {
   display: flex; flex-direction: column; gap: 8px; padding: 10px; cursor: pointer;
-  border: 1px solid; border-radius: var(--r-panel); box-shadow: var(--shadow-card-lift);
+  border: 1px solid; border-radius: var(--r-panel); corner-shape: squircle; box-shadow: var(--shadow-card-lift);
   transition: box-shadow var(--dur-hover) ease;
 }
 .theme-card input { position: absolute; opacity: 0; pointer-events: none; }
@@ -4245,10 +4318,10 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 
 /* A segmented control: one row of radios wearing a shared track. */
 .seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: var(--hairline-w) solid var(--rl-line);
-  border-radius: var(--r-ctl); background: var(--rl-frame); }
+  border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-frame); }
 .seg-opt {
   padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
-  border-radius: var(--r-chip); cursor: pointer; white-space: nowrap;
+  border-radius: var(--r-chip); corner-shape: squircle; cursor: pointer; white-space: nowrap;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .seg-opt input { position: absolute; opacity: 0; pointer-events: none; }

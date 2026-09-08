@@ -24,7 +24,17 @@ export type InstallRoute =
    * string the vendor published). `host` is the domain the script is fetched from, so the UI can
    * name who is about to run code on the machine.
    */
-  | { method: "script"; host: string; command: string };
+  | { method: "script"; host: string; command: string }
+  /**
+   * The CLI's OWN updater. `command` is the subcommand it publishes, verbatim.
+   *
+   * Never an install route — you cannot run `claude update` before there is a claude — so this only
+   * ever comes back from `updatePlan`. It outranks every other method when the binary has one,
+   * because the vendor's updater knows how that particular copy was laid down and Realm does not:
+   * a native install under ~/.local/bin, a Homebrew keg and an npm global all take the same
+   * `claude update`, and Realm classifies the first of those as `unknown` and refuses.
+   */
+  | { method: "self"; command: string };
 
 /**
  * Every kind's route. Each entry's identifier comes from the same source as its
@@ -53,6 +63,10 @@ export function installCommand(route: InstallRoute | null): string | null {
   if (!route) return null;
   if (route.method === "npm") return `npm install -g ${route.pkg}`;
   if (route.method === "brew") return `brew install ${route.formula}`;
+  // `self` is not an install route and AGENT_INSTALL_ROUTES never holds one; the guard is here so
+  // that a caller which passed an update plan by mistake gets nothing rather than `claude update`
+  // offered as the way to install claude.
+  if (route.method === "self") return null;
   return route.command;
 }
 
@@ -68,7 +82,12 @@ export function installCommand(route: InstallRoute | null): string | null {
  * an update it cannot claim is one.
  */
 export function updateCommand(route: InstallRoute | null, version: string): string | null {
-  if (!route || !version) return null;
+  if (!route) return null;
+  // A self-updater takes no version: it resolves "latest" itself, at the moment it runs, and there
+  // is no flag on any of the five that pins one. That is also why it does not need `version` to be
+  // non-empty — the pinning argument above is an argument about npm, not about updating.
+  if (route.method === "self") return route.command;
+  if (!version) return null;
   if (route.method === "npm") return `npm install -g ${route.pkg}@${version}`;
   if (route.method === "brew") return `brew upgrade ${route.formula}`;
   return null;
@@ -190,6 +209,38 @@ export type InstallProvenance = "npm" | "pnpm" | "brew" | "unknown";
 const BREW_FORMULA: Partial<Record<AgentKind, string>> = { codex: "codex", claude: "claude-code" };
 
 /**
+ * The self-update subcommand each CLI publishes, where it publishes one.
+ *
+ * Every entry was READ OFF THE INSTALLED BINARY'S OWN `--help` on 2026-09-08, not off a docs page:
+ *   claude        `update|upgrade  Check for updates and install if …`
+ *   codex         `update          Update Codex to the latest version`
+ *   acp:cursor    `update          Update Cursor Agent to the latest version`
+ *   acp:opencode  `upgrade [target] upgrade opencode to the latest or a specific version`
+ *   acp:fx        `upgrade         Upgrade 𝒇x on the selected release channel`
+ * `grok` and `gemini` were probed the same way and have no such command, so they are absent rather
+ * than guessed at. `acp:goose`, `acp:qwen`, `acp:copilot` and `acp:deepseek` were not installed on
+ * the machine this was measured on and are absent for the same reason: an update command that turns
+ * out not to exist fails in front of the user, which is worse than the package route it replaced.
+ *
+ * Kept apart from AGENT_INSTALL_ROUTES because these are not install routes: `claude update` cannot
+ * put claude on a machine, and a kind can have both (claude has an npm route AND its own updater).
+ */
+const SELF_UPDATE: Partial<Record<AgentKind, string>> = {
+  claude: "claude update",
+  codex: "codex update",
+  "acp:cursor": "cursor-agent update",
+  "acp:opencode": "opencode upgrade",
+  "acp:fx": "fx upgrade",
+};
+
+/** Does this kind's CLI update itself? The one question the "is there anything newer" machinery does
+ *  not need to have answered — see `updatePlan`. */
+export function selfUpdatePlan(kind: AgentKind): InstallRoute | null {
+  const command = SELF_UPDATE[kind];
+  return command ? { method: "self", command } : null;
+}
+
+/**
  * Can Realm run an update for this install, and with what?
  *
  * The rule is match the PROVENANCE, not the route: an npm install updates with npm, a Homebrew one
@@ -201,6 +252,11 @@ const BREW_FORMULA: Partial<Record<AgentKind, string>> = { codex: "codex", claud
  * manager is one where every upgrade command is a guess, and guessing wrong installs a second copy.
  */
 export function updatePlan(route: InstallRoute | null, provenance: InstallProvenance, kind: AgentKind): InstallRoute | null {
+  // The vendor's own updater first, whatever the provenance says. It is the only method that is
+  // right for every way its CLI can have been installed, and the provenance rule below exists
+  // precisely because Realm's other methods are not.
+  const own = selfUpdatePlan(kind);
+  if (own) return own;
   if (provenance === "brew") {
     const formula = route?.method === "brew" ? route.formula : BREW_FORMULA[kind];
     return formula ? { method: "brew", formula } : null;
@@ -221,6 +277,7 @@ export function canRunUpdate(route: InstallRoute | null, provenance: InstallProv
 
 /** Why an update Realm found cannot be applied for the user, in the user's terms. Null when it can. */
 export function updateRefusal(route: InstallRoute | null, provenance: InstallProvenance, kind?: AgentKind): string | null {
+  if (kind !== undefined && selfUpdatePlan(kind)) return null;
   if (!route || canRunUpdate(route, provenance, kind)) return null;
   if (route.method === "script") return "Realm can't update this one — its installer is a script from the vendor, and re-running it gives no way to confirm which version you'd land on.";
   const want = route.method === "npm" ? "npm" : "Homebrew";
@@ -232,10 +289,15 @@ export function updateRefusal(route: InstallRoute | null, provenance: InstallPro
  * One agent CLI's whole situation on this machine, as the Settings engines list and the install card
  * read it.
  *
- * `action` is the only field a button should branch on, and it is deliberately narrower than the rest
- * of the row: `updateAvailable` can be true while `action` is `"none"`, which is the case where Realm
- * found a newer version but must not apply it (see `refusal`). Telling the user an update exists and
- * refusing to run it is more useful than hiding either half.
+ * `action` is the only field a button should branch on, and the two are deliberately independent:
+ *
+ *   - `updateAvailable` true with `action: "none"` — Realm found a newer version and must not apply
+ *     it (see `refusal`). Telling the user an update exists and refusing to run it is more useful
+ *     than hiding either half.
+ *   - `updateAvailable` false with `action: "update"` — the CLI ships its own updater, which resolves
+ *     latest at the moment it runs, from a channel Realm may not watch (for cursor-agent, the only
+ *     channel there is). Nothing newer is KNOWN, which is not the same as up to date. The button is
+ *     offered; it must not be labelled as though an update were waiting.
  */
 export type CliStatus = {
   kind: AgentKind;

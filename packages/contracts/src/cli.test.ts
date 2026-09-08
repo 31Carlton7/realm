@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_INSTALL_ROUTES, canRunUpdate, compareVersions, installCommand, isNewerVersion,
+  AGENT_INSTALL_ROUTES, canRunUpdate, compareVersions, installCommand, isNewerVersion, updatePlan,
   parseBrewFormula, parseNpmLatest, parseVersion, updateChannel, updateCommand, updateRefusal,
 } from "./cli";
 import { AGENT_CLI_COMMANDS } from "./presets";
@@ -159,6 +159,48 @@ describe("canRunUpdate", () => {
   it("never runs a script route, whatever the provenance", () => {
     for (const p of ["npm", "pnpm", "brew", "unknown"] as const) {
       expect(canRunUpdate(AGENT_INSTALL_ROUTES["acp:fx"], p)).toBe(false);
+    }
+  });
+});
+
+describe("the CLI's own updater", () => {
+  it("outranks every provenance rule, because it is right for all of them", () => {
+    /* The failure this fixes: claude installs a native binary to ~/.local/bin, which the provenance
+       classifier honestly reports as `unknown`, so Realm refused to update the one CLI in the list
+       that most obviously updates itself. Same command whether that copy came from npm, Homebrew or
+       the native installer — which is exactly why the vendor publishes it. */
+    for (const p of ["npm", "pnpm", "brew", "unknown"] as const) {
+      expect(updatePlan(AGENT_INSTALL_ROUTES.claude, p, "claude")).toEqual({ method: "self", command: "claude update" });
+      expect(canRunUpdate(AGENT_INSTALL_ROUTES.claude, p, "claude")).toBe(true);
+      expect(updateRefusal(AGENT_INSTALL_ROUTES.claude, p, "claude")).toBe(null);
+    }
+  });
+
+  it("reaches a script-route CLI, which no other method could", () => {
+    // cursor-agent installs by piping a vendor script into a shell. There is no registry to ask and
+    // no package to reinstall, so before `cursor-agent update` its row had no path forward at all.
+    expect(updatePlan(AGENT_INSTALL_ROUTES["acp:cursor"], "unknown", "acp:cursor"))
+      .toEqual({ method: "self", command: "cursor-agent update" });
+  });
+
+  it("takes no version, because none of them accept one", () => {
+    // The npm command pins the exact version the check found; a self-updater resolves latest itself
+    // at the moment it runs. Passing a version must not silently produce a different command.
+    const plan = updatePlan(AGENT_INSTALL_ROUTES.codex, "npm", "codex")!;
+    expect(updateCommand(plan, "")).toBe("codex update");
+    expect(updateCommand(plan, "0.153.4")).toBe("codex update");
+  });
+
+  it("leaves the provenance rule standing for every CLI that has no updater of its own", () => {
+    expect(updatePlan(AGENT_INSTALL_ROUTES["acp:gemini"], "npm", "acp:gemini")).toEqual(AGENT_INSTALL_ROUTES["acp:gemini"]);
+    expect(updatePlan(AGENT_INSTALL_ROUTES["acp:gemini"], "unknown", "acp:gemini")).toBe(null);
+    expect(updateRefusal(AGENT_INSTALL_ROUTES["acp:gemini"], "unknown", "acp:gemini")).toContain("second copy");
+  });
+
+  it("is never an install route: `claude update` cannot put claude on a machine", () => {
+    expect(installCommand({ method: "self", command: "claude update" })).toBe(null);
+    for (const route of Object.values(AGENT_INSTALL_ROUTES)) {
+      expect(route?.method).not.toBe("self");
     }
   });
 });

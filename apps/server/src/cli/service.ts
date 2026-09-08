@@ -86,7 +86,13 @@ export class CliService {
     }
     const plan = updatePlan(route, provenance, kind);
     if (!isNewerVersion(version, latest) || !latest) {
-      return { ...base, updateAvailable: false, action: "none", command: null, refusal: null };
+      /* No newer version KNOWN — which is not the same as up to date. Five of the CLIs ship their
+         own updater, and it resolves latest at the moment it runs, from the vendor's channel rather
+         than from the npm registry Realm happens to watch. cursor-agent has no registry Realm can
+         watch at all, so this branch was its permanent state. Offer the command; `updateAvailable`
+         stays false so the row does not claim an update is waiting. */
+      const own = plan?.method === "self" ? updateCommand(plan, "") : null;
+      return { ...base, updateAvailable: false, action: own ? "update" : "none", command: own, refusal: null };
     }
     // An update exists. Whether Realm may apply it is a separate question with its own answer, and a
     // refusal is shown rather than swallowed — the user still learns a newer version is out there.

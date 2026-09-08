@@ -81,9 +81,9 @@ describe("SessionService over rpc", () => {
     const { c, sp } = await boot();
     const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
     expect(itemId).toBeTruthy();
-    expect(session).toMatchObject({ agentKind: "fake", status: "idle", cwd: sp.folderPath, title: "Fake agent session", permissionMode: "default" });
+    expect(session).toMatchObject({ agentKind: "fake", status: "idle", cwd: sp.folderPath, title: "New session", permissionMode: "default" });
     const items = (await c.call("items.list", { spaceId: sp.id })).result;
-    expect(items).toMatchObject([{ id: itemId, kind: "session", refId: session.id, title: "Fake agent session" }]);
+    expect(items).toMatchObject([{ id: itemId, kind: "session", refId: session.id, title: "New session" }]);
     expect((await c.call("sessions.list", { spaceId: sp.id })).result.map((s: Any) => s.id)).toEqual([session.id]);
 
     await c.call("sessions.send", { id: session.id, text: "go" });
@@ -310,17 +310,18 @@ describe("SessionService over rpc", () => {
       return { c, sp };
     }
 
-    it("re-points an untouched session, clears the old kind's model, and renames an untouched default title", async () => {
+    it("re-points an untouched session, clears the old kind's model, and leaves the default title alone", async () => {
       const { c, sp } = await bootTwo();
       const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", model: "fake", effort: "high", permissionMode: "plan" })).result;
       const r = await c.call("sessions.setAgent", { id: session.id, agentKind: "codex" });
       expect(r.ok).toBe(true);
       // model is per-kind and must not survive; effort and permission mode are not.
-      expect(r.result).toMatchObject({ agentKind: "codex", model: null, effort: "high", permissionMode: "plan", title: "Codex session" });
+      expect(r.result).toMatchObject({ agentKind: "codex", model: null, effort: "high", permissionMode: "plan", title: "New session" });
       expect((await c.call("sessions.get", { id: session.id })).result.agentKind).toBe("codex");
+      // The default title names no agent, so switching agents cannot make it wrong — and the sidebar
+      // row is not rewritten for a change that did not alter what it says.
       const items = (await c.call("items.list", { spaceId: sp.id })).result;
-      expect(items.find((i: Any) => i.id === itemId).title).toBe("Codex session");
-      expect(c.events.some((e) => e.event === "items.changed")).toBe(true);
+      expect(items.find((i: Any) => i.id === itemId).title).toBe("New session");
       c.close();
     });
 

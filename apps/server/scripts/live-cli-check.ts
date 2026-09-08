@@ -21,7 +21,9 @@
  * Exits non-zero if a check fails. Needs a network; agent CLIs are optional (an absent one is
  * reported as absent, which is a valid answer).
  */
-import { AGENT_INSTALL_ROUTES, AgentKindSchema, isNewerVersion, parseBrewFormula, parseNpmLatest, parseVersion, updateChannel } from "@realm/contracts";
+import { AGENT_INSTALL_ROUTES, AgentKindSchema, isNewerVersion, parseBrewFormula, parseNpmLatest, parseVersion, selfUpdatePlan, updateChannel, updateCommand } from "@realm/contracts";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { CliService } from "../src/cli/service";
 import { agentBin } from "../src/cli/bins";
 import { resolveInstall } from "../src/cli/provenance";
@@ -69,6 +71,34 @@ async function main() {
     if (r.binPath) console.log(`        at:        ${r.binPath}`);
     if (r.command) console.log(`        would run: ${r.command}`);
     if (r.refusal) console.log(`        refused:   ${r.refusal}`);
+  }
+
+  console.log("\n== the vendors' own updaters exist, on this machine ==");
+  /* Realm now prefers a CLI's own updater over any package-manager route, because it is the only
+     method that is right for every way that CLI can have been installed — claude lands a native
+     binary in ~/.local/bin, which the provenance classifier reads as `unknown` and used to refuse.
+     A subcommand that turns out not to exist fails in front of the user, so the table is measured
+     rather than read off a docs page, and this is where the measurement is re-taken.
+
+     `<cmd> --help` is the whole probe. It proves the subcommand is one the binary parses, and it
+     updates nothing — which keeps this script's promise intact. Whether the update itself succeeds
+     is the vendor's business; Realm's claim is only that the command it shows is a real one. */
+  const run = promisify(execFile);
+  for (const kind of AgentKindSchema.options) {
+    const plan = selfUpdatePlan(kind);
+    if (!plan) continue;
+    const command = updateCommand(plan, "")!;
+    const [bin, ...args] = command.split(" ");
+    if (!(await resolveInstall(bin!))) { console.log(`  --    ${kind.padEnd(14)} ${command.padEnd(22)} (not installed)`); continue; }
+    let help = "";
+    let failed: string | null = null;
+    try {
+      const { stdout, stderr } = await run(bin!, [...args, "--help"], { timeout: 30_000 });
+      help = `${stdout}${stderr}`;
+    } catch (e) {
+      failed = e instanceof Error ? e.message : String(e);
+    }
+    ok(`${kind}: \`${command}\` is a subcommand this binary parses`, failed === null && help.trim() !== "", failed ?? help.split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "no help output");
   }
 
   console.log("\n== the invariants that keep this safe ==");

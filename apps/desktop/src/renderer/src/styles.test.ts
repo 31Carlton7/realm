@@ -496,7 +496,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
 
   it("the radius scale is tembo's, one rung up at the control tier: tick 2, chip 8, control 10, card 12 (rows + panels), window 16", () => {
     const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
-    for (const decl of ["--r-sm: 2px", "--r-chip: 8px", "--r-ctl: 10px", "--r-row: 12px", "--r-panel: 12px", "--r-float: 16px"])
+    for (const decl of ["--r-sm: 2px", "--r-chip: 10px", "--r-ctl: 13px", "--r-row: 12px", "--r-panel: 12px", "--r-float: 16px"])
       expect(root, decl).toContain(decl);
     // No component may dodge the scale with a hardcoded control-ish radius (ticks/dots/pills excepted).
     expect(css).not.toMatch(/border-radius:\s*(?:4|6|8|10|12|14|16)px/);
@@ -1043,13 +1043,17 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        This is a button that opens ⌘K, and it sits in the same window as a composer wearing a large
        squircle — so it takes the composer's surface and the composer's corner.
 
-       The corner is `height × --sq-ratio`, never a number. Copying 36px onto a 30px control makes a
-       pill; copying `--r-ctl` makes a plain button that happens to sit above a squircle. The RATIO is
-       the thing that transfers, and it was measured off the rendered composer (36 on 96). */
+       The corner is `height × ratio`, never a number. Copying 36px onto a 30px control makes a pill;
+       copying `--r-ctl` makes a plain button that happens to sit above a squircle. The RATIO is the
+       thing that transfers, and the composer's was measured off the rendered card (36 on 96).
+
+       Controls take `--sq-ratio-ctl`, not the composer's own `--sq-ratio`. A corner is only legible
+       against the flat run beside it, and a 34px control has almost no run — at 0.375 it reads as a
+       rounded rectangle. The larger ratio is what makes it read as the SAME curve at a small size. */
     const search = bodiesFor(".search").join(" ");
     expect(search).toContain("background: var(--surface)");
     expect(search).toContain("corner-shape: squircle");
-    expect(search).toContain("calc(var(--search-h) * var(--sq-ratio))");
+    expect(search).toContain("calc(var(--search-h) * var(--sq-ratio-ctl))");
     expect(search).not.toContain("var(--r-ctl)");
     // …and it is painted, because `corner-shape` is inert here and an unpainted curve is a round rect.
     expect(bodiesFor(":root[data-squircle] .search").join(" ")).toContain("--sq-fill: var(--surface)");

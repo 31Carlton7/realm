@@ -95,7 +95,7 @@ describe("Engines tab", () => {
     expect(api.calls.some((c) => c.startsWith("runCli:"))).toBe(false);
     // And the offer is on screen, command first.
     expect(screen.getByText("npm install -g @openai/codex@0.153.4")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Update" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument();
   });
 
   it("renders each CLI's honest state: installed + version, signed-out, missing — and login-unknowable renders as NOTHING, not a claim", async () => {

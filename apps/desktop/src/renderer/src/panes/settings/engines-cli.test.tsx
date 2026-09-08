@@ -44,22 +44,24 @@ describe("an engine row with an update available", () => {
     await waitFor(() => expect(within(codexRow()).getByText("v0.146.0")).toBeInTheDocument());
     expect(within(codexRow()).getByText("Signed in")).toBeInTheDocument();
     // The available version moved out of the chip row and onto the ACTION: a chip saying a newer
-    // version exists, with nothing beside it to do about it, is a dead end.
-    expect(within(codexRow()).getByRole("button", { name: "Update" })).toBeInTheDocument();
+    // version exists, with nothing beside it to do about it, is a dead end. The button NAMES that
+    // version, because the same button also appears when nothing newer is known — a CLI with its own
+    // updater always offers to go and look — and there it reads "Check for updates" instead.
+    expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument();
   });
 
   it("shows the exact command before the button that runs it", async () => {
     await mount({ cliStatus: [behind] });
     await waitFor(() => expect(within(codexRow()).getByText("npm install -g @openai/codex@0.153.4")).toBeInTheDocument());
-    expect(within(codexRow()).getByRole("button", { name: "Update" })).toBeInTheDocument();
+    expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument();
   });
 
   it("runs that command only on the click, and streams what it says", async () => {
     const { store, api } = await mount({ cliStatus: [behind] });
-    await waitFor(() => within(codexRow()).getByRole("button", { name: "Update" }));
+    await waitFor(() => within(codexRow()).getByRole("button", { name: "Update to v0.153.4" }));
     expect(api.calls.some((c) => c.startsWith("runCli:"))).toBe(false);
 
-    fireEvent.click(within(codexRow()).getByRole("button", { name: "Update" }));
+    fireEvent.click(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" }));
     await waitFor(() => expect(api.calls).toContain("runCli:codex:update"));
 
     const id = store.getState().cliJobs.codex!.id;
@@ -74,8 +76,8 @@ describe("an engine row with an update available", () => {
 
   it("keeps a failure's output on screen with the reason it failed", async () => {
     const { store } = await mount({ cliStatus: [behind] });
-    await waitFor(() => within(codexRow()).getByRole("button", { name: "Update" }));
-    fireEvent.click(within(codexRow()).getByRole("button", { name: "Update" }));
+    await waitFor(() => within(codexRow()).getByRole("button", { name: "Update to v0.153.4" }));
+    fireEvent.click(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" }));
     await waitFor(() => expect(store.getState().cliJobs.codex).toBeDefined());
     const id = store.getState().cliJobs.codex!.id;
     store.getState().applyCliOutput({ id, kind: "codex", chunk: "npm error EACCES\n" });
@@ -97,12 +99,16 @@ describe("an engine row Realm will not update", () => {
     /* Realm will not run npm over a Homebrew install — that leaves a second copy on the PATH. It
        still offers a BUTTON, because "there is a newer version" with no affordance is a dead end;
        that button opens the card's own details, which hold the command and the reason. */
-    await mount({ cliStatus: [brewInstalled] });
-    await waitFor(() => expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument());
+    const { api } = await mount({ cliStatus: [brewInstalled] });
+    const button = await waitFor(() => within(codexRow()).getByRole("button", { name: "Update to v0.153.4" }));
     // With the copy it means: "which one?" is the next question for anyone with two on their PATH.
     expect(within(codexRow()).getByText(/Homebrew.*\/opt\/homebrew\/bin\/codex/)).toBeInTheDocument();
-    // Not the one that RUNS an update — that is the distinction the refusal is about.
-    expect(within(codexRow()).queryByRole("button", { name: "Update" })).toBeNull();
+    /* The distinction the refusal is about, asserted on BEHAVIOUR rather than on the label. It used
+       to be that this button read "Update to v…" and the one that runs an update read plain
+       "Update"; the runner names its version now, so the two labels are the same string and only
+       what the click does tells them apart. Which is the honest test either way. */
+    fireEvent.click(button);
+    expect(api.calls.some((c) => c.startsWith("runCli:"))).toBe(false);
     expect(within(codexRow()).queryByRole("button", { name: "Install" })).toBeNull();
   });
 });
@@ -126,7 +132,7 @@ describe("an engine row with nothing to offer", () => {
     // Signing in is a browser flow or an API key, so the command is shown to copy and never run.
     expect(within(row).getByText("codex login")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: "Install" })).toBeNull();
-    expect(within(row).queryByRole("button", { name: "Update" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Update to v0.153.4" })).toBeNull();
   });
 });
 

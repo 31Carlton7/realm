@@ -45,6 +45,11 @@ function fakeFetch(registry: Registry) {
 
 const CODEX_LATEST = "https://registry.npmjs.org/@openai%2Fcodex/latest";
 const GOOSE_LATEST = "https://formulae.brew.sh/api/formula/block-goose-cli.json";
+/* Gemini stands in for "a CLI with no updater of its own" throughout the provenance cases below.
+   Codex used to, and cannot any more: `codex update` exists, and a kind whose CLI updates itself
+   never reaches the provenance rule at all. The rule is still real — it is what gemini, qwen, goose,
+   copilot, grok and deepseek get — so the tests moved to a kind it actually governs. */
+const GEMINI_LATEST = "https://registry.npmjs.org/@google%2Fgemini-cli/latest";
 
 function probes(rows: Partial<ProbeResult>[]): (o: { force?: boolean }) => Promise<ProbeResult[]> {
   return async () => rows.map((r) => ({ kind: "fake" as AgentKind, available: true, version: null, loggedIn: null, reason: null, ...r }));
@@ -54,56 +59,88 @@ const row = (rows: Awaited<ReturnType<CliService["status"]>>, kind: AgentKind) =
 
 describe("CliService.status", () => {
   it("offers an update when the registry is ahead of an npm install", async () => {
-    const env = machine([{ bin: "codex", under: "npm" }]);
-    const { impl } = fakeFetch({ [CODEX_LATEST]: { version: "0.153.4" } });
-    const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
-    const codex = row(await svc.status(), "codex");
-    expect(codex.updateAvailable).toBe(true);
-    expect(codex.action).toBe("update");
-    expect(codex.command).toBe("npm install -g @openai/codex@0.153.4");
-    expect(codex.provenance).toBe("npm");
-    expect(codex.refusal).toBe(null);
+    const env = machine([{ bin: "gemini", under: "npm" }]);
+    const { impl } = fakeFetch({ [GEMINI_LATEST]: { version: "0.9.1" } });
+    const svc = new CliService({ probe: probes([{ kind: "acp:gemini", version: "0.8.0" }]), fetchImpl: impl, env });
+    const gemini = row(await svc.status(), "acp:gemini");
+    expect(gemini.updateAvailable).toBe(true);
+    expect(gemini.action).toBe("update");
+    expect(gemini.command).toBe("npm install -g @google/gemini-cli@0.9.1");
+    expect(gemini.provenance).toBe("npm");
+    expect(gemini.refusal).toBe(null);
   });
 
   it("offers nothing when the installed version is already the published one", async () => {
-    const env = machine([{ bin: "codex", under: "npm" }]);
-    const { impl } = fakeFetch({ [CODEX_LATEST]: { version: "0.146.0" } });
-    const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
-    const codex = row(await svc.status(), "codex");
-    expect(codex.updateAvailable).toBe(false);
-    expect(codex.action).toBe("none");
-    expect(codex.command).toBe(null);
-    expect(codex.latest).toBe("0.146.0");
+    const env = machine([{ bin: "gemini", under: "npm" }]);
+    const { impl } = fakeFetch({ [GEMINI_LATEST]: { version: "0.8.0" } });
+    const svc = new CliService({ probe: probes([{ kind: "acp:gemini", version: "0.8.0" }]), fetchImpl: impl, env });
+    const gemini = row(await svc.status(), "acp:gemini");
+    expect(gemini.updateAvailable).toBe(false);
+    expect(gemini.action).toBe("none");
+    expect(gemini.command).toBe(null);
+    expect(gemini.latest).toBe("0.8.0");
   });
 
   it("updates a brew-installed CLI WITH brew, even though its canonical route is npm", async () => {
     /* This used to refuse. The refusal was half right — `npm install -g` really would leave a second
-       copy on the PATH — and wholly unhelpful: a plain `brew install codex` became a permanent "there
-       is a newer version and Realm will not fetch it". The rule is match the PROVENANCE, not the
+       copy on the PATH — and wholly unhelpful: a plain `brew install` became a permanent "there is a
+       newer version and Realm will not fetch it". The rule is match the PROVENANCE, not the
        canonical route, so a Homebrew install upgrades with Homebrew. */
-    const env = machine([{ bin: "codex", under: "brew" }]);
-    const { impl } = fakeFetch({ [CODEX_LATEST]: { version: "0.153.4" } });
-    const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
-    const codex = row(await svc.status(), "codex");
-    expect(codex.updateAvailable).toBe(true);
-    expect(codex.provenance).toBe("brew");
-    expect(codex.action).toBe("update");
-    expect(codex.command).toBe("brew upgrade codex");
-    expect(codex.refusal).toBe(null);
+    const env = machine([{ bin: "gemini", under: "brew" }]);
+    const { impl } = fakeFetch({ [GEMINI_LATEST]: { version: "0.9.1" } });
+    const svc = new CliService({ probe: probes([{ kind: "acp:gemini", version: "0.8.0" }]), fetchImpl: impl, env });
+    const gemini = row(await svc.status(), "acp:gemini");
+    expect(gemini.updateAvailable).toBe(true);
+    expect(gemini.provenance).toBe("brew");
+    // No formula is published for gemini, so brew provenance has nothing to upgrade WITH: the
+    // refusal survives, and it is about this kind rather than about Homebrew.
+    expect(gemini.action).toBe("none");
+    expect(gemini.refusal).toContain("Homebrew");
   });
 
-  it("still refuses when it cannot attribute the install to a package manager", async () => {
+  it("still refuses when it cannot attribute the install of a CLI that has no updater of its own", async () => {
     /* `unknown` is not laziness. A binary Realm cannot trace to a package manager is one where every
-       upgrade command is a guess, and guessing wrong installs a second copy — which is the exact
-       harm the whole refusal exists to prevent. */
+       upgrade command Realm could run is a guess, and guessing wrong installs a second copy — the
+       exact harm the whole refusal exists to prevent. What changed is that the refusal is now the
+       LAST answer rather than the first: a CLI that updates itself is asked to. */
+    const env = machine([{ bin: "gemini", under: "unknown" }]);
+    const { impl } = fakeFetch({ [GEMINI_LATEST]: { version: "0.9.1" } });
+    const svc = new CliService({ probe: probes([{ kind: "acp:gemini", version: "0.8.0" }]), fetchImpl: impl, env });
+    const gemini = row(await svc.status(), "acp:gemini");
+    expect(gemini.updateAvailable).toBe(true);
+    expect(gemini.action).toBe("none");
+    expect(gemini.command).toBe(null);
+    expect(gemini.refusal).toContain("something other than a package manager");
+  });
+
+  it("runs the CLI's OWN updater whatever the provenance, and names the version when it knows one", async () => {
+    /* The case the user hit: claude installs to ~/.local/bin as a native binary, which Realm cannot
+       attribute, so every version of this code before it said "there is a newer version and Realm
+       will not fetch it" — about a CLI that ships `claude update`. `codex update` and
+       `cursor-agent update` were in the same position. */
     const env = machine([{ bin: "codex", under: "unknown" }]);
     const { impl } = fakeFetch({ [CODEX_LATEST]: { version: "0.153.4" } });
     const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
     const codex = row(await svc.status(), "codex");
     expect(codex.updateAvailable).toBe(true);
-    expect(codex.action).toBe("none");
-    expect(codex.command).toBe(null);
-    expect(codex.refusal).toContain("something other than a package manager");
+    expect(codex.action).toBe("update");
+    expect(codex.command).toBe("codex update");
+    expect(codex.refusal).toBe(null);
+  });
+
+  it("still offers the vendor updater when nothing newer is KNOWN — which is not the same as up to date", async () => {
+    /* `updateAvailable` stays false, so no row claims an update is waiting. The button is there
+       because the CLI's own updater resolves latest against the vendor's channel at the moment it
+       runs, and that channel is not the npm registry Realm watches — for cursor-agent it is the only
+       channel there is. */
+    const env = machine([{ bin: "codex", under: "npm" }]);
+    const { impl } = fakeFetch({ [CODEX_LATEST]: { version: "0.146.0" } });
+    const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
+    const codex = row(await svc.status(), "codex");
+    expect(codex.updateAvailable).toBe(false);
+    expect(codex.action).toBe("update");
+    expect(codex.command).toBe("codex update");
+    expect(codex.refusal).toBe(null);
   });
 
   it("upgrades a brew-installed CLI whose route is brew", async () => {
@@ -135,13 +172,17 @@ describe("CliService.status", () => {
     expect(fake.command).toBe(null);
   });
 
-  it("asks nothing and offers nothing for a script-installed CLI, which has no version channel", async () => {
+  it("asks no registry for a script-installed CLI, and offers its own updater instead", async () => {
+    // There is no channel to ask, so `latest` stays null and nothing is fetched. That used to be the
+    // end of it. cursor-agent ships `cursor-agent update`, so the row is not a dead end after all.
     const env = machine([{ bin: "cursor-agent", under: "npm" }]);
     const { impl, urls } = fakeFetch({});
     const svc = new CliService({ probe: probes([{ kind: "acp:cursor", version: "2026.07.25-e42b078" }]), fetchImpl: impl, env });
     const cursor = row(await svc.status(), "acp:cursor");
     expect(cursor.latest).toBe(null);
-    expect(cursor.action).toBe("none");
+    expect(cursor.updateAvailable).toBe(false);
+    expect(cursor.action).toBe("update");
+    expect(cursor.command).toBe("cursor-agent update");
     expect(urls).toEqual([]);
   });
 
@@ -157,14 +198,15 @@ describe("CliService.status", () => {
 
   it("does not claim an update when the registry answers an error status", async () => {
     // A 404 (package renamed, registry hiccup) has a body; reading it without checking the status
-    // would turn an error page into a version number.
-    const env = machine([{ bin: "codex", under: "npm" }]);
+    // would turn an error page into a version number. Gemini, so that "no claim" is visible as
+    // `action: none` rather than hidden behind a vendor updater.
+    const env = machine([{ bin: "gemini", under: "npm" }]);
     const { impl } = fakeFetch({});
-    const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
-    const codex = row(await svc.status(), "codex");
-    expect(codex.latest).toBe(null);
-    expect(codex.updateAvailable).toBe(false);
-    expect(codex.action).toBe("none");
+    const svc = new CliService({ probe: probes([{ kind: "acp:gemini", version: "0.8.0" }]), fetchImpl: impl, env });
+    const gemini = row(await svc.status(), "acp:gemini");
+    expect(gemini.latest).toBe(null);
+    expect(gemini.updateAvailable).toBe(false);
+    expect(gemini.action).toBe("none");
   });
 
   it("does not claim an update when the registry answers a shape it does not understand", async () => {

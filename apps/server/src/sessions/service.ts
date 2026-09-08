@@ -29,7 +29,10 @@ import type { MemorySources } from "@realm/contracts";
  */
 export type SendMessage = { text: string; attachments: { path: string; mime: string }[]; mentions?: string[]; elements?: ElementChip[] };
 
-const defaultTitle = (kind: AgentKind) => `${AGENT_META[kind].label} session`;
+/* The placeholder a session wears until its first message names it. Not "<Agent> session": the
+ * agent is already shown on the row, and repeating it there says nothing about WHICH session this
+ * is — which is the only question a title in a list of ten of them answers. */
+const DEFAULT_TITLE = "New session";
 export const TITLE_MAX = 40;
 /** First line of the message, whitespace-collapsed, clipped to TITLE_MAX. */
 export function titleFromMessage(text: string): string {
@@ -134,7 +137,7 @@ export class SessionService {
     const project = input.projectId ? this.d.projects.get(input.projectId) : null;
     if (input.projectId && !project) throw new NotFoundError("project", input.projectId);
     const env = this.resolveEnvironment(input.spaceId, input.environmentId ?? null, project?.rootPath ?? null);
-    const title = input.title?.trim() || defaultTitle(input.agentKind);
+    const title = input.title?.trim() || DEFAULT_TITLE;
     // A named mode travels verbatim; null (the instant-create paths) is the user's configured default.
     const permissionMode = input.permissionMode ?? resolveDefaultPermissionMode(input.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY));
     const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode, environmentId: env.id, title, dispatchedBy: input.dispatchedBy ?? null });
@@ -343,19 +346,17 @@ export class SessionService {
    * The client hides the affordance too, but this is the check that matters.
    *
    * `model` is cleared because model ids are per-kind (a `claude-opus-5` on a Codex session is a lie);
-   * the new kind falls back to its adapter default until the user picks from its own model list. An
-   * untouched default title follows the new kind so the sidebar never names the wrong agent.
+   * the new kind falls back to its adapter default until the user picks from its own model list. The
+   * title is left alone — it used to be re-derived here, back when an untouched default read
+   * "Claude session" and so would have named the wrong agent after the switch. DEFAULT_TITLE names
+   * no agent, so there is nothing left to keep in step.
    */
   setAgent(id: string, agentKind: AgentKind): Session {
     const s = this.get(id);
     if (s.agentKind === agentKind) return s;
     if (!this.d.adapters[agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${agentKind} is not registered`);
     if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; its agent can no longer be changed");
-    const title = s.title === defaultTitle(s.agentKind) ? defaultTitle(agentKind) : s.title;
-    const updated = this.d.sessions.update({ id, agentKind, model: null, title });
-    const item = this.d.items.findByRefId(id);
-    if (item && item.title !== title) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
-    return updated;
+    return this.d.sessions.update({ id, agentKind, model: null });
   }
 
   /**
@@ -574,7 +575,7 @@ export class SessionService {
   /** The first message names an untitled session (and its sidebar item) — and, when that session
    *  runs in a worktree Realm opened before it had a name, its BRANCH too (W3). */
   private maybeTitleFrom(id: string, text: string): void {
-    const s = this.d.sessions.get(id); if (!s || s.title !== defaultTitle(s.agentKind)) return;
+    const s = this.d.sessions.get(id); if (!s || s.title !== DEFAULT_TITLE) return;
     if (this.d.events.hasType(id, "user_message")) return;
     const title = titleFromMessage(text); if (!title) return;
     this.d.sessions.update({ id, title });
