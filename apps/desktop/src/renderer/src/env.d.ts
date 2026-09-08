@@ -34,6 +34,21 @@ interface Window {
       reveal(path: string): Promise<void>;
       open(path: string): Promise<void>;
     };
+    /** Any file the app is already LISTING — a Library row, a session's outputs — as opposed to a
+     *  path an agent merely named. `media` above admits only what a media element can decode, so it
+     *  is right to refuse a `.ts`; these are gated on existence instead. Optional for the same
+     *  reason: every call site degrades to "cannot", and jsdom has no bridge at all. */
+    files?: {
+      /** Size and mtime, or null when nothing is there — how a preview learns to say the file is
+       *  gone rather than drawing actions that would each fail in turn. */
+      stat(path: string): Promise<{ path: string; size: number; mtimeMs: number } | null>;
+      /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet,
+       *  a page of source). Null for a type macOS has no generator for. */
+      preview(path: string): Promise<string | null>;
+      reveal(path: string): Promise<void>;
+      /** Copy it where the user points; the saved path, or null when they cancelled. */
+      saveCopy(path: string): Promise<string | null>;
+    };
     /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
     saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedFile>;
     /** Real filesystem path behind a dropped File ("" when it has none — a pasted image). */

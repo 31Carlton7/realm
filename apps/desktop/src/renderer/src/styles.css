@@ -590,11 +590,32 @@ kbd { font: 11px var(--font-mono); }
 .summary-row-glyph { flex: none; color: var(--rl-text-faint); }
 .summary-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
 .summary-row-meta { flex: none; font-size: 11px; color: var(--rl-text-faint); }
-/* The artifact sheet: the path is machine state, so it reads in mono and wraps at any character —
-   a long path must not push the sheet wider than the column it was centered over. */
-.summary-file-path { margin: 0 0 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5;
+/* ── The file preview ──────────────────────────────────────────────────────
+   One file, opened from the Library's grid or from a session summary's outputs. The picture on top,
+   then the facts, then where it came from — falling order of how much each says about a file whose
+   name the sheet's own title has already given.
+
+   The picture sits in no well of its own. It is either a `.media-*` frame, which brings its own
+   surface and hairline, or QuickLook's render, which gets the same inset outline every image in the
+   app wears. A frame around either would be a second box around a thing that already has one. */
+.file-preview-art { display: flex; justify-content: center; margin: 0 0 12px; }
+.file-preview-still { display: block; max-width: 100%; max-height: 320px; object-fit: contain;
+  border-radius: var(--r-row); box-shadow: var(--shadow-hairline); }
+/* The path is machine state, so it reads in mono and wraps at any character — a long path must not
+   push the sheet wider than the column it was centered over. */
+.summary-file-path, .file-preview-path { margin: 0 0 4px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5;
   color: var(--rl-text-dim); overflow-wrap: anywhere; }
-.summary-file-note { margin: 0 0 10px; font-size: 12px; color: var(--rl-warning); }
+.file-preview-detail { margin: 0; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.summary-file-note, .file-preview-note { margin: 8px 0 0; font-size: 12px; color: var(--rl-warning); }
+/* Provenance reads as one line, and the button in it is the quiet kind: it is a fact about the file
+   that happens to be reachable, not a third action competing with the two in the footer. */
+.file-preview-from { display: flex; align-items: center; gap: 6px; margin-top: 10px; min-width: 0;
+  font-size: 12px; color: var(--rl-text-faint); }
+.file-preview-from .btn-quiet { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-preview-from-gone { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The overflow takes the far end of the footer and the primary keeps the near one, so the decision
+   and the drawer of secondary verbs never trade places as the action set changes with the file. */
+.file-preview-more { margin-right: auto; padding: 0 10px; }
 .summary-plan-prose { font-size: 13.5px; }
 .summary-plan-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .summary-plan-steps li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--rl-text-dim); }
@@ -3641,18 +3662,19 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;
 }
 .library-tile {
-  --btn-h: 34px;
+  --btn-h: 44px;
   display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 2px 10px;
-  width: 100%; padding: 10px 12px; text-align: left; font: inherit; border: none;
-  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); cursor: default;
+  align-items: center;
+  width: 100%; padding: 9px 12px; text-align: left; font: inherit; border: none;
+  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); cursor: pointer;
   transition: background var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong);
 }
-/* Only a file the documents pane can actually open reads as clickable. The rest are still listed —
-   a browser that hid every file it cannot render would be answering a different question — but
-   nothing about them promises a click that would do nothing. */
-.library-tile[data-openable] { cursor: pointer; }
-.library-tile[data-openable]:hover { background: var(--rl-hover); }
-.library-tile[data-openable]:active { scale: 0.98; }
+/* Every card opens now, so every card answers the mouse. It used to be only the files the documents
+   pane could render, which left most of a grid — archives, images, binaries — as inert grey boxes
+   that took a click and did nothing, with no way to find out why. The preview is the answer to "what
+   can Realm do with this", and it exists for every file. */
+.library-tile:hover { background: var(--rl-hover); }
+.library-tile:active { scale: 0.98; }
 .library-tile-mark { grid-row: 1 / span 2; display: grid; place-items: center; width: var(--btn-h); height: var(--btn-h);
   border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   background: var(--rl-hover); color: var(--rl-text-dim); }
@@ -3663,7 +3685,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .library-tile-mark[data-type="data"] { color: var(--orange); }
 .library-tile-mark[data-type="code"] { color: var(--rl-text-bright); }
 .library-tile-name { min-width: 0; font-size: 13px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.library-tile-from { min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-tile-from { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+.library-tile-kind { flex: none; }
+/* The one item on the row that is user data of unbounded length, so it takes all the slack and gives
+   it back first. Everything beside it is a fixed 12px glyph. */
+.library-tile-session { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The pager's sentinel. It has to have height, or an IntersectionObserver on a zero-height box at
    the end of a grid never fires. */
 .library-more { min-height: 40px; display: grid; place-items: center; font-size: 12px; color: var(--rl-text-faint); }
@@ -3692,6 +3718,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   --btn-h: 28px;
   display: inline-flex; align-items: center; gap: 6px; height: var(--btn-h); padding: 0 11px;
   border: none; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+/* A mark holding a PICTURE is a different object from a mark holding a glyph, and the tinted well is
+   the difference. A glyph needs the well to read as a mark at all; a picture is the subject and wants
+   the whole square, so the fill goes and the hairline comes on — the same one-device-pixel inset
+   outline every other image in the app wears (`.attach-art`), which is what keeps a screenshot with a
+   pale edge from bleeding into the card behind it. */
+.library-tile-mark[data-thumb] { background: none; box-shadow: var(--shadow-hairline); overflow: hidden; }
+.library-tile-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
   background: var(--rl-hover); color: var(--rl-text-dim); font: inherit; font-size: 12.5px; cursor: pointer;
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease;
 }

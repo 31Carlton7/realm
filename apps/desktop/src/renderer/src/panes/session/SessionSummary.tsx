@@ -1,9 +1,10 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { basenameOf, documentKindFor, isOpenablePath, type Item } from "@realm/contracts";
+import { documentKindFor, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { ScrollFades } from "../../components/ScrollFades";
+import { FilePreview } from "../../components/FilePreview";
 import { Sheet } from "../../components/Sheet";
 import { Markdown } from "./Markdown";
 import { MediaLightbox } from "./media/MediaView";
@@ -329,33 +330,18 @@ function SummaryLightbox({ path, onClose }: { path: string; onClose: () => void 
   const candidates = useMemo(() => [path], [path]);
   const files = useMediaFiles(candidates);
   const file = files[0];
-  if (!file) return <ArtifactSheetBody path={path} onClose={onClose} missing />;
+  if (!file) return <FilePreview path={path} onClose={onClose} />;
   return <MediaLightbox file={file} onClose={onClose} />;
 }
 
-/** SheetHost's `artifact` sheet: a file the session produced or was handed, and the one thing Realm
- *  can honestly do with it — hand it to the OS. */
+/** SheetHost's `artifact` sheet: a file the session produced or was handed. The preview itself is
+ *  shared with the Library (`FilePreview`) — a `.zip` reached from a summary and the same `.zip`
+ *  reached from the file browser must not offer two different sets of actions. This sheet passes no
+ *  provenance: the summary knows the path and nothing the preview could turn into a "go to the
+ *  session it came from", so that row is simply absent rather than half-filled. */
 export function ArtifactSheet({ path }: { path: string }) {
   const closeSheet = useApp((s) => s.closeSheet);
-  return <ArtifactSheetBody path={path} onClose={closeSheet} />;
-}
-
-function ArtifactSheetBody({ path, onClose, missing = false }: { path: string; onClose: () => void; missing?: boolean }) {
-  // Same gate the attachment tile applies, and for the same reason: on macOS `open` RUNS an `.app`
-  // or a `.command`, so only an extension the mime table recognises — every one of which is a
-  // document — may be handed over. Offering the button regardless would be an offer main refuses.
-  const openable = isOpenablePath(path);
-  return (
-    <Sheet title={basenameOf(path)} onClose={onClose} width={480}>
-      <p className="summary-file-path">{path}</p>
-      {/* Named rather than hidden: a file the session wrote and something has since removed is worth
-          knowing about, and it is the reason the button below would fail. */}
-      {missing && <p className="summary-file-note">This file is no longer on disk.</p>}
-      {openable
-        ? <button className="btn" onClick={() => { void window.realm?.openAttachment?.(path); onClose(); }}>Open</button>
-        : <p className="summary-file-note">Realm does not know how to open this kind of file.</p>}
-    </Sheet>
-  );
+  return <FilePreview path={path} onClose={closeSheet} />;
 }
 
 /** SheetHost's `session-plan` sheet: one plan, read from the live transcript rather than copied into

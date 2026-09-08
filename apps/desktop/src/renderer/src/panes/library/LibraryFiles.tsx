@@ -1,7 +1,9 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ARTIFACT_KINDS, artifactTypeOf, isOpenableArtifact, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryEntry } from "@realm/contracts";
+import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { FilePreview } from "../../components/FilePreview";
+import { useThumbnail } from "../../components/use-thumbnail";
 import { SCOPE_LABEL } from "../../components/scoped/ScopeGroups";
 
 /** Files first, then a scope, then a kind — the three narrowings, coarsest first. */
@@ -23,6 +25,18 @@ const TYPE_ICON: Record<ArtifactType, IconName> = {
   document: "documents", image: "image", video: "video", audio: "musicNote",
   data: "table", code: "code", other: "artifact",
 };
+
+/**
+ * Which files a tile asks main for a picture of.
+ *
+ * A picture instead of a glyph is worth a round trip exactly where the picture IS the file: a
+ * screenshot, a mockup, a frame of video. Everything else keeps its glyph, and that is a cost
+ * decision rather than a taste one — a `.css` or a `.pdf` has no in-process decoder, so main answers
+ * it by spawning `qlmanage`, and a page of this grid is sixty tiles. Sixty child processes for sixty
+ * marks nobody reads is not a trade a file browser should make on scroll. The preview, which is one
+ * file the user deliberately opened, asks QuickLook for anything.
+ */
+const THUMBNAIL_TYPES = new Set<ArtifactType>(["image", "video"]);
 
 /** The day a file landed, as a person asks about one. Groups the grid, the way a file browser does. */
 function dayLabel(ts: number, now = Date.now()): string {
@@ -62,7 +76,6 @@ export function groupByDay(entries: LibraryEntry[], now = Date.now()): { label: 
  */
 export function LibraryFiles({ spaceId }: { spaceId: string }) {
   const libraryArtifacts = useApp((s) => s.libraryArtifacts);
-  const openDocumentPath = useApp((s) => s.openDocumentPath);
   const run = useApp((s) => s.run);
 
   const [scope, setScope] = useState<Scope>("all");
@@ -72,6 +85,10 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
   const [total, setTotal] = useState<number | null>(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(true);
+  /* The card that was clicked, held whole rather than by path: the preview needs the provenance the
+     index joined on (which session, which space, made or uploaded), and re-deriving it from a path
+     would mean a second query for a row already in hand. */
+  const [preview, setPreview] = useState<LibraryEntry | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   /* Every fetch carries the generation it was started under. A filter changed mid-flight would
      otherwise let an older page land on top of a newer one — the classic out-of-order-response bug,
@@ -154,24 +171,7 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
         <section key={`${g.label}-${g.entries[0]!.id}`} className="library-day">
           <h2 className="library-day-label">{g.label}</h2>
           <ul className="library-grid">
-            {g.entries.map((e) => (
-              <li key={e.id}>
-                <button type="button" className="library-tile" title={e.path}
-                  data-openable={isOpenableArtifact(e.path) || undefined}
-                  onClick={() => { if (isOpenableArtifact(e.path)) run(() => openDocumentPath(e.path)); }}>
-                  <span className="library-tile-mark" data-type={artifactTypeOf(e.ext)}>
-                    <Icon name={TYPE_ICON[artifactTypeOf(e.ext)]} size={18} />
-                  </span>
-                  <span className="library-tile-name">{e.name}</span>
-                  {/* Where it came from, which is the question a file browser over many sessions is
-                      really answering. The kind rides here too — "made" and "uploaded" are the same
-                      file to the filesystem and very different facts to the reader. */}
-                  <span className="library-tile-from">
-                    {e.kind === "upload" ? "Uploaded to " : "Made in "}{e.sessionTitle}
-                  </span>
-                </button>
-              </li>
-            ))}
+            {g.entries.map((e) => <li key={e.id}><FileCard entry={e} onOpen={() => setPreview(e)} /></li>)}
           </ul>
         </section>
       ))}
@@ -179,7 +179,63 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
       {/* The pager. Present only while there is more, so an exhausted list has no observer attached
           and no spinner sitting under it forever. */}
       {!done && <div ref={sentinel} className="library-more">{loading ? "Loading…" : ""}</div>}
+
+      {/* The same preview a session summary opens. The Library adds the provenance, which is the one
+          thing it knows and the summary does not — everything else about the file behaves identically
+          whichever list it was reached from. */}
+      {preview && (
+        <FilePreview path={preview.path} onClose={() => setPreview(null)}
+          from={{ sessionId: preview.sessionId, spaceId: preview.spaceId, sessionTitle: preview.sessionTitle, kind: preview.kind }} />
+      )}
     </div>
+  );
+}
+
+/**
+ * One file, as a card.
+ *
+ * Its own component because of the hook: a thumbnail is per-path state, and a grid cannot ask for
+ * sixty of them from inside a `map`.
+ *
+ * Every card opens, and that is the change the picture is only half of. The grid used to draw a live
+ * tile for a file the documents pane could render and an inert grey box for every other one — which
+ * in a home whose sessions write archives, images and binaries is most of them, sitting there
+ * refusing the mouse with no way to find out why. A card now opens the preview whatever the file is,
+ * and the preview is where "what can Realm actually do with this" gets answered honestly.
+ */
+function FileCard({ entry, onOpen }: { entry: LibraryEntry; onOpen: () => void }) {
+  const type = artifactTypeOf(entry.ext);
+  const thumb = useThumbnail(THUMBNAIL_TYPES.has(type) ? entry.path : null);
+  const fromLabel = `${entry.kind === "upload" ? "Uploaded to " : "Made in "}${entry.sessionTitle}`;
+  return (
+    <button type="button" className="library-tile" title={entry.path} onClick={onOpen}>
+      {/* `data-thumb` swaps the mark from a tinted well holding a glyph to a frame holding a picture:
+          the picture is the subject and needs the whole mark, where a glyph needs the well around it
+          to read as a mark at all. */}
+      <span className="library-tile-mark" data-type={type} data-thumb={thumb ? "" : undefined}>
+        {/* alt="" on purpose — the name is right beside it, and a screen reader must not read the
+            file twice. */}
+        {thumb ? <img className="library-tile-thumb" src={thumb} alt="" draggable={false} />
+          : <Icon name={TYPE_ICON[type]} size={18} />}
+      </span>
+      <span className="library-tile-name">{entry.name}</span>
+      {/* Where it came from, which is the question a file browser over many sessions is really
+          answering. The kind rides here too — "made" and "uploaded" are the same file to the
+          filesystem and very different facts to the reader.
+
+          The kind is a GLYPH and the session title takes the whole line, which is the yielding order
+          the row could not otherwise get right: the title is user data of unbounded length and
+          "Made in " is eight fixed characters that always take their width first. On a 233px card
+          that prefix was the difference between "planning a cool new app" and "planning a cool ne…",
+          so the boilerplate was eating the only part of the line that varies. The sentence is not
+          lost — it is the accessible name and the tooltip, which is where a thing that reads the
+          same on every card in the grid belongs. */}
+      <span className="library-tile-from" title={fromLabel}>
+        <Icon name={entry.kind === "upload" ? "attach" : "artifact"} size={12} className="library-tile-kind" aria-hidden="true" />
+        <span className="library-tile-session" aria-hidden="true">{entry.sessionTitle}</span>
+        <span className="visually-hidden">{fromLabel}</span>
+      </span>
+    </button>
   );
 }
 

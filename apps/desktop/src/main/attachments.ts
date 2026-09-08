@@ -153,6 +153,78 @@ export async function quickLookThumbnail(home: string, path: string, sizePx: num
   }
 }
 
+/**
+ * A picture of a file, at whatever size the caller has room for.
+ *
+ * Two producers, in cost order. An image is decoded and downscaled in-process, because that is cheap
+ * and synchronous — and downscaled on purpose: a 12-megapixel screenshot would otherwise cross the
+ * bridge whole, as base64, for a 44px tile. Everything else goes to QuickLook, which is what puts
+ * the first page of a PDF (or a Keynote slide, or a movie frame) on the tile instead of the same
+ * generic glyph every non-image used to share.
+ *
+ * `sizePx` is a parameter rather than a constant because the two callers want genuinely different
+ * pictures of the same file: a grid tile wants a mark, and a preview wants something a person can
+ * read a PDF's first page from. One function so the two can never disagree about WHICH producer a
+ * given file goes to — a tile drawing a decoded PNG while the preview beside it drew a QuickLook
+ * render of the same file would differ in crop and in colour for no reason anybody could name.
+ *
+ * Either producer answering null is normal, not an error: the caller draws its file glyph, which is
+ * also what makes a deleted or moved path degrade quietly.
+ */
+export async function fileThumbnail(home: string | null, path: unknown, sizePx: number): Promise<string | null> {
+  try {
+    if (typeof path !== "string") return null;
+    if (isImageMime(mimeForPath(path))) {
+      const img = nativeImage.createFromPath(path);
+      // An empty decode is not necessarily "not an image" — an HEIC or an SVG lands here too, and
+      // QuickLook renders both — so a failed decode falls through rather than giving up.
+      if (!img.isEmpty()) return img.resize({ height: sizePx }).toDataURL();
+    }
+    if (!home) return null; // QuickLook needs a scratch directory, and that lives under home
+    // An extension Realm's mime table does not know is one macOS is unlikely to have a generator
+    // for either — and `qlmanage` answers "no generator" by hanging until the timeout. Skipping the
+    // ask is what keeps previewing a `.bin` from costing three seconds of a stalled child process.
+    if (!isOpenablePath(path)) return null;
+    return await quickLookThumbnail(home, path, sizePx);
+  } catch { return null; }
+}
+
+/**
+ * What is on disk at `path`, or null when nothing is.
+ *
+ * The null is the point. A file browser lists rows from an INDEX, and an index records what a session
+ * did rather than what survived it — so a preview opened on a row must be able to say "this is no
+ * longer here" instead of drawing a save button, a reveal button and an open button that would all
+ * fail one after another. `describeFiles` cannot answer it: that one drops what it cannot stat,
+ * which is the right shape for a picker and the wrong one for a single named file.
+ */
+export async function statFile(path: unknown): Promise<{ path: string; size: number; mtimeMs: number } | null> {
+  if (typeof path !== "string" || !isAbsolute(path)) return null;
+  const resolved = resolve(path);
+  try {
+    const s = await stat(resolved);
+    return s.isFile() ? { path: resolved, size: s.size, mtimeMs: s.mtimeMs } : null;
+  } catch { return null; }
+}
+
+/**
+ * The resolved path of anything that EXISTS — a file or a directory — or null.
+ *
+ * Deliberately looser than `statFile`, and the difference is the whole point: revealing in the Finder
+ * is the one action that works on a directory, and an agent names directories in prose as often as it
+ * names files. `statFile`'s `isFile()` is right for a preview (there is no size to print and no copy
+ * to save for a folder) and would turn "Reveal in Finder" on a folder into a button that does nothing
+ * — which is the failure the media gate already caused for every non-media path.
+ *
+ * Safe to be loose because `showItemInFolder` neither reads nor runs what it selects. Anything that
+ * OPENS a path stays behind `openablePath`'s mime table.
+ */
+export async function existingPath(path: unknown): Promise<string | null> {
+  if (typeof path !== "string" || !isAbsolute(path)) return null;
+  const resolved = resolve(path);
+  try { await stat(resolved); return resolved; } catch { return null; }
+}
+
 /** Describe files chosen in the native picker. A path that cannot be stat'd is dropped rather than
  *  reported with a made-up size — the prompter's size check would then be checking a fiction. */
 export async function describeFiles(paths: readonly string[]): Promise<PickedFile[]> {

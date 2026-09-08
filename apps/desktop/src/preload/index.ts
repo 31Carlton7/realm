@@ -43,6 +43,30 @@ contextBridge.exposeInMainWorld("realm", {
     reveal: (path: string): Promise<void> => ipcRenderer.invoke("media:reveal", path),
     open: (path: string): Promise<void> => ipcRenderer.invoke("media:open", path),
   },
+  /**
+   * Any file the app is already LISTING — a Library row, a session's outputs — rather than a path an
+   * agent happened to mention.
+   *
+   * Separate from `media` on purpose. That surface admits only what a media element can decode,
+   * because it is asked about paths harvested out of prose; these are asked about rows the profile's
+   * own artifact index recorded, so the gate is "is this on disk" rather than "is this an mp4". A
+   * `.ts` file is a real thing to reveal in the Finder and the media gate is right to refuse it.
+   *
+   * Nothing here executes a file: handing one to the app that opens it stays behind `openAttachment`,
+   * whose mime table exists because macOS `open` runs an `.app`. `saveCopy` writes only where a
+   * native dialog the user answered put it — no destination crosses this bridge.
+   */
+  files: {
+    /** Size and mtime, or null when nothing is there — which is how a preview learns to say the file
+     *  is gone instead of drawing three actions that would each fail in turn. */
+    stat: (path: string): Promise<{ path: string; size: number; mtimeMs: number } | null> => ipcRenderer.invoke("files:stat", path),
+    /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet, a
+     *  page of source), as a data: URL. Null for a type macOS has no generator for. */
+    preview: (path: string): Promise<string | null> => ipcRenderer.invoke("files:preview", path),
+    reveal: (path: string): Promise<void> => ipcRenderer.invoke("files:reveal", path),
+    /** Copy it where the user points; the saved path, or null when they cancelled. */
+    saveCopy: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-copy", path),
+  },
   /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
   saveTempAttachment: (name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> => ipcRenderer.invoke("save-temp-attachment", name, mime, bytes),
   /** The real filesystem path behind a dropped File. Electron 32 removed `File.path`; `webUtils` is

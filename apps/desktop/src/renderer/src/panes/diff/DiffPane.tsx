@@ -329,7 +329,9 @@ function NoRepository({ cwd }: { cwd: string }) {
           and it is what someone checks when the folder name alone is ambiguous. */}
       <p className="pane-empty-path">{cwd}</p>
       <p className="pane-empty-line">There is no git repository here, so there is nothing to diff.</p>
-      <button type="button" className="btn" onClick={() => { void window.realm?.media?.reveal(cwd); }}>
+      {/* `files.reveal`, not `media.reveal`: this is a DIRECTORY, and the media gate admits only what
+          a media element can decode — so this button used to do nothing at all. */}
+      <button type="button" className="btn" onClick={() => { void window.realm?.files?.reveal?.(cwd); }}>
         Reveal in Finder
       </button>
     </div>

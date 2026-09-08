@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { symlink } from "node:fs/promises";
 import { tempDir } from "@realm/test-utils";
 import {
-  describeFiles, openablePath, quickLookThumbnail, safeAttachmentName, saveTempAttachment,
-  sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
+  describeFiles, fileThumbnail, openablePath, quickLookThumbnail, safeAttachmentName, saveTempAttachment,
+  statFile, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
 } from "./attachments";
 
 let home: string;
@@ -186,6 +186,50 @@ describe("quickLookThumbnail", () => {
   it("is a no-op off macOS — qlmanage is Apple's, and the caller falls back to its glyph", async () => {
     if (darwin) return; // the darwin path is covered above; this is the guard's other branch
     expect(await quickLookThumbnail(home, join(home, "report.pdf"), 96)).toBeNull();
+  });
+});
+
+/* What `files:stat` answers. The Library lists rows from an INDEX of what a session did, so a row
+   whose file has since been deleted is ordinary rather than exceptional — and the preview draws its
+   whole action set from this answer. */
+describe("statFile", () => {
+  it("describes a real file, resolved", async () => {
+    const p = join(home, "report.md");
+    await writeFile(p, "hello");
+    const s = await statFile(join(home, "sub", "..", "report.md"));
+    expect(s).toEqual({ path: p, size: 5, mtimeMs: expect.any(Number) });
+  });
+
+  it("answers null for a directory — a preview must not offer to save a copy of one", async () => {
+    /* The mutant: drop `isFile()`. `stat` succeeds on a directory, so the preview would draw Save a
+       copy, Reveal and Open over a folder, and `copyFile` would fail with EISDIR at the last step. */
+    expect(await statFile(home)).toBeNull();
+  });
+
+  it("answers null for a path that is gone, and for one that is not absolute", async () => {
+    expect(await statFile(join(home, "never.md"))).toBeNull();
+    // The renderer's cwd is the app bundle, so a relative path resolves somewhere nobody asked about.
+    expect(await statFile("report.md")).toBeNull();
+    expect(await statFile(null)).toBeNull();
+  });
+});
+
+describe("fileThumbnail", () => {
+  it("never asks QuickLook about a type the mime table does not know", async () => {
+    /* The mutant: drop the `isOpenablePath` guard. `qlmanage` answers "no generator" by HANGING
+       until its timeout, so previewing a `.bin` would cost three seconds of a stalled child process
+       — and the attachment tile, which shares this function, would pay it on every paste. This
+       returning promptly, rather than what it returns, is the assertion. */
+    const p = join(home, "mystery.zzz");
+    await writeFile(p, "not a document");
+    const started = Date.now();
+    expect(await fileThumbnail(home, p, 96)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("answers null rather than throwing when there is no home to put scratch in", async () => {
+    expect(await fileThumbnail(null, join(home, "report.pdf"), 96)).toBeNull();
+    expect(await fileThumbnail(home, 42, 96)).toBeNull();
   });
 });
 

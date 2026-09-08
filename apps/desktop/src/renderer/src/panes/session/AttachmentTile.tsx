@@ -1,28 +1,9 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { basenameOf, isImageMime, isOpenablePath, isPlayablePath } from "@realm/contracts";
+import { useThumbnail } from "../../components/use-thumbnail";
 import { MediaLightbox } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
-
-/** Thumbnails are minted in main (see the `attachment-thumbnail` handler) and are pure functions of a
- *  path, so one module-level cache serves every tile: the same screenshot appears in the composer and
- *  then again in the transcript, and re-reading it off disk for each would be work nobody asked for.
- *  A path that yields no thumbnail caches `null` too — an unpreviewable file must not send QuickLook
- *  off to fail again on every render. */
-const cache = new Map<string, string | null>();
-const inflight = new Map<string, Promise<string | null>>();
-
-function loadThumbnail(path: string): Promise<string | null> {
-  const hit = inflight.get(path);
-  if (hit) return hit;
-  // Guarded down to `window.realm` itself: without the preload bridge (tests, and any renderer that
-  // loads before it) a missing thumbnail must degrade to the file glyph, never take the tile down.
-  const p = (window.realm?.attachmentThumbnail?.(path) ?? Promise.resolve(null))
-    .catch(() => null)
-    .then((url) => { cache.set(path, url); inflight.delete(path); return url; });
-  inflight.set(path, p);
-  return p;
-}
 
 /** The extension, as the badge shows it: "pdf", "png". Empty for a file that has none. */
 const extOf = (path: string): string => {
@@ -67,7 +48,10 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
   onRemove?: () => void;
 }) {
   const label = name ?? basenameOf(path);
-  const [thumb, setThumb] = useState<string | null>(() => cache.get(path) ?? null);
+  // The shared cache, not a private one: this same file is a tile in the composer, a tile in the
+  // message it was sent with, and a tile in the Library, and three copies of the cache would send
+  // main after the same picture three times.
+  const thumb = useThumbnail(path);
   const ext = extOf(path);
   const opener = useRef<HTMLButtonElement>(null);
   const [lightbox, setLightbox] = useState(false);
@@ -78,13 +62,6 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
   // Answered from the path, not from `mime`: the prop carries whatever the picker said, while main
   // gates on the extension. Asking the same question both sides ask keeps the affordance honest.
   const canOpen = isOpenablePath(path);
-
-  useEffect(() => {
-    if (cache.has(path)) { setThumb(cache.get(path) ?? null); return; }
-    let live = true;
-    void loadThumbnail(path).then((url) => { if (live) setThumb(url); });
-    return () => { live = false; };
-  }, [path]);
 
   /* Media opens here, everything else opens THERE. The branch is on `file` — main's own answer about
      the file on disk — rather than on the mime the caller passed, so a path that has since moved

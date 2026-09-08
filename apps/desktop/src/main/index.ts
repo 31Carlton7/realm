@@ -1,7 +1,7 @@
 import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
-import { BrowserCredentialInputSchema, DEFAULT_MIME, isImageMime, mimeForPath, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
+import { BrowserCredentialInputSchema, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { copyFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -9,7 +9,7 @@ import { basename, join } from "node:path";
 import { startServer } from "./server-process";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
-import { compressIconIfNeeded, describeFiles, openablePath, quickLookThumbnail, saveTempAttachment, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
+import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
 import { BlockedDownloads, DownloadGovernor, retryBlockedDownload } from "./downloads";
 import type { BrowserPaneHost, ViewRect } from "./browser-host";
@@ -617,33 +617,9 @@ ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Nu
  *  get there somehow: the renderer has no filesystem access (contextIsolation), and the page's CSP is
  *  `img-src 'self' data:` — so `file://` is refused even in a packaged build. A data: URL minted here
  *  is the one channel that needs neither a protocol handler nor a CSP hole.
- *
- *  Two producers, in cost order. An image is decoded and downscaled in-process, because that is
- *  cheap and synchronous — and downscaled on purpose: a 12-megapixel screenshot would otherwise
- *  cross the bridge whole, as base64, for a 44px tile. Everything else goes to QuickLook, which is
- *  what puts the first page of a PDF (or a Keynote slide, or a movie frame) on the tile instead of
- *  the same generic glyph every non-image used to share.
- *
- *  Either producer answering null is normal, not an error: the caller draws its file glyph, which is
- *  also what makes a deleted or moved path degrade quietly. */
+ *  `fileThumbnail` owns both producers and the choice between them; see attachments.ts. */
 const THUMB_PX = 96;
-ipcMain.handle("attachment-thumbnail", async (_e, path: string): Promise<string | null> => {
-  try {
-    if (typeof path !== "string") return null;
-    if (isImageMime(mimeForPath(path))) {
-      const img = nativeImage.createFromPath(path);
-      // An empty decode is not necessarily "not an image" — an HEIC or an SVG lands here too, and
-      // QuickLook renders both — so a failed decode falls through rather than giving up.
-      if (!img.isEmpty()) return img.resize({ height: THUMB_PX }).toDataURL();
-    }
-    if (!realmHome) return null; // QuickLook needs a scratch directory, and that lives under home
-    // An extension Realm's mime table does not know is one macOS is unlikely to have a generator
-    // for either — and `qlmanage` answers "no generator" by hanging until the timeout. Skipping the
-    // ask is what keeps attaching a `.bin` from costing three seconds of a stalled child process.
-    if (mimeForPath(path) === DEFAULT_MIME) return null;
-    return await quickLookThumbnail(realmHome, path, THUMB_PX);
-  } catch { return null; }
-});
+ipcMain.handle("attachment-thumbnail", (_e, path: string): Promise<string | null> => fileThumbnail(realmHome, path, THUMB_PX));
 
 /** Opening an attachment the app cannot draw itself. A PDF, a CSV, a `.ts` — `realm-media://` will
  *  never serve one and no element could render it, so the honest answer is the app the user already
@@ -683,6 +659,49 @@ ipcMain.handle("media:reveal", async (_e, path: unknown): Promise<void> => {
 ipcMain.handle("media:open", async (_e, path: unknown): Promise<void> => {
   const servable = typeof path === "string" ? await servablePath(path) : null;
   if (servable) await shell.openPath(servable);
+});
+
+/**
+ * Any file the app LISTS, as opposed to any file an agent merely named.
+ *
+ * `media:*` deliberately admits only what an `img`/`video`/`audio` element can decode, because it
+ * answers about paths harvested from an agent's prose. These four answer about a row the Library or
+ * a session summary is already showing — a file this profile's own index records a session writing
+ * or a user attaching — so the gate is existence rather than extension. That difference is why
+ * "Reveal in Finder" on a `.ts` file used to do nothing at all: it was asking the media gate a
+ * question the media gate is right to refuse.
+ *
+ * None of the four executes anything. `stat` and `preview` read, `reveal` selects an icon in the
+ * Finder, and `save-copy` writes only where a native dialog the user answered put it. Handing a file
+ * to the app that OPENS it stays behind `attachment:open`'s mime table, where it belongs, because
+ * that one really can run an `.app`.
+ */
+ipcMain.handle("files:stat", (_e, path: unknown) => statFile(path));
+/** Bigger than a tile's, because this one is meant to be read: a PDF's first page, a spreadsheet's
+ *  first rows, a page of source. Same two producers as the tile — see `fileThumbnail`. */
+const PREVIEW_PX = 512;
+ipcMain.handle("files:preview", (_e, path: unknown): Promise<string | null> => fileThumbnail(realmHome, path, PREVIEW_PX));
+/** Looser than the other three on purpose: a DIRECTORY is a real thing to reveal, and the transcript's
+ *  path menu offers this for one. See `existingPath`. */
+ipcMain.handle("files:reveal", async (_e, path: unknown): Promise<void> => {
+  const found = await existingPath(path);
+  if (found) shell.showItemInFolder(found);
+});
+/**
+ * Save a copy of a file somewhere the user names.
+ *
+ * The destination is the dialog's answer and nothing else — the same rule `save-text` documents, and
+ * for the same reason: a renderer-supplied destination would be a write-anywhere primitive. `copyFile`
+ * rather than a read-then-write so a file too large to hold in memory is still savable, and so the
+ * copy is one syscall the OS can do properly.
+ */
+ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | null> => {
+  const file = await statFile(path);
+  if (!file) return null;
+  const r = await dialog.showSaveDialog({ defaultPath: join(app.getPath("downloads"), basename(file.path)) });
+  if (r.canceled || !r.filePath) return null;
+  await copyFile(file.path, r.filePath);
+  return r.filePath;
 });
 
 app.whenReady().then(async () => {

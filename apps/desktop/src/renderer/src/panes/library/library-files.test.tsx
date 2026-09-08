@@ -1,12 +1,37 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LIBRARY_PAGE_SIZE, PAGE_REF_IDS, type LibraryEntry } from "@realm/contracts";
 import { LibraryPage } from "./LibraryPage";
 import { groupByDay } from "./LibraryFiles";
 import { createAppStore, StoreContext } from "../../state/store";
-import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
+import { resetThumbnailCache } from "../../components/use-thumbnail";
+import { resetMediaCache } from "../session/media/use-media";
+import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 
-afterEach(() => cleanup());
+/** The preload bridge, as the preview and the cards see it. jsdom has none, so every capability the
+ *  Library offers has to be stubbed here — and a stub that is MISSING is itself the interesting case,
+ *  since the whole rule is that a button is drawn only where the thing behind it exists. */
+function bridge(over: Record<string, unknown> = {}) {
+  const files = {
+    stat: vi.fn(async (path: string) => ({ path, size: 2048, mtimeMs: 1_700_000_000_000 })),
+    preview: vi.fn(async () => null),
+    reveal: vi.fn(async (_path: string) => undefined),
+    saveCopy: vi.fn(async (_path: string) => "/Users/me/Downloads/report.md"),
+  };
+  const realm = {
+    files,
+    attachmentThumbnail: vi.fn(async (_path: string) => "data:image/png;base64,AAAA"),
+    openAttachment: vi.fn(async (_path: string) => undefined),
+    // Nothing is media unless a case says so: `useMediaFiles` aligns its answers positionally.
+    media: { stat: vi.fn(async (c: readonly string[]) => c.map(() => null)), poster: vi.fn(async () => null), reveal: vi.fn(), open: vi.fn() },
+    ...over,
+  };
+  vi.stubGlobal("window", Object.assign(window, { realm }));
+  return realm as typeof realm & { files: typeof files };
+}
+
+beforeEach(() => { resetThumbnailCache(); resetMediaCache(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const DAY = 86_400_000;
 const file = (over: Partial<LibraryEntry> & { id: string }): LibraryEntry => ({
@@ -54,9 +79,15 @@ describe("the Library's file browser", () => {
     ] });
     expect(await screen.findByText("report.md")).toBeTruthy();
     // "Made" and "uploaded" are the same file to the filesystem and very different facts to a
-    // reader trying to remember where something came from.
+    // reader trying to remember where something came from. The sentence is the accessible name; the
+    // glyph beside the title is how it reads on screen.
     expect(screen.getByText("Made in The parser rewrite")).toBeTruthy();
     expect(screen.getByText("Uploaded to Design review")).toBeTruthy();
+    /* The mutant: put "Made in " back in the VISIBLE span. jsdom cannot measure the ellipsis, but it
+       can hold the rule that produced it — the session title is the row's only unbounded item and
+       nothing fixed-width may share its element and take the slack first. */
+    expect([...document.querySelectorAll(".library-tile-session")].map((e) => e.textContent))
+      .toEqual(["The parser rewrite", "Design review"]);
   });
 
   it("tells an empty index apart from a search that matched nothing", async () => {
@@ -83,16 +114,134 @@ describe("the Library's file browser", () => {
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("libraryArtifacts:s1:"))).toBe(true));
   });
 
-  it("opens a file the documents pane can render, and does not pretend to open one it cannot", async () => {
+  it("asks main for a picture only where the picture IS the file", async () => {
+    /* The mutant: drop the type gate and thumbnail every tile. Correct on screen, and it puts one
+       `qlmanage` child process behind every card — sixty per page of this grid — for marks nobody
+       looks at. The gate is the whole reason the grid stays cheap to scroll. */
+    const realm = bridge();
+    await mount({ artifacts: [
+      file({ id: "shot.png", ext: "png", path: "/tmp/shot.png" }),
+      file({ id: "theme.css", ext: "css", path: "/tmp/theme.css" }),
+    ] });
+    await screen.findByText("shot.png");
+    await waitFor(() => expect(realm.attachmentThumbnail).toHaveBeenCalledWith("/tmp/shot.png"));
+    expect(realm.attachmentThumbnail.mock.calls.map((c) => c[0])).not.toContain("/tmp/theme.css");
+  });
+});
+
+describe("previewing a file from the Library", () => {
+  /** Open the card for `path` and wait for the preview's own stat to land. */
+  async function openCard(path: string) {
+    fireEvent.click(await screen.findByTitle(path));
+    return screen.findByRole("dialog");
+  }
+
+  it("opens a preview for EVERY file, not only the ones the documents pane can render", async () => {
+    /* The mutant: keep the old `if (isOpenableArtifact) openDocumentPath` on the card. It leaves the
+       archive — and every binary, image and unknown type in a real home — as a box that takes a
+       click and does nothing, with nothing on screen to say why. */
+    bridge();
+    await mount({ artifacts: [file({ id: "archive.zip", ext: "zip", path: "/tmp/archive.zip" })] });
+    fireEvent.click(await screen.findByTitle("/tmp/archive.zip"));
+    expect(await screen.findByRole("dialog", { name: "archive.zip" })).toBeTruthy();
+  });
+
+  it("routes the preview's Open the same way a session summary does, and no other way", async () => {
+    /* The one rule this preview exists to keep: a file must not open two different ways depending on
+       which list it was reached from. `isOpenableArtifact` IS the summary's `documentKindFor(path)
+       !== "unsupported"`, so a `.md` goes to the documents pane and a `.zip` goes to the OS. */
+    const realm = bridge();
     const { api } = await mount({ artifacts: [
-      file({ id: "report.md" }),
+      file({ id: "report.md", path: "/tmp/report.md" }),
       file({ id: "archive.zip", ext: "zip", path: "/tmp/archive.zip" }),
     ] });
-    const zip = await screen.findByTitle("/tmp/archive.zip");
-    fireEvent.click(zip);
-    expect(api.calls.some((c) => c.startsWith("openDocumentPath"))).toBe(false);
-    fireEvent.click(screen.getByTitle("/tmp/report.md"));
+    await openCard("/tmp/report.md");
+    fireEvent.click(await screen.findByRole("button", { name: "Open in the documents pane" }));
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("openDocumentPath"))).toBe(true));
+
+    await openCard("/tmp/archive.zip");
+    fireEvent.click(await screen.findByRole("button", { name: "Open with the default app" }));
+    await waitFor(() => expect(realm.openAttachment).toHaveBeenCalledWith("/tmp/archive.zip"));
+  });
+
+  it("saves a copy, reveals and copies the path through the bridge that can do all three", async () => {
+    /* The mutant: reach for `media.reveal`. That gate admits only what a media element can decode,
+       so revealing a `.md` would silently do nothing — which is exactly what the transcript's path
+       menu and the empty diff pane were doing before `files.reveal` existed. */
+    const realm = bridge();
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    await mount({ artifacts: [file({ id: "report.md", path: "/tmp/report.md" })] });
+    await openCard("/tmp/report.md");
+
+    for (const label of ["Save a copy…", "Reveal in Finder", "Copy path"]) {
+      fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: label }));
+    }
+    expect(realm.files.saveCopy).toHaveBeenCalledWith("/tmp/report.md");
+    expect(realm.files.reveal).toHaveBeenCalledWith("/tmp/report.md");
+    expect(writeText).toHaveBeenCalledWith("/tmp/report.md");
+  });
+
+  it("goes to the session a file came from, switching space when it lives in another one", async () => {
+    /* The mutant: call `openItem` on the id found in the ACTIVE space's items. The Library's default
+       scope is every space in the profile, so most of what it lists was made somewhere else, and a
+       jump that never switches space is a button that lands on nothing for exactly those rows. */
+    bridge();
+    const { api, store } = await mount({
+      sessions: [session("se2", "s2", { title: "The other space" })],
+      items: { s1: [item("i1", "s1")], s2: [item("i2", "s2", { kind: "session", refId: "se2" })] },
+      artifacts: [file({ id: "far.md", path: "/tmp/far.md", sessionId: "se2", spaceId: "s2", sessionTitle: "The other space" })],
+    });
+    const sheet = await openCard("/tmp/far.md");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Made in The other space" }));
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    // The switch is only half of it: the session's own pane has to end up in the layout, or the jump
+    // has left the user in a space they did not ask for with nothing opened.
+    await waitFor(() => expect(JSON.stringify(store.getState().layout)).toContain("i2"));
+    expect(api.calls).toContain("listItems:s2");
+  });
+
+  it("names a session that is gone instead of drawing a jump to it", async () => {
+    /* A file outlives the session that made it — that is the whole reason the index joins the title
+       at read time. A button here would switch space and land on nothing, which is a worse way to
+       learn the session is gone than the sentence that replaces it. */
+    bridge();
+    await mount({ artifacts: [file({ id: "orphan.md", path: "/tmp/orphan.md", sessionId: "deleted", sessionTitle: "A session since deleted" })] });
+    const sheet = await openCard("/tmp/orphan.md");
+    expect(await within(sheet).findByText(/that session is gone/)).toBeTruthy();
+    expect(within(sheet).queryByRole("button", { name: /Made in A session since deleted/ })).toBeNull();
+  });
+
+  it("expands into the transcript's own lightbox, and Escape comes back to the preview", async () => {
+    /* Two things at once. The lightbox is the transcript's — a second image viewer here would be a
+       fork of the one component this whole preview exists to reuse. And it REPLACES the sheet rather
+       than stacking on it: both listen for Escape on `window` in the capture phase and the sheet is
+       mounted first, so drawing them together made one press close both and turned "expand" into a
+       one-way trip out of the preview. */
+    bridge({ media: { stat: async (c: readonly string[]) => c.map((path) => ({ path, mime: "image/png", kind: "image", size: 4096 })),
+                      poster: async () => null, reveal: vi.fn(), open: vi.fn() } });
+    await mount({ artifacts: [file({ id: "shot.png", ext: "png", path: "/tmp/shot.png", kind: "upload" })] });
+    await openCard("/tmp/shot.png");
+    fireEvent.click(await screen.findByRole("button", { name: "Expand" }));
+
+    await waitFor(() => expect(document.querySelector(".media-lightbox")).toBeTruthy());
+    expect(document.querySelector(".sheet")).toBeNull();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(document.querySelector(".media-lightbox")).toBeNull());
+    expect(await screen.findByRole("dialog", { name: "shot.png" })).toBeTruthy();
+  });
+
+  it("draws no actions at all for a file that is no longer on disk", async () => {
+    /* The index records what a session DID, not what survived it. Three buttons that each fail in
+       turn is a worse way to learn the file is gone than one sentence saying so. */
+    bridge({ files: { stat: vi.fn(async () => null), preview: vi.fn(async () => null), reveal: vi.fn(), saveCopy: vi.fn() } });
+    await mount({ artifacts: [file({ id: "report.md", path: "/tmp/report.md" })] });
+    await openCard("/tmp/report.md");
+    expect(await screen.findByText("This file is no longer on disk.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open in the documents pane" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
   });
 
   it("asks for exactly one page, and for the next one only when the list is scrolled to it", async () => {

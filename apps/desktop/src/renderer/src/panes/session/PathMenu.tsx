@@ -14,6 +14,12 @@ import { useApp } from "../../state/store";
  * Reveal in Finder is always offered, because it is the one action that works for anything: a
  * directory, a binary, a path that has since been deleted. It is also the request as it was made —
  * "have the option to open in finder".
+ *
+ * It goes through `files.reveal` rather than `media.reveal`, and that is a fix rather than a
+ * preference: the media gate admits only what an `img`/`video`/`audio` element can decode, so this
+ * menu's one universal action silently did nothing for a `.ts`, a `.json` or a folder — which is
+ * nearly everything an agent names. `files.reveal` gates on existence, which is the question
+ * revealing actually asks.
  */
 export function PathMenu({ path, anchorRef, environmentId, onClose }: {
   path: string;
@@ -36,7 +42,7 @@ export function PathMenu({ path, anchorRef, environmentId, onClose }: {
       label: editable ? `Open ${name}` : `Preview ${name}`,
       onSelect: () => run(() => openDocumentPath(path, environmentId)),
     }] : []),
-    { label: "Reveal in Finder", onSelect: () => { void window.realm?.media?.reveal(path); } },
+    { label: "Reveal in Finder", onSelect: () => { void window.realm?.files?.reveal?.(path); } },
     { kind: "separator" } as MenuItem,
     { label: "Copy path", onSelect: () => { void navigator.clipboard.writeText(path); } },
   ];
