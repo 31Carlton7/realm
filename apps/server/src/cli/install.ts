@@ -39,6 +39,15 @@ export function commandSpec(route: InstallRoute | null, action: InstallAction, l
   if (route.method === "brew") {
     return { display, file: "brew", args: [action === "install" ? "install" : "upgrade", route.formula] };
   }
+  // Also argv-shaped, and `uv tool install` for BOTH actions — it is idempotent over an already
+  // installed tool, so an update is an install at a pinned version rather than a separate verb.
+  if (route.method === "uv") {
+    const pkg = action === "install" ? route.pkg : `${route.pkg}==${latest}`;
+    const python = route.python ? ["--python", route.python] : [];
+    return { display, file: "uv", args: ["tool", "install", ...python, pkg] };
+  }
+  // `self` reaches here too, and `display` already refused it: `installCommand` answers null for a
+  // self-updater, so the guard above returned before this line.
   return { display, file: PIPELINE_SHELL, args: ["-c", route.command] };
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_INSTALL_ROUTES, canRunUpdate, compareVersions, installCommand, isNewerVersion, updatePlan,
-  parseBrewFormula, parseNpmLatest, parseVersion, updateChannel, updateCommand, updateRefusal,
+  parseBrewFormula, parseNpmLatest, parsePypiLatest, parseVersion, updateChannel, updateCommand, updateRefusal,
 } from "./cli";
 import { AGENT_CLI_COMMANDS } from "./presets";
 import { AgentKindSchema } from "./entities";
@@ -20,6 +20,53 @@ describe("AGENT_INSTALL_ROUTES", () => {
   it("gives fake no route, so nothing can offer to install the dev adapter", () => {
     expect(AGENT_INSTALL_ROUTES.fake).toBe(null);
     expect(installCommand(AGENT_INSTALL_ROUTES.fake)).toBe(null);
+  });
+});
+
+describe("the uv route", () => {
+  it("carries the interpreter pin the package demands into the command", () => {
+    // openhands declares `requires-python == 3.12.*`; without the pin uv resolves nothing on a
+    // machine whose default is 3.13 or 3.14.
+    expect(installCommand({ method: "uv", pkg: "openhands", python: "3.12" })).toBe("uv tool install --python 3.12 openhands");
+  });
+
+  it("omits the pin when there is none, rather than inventing a version", () => {
+    expect(installCommand({ method: "uv", pkg: "ruff" })).toBe("uv tool install ruff");
+  });
+
+  it("updates by re-installing at the pinned version, so the button's version is the one landed", () => {
+    expect(updateCommand({ method: "uv", pkg: "openhands", python: "3.12" }, "1.17.0")).toBe("uv tool install --python 3.12 openhands==1.17.0");
+  });
+
+  it("asks PyPI what the newest version is", () => {
+    expect(updateChannel({ method: "uv", pkg: "openhands" })).toEqual({ url: "https://pypi.org/pypi/openhands/json", kind: "pypi" });
+  });
+
+  it("updates a uv install only when uv is what installed it", () => {
+    const route = { method: "uv", pkg: "openhands" } as const;
+    expect(canRunUpdate(route, "uv")).toBe(true);
+    for (const p of ["npm", "pnpm", "brew", "unknown"] as const) expect(canRunUpdate(route, p), p).toBe(false);
+  });
+
+  it("names uv in the refusal, so the sentence says which manager Realm would have used", () => {
+    expect(updateRefusal({ method: "uv", pkg: "openhands" }, "brew")).toContain("won't update it with uv");
+  });
+
+  it("will not run an npm route against a uv install, or the reverse", () => {
+    expect(updatePlan({ method: "npm", pkg: "x" }, "uv", "acp:goose")).toBe(null);
+    expect(updatePlan({ method: "uv", pkg: "openhands" }, "npm", "acp:goose")).toBe(null);
+  });
+});
+
+describe("parsePypiLatest", () => {
+  it("reads info.version, the field PyPI's project document carries it in", () => {
+    expect(parsePypiLatest({ info: { version: "1.16.0" }, releases: { "1.15.0": [], "1.16.0": [] } })).toBe("1.16.0");
+  });
+
+  it("answers null rather than throwing on anything else", () => {
+    expect(parsePypiLatest({ version: "1.16.0" })).toBe(null);
+    expect(parsePypiLatest({ info: { version: "  " } })).toBe(null);
+    expect(parsePypiLatest(null)).toBe(null);
   });
 });
 

@@ -18,6 +18,7 @@ import type { InstallProvenance } from "@realm/contracts";
  *   brew cask  /opt/homebrew/bin/codex  → ../Caskroom/codex/0.146.0/bin/codex
  *   npm        /opt/homebrew/bin/codex  → ../lib/node_modules/@openai/codex/bin/codex.js
  *   pnpm       ~/Library/pnpm/codex     → ../pnpm/global/5/.pnpm/@openai+codex@0.1.0/node_modules/...
+ *   uv tool    ~/.local/bin/openhands   → ../share/uv/tools/openhands/bin/openhands   (2026-09-08)
  *   vendor     ~/.local/share/claude/versions/2.1.258, ~/.opencode/bin/opencode, ~/.local/bin/fx
  *
  * That last row is the majority on a working machine — four of the five agent CLIs installed on the
@@ -28,6 +29,13 @@ import type { InstallProvenance } from "@realm/contracts";
 /** Every marker is matched as a whole path SEGMENT (`/Cellar/`, not the substring "Cellar"), so a
  *  user directory called `~/Cellar-backups` or `~/node_modules-notes` cannot pass for a prefix. */
 const hasSegment = (path: string, name: string): boolean => path.split(sep).includes(name);
+
+/** Two ADJACENT segments, for a marker that is only a marker as a pair. `uv` and `tools` each turn up
+ *  in ordinary project paths on their own; `uv/tools` is uv's own directory and nothing else. */
+const hasSegmentPair = (path: string, first: string, second: string): boolean => {
+  const parts = path.split(sep);
+  return parts.some((p, i) => p === first && parts[i + 1] === second);
+};
 
 /**
  * Classify a *resolved* (symlink-free) binary path.
@@ -45,6 +53,10 @@ export function classifyPath(realPath: string): InstallProvenance {
   if (hasSegment(realPath, "Cellar") || hasSegment(realPath, "Caskroom")) return "brew";
   if (hasSegment(realPath, ".pnpm")) return "pnpm";
   if (hasSegment(realPath, "node_modules")) return "npm";
+  // uv's tool directory, `$XDG_DATA_HOME/uv/tools/<name>/`. Last because it is the narrowest marker,
+  // and because a Python CLI is the one kind of install that could plausibly sit inside one of the
+  // roots above without belonging to it.
+  if (hasSegmentPair(realPath, "uv", "tools")) return "uv";
   return "unknown";
 }
 

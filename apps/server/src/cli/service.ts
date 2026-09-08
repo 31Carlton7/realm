@@ -1,6 +1,6 @@
 import {
   AGENT_INSTALL_ROUTES, AgentKindSchema, canRunUpdate, installCommand, isNewerVersion, parseBrewFormula,
-  parseNpmLatest, updateChannel, updateCommand, updatePlan, updateRefusal,
+  parseNpmLatest, parsePypiLatest, updateChannel, updateCommand, updatePlan, updateRefusal,
   type AgentKind, type CliStatus, type InstallProvenance,
 } from "@realm/contracts";
 import type { ProbeResult } from "@realm/adapters";
@@ -121,13 +121,15 @@ export class CliService {
     return Object.fromEntries(entries);
   }
 
-  private async fetchLatest(channel: { url: string; kind: "npm" | "brew" }): Promise<string | null> {
+  private async fetchLatest(channel: NonNullable<ReturnType<typeof updateChannel>>): Promise<string | null> {
     try {
       const f = this.d.fetchImpl ?? fetch;
       const res = await f(channel.url, { signal: AbortSignal.timeout(CHECK_TIMEOUT_MS), headers: { accept: "application/json" } });
       if (!res.ok) return null;
       const body: unknown = await res.json();
-      return channel.kind === "npm" ? parseNpmLatest(body) : parseBrewFormula(body);
+      if (channel.kind === "npm") return parseNpmLatest(body);
+      if (channel.kind === "pypi") return parsePypiLatest(body);
+      return parseBrewFormula(body);
     } catch {
       // A registry that is down, slow, or has changed shape is a reason to say nothing, never a
       // reason to fail the caller — the rest of the Settings page must still render.

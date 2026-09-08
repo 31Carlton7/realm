@@ -162,6 +162,9 @@ export const AGENT_HAS_MCP: Record<AgentKind, boolean> = {
   // (its README says so outright), so Realm's gateway entry cannot be handed over at all.
   "acp:deepseek": false,
   "acp:fx": true,
+  // Measured 2026-09-08: OpenHands' `initialize` advertises `mcpCapabilities {http: true, sse: true}`,
+  // so `acpMcpServers` hands over the gateway's `http` entry with nothing filtered out.
+  "acp:openhands": true,
   fake: false,
 };
 

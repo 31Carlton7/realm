@@ -271,6 +271,25 @@ describe("tools/call — round-trip, policy re-check, logging", () => {
     await client.close();
   });
 
+  it("compresses a third-party result on the way back, and logs the excerpt the AGENT was handed", async () => {
+    // The stub echoes its arguments as compact JSON, so nothing is left for minification to take —
+    // the win here is entirely the table, which is the transform worth proving reaches the wire.
+    const rows = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `person-${i}`, team: "platform" }));
+    const app = await setupApp();
+    const { row: alpha } = app.addServer("alpha");
+    app.mcp.setEnabled(app.spaceId, alpha.id, true);
+    const { client } = await connectClient(app);
+    const text = asText(await client.callTool({ name: "alpha__echo", arguments: { rows } }) as CallToolResult);
+    expect(text.startsWith('mcp: "rows": 60 rows as a tab-separated table')).toBe(true);
+    expect(text.length).toBeLessThan(JSON.stringify({ rows }).length);
+    // Every row still there, and the last one intact — a compression that quietly dropped the tail
+    // would pass a length assertion on its own.
+    expect(text.split("\n").at(-1)).toBe("60\tperson-59\tplatform");
+    await waitFor(() => app.calls.list({ sessionId: app.sessionId }).length === 1);
+    expect(app.calls.list({ sessionId: app.sessionId })[0]!.resultSummary.startsWith("mcp: \"rows\": 60 rows")).toBe(true);
+    await client.close();
+  });
+
   it("re-checks enablement at call time — disabling the server blocks its very next call, and logs the block", async () => {
     const app = await setupApp();
     const { row: alpha } = app.addServer("alpha");
@@ -602,6 +621,21 @@ describe("in-process providers (Plan 11 W3)", () => {
     const { client } = await connectClient(app);
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual(["alpha__boom", "alpha__echo", "realm-browser__ping"]);
+    await client.close();
+  });
+
+  it("leaves an in-process provider's result alone, however compressible it looks", async () => {
+    // Realm's own providers already choose and clip their output shape (`tool-result.ts`); reflowing
+    // it here would be undoing a decision made one layer down, so the seam is third-party only.
+    const payload = JSON.stringify({ rows: Array.from({ length: 60 }, (_, i) => ({ id: i, name: `n${i}`, team: "platform" })) });
+    const app = await setupApp();
+    app.gateway.registerProvider({
+      name: "realm-browser",
+      tools: async () => [{ name: "ping", description: "pong", inputSchema: { type: "object" as const } }],
+      call: async (): Promise<CallToolResult> => ({ content: [{ type: "text", text: payload }], isError: false }),
+    });
+    const { client } = await connectClient(app);
+    expect(asText(await client.callTool({ name: "realm-browser__ping", arguments: {} }) as CallToolResult)).toBe(payload);
     await client.close();
   });
 

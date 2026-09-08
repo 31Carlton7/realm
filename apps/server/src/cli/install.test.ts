@@ -60,6 +60,21 @@ describe("commandSpec", () => {
     expect(commandSpec(AGENT_INSTALL_ROUTES["acp:goose"], "update", "1.9.0")?.args).toEqual(["upgrade", "block-goose-cli"]);
   });
 
+  it("spawns uv as argv too, with the interpreter pin the route carries", () => {
+    expect(commandSpec(AGENT_INSTALL_ROUTES["acp:openhands"], "install", null)).toEqual({
+      display: "uv tool install --python 3.12 openhands",
+      file: "uv", args: ["tool", "install", "--python", "3.12", "openhands"],
+    });
+  });
+
+  it("updates a uv tool by re-installing it at the checked version", () => {
+    // `uv tool install` is idempotent over an installed tool, so an update is an install with a pin
+    // rather than a separate verb — and the pin is what makes the button's promise true.
+    expect(commandSpec(AGENT_INSTALL_ROUTES["acp:openhands"], "update", "1.17.0")?.args).toEqual(
+      ["tool", "install", "--python", "3.12", "openhands==1.17.0"],
+    );
+  });
+
   it("runs a vendor pipeline through a plain non-login, non-interactive shell", () => {
     // -l or -i would re-run the user's rc files and could block on a prompt; the server already
     // carries the merged login PATH, so the shell exists only to interpret the pipe.

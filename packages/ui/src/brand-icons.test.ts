@@ -4,7 +4,7 @@ import { brandMarks, isBrandName } from "./brand-icons";
 describe("brand marks", () => {
   it("covers every provider the prompter can name", () => {
     expect(Object.keys(brandMarks).sort()).toEqual([
-      "claude", "cursor", "deepseek", "fx", "gemini", "githubCopilot", "goose", "grok", "kimi", "openai", "opencode", "qwen", "zai",
+      "claude", "cursor", "deepseek", "fx", "gemini", "githubCopilot", "goose", "grok", "kimi", "openai", "opencode", "openhands", "qwen", "zai",
     ]);
   });
 

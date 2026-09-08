@@ -7,6 +7,7 @@ import type { McpServerConfig } from "@realm/adapters";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
 import type { McpCallLogStore, McpServerRow, McpServersStore } from "../store/mcp";
+import { compressToolResult } from "./compress";
 import type { McpHub, McpLiveTool } from "./hub";
 import type { McpService } from "./service";
 
@@ -481,13 +482,20 @@ export class McpGateway {
     }
     const start = Date.now();
     try {
-      const result = await this.d.hub.call(serverId, tool, args);
+      // Compressed HERE and not one layer down in the hub: the hub is row-keyed and session-blind,
+      // and this is the seam that knows a result is on its way to an agent's context rather than,
+      // say, to a live-check. Realm's own in-process providers above are deliberately not put
+      // through it — they already choose and clip their own output shape.
+      const result = compressToolResult(await this.d.hub.call(serverId, tool, args));
       // `isError: true` is a normal, successfully round-tripped MCP result — the call reached the
       // server and the SERVER reported a problem. It still counts as `ok: false` in Activity: from the
       // user's perspective a failed tool call is a failed tool call, whether the failure came back as a
       // thrown transport error or as a reported result. See `hub.ts`'s own `isError`/breaker distinction
       // for why the HUB treats the two differently — Activity's `ok` is a different question than the
       // circuit breaker's.
+      //
+      // Summarised AFTER compression on purpose: Activity's excerpt is a record of what the agent was
+      // actually handed, and an excerpt of a payload nobody ever saw would be a prettier lie.
       this.record(sessionId, serverId, serverName, tool, argsJson, result.isError !== true, Date.now() - start, summarize(result));
       return result;
     } catch (err) {

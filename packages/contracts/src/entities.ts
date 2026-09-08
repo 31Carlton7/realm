@@ -236,6 +236,13 @@ export const AgentKindSchema = z.enum([
   // its server is automation-only (see AGENT_NOTES), so Realm shows a turn's answer whole rather
   // than streaming it. Better a harness that says what it cannot do than one that is missing.
   "acp:deepseek",
+  // OpenHands, added 2026-09-08. In the ACP registry and a good citizen on the wire — its
+  // `initialize` (measured, 1.16.0) answers protocolVersion 1, `loadSession: true`, and
+  // `mcpCapabilities {http: true, sse: true}`, so Realm's gateway entry reaches it unmodified.
+  // Registered despite its CLI being in maintenance-only (see AGENT_NOTES): the ACP server it
+  // publishes works today, and the successor the vendor points at — Agent Canvas — is an ACP
+  // CLIENT, a peer of Realm rather than an agent Realm could host.
+  "acp:openhands",
   "fake",
 ]);
 export type AgentKind = z.infer<typeof AgentKindSchema>;

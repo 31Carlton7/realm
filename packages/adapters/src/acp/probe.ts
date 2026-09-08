@@ -16,9 +16,14 @@ const run = promisify(execFile);
 export async function probeAcp(
   bin: string,
   versionArgs: string[] = ["--version"],
+  env?: Record<string, string>,
 ): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null }> {
   try {
-    const { stdout } = await run(bin, versionArgs, { timeout: 5000 });
+    // The spec's `env` is applied here as well as at `start`, because for some CLIs it is what makes
+    // `--version` answerable at all: openhands prints a seven-line ASCII banner ahead of the number
+    // unless OPENHANDS_SUPPRESS_BANNER is set, and the first line of that is what would be reported
+    // as the version.
+    const { stdout } = await run(bin, versionArgs, { timeout: 5000, env: env ? { ...process.env, ...env } : undefined });
     const version = stdout.trim().split("\n")[0]?.trim() || null;
     return { available: true, version, loggedIn: null, reason: "unknown until a session starts" };
   } catch (e) {

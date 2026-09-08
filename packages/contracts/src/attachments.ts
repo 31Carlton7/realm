@@ -123,6 +123,10 @@ const DISPOSITIONS = {
   // bracketed textual reference — the file is NAMED to the model, never read for it. Still "link":
   // that is the block Realm sends, and the note beside it is where the flattening is explained.
   "acp:deepseek": { image: "link", other: "link" },
+  // The floor, as for every ACP kind — though OpenHands is one that lifts it: its `initialize`
+  // advertises `promptCapabilities {image: true, embeddedContext: true}` (measured 2026-09-08), so
+  // the adapter inlines images at runtime rather than sending the `resource_link` this row names.
+  "acp:openhands": { image: "link", other: "link" },
   // fake-adapter.ts never looks at `attachments`.
   fake: { image: "ignored", other: "ignored" },
 } as const satisfies Record<AgentKind, { image: AttachmentDisposition; other: AttachmentDisposition }>;

@@ -77,6 +77,7 @@ export const USAGE_REPORTING: Record<AgentKind, UsageReporting> = {
   "acp:grok": { series: "none", tokens: false, cost: "none" },
   "acp:fx": { series: "none", tokens: false, cost: "none" },
   "acp:deepseek": { series: "none", tokens: false, cost: "none" },
+  "acp:openhands": { series: "none", tokens: false, cost: "none" },
   fake: { series: "per-turn", tokens: true, cost: "reported" },
 };
 

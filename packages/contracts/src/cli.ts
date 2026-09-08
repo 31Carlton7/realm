@@ -26,6 +26,18 @@ export type InstallRoute =
    */
   | { method: "script"; host: string; command: string }
   /**
+   * A `uv` tool install. `pkg` is the PyPI name, which is also its lookup key; `python` pins the
+   * interpreter when the package demands one.
+   *
+   * `pip install` is deliberately not the route offered for a Python CLI. A `pip install -g`
+   * equivalent does not exist — a bare `pip install` lands in whatever environment happens to be
+   * active, which for a user with a project venv open is the wrong one and for a user with none is a
+   * system Python that macOS marks externally managed. `uv tool install` is the vendor's own
+   * documented route and the only one that puts the CLI on PATH without asking which Python was
+   * meant.
+   */
+  | { method: "uv"; pkg: string; python?: string }
+  /**
    * The CLI's OWN updater. `command` is the subcommand it publishes, verbatim.
    *
    * Never an install route — you cannot run `claude update` before there is a claude — so this only
@@ -55,6 +67,9 @@ export const AGENT_INSTALL_ROUTES = {
   // The ACP server package, not the `dsh` launcher — see AGENT_CLI_COMMANDS for why this install
   // fails today against the published registry.
   "acp:deepseek": { method: "npm", pkg: "@deepseek-ai/dsh-acp-demo" },
+  // `--python 3.12` is not a preference: openhands 1.16.0 declares `requires-python == 3.12.*`, so
+  // on a machine whose default interpreter is anything else uv resolves nothing without it.
+  "acp:openhands": { method: "uv", pkg: "openhands", python: "3.12" },
   fake: null,
 } as const satisfies Record<AgentKind, InstallRoute | null>;
 
@@ -63,6 +78,7 @@ export function installCommand(route: InstallRoute | null): string | null {
   if (!route) return null;
   if (route.method === "npm") return `npm install -g ${route.pkg}`;
   if (route.method === "brew") return `brew install ${route.formula}`;
+  if (route.method === "uv") return `uv tool install${route.python ? ` --python ${route.python}` : ""} ${route.pkg}`;
   // `self` is not an install route and AGENT_INSTALL_ROUTES never holds one; the guard is here so
   // that a caller which passed an update plan by mistake gets nothing rather than `claude update`
   // offered as the way to install claude.
@@ -90,6 +106,10 @@ export function updateCommand(route: InstallRoute | null, version: string): stri
   if (!version) return null;
   if (route.method === "npm") return `npm install -g ${route.pkg}@${version}`;
   if (route.method === "brew") return `brew upgrade ${route.formula}`;
+  // Re-installing at the pinned version, not `uv tool upgrade`, for the same reason npm is pinned
+  // above: `upgrade` resolves latest when it runs, so the version the user agreed to on the button
+  // is not necessarily the one they get. `uv tool install` is idempotent over an existing tool.
+  if (route.method === "uv") return `uv tool install${route.python ? ` --python ${route.python}` : ""} ${route.pkg}==${version}`;
   return null;
 }
 
@@ -99,13 +119,14 @@ export function updateCommand(route: InstallRoute | null, version: string): stri
  * Both endpoints are public, unauthenticated, single-GET JSON, and neither carries anything about the
  * user — same standing as MODEL_CATALOG_URL.
  */
-export function updateChannel(route: InstallRoute | null): { url: string; kind: "npm" | "brew" } | null {
+export function updateChannel(route: InstallRoute | null): { url: string; kind: "npm" | "brew" | "pypi" } | null {
   if (!route) return null;
   // `@openai%2Fcodex` — the form npm's own registry API documents for a scoped name. Measured
   // 2026-09-05, the registry also answers 200 to the raw slash and to a fully percent-encoded name,
   // so this is a matter of sending the documented URL rather than of the other forms being broken.
   if (route.method === "npm") return { url: `https://registry.npmjs.org/${route.pkg.replace("/", "%2F")}/latest`, kind: "npm" };
   if (route.method === "brew") return { url: `https://formulae.brew.sh/api/formula/${route.formula}.json`, kind: "brew" };
+  if (route.method === "uv") return { url: `https://pypi.org/pypi/${route.pkg}/json`, kind: "pypi" };
   return null;
 }
 
@@ -121,6 +142,14 @@ export function parseNpmLatest(body: unknown): string | null {
  *  ignored — it is the literal string "HEAD", not a version, and `brew install` lands stable. */
 export function parseBrewFormula(body: unknown): string | null {
   const v = (body as { versions?: { stable?: unknown } } | null)?.versions?.stable;
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+}
+
+/** `info.version` off a PyPI project document. Measured 2026-09-08 against the public JSON API:
+ *  `https://pypi.org/pypi/openhands/json` answers `info: { version: "1.16.0", … }`. The releases map
+ *  beside it is deliberately ignored — it is keyed by every version ever published, in no order. */
+export function parsePypiLatest(body: unknown): string | null {
+  const v = (body as { info?: { version?: unknown } } | null)?.info?.version;
   return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 }
 
@@ -185,7 +214,7 @@ export function isNewerVersion(installed: string | null | undefined, latest: str
  * package manager Realm does not classify all land there — and it is not a failure state. It only
  * means Realm will not run an update command for that binary.
  */
-export type InstallProvenance = "npm" | "pnpm" | "brew" | "unknown";
+export type InstallProvenance = "npm" | "pnpm" | "brew" | "uv" | "unknown";
 
 /**
  * Whether Realm may offer to run `route`'s update command against a binary of this provenance.
@@ -262,6 +291,7 @@ export function updatePlan(route: InstallRoute | null, provenance: InstallProven
     return formula ? { method: "brew", formula } : null;
   }
   if (provenance === "npm" || provenance === "pnpm") return route?.method === "npm" ? route : null;
+  if (provenance === "uv") return route?.method === "uv" ? route : null;
   return null;
 }
 
@@ -272,6 +302,7 @@ export function canRunUpdate(route: InstallRoute | null, provenance: InstallProv
   if (!route) return false;
   if (route.method === "npm") return provenance === "npm";
   if (route.method === "brew") return provenance === "brew";
+  if (route.method === "uv") return provenance === "uv";
   return false;
 }
 
@@ -280,7 +311,7 @@ export function updateRefusal(route: InstallRoute | null, provenance: InstallPro
   if (kind !== undefined && selfUpdatePlan(kind)) return null;
   if (!route || canRunUpdate(route, provenance, kind)) return null;
   if (route.method === "script") return "Realm can't update this one — its installer is a script from the vendor, and re-running it gives no way to confirm which version you'd land on.";
-  const want = route.method === "npm" ? "npm" : "Homebrew";
+  const want = route.method === "npm" ? "npm" : route.method === "uv" ? "uv" : "Homebrew";
   const have = provenance === "brew" ? "Homebrew" : provenance === "unknown" ? "something other than a package manager Realm recognises" : provenance;
   return `Installed with ${have}, so Realm won't update it with ${want} — that would leave a second copy on your PATH instead of upgrading this one.`;
 }

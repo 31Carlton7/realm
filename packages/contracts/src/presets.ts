@@ -80,6 +80,11 @@ export const AGENT_MODELS = {
   // has nothing to enumerate. Curated for the same reason `claude` is — with the two the harness's
   // own docs name — and kept to the pair a `dsh` install can actually route to.
   "acp:deepseek": [{ id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" }, { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" }],
+  // Empty, and not because a probe will fill it: OpenHands takes its model from its OWN stored
+  // settings (`~/.openhands/agent_settings.json`, written by `/settings`), and its ACP server
+  // advertises neither a `models` field nor a config option to change one. There is nothing on the
+  // wire to enumerate and nothing Realm could transmit if there were.
+  "acp:openhands": [],
   fake: [{ id: "fake", label: "Fake" }],
 } as const satisfies Record<import("./entities").AgentKind, readonly AgentModel[]>;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -94,6 +99,7 @@ export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const SELECTABLE_AGENT_KINDS = [
   "claude", "codex", "acp:cursor", "acp:gemini",
   "acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx", "acp:deepseek",
+  "acp:openhands",
 ] as const satisfies ReadonlyArray<import("./entities").AgentKind>;
 /** Frontier default model label per kind — what the prompter's model chip shows while `session.model`
  *  is null (the adapter's own default). Display-only: never transmitted as a model id. */
@@ -108,6 +114,9 @@ export const DEFAULT_MODEL_LABEL = {
   // Named, not "Default": unlike the ACP agents above, a dsh ACP server is BOOTED with its model, so
   // an un-pinned session runs whatever `--model` the spec passed — which Realm sets to V4 Pro.
   "acp:deepseek": "DeepSeek V4 Pro",
+  // "Default" for the strongest form of the reason above: the model is not merely unknown before the
+  // handshake, it is never on the wire at all — it lives in OpenHands' own settings file.
+  "acp:openhands": "Default",
   fake: "Fake",
 } as const satisfies Record<import("./entities").AgentKind, string>;
 /**
@@ -133,6 +142,7 @@ export const AGENT_SUPPORTS_PERMISSION_MODES = {
   // OWN POLICY (the README's `session/request_permission` line offers one-shot allow/reject that
   // "clients may answer automatically"), so there is no mode to set even in principle.
   "acp:deepseek": false,
+  "acp:openhands": false,
   fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -163,6 +173,10 @@ export const AGENT_CONVERSATION_REWIND = {
   // dsh-acp supports no session load, resume, list, delete or fork at all — its own "Known
   // Limitations" heading says so — so it is further from a rewind than the rest, not closer.
   "acp:deepseek": false,
+  // `loadSession: true` in its `initialize` (measured) means a session can be RE-OPENED, which is a
+  // different thing from truncating one — ACP still has no verb for that, so the answer is the same
+  // false as every other kind's.
+  "acp:openhands": false,
   fake: false,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -289,6 +303,7 @@ export const AGENT_MIDTURN_DELIVERY = {
   "acp:cursor": "interrupt", "acp:gemini": "interrupt", "acp:opencode": "interrupt",
   "acp:copilot": "interrupt", "acp:goose": "interrupt", "acp:qwen": "interrupt",
   "acp:grok": "interrupt", "acp:fx": "interrupt", "acp:deepseek": "interrupt",
+  "acp:openhands": "interrupt",
   // The scripted adapter models the interrupt kinds (its `interrupt` breaks the step loop while the
   // turn still emits its trailing usage + idle), which is what the behaviour suite needs.
   fake: "interrupt",
@@ -306,6 +321,10 @@ export const AGENT_SUPPORTS_PLAN_MODE = {
   // dsh-acp advertises no modes and no config options — the one ACP kind where `false` is not a
   // pre-handshake floor but the final answer, because the handshake has nothing to raise it with.
   "acp:deepseek": false,
+  // The ordinary pre-handshake floor, not a final answer: OpenHands' `session/new` is gated behind
+  // its own settings file, so what it advertises in `modes.availableModes` was not measurable here.
+  // `acpPlanMode` raises this per session if it names a well-known id.
+  "acp:openhands": false,
   fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -335,6 +354,7 @@ export const AGENT_SUPPORTS_ASK_MODE = {
   // dsh-acp advertises no modes and no config options, so the handshake has nothing to raise this
   // with — the one ACP kind where `false` is the final answer rather than a floor.
   "acp:deepseek": false,
+  "acp:openhands": false,
   fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -519,6 +539,7 @@ export const AGENT_META = {
   "acp:grok": { label: "Grok", icon: "grok" },
   "acp:fx": { label: "fx", icon: "fx" },
   "acp:deepseek": { label: "DeepSeek", icon: "deepseek" },
+  "acp:openhands": { label: "OpenHands", icon: "openhands" },
   fake: { label: "Fake agent", icon: "bot" },
 } as const satisfies Record<import("./entities").AgentKind, { label: string; icon: string }>;
 
@@ -593,6 +614,15 @@ export const AGENT_NOTES = {
     billing: "Bills through your Vercel AI Gateway credit.",
     limits: "Realm cannot inject skills or set permission modes over ACP.",
   },
+  "acp:openhands": {
+    good: "The open-source autonomous agent — long unattended runs against whichever model you configured it with.",
+    billing: "Bills through whichever provider you set in OpenHands' own settings, or your OpenHands Cloud plan.",
+    // Both halves measured 2026-09-08 against openhands 1.16.0. The settings gate is the one a user
+    // hits first and the one no other kind here has: `session/new` refuses outright until the file
+    // exists, and the LLM_* env vars do not stand in for it (`--override-with-envs` is not honoured
+    // on the `acp` path). The maintenance note is second because it costs nothing today.
+    limits: "Run `openhands` once and use `/settings` before the first session — its ACP server refuses to start one until its settings file exists. Realm cannot inject skills or set permission modes over ACP, and the OpenHands CLI is in maintenance-only upstream.",
+  },
   "acp:deepseek": {
     good: "By far the cheapest capable coding loop here — DeepSeek V4 runs at a fraction of frontier prices.",
     billing: "Bills through your DeepSeek API key (DEEPSEEK_API_KEY).",
@@ -642,6 +672,15 @@ export const AGENT_CLI_COMMANDS = {
   // the harness, and until then the probe reports the CLI as missing, which is the truth.
   // There is no login command — the server reads DEEPSEEK_API_KEY.
   "acp:deepseek": { install: "npm install -g @deepseek-ai/dsh-acp-demo", login: null },
+  // Installed and verified 2026-09-08: `uv tool install --python 3.12 openhands` lands openhands
+  // 1.16.0 and `openhands acp` answers a real ACP `initialize`. The `--python` pin is required, not
+  // stylistic — the package declares `requires-python == 3.12.*`.
+  //
+  // `login` is the bare binary, as for `acp:qwen`: there is no non-interactive command. `openhands`
+  // opens the TUI, where `/settings` writes the settings file its ACP server insists on, and
+  // `openhands login` covers the Cloud route only. One command per slot, so this names the one that
+  // reaches both.
+  "acp:openhands": { install: "uv tool install --python 3.12 openhands", login: "openhands" },
   fake: { install: null, login: null },
 } as const satisfies Record<import("./entities").AgentKind, { install: string | null; login: string | null }>;
 
@@ -663,5 +702,11 @@ export const AGENT_LOGIN_HINTS = {
   // empty auth-method list; this hint is the only thing that tells the user what to do.
   "acp:fx": "Run `fx login` to sign in with Vercel, `fx setup` for an AI Gateway API key, or set AI_GATEWAY_API_KEY.",
   "acp:deepseek": "The DeepSeek Harness is still a release candidate: two of its packages are unpublished, so its ACP server cannot be installed from npm yet. Once `dsh-acp-demo` is on your PATH, set DEEPSEEK_API_KEY — there is no login command.",
+  // The `-32000 Authentication required` its `session/new` answers with is not about OpenHands Cloud,
+  // whatever the sole auth method it advertises implies: for a LOCAL agent the check is only whether
+  // `~/.openhands/agent_settings.json` exists (measured — `local_agent.py` calls `load_agent_specs`
+  // and reports the MissingAgentSpec as an auth failure). Naming Cloud alone would send a user with
+  // their own API key down a route they do not need.
+  "acp:openhands": "Run `openhands` once and pick a model with `/settings` — its ACP server refuses to start a session until those settings exist. `openhands login` signs in to OpenHands Cloud instead, and LLM_API_KEY on its own is not enough.",
   fake: "Scripted offline agent used for development.",
 } as const satisfies Record<import("./entities").AgentKind, string>;

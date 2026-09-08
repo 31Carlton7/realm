@@ -1162,26 +1162,30 @@ describe("prompter model picker", () => {
       // here would put a model the session is not on into the picker. DeepSeek is the exception —
       // its ACP server is booted with one model and enumerates nothing, so its two are curated.
       "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
-      "DeepSeek V4 Pro", "DeepSeek V4 Flash"]);
+      "DeepSeek V4 Pro", "DeepSeek V4 Flash",
+      // OpenHands is last in SELECTABLE_AGENT_KINDS and contributes one "Default" for a stronger
+      // version of the same reason: its model is never on the ACP wire at all.
+      "Default"]);
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
     expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
-      "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "deepseek", "deepseek"]);
+      "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "deepseek", "deepseek", "openhands"]);
     expect(document.querySelector("[data-brand='qwen']")).toHaveAttribute("viewBox", "0 0 141.38 140");
     expect(document.querySelector("[data-brand='githubCopilot']")?.querySelectorAll("path")).toHaveLength(3);
   });
 
-  it("six rows labelled Default are still told apart — the row carries its agent, not just its model", async () => {
-    // The named mutant: DEFAULT_MODEL_LABEL giving every Plan 18 agent the same string is only safe
-    // because the row's accessible name includes the agent. Drop `mp-row-provider` and the picker
-    // becomes six identical options.
+  it("seven rows labelled Default are still told apart — the row carries its agent, not just its model", async () => {
+    // The named mutant: DEFAULT_MODEL_LABEL giving every ACP agent whose model Realm cannot name the
+    // same string is only safe because the row's accessible name includes the agent. Drop
+    // `mp-row-provider` and the picker becomes seven identical options.
     await mountKindFresh("codex");
     openPicker();
     const defaults = screen.getAllByRole("option").filter((n) => n.querySelector(".mp-row-name")!.textContent === "Default");
-    expect(defaults).toHaveLength(6);
+    expect(defaults).toHaveLength(7);
     const names = defaults.map((n) => n.textContent);
-    expect(new Set(names).size).toBe(6);
+    expect(new Set(names).size).toBe(7);
     expect(names.join("|")).toContain("OpenCode");
     expect(names.join("|")).toContain("Qwen Code");
+    expect(names.join("|")).toContain("OpenHands");
   });
 
   it("never hides a session's own kind, even one that is not offered fresh", async () => {
@@ -1191,7 +1195,7 @@ describe("prompter model picker", () => {
     openPicker();
     expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
       "GPT-5.6", "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
-      "DeepSeek V4 Pro", "DeepSeek V4 Flash"]);
+      "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default"]);
     expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -1324,7 +1328,7 @@ describe("prompter model picker", () => {
         // Every other offered kind still contributes exactly its own rows: one agent's probe catalog
         // must not leak onto another's.
         "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
-        "DeepSeek V4 Pro", "DeepSeek V4 Flash"]);
+        "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default"]);
       expect(screen.getByRole("option", { name: /Composer/ })).toHaveAttribute("aria-selected", "true");
       expect(screen.getByRole("option", { name: /Auto/ })).toHaveAttribute("aria-selected", "false");
     });

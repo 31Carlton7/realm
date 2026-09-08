@@ -231,7 +231,7 @@ export class AcpAdapter implements AgentAdapter {
   }
 
   async probe(): Promise<ProbeResult> {
-    const base = await probeAcp(this.spec.bin);
+    const base = await probeAcp(this.spec.bin, undefined, this.spec.env);
     // tmpdir because the throwaway catalog session needs SOME real cwd and must not imply a project.
     const models = base.available && this.spec.modelCatalog === true
       ? await fetchAcpModels({ bin: this.spec.bin, args: this.spec.args, cwd: tmpdir(), env: this.spec.env })

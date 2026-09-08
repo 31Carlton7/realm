@@ -22,6 +22,10 @@ const AGENT_BINS = {
   "acp:grok": { env: "REALM_GROK_BIN", bin: "grok" },
   "acp:fx": { env: "REALM_FX_BIN", bin: "fx" },
   "acp:deepseek": { env: "REALM_DEEPSEEK_BIN", bin: "dsh-acp-demo" },
+  // `openhands`, not the `openhands-acp` console script uv also installs: that second entry point is
+  // broken in 1.16.0 (`ModuleNotFoundError: No module named 'openhands_cli.acp'`, measured), while
+  // the `acp` SUBCOMMAND of the main binary is the one the vendor documents and the one that works.
+  "acp:openhands": { env: "REALM_OPENHANDS_BIN", bin: "openhands" },
   fake: null,
 } as const satisfies Record<AgentKind, { env: string; bin: string } | null>;
 

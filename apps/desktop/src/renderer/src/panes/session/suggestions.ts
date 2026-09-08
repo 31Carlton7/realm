@@ -57,5 +57,11 @@ export const SUGGESTIONS: Record<AgentKind, { title: string; description: string
     { title: "Explain code", description: "What this codebase does, and where", prompt: "Explain what this codebase does." },
     { title: "Review my changes", description: "Bugs and style in uncommitted work", prompt: "Review my changes." },
   ],
+  // Long unattended runs are what OpenHands is for, so its starters ask for whole pieces of work
+  // rather than a question about the repo.
+  "acp:openhands": [
+    { title: "Build a feature", description: "Plan first, then write the code", prompt: "Help me plan a new feature." },
+    { title: "Fix a bug", description: "Find and fix the most likely bug", prompt: "Find a bug and fix it." },
+  ],
   fake: [{ title: "Say hello", description: "A quick round trip through the fake agent", prompt: "Hello!" }],
 };

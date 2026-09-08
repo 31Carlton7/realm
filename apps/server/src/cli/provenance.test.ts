@@ -33,6 +33,17 @@ describe("classifyPath", () => {
     expect(classifyPath("/opt/homebrew/Caskroom/codex/0.146.0/bin/codex")).toBe("brew");
   });
 
+  it("reads uv's tool directory as uv", () => {
+    // Measured 2026-09-08: ~/.local/bin/openhands is a real symlink into this tree, so the
+    // resolve-then-classify method the rest of this module rests on reaches it unchanged.
+    expect(classifyPath("/Users/x/.local/share/uv/tools/openhands/bin/openhands")).toBe("uv");
+  });
+
+  it("needs uv and tools ADJACENT, so an ordinary project path cannot pass for uv's", () => {
+    expect(classifyPath("/Users/x/code/uv/src/tools/bin/thing")).toBe("unknown");
+    expect(classifyPath("/Users/x/tools/uv/bin/thing")).toBe("unknown");
+  });
+
   it("reads the vendor self-updater layouts as unknown, which is the common case", () => {
     // Measured 2026-09-05: four of the five agent CLIs installed on a working machine look like this.
     expect(classifyPath("/Users/x/.local/share/claude/versions/2.1.258")).toBe("unknown");

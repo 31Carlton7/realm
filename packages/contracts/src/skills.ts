@@ -140,6 +140,10 @@ export const AGENT_SKILL_SUPPORT = {
   // dsh has a skill registry of its own (`@deepseek-ai/dsh-skill`), configured in the harness's own
   // profile — but nothing on the ACP wire reaches it, which is what this table is about.
   "acp:deepseek": "unsupported",
+  // OpenHands has a skills concept of its own — `load_agent_specs` takes a skill list and the CLI
+  // keeps `~/.openhands/skills` — but its ACP `session/new` exposes no way in, which is the claim
+  // this table makes.
+  "acp:openhands": "unsupported",
   // fake-adapter.ts never looks at `skills`.
   fake: "unsupported",
 } as const satisfies Record<AgentKind, SkillSupport>;
