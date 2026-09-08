@@ -70,7 +70,7 @@ const dur = (rung: string): string => {
 describe("§6 motion ladder", () => {
   it("is the one place a duration is written, and these are its rungs", () => {
     expect(LADDER).toEqual({
-      "--dur-drag": 80, "--dur-hover": 180, "--dur-press": 120, "--dur-pop": 140, "--dur-fast": 150,
+      "--dur-drag": 80, "--dur-hover": 100, "--dur-press": 120, "--dur-pop": 140, "--dur-fast": 150,
       "--dur-swap": 160, "--dur-enter": 180, "--dur-base": 200, "--dur-rise": 220, "--dur-slow": 240,
       "--dur-move": 320,
     });
@@ -157,7 +157,7 @@ describe("§6 motion table", () => {
     expect(blockAfter("@keyframes rl-msg-in")).toContain("translateY(6px)");
   });
 
-  it("hover fills run on the hover rung, on plain `ease`, and touch background/colour only — never geometry", () => {
+  it("hover fills run 100ms on plain `ease` and touch background/colour only — never geometry", () => {
     const hover = bodiesFor(".item-row").join(" ");
     expect(hover).toContain(`transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
     expect(hover).not.toContain("transform");
@@ -1144,12 +1144,16 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        against the flat run beside it, and a 34px control has almost no run — at 0.375 it reads as a
        rounded rectangle. The larger ratio is what makes it read as the SAME curve at a small size. */
     const search = bodiesFor(".search").join(" ");
-    expect(search).toContain("background: var(--surface)");
+    /* Its fill is `--search-ground`, not `--surface`: the same colour thinned by the same
+       `--ground-alpha` the column under it uses, so the one element standing on a see-through
+       sidebar is not the one opaque tile on it. Composed in tokens.css off the single alpha, so
+       there is no second number to keep in step and no second control to remember. */
+    expect(search).toContain("background: var(--search-ground)");
     expect(search).toContain("corner-shape: squircle");
     expect(search).toContain("calc(var(--search-h) * var(--sq-ratio-ctl))");
     expect(search).not.toContain("var(--r-ctl)");
     // …and it is painted, because `corner-shape` is inert here and an unpainted curve is a round rect.
-    expect(bodiesFor(":root[data-squircle] .search").join(" ")).toContain("--sq-fill: var(--surface)");
+    expect(bodiesFor(":root[data-squircle] .search").join(" ")).toContain("--sq-fill: var(--search-ground)");
     expect(search).toContain("font-size: 13px");
     expect(bodiesFor(".item").join(" ")).toContain("border-radius: var(--r-ctl)");
     expect(bodiesFor(".group-label").join(" ")).toContain("font-size: 12.5px");
@@ -1244,14 +1248,22 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(field?.selectors.find((x) => x.startsWith(".field input"))).toContain(":not(.search-field)");
   });
 
-  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn LIFTING to hover; primary = accent with the filled highlight and accent-ink hover", () => {
+  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn stepping to inset; primary = accent with the filled highlight and accent-ink hover", () => {
     /* The tiers are unchanged; where they are WRITTEN moved. Each state sets `--fill` and the base
        rule paints it, so the painted regime can read one property instead of racing each state on
        specificity — see the painted-control test above for the square-on-hover bug that forced it. */
     const btn = bodiesFor(".btn").join(" ");
     expect(btn).toContain("--fill: var(--surface)");
     expect(btn).toContain("background: var(--fill)");
-    expect(btn).toContain("box-shadow: var(--shadow-btn)");
+    /* The DROP, not the ring. A secondary button's hairline was doing an outline's job on a control
+       that already has a fill a step off its ground, so it read as a border drawn around the button
+       instead of the button's own edge. `--shadow-btn` keeps its ring for the controls that still
+       need one — a selected segment inside a strip is told from its neighbours by that hairline and
+       nothing else — so the two shadows are separate tokens rather than one edited in place. */
+    expect(btn).toContain("box-shadow: var(--shadow-btn-drop)");
+    expect(btn).not.toContain("box-shadow: var(--shadow-btn)");
+    // …and no ring under the painter either, where a `--sq-ring` would draw the same outline.
+    expect(bodiesFor(":root[data-squircle] .btn").join(" ")).toContain("--sq-ring-w: 0");
     /* `--hover`, not `--inset`, and the direction is the point rather than the token name. `--inset`
        is a rung of the SURFACE ladder and sits below `--surface` on a dark face, so a hovered button
        sank while every row and menu item beside it lifted — which is what read as the button lurching

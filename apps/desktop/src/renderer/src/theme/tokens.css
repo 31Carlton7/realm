@@ -424,7 +424,7 @@ a {
    * something by. Three halves the distance to it and keeps a visible flat top and bottom. */
   --sq-n-ctl: 3;
   --dur-drag: 80ms;   /* the drop target appearing mid-drag: fast enough not to read as motion */
-  --dur-hover: 180ms; /* a fill or an ink step answering the pointer */
+  --dur-hover: 100ms; /* a fill or an ink step answering the pointer */
   --dur-press: 120ms; /* a control resolving inside the gesture that caused it — the .97 press, the switch throw */
   --dur-pop: 140ms;   /* a popover unfolding out of its trigger */
   --dur-fast: 150ms;  /* a fade with no gesture behind it: a tip arriving, a panel dimming to refetch */
@@ -462,10 +462,14 @@ a {
   --fill-bevel: inset 0 1px 0 oklch(1 0 0 / 0.14);
   --shadow-pill: 0 2px 9px 0 #00000052;
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-lighten-400), 0 1px 2px #00000052;
+  /* The same shadow without its ring, for the secondary button. `--shadow-btn` keeps the ring
+   * because the SELECTED segment and the pressed documents-mode still need one — a raised control
+   * inside a strip is told from its neighbours by that hairline and nothing else. A standalone
+   * button is not in a strip and had no such job for it. */
+  --shadow-btn-drop: 0 1px 2px #00000052;
   /* Same two layers, split, for a button the worklet paints. Its border box is a SQUARE there
    * (border-radius: 0), so the ring goes to the painter and the drop becomes a filter, which
    * follows the painted alpha instead of the box. Same numbers as above, deliberately. */
-  --btn-ring: var(--overlay-lighten-400);
   --shadow-btn-filter: drop-shadow(0 1px 2px #00000052);
   /* The card stack, stated as its two halves and then composed. The squircle surfaces need them
    * apart: a box-shadow ring is always drawn on the `border-radius` rounded rect, so on a card whose
@@ -507,7 +511,11 @@ a {
   --shadow-bevel: inset 0 1px 0.5px #00000026;
   --shadow-pill: 0 2px 9px 0 #0000000f;
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-300), 0 1px 2px #03071214;
-  --btn-ring: var(--overlay-darken-300);
+  /* The same shadow without its ring, for the secondary button. `--shadow-btn` keeps the ring
+   * because the SELECTED segment and the pressed documents-mode still need one — a raised control
+   * inside a strip is told from its neighbours by that hairline and nothing else. A standalone
+   * button is not in a strip and had no such job for it. */
+  --shadow-btn-drop: 0 1px 2px #03071214;
   --shadow-btn-filter: drop-shadow(0 1px 2px #03071214);
   --card-ring: #03071214;
   --shadow-card-lift: 0 2px 4px 0 #0307120a;
@@ -621,10 +629,21 @@ a {
 :root {
   --ground-alpha: 100%;
   --sidebar-ground: color-mix(in srgb, var(--page) var(--ground-alpha), transparent);
+  /* The ⌘K field's fill, thinned by the SAME amount as the ground under it.
+   *
+   * It was solid `--surface`, which on a sidebar the user has made 45% see-through read as an
+   * opaque tile floating on a translucent column — the one element in there that had not been let
+   * in on the setting. Composed off `--ground-alpha` rather than given a number of its own so the
+   * two cannot drift: turn translucency off and this goes solid with everything else, and there is
+   * no second control to remember. It composites over the sidebar, not over the bare material, so
+   * at any setting it is still a step lighter than the column it sits on. */
+  --search-ground: color-mix(in srgb, var(--surface) var(--ground-alpha), transparent);
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  :root { --sidebar-ground: var(--page); }
+  /* Both, not just the column. The preference is about the WINDOW being see-through, and a field
+   * still showing the desktop through itself on an opaque sidebar answers it by half. */
+  :root { --sidebar-ground: var(--page); --search-ground: var(--surface); }
 }
 
 /* ══ DECORATIVE GRAIN ══════════════════════════════════════════════════════════

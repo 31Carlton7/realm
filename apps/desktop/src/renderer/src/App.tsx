@@ -44,7 +44,13 @@ export function AppShell() {
   const collapsed = useApp((s) => s.sidebarCollapsed);
   return (
     <div className="app" data-sidebar-collapsed={collapsed || undefined}>
-      {!collapsed && <Sidebar />}
+      {/* Mounted whether or not it is showing, so collapsing is a MOVE rather than an unmount —
+          there is no exit animation for an element React has already removed. `inert` is what makes
+          that safe: a hidden sidebar must not answer the keyboard or a screen reader just because it
+          is still in the tree. The cost is that a collapsed sidebar keeps its store subscriptions
+          live, which is a list of a few rows re-rendering in the background and the price of the
+          thing sliding instead of vanishing. */}
+      <Sidebar collapsed={collapsed} />
       <main className="main"><Main /></main>
       {collapsed && <div className="sb-corner"><SidebarToggle /></div>}
     </div>

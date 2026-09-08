@@ -24,10 +24,16 @@ describe("sidebar collapse toggle", () => {
     expect(toggle()).toHaveAccessibleName("Hide sidebar (⌘B)");
     expect(toggle()).toHaveAttribute("aria-expanded", "true");
     // Kills a mutation that renders the toggle only in the open branch: after collapsing, the
-    // sidebar is gone but exactly one toggle must remain, now offering the way back.
+    // sidebar is out of reach but exactly one toggle must remain, now offering the way back.
     fireEvent.click(toggle());
     await waitFor(() => expect(store.getState().sidebarCollapsed).toBe(true));
-    expect(document.querySelector(".sidebar")).toBeNull();
+    /* The sidebar is still in the tree — it has to be, or there is nothing left to animate out —
+       and `inert` is what makes that safe: no focus, no pointer, nothing in the a11y tree. Asserted
+       as the two together, because a slide-away sidebar that is still tabbable is worse than one
+       that blinks out. */
+    const aside = document.querySelector(".sidebar");
+    expect(aside).toHaveAttribute("data-collapsed");
+    expect(aside).toHaveAttribute("inert");
     expect(document.querySelector(".sb-corner")).not.toBeNull();
     expect(screen.getAllByRole("button", { name: /(Hide|Show) sidebar/ })).toHaveLength(1);
     expect(toggle()).toHaveAccessibleName("Show sidebar (⌘B)");
@@ -35,7 +41,7 @@ describe("sidebar collapse toggle", () => {
     // And back — the collapsed toggle is not decorative.
     fireEvent.click(toggle());
     await waitFor(() => expect(store.getState().sidebarCollapsed).toBe(false));
-    expect(document.querySelector(".sidebar")).not.toBeNull();
+    expect(document.querySelector(".sidebar")).not.toHaveAttribute("inert");
   });
 
   it("moves the toggle from the sidebar's head row into the window's corner", async () => {
