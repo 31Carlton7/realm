@@ -10,6 +10,7 @@ import { IconGenerationService } from "./icons/service";
 import { ProjectsStore } from "./store/projects";
 import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
+import { ArtifactsStore } from "./store/artifacts";
 import { TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
 import { BrowsersStore } from "./store/browsers";
@@ -166,6 +167,25 @@ export function defaultAdapters(): AdapterRegistry {
       args: [],
       label: "DeepSeek",
       loginHint: "Set DEEPSEEK_API_KEY — the DeepSeek Harness has no login command of its own.",
+    }),
+    // OpenHands, added 2026-09-08. Everything below was measured against openhands 1.16.0 rather
+    // than read off a docs page:
+    //   - `openhands acp` answers `initialize` with protocolVersion 1, `loadSession: true` and
+    //     `mcpCapabilities {http: true, sse: true}` — the gateway's entry goes over unfiltered.
+    //   - `session/new` refuses with ACP's own -32000 until `~/.openhands/agent_settings.json`
+    //     exists, so a signed-out session lands on `acpBootFailureMessage`'s auth branch and the
+    //     loginHint below is what the user is told to do about it.
+    // No `modelCatalog`: the model lives in that settings file and is never on the wire, so a
+    // probe-time session would spend a round trip to learn nothing.
+    "acp:openhands": new AcpAdapter({
+      kind: "acp:openhands",
+      bin: agentBin("acp:openhands"),
+      args: ["acp"],
+      label: "OpenHands",
+      // Its stdout is clean JSON-RPC either way (verified) — this is for `--version`, which prints a
+      // seven-line ASCII banner ahead of the number unless the variable is set.
+      env: { OPENHANDS_SUPPRESS_BANNER: "1" },
+      loginHint: "Run `openhands` once and pick a model with `/settings`; `openhands login` signs in to OpenHands Cloud instead.",
     }),
     "acp:fx": new AcpAdapter({
       kind: "acp:fx",
@@ -419,7 +439,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
     emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
   });
-  const sessionEvents = new SessionEventsStore(db);
+  const artifacts = new ArtifactsStore(db, settings);
+  const sessionEvents = new SessionEventsStore(db, artifacts);
   // Hoisted: `defaultAdapters()` builds live adapter instances, and failover must check membership
   // against the SAME registry the session service starts agents from — two registries would let a
   // chain accept an agent the sessions could not run.
@@ -558,7 +579,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();
@@ -572,6 +593,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
   void search.runBackfill();
+  // The pre-v25 history reaches the Library's file index the same way, on the same terms: chunked,
+  // yielding, resumable, and merely incomplete rather than wrong while it runs.
+  void artifacts.runBackfill(() => false);
   terminals.restoreAll();
   // The gateway must be accepting connections before any session can start (its listener mints the URL
   // every `sessions.create` → send hands an adapter), and well before the RPC socket opens to clients.

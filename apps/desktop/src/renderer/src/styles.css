@@ -3457,6 +3457,49 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    it next runs) plus a cluster of verbs, and a grid would spend its widest column on a goal that
    wants to wrap. Rows separate by their own card, so no rule is drawn between them. */
 .schedules-page .page-head .sched-new { margin-left: auto; align-self: center; }
+/* ── The Library's file browser ────────────────────────────────────────────
+   A grid of tiles grouped by day, which is what a file browser over a timeline of work is: the
+   question is almost always "the thing from this afternoon", and a flat list sorted by date answers
+   it only after you have counted rows. Tiles rather than a table because a name and where it came
+   from are the two facts that matter, and a table would spend most of its width on columns nobody
+   scans (a path nobody types, a size nobody compares). */
+.library-files { display: flex; flex-direction: column; }
+.library-day { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.library-day-label { margin: 0; font-size: 11px; font-weight: var(--fw-title); color: var(--rl-text-faint); }
+.library-grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;
+}
+.library-tile {
+  --btn-h: 34px;
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 2px 10px;
+  width: 100%; padding: 10px 12px; text-align: left; font: inherit; border: none;
+  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); cursor: default;
+  transition: background var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong);
+}
+/* Only a file the documents pane can actually open reads as clickable. The rest are still listed —
+   a browser that hid every file it cannot render would be answering a different question — but
+   nothing about them promises a click that would do nothing. */
+.library-tile[data-openable] { cursor: pointer; }
+.library-tile[data-openable]:hover { background: var(--rl-hover); }
+.library-tile[data-openable]:active { scale: 0.98; }
+.library-tile-mark { grid-row: 1 / span 2; display: grid; place-items: center; width: var(--btn-h); height: var(--btn-h);
+  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  background: var(--rl-hover); color: var(--rl-text-dim); }
+/* One tint per broad type, at the same weight the engine pills use — enough to sort a screenful of
+   tiles by eye, nowhere near enough to compete with the names. */
+.library-tile-mark[data-type="image"] { color: var(--rl-success); }
+.library-tile-mark[data-type="video"], .library-tile-mark[data-type="audio"] { color: var(--rl-accent); }
+.library-tile-mark[data-type="data"] { color: var(--orange); }
+.library-tile-mark[data-type="code"] { color: var(--rl-text-bright); }
+.library-tile-name { min-width: 0; font-size: 13px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-tile-from { min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The pager's sentinel. It has to have height, or an IntersectionObserver on a zero-height box at
+   the end of a grid never fires. */
+.library-more { min-height: 40px; display: grid; place-items: center; font-size: 12px; color: var(--rl-text-faint); }
+/* A break inside one chip row, between two filters that narrow different things. */
+.filter-sep { align-self: center; width: var(--hairline-w); height: 16px; margin: 0 4px; background: var(--rl-hairline); }
+
 /* ── Filter bar: one search field and a row of counted chips ───────────────
    Used by the pages that hold a LIST of one thing (schedules today, and whatever follows). The
    search sits first and full width because it is the coarser instrument — a user with forty

@@ -33,6 +33,17 @@ export function scopeGroupOf(scope: ItemScope): GroupId {
   return scope.spaceId === null ? "everywhere" : "this-space";
 }
 
+/**
+ * The two fixed reaches, named once.
+ *
+ * They read the same everywhere they appear, and they appear on more than one axis: these are the
+ * headings of a scope-grouped list here, and they are the two scopes the Library's file browser
+ * filters by. Two literals would be two places for the wording to drift, which is exactly what
+ * scope-groups.test.ts's single-definition-site rule exists to prevent — so the rule is satisfied by
+ * making this the site, rather than by giving the second caller different words for the same thing.
+ */
+export const SCOPE_LABEL = { thisSpace: "This space", everywhere: "Everywhere" } as const;
+
 export function ScopeGroups({ entries, listClassName = "settings-list" }: {
   entries: ScopedEntry[];
   /** The `<ul>` class, so each system keeps its own row styling (skills: settings-list; MCP: env-list). */
@@ -52,9 +63,9 @@ export function ScopeGroups({ entries, listClassName = "settings-list" }: {
   const profileIds = [...byGroup.keys()].filter((g) => g.startsWith("profile:")).map((g) => g.slice("profile:".length))
     .sort((a, b) => profiles.findIndex((p) => p.id === a) - profiles.findIndex((p) => p.id === b));
   const order: { id: GroupId; label: string }[] = [
-    { id: "this-space", label: "This space" },
+    { id: "this-space", label: SCOPE_LABEL.thisSpace },
     ...profileIds.map((pid) => ({ id: `profile:${pid}` as GroupId, label: `From ${profiles.find((p) => p.id === pid)?.name ?? "profile"}` })),
-    { id: "everywhere", label: "Everywhere" },
+    { id: "everywhere", label: SCOPE_LABEL.everywhere },
   ];
 
   return (

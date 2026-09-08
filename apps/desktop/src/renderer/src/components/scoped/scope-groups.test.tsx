@@ -91,8 +91,15 @@ describe("the shared group-list component is kept single (W4's structural rule)"
   it.each([
     ["the group component", "export function ScopeGroups", ["components/scoped/ScopeGroups.tsx"]],
     ["the grouping math", "function scopeGroupOf", ["components/scoped/ScopeGroups.tsx"]],
-    ["the This-space label", 'label: "This space"', ["components/scoped/ScopeGroups.tsx"]],
-    ["the Everywhere label", 'label: "Everywhere"', ["components/scoped/ScopeGroups.tsx"]],
+    // The two fixed reaches are named ONCE and imported, rather than re-typed. They appear on more
+    // than one axis now — these headings, and the Library file browser's scope filter — and two
+    // literals would be two places for the wording to drift.
+    ["the reach labels", "export const SCOPE_LABEL", ["components/scoped/ScopeGroups.tsx"]],
+    // The declaration form, not the bare words: the words appear in prose and in comments across
+    // half the renderer, and a needle that matched those would be a rule about writing rather than
+    // about structure.
+    ["the This-space label", 'thisSpace: "This space"', ["components/scoped/ScopeGroups.tsx"]],
+    ["the Everywhere label", 'everywhere: "Everywhere"', ["components/scoped/ScopeGroups.tsx"]],
     ["the move confirm", "export function MoveScopeConfirm", ["components/scoped/ScopeGroups.tsx"]],
     ["the promote semantics sentence", "will see it; spaces that had it stay as they are", ["components/scoped/ScopeGroups.tsx"]],
   ])("%s: exactly one definition site", (_what, needle, owners) => {

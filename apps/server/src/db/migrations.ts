@@ -474,4 +474,45 @@ export const migrations: string[] = [
   // not about the session, and it rides the `usage` event instead. Storing the outcome here would
   // give the switch two sources of truth that disagree the moment a rate limit lands.
   `ALTER TABLE sessions ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0;`,
+  // v25 — the Library's file index: one row per file a session wrote or was given.
+  //
+  // A derived table, not a source of truth. Every row in it can be rebuilt from `session_events` by
+  // `artifactsFromEvent`, and it exists only because the question the Library asks — "every file
+  // across every session, newest first" — is one `session_events` cannot answer without reading and
+  // JSON-parsing every tool call ever made. The per-session summary does exactly that fold in the
+  // renderer, which is affordable for one transcript and is not for two hundred.
+  //
+  // Why not a partial index on `session_events` instead, the v21/v22 trick? Because the predicate is
+  // not on a column: "a tool_call whose payload names a Write" lives inside `payload_json`, and an
+  // index on `type = 'tool_call'` alone would cover the single most common row in the table to
+  // filter almost all of it back out in JS. Materialising is what makes the read a range scan.
+  //
+  // `id` is `<session>:<seq>:<path>`, deterministic, so re-indexing an event is an upsert rather
+  // than a duplicate — which is what lets the append-time writer and the backfill overlap safely on
+  // the events either side of the cursor without either knowing about the other.
+  //
+  // No `space_id`, deliberately. It is one join away through `sessions`, and a copy here would be a
+  // second fact to keep in step for the sake of a column that never changes the answer.
+  //
+  // The cursor row mirrors v15's `search.backfill` exactly, `target` frozen at migration time:
+  // events past it are indexed at write time, so the two writers cannot double-count and the
+  // backfill can stop and resume across boots.
+  `
+  CREATE TABLE artifacts (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ext TEXT NOT NULL,
+    ts INTEGER NOT NULL);
+  -- The browser's ONE query: newest first, keyset-paged. The id rides along as the tiebreaker so two
+  -- files written in the same millisecond cannot make a page repeat or skip a row.
+  -- (No backticks in here: this block is a JS template literal, and one would end it early.)
+  CREATE INDEX artifacts_recent ON artifacts(ts DESC, id DESC);
+  CREATE INDEX artifacts_session ON artifacts(session_id);
+  INSERT OR IGNORE INTO settings (key, value_json)
+    VALUES ('artifacts.backfill', json_object('done', 0, 'target', COALESCE((SELECT MAX(seq) FROM session_events), 0)));
+  `,
 ];

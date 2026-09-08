@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy } from "@realm/contracts";
+import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { nextFireOf } from "@realm/contracts";
 import type { CliStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -240,6 +240,9 @@ export type FakeData = {
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
    *  Delay it with `delays["search"]` to hold results in flight. */
   searchResults?: SearchResults;
+  /** The Library's file index, as one flat list. The fake pages and filters it here rather than
+   *  answering a fixed page, so a test can prove the page's own paging without a server. */
+  artifacts?: LibraryEntry[];
   /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. */
   iconAssets?: Record<string, IconAsset[]>;
   /** What `pickIconImage()` answers with. Defaults to null (cancelled) — a test opts in by setting
@@ -377,6 +380,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     reviews: overrides.reviews ?? {},
     delegatedRuns: overrides.delegatedRuns ?? {},
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
+    artifacts: overrides.artifacts ?? [],
     iconAssets: overrides.iconAssets ?? {},
     pickIconImage: overrides.pickIconImage ?? null,
   };
@@ -538,6 +542,22 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`search:${profileId}:${query}`);
       await wait("search");
       return data.searchResults;
+    },
+    libraryArtifacts: async (q) => {
+      calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.query ?? ""}`);
+      await wait("libraryArtifacts");
+      const all = data.artifacts;
+      const needle = (q.query ?? "").trim().toLowerCase();
+      const matching = all.filter((a) =>
+        (q.spaceId == null || a.spaceId === q.spaceId)
+        && (q.kind == null || a.kind === q.kind)
+        && (needle === "" || a.name.toLowerCase().includes(needle)));
+      // Same keyset the server uses, so a test that pages here is testing the page's real cursor.
+      const before = q.before ?? null;
+      const after = before === null ? matching
+        : matching.filter((a) => a.ts < before.ts || (a.ts === before.ts && a.id < before.id));
+      const total = all.filter((a) => q.spaceId == null || a.spaceId === q.spaceId).length;
+      return { entries: after.slice(0, q.limit ?? LIBRARY_PAGE_SIZE), total };
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
     listEnvironments: async (sid) => { calls.push(`listEnvironments:${sid}`); await wait(`listEnvironments:${sid}`); return data.environments[sid] ?? []; },

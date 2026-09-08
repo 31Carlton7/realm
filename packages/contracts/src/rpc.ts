@@ -6,6 +6,7 @@ import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
+import { LibraryEntrySchema, LibraryQuerySchema } from "./library";
 import { SkillSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
@@ -272,7 +273,7 @@ const CliStatusSchema = z.object({
   installed: z.boolean(),
   version: z.string().nullable(),
   binPath: z.string().nullable(),
-  provenance: z.enum(["npm", "pnpm", "brew", "unknown"]),
+  provenance: z.enum(["npm", "pnpm", "brew", "uv", "unknown"]),
   latest: z.string().nullable(),
   updateAvailable: z.boolean(),
   action: z.enum(["install", "update", "none"]),
@@ -373,6 +374,22 @@ export const Methods = {
   "search.query": {
     params: z.object({ profileId: IdSchema, query: z.string().min(1).max(SEARCH_QUERY_MAX), limit: z.number().int().min(1).max(SEARCH_GROUP_LIMIT_MAX).default(SEARCH_GROUP_LIMIT) }),
     result: SearchResultsSchema,
+  },
+
+  /**
+   * The Library's file browser: every artifact a session wrote or was given, newest first.
+   *
+   * Read straight off the `artifacts` index rather than folded out of transcripts, because folding
+   * is what the per-session summary does and it needs every block of every transcript in memory —
+   * affordable for one session, not for two hundred (packages/contracts/src/library.ts).
+   *
+   * Keyset-paged on `(ts, id)`, never OFFSET: the index grows at the head while a user scrolls it,
+   * and an offset page over a growing list silently repeats and skips rows. `total` is the unfiltered
+   * count for this scope, so the page can tell "nothing here yet" from "nothing matches that".
+   */
+  "library.artifacts": {
+    params: LibraryQuerySchema,
+    result: z.object({ entries: z.array(LibraryEntrySchema), total: z.number() }),
   },
 
   /**

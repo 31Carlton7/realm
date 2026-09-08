@@ -6,15 +6,22 @@ import { useApp } from "../../state/store";
 import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { ScopeGroups } from "../../components/scoped/ScopeGroups";
+import { LibraryFiles } from "./LibraryFiles";
 import type { PaneProps } from "../registry";
 
-const LIBRARY_TABS = [{ id: "skills", label: "Skills" }, { id: "memory", label: "Memory" }] as const;
+/* Files leads. Skills and memory are what you INSTALL into a space and change rarely; files are
+   what the work produced, and they are the reason someone opens a Library at all. */
+const LIBRARY_TABS = [{ id: "files", label: "Files" }, { id: "skills", label: "Skills" }, { id: "memory", label: "Memory" }] as const;
 type LibraryTab = (typeof LIBRARY_TABS)[number]["id"];
 
 /**
- * The Library page (Plan 12 W4) — everything installable, grouped by the scoping contract: skills and
- * memory docs, in "This space" / "From <profile>" / "Everywhere" sections, on the W3 page pattern
- * (`.page` / `.page-head` / `.page-rail` / `.page-content`).
+ * The Library page — everything a space HAS, on the W3 page pattern (`.page` / `.page-head` /
+ * `.page-rail` / `.page-content`).
+ *
+ * Three tabs, and Files is not like the other two. Skills and memory are installable things grouped
+ * by the scoping contract — "This space" / "From <profile>" / "Everywhere". Files are the OUTPUT of
+ * the work: every file any session wrote or was given, across every space in the profile, read from
+ * the server's `artifacts` index rather than folded out of transcripts (see LibraryFiles).
  *
  * The vantage is `item.spaceId` — the space whose layout holds this pane, stamped at open time by
  * `openDestinationPage` (the item's refId is the kind's sentinel, PAGE_REF_IDS; there is no row behind
@@ -29,7 +36,7 @@ export function LibraryPage({ item }: PaneProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const spaceId = item.spaceId;
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
-  const [tab, setTab] = useState<LibraryTab>("skills");
+  const [tab, setTab] = useState<LibraryTab>("files");
 
   if (!space) return <div className="pane-placeholder muted">This page's space no longer exists.</div>;
 
@@ -57,6 +64,7 @@ export function LibraryPage({ item }: PaneProps) {
           ))}
         </fieldset>
         <div className="page-content" ref={scroller}>
+          {tab === "files" && <LibraryFiles spaceId={spaceId} />}
           {tab === "skills" && <SkillsPanel spaceId={spaceId} />}
           {tab === "memory" && <LibraryMemoryTab spaceId={spaceId} />}
         </div>

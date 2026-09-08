@@ -122,7 +122,10 @@ export class SessionsStore {
 type EventRow = { seq: number; session_id: string; ts: number; type: string; payload_json: string };
 
 export class SessionEventsStore {
-  constructor(private db: Db) {}
+  /** `artifacts` is optional so every existing construction site (and every store test) keeps
+   *  working: an events store with no index simply does not maintain one, which is the right
+   *  behaviour for a fixture and never a silent half-write in the app, where it is always passed. */
+  constructor(private db: Db, private artifacts?: { index(sessionId: string, seq: number, ts: number, type: string, payload: unknown): void }) {}
   append(sessionId: string, event: SessionEvent): StoredSessionEvent {
     const r = this.db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)")
       .run(sessionId, event.ts, event.type, JSON.stringify(event.payload));
@@ -135,6 +138,10 @@ export class SessionEventsStore {
       this.db.prepare("INSERT INTO search_index (text, kind, ref, seq) VALUES (?, 'session', ?, ?)")
         .run(event.payload.text, sessionId, seq);
     }
+    // The Library's file index, written at the same choke point and for the same reason. It decides
+    // for itself whether this event carries a file (`artifactsFromEvent` is total), so there is no
+    // second list of event types here to fall out of step with the one in contracts.
+    this.artifacts?.index(sessionId, seq, event.ts, event.type, event.payload);
     return { seq, sessionId, event };
   }
   /** Any persisted event at all — the authority behind the `sessions.setAgent` guard. */

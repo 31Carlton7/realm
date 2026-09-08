@@ -10,3 +10,19 @@ afterEach(cleanup);
 if (!("ResizeObserver" in globalThis)) {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 }
+
+// Same story for IntersectionObserver, which the Library's pager uses to ask for its next page when
+// the end of the list comes into view. Inert by default and, unlike ResizeObserver, that inertness
+// is the USEFUL default here: jsdom lays nothing out, so a faithful implementation would have to
+// decide whether an unlaid-out sentinel is on screen, and "never intersects" is the answer that
+// keeps a test's assertions about the first page honest. A suite that wants a second page fires the
+// callback itself.
+if (!("IntersectionObserver" in globalThis)) {
+  globalThis.IntersectionObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return []; }
+    root = null; rootMargin = ""; thresholds = [];
+  } as unknown as typeof IntersectionObserver;
+}

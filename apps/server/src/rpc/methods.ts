@@ -37,6 +37,7 @@ import type { ScheduleService } from "../schedules/service";
 import type { ReviewService } from "../delegation/review";
 import type { DelegationEngine } from "../delegation/engine";
 import type { SearchService } from "../search/service";
+import type { ArtifactsStore } from "../store/artifacts";
 import type { ForkService } from "../sessions/fork";
 import type { FailoverService } from "../sessions/failover";
 import type { ImportService } from "../import/service";
@@ -55,7 +56,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
   delegation: DelegationEngine;
 };
@@ -417,6 +418,10 @@ export function registerMethods(d: Deps): void {
   // Deep search (Plan 16 W1). Profile-scoped server-side — the service's joins are the enforcement,
   // and the service itself checks the profile exists (a typo'd id should say so, not answer empty).
   reg("search.query", (p) => d.search.query(p.profileId, p.query, p.limit));
+
+  // The Library's file browser. One indexed range scan and a count; no transcript is read, which is
+  // the whole point of the `artifacts` index existing (see migration v25).
+  reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId) }));
 
   // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
   // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and

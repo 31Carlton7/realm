@@ -603,3 +603,60 @@ describe("migration v18 — archiving (a row put away, not deleted)", () => {
     db.close();
   });
 });
+
+describe("migration v25 — the Library's file index", () => {
+  /**
+   * The v4 fixture plus a history of session EVENTS, inserted raw — the state an upgrading home is
+   * actually in: files were written months ago and nothing indexed them, because the index did not
+   * exist yet.
+   */
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v4Fixture(p);
+    const raw = new DatabaseSync(p);
+    const ev = raw.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)");
+    ev.run("se1", 100, "tool_call", JSON.stringify({ toolUseId: "t1", name: "Write", input: { file_path: "/tmp/versed/report.md" }, parentToolUseId: null }));
+    ev.run("se1", 101, "assistant_text", JSON.stringify({ messageId: "m1", text: "wrote it" }));
+    ev.run("se2", 102, "user_message", JSON.stringify({ text: "look", attachments: [{ path: "/tmp/versed/shot.png", mime: "image/png" }] }));
+    raw.close();
+    return openDatabase(p);
+  };
+
+  it("adds an EMPTY table and a cursor aimed at the whole existing history", () => {
+    /* The migration itself indexes nothing. Walking every event inside a schema migration would put
+       an unbounded scan between the user and their first window; the cursor is what defers it to a
+       chunked, resumable, interruptible pass after boot. */
+    const db = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM artifacts").get() as { n: number }).n).toBe(0);
+    const cursor = JSON.parse((db.prepare("SELECT value_json FROM settings WHERE key = 'artifacts.backfill'").get() as { value_json: string }).value_json) as { done: number; target: number };
+    expect(cursor.done).toBe(0);
+    // Frozen at the last event that existed when the schema moved. Everything past it is indexed at
+    // write time, so the two writers cannot both claim the same row.
+    expect(cursor.target).toBe((db.prepare("SELECT MAX(seq) AS m FROM session_events").get() as { m: number }).m);
+    db.close();
+  });
+
+  it("is idempotent: a second open neither re-runs it nor resets a cursor the backfill has advanced", () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v4Fixture(p);
+    const first = openDatabase(p);
+    first.prepare("UPDATE settings SET value_json = ? WHERE key = 'artifacts.backfill'").run(JSON.stringify({ done: 9, target: 9 }));
+    first.close();
+    // INSERT OR IGNORE, not INSERT: re-running this would otherwise rewind a finished backfill and
+    // re-scan the whole history on every launch.
+    const again = openDatabase(p);
+    expect(JSON.parse((again.prepare("SELECT value_json FROM settings WHERE key = 'artifacts.backfill'").get() as { value_json: string }).value_json))
+      .toEqual({ done: 9, target: 9 });
+    again.close();
+  });
+
+  it("an indexed file goes when its session goes, without a second delete to remember", () => {
+    const db = migrated();
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.prepare("INSERT INTO artifacts (id, session_id, seq, kind, path, name, ext, ts) VALUES ('a1', 'se1', 1, 'output', '/tmp/versed/report.md', 'report.md', 'md', 100)").run();
+    db.prepare("DELETE FROM sessions WHERE id = 'se1'").run();
+    expect((db.prepare("SELECT COUNT(*) AS n FROM artifacts").get() as { n: number }).n).toBe(0);
+    db.close();
+  });
+});

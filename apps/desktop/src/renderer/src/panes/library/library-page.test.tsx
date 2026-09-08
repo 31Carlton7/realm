@@ -22,15 +22,19 @@ async function mount(overrides: FakeData = {}, spaceId = "s1") {
 }
 
 describe("the Library page (Plan 12 W4)", () => {
-  it("wears the page pattern: head, a Skills · Memory rail, Skills first", async () => {
+  it("wears the page pattern: head, a Files · Skills · Memory rail, Files first", async () => {
+    /* Files leads. Skills and memory are what you INSTALL into a space and change rarely; files are
+       what the work produced, and they are the reason someone opens a Library at all. */
     await mount();
     expect(screen.getByRole("heading", { name: "Library" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Skills" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Files" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Skills" })).not.toBeChecked();
     expect(screen.getByRole("radio", { name: "Memory" })).not.toBeChecked();
   });
 
   it("the Skills tab IS the shared grouped panel — same groups, same disclosures, no fork", async () => {
     await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "Skills" }));
     // The shared panel's mandatory disclosure and the scope groups, exactly as the space page shows them.
     expect(await screen.findByText(/isolates this space's Claude sessions/)).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Everywhere" })).getByText("mac")).toBeInTheDocument();
@@ -39,6 +43,7 @@ describe("the Library page (Plan 12 W4)", () => {
 
   it("reads from the ITEM's space, never the active one — a page opened from another space keeps its vantage", async () => {
     const { api } = await mount({}, "s2"); // active space stays s1 (boot default)
+    fireEvent.click(screen.getByRole("radio", { name: "Skills" }));
     await waitFor(() => expect(api.calls).toContain("listSkills:s2"));
     expect(api.calls).not.toContain("listSkills:s1");
     // The vantage moved out of a sub-title paragraph and into the header beside the title, but it
