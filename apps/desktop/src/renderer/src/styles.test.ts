@@ -70,7 +70,7 @@ const dur = (rung: string): string => {
 describe("§6 motion ladder", () => {
   it("is the one place a duration is written, and these are its rungs", () => {
     expect(LADDER).toEqual({
-      "--dur-drag": 80, "--dur-hover": 100, "--dur-press": 120, "--dur-pop": 140, "--dur-fast": 150,
+      "--dur-drag": 80, "--dur-hover": 180, "--dur-press": 120, "--dur-pop": 140, "--dur-fast": 150,
       "--dur-swap": 160, "--dur-enter": 180, "--dur-base": 200, "--dur-rise": 220, "--dur-slow": 240,
       "--dur-move": 320,
     });
@@ -157,7 +157,7 @@ describe("§6 motion table", () => {
     expect(blockAfter("@keyframes rl-msg-in")).toContain("translateY(6px)");
   });
 
-  it("hover fills run 100ms on plain `ease` and touch background/colour only — never geometry", () => {
+  it("hover fills run on the hover rung, on plain `ease`, and touch background/colour only — never geometry", () => {
     const hover = bodiesFor(".item-row").join(" ");
     expect(hover).toContain(`transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
     expect(hover).not.toContain("transform");
@@ -1244,7 +1244,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(field?.selectors.find((x) => x.startsWith(".field input"))).toContain(":not(.search-field)");
   });
 
-  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn stepping to inset; primary = accent with the filled highlight and accent-ink hover", () => {
+  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn LIFTING to hover; primary = accent with the filled highlight and accent-ink hover", () => {
     /* The tiers are unchanged; where they are WRITTEN moved. Each state sets `--fill` and the base
        rule paints it, so the painted regime can read one property instead of racing each state on
        specificity — see the painted-control test above for the square-on-hover bug that forced it. */
@@ -1252,7 +1252,13 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(btn).toContain("--fill: var(--surface)");
     expect(btn).toContain("background: var(--fill)");
     expect(btn).toContain("box-shadow: var(--shadow-btn)");
-    expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).toContain("--fill: var(--inset)");
+    /* `--hover`, not `--inset`, and the direction is the point rather than the token name. `--inset`
+       is a rung of the SURFACE ladder and sits below `--surface` on a dark face, so a hovered button
+       sank while every row and menu item beside it lifted — which is what read as the button lurching
+       to a darker colour. `--hover` is the interaction rung and is authored per mode to move the
+       right way on both faces. The mutant: put `--inset` back and a hovered button darkens again. */
+    expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).toContain("--fill: var(--hover)");
+    expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).not.toContain("--fill: var(--inset)");
     const primary = bodiesFor(".btn.primary").join(" ");
     expect(primary).toContain("--fill: var(--rl-accent)");
     expect(primary).toContain("box-shadow: var(--fill-bevel)");

@@ -1072,14 +1072,20 @@ button.panel-title:hover { background: var(--rl-hover); }
    field came out as a bordered box inside the search field, which is the "search bar within a search
    bar" the Skills tab showed: the same failure, wearing the same rule. Every exclusion here names a
    control that owns its own skin. */
-.field input:not(.switch):not(.checkbox):not(.search-field), .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
+/* `select` is deliberately NOT scoped to `.field`, unlike the input beside it. A `<select>` has no
+   useful native skin to fall back to — left alone it draws Chromium's own control, complete with a
+   SQUARE focus ring, inside a window where every other control is rounded. Five of the app's ten
+   selects live outside a `.field` (the font pair, the code font, the usage scope, the schedule
+   preset) and every one of them shipped as that raw control. Scoping the skin to a wrapper made
+   forgetting the wrapper a silent visual regression; an element selector cannot be forgotten. */
+.field input:not(.switch):not(.checkbox):not(.search-field), select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 /* A multi-line field is the same control with room: same ring, same ground, same radius — only the
    height and the wrapping differ, so a form mixing the two reads as one form. */
 .field textarea { padding: 7px 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field);
   color: var(--rl-text-bright); outline: none; font: inherit; line-height: 1.5; resize: vertical; }
 .field textarea:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
 /* One focus-ring formula for every text-entry surface (§3): neutral ink at 35%, 2px. */
-.field input:not(.switch):not(.checkbox):not(.search-field):focus, .field select:focus, .rename:focus, .hex:focus {
+.field input:not(.switch):not(.checkbox):not(.search-field):focus, select:focus, .rename:focus, .hex:focus {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .profile-add-row { display: flex; gap: 6px; } .profile-add-row input { flex: 1; min-width: 0; }
@@ -1101,7 +1107,12 @@ button.panel-title:hover { background: var(--rl-hover); }
   flex-shrink: 0; white-space: nowrap;
   --fill: var(--surface); background: var(--fill); box-shadow: var(--shadow-btn); }
 .btn > svg { flex: none; }
-.btn:hover:not(:disabled) { --fill: var(--inset); }
+/* `--hover`, not `--inset`. The two move in OPPOSITE directions on a dark face: `--inset` is a rung
+   of the surface ladder and sits BELOW `--surface` (0.243 against 0.260), so a hovered button dropped
+   into a well while every row, menu and chip beside it lifted. `--hover` is the interaction rung and
+   is authored per mode to move the right way on both faces — lighter on dark, darker on light. The
+   danger variant already reached for it; now all three do. */
+.btn:hover:not(:disabled) { --fill: var(--hover); }
 .btn.primary { --fill: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
 .btn.primary:hover:not(:disabled) { --fill: var(--accent-ink); }
 .btn.danger { --fill: transparent; color: var(--rl-danger); box-shadow: none; }
@@ -2653,10 +2664,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .status-pill[data-tone="warning"] { color: var(--orange); background: var(--orange-tint); }
 .status-pill[data-tone="muted"] { color: var(--rl-text-faint); background: var(--rl-hover); }
 
-/* Custom selects (V-F1, sheets/forms only now): drop the raw Chromium arrow and draw our own chevron.
+/* Custom selects: drop the raw Chromium arrow and draw our own chevron.
    background-image cannot use currentColor, so the chevron is one fixed mid-grey (#85868f) chosen to
-   read on both modes' surfaces (≈ dark textDim, ≈ light textFaint). */
-.field select { appearance: none; padding-right: 22px;
+   read on both modes' surfaces (≈ dark textDim, ≈ light textFaint). Unscoped for the reason the skin
+   above is: `appearance: none` is what removes the native arrow AND the native focus ring, so a
+   select that misses this rule is the one that draws a square. */
+select { appearance: none; padding-right: 22px;
   background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="8" height="5" viewBox="0 0 8 5"><path d="M1 1l3 3 3-3" fill="none" stroke="%2385868f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>');
   background-repeat: no-repeat; background-position: right 6px center; }
 
@@ -3273,7 +3286,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   appearance: none; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 999px;
   background: var(--rl-line); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-line-strong);
   position: relative; cursor: pointer;
-  transition: background var(--dur-press) var(--ease-out-strong), box-shadow var(--dur-press) ease;
+  /* Two rungs, because these are two different events: the TRACK's fill is hover feedback and rides
+     the hover rung with every other fill in the app, while the knob below is a state change and
+     stays on press. Both were on press, which is what made a hover read as a flick. */
+  transition: background var(--dur-hover) var(--ease-out-strong), box-shadow var(--dur-hover) ease;
 }
 .switch:hover:not(:disabled) { background: var(--rl-line-strong); }
 /* The knob carries its own small lift, which is what stops it reading as a hole in the track. */
@@ -4410,7 +4426,10 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    A native range on the app's accent, with the value beside it in tabular figures so the number does
    not jitter as the thumb moves. Disabled off macOS, where the window has no material behind it. */
 .font-row { display: flex; align-items: center; gap: 8px; }
-.font-row select { flex: 1; min-width: 0; max-width: 220px; }
+/* Content-sized, not an even split. `flex: 1` gave the family and the weight the same width however
+   long their labels were, so "Regular" clipped beside a box of spare room. `0 1 auto` lets each take
+   what its longest option needs and yield only when the row runs out. */
+.font-row select { flex: 0 1 auto; min-width: 0; max-width: 220px; }
 .slider-row { display: flex; align-items: center; gap: 10px; }
 /*
  * The track. It was the OS control tinted with `accent-color` — a hairline groove under an
@@ -4569,10 +4588,12 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 
 .usage-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .usage-refresh { margin-left: auto; }
-.usage-scope select {
-  height: 26px; padding: 0 8px; font: inherit; font-size: 12px; color: var(--rl-text-bright);
-  background: var(--rl-raised); border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-ctl);
-}
+/* Only what is genuinely different from the shared select skin: this one is a compact chip in a
+   toolbar rather than a form control. It used to restate the whole skin — ground, border, radius,
+   padding — which is how it came to be missing the one declaration that mattered (`appearance:
+   none`) and drew a native arrow with a square focus ring inside a rounded toolbar. The padding
+   keeps `padding-right` off the shorthand so the shared chevron still has its gutter. */
+.usage-scope select { height: 26px; padding-left: 8px; font-size: 12px; }
 
 /* A segmented control: one row of radios wearing a shared track. */
 .seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: var(--hairline-w) solid var(--rl-line);
