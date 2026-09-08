@@ -579,8 +579,15 @@ kbd { font: 11px var(--font-mono); }
 .skill-picker-manage:hover { color: var(--rl-text-bright); }
 
 /* ── Skills settings: search/filter bar and the per-source groups ── */
-.skills-filter { display: flex; align-items: center; gap: 8px; padding: 6px 9px; margin-bottom: 6px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-ctl); background: var(--rl-panel); color: var(--rl-text-faint); }
+/* The same treatment the sidebar's search field takes: the prompter's surface and curve at this
+   control's own height, with no border. It was a bordered field inside a card inside a page — three
+   nested outlines to say "you can type here". */
+.skills-filter {
+  --search-h: 34px;
+  display: flex; align-items: center; gap: 8px; height: var(--search-h); padding: 0 11px; margin-bottom: 8px;
+  border: none; border-radius: calc(var(--search-h) * var(--sq-ratio)); corner-shape: squircle;
+  background: var(--surface); box-shadow: var(--shadow-card);
+}
 .skills-filter-glyph { flex: none; }
 .skills-filter-input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .skills-filter-input::placeholder { color: var(--rl-text-faint); }
@@ -632,8 +639,15 @@ kbd { font: 11px var(--font-mono); }
 .mp-body { display: flex; min-height: 0; max-height: min(52vh, 420px); align-items: stretch; }
 /* The list keeps its own scroll and a fixed share of the width, so highlighting a row can never
    reflow the column the eye is reading down. */
-.mp-list { width: 306px; flex: none; overflow-y: auto; padding: 6px;
+/* The list and its two bands. The band is short (28px) and the list pads by the same, so the row
+   under one is still fully clickable — a fade that eats its own last row is a fade you have to
+   scroll past. `--fade-ground` because this list sits on the picker's surface, not on a pane. */
+.mp-list-wrap { position: relative; width: 306px; flex: none; display: flex; min-height: 0;
+  --fade-h: 28px; --fade-top-h: 28px; --fade-ground: var(--surface);
   border-right: var(--hairline-w) solid var(--rl-hairline); }
+.mp-list-wrap > .edge-fade { inset: auto 0 0 0; }
+.mp-list-wrap > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
+.mp-list { flex: 1; min-width: 0; overflow-y: auto; padding: 6px 6px 28px; scroll-padding: 28px 0; }
 .mp-group + .mp-group { margin-top: 6px; }
 /* Section headings for the harness groups: the quietest thing on the surface, because they label
    rows rather than competing with them. */
@@ -1017,7 +1031,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .danger-zone .muted { flex: 1; }
 
 .palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: var(--scrim-soft); }
-.palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-float); overflow: hidden; background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-overlay); }
+/* ⌘K wears the app's curve. `--r-float` (16px) is the window rung and read as a plain dialog beside
+   a composer at 36 — this is the same surface family, so it takes the same corner at panel scale. */
+.palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-squircle); corner-shape: squircle;
+  overflow: hidden; background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-overlay); }
 .palette-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-dim); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
@@ -2292,6 +2309,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
      several times wider than the two curves ever diverge, and a mask — the obvious alternative to
      painting the fill — would have clipped it away entirely. */
 :root[data-squircle] .search,
+:root[data-squircle] .skills-filter,
+:root[data-squircle] .palette,
 :root[data-squircle] .md-code,
 :root[data-squircle] .diff-review,
 :root[data-squircle] .composer,
@@ -2352,6 +2371,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* The palette keeps its overlay lift — it floats over the whole window, where a code block sits in
+   a message. `overflow: hidden` clips a square, which costs nothing: its own head and list carry
+   the surface, so there is nothing at the corners for the square clip to reveal. */
+:root[data-squircle] .palette { --sq-fill: var(--surface); }
 /* Same treatment, one rung up the surface ladder: the review sits ON the diff pane rather than
    inside a message, so it takes the raised fill. */
 :root[data-squircle] .diff-review { --sq-fill: var(--rl-raised); box-shadow: none; }
@@ -2365,6 +2388,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   box-shadow: none;
 }
 :root[data-squircle] .search:hover { --sq-ring: var(--line-strong); }
+:root[data-squircle] .skills-filter {
+  --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
+  --sq-radius-top: calc(var(--search-h) * var(--sq-ratio));
+  --sq-radius-bottom: calc(var(--search-h) * var(--sq-ratio));
+  box-shadow: none;
+}
+:root[data-squircle] .skills-filter:focus-within { --sq-ring: var(--line-strong); }
 /* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
 :root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
   --sq-ring: var(--line-strong); --sq-ring-w: 1px;
@@ -2867,6 +2897,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .origin-add { display: flex; gap: 8px; }
 .origin-add input { flex: 1; }
 .settings-note code { font: 11px var(--font-mono); }
+/* The foot note: separated by air and a rule above it rather than by a tinted box, which at the
+   bottom of a page reads as a banner nobody put there on purpose. */
+.settings-note-foot { margin-top: 20px; padding-top: 14px; border-top: var(--hairline-w) solid var(--rl-hairline); }
 /* Settings → Sign-ins: a stacked label+input inside a `.field`. Its own label line rather than
    `.field > span`, which is already spoken for by the field's own heading. */
 .settings-input-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
@@ -3066,8 +3099,16 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    column's content stays exactly where the rail and the head expect it. `content-box` keeps the
    720px measure a measure of CONTENT: the bleed is outside it, and the page-measure arithmetic below
    (and the test that checks it) go on reading the one number. */
+/* The scrolling column, and the bands that dissolve its ends. The bands hang off the BODY rather
+   than the column, so they span the whole reading width including the 4px focus-ring inset the
+   column carries. `scroll-padding` keeps a row landing under a band fully reachable — an item you
+   have to scroll past to click is worse than a hard edge. */
+.page-body { position: relative; }
+.page-body > .edge-fade { inset: auto 0 0 0; }
+.page-body > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
 .page-content { flex: 1; min-width: 0; min-height: 0; max-width: 720px; overflow-y: auto;
-  box-sizing: content-box; padding: 4px 4px 0; margin: -4px -4px 0; }
+  box-sizing: content-box; padding: 4px 4px 34px; margin: -4px -4px 0;
+  --fade-h: 34px; --fade-top-h: 24px; scroll-padding: 24px 0 34px; }
 /* The Tasks lens is the one tab that is a LIST BESIDE A PANEL rather than a single column of form,
    so it opts out of the 720px measure the other tabs are set in. Nothing else does. */
 .page-content[data-wide] { max-width: none; }

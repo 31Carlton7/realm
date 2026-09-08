@@ -49,6 +49,10 @@ export function SettingsPage(_props: PaneProps) {
         <div className="page-title"><h1>Settings</h1></div>
       </header>
       <div className="page-body">
+        {/* Both ends dissolve. The bands sit ON the body so they span the reading column's full
+            width, and the column pads by their depth so a row under one is still clickable. */}
+        <span className="edge-fade" data-edge="top" aria-hidden="true" />
+        <span className="edge-fade" aria-hidden="true" />
         <fieldset className="page-rail">
           <legend className="visually-hidden">Settings section</legend>
           {TABS.map((t) => (

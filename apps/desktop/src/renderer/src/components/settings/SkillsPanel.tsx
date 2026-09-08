@@ -61,14 +61,6 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
 
   return (
     <div className="form settings-panel">
-      {/* Disclosure #1, restated for discovery: isolation is still real, but it is no longer a loss of
-          your own skills — they are in the list above it, and switching one on brings it along. */}
-      <p className="settings-note">
-        Enabling any skill isolates this space's Claude sessions from your own settings files — they run
-        with the skills switched on here and nothing else, so anything you want out of your installed
-        folders has to be switched on above. Your <code>CLAUDE.md</code> files are re-injected by Realm
-        to compensate.
-      </p>
       <div className="field">
         <span>Skills in this space</span>
         {!skills ? <p className="env-empty">Loading…</p> : all.length === 0 ? (
@@ -127,6 +119,16 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
           ))}
         </ul>
       </div>
+      {/* At the FOOT, not the head.
+          It is a consequence of switching something on, not an instruction for reading the page —
+          and a warning at the top is read once, before it means anything, then never again. Down
+          here it sits where a reader arrives having just used the switches it is about. */}
+      <p className="settings-note settings-note-foot" role="note">
+        Enabling any skill isolates this space's Claude sessions from your own settings files — they run
+        with the skills switched on here and nothing else, so anything you want out of your installed
+        folders has to be switched on above. Your <code>CLAUDE.md</code> files are re-injected by Realm
+        to compensate.
+      </p>
     </div>
   );
 }

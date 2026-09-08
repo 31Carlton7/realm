@@ -286,6 +286,11 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
         </div>
       )}
       <div className="mp-body">
+        {/* The list dissolves at both ends rather than stopping at a hard edge. The band is short and
+            the list keeps a matching pad, so a row under it is still reachable — a fade that ate its
+            own last row would be a fade you have to scroll past to click. */}
+        <div className="mp-list-wrap">
+        <span className="edge-fade" data-edge="top" aria-hidden="true" />
         <div className="mp-list" id="mp-list" role="listbox" aria-label="Models">
           {groups.map((g) => (
             <div key={g.label} className="mp-group" role="group" aria-label={g.label || "Results"}>
@@ -339,6 +344,8 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
               {vendor && <button type="button" className="mp-empty-all" onClick={() => chooseVendor(null)}>Show every provider</button>}
             </div>
           )}
+        </div>
+        <span className="edge-fade" aria-hidden="true" />
         </div>
         {activeRow && route && (
           <ModelDetail row={activeRow} route={route} info={info}

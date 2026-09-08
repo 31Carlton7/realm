@@ -40,6 +40,10 @@ export function LibraryPage({ item }: PaneProps) {
         <span className="page-vantage">{space.name}</span>
       </header>
       <div className="page-body">
+        {/* Both ends dissolve. The bands sit ON the body so they span the reading column's full
+            width, and the column pads by their depth so a row under one is still clickable. */}
+        <span className="edge-fade" data-edge="top" aria-hidden="true" />
+        <span className="edge-fade" aria-hidden="true" />
         <fieldset className="page-rail">
           <legend className="visually-hidden">Library section</legend>
           {LIBRARY_TABS.map((t) => (
