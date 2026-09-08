@@ -67,10 +67,14 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
           <p className="env-empty">No skills yet. Drop a folder containing a SKILL.md into <code className="env-path">{root}</code>.</p>
         ) : (
           <>
-            <div className="skills-filter">
-              <Icon name="search" size={14} className="skills-filter-glyph" />
-              <input type="text" className="skills-filter-input" placeholder={`Search ${all.length} skills…`}
-                aria-label="Search skills" value={query} onChange={(e) => setQuery(e.target.value)} />
+            {/* The field and the filter are two controls, so they stand apart. Sharing one bordered
+                box made the toggle read as something INSIDE the search rather than beside it. */}
+            <div className="skills-filter-row">
+              <div className="skills-filter">
+                <Icon name="search" size={14} className="skills-filter-glyph" />
+                <input type="text" className="skills-filter-input" placeholder={`Search ${all.length} skills…`}
+                  aria-label="Search skills" value={query} onChange={(e) => setQuery(e.target.value)} />
+              </div>
               <label className="skills-filter-toggle">
                 <input type="checkbox" className="checkbox" checked={onlyEnabled} onChange={(e) => setOnlyEnabled(e.target.checked)} />
                 On only ({enabledCount})

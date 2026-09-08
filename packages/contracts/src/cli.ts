@@ -178,7 +178,41 @@ export type InstallProvenance = "npm" | "pnpm" | "brew" | "unknown";
  * package under a global `node_modules`; an `npm install -g` over a pnpm global install is still a
  * second copy, so pnpm is refused too.
  */
-export function canRunUpdate(route: InstallRoute | null, provenance: InstallProvenance): boolean {
+/**
+ * The Homebrew formula a kind is published under, where one exists.
+ *
+ * Separate from `INSTALL_ROUTES` because a route is the way Realm INSTALLS a CLI (one canonical
+ * choice) and this is a way it may already BE installed. Both `codex` and `claude` ship a formula
+ * alongside their npm package, and a user who used `brew install` should be updated with
+ * `brew upgrade` — the refusal was correct that npm would leave a second copy, and wrong that the
+ * only answer was to do nothing.
+ */
+const BREW_FORMULA: Partial<Record<AgentKind, string>> = { codex: "codex", claude: "claude-code" };
+
+/**
+ * Can Realm run an update for this install, and with what?
+ *
+ * The rule is match the PROVENANCE, not the route: an npm install updates with npm, a Homebrew one
+ * with Homebrew. What this used to do was compare provenance against the canonical route and refuse
+ * on any mismatch, which meant a perfectly ordinary `brew install codex` got a permanent "there is a
+ * newer version and Realm will not fetch it" — correct about npm, and unhelpful about everything.
+ *
+ * `unknown` still refuses, and that is not laziness: a binary Realm cannot attribute to a package
+ * manager is one where every upgrade command is a guess, and guessing wrong installs a second copy.
+ */
+export function updatePlan(route: InstallRoute | null, provenance: InstallProvenance, kind: AgentKind): InstallRoute | null {
+  if (provenance === "brew") {
+    const formula = route?.method === "brew" ? route.formula : BREW_FORMULA[kind];
+    return formula ? { method: "brew", formula } : null;
+  }
+  if (provenance === "npm" || provenance === "pnpm") return route?.method === "npm" ? route : null;
+  return null;
+}
+
+export function canRunUpdate(route: InstallRoute | null, provenance: InstallProvenance, kind?: AgentKind): boolean {
+  // `kind` is optional so existing callers keep compiling; without it the old route-matching rule
+  // stands, which is the conservative answer rather than a different one.
+  if (kind !== undefined) return updatePlan(route, provenance, kind) !== null;
   if (!route) return false;
   if (route.method === "npm") return provenance === "npm";
   if (route.method === "brew") return provenance === "brew";
@@ -186,8 +220,8 @@ export function canRunUpdate(route: InstallRoute | null, provenance: InstallProv
 }
 
 /** Why an update Realm found cannot be applied for the user, in the user's terms. Null when it can. */
-export function updateRefusal(route: InstallRoute | null, provenance: InstallProvenance): string | null {
-  if (!route || canRunUpdate(route, provenance)) return null;
+export function updateRefusal(route: InstallRoute | null, provenance: InstallProvenance, kind?: AgentKind): string | null {
+  if (!route || canRunUpdate(route, provenance, kind)) return null;
   if (route.method === "script") return "Realm can't update this one — its installer is a script from the vendor, and re-running it gives no way to confirm which version you'd land on.";
   const want = route.method === "npm" ? "npm" : "Homebrew";
   const have = provenance === "brew" ? "Homebrew" : provenance === "unknown" ? "something other than a package manager Realm recognises" : provenance;

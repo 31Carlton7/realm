@@ -1,8 +1,10 @@
 import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, DEFAULT_MIME, isImageMime, mimeForPath, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { startServer } from "./server-process";
 import { loginShellPath, mergePath } from "./login-shell-path";
@@ -485,13 +487,50 @@ ipcMain.handle("mac:status", (): Promise<MacAccessStatus> => macAccessStatus());
  */
 ipcMain.handle("mac:app-icon", async (_e, id: unknown): Promise<string | null> => {
   if (!isMacCapabilityId(id)) return null;
-  const path = MAC_CAPABILITIES[id].appPath;
-  if (path === null || !existsSync(path)) return null;
-  try {
-    const icon = await app.getFileIcon(path, { size: "normal" });
-    return icon.isEmpty() ? null : icon.toDataURL();
-  } catch { return null; }
+  const bundle = MAC_CAPABILITIES[id].appPath;
+  if (bundle === null || !existsSync(bundle)) return null;
+  const cached = APP_ICON_CACHE.get(bundle);
+  if (cached !== undefined) return cached;
+  const url = await readAppIcon(bundle);
+  APP_ICON_CACHE.set(bundle, url);
+  return url;
 });
+
+/** Icons never change while the app runs, and the permissions page asks for all thirteen at once
+ *  every time it mounts. One `sips` per bundle per launch. */
+const APP_ICON_CACHE = new Map<string, string | null>();
+
+/**
+ * An application's REAL icon, as a data URL.
+ *
+ * Deliberately not `app.getFileIcon`. That returns a generic pale rounded square for every bundle on
+ * the sealed system volume — Calendar, Reminders and Mail all came back byte-identical at 1209
+ * bytes, which is exactly what the empty squares on the permissions page were. `nativeImage` cannot
+ * read `.icns` at all (it answers a 0×0 image), so the conversion goes through `sips`, which is the
+ * system's own tool for it and present on every macOS.
+ *
+ * Every failure returns null and the row draws nothing: a bundle with no `CFBundleIconFile`, an
+ * icon `sips` cannot convert, a `sips` that is not there. None of them is worth a placeholder that
+ * claims to be an app's icon.
+ */
+async function readAppIcon(bundle: string): Promise<string | null> {
+  try {
+    const name = execFileSync("/usr/libexec/PlistBuddy",
+      ["-c", "Print :CFBundleIconFile", `${bundle}/Contents/Info.plist`],
+      { encoding: "utf8", timeout: 4000 }).trim();
+    if (!name) return null;
+    // `CFBundleIconFile` may or may not carry the extension; both spellings are real.
+    const base = `${bundle}/Contents/Resources/${name}`;
+    const icns = existsSync(base) ? base : existsSync(`${base}.icns`) ? `${base}.icns` : null;
+    if (icns === null) return null;
+    const out = join(tmpdir(), `realm-icon-${createHash("sha1").update(icns).digest("hex").slice(0, 12)}.png`);
+    execFileSync("/usr/bin/sips", ["-s", "format", "png", "-Z", "64", icns, "--out", out],
+      { stdio: "ignore", timeout: 8000 });
+    const png = readFileSync(out);
+    rmSync(out, { force: true });
+    return `data:image/png;base64,${png.toString("base64")}`;
+  } catch { return null; }
+}
 
 /** Raise ONE capability's macOS prompt, then re-read the audit so what renders is the answer the
  *  user just gave. The renderer names a capability id; the argv comes from mac-access.ts's closed

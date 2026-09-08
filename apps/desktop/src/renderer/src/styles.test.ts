@@ -768,7 +768,11 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
        picture, so those declare only and get the shape free when Chromium 139 lands. */
     const declared = RULES
       .filter((r) => /corner-shape:\s*squircle/.test(r.body) && /border-radius:[^;]*--r-squircle\b/.test(r.body))
-      .flatMap((r) => r.selectors);
+      .flatMap((r) => r.selectors)
+      /* A CHILD taking its parent's corner is not a surface of its own. The palette's head and foot
+         round themselves so nothing square meets the painted curve behind them — painting each of
+         them would give the card three stacked fills instead of one. */
+      .filter((sel) => !/^\.palette > /.test(sel));
     expect(declared.filter((sel) => !painted.has(sel)).sort(),
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
   });
@@ -1155,8 +1159,12 @@ describe("dividers", () => {
   it("the seams INSIDE one surface, between a head or a field and the rows below it, are kept", () => {
     // A card's head over its body, and a popover's search field over its list. These separate two
     // different KINDS of thing sharing one surface, which is what a hairline is for.
-    for (const sel of [".diff-head", ".fd-head", ".mp-search", ".palette-input", ".spaces-search"])
+    for (const sel of [".diff-head", ".fd-head", ".mp-search", ".spaces-search"])
       expect(bodiesFor(sel).join(" "), sel).toMatch(/border-bottom: var\(--hairline-w\) solid/);
+    /* `.palette-input` left that list. The rule is for a seam between two different KINDS of thing
+       sharing a surface; a search field over its own results is a search and its results, and the
+       line between them was the divider this app spent a pass removing everywhere else. */
+    expect(bodiesFor(".palette-input").join(" ")).not.toMatch(/border-bottom/);
     // `.md-code-head` is deliberately NOT in that list any more. The rule above is for a seam
     // between two different KINDS of thing sharing a surface; a code block's head holds the
     // language label and the copy control, which are chrome FOR the code rather than a section
@@ -1171,10 +1179,14 @@ describe("dividers", () => {
     /* The sidebar's rule is gone with the edge it divided. It was a full-height column flush to the
        window with a line down its right side — the shape of a panel bolted on. It floats now, inset
        and rounded all the way round, and a detached surface separates itself. */
+    /* The rule stays gone — a change of surface is the boundary. The INSET came back off: a sidebar
+       floating inside the frame leaves a strip of window down its left edge, which reads as a gap
+       rather than as depth. It is the app's own edge, not a card on a page. That inset moved to the
+       summary panel, which genuinely is a card over a page. */
     const sidebar = bodiesFor(".sidebar").join(" ");
     expect(sidebar).not.toContain("border-right");
-    expect(sidebar).toContain("margin: var(--sidebar-inset)");
-    expect(sidebar).toContain("border-radius: var(--r-float)");
+    expect(sidebar).not.toContain("margin: var(--sidebar-inset)");
+    expect(bodiesFor(".session-summary").join(" ")).toContain("margin: var(--sidebar-inset)");
   });
 
   it("the two option lists in the transcript separate their rows the same way", () => {

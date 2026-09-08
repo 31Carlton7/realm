@@ -617,10 +617,10 @@ export function SpacePage({ item }: PaneProps) {
     // it is the swiper's per-space sidebar column).
     <div className="page space-page-pane">
       <header className="page-head">
-        {/* The space's own colour stays — it is how a space is identified everywhere else in the
-            app, and dropping it here would make this the one screen that does not say which space
-            you are looking at. The tile behind it is what went. */}
-        <div className="page-title"><h1 style={{ color: space.color }}>{space.name}</h1></div>
+        {/* Plain text. The space's colour is carried by its icon in the sidebar, which is where a
+            person looks to tell spaces apart — a coloured TITLE reads as a link or a status, and on
+            a purple space it fought the accent it was nearly the same hue as. */}
+        <div className="page-title"><h1>{space.name}</h1></div>
         <span className="page-vantage">{count === 1 ? "1 session" : `${count} sessions`}</span>
         <button type="button" className="btn primary" onClick={() => run(() => newSessionInstant())}>
           <Icon name="add" size={14} /> New session

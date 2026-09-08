@@ -60,23 +60,45 @@ export function promptHint(ctx: {
   // message too, and offering to implement a plan that does not exist promised nothing.
   if (inPlan && turn.some((b) => b.kind === "plan")) return "Build the plan.";
 
-  // It wrote code. One file is worth naming; two are a list, and a list is longer than the sentence.
+  /* It wrote a file. What to offer next depends on WHAT it wrote, which the extension knows and the
+     tool name does not: "write tests for it" is a fine next move for a module and a nonsense one for
+     an essay, and this app is used for both. Realm is not a coding tool that also opens documents —
+     an agent here writes lectures, study guides and essays as often as it writes source. */
   if (turn.some((b) => b.kind === "tool" && WRITE_TOOLS.has(b.name))) {
-    return files.length === 1 ? `Write tests for ${files[0]}.` : "Write tests for the changes.";
+    const one = files.length === 1 ? files[0]! : null;
+    if (files.some(isProse)) return one ? `Tighten ${one}.` : "Tighten what you wrote.";
+    if (files.some(isCode)) return one ? `Write tests for ${one}.` : "Write tests for the changes.";
+    return one ? `Walk me through ${one}.` : "Walk me through what changed.";
   }
 
   // A read-only investigation left a trail. Follow it, without restating what was asked.
   if (files.length === 1) return `Walk me through ${files[0]}.`;
   if (files.length > 1) return "Walk me through what you found.";
 
-  // A tool-free answer. The useful next move is to make it concrete.
-  if (turn.some((b) => b.kind === "assistant" && !b.streaming)) return "Show me the code behind that.";
+  // A tool-free answer. The useful next move is to make it concrete — and "concrete" is an example,
+  // which is true of an explanation about anything. It used to say "show me the code behind that",
+  // which is a sentence about a codebase asked of a session that may never have had one.
+  if (turn.some((b) => b.kind === "assistant" && !b.streaming)) return "Give me an example.";
   return reviewChanges;
 }
 
 /** Tools that CHANGE a file. Deliberately narrower than tool-group's `FILE_TOOLS`, which counts reads
  *  too — "it read four files" is not a reason to suggest running the tests. */
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"]);
+
+/** Extensions that make a file PROSE — something you tighten, not something you test. */
+const PROSE_EXT = new Set(["md", "markdown", "txt", "rtf", "tex", "csv", "docx", "pages", "html"]);
+/** …and ones that make it code. Deliberately not "everything else": a `.zip` or a `.png` is neither,
+ *  and offering to test one would be worse than offering nothing. */
+const CODE_EXT = new Set(["ts", "tsx", "js", "jsx", "py", "rb", "go", "rs", "java", "kt", "swift",
+  "c", "h", "cc", "cpp", "cs", "php", "sh", "sql", "css", "scss", "vue", "svelte"]);
+
+const extOf = (name: string): string => {
+  const base = name.split("/").pop() ?? name;
+  return base.includes(".") ? base.slice(base.lastIndexOf(".") + 1).toLowerCase() : "";
+};
+const isProse = (name: string): boolean => PROSE_EXT.has(extOf(name));
+const isCode = (name: string): boolean => CODE_EXT.has(extOf(name));
 
 const PATH_TOOLS = new Set([...WRITE_TOOLS, "Read", "View", "read_file"]);
 

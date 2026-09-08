@@ -9,13 +9,17 @@ import { CliService } from "./service";
 
 /** A PATH directory holding the named binaries, each a symlink into the layout its package manager
  *  would have produced. No package manager is ever run — the layout IS the fact under test. */
-function machine(installs: { bin: string; under: "npm" | "brew" }[]): { PATH: string } {
+function machine(installs: { bin: string; under: "npm" | "brew" | "unknown" }[]): { PATH: string } {
   const root = tempDir("realm-clisvc-");
   const binDir = join(root, "bin");
   mkdirSync(binDir, { recursive: true });
   for (const { bin, under } of installs) {
+    // `unknown` is a real binary in a real directory that resolves to no package manager — a hand
+    // build, a vendor installer, a copy into ~/.local/bin. It is not a missing file.
     const real = under === "brew"
       ? join(root, "Cellar", bin, "1.0.0", "bin", bin)
+      : under === "unknown"
+      ? join(root, "opt", bin)
       : join(root, "lib", "node_modules", bin, "bin", `${bin}.js`);
     mkdirSync(dirname(real), { recursive: true });
     writeFileSync(real, "#!/bin/sh\n", { mode: 0o755 });
@@ -72,18 +76,34 @@ describe("CliService.status", () => {
     expect(codex.latest).toBe("0.146.0");
   });
 
-  it("reports an update it will not apply, rather than hiding either half", async () => {
-    // codex installed by Homebrew: npm install -g would add a second copy, so the update is named
-    // and refused in the same row.
+  it("updates a brew-installed CLI WITH brew, even though its canonical route is npm", async () => {
+    /* This used to refuse. The refusal was half right — `npm install -g` really would leave a second
+       copy on the PATH — and wholly unhelpful: a plain `brew install codex` became a permanent "there
+       is a newer version and Realm will not fetch it". The rule is match the PROVENANCE, not the
+       canonical route, so a Homebrew install upgrades with Homebrew. */
     const env = machine([{ bin: "codex", under: "brew" }]);
     const { impl } = fakeFetch({ [CODEX_LATEST]: { version: "0.153.4" } });
     const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
     const codex = row(await svc.status(), "codex");
     expect(codex.updateAvailable).toBe(true);
     expect(codex.provenance).toBe("brew");
+    expect(codex.action).toBe("update");
+    expect(codex.command).toBe("brew upgrade codex");
+    expect(codex.refusal).toBe(null);
+  });
+
+  it("still refuses when it cannot attribute the install to a package manager", async () => {
+    /* `unknown` is not laziness. A binary Realm cannot trace to a package manager is one where every
+       upgrade command is a guess, and guessing wrong installs a second copy — which is the exact
+       harm the whole refusal exists to prevent. */
+    const env = machine([{ bin: "codex", under: "unknown" }]);
+    const { impl } = fakeFetch({ [CODEX_LATEST]: { version: "0.153.4" } });
+    const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
+    const codex = row(await svc.status(), "codex");
+    expect(codex.updateAvailable).toBe(true);
     expect(codex.action).toBe("none");
     expect(codex.command).toBe(null);
-    expect(codex.refusal).toContain("Homebrew");
+    expect(codex.refusal).toContain("something other than a package manager");
   });
 
   it("upgrades a brew-installed CLI whose route is brew", async () => {

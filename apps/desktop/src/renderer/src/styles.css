@@ -180,20 +180,15 @@ kbd { font: 11px var(--font-mono); }
    — the app's one adjustable ground, composed in tokens.css so the user's setting and
    prefers-reduced-transparency both reach it. --page flips with data-mode, so one rule serves both
    themes and every palette. */
-/* The sidebar floats rather than butts against the window.
-   It was a full-height column flush to the left edge with a rule down its right side — the shape of
-   a panel bolted on, which is what "make the whole menu rounded" is asking to undo. Inset on all
-   four sides and rounded all the way round, it reads as one surface sitting ON the window. The rule
-   goes with the edge it used to divide: a floating surface separates itself. */
+/* Flush to the window, rounded on its own corners only.
+   The inset came off: a sidebar floating inside the frame leaves a strip of window showing down its
+   left edge, which reads as a gap rather than as depth — it is the app's own edge, not a card on a
+   page. It keeps the rounding, because the window's corners are rounded and a square column inside
+   them shows through. The rule down its right stays gone: a change of surface is the boundary. */
 .sidebar {
   width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
-  margin: var(--sidebar-inset); border-radius: var(--r-float); corner-shape: squircle;
+  border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle;
   background: var(--sidebar-ground); -webkit-app-region: drag;
-}
-:root[data-squircle] .sidebar {
-  border-radius: 0; background: paint(rl-squircle);
-  --sq-fill: var(--sidebar-ground);
-  --sq-radius-top: var(--r-float); --sq-radius-bottom: var(--r-float);
 }
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
 /* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
@@ -442,7 +437,11 @@ kbd { font: 11px var(--font-mono); }
 .menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--hover); outline: none; }
 .menu .menu-check { margin-left: auto; color: var(--rl-accent); flex: none; }
 .menu [role="menuitem"].danger { color: var(--rl-danger); }
-.menu-label { flex: 1; }
+/* A row, not a bare span. A label carrying an icon and a word — "New spreadsheet", "Open a file…" —
+   put both inline in a `flex: 1` box with no alignment of its own, so the glyph sat on the baseline
+   and the words wrapped underneath it. Every one of those items rendered as two lines. */
+.menu-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.menu-label > svg { flex: none; }
 .menu-sep { height: 1px; background: var(--rl-hairline); margin: 4px 2px; }
 .menu-kbd { margin-left: auto; padding-left: 18px; color: var(--rl-text-dim); }
 /* A consequence trailing an item's own label — "Cursor · runs Composer", "Codex — not installed".
@@ -471,8 +470,10 @@ kbd { font: 11px var(--font-mono); }
 .session-summary {
   z-index: 100; width: min(320px, 80vw); display: flex; flex-direction: column;
   background: var(--surface); color: var(--rl-text-bright);
-  border-radius: var(--r-panel) 0 0 var(--r-panel); corner-shape: squircle;
-  box-shadow: var(--shadow-raised);
+  /* Inset from the pane on all four sides and rounded all the way round: this one IS a card over a
+     page, so the gap around it is what says so. It is where the sidebar's inset belonged. */
+  margin: var(--sidebar-inset); border-radius: var(--r-float); corner-shape: squircle;
+  box-shadow: var(--shadow-overlay);
   /* --dur-base: the panel arrives by changing where a box is, which is the rung that names. */
   animation: rl-summary-in var(--dur-base) var(--ease-out-strong);
 }
@@ -582,16 +583,27 @@ kbd { font: 11px var(--font-mono); }
 /* The same treatment the sidebar's search field takes: the prompter's surface and curve at this
    control's own height, with no border. It was a bordered field inside a card inside a page — three
    nested outlines to say "you can type here". */
+/* The field and the filter are two controls, so they look like two controls. They shared one
+   bordered box, which made the toggle read as something inside the search rather than beside it. */
+.skills-filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .skills-filter {
   --search-h: 34px;
-  display: flex; align-items: center; gap: 8px; height: var(--search-h); padding: 0 11px; margin-bottom: 8px;
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  height: var(--search-h); padding: 0 12px;
   border: none; border-radius: calc(var(--search-h) * var(--sq-ratio)); corner-shape: squircle;
-  background: var(--surface); box-shadow: var(--shadow-card);
+  background: var(--field); box-shadow: none;
 }
+.skills-filter:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--rl-line-strong); }
 .skills-filter-glyph { flex: none; }
 .skills-filter-input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .skills-filter-input::placeholder { color: var(--rl-text-faint); }
-.skills-filter-toggle { flex: none; display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--rl-text-dim); cursor: pointer; }
+/* Its own control, outside the field. Whitespace and a hit area of its own — no box, because a
+   second box beside a search box is two search boxes as far as the eye is concerned. */
+.skills-filter-toggle {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 0 4px;
+  font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; cursor: pointer;
+}
+.skills-filter-toggle:hover { color: var(--rl-text-bright); }
 .skills-origin-group { margin-top: 10px; }
 .skills-origin-label { padding: 0 0 4px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .04em;
   text-transform: uppercase; color: var(--rl-text-faint); }
@@ -1036,9 +1048,18 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: var(--scrim-soft); }
 /* ⌘K wears the app's curve. `--r-float` (16px) is the window rung and read as a plain dialog beside
    a composer at 36 — this is the same surface family, so it takes the same corner at panel scale. */
+/* NO `overflow: hidden`. Under the painted regime this card's own `border-radius` is 0, so the clip
+   is a SQUARE — and the head's fill and the list's rows then drew square corners sitting on top of a
+   curve painted correctly underneath them. That is what the corners looked wrong. The children round
+   themselves instead, so nothing square ever meets a curved edge. */
 .palette { width: min(560px, calc(100vw - 32px)); border-radius: var(--r-squircle); corner-shape: squircle;
-  overflow: hidden; background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-overlay); }
-.palette-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-dim); }
+  background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-overlay); }
+.palette > :first-child { border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
+.palette > :last-child { border-radius: 0 0 var(--r-squircle) var(--r-squircle); corner-shape: squircle; }
+/* No rule under it. The palette is one surface with one thing in it — a field over a list is not
+   two different KINDS of thing sharing a card, it is a search and its results, and a line between
+   them is the divider rule this app spent a pass removing everywhere else. */
+.palette-input { display: flex; align-items: center; gap: 10px; padding: 14px 18px; color: var(--rl-text-dim); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
 .palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
@@ -2987,7 +3008,20 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .settings-note-foot { margin-top: 20px; padding-top: 14px; border-top: var(--hairline-w) solid var(--rl-hairline); }
 /* Settings → Sign-ins: a stacked label+input inside a `.field`. Its own label line rather than
    `.field > span`, which is already spoken for by the field's own heading. */
-.settings-input-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
+.settings-input-label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--rl-text-dim); }
+/* A Realm text field: a fill and a curve, no outline. These were hairline rectangles — the browser
+   default with a colour on it — which in a sheet full of this app's own surfaces read as four bare
+   boxes. The focus ring REPLACES the border rather than adding to it, so focus is a change of state
+   and not a second edge appearing. */
+.settings-input-label input {
+  --field-h: 34px;
+  width: 100%; height: var(--field-h); padding: 0 12px;
+  border: none; border-radius: calc(var(--field-h) * var(--sq-ratio)); corner-shape: squircle;
+  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 13px; outline: none;
+  transition: box-shadow var(--dur-hover) ease;
+}
+.settings-input-label input::placeholder { color: var(--rl-text-faint); }
+.settings-input-label input:focus { box-shadow: 0 0 0 1.5px var(--rl-accent); }
 .settings-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); }
 .settings-hint[data-tone="danger"] { color: var(--rl-danger); }
 /* A choice the app has carried out and is reporting on, not one it refused — the contrast a moved

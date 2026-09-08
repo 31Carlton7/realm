@@ -1,6 +1,6 @@
 import {
   AGENT_INSTALL_ROUTES, AgentKindSchema, canRunUpdate, installCommand, isNewerVersion, parseBrewFormula,
-  parseNpmLatest, updateChannel, updateCommand, updateRefusal,
+  parseNpmLatest, updateChannel, updateCommand, updatePlan, updateRefusal,
   type AgentKind, type CliStatus, type InstallProvenance,
 } from "@realm/contracts";
 import type { ProbeResult } from "@realm/adapters";
@@ -84,15 +84,19 @@ export class CliService {
     if (!installed) {
       return { ...base, updateAvailable: false, action: installCommand(route) ? "install" : "none", command: installCommand(route), refusal: null };
     }
+    const plan = updatePlan(route, provenance, kind);
     if (!isNewerVersion(version, latest) || !latest) {
       return { ...base, updateAvailable: false, action: "none", command: null, refusal: null };
     }
     // An update exists. Whether Realm may apply it is a separate question with its own answer, and a
     // refusal is shown rather than swallowed — the user still learns a newer version is out there.
-    if (!canRunUpdate(route, provenance)) {
-      return { ...base, updateAvailable: true, action: "none", command: null, refusal: updateRefusal(route, provenance) };
+    if (!canRunUpdate(route, provenance, kind)) {
+      return { ...base, updateAvailable: true, action: "none", command: null, refusal: updateRefusal(route, provenance, kind) };
     }
-    return { ...base, updateAvailable: true, action: "update", command: updateCommand(route, latest), refusal: null };
+    /* Updated the way it was INSTALLED. A Homebrew install takes `brew upgrade`, an npm one takes
+       npm — matching the route instead of the provenance is what made a plain `brew install codex`
+       a permanent dead end. */
+    return { ...base, updateAvailable: true, action: "update", command: updateCommand(plan, latest), refusal: null };
   }
 
   /** One pass over every kind with a version channel: find its binary, then ask its registry. Both

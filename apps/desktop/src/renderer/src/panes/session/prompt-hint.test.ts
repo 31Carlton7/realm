@@ -49,7 +49,7 @@ describe("the session's suggested prompt", () => {
     const blocks = [user("go"), tool("Edit")];
     expect(hint({ blocks, status: "running" })).toBeNull();
     expect(hint({ blocks, status: "waiting_permission" })).toBeNull();
-    expect(hint({ blocks, status: "idle" })).toBe("Write tests for the changes.");
+    expect(hint({ blocks, status: "idle" })).toBe("Walk me through what changed.");
   });
 
   describe("a session that has not started", () => {
@@ -105,9 +105,13 @@ describe("the session's suggested prompt", () => {
         .not.toBe("Build the plan.");
     });
 
-    it("suggests the tests once the agent has written to a file", () => {
+    it("offers something NEUTRAL when it cannot tell what kind of file was written", () => {
+      /* "Write tests for it" is a fine next move for a module and a nonsense one for an essay, and
+         this app is used for both — an agent here writes lectures, study guides and essays as often
+         as it writes source. With no path to read an extension from, the safe offer is the one that
+         is true of either. */
       for (const name of ["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"]) {
-        expect(hint({ blocks: [user("go"), tool(name)] }), name).toBe("Write tests for the changes.");
+        expect(hint({ blocks: [user("go"), tool(name)] }), name).toBe("Walk me through what changed.");
       }
     });
 
@@ -128,14 +132,48 @@ describe("the session's suggested prompt", () => {
       expect(hint({ blocks: [user("go"), tool("Read", { file_path: "/repo/state/store.ts" }), assistant("It works like this.")] }))
         .toBe("Walk me through state/store.ts.");
       expect(hint({ blocks: [user("go"), tool("Grep"), tool("Bash"), assistant("Found it.")] }))
-        .toBe("Show me the code behind that.");
+        .toBe("Give me an example.");
     });
 
     it("only looks at the LAST turn — an edit two turns ago is not what just happened", () => {
       const blocks = [user("edit it"), tool("Edit"), assistant("done"), user("now explain"), assistant("because…")];
-      expect(hint({ blocks })).toBe("Show me the code behind that.");
+      expect(hint({ blocks })).toBe("Give me an example.");
       // …and the dirty tree cannot displace the continuation of the current conversation.
-      expect(hint({ blocks, gitInfo: git({ dirty: 1 }) })).toBe("Show me the code behind that.");
+      expect(hint({ blocks, gitInfo: git({ dirty: 1 }) })).toBe("Give me an example.");
     });
+  });
+});
+
+describe("what the agent WROTE decides what to offer next", () => {
+  /* Realm is not a coding tool that happens to open documents. An agent here writes lectures, study
+     guides and essays as often as it writes source, and "write tests for jordan-goat-essay.md" is
+     the shape of suggestion that makes an app feel like it is not listening. The extension knows
+     which kind of file it was; the tool name does not. */
+  it("offers to tighten prose, not to test it", () => {
+    for (const path of ["/w/jordan-goat-essay.md", "/w/notes.txt", "/w/report.docx", "/w/paper.tex"]) {
+      expect(hint({ blocks: [user("go"), tool("Write", { file_path: path })] }), path)
+        .toMatch(/^Tighten /);
+    }
+  });
+
+  it("still offers tests for code", () => {
+    for (const path of ["/w/parser.ts", "/w/app.py", "/w/main.go", "/w/style.css"]) {
+      expect(hint({ blocks: [user("go"), tool("Write", { file_path: path })] }), path)
+        .toMatch(/^Write tests for /);
+    }
+  });
+
+  it("says something true of either when the file is neither", () => {
+    // A `.zip` or a `.png` is not prose and not code, and offering to test one would be worse than
+    // offering nothing.
+    expect(hint({ blocks: [user("go"), tool("Write", { file_path: "/w/bundle.zip" })] }))
+      .toBe("Walk me through w/bundle.zip.");
+  });
+
+  it("a tool-free answer asks for an example, not for code", () => {
+    // "Show me the code behind that" is a sentence about a codebase, asked of a session that may
+    // never have had one. An example is the concrete follow-up to an explanation about anything.
+    expect(hint({ blocks: [user("who was Stuart Diamond?"), assistant("A Wharton professor…")] }))
+      .toBe("Give me an example.");
   });
 });
