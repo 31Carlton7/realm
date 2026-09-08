@@ -33,7 +33,7 @@ describe("the memory document", () => {
     expect(screen.getByText(new RegExp(`/ ${MEMORY_DOC_MAX.toLocaleString("en-US").replace(/,/g, ",")}`))).toBeInTheDocument();
     const over = "x".repeat(MEMORY_DOC_MAX + 7);
     fireEvent.change(doc, { target: { value: over } });
-    expect(screen.getByText(/over the cap by 7 characters/)).toBeInTheDocument();
+    expect(screen.getByText(/over by 7 characters/)).toBeInTheDocument();
     expect(screen.getByText(/will not truncate/)).toBeInTheDocument();
     const save = screen.getByRole("button", { name: "Save memory" });
     expect(save).toBeDisabled();

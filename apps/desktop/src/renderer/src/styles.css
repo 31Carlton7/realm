@@ -2955,6 +2955,32 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .creds-empty-line { margin: 0; font-size: 13.5px; color: var(--rl-text-dim); }
 .creds-empty-sub { margin: 0; max-width: 62ch; font-size: 12.5px; line-height: 1.55; color: var(--rl-text-faint); }
 .creds-form { gap: 12px; }
+/* ── Memory: one editor, and the mechanics folded under it ───────────────────────────────────── */
+.memory-panel { gap: 14px; width: 100%; min-width: 0; }
+/* The panel is dropped into a `.settings-row` card, which is a flex row — so it has to claim the
+   width or the editor sizes to its own content and sits in a 300px column inside a 900px card.
+   `min-width: 0` on both is what actually lets it shrink AND grow: a flex item's default
+   `min-width: auto` refuses to go below its content, which is how the two end up disagreeing. */
+.scope-doc-row { display: block; }
+.scope-doc-row > .memory-panel { width: 100%; }
+/* The editor IS the page, so it gets the room. It shared the page equally with a switch and a
+   diagnostic before, which is most of why the page read as three unrelated things. */
+.memory-panel .memory-doc { min-height: 220px; width: 100%; }
+.memory-meta { display: flex; align-items: center; gap: 12px; }
+.memory-meta .settings-hint { flex: 1; min-width: 0; }
+/* The count recedes until it matters — it reports a limit almost nobody is near. */
+.memory-meta .settings-hint[data-quiet] { color: color-mix(in srgb, var(--rl-text-faint) 70%, transparent); }
+.memory-details > summary {
+  list-style: none; cursor: pointer; width: fit-content; padding: 2px 0;
+  font-size: 12.5px; color: var(--rl-text-faint);
+}
+.memory-details > summary::-webkit-details-marker { display: none; }
+.memory-details > summary::before { content: "▸ "; }
+.memory-details[open] > summary::before { content: "▾ "; }
+.memory-details > summary:hover { color: var(--rl-text-dim); }
+.memory-details-body { display: flex; flex-direction: column; gap: 14px; padding-top: 10px; }
+/* A heading INSIDE the disclosure is a sub-heading, not a peer of the editor's label. */
+.memory-sub { font-size: 12px; color: var(--rl-text-faint); }
 .settings-note code { font: 11px var(--font-mono); }
 /* The foot note: separated by air and a rule above it rather than by a tinted box, which at the
    bottom of a page reads as a banner nobody put there on purpose. */

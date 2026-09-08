@@ -37,40 +37,66 @@ export function MemoryPanel({ spaceId, editorRef }: { spaceId: string;
   const dirty = draft !== null && draft !== memory.doc;
   const af = memory.agentsFile;
 
+  /*
+   * One thing you write, one thing you can check.
+   *
+   * This page was three co-equal blocks — an editor, a file-mirroring switch, and a per-session
+   * diagnostic — stacked with the same weight and no hierarchy, which is why it read as confusing:
+   * only ONE of them is a thing you do. The other two answer "how does this actually reach the
+   * agent", which is one occasional question, so they fold together behind one disclosure.
+   *
+   * The editor leads and is labelled by what it MEANS rather than by what it is called internally:
+   * "what every session in this space knows" is the sentence a person is trying to write.
+   */
   return (
-    <div className="form settings-panel">
+    <div className="form settings-panel memory-panel">
       <div className="field">
-        <span>Space memory</span>
-        <p className="settings-hint">Travels into every new Claude and Codex session in this space. Stored at <code className="env-path">{memory.path}</code> — never in any agent's config.</p>
-        <textarea ref={editorRef} className="memory-doc" aria-label="Space memory document" value={text} rows={10} spellCheck={false}
-          onChange={(e) => setDraft(e.target.value)} placeholder="Durable context for this space's sessions — conventions, links, standing instructions…" />
+        <span>What every session in this space knows</span>
+        <textarea ref={editorRef} className="memory-doc" aria-label="Space memory document" value={text} rows={12} spellCheck={false}
+          onChange={(e) => setDraft(e.target.value)} placeholder="Conventions, links, standing instructions — anything you would otherwise retype at the start of every session." />
         <div className="memory-meta">
-          <span className="settings-hint" data-tone={over > 0 ? "danger" : undefined}>
-            {fmt(text.length)} / {fmt(MEMORY_DOC_MAX)}
-            {over > 0 && ` — over the cap by ${fmt(over)} characters. Trim it down; Realm will not truncate it.`}
+          {/* The count is chrome until it matters. It used to sit at full weight beside every save,
+              reporting a limit almost nobody is near. */}
+          <span className="settings-hint" data-tone={over > 0 ? "danger" : undefined} data-quiet={over <= 0 || undefined}>
+            {over > 0
+              ? `${fmt(text.length)} / ${fmt(MEMORY_DOC_MAX)} — over by ${fmt(over)} characters. Trim it down; Realm will not truncate it.`
+              : `${fmt(text.length)} / ${fmt(MEMORY_DOC_MAX)}`}
           </span>
           <button type="button" className="btn primary" disabled={!dirty || over > 0}
-            onClick={() => run(async () => { await saveMemoryDoc(spaceId, text); setDraft(null); })}>Save memory</button>
+            onClick={() => run(async () => { await saveMemoryDoc(spaceId, text); setDraft(null); })}>
+            {/* A stable label. A button whose NAME changes with its state ("Save" → "Saved") makes
+                its accessible name a status, which is the one thing a name must not be. */}
+            Save memory
+          </button>
         </div>
       </div>
-      <div className="field">
-        <span>AGENTS.md in the space folder</span>
-        {af.writable || af.enabled ? (
-          <label className="settings-inline-toggle">
-            <input type="checkbox" role="switch" className="switch" aria-label="Write AGENTS.md into the space folder"
-              checked={af.enabled} onChange={(e) => run(() => setAgentsFile(spaceId, e.target.checked))} />
-            <span className="settings-agent-note">
-              Also write this document to <code className="env-path">{af.path}</code>, so agents run in the space folder from
-              any terminal pick it up. Turning it off removes the file{af.exists && !af.managedByRealm ? " — except this one, which Realm did not write" : ""}.
-            </span>
-          </label>
-        ) : (
-          // The server would refuse (not a Realm-created folder, or a foreign AGENTS.md sits there):
-          // the reason is shown INSTEAD of a toggle, never a switch that can only error.
-          <p className="settings-hint">Not available here: {af.reason}.</p>
-        )}
-      </div>
-      <SourcesView spaceId={spaceId} />
+
+      {/* The mechanics, folded. Everything here answers one question — how this reaches an agent —
+          and it is a question asked once, not on every visit. */}
+      <details className="memory-details">
+        <summary>Where this goes</summary>
+        <div className="memory-details-body">
+          <p className="settings-hint">
+            Stored at <code className="env-path">{memory.path}</code>, and travels into every new
+            Claude and Codex session in this space — never into any agent's own config.
+          </p>
+          {af.writable || af.enabled ? (
+            <label className="settings-inline-toggle">
+              <input type="checkbox" role="switch" className="switch" aria-label="Write AGENTS.md into the space folder"
+                checked={af.enabled} onChange={(e) => run(() => setAgentsFile(spaceId, e.target.checked))} />
+              <span className="settings-agent-note">
+                Also write it to <code className="env-path">{af.path}</code>, so agents started from a
+                terminal in this folder pick it up too. Turning it off removes the file{af.exists && !af.managedByRealm ? " — except this one, which Realm did not write" : ""}.
+              </span>
+            </label>
+          ) : (
+            // The server would refuse (not a Realm-created folder, or a foreign AGENTS.md sits there):
+            // the reason is shown INSTEAD of a toggle, never a switch that can only error.
+            <p className="settings-hint">No AGENTS.md here: {af.reason}.</p>
+          )}
+          <SourcesView spaceId={spaceId} />
+        </div>
+      </details>
     </div>
   );
 }
@@ -97,7 +123,7 @@ function SourcesView({ spaceId }: { spaceId: string }) {
   if (here.length === 0) {
     return (
       <div className="field">
-        <span>What each agent loads</span>
+        <span className="memory-sub">What each agent loads</span>
         <ul className="settings-list">
           {SELECTABLE_AGENT_KINDS.map((kind) => (
             <li key={kind} className="settings-agent-row">
@@ -114,7 +140,7 @@ function SourcesView({ spaceId }: { spaceId: string }) {
   const m = sessionId ? sources[sessionId] : undefined;
   return (
     <div className="field">
-      <span>What this session's agent loads</span>
+      <span className="memory-sub">What this session's agent loads</span>
       <select aria-label="Session" value={sessionId ?? ""} onChange={(e) => setPickedId(e.target.value)}>
         {here.map((s) => <option key={s.id} value={s.id}>{s.title} · {AGENT_META[s.agentKind].label}</option>)}
       </select>
