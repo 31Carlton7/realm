@@ -446,9 +446,17 @@ function PaletteRow({ face, live, selected, onSelect }:
           );
         })}
       </fieldset>
-      <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
-      <CodePreview vars={facePalette(palette.name, face, override, contrast)} />
-      <ThemeOverrideEditor name={palette.name} face={face} />
+      {/* The blurb, the code preview and the three seed fields are all answers to "what does this
+          palette actually look like in use" — a question you ask once, while choosing, and never
+          again. Open, they were two screens of chrome per face, on a tab whose other six settings
+          are one row each. Behind one disclosure they are still a click away and no longer the
+          shape of the page. */}
+      <details className="theme-detail">
+        <summary>{palette.label}: preview and colours</summary>
+        <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
+        <CodePreview vars={facePalette(palette.name, face, override, contrast)} />
+        <ThemeOverrideEditor name={palette.name} face={face} />
+      </details>
     </div>
   );
 }
@@ -621,13 +629,18 @@ function AppTab() {
         <p className="settings-hint">Realm follows the system's Reduce Motion setting everywhere — with it on, animations and transitions are disabled app-wide.</p>
       </div>
 
-      {/* A row per face, both always editable: setting the one you are NOT looking at is the whole
-          reason there are two. `data-live` marks the one on screen so the window and the page agree
+      {/* The face you are LOOKING at, in full. `data-live` marks it so the window and the page agree
           about which row explains what is in front of you. */}
-      {(["light", "dark"] as const).map((face) => (
-        <PaletteRow key={face} face={face} live={face === mode} selected={themeNames[face]}
-          onSelect={(name) => run(() => setThemeName(face, name))} />
-      ))}
+      <PaletteRow face={mode} live selected={themeNames[mode]}
+        onSelect={(name) => run(() => setThemeName(mode, name))} />
+      {/* And the other one, folded away. Setting the face you are not in is the whole reason there
+          are two rows — but it is a thing you do occasionally, and open it doubled the length of the
+          tab with a grid nobody looking at this window can see the effect of. */}
+      <details className="theme-other">
+        <summary>{mode === "light" ? "Dark" : "Light"} palette</summary>
+        <PaletteRow face={mode === "light" ? "dark" : "light"} live={false} selected={themeNames[mode === "light" ? "dark" : "light"]}
+          onSelect={(name) => run(() => setThemeName(mode === "light" ? "dark" : "light", name))} />
+      </details>
 
       <div className="field"><span>UI font</span>
         {/* Two families, not four hundred. Enumerating installed fonts needs a main-process hop and
@@ -655,7 +668,7 @@ function AppTab() {
         {/* The asymmetry is a fact about the stylesheet, not a judgement: every mono surface sets its
             font with the `font:` shorthand, which resets weight by definition, so a code weight would
             mean editing fifty-odd rules or hiding a weight inside a family name. */}
-        <p className="settings-hint">Code, diffs, terminals and keyboard hints. Weight follows the app's own scale here — the UI weight above is the one control over it. Open terminals change face with the setting; their font size does not follow it.</p>
+        <p className="settings-hint" title="Open terminals change face with this setting; their font size does not follow it.">Code, diffs, terminals and keyboard hints. Weight follows the app's own scale here.</p>
       </div>
 
       <div className="field"><span>Contrast</span>
@@ -670,7 +683,7 @@ function AppTab() {
             value={contrast} onChange={(e) => run(() => setContrast(Number(e.target.value)))} />
           <span className="slider-value">{contrast}</span>
         </div>
-        <p className="settings-hint">How far labels, metadata and hints sit below primary text. Every tier stays above the contrast Realm holds its palettes to, whatever this says — turning it down recedes them, it does not make them unreadable.</p>
+        <p className="settings-hint" title="Every tier stays above the contrast Realm holds its palettes to, whatever this says — turning it down recedes them, it does not make them unreadable.">How far labels and metadata sit below primary text.</p>
       </div>
 
       <div className="field"><span>Translucent sidebar</span>
@@ -692,9 +705,14 @@ function AppTab() {
             value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
           <span className="slider-value">{100 - groundAlpha}%</span>
         </div>
-        <p className="settings-hint">{material
-          ? "The sidebar is the one surface thin enough to show the desktop behind the window. Panes stay opaque on purpose — at any setting where a pane looked translucent, text on it would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting: with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
-          : `${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — the window is opaque, so there is nothing behind the sidebar to reveal. The setting is kept and applies on a Mac.`}</p>
+        {/* The long version is a `title`. It is worth having — a user who wonders why the PANES are
+            opaque deserves the answer — but it is three sentences of background about a control
+            that already reads correctly, on a tab where everything else is one row. */}
+        <p className="settings-hint" title={material
+          ? "Panes stay opaque on purpose: at any setting where a pane looked translucent, text on it would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting — with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
+          : "The setting is kept and applies on a Mac."}>{material
+          ? "The sidebar is the one surface thin enough to show the desktop behind the window."
+          : `${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — there is nothing behind the sidebar to reveal.`}</p>
       </div>
 
       <div className="field"><span>Send message with</span>
@@ -748,7 +766,7 @@ function AppTab() {
             onChange={(e) => run(() => setSoundVolume(Number(e.target.value) / 100))} />
           <span className="slider-value">Volume {Math.round(soundVolume * 100)}%</span>
         </div>
-        <p className="settings-hint">Only when Realm is not the app you are in — a notification for something already on your screen is noise. Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app. The sound follows the system volume, so muting the machine mutes it.</p>
+        <p className="settings-hint" title="Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app. The sound follows the system volume, so muting the machine mutes it.">Only when Realm is not the app you are in.</p>
       </div>
 
       <div className="field"><span>Notifications</span>
@@ -1094,9 +1112,11 @@ function ComputerAccessSection() {
 
   return (
     <div className="field computer-access-field"><span>Computer control</span>
-      <p className="settings-hint">
-        What agents need to read and drive other apps on this Mac. Off until you switch it on for a space, and every
-        action against an app asks you first.
+      {/* One line on the page; the qualifications live in its title. A settings tab is scanned for
+          the control you came for, and three sentences before the first switch is three sentences
+          between every visit and that control. */}
+      <p className="settings-hint" title="Off until you switch it on for a space, and every action against an app asks you first.">
+        What agents need to read and drive other apps on this Mac.
       </p>
       {status === null ? <p className="env-empty">Checking…</p> : (
         <>
@@ -1117,11 +1137,16 @@ function ComputerAccessSection() {
                     {TCC_STATE_LABEL[r.state]}
                   </span>
                   <span className="settings-row-desc">{r.detail}</span>
-                  {r.askExplanation && <span className="settings-row-desc">{r.askExplanation}</span>}
                 </div>
                 <div className="mac-row-actions">
                   {r.canPrompt && (
+                    /* `askExplanation` rides the BUTTON now instead of stacking a second paragraph
+                       under the row. It was always a sentence about what clicking does — that the
+                       dialog's only button opens System Settings, and that nothing is granted until
+                       you switch Realm on there — which is a thing to read at the button, not two
+                       lines above it and again for every row on the page. */
                     <button type="button" className="btn-quiet" disabled={requesting !== null}
+                      title={r.askExplanation ?? undefined}
                       onClick={() => run(() => requestComputerAccess(r.id))}>
                       {requesting === r.id ? "Waiting for macOS…" : "Ask macOS"}
                     </button>
@@ -1199,10 +1224,8 @@ function MacAccessSection() {
 
   return (
     <div className="field mac-access-field"><span>Apps on this Mac</span>
-      <p className="settings-hint">
-        What the agents Realm runs can reach through the <code>mac</code> command — Calendar, Mail, Messages, Notes and the rest.
-        macOS grants these to <strong>{status.host.name}</strong>, once, for every session: granting here is what stops an agent
-        from stalling mid-task to ask you for them.
+      <p className="settings-hint" title={`macOS grants these to ${status.host.name}, once, for every session: granting here is what stops an agent from stalling mid-task to ask you for them.`}>
+        What agents can reach through the <code>mac</code> command — Calendar, Mail, Messages, Notes and the rest.
       </p>
       {/* The dev caveat, stated where it matters: under `pnpm dev` the host is Electron, and every
           grant made here lands on Electron rather than on the Realm the user will ship and run. */}
@@ -1220,11 +1243,14 @@ function MacAccessSection() {
           {busy ? `Asking macOS… ${position || 1} of ${queue.length || 1}` : promptable.length === 0 ? "Nothing left to ask" : `Ask for all ${promptable.length}`}
         </button>
       </div>
-      <p className="settings-hint">
+      {/* What the button will DO stays on the page — it opens system dialogs one after another, and
+          that is worth knowing before clicking. The mechanics behind it are a title. */}
+      <p className="settings-hint" title={promptable.length === 0 ? undefined
+        : `Realm runs one read-only command per capability — the listed one — and macOS puts up its own dialog for each. ${
+            promptable.some((r) => r.launchesApp) ? "The app-control ones open their app to ask." : "Nothing opens."}`}>
         {promptable.length === 0
           ? "Every capability macOS can be asked about has been asked about."
-          : `Realm runs one read-only command per capability — the listed one — and macOS puts up its own dialog for each. They come one at a time; ${
-              promptable.some((r) => r.launchesApp) ? "the app-control ones open their app to ask." : "nothing opens."}`}
+          : "macOS puts up its own dialog for each, one at a time."}
         {settingsOnly.length > 0 && ` ${settingsOnly.map((r) => r.label).join(", ")} can't be asked for at all and stay for System Settings.`}
       </p>
 

@@ -4357,6 +4357,21 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    tokens.css hang off `data-mode` at the root and cannot be flipped per subtree, so a preview built
    on them could only ever show the mode already on screen. */
 .mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; max-width: 420px; }
+/* The two Appearance disclosures. Same quiet summary as `.engine-details` — a settings page's
+   folded-away detail should read as a line you may open, never as a control you have to decide
+   about. Their own rule rather than a shared class because the engines' sits inside a card and
+   these sit in the page column, so only the words are the same, not the metrics. */
+.theme-detail > summary, .theme-other > summary {
+  list-style: none; cursor: pointer; width: fit-content; padding: 4px 0;
+  font-size: 12px; color: var(--rl-text-faint);
+}
+.theme-detail > summary::-webkit-details-marker, .theme-other > summary::-webkit-details-marker { display: none; }
+.theme-detail > summary:hover, .theme-other > summary:hover { color: var(--rl-text-dim); }
+.theme-detail > summary::before, .theme-other > summary::before { content: "▸ "; }
+.theme-detail[open] > summary::before, .theme-other[open] > summary::before { content: "▾ "; }
+.theme-detail { display: flex; flex-direction: column; gap: 8px; }
+.theme-other { display: flex; flex-direction: column; }
+
 .mode-card {
   display: flex; flex-direction: column; gap: 7px; padding: 7px; cursor: pointer;
   border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-panel);
