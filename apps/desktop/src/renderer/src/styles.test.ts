@@ -502,6 +502,31 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(css).not.toMatch(/border-radius:\s*(?:4|6|8|10|12|14|16)px/);
   });
 
+  it("no decorative border is a full pixel — structure is drawn at the hairline", () => {
+    /* Sixty-nine rules drew their separators and outlines at 1px. Against a 0.5px hairline that is
+       twice the weight, and the app read as ruled — a mesh of lines around every menu, row and
+       field. They are all `var(--hairline-w)` now, in the same colours: still there, half as loud.
+
+       Deliberately scoped to the LINE ramp. A border in an accent, a danger or a warning colour is
+       carrying state rather than structure, and thinning one of those weakens a signal. */
+    const heavy = RULES
+      .filter((r) => /border(?:-top|-bottom|-left|-right)?:\s*1px solid var\(--(?:rl-)?(?:line|line-strong|hairline)\)/.test(r.body))
+      .flatMap((r) => r.selectors);
+    expect([...new Set(heavy)].sort(), "draw it at var(--hairline-w), or say why it is structural").toEqual([]);
+  });
+
+  it("every edge fade is the same strength, because they all read the same tokens", () => {
+    /* They were three hand-tuned copies at blur(3px)/blur(11px)/88%, which is how "the blurs are too
+       strong" became one note about the whole app rather than about a surface. Strength is in
+       tokens now, so subtler is one edit and no two fades can disagree. */
+    const fades = RULES.filter((r) => /backdrop-filter:\s*blur/.test(r.body) && !/blur\(0/.test(r.body));
+    const literal = fades.filter((r) => /backdrop-filter:\s*blur\(\d/.test(r.body)).flatMap((r) => r.selectors);
+    /* Two named exceptions, both scrims rather than edge fades: they obscure on purpose, where a
+       fade's whole job is to go unnoticed. The drop target dims a pane under a dragged file, and the
+       media button's disc sits over a video frame it has to stay legible against. */
+    expect(literal.filter((sel) => !sel.includes(".session-drop") && !sel.includes(".media-play")).sort()).toEqual([]);
+  });
+
   it("nothing is set below 11px, the type scale's own floor for a tiny label", () => {
     /* design.md puts the floor at 11/14 for tiny operational labels, and thirty-seven rules sat
        under it — 10.5px uppercase group labels, 10px badges, a 9.5px stat key. Individually each
@@ -583,6 +608,11 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // inline, because a value that is randomised cannot be written in a stylesheet. Every one is
       // used with a fallback, so a surface that never receives them is still a finished surface.
       "--grain-hue", "--grain-x", "--grain-y", "--grain-spread",
+      // The slider's filled fraction (SettingsPage's `Slider`): computed from the same min/max/value
+      // the input is given and set inline, because a track cannot know its own value from CSS. Used
+      // with a 0% fallback, so a slider that never receives it is an empty track rather than a
+      // broken one.
+      "--fill",
       // The pane glyph's grid shape (sidebar/ItemList.tsx): how many columns and rows the layout
       // actually has, set inline because the mark is a picture of a tree that changes per item.
       // Both carry a fallback of 1, so a glyph that never receives them is still a single cell.
@@ -674,7 +704,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(card).toContain("background: var(--surface)");
     expect(card).toContain("box-shadow: var(--shadow-card)");
     expect(card).toContain("border-radius: var(--r-panel)");
-    expect(bodiesFor(".permission-footer").join(" ")).toContain("border-top: 1px solid var(--line)");
+    expect(bodiesFor(".permission-footer").join(" ")).toContain("border-top: var(--hairline-w) solid var(--line)");
     // The kbd number chips take BUI's inset fill + hairline ring.
     const num = bodiesFor(".permission-num").join(" ");
     expect(num).toContain("background: var(--inset)");
@@ -686,7 +716,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(shimmer).toContain("animation: shimmer-text 1.4s linear infinite");
     expect(shimmer).toContain("background-clip: text");
     // BUI's trace rail is a solid hairline; the old dashed connector is gone.
-    expect(bodiesFor(".tool-group-steps").join(" ")).toContain("border-left: 1px solid var(--line)");
+    expect(bodiesFor(".tool-group-steps").join(" ")).toContain("border-left: var(--hairline-w) solid var(--line)");
     // The settled check is muted ink, not green — colour stays for errors.
     expect(bodiesFor('.tool-card[data-state="ok"] .tool-status').join(" ")).toContain("color: var(--ink-3)");
     // The row's target is ToolChips' field-fill chip.
@@ -1101,7 +1131,7 @@ describe("dividers", () => {
     // The exception that proves the rule, and the reason the check above says "unconditional": an
     // expanded file's patch panel really would run into the next filename, so a seam there is doing
     // work rather than decorating. Between two collapsed rows it is not.
-    expect(bodiesFor(".diff-file[data-open] + .diff-file").join(" ")).toContain("border-top: 1px solid");
+    expect(bodiesFor(".diff-file[data-open] + .diff-file").join(" ")).toContain("border-top: var(--hairline-w) solid");
   });
 
   it("no bar that merely sits ABOVE a pane's body rules a line across it", () => {
@@ -1124,19 +1154,19 @@ describe("dividers", () => {
     // A card's head over its body, and a popover's search field over its list. These separate two
     // different KINDS of thing sharing one surface, which is what a hairline is for.
     for (const sel of [".diff-head", ".fd-head", ".mp-search", ".palette-input", ".spaces-search"])
-      expect(bodiesFor(sel).join(" "), sel).toMatch(/border-bottom: 1px solid/);
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/border-bottom: var\(--hairline-w\) solid/);
     // `.md-code-head` is deliberately NOT in that list any more. The rule above is for a seam
     // between two different KINDS of thing sharing a surface; a code block's head holds the
     // language label and the copy control, which are chrome FOR the code rather than a section
     // beside it. Ruling them apart drew a line across a panel with one thing in it.
-    expect(bodiesFor(".md-code-head").join(" ")).not.toMatch(/border-bottom: 1px solid/);
+    expect(bodiesFor(".md-code-head").join(" ")).not.toMatch(/border-bottom: var\(--hairline-w\) solid/);
     // Footers hold their place while the body scrolls past them.
     for (const sel of [".permission-footer", ".question-footer", ".spaces-foot", ".mp-detail-foot"])
-      expect(bodiesFor(sel).join(" "), sel).toMatch(/border-top: 1px solid/);
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/border-top: var\(--hairline-w\) solid/);
     // A table's rules ARE its structure, and the sidebar's edge is the app's one column boundary.
-    expect(bodiesFor(".md th").join(" ")).toContain("border-bottom: 1px solid");
-    expect(bodiesFor(".usage-table th").join(" ")).toContain("border-bottom: 1px solid");
-    expect(bodiesFor(".sidebar").join(" ")).toContain("border-right: 1px solid");
+    expect(bodiesFor(".md th").join(" ")).toContain("border-bottom: var(--hairline-w) solid");
+    expect(bodiesFor(".usage-table th").join(" ")).toContain("border-bottom: var(--hairline-w) solid");
+    expect(bodiesFor(".sidebar").join(" ")).toContain("border-right: var(--hairline-w) solid");
   });
 
   it("the two option lists in the transcript separate their rows the same way", () => {
@@ -1244,6 +1274,14 @@ describe("light mode", () => {
     [".media-lightbox-bar .media-name", "on a video frame"], [".media-lightbox-bar .media-detail", "on a video frame"],
     [".media-lightbox-bar .media-action", "on a video frame"], [".media-lightbox-bar .media-action:hover", "on a video frame"],
     [".attach-tile[data-image] .attach-ext", "on the attached picture"],
+    /* A switch knob is white in both modes, the way it is on every platform that has one. It used to
+       take `--surface`, which flips — so in dark mode the OFF state was a dark dot on a light track,
+       backwards from every switch a person has ever used, and the ON state was a dark dot on the
+       accent. The knob answers to the track it rides, not to the page behind it. */
+    [".switch::after", "a switch knob is white on both faces"],
+    // The slider's handle is the switch's knob, for the same reason and with the same answer: two
+    // round controls a few rows apart must not disagree about what a handle looks like.
+    ['.slider-row input[type="range"]::-webkit-slider-thumb', "the same knob the switch wears"],
     [".attach-remove", "on the attached picture"], [".attach-remove:hover", "on the attached picture"],
     // Matching the native WebContentsView's own opaque white, so the sliver it trails during a
     // resize cannot flash the panel tone through the gap.

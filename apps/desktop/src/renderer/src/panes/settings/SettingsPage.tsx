@@ -8,6 +8,7 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
   paletteFor, seedFor, themeModes, themeSwatches,
   type FontId, type FontWeight, type Mode, type ThemeName, type ThemeOverride, type ThemeSeed } from "@realm/ui";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Spinner } from "../../components/Spinner";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type CliJob, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
@@ -136,24 +137,44 @@ function EnginesTab() {
   const checkForNewModels = useApp((s) => s.checkForNewModels);
   const modelCheck = useApp((s) => s.modelCheck);
   const run = useApp((s) => s.run);
+  /** Which check is in flight, so its own button can say so and neither can be double-fired. */
+  const [checking, setChecking] = useState<"updates" | "models" | null>(null);
   // Mount rides both server caches — the 30s probe and the six-hour version sweep. Only the buttons
   // force past them, and only the buttons reach the network.
   useEffect(() => { void run(() => probeAgents(false)); void run(() => refreshCliStatus(false)); }, [run, probeAgents, refreshCliStatus]);
   const kinds: AgentKind[] = [...ENGINE_ORDER, ...agentProbe.map((p) => p.kind).filter((k) => !ENGINE_ORDER.includes(k))];
   return (
     <div className="form">
+      {/* No lede. "The agent CLIs Realm can run" is what the tab is called and what the cards below
+          plainly are; a sentence restating a page's own name is the chrome this pass removed
+          everywhere else. */}
       <div className="engines-head">
-        <p className="page-lede">The agent CLIs Realm can run, as they look on this machine right now.</p>
         {/* The named mutant: a cached answer shown as fresh. Both are forced, so what renders after
             a click is what a child process and a registry just reported — never the caches the mount
             ride uses. The probe is forced alongside the status because the two answer different
             halves of a row: the status knows versions, only the probe knows sign-in. */}
-        <button type="button" className="btn" onClick={() => run(async () => {
-          await Promise.all([probeAgents(true), refreshCliStatus(true)]);
-        })}>Check for updates</button>
+        <button type="button" className="btn" disabled={checking === "updates"}
+          onClick={() => run(async () => {
+            setChecking("updates");
+            try { await Promise.all([probeAgents(true), refreshCliStatus(true)]); }
+            finally { setChecking(null); }
+          })}>
+          {/* The button says what it is doing while it does it. Both calls shell out to child
+              processes and a registry, which on a cold machine is seconds — long enough that a
+              button which only ever looked idle read as one that had not registered the click. */}
+          {checking === "updates" && <Spinner size={12} />}
+          {checking === "updates" ? "Checking…" : "Check for updates"}
+        </button>
         {/* Nothing here is a new list Realm made up: it re-asks each provider for the catalog it
             reports live, and refetches the public price rows. */}
-        <button type="button" className="btn" onClick={() => run(() => checkForNewModels())}>Check for new models</button>
+        <button type="button" className="btn" disabled={checking === "models"}
+          onClick={() => run(async () => {
+            setChecking("models");
+            try { await checkForNewModels(); } finally { setChecking(null); }
+          })}>
+          {checking === "models" && <Spinner size={12} />}
+          {checking === "models" ? "Checking…" : "Check for new models"}
+        </button>
       </div>
       {modelCheck && (
         <p className="settings-hint" role="status">
@@ -214,13 +235,18 @@ function EngineCard({ kind }: { kind: AgentKind }) {
   const chips: { label: string; tone?: "warn" }[] = [];
   if (p?.available && p.version) chips.push({ label: engineVersionLabel(p.version) });
   if (p?.loggedIn === true) chips.push({ label: "Signed in" });
-  if (cli?.updateAvailable && cli.latest) chips.push({ label: `${engineVersionLabel(cli.latest)} available`, tone: "warn" });
   if (!offered && kind !== "fake") chips.push({ label: "Not offered for new sessions" });
+  /* An update Realm can APPLY gets the primary button in the head. One it cannot — a Homebrew or a
+     hand-built install, where running npm would leave a second copy on the PATH — gets a button too,
+     because "there is a newer version" with no affordance beside it reads as a dead end. That one
+     opens the card's own details, which hold the command and the reason. */
+  const update = cli?.updateAvailable && cli.latest ? engineVersionLabel(cli.latest) : null;
 
   // Everything wordy. Open by default only when the engine needs something FROM YOU — a job in
   // flight, or a block to clear. Deliberately not a refusal: "there is a newer version and Realm
   // will not install it for you" is worth knowing and not worth two sentences of your attention
   // unprompted, and the chip above already says a newer version exists.
+  const [openDetails, setOpenDetails] = useState(false);
   const details = [
     offer ? "offer" : null,
     !offer && a.state === "missing" && install ? "install" : null,
@@ -237,12 +263,17 @@ function EngineCard({ kind }: { kind: AgentKind }) {
         <span className="engine-mark"><Icon name={meta.icon} size={20} colored /></span>
         <span className="engine-name">{meta.label}</span>
         <span className="engine-pill" data-state={state}>{STATE_LABEL[state]}</span>
-        {offer && (
+        {offer ? (
           <button type="button" className="btn primary engine-run" disabled={job?.state === "running"}
             onClick={() => run(() => runCliAction(kind, offer.action as "install" | "update"))}>
-            {offer.label}
+            {job?.state === "running" && <Spinner size={12} />}
+            {job?.state === "running" ? "Working…" : offer.label}
           </button>
-        )}
+        ) : update ? (
+          <button type="button" className="btn engine-run" onClick={() => setOpenDetails(true)}>
+            Update to {update}
+          </button>
+        ) : null}
       </div>
       {chips.length > 0 && (
         <div className="engine-chips">
@@ -250,7 +281,8 @@ function EngineCard({ kind }: { kind: AgentKind }) {
         </div>
       )}
       {details.length > 0 && (
-        <details className="engine-details" open={wantsYou || undefined}>
+        <details className="engine-details" open={wantsYou || openDetails || undefined}
+          onToggle={(e) => setOpenDetails((e.currentTarget as HTMLDetailsElement).open)}>
           <summary>{blocked ? "What to do" : "Details"}</summary>
           <div className="engine-details-body">
             {offer && <CommandCopy command={offer.command} />}
@@ -276,6 +308,20 @@ function EngineCard({ kind }: { kind: AgentKind }) {
   );
 }
 
+
+/**
+ * A range input whose FILL is drawn by us.
+ *
+ * `accent-color` fills a native track but leaves its geometry alone, and `appearance: none` gives
+ * back the geometry but takes the fill with it. Neither alone produces a track that matches the rest
+ * of the app, so the filled portion rides a CSS variable computed here — from the same three numbers
+ * the input itself is given, so the paint and the value cannot disagree.
+ */
+function Slider({ value, min, max, ...rest }: React.InputHTMLAttributes<HTMLInputElement> & { value: number; min: number; max: number }) {
+  const pct = max === min ? 0 : ((value - min) / (max - min)) * 100;
+  return <input type="range" {...rest} min={min} max={max} value={value}
+    style={{ "--fill": `${pct}%` } as React.CSSProperties} />;
+}
 
 const THEME_CHOICES: { pref: ThemePref; label: string }[] = [
   { pref: "system", label: "System" }, { pref: "light", label: "Light" }, { pref: "dark", label: "Dark" },
@@ -599,7 +645,7 @@ function AppTab() {
             either would be a repaint wearing the word "contrast". It cannot make anything illegible
             at any setting, because every tier is floored at WCAG before the ramp is walked. */}
         <div className="slider-row">
-          <input type="range" aria-label="Contrast"
+          <Slider aria-label="Contrast"
             min={CONTRAST_RANGE.min} max={CONTRAST_RANGE.max} step={1}
             value={contrast} onChange={(e) => run(() => setContrast(Number(e.target.value)))} />
           <span className="slider-value">{contrast}</span>
@@ -621,7 +667,7 @@ function AppTab() {
           <input type="checkbox" role="switch" className="switch" aria-label="Translucent sidebar"
             disabled={!material} checked={translucent}
             onChange={(e) => run(() => setGroundAlpha(e.target.checked ? DEFAULT_GROUND_ALPHA : GROUND_ALPHA_RANGE.max))} />
-          <input type="range" aria-label="Background transparency" disabled={!material || !translucent}
+          <Slider aria-label="Background transparency" disabled={!material || !translucent}
             min={GROUND_ALPHA_RANGE.min} max={GROUND_ALPHA_RANGE.max} step={1}
             value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
           <span className="slider-value">{100 - groundAlpha}%</span>
@@ -676,7 +722,7 @@ function AppTab() {
               up, so a bare percentage would leave the reader to work out what it measures — and a
               label to the LEFT would be the one slider on the tab whose bar does not start on the
               same edge as the rest. */}
-          <input type="range" aria-label="Sound volume" disabled={!desktopNotifications || !soundCues}
+          <Slider aria-label="Sound volume" disabled={!desktopNotifications || !soundCues}
             min={0} max={100} step={5}
             value={Math.round(soundVolume * 100)}
             onChange={(e) => run(() => setSoundVolume(Number(e.target.value) / 100))} />
@@ -793,11 +839,6 @@ function SignInsTab() {
 
   return (
     <div className="form">
-      <p className="page-lede">
-        Sign-ins you save here can be typed into a page by an agent that never sees them. Realm checks
-        the page is really on the site you saved the sign-in for, asks you to approve that specific
-        fill, and asks for Touch ID — every time.
-      </p>
 
       {status !== null && !status.available && (
         <p className="settings-hint" role="alert">

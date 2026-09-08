@@ -43,7 +43,9 @@ describe("an engine row with an update available", () => {
     await mount({ cliStatus: [behind] });
     await waitFor(() => expect(within(codexRow()).getByText("v0.146.0")).toBeInTheDocument());
     expect(within(codexRow()).getByText("Signed in")).toBeInTheDocument();
-    expect(within(codexRow()).getByText("v0.153.4 available")).toBeInTheDocument();
+    // The available version moved out of the chip row and onto the ACTION: a chip saying a newer
+    // version exists, with nothing beside it to do about it, is a dead end.
+    expect(within(codexRow()).getByRole("button", { name: "Update" })).toBeInTheDocument();
   });
 
   it("shows the exact command before the button that runs it", async () => {
@@ -92,10 +94,14 @@ describe("an engine row Realm will not update", () => {
 
   it("still says a newer version exists, and says why it is not offering a button", async () => {
     // The named mutant: hiding the update because it cannot be applied. Both halves are the user's.
+    /* Realm will not run npm over a Homebrew install — that leaves a second copy on the PATH. It
+       still offers a BUTTON, because "there is a newer version" with no affordance is a dead end;
+       that button opens the card's own details, which hold the command and the reason. */
     await mount({ cliStatus: [brewInstalled] });
-    await waitFor(() => expect(within(codexRow()).getByText("v0.153.4 available")).toBeInTheDocument());
+    await waitFor(() => expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument());
     // With the copy it means: "which one?" is the next question for anyone with two on their PATH.
     expect(within(codexRow()).getByText(/Homebrew.*\/opt\/homebrew\/bin\/codex/)).toBeInTheDocument();
+    // Not the one that RUNS an update — that is the distinction the refusal is about.
     expect(within(codexRow()).queryByRole("button", { name: "Update" })).toBeNull();
     expect(within(codexRow()).queryByRole("button", { name: "Install" })).toBeNull();
   });

@@ -87,10 +87,6 @@ export function UsagePanel() {
 
   return (
     <div className="form usage-panel" data-loading={loading && data !== null ? "" : undefined}>
-      <p className="page-lede">
-        What the engines did and what it cost, read off the transcripts Realm already stores.
-      </p>
-
       {/* One filter row, above everything it scopes. Never inside a card, never per-chart. */}
       <div className="usage-filters" role="group" aria-label="Usage filters">
         <fieldset className="seg">
