@@ -116,6 +116,12 @@ export function PaneHost(p: PaneHostProps) {
   // With the sidebar collapsed its bar is what sits under the macOS traffic lights, and it is the
   // only pane that has to leave room for them — a fact about where a pane IS, which CSS cannot ask.
   const firstLeafId = firstLeaf(root).id;
+  /* A group with ONE leaf looks identical focused and unfocused, so its bar takes no focus toggle —
+     a control whose entire effect is invisible is the dead chrome the pane bar bans, and it would be
+     on screen for the app's most common shape (one pane, full width). Still offered while a zoom is
+     live, because closing a sibling can leave a focused solo pane and a toggle that vanished would
+     strand it lit-with-no-off. */
+  const canFocus = p.layout.type !== "leaf" || !!zoomed;
   return <div className="panehost" data-zoomed={zoomed ? true : undefined}>{renderNode(root)}</div>;
 
   function renderNode(n: Layout): JSX.Element {
@@ -126,7 +132,8 @@ export function PaneHost(p: PaneHostProps) {
           data-first-leaf={n.id === firstLeafId || undefined}
           data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
           {item && <PanelBar item={item} leafId={n.id} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
-            zoomed={n.id === p.zoomedLeafId} onZoom={p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={p.onUnzoom} />}
+            zoomed={n.id === p.zoomedLeafId}
+            onZoom={canFocus && p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={canFocus ? p.onUnzoom : undefined} />}
           <div className="panel-body">
             {!item && <div className="pane-placeholder muted">Open something from the sidebar.</div>}
             {/* Keyed by item.id: openItem's primary gesture replaces a leaf's item in place, and this

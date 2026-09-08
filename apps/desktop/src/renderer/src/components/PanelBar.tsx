@@ -14,7 +14,7 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
   /** The leaf this bar heads — the key its back/forward trail is kept under. */
   leafId: string;
   onSplit: (dir: "row" | "col") => void; onClose: () => void;
-  /** This pane is the one filling the host. Its bar carries the Unfocus control. */
+  /** This pane is the one filling the host — the state its bar's focus toggle reads as ON. */
   zoomed?: boolean;
   onZoom?: () => void; onUnzoom?: () => void;
 }) {
@@ -39,18 +39,29 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
   const Actions = paneActions[item.kind];
   const isBrowser = item.kind === "browser";
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
-  /** Focus (fill the host) / Unfocus (back to the split). Always inline while zoomed — with every
-   *  other pane hidden, the ⋯ menu is not where a user looks for the way back out, and a browser
-   *  pane has no ⋯ menu at all (W2.3's no-overlay rule). */
-  const focusBtn = zoomed
-    ? (onUnzoom ? (
-        <button className="icon-btn panel-unfocus" aria-label={`Unfocus ${item.title}`} title="Unfocus (⌘⇧F)"
-          onClick={onUnzoom}><Icon name="unfocusPane" size={14} /></button>
-      ) : null)
-    : (onZoom ? (
-        <button className="icon-btn" aria-label={`Focus ${item.title}`} title="Focus — fill the space (⌘⇧F)"
-          onClick={onZoom}><Icon name="focusPane" size={14} /></button>
-      ) : null);
+  /**
+   * Focus (fill the host) and Unfocus (back to the split) as ONE toggle, filled while it is on.
+   *
+   * It replaces a banner across the top of the pane host that read "Focused: <title> | Unfocus". The
+   * banner existed because a focused pane hides its siblings, so something had to carry the state the
+   * screen no longer showed — but a whole strip to say what a lit button says is a row of chrome
+   * charged for one bit. The bit lives on the control that changes it now.
+   *
+   * `data-on` and one glyph, which is the treatment `SessionSummaryButton` already wears: the icon
+   * cannot fill (only the stroke pack ships), so the BUTTON does. Swapping the glyph as well would
+   * say the same thing twice, in two directions — maximize/minimize argues with the fill about which
+   * way the control is pointing.
+   *
+   * The NAME flips rather than carrying `aria-pressed`. A toggle takes one or the other, never both:
+   * "Unfocus Two, pressed" is a sentence at war with itself. The flipped name is also how a screen
+   * reader learns the pane IS focused, which is the banner's job inherited rather than dropped.
+   */
+  const focusToggle = (zoomed ? onUnzoom : onZoom) ? (
+    <button className="icon-btn" data-on={zoomed || undefined}
+      aria-label={zoomed ? `Unfocus ${item.title}` : `Focus ${item.title}`}
+      title={zoomed ? "Unfocus (⌘⇧F)" : "Focus — fill the space (⌘⇧F)"}
+      onClick={zoomed ? onUnzoom : onZoom}><Icon name="focusPane" size={14} /></button>
+  ) : null;
   return (
     <div className="panel-bar">
       {/* The pane's own trail, at the LEFT edge where every back button in every app lives. Rendered
@@ -79,7 +90,7 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
           // rename is the title itself (click to rename), split and delete are toolbar buttons, and
           // delete keeps its two-step confirm (U-H2) in place instead of inside a menu.
           <>
-            {focusBtn}
+            {focusToggle}
             <button className="icon-btn" aria-label={`Split ${item.title} right`} title="Split right (⌘\)"
               onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
             <button className="icon-btn" aria-label={`Split ${item.title} down`} title="Split down (⌘⇧\)"
@@ -95,7 +106,7 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
           </>
         ) : (
           <>
-          {zoomed && focusBtn}
+          {focusToggle}
           <button ref={menuBtn} className="icon-btn" aria-label={`Pane menu for ${item.title}`} aria-haspopup="menu"
             aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen((v) => !v); }}>
             <Icon name="more" size={14} />

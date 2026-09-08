@@ -246,17 +246,26 @@ async function main() {
     const p = document.querySelector('.session-summary');
     const pane = document.querySelector('.session-pane');
     const btn = document.querySelector('${summaryBtn}');
+    const sc = p.querySelector('.summary-scroll');
     return { panel: __live.box(p), pane: __live.box(pane), win: { w: window.innerWidth, h: window.innerHeight },
-             on: btn.hasAttribute('data-on'), cost: (btn.querySelector('.summary-btn-cost') || {}).textContent,
-             spend: (p.querySelector('.summary-spend') || {}).textContent };
+             on: btn.hasAttribute('data-on'), spend: (p.querySelector('.summary-spend') || {}).textContent,
+             overflows: sc ? sc.scrollHeight - sc.clientHeight : null,
+             inset: Math.round(parseFloat(getComputedStyle(p).marginTop)) };
   })()`);
   check("the panel docks to the session pane's right edge", Math.abs(panel.panel.r - panel.pane.r) <= 1, panel);
   /* The pane BODY, not the leaf. Docking to the leaf would put the panel over the bar that holds
      its own toggle — a mistake only a real window shows, since every jsdom rect is zero. */
-  check("…and runs the pane body's full height, clearing the bar its toggle lives in",
-    Math.abs(panel.panel.t - panel.pane.t) <= 1 && Math.abs(panel.panel.b - panel.pane.b) <= 1, panel);
+  check("…and starts at the pane body's top edge, clearing the bar its toggle lives in",
+    Math.abs(panel.panel.t - (panel.pane.t + panel.inset)) <= 1, panel);
+  /* Height follows CONTENT, capped at the pane. It used to take the pane's height outright, so a
+     summary of three short rows drew a column of empty surface the height of the window. The
+     invariant that holds for both a short summary and one that overflows: it never exceeds the pane,
+     and it only scrolls once it is AT the cap. */
+  check("…and is as tall as its content, never taller than the pane",
+    panel.panel.h <= panel.pane.h + 1, panel);
+  check("…and scrolls only once it has reached that cap",
+    panel.overflows !== null && (panel.overflows <= 1 || panel.panel.h >= panel.pane.h - 2 * panel.inset - 1), panel);
   check("the button reads as ON while it is up", panel.on, panel);
-  check("the cost rides the button, not the pane bar", /\$/.test(panel.cost ?? ""), panel);
   check("and the panel opens onto the spend rather than onto nothing", /\$/.test(panel.spend ?? ""), panel);
 
   // A click in the transcript must not close it. That is the whole reason it is not a popover.

@@ -661,6 +661,11 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // actually has, set inline because the mark is a picture of a tree that changes per item.
       // Both carry a fallback of 1, so a glyph that never receives them is still a single cell.
       "--glyph-cols", "--glyph-rows",
+      // The session pane's measured height (SessionSummary.tsx): the cap the summary panel clamps
+      // its content-driven height against. Set inline because only the DOM can measure a pane, and
+      // used with a 100vh fallback, so a panel that never receives it is capped at the window rather
+      // than uncapped.
+      "--summary-pane-h",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
@@ -1373,6 +1378,38 @@ describe("dividers", () => {
     expect(sidebar).not.toContain("border-right");
     expect(sidebar).not.toContain("margin: var(--sidebar-inset)");
     expect(bodiesFor(".session-summary").join(" ")).toContain("margin: var(--sidebar-inset)");
+  });
+
+  it("the summary panel is as tall as its content, capped at the pane — never the pane's height", () => {
+    /* It used to take `height: rect.height` from the component, so a summary of three short rows drew
+       a column of empty surface the height of the window. The cap is the pane height the component
+       measures; the inset it has to leave at both ends is the panel's own margin, so the arithmetic
+       stays with the margin rather than being written a second time in TSX. */
+    const panel = bodiesFor(".session-summary").join(" ");
+    expect(panel).toContain("max-height: calc(var(--summary-pane-h, 100vh) - var(--sidebar-inset) * 2)");
+    expect(panel, "a height here is the full-height panel again").not.toMatch(/(^|[; ])height:/);
+    /* `flex: 0 1 auto`, never `flex: 1`. A basis of zero makes the scroller claim whatever height the
+       panel has, which fills the pane by another route and scrolls a list that fits. */
+    const wrap = bodiesFor(".summary-scroll-wrap").join(" ");
+    expect(wrap).toContain("flex: 0 1 auto");
+    expect(wrap).toContain("min-height: 0");
+    // The bands hang off the wrapper, not the panel: on the panel the top one is drawn over the head.
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".edge-fade") && sel.includes("summary")))
+      .flatMap((r) => r.selectors))
+      .toEqual([".summary-scroll-wrap > .edge-fade", ".summary-scroll-wrap > .edge-fade[data-edge=\"top\"]"]);
+  });
+
+  it("\"this icon button is on\" has ONE appearance, whichever attribute carries it", () => {
+    /* Two rules used to say it: `.icon-btn[aria-pressed=\"true\"]` for Bold and ⌘J, and a bespoke
+       `.summary-btn[data-on]` on a different token for the summary toggle. Which attribute a toggle
+       takes is a fact about its accessible NAME — `aria-pressed` where the name holds still, `data-on`
+       where it flips to name the next action — and a difference in the name may not become a
+       difference in the fill. `.browser-pick` stays the one deliberate exception, and says why. */
+    const on = RULES.filter((r) => r.selectors.some((sel) => sel === '.icon-btn[aria-pressed="true"]' || sel === ".icon-btn[data-on]"));
+    expect(on.flatMap((r) => r.selectors)).toEqual(['.icon-btn[aria-pressed="true"]', ".icon-btn[data-on]"]);
+    expect(on[0]!.body).toContain("background: var(--hover-2)");
+    // Nothing re-states it for one toggle. The old `.summary-btn` rule is gone with its class.
+    expect(RULES.flatMap((r) => r.selectors).filter((sel) => sel.includes("summary-btn"))).toEqual([]);
   });
 
   it("the two option lists in the transcript separate their rows the same way", () => {

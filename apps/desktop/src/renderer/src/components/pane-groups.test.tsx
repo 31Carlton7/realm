@@ -69,19 +69,19 @@ describe("GroupBar", () => {
     expect(store.getState().groups!.activeGroupId).toBe(store.getState().groups!.groups[2]!.id);
   });
 
-  // What the user asked for by name: "the user can unfocus it if they so choose with another button
-  // in the top". It names the focused pane, because the other panes are off screen.
-  it("shows the unfocus button — naming the focused pane — and clearing it restores the split", async () => {
+  /* The strip no longer appears for a focus. It used to grow a "Focused: <title> | Unfocus" card,
+     which meant one group with a pane focused put a whole row of chrome across the window to report
+     one bit — a bit the pane bar's own focus toggle now carries by being lit. THE mutant: restore
+     `|| zoomed` to the gate and a space with one group grows a bar again for a state that is already
+     on screen. */
+  it("does NOT appear for a focused pane in a space with one group — the pane bar says that now", async () => {
     const { store } = await mount();
     await twoPanes(store);
-    const leafId = findLeafOfItem(store.getState().layout!, "i2")!.id;
-    await act(async () => { await store.getState().focusPaneFull(leafId); });
-    const bar = await screen.findByRole("toolbar", { name: "Pane groups" });
-    const btn = within(bar).getByRole("button", { name: "Unfocus Two" });
-    expect(btn).toHaveTextContent("Focused: Two");
-    fireEvent.click(btn);
-    await waitFor(() => expect(store.getState().zoomedLeafId()).toBeNull());
+    await act(async () => { await store.getState().focusPaneFull(findLeafOfItem(store.getState().layout!, "i2")!.id); });
+    expect(store.getState().zoomedLeafId()).not.toBeNull();
     expect(screen.queryByRole("toolbar", { name: "Pane groups" })).not.toBeInTheDocument();
+    // …and nothing anywhere still draws the banner's copy.
+    expect(screen.queryByText(/^Focused/)).not.toBeInTheDocument();
   });
 
   it("dropping a sidebar row on a tab moves that pane into the group", async () => {
@@ -118,17 +118,46 @@ describe("focusing a pane", () => {
     expect(screen.getByRole("button", { name: "Rename Two" })).toBeInTheDocument();
   });
 
-  // Focus is a menu action (the pane header is deliberately slim); Unfocus is an inline button,
-  // because with every other pane off screen a hidden way back out is the wrong trade.
-  it("the pane menu offers Focus, and the focused pane's bar then carries Unfocus inline", async () => {
+  /* One control, both directions, and it says which way it is pointing by being lit — the treatment
+     the summary button already wears. THE mutant: drop `data-on` and the only thing left saying a
+     pane is focused is the absence of its siblings, which is exactly the gap the removed banner was
+     invented to fill. */
+  it("the pane bar's focus control is ONE toggle: it fills while focused, and its name flips", async () => {
+    const { store } = await mount("main");
+    await twoPanes(store);
+    const off = screen.getByRole("button", { name: "Focus Two" });
+    expect(off.closest(".panel-bar")).not.toBeNull();
+    expect(off).not.toHaveAttribute("data-on");
+    fireEvent.click(off);
+    await waitFor(() => expect(store.getState().zoomedLeafId()).not.toBeNull());
+    const on = screen.getByRole("button", { name: "Unfocus Two" });
+    expect(on).toHaveAttribute("data-on");
+    // The same control flipped, not a second one that appeared beside it.
+    expect(screen.queryByRole("button", { name: "Focus Two" })).toBeNull();
+    fireEvent.click(on);
+    await waitFor(() => expect(store.getState().zoomedLeafId()).toBeNull());
+    expect(screen.getByRole("button", { name: "Focus Two" })).not.toHaveAttribute("data-on");
+  });
+
+  it("the ⋯ menu still offers Focus, for the shortcut it prints beside it", async () => {
     const { store } = await mount("main");
     await twoPanes(store);
     fireEvent.click(screen.getByRole("button", { name: "Pane menu for Two" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /Focus pane/ }));
     await waitFor(() => expect(store.getState().zoomedLeafId()).not.toBeNull());
-    const panel = document.querySelector(".panel")!;
-    fireEvent.click(within(panel as HTMLElement).getByRole("button", { name: "Unfocus Two" }));
-    await waitFor(() => expect(store.getState().zoomedLeafId()).toBeNull());
+  });
+
+  /* A group with one leaf renders the same focused or not, so the toggle would be a lit button with
+     no visible effect — the dead chrome the pane bar bans. THE mutant: drop the `canFocus` gate in
+     PaneHost and the app's most common shape, one pane full width, grows a control that does nothing
+     a user can see. */
+  it("a solo pane gets no focus toggle at all — there is nothing for it to hide", async () => {
+    const { store } = await mount("main");
+    await act(async () => { await store.getState().openItem("i1"); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Rename One" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Focus One" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Pane menu for One" }));
+    expect(screen.queryByRole("menuitem", { name: /Focus pane/ })).toBeNull();
   });
 
   it("leaves the pane in its group — the split comes back exactly as it was", async () => {

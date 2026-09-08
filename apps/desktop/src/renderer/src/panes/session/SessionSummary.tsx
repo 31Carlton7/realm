@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { basenameOf, documentKindFor, isOpenablePath, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { ScrollFades } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
 import { Markdown } from "./Markdown";
 import { MediaLightbox } from "./media/MediaView";
@@ -101,8 +102,10 @@ export function SessionSummaryButton({ item }: { item: Item }) {
     <>
       {/* `data-on` while the panel is up. The icon itself cannot fill — only the stroke pack ships
           here — so the BUTTON fills instead, which is the ordinary toggle treatment and says the
-          same thing: this control is currently on. */}
-      <button ref={btn} className="icon-btn summary-btn" data-on={open || undefined}
+          same thing: this control is currently on. The fill is `.icon-btn[data-on]`, shared with the
+          pane bar's focus toggle: "this control is on" gets one appearance in this bar, or a user
+          learns two of them. */}
+      <button ref={btn} className="icon-btn" data-on={open || undefined}
         aria-label={`Summary of ${item.title}`} title="Outputs, sources and plans"
         aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         {/* The glyph alone. The cost rode this button for a version and was too much for a control
@@ -141,6 +144,7 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
   onLightbox: (path: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
   const rect = usePaneRect(anchorRef);
   /* Pinned or floating, decided by how much room the pane has.
    *
@@ -198,15 +202,28 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
     run(() => openDocumentPath(path, environmentId));
   };
   return createPortal(
+    /* Docked to the pane's right edge and its TOP, and then as tall as it needs to be.
+       It used to take `height: rect.height`, so three short rows drew a column of empty surface the
+       height of the window — a panel claiming room it had nothing to put in. The pane's height is now
+       a CAP, handed over as a custom property so the inset it has to leave at both ends stays in the
+       stylesheet that owns the inset (`--sidebar-inset`); a max-height computed here would be the
+       same number written twice. Top-aligned rather than centred or bottom-docked, because the panel
+       is a continuation of the pane bar's button and the eye starts at the same place either way. */
     <div ref={ref} className="session-summary" role="dialog" aria-label="Session summary" data-pinned={pinned || undefined}
-      style={{ position: "fixed", right: rect?.right ?? 0, top: rect?.top ?? 0, height: rect?.height ?? "100%" }}>
+      style={{ position: "fixed", right: rect?.right ?? 0, top: rect?.top ?? 0,
+        "--summary-pane-h": `${rect?.height ?? window.innerHeight}px` } as React.CSSProperties}>
       <div className="summary-panel-head">
         <h3>Summary</h3>
         <button type="button" className="icon-btn" aria-label="Close summary" onClick={onClose}>
           <Icon name="close" size={12} />
         </button>
       </div>
-      <div className="summary-scroll">
+      {/* Only drawn when something is genuinely under them — which, now the panel is content-height,
+          is only when the content reached the cap. A band over a list that fits is a band over
+          nothing, and `ScrollFades` is the primitive that already knows the difference. */}
+      <div className="summary-scroll-wrap">
+      <ScrollFades scroller={scroller} />
+      <div className="summary-scroll" ref={scroller}>
       {/* What the session was ABOUT, first. The three lists below say what it produced, and none of
           them answers the question a panel called "Summary" is actually being asked — a filename
           tells you nothing about why the file exists. Derived from the last exchange rather than
@@ -244,6 +261,7 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
           </button>
         ))}
       </Section>
+      </div>
       </div>
     </div>,
     document.body,

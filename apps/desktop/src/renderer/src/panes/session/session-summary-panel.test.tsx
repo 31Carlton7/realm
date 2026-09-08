@@ -207,6 +207,41 @@ describe("pinned beside the transcript, or floating over it", () => {
     restore();
   });
 
+  /* Height follows CONTENT, capped at the pane — a summary of three rows used to draw a column of
+     empty surface the height of the window. jsdom lays nothing out, so what is checkable here is the
+     handoff: the pane's height arrives as a cap for the stylesheet to clamp with, and the panel
+     states no height of its own. The clamp itself is pinned in styles.test.ts, and the rendered
+     result in failover-live.mjs, because only a real window has boxes.
+     THE mutant: put `height: rect.height` back on the style object. */
+  it("hands the pane's height over as a CAP and states no height of its own", async () => {
+    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE + 50);
+    openPanel();
+    const panel = await screen.findByRole("dialog", { name: "Session summary" });
+    expect(panel.style.height).toBe("");
+    expect(panel.style.maxHeight).toBe("");
+    // 800 is the stubbed pane height. The stylesheet subtracts the panel's own inset from it.
+    expect(panel.style.getPropertyValue("--summary-pane-h")).toBe("800px");
+    // Still docked to the pane's top edge: shorter than the pane means top-aligned, not floated free.
+    expect(panel.style.top).toBe("0px");
+    restore();
+  });
+
+  it("its scroller carries the shared edge bands, and neither is drawn over content that fits", async () => {
+    /* `ScrollFades` rather than a band of its own: the primitive only paints when the scroller has
+       something past the edge, which is what keeps a panel whose rows fit from wearing a smear along
+       the bottom of a list that ends there. THE mutant: an always-on `.summary-fade` div. */
+    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE + 50);
+    openPanel();
+    const panel = await screen.findByRole("dialog", { name: "Session summary" });
+    const wrap = panel.querySelector(".summary-scroll-wrap")!;
+    expect(wrap.querySelector(".summary-scroll")).not.toBeNull();
+    const bands = [...wrap.querySelectorAll(":scope > .edge-fade")];
+    expect(bands).toHaveLength(2);
+    // Nothing scrolls in jsdom, so nothing is under either band, so neither is on.
+    expect(bands.some((b) => b.hasAttribute("data-on"))).toBe(false);
+    restore();
+  });
+
   it("a click INSIDE the floating panel, or on its own button, is not an outside click", async () => {
     const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE - 50);
     openPanel();

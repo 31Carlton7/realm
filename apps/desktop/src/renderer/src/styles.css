@@ -306,8 +306,12 @@ kbd { font: 11px var(--font-mono); }
    the rich-text toolbar's Bold and the terminal drawer's ⌘J looked identical pressed and unpressed.
    One rung past hover, so "on" always reads as more than "under the pointer" — which is also why it
    sits after the hover rule and wins over it. It moves on the hover transition the button already
-   carries (§6), so turning a toggle on settles rather than snaps. */
-.icon-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
+   carries (§6), so turning a toggle on settles rather than snaps.
+   Both spellings, one fill. `aria-pressed` is for a toggle whose NAME holds still (Bold is Bold
+   either way); `data-on` is for one whose name flips to its next action, which may not also claim a
+   pressed state — "Unfocus Two, pressed" argues with itself. That is a difference in the accessible
+   name, not in what the control looks like, so it may not be a second appearance. */
+.icon-btn[aria-pressed="true"], .icon-btn[data-on] { background: var(--hover-2); color: var(--rl-text-bright); }
 /* The picker is the one pressed state that is a MODE rather than a formatting toggle, so it takes
    accent where the others take a neutral fill — the same reading the browser's `driving` dot has,
    "Realm is acting here, watch". It also has to carry more weight than the rest: on Realm's side of
@@ -511,11 +515,25 @@ kbd { font: 11px var(--font-mono); }
 }
 .summary-panel-head h3 { flex: 1; margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .session-summary { padding: 0 6px 8px; }
-/* The sections scroll; the head does not. A panel the height of the pane needs its title to stay put. */
-.summary-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-/* The toggle, filled while its panel is up. The icon cannot fill — only the stroke pack ships — so
-   the control does, which is the ordinary way a toggle says it is on. */
-.summary-btn[data-on] { background: var(--rl-active); color: var(--rl-text-bright); }
+/* As tall as its content, and no taller than the pane it docks to.
+   `--summary-pane-h` is the measured pane height, written by SessionSummary.tsx; the inset it has to
+   leave at BOTH ends is the panel's own margin, so the arithmetic belongs here rather than in the
+   component. The panel used to take the pane's height outright, which drew a column of empty surface
+   the height of the window behind a summary of three rows. */
+.session-summary { max-height: calc(var(--summary-pane-h, 100vh) - var(--sidebar-inset) * 2); }
+/* The sections scroll; the head does not.
+   `flex: 0 1 auto` on the WRAPPER, never `flex: 1`: a basis of zero would make the scroller claim
+   whatever height the panel has, which is the full-height panel again by another route. At auto it
+   is as tall as its rows, shrinks only once the panel has reached the cap above, and so scrolls only
+   when the content genuinely does not fit.
+   The bands hang off the wrapper rather than off the panel — the same shape as `.page-scroll`, and
+   for the same reason: on the panel the top band would be drawn over the head, and a title that
+   arrives blurred reads as a rendering fault. */
+.summary-scroll-wrap { position: relative; display: flex; flex: 0 1 auto; min-height: 0;
+  --fade-h: 28px; --fade-top-h: 24px; --fade-ground: var(--surface); }
+.summary-scroll-wrap > .edge-fade { inset: auto 0 0 0; }
+.summary-scroll-wrap > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
+.summary-scroll { flex: 1; min-width: 0; overflow-y: auto; }
 /* What the session was about — the last thing asked, and the first line of the answer. The ask is
    quoted rather than styled as a heading: it is the user's own words, and the panel is reporting
    them back rather than titling a section with them. */
@@ -845,18 +863,6 @@ kbd { font: 11px var(--font-mono); }
 .group-tab-renaming { padding: 2px 4px; }
 .group-tab-renaming .rename { width: 120px; }
 .group-add { color: var(--rl-text-faint); }
-/* The row that carries the unfocus card takes the PANE BAR's metrics — same height, same right
-   padding — so the card and the pane's close button land in one column down the right edge instead
-   of two that miss each other by a couple of pixels. It is only this row: a group bar showing tabs
-   is a tab strip and keeps its tighter rhythm. */
-.group-bar:has(.group-unfocus) { min-height: 40px; padding-right: 12px; }
-/* Pushed to the far right: the way out of a focus is the one control that must be findable without
-   looking, and the right edge is where it stays put as tabs come and go. */
-.group-unfocus { margin-left: auto; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
-  border-radius: calc(28px * var(--sq-ratio-ctl)); corner-shape: squircle;
-  font-size: 12px; color: var(--rl-text-bright); background: var(--rl-hover); }
-.group-unfocus:hover { background: var(--rl-active); }
-.group-unfocus-hint { color: var(--rl-text-faint); border-left: var(--hairline-w) solid var(--rl-hairline); padding-left: 8px; }
 
 /* Sidebar: one section head per group. The head doubles as a drop target and, when the space has
    more than one group, as the button that puts that group on screen. */
