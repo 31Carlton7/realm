@@ -1824,6 +1824,45 @@ describe("narrow panes", () => {
     expect(RULES.filter((r) => r.selectors.includes(".notifications-page-pane"))).toHaveLength(0);
   });
 
+  it("the edge bands are positioned against the SCROLLER, never against the body the rail shares", () => {
+    /* The bands used to hang off `.page-body`, which is the rail as well as the column — so the top
+       band was drawn over the first rail tab wide, and over the whole tab strip narrow, where the
+       body stands its parts up and the rail becomes a row above the content. A blurred navigation
+       row reads as a rendering fault.
+       THE mutant: move either inset rule back onto `.page-body`. Both halves are asserted, because
+       the rule only works while the body is not a positioning context either — an absolute band in
+       a static parent would climb past it and cover more, not less. */
+    for (const r of RULES) {
+      const positionsFade = r.selectors.some((sel) => /\.edge-fade/.test(sel));
+      if (positionsFade && /inset:/.test(r.body)) {
+        for (const sel of r.selectors) expect(sel, sel).not.toContain(".page-body");
+      }
+    }
+    expect(bodiesFor(".page-scroll").join(" ")).toContain("position: relative");
+    for (const body of bodiesFor(".page-body")) expect(body).not.toMatch(/position:\s*(relative|absolute|sticky)/);
+    // The depths live with the bands' own positioning context, because a custom property inherits
+    // and the bands are the column's SIBLINGS: set on `.page-content` they reached neither.
+    const scroll = bodiesFor(".page-scroll").join(" ");
+    expect(scroll).toContain("--fade-h");
+    expect(scroll).toContain("--fade-top-h");
+  });
+
+  it("a stacked settings row opts out of the narrow pass's wrap, which means the opposite in a column", () => {
+    /* The narrow block wraps every `.settings-row` and gives its label `flex-basis: 100%` — both of
+       which mean "the label takes its own line" in a ROW and something else entirely in a column: a
+       wrapping column flex container lays overflow out in new COLUMNS, and a 100% basis is a height.
+       Measured live: the theme grid grew 432px of empty rows under its last card at every pane
+       below 640. THE mutant: drop either declaration from the stacked-row rule. */
+    const stacked = bodiesFor(".settings-row[data-stack]").join(" ");
+    expect(stacked).toContain("flex-direction: column");
+    expect(stacked).toContain("flex-wrap: nowrap");
+    expect(bodiesFor(".settings-row[data-stack] > .settings-row-main").join(" ")).toContain("flex: none");
+    // …and the narrow rules it is answering are still there to be answered.
+    const narrow = blockAfter("@container (max-width: 640px)");
+    expect(narrow).toMatch(/\.settings-row[^{]*\{[^}]*flex-wrap: wrap/);
+    expect(narrow).toMatch(/\.settings-row > \.settings-row-main \{[^}]*flex-basis: 100%/);
+  });
+
   it("under 640px of pane the rail stands up as a scrolling strip instead of halving the content", () => {
     const narrow = blockAfter("@container (max-width: 640px)");
     expect(narrow).toContain("flex-direction: row");

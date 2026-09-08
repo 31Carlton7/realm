@@ -58,7 +58,10 @@ export function computerAccessRows(grants: ComputerGrantState, opts: { helperAva
       state: grants.accessibility ? "granted" : "denied",
       detail: grants.accessibility
         ? "Agents you run can read other apps' windows and control them. Revoke it any time in System Settings."
-        : "Required. Without it Realm cannot read or drive any other app, and the computer-control tools refuse every call. macOS cannot tell “refused” from “never asked” here.",
+        // One line, not three. The page shows this only where the grant is missing, so it has to
+        // carry the refusal and the caveat — but "Realm cannot read or drive any other app" and
+        // "the computer-control tools refuse every call" were the same fact told twice.
+        : "Required — every computer-control call is refused without it, and macOS cannot tell “refused” from “never asked” here.",
       canPrompt: !grants.accessibility,
       needsSettings: !grants.accessibility,
       askExplanation: grants.accessibility ? null : computerGrantExplanation("accessibility"),
@@ -69,7 +72,7 @@ export function computerAccessRows(grants: ComputerGrantState, opts: { helperAva
       state: grants.screenRecording ? "granted" : "denied",
       detail: grants.screenRecording
         ? "Snapshots can include a picture of the app's windows."
-        : "Optional. Without it snapshots carry no image — the accessibility tree, which is what agents actually act on, works either way.",
+        : "Optional — snapshots carry no image without it. Agents act on the accessibility tree, which works either way.",
       canPrompt: !grants.screenRecording && opts.helperAvailable,
       needsSettings: !grants.screenRecording,
       askExplanation: !grants.screenRecording && opts.helperAvailable ? computerGrantExplanation("screenRecording") : null,

@@ -189,6 +189,24 @@ window.__live = window.__live ?? {
       gaps: band ? { left: band.l - p.l, right: p.r - band.r } : null,
     };
   },
+  /** The rail against the scroll bands, with the column scrolled far enough that both bands are on.
+   *
+   *  The bands are pointer-transparent chrome painted with a backdrop filter, so nothing about them
+   *  can be asserted except where they are: a band that overlaps the rail IS the rail rendered
+   *  through a blur, which is what a screenshot showed and no jsdom test can. */
+  async railUnderFade() {
+    const content = document.querySelector('.page-content');
+    const rail = document.querySelector('.page-rail');
+    if (!content || !rail) return null;
+    content.scrollTop = 200;
+    await new Promise((r) => setTimeout(r, 300));
+    const rr = rail.getBoundingClientRect();
+    const on = [...document.querySelectorAll('.edge-fade')].filter((b) => b.hasAttribute('data-on'));
+    const over = on.map((b) => b.getBoundingClientRect())
+      .filter((r) => r.left < rr.right && r.right > rr.left && r.top < rr.bottom && r.bottom > rr.top)
+      .map((r) => this.box({ getBoundingClientRect: () => r }));
+    return { scrolled: Math.round(content.scrollTop), on: on.length, over, rail: this.box(rail) };
+  },
   /** Any CSS colour as the sRGB triple the compositor will paint, via the compositor itself. */
   srgb(color) {
     const g = (this._cv ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true }));
@@ -219,7 +237,7 @@ window.__live = window.__live ?? {
    *  nothing between it and .page paints a background of its own. .page-body and .notif-detail are
    *  both transparent, so a usable reference is usually a few pixels away and the wash's own drift
    *  between the two columns stays inside a unit. */
-  async gutterPixels(b64, box, gutter) {
+  async gutterPixels(b64, box, gutter, sel) {
     const img = new Image();
     img.src = 'data:image/png;base64,' + b64;
     await img.decode();
@@ -228,7 +246,11 @@ window.__live = window.__live ?? {
     cv.getContext('2d').drawImage(img, 0, 0);
     const g = cv.getContext('2d');
     const px = (x, y) => [...g.getImageData(x, y, 1, 1).data].slice(0, 3);
-    const page = document.querySelector('.page');
+    /* The page THIS scroller is in, not the first one in the document: by the time the scrollbar
+       pass runs there can be more than one page pane open, and a reference point taken against the
+       wrong one fails the containment test at every y — which reads as "no usable pixels" rather than as
+       the wrong question. */
+    const page = (sel && document.querySelector(sel)?.closest('.page')) ?? document.querySelector('.page');
     const pb = page.getBoundingClientRect();
     const seeThrough = (x, y) => {
       let el = document.elementFromPoint(x, y);
@@ -299,8 +321,13 @@ async function gutter(c, mode, s, b64) {
     console.log(`  NOTE ${tag} ${s?.sel}: overlay scrollbars (gutter 0) — there is no track to paint.`);
     return;
   }
-  const rows = await evalIn(c, `__live.gutterPixels(${JSON.stringify(b64)}, ${JSON.stringify(s.box)}, ${s.gutter})`);
+  const rows = await evalIn(c, `__live.gutterPixels(${JSON.stringify(b64)}, ${JSON.stringify(s.box)}, ${s.gutter}, ${JSON.stringify(s.sel)})`);
   const usable = rows.filter((r) => r.ref !== null);
+  /* Nothing to judge AGAINST is a different failure from a track being painted, and the two used to
+     print the same line. The sampler needs a point beside the scroller, at the same y, that the page
+     shows through; where it finds none the check below still goes red, but this says which question
+     went unanswered. */
+  if (usable.length === 0) console.log(`  NOTE ${tag} ${s.sel}: no see-through reference column beside the scroller — the pixels below judge nothing.`);
   /* Per-channel distance from the page at the same y. The wash's drift between the gutter and the
      nearest see-through column is under a unit; the thumb — the thing that is SUPPOSED to differ —
      is 18 away, so TRACK_TOL separates them with room at both ends. */
@@ -423,36 +450,62 @@ async function main() {
   check("settings: the column is centred in the pane — equal air on both sides",
     wide.every((r) => Math.abs(r.gaps.left - r.gaps.right) <= 1),
     wide.map((r) => ({ pane: r.page.w, l: r.gaps.left, r: r.gaps.right })));
+  /* The column BLEEDS 4px on the three clipping sides — a scroller clips at its padding edge, and a
+     selected card's 2px ring or a control's 2px-offset focus outline was being sliced off flat. The
+     bleed is padding pulled back out by an equal negative margin, so the column's border box is 8px
+     wider than its measure and starts 4px early. Every number below is against the TEXT edge, which
+     is what the eye reads as the column and what the measure is a measure of. */
+  const BLEED = 4;
+  const text = (r) => r.content.l + BLEED;
   check("settings: the head sits over the column it introduces, not off at the pane's left edge",
-    wide.every((r) => Math.abs(r.headSpan.l - r.bodySpan.l) <= 1),
-    wide.map((r) => ({ pane: r.page.w, head: r.headSpan.l, body: r.bodySpan.l })));
+    wide.every((r) => Math.abs(r.headSpan.l - text(r)) <= 1),
+    wide.map((r) => ({ pane: r.page.w, head: r.headSpan.l, column: text(r) })));
   check("settings: the reading column keeps its 720px measure at every width",
-    settings.every((r) => r.content.w <= 720), settings.map((r) => ({ pane: r.page.w, content: r.content.w })));
+    settings.every((r) => r.content.w - BLEED * 2 <= 720), settings.map((r) => ({ pane: r.page.w, content: r.content.w - BLEED * 2 })));
   check("settings: the rail stays beside the column at the body's own 20px gap",
-    settings.filter((r) => r.page.w > 640).every((r) => r.content.l - r.rail.r === 20),
-    settings.map((r) => ({ pane: r.page.w, gap: r.content.l - r.rail.r })));
+    settings.filter((r) => r.page.w > 640).every((r) => text(r) - r.rail.r === 20),
+    settings.map((r) => ({ pane: r.page.w, gap: text(r) - r.rail.r })));
   const narrow = settings.filter((r) => r.page.w <= 640);
   check("settings: a narrow pane is spent on content, not on margins — the column stays full-bleed",
     narrow.length > 0 && narrow.every((r) => r.gaps.left <= 16),
     narrow.map((r) => ({ pane: r.page.w, l: r.gaps.left })));
 
+  /* The bands, against the rail they must never be drawn over. The App tab, because it is the
+     longest — a tab that does not overflow has no bands to judge. */
+  const fades = [];
+  for (const width of WIDTHS) {
+    await c.send("Emulation.setDeviceMetricsOverride", { width, height: 700, deviceScaleFactor: 1, mobile: false });
+    await sleep(250);
+    await evalIn(c, `__live.settingsTab("App")`);
+    await sleep(200);
+    fades.push({ width, ...(await evalIn(c, `__live.railUnderFade()`)) });
+  }
+  console.log("\n── Settings: the scroll bands against the rail ──────────────────");
+  for (const f of fades) console.log(`  window ${String(f.width).padStart(4)}  bands on ${f.on}  over the rail ${f.over.length}  rail ${JSON.stringify(f.rail)}`);
+  check("settings: a scrolled column dissolves at its ends and the rail is never under a band",
+    fades.every((f) => f.on > 0 && f.over.length === 0), fades.map((f) => ({ width: f.width, on: f.on, over: f.over })));
+  await evalIn(c, `__live.settingsTab("Engines")`);
+
   /* ── Notifications: a two-column split, not a form ───────────────────────────────────────── */
   await evalIn(c, `__live.destination('Notifications')`);
   await sleep(500);
   const notifs = await sweep(c, "Notifications", "wide-notifications");
-  check("notifications: the feed has rows to lay out", notifs.every((r) => r.list && r.detail),
-    notifs.map((r) => ({ pane: r.page.w, list: !!r.list })));
+  /* The feed is a COLUMN now, not a list beside a detail panel: it opted out of the shared measure
+     upward, to a two-column page whose right half stood empty until something was selected. So what
+     has to hold is what holds for every other page — one column, the shared measure, centred with
+     the head that names it. (These three checks were written against the split and could not go
+     green after it went; `.notif-detail` has not existed since Plan 12's reading-column pass.) */
+  check("notifications: the feed is the shared reading column, at the same measure as every other page",
+    notifs.every((r) => r.content && r.content.w - 8 <= 720),
+    notifs.map((r) => ({ pane: r.page.w, content: r.content?.w })));
   const nWide = notifs.filter((r) => r.page.w >= 1200);
-  check("notifications: the split is centred as one unit",
+  check("notifications: the column is centred as one unit with its head",
     nWide.length > 0 && nWide.every((r) => Math.abs(r.gaps.left - r.gaps.right) <= 1),
     nWide.map((r) => ({ pane: r.page.w, l: r.gaps.left, r: r.gaps.right })));
-  check("notifications: both columns stay readable — the detail never falls under the list's width",
-    notifs.filter((r) => r.page.w > 760).every((r) => r.detail.w >= 300),
-    notifs.map((r) => ({ pane: r.page.w, list: r.list?.w, detail: r.detail?.w })));
-  const nStack = notifs.filter((r) => r.page.w <= 760);
-  check("notifications: under 760 of pane the columns stack and the page is full-bleed again",
-    nStack.length > 0 && nStack.every((r) => r.detail.t > r.list.t && r.gaps.left <= 24),
-    nStack.map((r) => ({ pane: r.page.w, listTop: r.list?.t, detailTop: r.detail?.t, l: r.gaps.left })));
+  const nStack = notifs.filter((r) => r.page.w <= 640);
+  check("notifications: a narrow pane is spent on the feed, not on margins",
+    nStack.length > 0 && nStack.every((r) => r.gaps.left <= 24),
+    nStack.map((r) => ({ pane: r.page.w, l: r.gaps.left })));
 
   /* ── The other three shapes on the same shell ────────────────────────────────────────────── */
   await evalIn(c, `__live.destination('Connections')`);
@@ -466,8 +519,11 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('.profile-page-pane')`), 10000, "the profile page");
   await sleep(500);
   const profile = await sweep(c, "Profile", "wide-profile");
+  /* Within the column's 4px focus-ring bleed: narrow, the band's leftmost child IS the scrolling
+     column, whose border box starts 4px early. The tolerance is still an order of magnitude under
+     the gutter this catches — chips at the pane's edge are 24px out. */
   check("profile: the space chips share the column, rather than starting at the pane's edge",
-    profile.every((r) => Math.abs(r.chips.l - r.bodySpan.l) <= 1),
+    profile.every((r) => Math.abs(r.chips.l - r.bodySpan.l) <= BLEED),
     profile.map((r) => ({ pane: r.page.w, chips: r.chips?.l, body: r.bodySpan?.l })));
 
   await evalIn(c, `__live.palette('Open space')`);
@@ -568,8 +624,10 @@ async function main() {
 
     await evalIn(c, `__live.destination('Notifications')`);
     await sleep(400);
-    const n = await evalIn(c, `__live.scroller('.notif-list')`);
-    check(`${mode.toLowerCase()}: the notifications list is overflowing too, and its bar is the same thin one`,
+    // `.notif-feed`, not `.notif-list`: the feed is one scrolling column now, not a list beside a
+    // detail panel.
+    const n = await evalIn(c, `__live.scroller('.notif-feed')`);
+    check(`${mode.toLowerCase()}: the notifications feed is overflowing too, and its bar is the same thin one`,
       n && n.overflow > 40 && TRACKLESS.test(n.color) && n.width === "thin", n);
     await gutter(c, mode, n, await shot(c, `notifications-${mode.toLowerCase()}`));
     await evalIn(c, `__live.destination('Settings')`);

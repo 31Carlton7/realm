@@ -3223,6 +3223,24 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .settings-row + .settings-row::before {
   content: ""; position: absolute; inset: 0 0 auto 14px; height: var(--hairline-w); background: var(--rl-hairline);
 }
+/* A run of rows that are NOT peers — a theme grid, a slider, a pair of selects — so the container
+   is a plain box rather than a list element claiming they are the same kind of thing. No gap, for
+   the same reason `.settings-list` has none: the rows mesh into one surface. */
+.settings-group { display: flex; flex-direction: column; }
+/* A row whose control is a grid of cards or a four-rung segmented control cannot put it beside the
+   label without pinching one of the two, so it stands the control UNDER the label and stays in the
+   run — breaking the surface costs more than a taller row.
+   `flex-wrap: nowrap` and the basis reset are load-bearing, not tidiness: the narrow container block
+   below wraps every row and gives its label `flex-basis: 100%`, both of which mean "the label takes
+   its own line" in a ROW and the opposite in a column — a wrapping column flex container lays its
+   overflow out in new COLUMNS, and a 100% basis is a height. Measured live, the theme grid grew
+   432px of empty rows under its last card at every pane below 640. */
+.settings-row[data-stack] { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 8px; }
+.settings-row[data-stack] > .settings-row-main { flex: none; }
+/* The control side takes what it needs; the label takes the rest. Left to the row's free space a
+   slider or a select pair would resize every time the label beside it changed length. */
+.settings-row > .font-row, .settings-row > .slider-row { flex: none; }
+.settings-row > .settings-tabs { flex: none; margin: 0; }
 .settings-row-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .settings-row-name { font-size: 13.5px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 /* 12.5/1.5 — this is reading copy, not a caption. On the Library page it is three lines per card. */
@@ -3400,13 +3418,21 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    column's content stays exactly where the rail and the head expect it. `content-box` keeps the
    720px measure a measure of CONTENT: the bleed is outside it, and the page-measure arithmetic below
    (and the test that checks it) go on reading the one number. */
-/* The scrolling column, and the bands that dissolve its ends. The bands hang off the BODY rather
-   than the column, so they span the whole reading width including the 4px focus-ring inset the
-   column carries. `scroll-padding` keeps a row landing under a band fully reachable — an item you
-   have to scroll past to click is worse than a hard edge. */
-.page-body { position: relative; }
-.page-body > .edge-fade { inset: auto 0 0 0; }
-.page-body > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
+/* The scrolling column, and the bands that dissolve its ends. `.page-scroll` is exactly the column
+   — including the 4px focus-ring bleed it carries — and the bands hang off THAT, never off the body.
+   A band on the body spans the rail too: wide it smudged the first tab, and narrow, where the body
+   stands its parts up and the rail becomes the tab strip above the content, it smudged the whole
+   row. A navigation row that arrives blurred reads as a rendering fault, and it is the last thing on
+   the page that may go soft while the content under it scrolls.
+   `--fade-h`/`--fade-top-h` are set HERE rather than on the column: a custom property inherits, and
+   the bands are the column's SIBLINGS, so a depth declared on `.page-content` reached neither of
+   them — both fell back to the primitive's defaults and drew half again as deep as the
+   `scroll-padding` that is supposed to clear them. `scroll-padding` keeps a row landing under a band
+   fully reachable — an item you have to scroll past to click is worse than a hard edge. */
+.page-scroll { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex;
+  --fade-h: 34px; --fade-top-h: 24px; }
+.page-scroll > .edge-fade { inset: auto 0 0 0; }
+.page-scroll > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
 /* Shown only when there is something under them (`ScrollFades`). An always-on band blurs the first
    line of a list nobody has scrolled, which reads as a rendering fault rather than as depth — the
    heading arrives smudged. The band says "there is more this way", so it appears when that is true. */
@@ -3414,7 +3440,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .edge-fade[data-on] { opacity: 1; }
 .page-content { flex: 1; min-width: 0; min-height: 0; max-width: 720px; overflow-y: auto;
   box-sizing: content-box; padding: 4px 4px 34px; margin: -4px -4px 0;
-  --fade-h: 34px; --fade-top-h: 24px; scroll-padding: 24px 0 34px; }
+  scroll-padding: 24px 0 34px; }
 /* The Tasks lens is the one tab that is a LIST BESIDE A PANEL rather than a single column of form,
    so it opts out of the 720px measure the other tabs are set in. Nothing else does. */
 .page-content[data-wide] { max-width: none; }
@@ -3877,6 +3903,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The command Realm is about to run, shown before it runs. */
 .mac-grant-cmd code { font: 11px var(--font-mono); color: var(--rl-text-bright); }
 .settings-page-pane .settings-tabs { max-width: 340px; }
+/* Every Settings tab is a stack of titled groups now, and `.form`'s 12px gap already separates
+   them — so the heads drop the top margin they carry where they punctuate free-standing controls. */
+.settings-page-pane .settings-head { margin: 8px 0 0; }
+/* The Permissions tab's three sections. They were `.field`s — a dim label over a column of controls
+   — which is the shape this pass replaced everywhere: a head names the section, the rows carry
+   themselves, and only the lines that say something a row cannot survive between them. */
+.computer-access-field, .mac-access-field, .realm-access-field { display: flex; flex-direction: column; gap: 6px; }
 .settings-page-pane .bypass-confirm { align-self: flex-start; margin-top: 6px; text-align: left; }
 
 .scope-group { display: flex; flex-direction: column; gap: 0; }
@@ -4424,6 +4457,10 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .theme-detail > summary::before, .theme-other > summary::before { content: "▸ "; }
 .theme-detail[open] > summary::before, .theme-other[open] > summary::before { content: "▾ "; }
 .theme-detail { display: flex; flex-direction: column; gap: 8px; }
+/* A closed disclosure is one line. The flex gap sits between the summary and the (hidden) content
+   box either way, and 8px of dead space at the bottom of a row shows now that these rows mesh into
+   one surface rather than floating in the page. */
+.theme-detail:not([open]) { gap: 0; }
 .theme-other { display: flex; flex-direction: column; }
 
 .mode-card {
@@ -4510,7 +4547,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* The face on screen, of the two palette rows. A dot rather than a highlight: both rows are equally
    live controls, and the only thing that distinguishes them is which one the window is wearing while
    you read the page. */
-.field[data-live] > span::after {
+.settings-row[data-live] .settings-row-name::after {
   content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 6px; vertical-align: middle;
   border-radius: 999px; background: var(--rl-accent);
 }

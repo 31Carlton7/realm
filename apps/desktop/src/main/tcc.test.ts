@@ -16,10 +16,13 @@ describe("probeTcc (Plan 12 W6 — TCC honesty)", () => {
   it("Files & Folders and Automation are ALWAYS unknown — no probe basis exists without prompting (the named mutant: a granted state nobody earned)", () => {
     // Even with every probing leg answering "yes", these two rows must not borrow that answer.
     const rows = probeTcc(deps());
+    /* The STATE is what the page turns into "Can't be checked until used"; the detail is the reason
+       it cannot, which is the half a reader could not work out for themselves. It used to open by
+       repeating the chip word for word, and asserting the repetition is what kept it there. */
     expect(row(rows, "filesAndFolders").state).toBe("unknown");
-    expect(row(rows, "filesAndFolders").detail).toMatch(/Can't be checked until used/);
+    expect(row(rows, "filesAndFolders").detail).toMatch(/won't trigger that prompt/);
     expect(row(rows, "automation").state).toBe("unknown");
-    expect(row(rows, "automation").detail).toMatch(/Can't be checked until used/);
+    expect(row(rows, "automation").detail).toMatch(/per-app-pair/);
   });
 
   it("Screen Recording maps the status read: granted → granted, denied/restricted → denied, not-determined → unknown (never a denial that never happened)", () => {

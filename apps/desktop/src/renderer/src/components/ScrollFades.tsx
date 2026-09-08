@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
 /**
  * The two bands at the ends of a scroller, shown only when there is something under them.
@@ -58,4 +58,25 @@ export function ScrollFades({ scroller }: { scroller: RefObject<HTMLElement | nu
 export function useFadedScroller() {
   const ref = useRef<HTMLDivElement>(null);
   return { ref, fades: <ScrollFades scroller={ref} /> };
+}
+
+/**
+ * The page pattern's reading column, with its two bands.
+ *
+ * The bands used to hang off `.page-body`, which is the column AND the rail beside it — so the top
+ * band was drawn over the rail: over the first tab wide, and over the whole tab strip once the body
+ * stands its parts up into a column at narrow widths. A blurred navigation row reads as a rendering
+ * fault, and it is the one thing on the page that must stay legible while the content under it
+ * scrolls. The wrapper is exactly the scroller, so a band has nothing but content to fade.
+ *
+ * It owns the ref as well, because every page that had one used it for nothing else.
+ */
+export function PageScroll({ children }: { children: ReactNode }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  return (
+    <div className="page-scroll">
+      <ScrollFades scroller={scroller} />
+      <div className="page-content" ref={scroller}>{children}</div>
+    </div>
+  );
 }

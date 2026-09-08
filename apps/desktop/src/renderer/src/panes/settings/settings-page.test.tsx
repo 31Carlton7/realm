@@ -486,8 +486,13 @@ describe("App tab", () => {
     const sw = screen.getByRole("switch", { name: "Play a sound with it" });
     expect(sw).toBeChecked();
     expect(screen.getByRole("slider", { name: "Sound volume" })).toHaveValue("50");
-    // The readout says what it measures: the slider sits two rows under the switch it belongs to.
-    expect(screen.getByText("Volume 50%")).toBeInTheDocument();
+    /* The readout still says what it measures — but the row does the saying now. It used to have to
+       print "Volume 50%" itself, because a bare slider hanging two rows under the switch it belongs
+       to had nothing beside it to name the quantity. In a labelled row the number is the number, so
+       what has to hold is that the label and the value are in the SAME row. */
+    const volume = screen.getByRole("slider", { name: "Sound volume" }).closest(".settings-row") as HTMLElement;
+    expect(within(volume).getByText("Volume")).toBeInTheDocument();
+    expect(within(volume).getByText("50%")).toBeInTheDocument();
     fireEvent.click(sw);
     await waitFor(() => expect(api.data.settings[NOTIFICATIONS_SOUND_KEY]).toBe(false));
     expect(store.getState().soundCues).toBe(false);
@@ -516,6 +521,16 @@ describe("App tab", () => {
     await openApp({ settings: { [NOTIFICATIONS_SOUND_KEY]: false } });
     expect(screen.getByRole("switch", { name: "Play a sound with it" })).not.toBeDisabled();
     expect(screen.getByRole("slider", { name: "Sound volume" })).toBeDisabled();
+  });
+
+  it("a category row is a label and a switch — its sentence rides the row, it does not stack under it", async () => {
+    /* Nine rows each carrying a sentence that mostly restated its own label ("Permission requests:
+       an agent is waiting on your yes or no") was the bulk of the reading on this tab. THE mutant:
+       put them back as `.settings-row-desc`. The sentence is still there for anyone who wants it. */
+    await openApp();
+    const row = (await screen.findByRole("switch", { name: "Permission requests" })).closest(".settings-row") as HTMLElement;
+    expect(row.querySelector(".settings-row-desc")).toBeNull();
+    expect(row).toHaveAttribute("title", "An agent is waiting on your yes or no.");
   });
 
   it("a toggle writes EXACTLY its own category (the named mutant: the wrong category), leaving the rest of the set alone", async () => {
@@ -900,6 +915,26 @@ describe("Permissions tab — Apps on this Mac (the grantable half)", () => {
     await waitFor(() => expect(api.calls).toContain("macAccessRevealApp"));
     fireEvent.click(within(fda).getByRole("button", { name: "Open System Settings" }));
     await waitFor(() => expect(api.calls).toContain("macAccessOpenSettings:fullDiskAccess"));
+  });
+
+  it("a row never says what it has already said — the fix line gives way to the chip and to the command", async () => {
+    /* The fake writes `<label>: <state>` as every row's detail, standing in for mac doctor's fix.
+       On a GRANTED row that sentence is "macOS reports the grant" beside a chip reading Granted; on
+       a promptable one it is "run any `mac mail` command" directly above the exact command Realm
+       will run. Fourteen rows of that is the wall this page was. Where asking cannot work — a sticky
+       denial, Full Disk Access — it is the only instruction there is, so it stays on the page.
+       THE mutant: print `detail` unconditionally again. */
+    await openPermissions();
+    const granted = await screen.findByRole("listitem", { name: "Calendar: Granted" });
+    expect(within(granted).queryByText("Calendar: granted")).toBeNull();
+    const asked = screen.getByRole("listitem", { name: "Mail: Not asked yet" });
+    expect(within(asked).queryByText("Mail: notRequested")).toBeNull();
+    expect(asked.textContent).toContain("mac mail list --json");
+    const denied = screen.getByRole("listitem", { name: "Reminders: Refused" });
+    expect(within(denied).getByText("Reminders: denied")).toBeInTheDocument();
+    // Nothing is LOST: every row still carries its own sentence for a reader who wants it.
+    expect(granted).toHaveAttribute("title", "Calendar: granted");
+    expect(asked).toHaveAttribute("title", "Mail: notRequested");
   });
 
   it("shows the exact command before running it, and says which ones open an app", async () => {

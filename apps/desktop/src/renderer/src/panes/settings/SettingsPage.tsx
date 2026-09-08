@@ -1,4 +1,4 @@
-import { ScrollFades } from "../../components/ScrollFades";
+import { PageScroll } from "../../components/ScrollFades";
 import {
   AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
@@ -44,8 +44,6 @@ export function engineVersionLabel(version: string): string {
 }
 
 export function SettingsPage(_props: PaneProps) {
-  /** The scrolling column, so its two edge bands can know when there is anything under them. */
-  const scroller = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<SettingsTab>("engines");
   return (
     <div className="page settings-page-pane">
@@ -53,10 +51,6 @@ export function SettingsPage(_props: PaneProps) {
         <div className="page-title"><h1>Settings</h1></div>
       </header>
       <div className="page-body">
-        {/* Both ends dissolve, but only when there is something under them. The bands sit ON the
-            body so they span the reading column's full width, and the column pads by their depth so
-            a row under one is still clickable. */}
-        <ScrollFades scroller={scroller} />
         <fieldset className="page-rail">
           <legend className="visually-hidden">Settings section</legend>
           {TABS.map((t) => (
@@ -66,14 +60,18 @@ export function SettingsPage(_props: PaneProps) {
             </label>
           ))}
         </fieldset>
-        <div className="page-content" ref={scroller}>
+        {/* Both ends dissolve, but only when there is something under them — and only over the
+            column. The rail is a sibling of the wrapper rather than a thing under a band: a blurred
+            tab row reads as a rendering fault, and it is the one row that has to stay legible while
+            the content beneath it scrolls. */}
+        <PageScroll>
           {tab === "engines" && <EnginesTab />}
           {tab === "usage" && <UsagePanel />}
           {tab === "app" && <AppTab />}
           {tab === "signins" && <SignInsTab />}
           {tab === "import" && <ImportPanel />}
           {tab === "permissions" && <PermissionsTab />}
-        </div>
+        </PageScroll>
       </div>
     </div>
   );
@@ -358,7 +356,8 @@ const SUBMIT_KEY_CHOICES: { pref: SubmitKey; label: string }[] = [
   { pref: "enter", label: "Enter" }, { pref: "cmdEnter", label: "⌘/Ctrl+Enter" },
 ];
 
-/** Human words for W5's notification categories — one label + one sentence each, default-on. */
+/** Human words for W5's notification categories, default-on. The sentence is the row's `title` now:
+ *  nine of them stacked under nine labels they mostly restated was the bulk of this tab's reading. */
 const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string }> = {
   permission: { label: "Permission requests", desc: "An agent is waiting on your yes or no." },
   session_done: { label: "Sessions finishing", desc: "A session settled while you were looking elsewhere." },
@@ -418,9 +417,13 @@ function CodePreview({ vars }: { vars: Record<string, string> }) {
 /** One face's palette picker. A card is painted in the palette it names, in the face this row is
  *  for, off the same derivation the app applies — so what is on the card is what the window becomes.
  *  Only palettes with that face are offered: a palette that cannot dress a lit window has no honest
- *  card to show in the light row. */
-function PaletteRow({ face, live, selected, onSelect }:
-  { face: Mode; live: boolean; selected: ThemeName; onSelect: (name: ThemeName) => void }) {
+ *  card to show in the light row.
+ *
+ *  The cards and their disclosure, without a row around them: the live face is a row of the
+ *  Appearance group and the other face is a disclosure inside one, and a `.settings-row` nested in a
+ *  `.settings-row` would paint a second surface on top of the first. */
+function PaletteChoices({ face, selected, onSelect }:
+  { face: Mode; selected: ThemeName; onSelect: (name: ThemeName) => void }) {
   const offered = THEMES.filter((t) => themeModes(t.name).includes(face));
   const palette = offered.find((t) => t.name === selected) ?? THEMES[0]!;
   // The preview is of the palette AS EDITED, at the contrast in force — a preview of something other
@@ -428,8 +431,7 @@ function PaletteRow({ face, live, selected, onSelect }:
   const override = useApp((s) => s.themeOverrides[overrideKey(palette.name, face)]);
   const contrast = useApp((s) => s.contrast);
   return (
-    <div className="field" data-live={live || undefined}>
-      <span>{face === "light" ? "Light theme" : "Dark theme"}</span>
+    <>
       <fieldset className="theme-grid" aria-label={face === "light" ? "Light theme" : "Dark theme"}>
         {offered.map((t) => {
           const [page, surface, accent, string, line] = themeSwatches(t.name, face);
@@ -457,7 +459,7 @@ function PaletteRow({ face, live, selected, onSelect }:
         <CodePreview vars={facePalette(palette.name, face, override, contrast)} />
         <ThemeOverrideEditor name={palette.name} face={face} />
       </details>
-    </div>
+    </>
   );
 }
 
@@ -606,218 +608,255 @@ function AppTab() {
   const labels = (ks: readonly AgentKind[]) => ks.map((k) => AGENT_META[k].label).join(", ");
 
   return (
-    <div className="form">
-      <div className="field"><span>Theme</span>
-        {/* A card per choice, each showing the window it produces. "System" shows both faces because
-            that is what choosing it means — the card cannot promise which one you will get. */}
-        <fieldset className="mode-grid" aria-label="Theme">
-          {THEME_CHOICES.map((t) => (
-            <label key={t.pref} className="mode-card" data-selected={themePref === t.pref || undefined}>
-              <input type="radio" name="settings-theme" value={t.pref} checked={themePref === t.pref}
-                onChange={() => run(() => setThemePref(t.pref))} />
-              <span className="mode-card-preview" data-split={t.pref === "system" || undefined}>
-                {(t.pref === "system" ? (["light", "dark"] as const) : [t.pref as Mode]).map((face) => (
-                  <MiniWindow key={face} vars={facePalette(paletteFor(themeNames, face), face, themeOverrides[overrideKey(paletteFor(themeNames, face), face)], contrast)} />
-                ))}
-              </span>
-              <span className="mode-card-name">{t.label}</span>
-            </label>
-          ))}
-        </fieldset>
-        {/* One line, not a switch (Plan 14 W5): the OS setting is the control, and styles.css's global
-            prefers-reduced-motion kill is what makes this sentence true. */}
-        <p className="settings-hint">Realm follows the system's Reduce Motion setting everywhere — with it on, animations and transitions are disabled app-wide.</p>
-      </div>
-
-      {/* The face you are LOOKING at, in full. `data-live` marks it so the window and the page agree
-          about which row explains what is in front of you. */}
-      <PaletteRow face={mode} live selected={themeNames[mode]}
-        onSelect={(name) => run(() => setThemeName(mode, name))} />
-      {/* And the other one, folded away. Setting the face you are not in is the whole reason there
-          are two rows — but it is a thing you do occasionally, and open it doubled the length of the
-          tab with a grid nobody looking at this window can see the effect of. */}
-      <details className="theme-other">
-        <summary>{mode === "light" ? "Dark" : "Light"} palette</summary>
-        <PaletteRow face={mode === "light" ? "dark" : "light"} live={false} selected={themeNames[mode === "light" ? "dark" : "light"]}
-          onSelect={(name) => run(() => setThemeName(mode === "light" ? "dark" : "light", name))} />
-      </details>
-
-      <div className="field"><span>UI font</span>
-        {/* Two families, not four hundred. Enumerating installed fonts needs a main-process hop and
-            returns mostly faces this layout cannot use — the chrome is set against a four-step weight
-            ladder and tabular figures, and a display face picked out of a long list loses both
-            silently. The bundled faces are guaranteed to be present and to have those axes; the
-            system stack is for someone who would rather Realm looked like the rest of their machine. */}
-        <div className="font-row">
-          <select aria-label="UI font" value={fonts.ui} onChange={(e) => run(() => setFonts({ ui: e.target.value as FontId }))}>
-            {FONT_FACES.ui.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-          </select>
-          <select aria-label="UI font weight" value={fonts.uiWeight}
-            onChange={(e) => run(() => setFonts({ uiWeight: e.target.value as FontWeight }))}>
-            {FONT_WEIGHTS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <div className="field"><span>Code font</span>
-        <div className="font-row">
-          <select aria-label="Code font" value={fonts.code} onChange={(e) => run(() => setFonts({ code: e.target.value as FontId }))}>
-            {FONT_FACES.code.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-          </select>
-        </div>
-        {/* The asymmetry is a fact about the stylesheet, not a judgement: every mono surface sets its
-            font with the `font:` shorthand, which resets weight by definition, so a code weight would
-            mean editing fifty-odd rules or hiding a weight inside a family name. */}
-        <p className="settings-hint" title="Open terminals change face with this setting; their font size does not follow it.">Code, diffs, terminals and keyboard hints. Weight follows the app's own scale here.</p>
-      </div>
-
-      <div className="field"><span>Contrast</span>
-        {/* The ink ramp's SPREAD — how far the secondary and hint tiers fall below primary text. It
-            is the only thing in the palette that is a matter of eyes rather than of design: the hues
-            are the palette's identity and the surfaces are its structure, and a slider that moved
-            either would be a repaint wearing the word "contrast". It cannot make anything illegible
-            at any setting, because every tier is floored at WCAG before the ramp is walked. */}
-        <div className="slider-row">
-          <Slider aria-label="Contrast"
-            min={CONTRAST_RANGE.min} max={CONTRAST_RANGE.max} step={1}
-            value={contrast} onChange={(e) => run(() => setContrast(Number(e.target.value)))} />
-          <span className="slider-value">{contrast}</span>
-        </div>
-        <p className="settings-hint" title="Every tier stays above the contrast Realm holds its palettes to, whatever this says — turning it down recedes them, it does not make them unreadable.">How far labels and metadata sit below primary text.</p>
-      </div>
-
-      <div className="field"><span>Translucent sidebar</span>
-        {/* A switch and an amount over ONE stored number, not two controls that can disagree: fully
-            opaque IS off, because covering the material completely is the same as not having asked
-            for it. So the switch reads `groundAlpha < max` and writes either the maximum or the
-            default, and the slider is inert while it is off — nothing here can put the app in a
-            state where the switch says one thing and the amount another.
-            The slider runs the way its label reads — right is MORE transparent — while the stored
-            value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is the
-            one place the two meet. step 1, not a coarser grid: the range spans an odd number of
-            points, so any step above 1 leaves one of its two ends unreachable. */}
-        <div className="slider-row">
-          <input type="checkbox" role="switch" className="switch" aria-label="Translucent sidebar"
-            disabled={!material} checked={translucent}
-            onChange={(e) => run(() => setGroundAlpha(e.target.checked ? DEFAULT_GROUND_ALPHA : GROUND_ALPHA_RANGE.max))} />
-          <Slider aria-label="Background transparency" disabled={!material || !translucent}
-            min={GROUND_ALPHA_RANGE.min} max={GROUND_ALPHA_RANGE.max} step={1}
-            value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
-          <span className="slider-value">{100 - groundAlpha}%</span>
-        </div>
-        {/* The long version is a `title`. It is worth having — a user who wonders why the PANES are
-            opaque deserves the answer — but it is three sentences of background about a control
-            that already reads correctly, on a tab where everything else is one row. */}
-        <p className="settings-hint" title={material
-          ? "Panes stay opaque on purpose: at any setting where a pane looked translucent, text on it would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting — with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
-          : "The setting is kept and applies on a Mac."}>{material
-          ? "The sidebar is the one surface thin enough to show the desktop behind the window."
-          : `${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — there is nothing behind the sidebar to reveal.`}</p>
-      </div>
-
-      <div className="field"><span>Send message with</span>
-        <fieldset className="settings-tabs" aria-label="Send message with">
-          {SUBMIT_KEY_CHOICES.map((k) => (
-            <label key={k.pref} className="settings-tab" data-selected={submitKey === k.pref || undefined}>
-              <input type="radio" name="settings-submit-key" value={k.pref} checked={submitKey === k.pref}
-                onChange={() => run(() => setSubmitKey(k.pref))} />
-              {k.label}
-            </label>
-          ))}
-        </fieldset>
-        <p className="settings-hint">
-          {submitKey === "enter" ? "Enter sends; Shift+Enter inserts a newline." : "⌘/Ctrl+Enter sends; Enter inserts a newline."}
-        </p>
-      </div>
-
-      <div className="field"><span>Desktop notifications</span>
-        <ul className="settings-list">
-          <li className="settings-row">
-            <div className="settings-row-main">
-              <span className="settings-row-name">Notify me outside Realm</span>
-              <span className="settings-row-desc">Post a system notification, and count unread ones on the dock icon.</span>
-            </div>
-            <input type="checkbox" role="switch" className="switch" aria-label="Notify me outside Realm"
-              checked={desktopNotifications}
-              onChange={(e) => run(() => setDesktopNotifications(e.target.checked))} />
-          </li>
-          {/* Nested under the switch above, and inert while it is off, because the sound is part of a
-              notification rather than a second way of being told: it plays only alongside one that
-              was actually posted. */}
-          <li className="settings-row">
-            <div className="settings-row-main">
-              <span className="settings-row-name">Play a sound with it</span>
-              <span className="settings-row-desc">One cue when a turn finishes, another when an agent is waiting on you.</span>
-            </div>
-            <input type="checkbox" role="switch" className="switch" aria-label="Play a sound with it"
-              disabled={!desktopNotifications} checked={soundCues}
-              onChange={(e) => run(() => setSoundCues(e.target.checked))} />
-          </li>
-        </ul>
-        <div className="slider-row">
-          {/* The readout names its quantity, where the other two sliders on this tab are named by the
-              heading of the field they are the whole subject of. This one hangs off a switch two rows
-              up, so a bare percentage would leave the reader to work out what it measures — and a
-              label to the LEFT would be the one slider on the tab whose bar does not start on the
-              same edge as the rest. */}
-          <Slider aria-label="Sound volume" disabled={!desktopNotifications || !soundCues}
-            min={0} max={100} step={5}
-            value={Math.round(soundVolume * 100)}
-            onChange={(e) => run(() => setSoundVolume(Number(e.target.value) / 100))} />
-          <span className="slider-value">Volume {Math.round(soundVolume * 100)}%</span>
-        </div>
-        <p className="settings-hint" title="Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app. The sound follows the system volume, so muting the machine mutes it.">Only when Realm is not the app you are in.</p>
-      </div>
-
-      <div className="field"><span>Notifications</span>
-        <p className="settings-hint">Switching a category off stops new rows from being written — what is already in the feed stays, including any permission request an agent is still blocked on.</p>
-        {prefs === null ? <p className="env-empty">Loading preferences…</p> : (
-          <ul className="settings-list">
-            {NOTIFICATION_CATEGORIES.map((c) => (
-              <li key={c} className="settings-row">
-                <div className="settings-row-main">
-                  <span className="settings-row-name">{CATEGORY_COPY[c].label}</span>
-                  <span className="settings-row-desc">{CATEGORY_COPY[c].desc}</span>
-                </div>
-                <input type="checkbox" role="switch" className="switch" aria-label={CATEGORY_COPY[c].label}
-                  checked={!prefs.disabledCategories.includes(c)}
-                  onChange={(e) => run(() => setNotificationCategoryEnabled(c, e.target.checked))} />
-              </li>
+    /* Grouped lists, not a form of stacked fields with a paragraph under each. A settings tab is
+       scanned for the control you came for; every sentence between two rows is a sentence between
+       every visit and that control. What survives on screen is a label, its control, and the few
+       lines that say something the control cannot — an unavailable option's reason, a consequence
+       that outlives the click. The rest rides the control's own `title`. */
+    <div className="form settings-app">
+      <h3 className="settings-head">Appearance</h3>
+      <div className="settings-group">
+        <div className="settings-row" data-stack>
+          <div className="settings-row-main"><span className="settings-row-name">Theme</span></div>
+          {/* A card per choice, each showing the window it produces. "System" shows both faces because
+              that is what choosing it means — the card cannot promise which one you will get. */}
+          <fieldset className="mode-grid" aria-label="Theme">
+            {THEME_CHOICES.map((t) => (
+              <label key={t.pref} className="mode-card" data-selected={themePref === t.pref || undefined}>
+                <input type="radio" name="settings-theme" value={t.pref} checked={themePref === t.pref}
+                  onChange={() => run(() => setThemePref(t.pref))} />
+                <span className="mode-card-preview" data-split={t.pref === "system" || undefined}>
+                  {(t.pref === "system" ? (["light", "dark"] as const) : [t.pref as Mode]).map((face) => (
+                    <MiniWindow key={face} vars={facePalette(paletteFor(themeNames, face), face, themeOverrides[overrideKey(paletteFor(themeNames, face), face)], contrast)} />
+                  ))}
+                </span>
+                <span className="mode-card-name">{t.label}</span>
+              </label>
             ))}
-          </ul>
-        )}
-      </div>
+          </fieldset>
+        </div>
 
-      <div className="field"><span>New sessions start in</span>
-        {prefs === null ? <p className="env-empty">Loading preferences…</p> : (
-          <>
-            <fieldset className="settings-tabs" aria-label="Default permission mode">
-              {PERMISSION_MODES.map((m) => (
-                <label key={m.id} className="settings-tab" data-selected={prefs.defaultPermissionMode === m.id || undefined}>
-                  <input type="radio" name="settings-default-permission" value={m.id} checked={prefs.defaultPermissionMode === m.id}
-                    onChange={() => {
-                      if (m.id === "bypassPermissions" && prefs.defaultPermissionMode !== "bypassPermissions") { setConfirmBypass(true); return; }
-                      setConfirmBypass(false);
-                      void run(() => setDefaultPermissionMode(m.id));
-                    }} />
-                  {m.label}
-                </label>
-              ))}
-            </fieldset>
-            {confirmBypass && (
-              <button type="button" className="composer-chip bypass-confirm"
-                onClick={() => { setConfirmBypass(false); void run(() => setDefaultPermissionMode("bypassPermissions")); }}>
-                Every new session will run tools and edit files without asking first. Confirm Full access as the default
-              </button>
+        {/* The face you are LOOKING at, in full. `data-live` marks it so the window and the page agree
+            about which row explains what is in front of you. */}
+        <div className="settings-row" data-stack data-live>
+          <div className="settings-row-main">
+            <span className="settings-row-name">{mode === "light" ? "Light theme" : "Dark theme"}</span>
+          </div>
+          <PaletteChoices face={mode} selected={themeNames[mode]}
+            onSelect={(name) => run(() => setThemeName(mode, name))} />
+        </div>
+        {/* And the other one, folded away. Setting the face you are not in is the whole reason there
+            are two rows — but it is a thing you do occasionally, and open it doubled the length of the
+            tab with a grid nobody looking at this window can see the effect of. */}
+        <div className="settings-row" data-stack>
+          <details className="theme-other">
+            <summary>{mode === "light" ? "Dark" : "Light"} palette</summary>
+            <PaletteChoices face={mode === "light" ? "dark" : "light"} selected={themeNames[mode === "light" ? "dark" : "light"]}
+              onSelect={(name) => run(() => setThemeName(mode === "light" ? "dark" : "light", name))} />
+          </details>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-main"><span className="settings-row-name">Contrast</span></div>
+          {/* The ink ramp's SPREAD — how far the secondary and hint tiers fall below primary text. It
+              is the only thing in the palette that is a matter of eyes rather than of design: the hues
+              are the palette's identity and the surfaces are its structure, and a slider that moved
+              either would be a repaint wearing the word "contrast". It cannot make anything illegible
+              at any setting, because every tier is floored at WCAG before the ramp is walked — which
+              is why the whole of that is a title and none of it is a paragraph. */}
+          <div className="slider-row" title="How far labels and metadata sit below primary text. Every tier stays above the contrast Realm holds its palettes to, whatever this says — turning it down recedes them, it does not make them unreadable.">
+            <Slider aria-label="Contrast"
+              min={CONTRAST_RANGE.min} max={CONTRAST_RANGE.max} step={1}
+              value={contrast} onChange={(e) => run(() => setContrast(Number(e.target.value)))} />
+            <span className="slider-value">{contrast}</span>
+          </div>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Translucent sidebar</span>
+            {/* Off macOS the control is inert, and a disabled control with no reason beside it is the
+                one case where the sentence has to stay on the page: there is nothing else to explain
+                why this row does nothing. On a Mac the same explanation is a title, because the
+                control works and reads correctly without it. */}
+            {!material && (
+              <span className="settings-row-desc">
+                {`${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — there is nothing behind the sidebar to reveal. The setting is kept and applies on a Mac.`}
+              </span>
             )}
-            <p className="settings-hint">
-              Applies to new {labels(supported)} sessions; each session's chip can still change it.
-              {unsupported.length > 0 && ` ${labels(unsupported)} sessions ignore it — Realm can't set that agent's permission mode, so they start on the agent's own default.`}
-            </p>
-          </>
-        )}
+          </div>
+          {/* A switch and an amount over ONE stored number, not two controls that can disagree: fully
+              opaque IS off, because covering the material completely is the same as not having asked
+              for it. So the switch reads `groundAlpha < max` and writes either the maximum or the
+              default, and the slider is inert while it is off — nothing here can put the app in a
+              state where the switch says one thing and the amount another.
+              The slider runs the way its label reads — right is MORE transparent — while the stored
+              value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is the
+              one place the two meet. step 1, not a coarser grid: the range spans an odd number of
+              points, so any step above 1 leaves one of its two ends unreachable. */}
+          <div className="slider-row" title={material
+            ? "The sidebar is the one surface thin enough to show the desktop behind the window. Panes stay opaque on purpose: at any setting where a pane looked translucent, text on it would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting — with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
+            : undefined}>
+            <input type="checkbox" role="switch" className="switch" aria-label="Translucent sidebar"
+              disabled={!material} checked={translucent}
+              onChange={(e) => run(() => setGroundAlpha(e.target.checked ? DEFAULT_GROUND_ALPHA : GROUND_ALPHA_RANGE.max))} />
+            <Slider aria-label="Background transparency" disabled={!material || !translucent}
+              min={GROUND_ALPHA_RANGE.min} max={GROUND_ALPHA_RANGE.max} step={1}
+              value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
+            <span className="slider-value">{100 - groundAlpha}%</span>
+          </div>
+        </div>
+      </div>
+      {/* One line, not a switch (Plan 14 W5): the OS setting is the control, and styles.css's global
+          prefers-reduced-motion kill is what makes this sentence true. It stays visible because it is
+          the only place the app answers "where is the motion setting" — but it is a clause now. */}
+      <p className="settings-hint">Animations follow the system's Reduce Motion setting.</p>
+
+      <h3 className="settings-head">Text</h3>
+      <div className="settings-group">
+        <div className="settings-row">
+          <div className="settings-row-main"><span className="settings-row-name">UI font</span></div>
+          {/* Two families, not four hundred. Enumerating installed fonts needs a main-process hop and
+              returns mostly faces this layout cannot use — the chrome is set against a four-step weight
+              ladder and tabular figures, and a display face picked out of a long list loses both
+              silently. The bundled faces are guaranteed to be present and to have those axes; the
+              system stack is for someone who would rather Realm looked like the rest of their machine. */}
+          <div className="font-row">
+            <select aria-label="UI font" value={fonts.ui} onChange={(e) => run(() => setFonts({ ui: e.target.value as FontId }))}>
+              {FONT_FACES.ui.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+            <select aria-label="UI font weight" value={fonts.uiWeight}
+              onChange={(e) => run(() => setFonts({ uiWeight: e.target.value as FontWeight }))}>
+              {FONT_WEIGHTS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="settings-row">
+          <div className="settings-row-main"><span className="settings-row-name">Code font</span></div>
+          <div className="font-row" title="Code, diffs, terminals and keyboard hints. Open terminals change face with this setting; their font size does not follow it.">
+            <select aria-label="Code font" value={fonts.code} onChange={(e) => run(() => setFonts({ code: e.target.value as FontId }))}>
+              {FONT_FACES.code.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+      {/* Kept on the page, where the rest of this tab's prose went to a title: it explains a control
+          that ISN'T there. The asymmetry is a fact about the stylesheet, not a judgement — every mono
+          surface sets its font with the `font:` shorthand, which resets weight by definition, so a
+          code weight would mean editing fifty-odd rules or hiding a weight inside a family name. */}
+      <p className="settings-hint">Weight follows the app's own scale here.</p>
+
+      <h3 className="settings-head">Sessions</h3>
+      <div className="settings-group">
+        <div className="settings-row">
+          <div className="settings-row-main"><span className="settings-row-name">Send message with</span></div>
+          <fieldset className="settings-tabs" aria-label="Send message with"
+            title={submitKey === "enter" ? "Enter sends; Shift+Enter inserts a newline." : "⌘/Ctrl+Enter sends; Enter inserts a newline."}>
+            {SUBMIT_KEY_CHOICES.map((k) => (
+              <label key={k.pref} className="settings-tab" data-selected={submitKey === k.pref || undefined}>
+                <input type="radio" name="settings-submit-key" value={k.pref} checked={submitKey === k.pref}
+                  onChange={() => run(() => setSubmitKey(k.pref))} />
+                {k.label}
+              </label>
+            ))}
+          </fieldset>
+        </div>
+        <div className="settings-row" data-stack>
+          <div className="settings-row-main"><span className="settings-row-name">New sessions start in</span></div>
+          {prefs === null ? <p className="env-empty">Loading preferences…</p> : (
+            <>
+              <fieldset className="settings-tabs" aria-label="Default permission mode"
+                title="Realm can't set an ACP agent's permission mode — those mode ids are the agent's own, with nothing honest to map ours onto.">
+                {PERMISSION_MODES.map((m) => (
+                  <label key={m.id} className="settings-tab" data-selected={prefs.defaultPermissionMode === m.id || undefined}>
+                    <input type="radio" name="settings-default-permission" value={m.id} checked={prefs.defaultPermissionMode === m.id}
+                      onChange={() => {
+                        if (m.id === "bypassPermissions" && prefs.defaultPermissionMode !== "bypassPermissions") { setConfirmBypass(true); return; }
+                        setConfirmBypass(false);
+                        void run(() => setDefaultPermissionMode(m.id));
+                      }} />
+                    {m.label}
+                  </label>
+                ))}
+              </fieldset>
+              {confirmBypass && (
+                <button type="button" className="composer-chip bypass-confirm"
+                  onClick={() => { setConfirmBypass(false); void run(() => setDefaultPermissionMode("bypassPermissions")); }}>
+                  Every new session will run tools and edit files without asking first. Confirm Full access as the default
+                </button>
+              )}
+              {/* Which agents obey this is not decoration: it is the difference between a default and
+                  a wish, and there is no other place the app says so. */}
+              <p className="settings-hint">
+                Applies to new {labels(supported)} sessions; each session's chip can still change it.
+                {unsupported.length > 0 && ` ${labels(unsupported)} sessions ignore it and start on the agent's own default.`}
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
+      <h3 className="settings-head">Notifications</h3>
+      <ul className="settings-list">
+        <li className="settings-row">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Notify me outside Realm</span>
+            {/* The two things one switch does. Kept visible: a switch that also counts badges is
+                doing something its label does not say. */}
+            <span className="settings-row-desc">Post a system notification, and count unread ones on the dock icon.</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Notify me outside Realm"
+            checked={desktopNotifications}
+            onChange={(e) => run(() => setDesktopNotifications(e.target.checked))} />
+        </li>
+        {/* Nested under the switch above, and inert while it is off, because the sound is part of a
+            notification rather than a second way of being told: it plays only alongside one that
+            was actually posted. */}
+        <li className="settings-row" title="One cue when a turn finishes, another when an agent is waiting on you. The sound follows the system volume, so muting the machine mutes it.">
+          <div className="settings-row-main"><span className="settings-row-name">Play a sound with it</span></div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Play a sound with it"
+            disabled={!desktopNotifications} checked={soundCues}
+            onChange={(e) => run(() => setSoundCues(e.target.checked))} />
+        </li>
+        {/* The volume is a row of its own with its own label, rather than a bare slider under the
+            switch: the readout used to have to name its own quantity ("Volume 50%") because nothing
+            beside it did. In a labelled row the number is just the number. */}
+        <li className="settings-row">
+          <div className="settings-row-main"><span className="settings-row-name">Volume</span></div>
+          <div className="slider-row">
+            <Slider aria-label="Sound volume" disabled={!desktopNotifications || !soundCues}
+              min={0} max={100} step={5}
+              value={Math.round(soundVolume * 100)}
+              onChange={(e) => run(() => setSoundVolume(Number(e.target.value) / 100))} />
+            <span className="slider-value">{Math.round(soundVolume * 100)}%</span>
+          </div>
+        </li>
+      </ul>
+      {/* The one thing the three rows above do not say: none of it happens while you are looking at
+          Realm. */}
+      <p className="settings-hint" title="Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app.">Only when Realm is not the app you are in.</p>
+
+      <h3 className="settings-head">Notify me about</h3>
+      {prefs === null ? <p className="env-empty">Loading preferences…</p> : (
+        <ul className="settings-list">
+          {/* Nine rows, nine labels. The sentence each used to carry restated its own label for the
+              length of a paragraph — "Permission requests: an agent is waiting on your yes or no" —
+              and nine of them were most of the reading on this tab. They ride the row now. */}
+          {NOTIFICATION_CATEGORIES.map((c) => (
+            <li key={c} className="settings-row" title={CATEGORY_COPY[c].desc}>
+              <div className="settings-row-main">
+                <span className="settings-row-name">{CATEGORY_COPY[c].label}</span>
+              </div>
+              <input type="checkbox" role="switch" className="switch" aria-label={CATEGORY_COPY[c].label}
+                checked={!prefs.disabledCategories.includes(c)}
+                onChange={(e) => run(() => setNotificationCategoryEnabled(c, e.target.checked))} />
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="settings-hint">Switching one off stops new rows from being written; the feed keeps what is already in it.</p>
+
+      <h3 className="settings-head">Updates</h3>
       <UpdatesField />
     </div>
   );
@@ -1015,7 +1054,7 @@ function UpdatesField() {
   const installUpdate = useApp((s) => s.installUpdate);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshUpdateStatus()); }, [run, refreshUpdateStatus]);
-  if (!status) return <div className="field"><span>Updates</span><p className="env-empty">Loading…</p></div>;
+  if (!status) return <p className="env-empty">Loading…</p>;
   const st = status.state;
   const desc =
     st.kind === "disabled" ? UPDATE_DISABLED_COPY[st.reason]
@@ -1025,20 +1064,20 @@ function UpdatesField() {
     : st.kind === "downloaded" ? `v${st.version} is ready — restart to finish installing.`
     : st.kind === "error" ? `Update check failed: ${st.message}`
     : "Realm checks for updates on launch. You can also check now.";
+  /* The one row on this tab whose description is the whole point of it: what the updater is doing,
+     or why it cannot. The section head above says "Updates", so the row says the version instead. */
   return (
-    <div className="field"><span>Updates</span>
-      <div className="settings-row update-row">
-        <div className="settings-row-main">
-          <span className="settings-row-name">Realm v{status.version}</span>
-          <span className="settings-row-desc">{desc}</span>
-        </div>
-        {st.kind === "downloaded"
-          ? <button type="button" className="btn" onClick={() => run(() => installUpdate())}>Restart to update</button>
-          : <button type="button" className="btn" disabled={st.kind === "disabled" || st.kind === "checking" || st.kind === "downloading"}
-              onClick={() => run(() => checkForUpdates())}>
-              Check for updates
-            </button>}
+    <div className="settings-row update-row">
+      <div className="settings-row-main">
+        <span className="settings-row-name">Realm v{status.version}</span>
+        <span className="settings-row-desc">{desc}</span>
       </div>
+      {st.kind === "downloaded"
+        ? <button type="button" className="btn" onClick={() => run(() => installUpdate())}>Restart to update</button>
+        : <button type="button" className="btn" disabled={st.kind === "disabled" || st.kind === "checking" || st.kind === "downloading"}
+            onClick={() => run(() => checkForUpdates())}>
+            Check for updates
+          </button>}
     </div>
   );
 }
@@ -1111,7 +1150,8 @@ function ComputerAccessSection() {
   useEffect(() => { void run(() => refreshComputerAccess()); }, [run, refreshComputerAccess]);
 
   return (
-    <div className="field computer-access-field"><span>Computer control</span>
+    <div className="computer-access-field">
+      <h3 className="settings-head">Computer control</h3>
       {/* One line on the page; the qualifications live in its title. A settings tab is scanned for
           the control you came for, and three sentences before the first switch is three sentences
           between every visit and that control. */}
@@ -1128,7 +1168,7 @@ function ComputerAccessSection() {
           )}
           <ul className="settings-list">
             {status.rows.map((r) => (
-              <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`}>
+              <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`} title={r.detail}>
                 <AppIcon id={r.id} />
                 <div className="settings-row-main">
                   <span className="settings-row-name">{r.label}</span>
@@ -1136,7 +1176,10 @@ function ComputerAccessSection() {
                     {r.state === "granted" && <Icon name="check" size={12} />}
                     {TCC_STATE_LABEL[r.state]}
                   </span>
-                  <span className="settings-row-desc">{r.detail}</span>
+                  {/* What a grant BUYS is worth a sentence while you are deciding, and worth nothing
+                      once you have decided: a granted row's chip already says the only thing left to
+                      know. The sentence stays on the row's title either way. */}
+                  {r.state !== "granted" && <span className="settings-row-desc">{r.detail}</span>}
                 </div>
                 <div className="mac-row-actions">
                   {r.canPrompt && (
@@ -1202,11 +1245,11 @@ function MacAccessSection() {
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshMacAccess()); }, [run, refreshMacAccess]);
 
-  if (status === null) return <div className="field mac-access-field"><span>Apps on this Mac</span><p className="env-empty">Checking…</p></div>;
+  if (status === null) return <div className="mac-access-field"><h3 className="settings-head">Apps on this Mac</h3><p className="env-empty">Checking…</p></div>;
 
   if (!status.cli.present) {
     return (
-      <div className="field mac-access-field"><span>Apps on this Mac</span>
+      <div className="mac-access-field"><h3 className="settings-head">Apps on this Mac</h3>
         <p className="settings-hint">
           Realm drives Calendar, Mail, Messages, Notes and the rest through the <code>mac</code> CLI, which isn't on this
           machine — so there are no permissions to grant yet. Realm looked on your login shell's PATH and in {status.cli.searched.join(" and ")}.
@@ -1223,7 +1266,8 @@ function MacAccessSection() {
   const position = queue.length > 0 && granting ? queue.indexOf(granting) + 1 : 0;
 
   return (
-    <div className="field mac-access-field"><span>Apps on this Mac</span>
+    <div className="mac-access-field">
+      <h3 className="settings-head">Apps on this Mac</h3>
       <p className="settings-hint" title={`macOS grants these to ${status.host.name}, once, for every session: granting here is what stops an agent from stalling mid-task to ask you for them.`}>
         What agents can reach through the <code>mac</code> command — Calendar, Mail, Messages, Notes and the rest.
       </p>
@@ -1279,8 +1323,9 @@ function MacAccessRowView({ row }: { row: MacAccessRow }) {
   const run = useApp((s) => s.run);
   const busy = granting !== null;
   const mine = granting === row.id;
+  const says = row.state !== "granted" && !(row.canPrompt && row.grantCommand);
   return (
-    <li className="settings-row tcc-row" aria-label={`${row.label}: ${MAC_STATE_LABEL[row.state]}`}>
+    <li className="settings-row tcc-row" aria-label={`${row.label}: ${MAC_STATE_LABEL[row.state]}`} title={row.detail}>
       <AppIcon id={row.id} />
       <div className="settings-row-main">
         <span className="settings-row-name">{row.label}</span>
@@ -1288,7 +1333,13 @@ function MacAccessRowView({ row }: { row: MacAccessRow }) {
           {row.state === "granted" && <Icon name="check" size={12} />}
           {MAC_STATE_LABEL[row.state]}
         </span>
-        <span className="settings-row-desc">{row.detail}</span>
+        {/* Doctor's own fix line, but only where it is still telling the reader something. On a
+            granted row it restates the chip beside it ("macOS reports the grant"), and on a
+            promptable one it paraphrases the command printed directly underneath ("run any `mac
+            calendar` command") — fourteen rows of that is what made this page a wall. Where asking
+            cannot work, it is the instruction that matters and it stays. The row's title keeps all
+            of them. */}
+        {says && <span className="settings-row-desc">{row.detail}</span>}
         {/* The command is shown BEFORE it runs, not described after — the user can read exactly what
             Realm is about to execute on their machine, and every one of them only lists. */}
         {row.canPrompt && row.grantCommand && (
@@ -1325,12 +1376,13 @@ function RealmAccessSection() {
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshTcc()); }, [run, refreshTcc]);
   return (
-    <div className="field realm-access-field"><span>Realm's own access</span>
-      <p className="settings-hint">What macOS lets the app itself touch. Realm only claims a state it has a real, prompt-free way to check; the rest say so.</p>
+    <div className="realm-access-field">
+      <h3 className="settings-head">Realm's own access</h3>
+      <p className="settings-hint" title="Realm only claims a state it has a real, prompt-free way to check; the rest say so.">What macOS lets the app itself touch.</p>
       {rows === null ? <p className="env-empty">Checking…</p> : (
         <ul className="settings-list">
           {rows.map((r) => (
-            <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`}>
+            <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`} title={r.detail}>
               <AppIcon id={r.id} />
               <div className="settings-row-main">
                 <span className="settings-row-name">{r.label}</span>
@@ -1338,7 +1390,7 @@ function RealmAccessSection() {
                   {r.state === "granted" && <Icon name="check" size={12} />}
                   {TCC_STATE_LABEL[r.state]}
                 </span>
-                <span className="settings-row-desc">{r.detail}</span>
+                {r.state !== "granted" && <span className="settings-row-desc">{r.detail}</span>}
               </div>
               <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane(r.id))}>Open System Settings</button>
             </li>

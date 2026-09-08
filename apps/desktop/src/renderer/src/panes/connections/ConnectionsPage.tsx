@@ -1,6 +1,5 @@
-import { useRef } from "react";
 import { Icon } from "@realm/ui";
-import { ScrollFades } from "../../components/ScrollFades";
+import { PageScroll } from "../../components/ScrollFades";
 import { useApp } from "../../state/store";
 import { McpSection } from "../../components/sidebar/McpSection";
 import type { PaneProps } from "../registry";
@@ -16,8 +15,6 @@ import type { PaneProps } from "../registry";
  * Vantage: `item.spaceId` — the space whose layout holds the pane (see LibraryPage's twin comment).
  */
 export function ConnectionsPage({ item }: PaneProps) {
-  /** The scrolling column, so its two edge bands can know when there is anything under them. */
-  const scroller = useRef<HTMLDivElement>(null);
   const spaceId = item.spaceId;
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
 
@@ -30,13 +27,12 @@ export function ConnectionsPage({ item }: PaneProps) {
         <span className="page-vantage">{space.name}</span>
       </header>
       <div className="page-body">
-        {/* Both ends dissolve, but only when there is something under them. The bands sit ON the
-            body so they span the reading column's full width, and the column pads by their depth so
-            a row under one is still clickable. */}
-        <ScrollFades scroller={scroller} />
-        <div className="page-content" ref={scroller}>
+        {/* Both ends dissolve, but only when there is something under them — and only over the
+            column, which is what `PageScroll` wraps. The column pads by their depth so a row under
+            one is still clickable. */}
+        <PageScroll>
           <McpSection spaceId={spaceId} />
-        </div>
+        </PageScroll>
       </div>
     </div>
   );

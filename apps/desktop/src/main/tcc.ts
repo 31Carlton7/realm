@@ -24,6 +24,10 @@
  *    it is grant-in-Settings-only — so the attempt is safe: EPERM/EACCES is an honest "no",
  *    success an honest "yes", and any other failure (the file missing on some future macOS) is
  *    `unknown` rather than a guess.
+ *
+ * A row's `detail` is the BASIS — how Realm knows, or why it cannot. It never opens by restating the
+ * state, because the state is already a chip beside the row's name: "Can't be checked until used —
+ * macOS only reveals these grants by asking" spent its first half saying the chip out loud.
  */
 
 export type TccPermissionId = "filesAndFolders" | "automation" | "screenRecording" | "accessibility" | "fullDisk";
@@ -74,12 +78,12 @@ export function probeTcc(deps: TccProbeDeps): TccRow[] {
     {
       id: "filesAndFolders", label: "Files & Folders",
       state: "unknown",
-      detail: "Can't be checked until used — macOS only reveals these grants by asking, and Realm won't trigger that prompt from a settings page.",
+      detail: "macOS only reveals these grants by asking, and Realm won't trigger that prompt from a settings page.",
     },
     {
       id: "automation", label: "Automation",
       state: "unknown",
-      detail: "Can't be checked until used — grants are per-app-pair and macOS offers Realm no way to ask without asking you.",
+      detail: "Grants are per-app-pair, and macOS offers Realm no way to ask without asking you.",
     },
     screenRecordingRow(deps),
     accessibilityRow(deps),
@@ -91,7 +95,7 @@ function screenRecordingRow(deps: TccProbeDeps): TccRow {
   const id = "screenRecording" as const, label = "Screen Recording";
   let status: string;
   try { status = deps.screenStatus(); } catch (e) {
-    return { id, label, state: "unknown", detail: `Can't be checked — the status query failed (${(e as Error).message}).` };
+    return { id, label, state: "unknown", detail: `The status query failed (${(e as Error).message}).` };
   }
   if (status === "granted") return { id, label, state: "granted", detail: "macOS reports the grant directly (a status read; it never prompts)." };
   if (status === "denied" || status === "restricted") return { id, label, state: "denied", detail: "macOS reports the grant as refused." };
@@ -103,11 +107,11 @@ function accessibilityRow(deps: TccProbeDeps): TccRow {
   const id = "accessibility" as const, label = "Accessibility";
   let trusted: boolean;
   try { trusted = deps.accessibilityTrusted(); } catch (e) {
-    return { id, label, state: "unknown", detail: `Can't be checked — the trust query failed (${(e as Error).message}).` };
+    return { id, label, state: "unknown", detail: `The trust query failed (${(e as Error).message}).` };
   }
   return trusted
     ? { id, label, state: "granted", detail: "macOS reports Realm as a trusted accessibility client (queried without prompting)." }
-    : { id, label, state: "denied", detail: "Not granted — though macOS can't tell “denied” from “never asked” here." };
+    : { id, label, state: "denied", detail: "macOS can't tell “denied” from “never asked” here." };
 }
 
 function fullDiskRow(deps: TccProbeDeps): TccRow {
@@ -120,6 +124,6 @@ function fullDiskRow(deps: TccProbeDeps): TccRow {
     if (code === "EPERM" || code === "EACCES") {
       return { id, label, state: "denied", detail: "macOS refused Realm a file only Full Disk Access unlocks — the honest “no”." };
     }
-    return { id, label, state: "unknown", detail: `Can't be checked — the probe file didn't behave as expected (${code ?? (e as Error).message}).` };
+    return { id, label, state: "unknown", detail: `The probe file didn't behave as expected (${code ?? (e as Error).message}).` };
   }
 }
