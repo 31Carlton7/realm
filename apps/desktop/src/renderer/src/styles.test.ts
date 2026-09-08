@@ -1038,6 +1038,50 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".item[data-active]").join(" ")).toContain("background: var(--rl-active)");
   });
 
+  it("a painted control's state fills are DATA, so no state rule can out-specify the painter", () => {
+    /* The bug this pins, found on a hover: `.btn.primary:hover:not(:disabled)` is (0,4,0) and
+       `:root[data-squircle] .btn` is only (0,3,0), so hovering a primary button replaced
+       `background: paint(rl-squircle)` with a flat colour — over a `border-radius: 0` box, which is
+       a hard SQUARE. Every rounded button in the app went square under the pointer.
+
+       Specificity was the wrong thing to fight. The fills are `--fill` now: a state rule sets a
+       custom property, the base rule paints `var(--fill)`, the painted rule paints the same
+       property through the worklet, and there is nothing left for a state to win. So the invariant
+       is not "the painted rule is specific enough" — it is "no state rule declares `background` at
+       all", which is checkable and stays true as states are added. */
+    const painted = [".btn", ".ghost-chip", ".mp-use", ".palette-opt"];
+    const offenders = RULES.flatMap((r) => r.selectors.map((sel) => ({ sel, body: r.body })))
+      .filter(({ sel }) => !sel.includes("[data-squircle]"))
+      .filter(({ sel }) => painted.some((c) => new RegExp(`\\${c}(?![\\w-])`).test(sel)))
+      // A state rule is one with a pseudo-class or an attribute past the bare class name.
+      .filter(({ sel }) => /:(hover|focus|active|checked|disabled)|\[/.test(sel))
+      .filter(({ body }) => /(?:^|[;\s])background(?:-color)?:/.test(body))
+      .map(({ sel }) => sel);
+    expect(offenders).toEqual([]);
+    // …and the painter reads that one property rather than one rule per state. There used to be a
+    // `--sq-fill` line per button variant down here; ten rules that had to be kept in step with ten
+    // rules above them is the other half of the same mistake.
+    expect(css).toContain("--sq-fill: var(--fill);");
+    expect(css.match(/--sq-fill: var\(--fill\)/g)).toHaveLength(1);
+  });
+
+  it("a switch is a pill, and the text-field rule cannot reach it", () => {
+    /* `.field input` is (0,1,1) and `.switch` is (0,1,0), so a switch inside a field was rendered
+       by the TEXT FIELD rule: 30px tall, control radius, field fill. A rounded rectangle with a
+       knob in it — which is what "this switch looks like a weird square" was describing. The fix is
+       reach, not specificity: a switch is not a text field and must not match the rule at all. */
+    const field = RULES.find((r) => r.selectors.some((sel) => sel.startsWith(".field input")) && r.body.includes("height: 30px"));
+    const sel = field?.selectors.find((x) => x.startsWith(".field input")) ?? "";
+    expect(sel).toContain(":not(.switch)");
+    expect(sel).toContain(":not(.checkbox)");
+    const sw = bodiesFor(".switch").join(" ");
+    expect(sw).toContain("border-radius: 999px");
+    expect(sw).toContain("height: 20px");
+    // Not a squircle: a superellipse on a 34×20 box is a lozenge, which is neither a pill nor a
+    // rounded rectangle and reads as a mistake.
+    expect(sw).not.toContain("corner-shape");
+  });
+
   it("the sidebar search is the PROMPTER's little sibling — same surface, same curve, its own size", () => {
     /* It was a field fill behind a hairline ring, which is the treatment for something you type in.
        This is a button that opens ⌘K, and it sits in the same window as a composer wearing a large
@@ -1063,13 +1107,18 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
   });
 
   it("buttons are BUI Button's tiers: secondary = surface on shadow-btn stepping to inset; primary = accent with the filled highlight and accent-ink hover", () => {
+    /* The tiers are unchanged; where they are WRITTEN moved. Each state sets `--fill` and the base
+       rule paints it, so the painted regime can read one property instead of racing each state on
+       specificity — see the painted-control test above for the square-on-hover bug that forced it. */
     const btn = bodiesFor(".btn").join(" ");
-    expect(btn).toContain("background: var(--surface)");
+    expect(btn).toContain("--fill: var(--surface)");
+    expect(btn).toContain("background: var(--fill)");
     expect(btn).toContain("box-shadow: var(--shadow-btn)");
-    expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).toContain("background: var(--inset)");
+    expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).toContain("--fill: var(--inset)");
     const primary = bodiesFor(".btn.primary").join(" ");
+    expect(primary).toContain("--fill: var(--rl-accent)");
     expect(primary).toContain("box-shadow: var(--fill-bevel)");
-    expect(bodiesFor(".btn.primary:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
+    expect(bodiesFor(".btn.primary:hover:not(:disabled)").join(" ")).toContain("--fill: var(--accent-ink)");
   });
 });
 
@@ -1502,10 +1551,10 @@ describe("row and control layout", () => {
     // `.btn.primary:disabled` is written for "there is nothing to commit"; applied to "Generating…"
     // it erased the button under the press that started the work.
     const busy = bodiesFor('.btn.primary:disabled[aria-busy="true"]').join(" ");
-    expect(busy).toContain("background: var(--rl-accent)");
+    expect(busy).toContain("--fill: var(--rl-accent)");
     expect(bodiesFor('.btn:disabled[aria-busy="true"]').join(" ")).toContain("opacity: .7");
     // The distinction only exists if the plain disabled treatment is still the dimmer one.
-    expect(bodiesFor(".btn.primary:disabled").join(" ")).toContain("background: var(--rl-raised)");
+    expect(bodiesFor(".btn.primary:disabled").join(" ")).toContain("--fill: var(--rl-raised)");
     expect(bodiesFor(".btn:disabled").join(" ")).toContain("opacity: .45");
   });
 });

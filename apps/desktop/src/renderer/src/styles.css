@@ -803,7 +803,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
 .mp-use { align-self: flex-end; margin-top: 3px; padding: 6px 13px; border: 0; --btn-h: 30px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  background: var(--rl-accent); color: var(--rl-accent-contrast); font: inherit; font-size: 12px; font-weight: var(--fw-label); cursor: pointer; }
+  --fill: var(--rl-accent); background: var(--fill); color: var(--rl-accent-contrast); font: inherit; font-size: 12px; font-weight: var(--fw-label); cursor: pointer; }
 .mp-use:disabled { opacity: .45; cursor: default; }
 
 /* ── Space icon picker (SpacePage's General tab): trigger + tabbed popover ── */
@@ -1067,14 +1067,19 @@ button.panel-title:hover { background: var(--rl-hover); }
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; color: var(--rl-text-dim); }
-.field input, .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
+/* `:not(.switch):not(.checkbox)` is load-bearing, not tidiness. This rule is about TEXT fields —
+   height, padding, a hairline and a field fill — and `.field input` (0,1,1) out-specifies `.switch`
+   (0,1,0), so a switch inside a field was silently rendered as a 30px-tall rounded rectangle with
+   the control radius on it. That is the "weird square" it looked like: not a switch design at all,
+   a text input wearing a knob. It got worse, not different, when the control radius went up. */
+.field input:not(.switch):not(.checkbox), .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 /* A multi-line field is the same control with room: same ring, same ground, same radius — only the
    height and the wrapping differ, so a form mixing the two reads as one form. */
 .field textarea { padding: 7px 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field);
   color: var(--rl-text-bright); outline: none; font: inherit; line-height: 1.5; resize: vertical; }
 .field textarea:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
 /* One focus-ring formula for every text-entry surface (§3): neutral ink at 35%, 2px. */
-.field input:focus, .field select:focus, .rename:focus, .hex:focus {
+.field input:not(.switch):not(.checkbox):focus, .field select:focus, .rename:focus, .hex:focus {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .profile-add-row { display: flex; gap: 6px; } .profile-add-row input { flex: 1; min-width: 0; }
@@ -1094,13 +1099,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .btn { --btn-h: 30px; height: var(--btn-h); padding: 0 12px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; border: none;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   flex-shrink: 0; white-space: nowrap;
-  background: var(--surface); box-shadow: var(--shadow-btn); }
+  --fill: var(--surface); background: var(--fill); box-shadow: var(--shadow-btn); }
 .btn > svg { flex: none; }
-.btn:hover:not(:disabled) { background: var(--inset); }
-.btn.primary { background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
-.btn.primary:hover:not(:disabled) { background: var(--accent-ink); }
-.btn.danger { background: none; color: var(--rl-danger); box-shadow: none; }
-.btn.danger:hover:not(:disabled) { background: var(--hover); }
+.btn:hover:not(:disabled) { --fill: var(--inset); }
+.btn.primary { --fill: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
+.btn.primary:hover:not(:disabled) { --fill: var(--accent-ink); }
+.btn.danger { --fill: transparent; color: var(--rl-danger); box-shadow: none; }
+.btn.danger:hover:not(:disabled) { --fill: var(--hover); }
 .icon-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .icon-choice { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-dim); }
 .icon-choice:hover { color: var(--rl-text-bright); } .icon-choice[data-selected] { border-color: var(--rl-accent); color: var(--rl-accent); }
@@ -1131,8 +1136,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
 .palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
-.palette-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; --btn-h: 34px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: pointer; }
-.palette-opt.selected, .palette-opt:hover { background: var(--hover); }
+.palette-opt { --fill: transparent; background: var(--fill); display: flex; align-items: center; gap: 10px; padding: 8px 10px; --btn-h: 34px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: pointer; }
+.palette-opt.selected, .palette-opt:hover { --fill: var(--hover); }
 .palette-opt.disabled { opacity: .45; cursor: default; }
 .palette-sec { padding: 8px 10px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
 .palette-sec:not(:first-child) { margin-top: 4px; }
@@ -2006,8 +2011,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer[data-mode="ask"] .ghost-chip[aria-label="Mode"] .chip-brand { color: var(--rl-success); }
 .composer[data-mode="plan"] .ghost-chip[aria-label="Mode"],
 .composer[data-mode="plan"] .ghost-chip[aria-label="Mode"] .chip-brand { color: var(--rl-warning); }
-.composer[data-mode="ask"] .ghost-chip[aria-label="Mode"] { background: color-mix(in srgb, var(--rl-success) 12%, transparent); }
-.composer[data-mode="plan"] .ghost-chip[aria-label="Mode"] { background: color-mix(in srgb, var(--rl-warning) 12%, transparent); }
+.composer[data-mode="ask"] .ghost-chip[aria-label="Mode"] { --fill: color-mix(in srgb, var(--rl-success) 12%, transparent); }
+.composer[data-mode="plan"] .ghost-chip[aria-label="Mode"] { --fill: color-mix(in srgb, var(--rl-warning) 12%, transparent); }
 /* The painted card reads its fill from a custom property, not from `background`, so the worklet path
    needs the same three tones or the tint would vanish the moment the squircle gate turns on. */
 :root[data-squircle] .composer[data-mode="ask"] {
@@ -2179,7 +2184,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    wider un-collapsed one, panes between the two would fold the permission chip away to buy the
    branch pixels it did not need. */
 .composer-git { --branch-reserved: 456px; display: inline-flex; align-items: center; gap: 2px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
-.composer-git:hover .ghost-chip { background: var(--rl-hover); color: var(--rl-text-bright); }
+.composer-git:hover .ghost-chip { --fill: var(--rl-hover); color: var(--rl-text-bright); }
 /* A branch name is the one thing on this row whose width is user data, and the flat 160px cap it had
    was wrong at both ends: it truncated a 30-character branch in a 1000px pane with 500px going
    spare, and in anything under ~565px the chip was amputated outright by the group's clip — a button
@@ -2194,11 +2199,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
    them now (W3) — a picker until the session's first event, a plain label after. */
 .ghost-chip { display: inline-flex; align-items: center; gap: 4px; --btn-h: 28px; height: var(--btn-h); padding: 0 8px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  color: var(--rl-text-dim); font-size: 12px; font-weight: var(--fw-medium); background: transparent; max-width: 200px; min-width: 0; }
-.ghost-chip:hover:not([data-static]) { background: var(--rl-hover); color: var(--rl-text-bright); }
+  color: var(--rl-text-dim); font-size: 12px; font-weight: var(--fw-medium); --fill: transparent; background: var(--fill); max-width: 200px; min-width: 0; }
+.ghost-chip:hover:not([data-static]) { --fill: var(--rl-hover); color: var(--rl-text-bright); }
 /* Nothing to pick: rendered as a <span> (see ChipMenu) — a label, never a dimmed control. */
 .ghost-chip[data-static] { cursor: default; }
-.ghost-chip[data-warning] { color: var(--orange); background: var(--orange-tint); } /* BUI orange tone pair (StatusPill) */
+.ghost-chip[data-warning] { color: var(--orange); --fill: var(--orange-tint); } /* BUI orange tone pair (StatusPill) */
 .ghost-chip .chip-caret { color: var(--rl-text-faint); flex: none; }
 /* The brand mark is filled where the rest of the set is stroked, so it reads a touch heavier at the
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
@@ -2451,6 +2456,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .palette-opt {
   border-radius: 0;
   background: paint(rl-squircle);
+  /* ONE line, not one per state. Every fill above is `--fill` now, so this reads the same property
+     whatever state the control is in and there is nothing left for a state rule to out-specify. */
+  --sq-fill: var(--fill);
+  /* No ring unless the control asks for one. Custom properties INHERIT, and `.palette` and the
+     composer both set `--sq-ring` on themselves — so a chip in the composer or a row in ⌘K would
+     otherwise trace its container's edge colour around its own corner, which is exactly the border
+     the ⌘K row is supposed not to have. `.btn` re-declares its own below. */
+  --sq-ring-w: 0;
   --sq-radius-top: calc(var(--btn-h) * var(--sq-ratio-ctl));
   --sq-radius-bottom: calc(var(--btn-h) * var(--sq-ratio-ctl));
 }
@@ -2459,35 +2472,20 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    painter, the drop becomes a filter that follows the painted alpha.
 
    The variants that carried --fill-bevel (primary, destructive) lose it. A bevel is an INSET
-   shadow, clipped to the padding box, so its 1px top line runs the full width including the ~13px
-   of each top corner the fill does not reach — a bright nub hanging outside the button. There is no
-   painter input for a one-edge highlight, and a nub is worse than no bevel. */
-:root[data-squircle] .btn { --sq-fill: var(--surface); box-shadow: none; filter: var(--shadow-btn-filter); --sq-ring: var(--btn-ring); --sq-ring-w: var(--hairline-w); }
+   shadow, clipped to the padding box, so its 1px top line runs the full width including the corner
+   the fill does not reach — a bright nub hanging outside the button. There is no painter input for
+   a one-edge highlight, and a nub is worse than no bevel.
+
+   The RING is the same story as the fill: only the plain button wears one, and the filled variants
+   turn it off by width rather than by colour — `--sq-ring: none` would hand the canvas an invalid
+   strokeStyle, which it IGNORES, leaving the default black. */
+:root[data-squircle] .btn { box-shadow: none; filter: var(--shadow-btn-filter); --sq-ring: var(--btn-ring); --sq-ring-w: var(--hairline-w); }
 :root[data-squircle] .btn.primary,
 :root[data-squircle] .btn.destructive,
 :root[data-squircle] .btn.danger,
 :root[data-squircle] .btn.primary:disabled { box-shadow: none; filter: none; --sq-ring-w: 0; }
-:root[data-squircle] .btn:hover:not(:disabled) { --sq-fill: var(--inset); }
-:root[data-squircle] .btn.primary { --sq-fill: var(--rl-accent); }
-:root[data-squircle] .btn.primary:hover:not(:disabled) { --sq-fill: var(--accent-ink); }
-:root[data-squircle] .btn.danger { --sq-fill: transparent; }
-:root[data-squircle] .btn.danger:hover:not(:disabled) { --sq-fill: var(--hover); }
-:root[data-squircle] .btn.destructive { --sq-fill: var(--rl-danger); }
-:root[data-squircle] .btn.primary:disabled { --sq-fill: var(--rl-raised); }
-:root[data-squircle] .btn.primary:disabled[aria-busy="true"] { --sq-fill: var(--rl-accent); }
-:root[data-squircle] .mp-use { --sq-fill: var(--rl-accent); }
-/* A chip is transparent until you point at it, so the painter draws nothing most of the time. */
-:root[data-squircle] .ghost-chip { --sq-fill: transparent; }
-:root[data-squircle] .ghost-chip:hover:not([data-static]) { --sq-fill: var(--rl-hover); }
-:root[data-squircle] .ghost-chip[data-warning] { --sq-fill: var(--orange-tint); }
-:root[data-squircle] .composer-git:hover .ghost-chip { --sq-fill: var(--rl-hover); }
-:root[data-squircle] .composer[data-mode="ask"] .ghost-chip[aria-label="Mode"] { --sq-fill: color-mix(in srgb, var(--rl-success) 12%, transparent); }
-:root[data-squircle] .composer[data-mode="plan"] .ghost-chip[aria-label="Mode"] { --sq-fill: color-mix(in srgb, var(--rl-warning) 12%, transparent); }
-/* The selected row in ⌘K: the app's corner, and NO ring. What marks it is the fill; a border on a
-   painted corner would be a second, competing outline of the same shape. */
-:root[data-squircle] .palette-opt { --sq-fill: transparent; }
-:root[data-squircle] .palette-opt.selected,
-:root[data-squircle] .palette-opt:hover { --sq-fill: var(--hover); }
+/* The selected row in ⌘K gets no ring either. What marks it is the fill; a border on a painted
+   corner would be a second, competing outline of the same shape. */
 
 /* The sent bubble, on the message rung. Its own rule rather than a sixth selector above, because it
    carries a different radius and — unlike every surface up there, of which a pane holds exactly one —
@@ -2984,18 +2982,18 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .cp-stale, .cp-blocked { margin: 0; font-size: 12px; color: var(--rl-warning); }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 /* §3: destructive confirms are the ONE place a red-filled button is allowed. */
-.btn.destructive { background: var(--rl-danger); color: #ffffff; box-shadow: var(--fill-bevel); }
-.btn.destructive:hover:not(:disabled) { background: var(--rl-danger); filter: brightness(0.95); } /* BUI's filled-hover for tones with no -ink step */
+.btn.destructive { --fill: var(--rl-danger); color: #ffffff; box-shadow: var(--fill-bevel); }
+.btn.destructive:hover:not(:disabled) { --fill: var(--rl-danger); filter: brightness(0.95); } /* BUI's filled-hover for tones with no -ink step */
 .btn:disabled { opacity: .45; }
 /* A disabled primary must not wear the accent — 45% opacity on a filled blue button still reads as
    THE action (caught in the W4 visual pass: "Commit, push & PR" looked live over "Nothing staged"). */
-.btn.primary:disabled { background: var(--rl-raised); color: var(--rl-text-faint); box-shadow: none; }
+.btn.primary:disabled { --fill: var(--rl-raised); color: var(--rl-text-faint); box-shadow: none; }
 /* Disabled-because-WORKING is not disabled-because-nothing-to-do. The rule above is for the latter,
    and applied to a busy control it erased the button the user had just pressed — "Generating…" came
    back as unfilled grey text at 45%, which reads as a dead surface, not as work in flight. A busy
    button keeps its fill, one step down in emphasis. */
 .btn:disabled[aria-busy="true"] { opacity: .7; }
-.btn.primary:disabled[aria-busy="true"] { background: var(--rl-accent); color: var(--rl-accent-contrast); }
+.btn.primary:disabled[aria-busy="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
 
 /* ── Space settings: the space's checkouts (W1/W2 made visible in W3) ───── */
 .env-empty { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }

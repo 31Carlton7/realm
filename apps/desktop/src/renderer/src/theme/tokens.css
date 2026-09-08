@@ -395,10 +395,15 @@ a {
    * 0.375 is measured off the composer — 36px on a 96px card, on a box 720px wide. On a 30px field
    * the identical ratio is 11px, and it reads as a rounded rectangle rather than as the app's
    * corner: a corner is only legible against the flat run beside it, and at this size there is
-   * barely any run. 0.42 puts a 30px control at 12.6px and a 34px one at 14 — clearly the same
-   * family as the prompter, clearly not a pill (which is what 0.5 would be).
+   * barely any run.
+   *
+   * 0.48, not 0.42, and not 0.5. A superellipse reads visually SMALLER than the circular arc of the
+   * same radius — the note on --r-squircle says so and this is where it bites hardest, because a
+   * painted 30px button at 12.6 read as square next to an unpainted one at the same number. 0.48
+   * puts that button at 14.4 and a 34px control at 16.3; 0.5 would be a pill, which is a different
+   * shape with a different meaning in this app (see --r-pill).
    */
-  --sq-ratio-ctl: 0.42;
+  --sq-ratio-ctl: 0.48;
   --dur-drag: 80ms;   /* the drop target appearing mid-drag: fast enough not to read as motion */
   --dur-hover: 100ms; /* a fill or an ink step answering the pointer */
   --dur-press: 120ms; /* a control resolving inside the gesture that caused it — the .97 press, the switch throw */
