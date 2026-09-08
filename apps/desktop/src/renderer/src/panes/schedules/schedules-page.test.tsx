@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import type { Schedule } from "@realm/contracts";
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
-import { SchedulesPage, whenLabel } from "./SchedulesPage";
+import { SchedulesPage, filterSchedules, scheduleState, whenLabel } from "./SchedulesPage";
 
 afterEach(() => cleanup());
 
@@ -113,5 +113,64 @@ describe("the Scheduled tasks page", () => {
   it("says what the page is for when nothing is scheduled yet", async () => {
     await mount([]);
     expect(screen.getByText(/Nothing is scheduled here yet/)).toBeInTheDocument();
+  });
+});
+
+describe("filtering a list of schedules", () => {
+  const active = schedule({ id: "a", title: "Morning triage", goal: "read the new issues", enabled: true, nextRunAt: Date.now() + DAY });
+  const paused = schedule({ id: "p", title: "Weekly digest", goal: "summarise the week", enabled: false, nextRunAt: null });
+  const done = schedule({ id: "d", title: "Launch checklist", goal: "ship v2", enabled: true, nextRunAt: null });
+
+  it("tells a finished schedule apart from a paused one", () => {
+    /* Neither is going to fire again, and calling both "not active" would hide a task that has
+       quietly finished for good behind one a user is deliberately holding — which is exactly the
+       state where a silent failure goes unnoticed for weeks. */
+    expect(scheduleState(active)).toBe("active");
+    expect(scheduleState(paused)).toBe("paused");
+    expect(scheduleState(done)).toBe("completed");
+    // A paused schedule is paused whatever its next time says — the switch wins.
+    expect(scheduleState(schedule({ enabled: false, nextRunAt: Date.now() + DAY }))).toBe("paused");
+  });
+
+  it("searches what a schedule DOES, not only what it was called", () => {
+    // A user hunting for the schedule that reads their issues remembers the goal, not the title
+    // they typed at 11pm three months ago.
+    const all = [active, paused, done];
+    expect(filterSchedules(all, "all", "issues").map((s) => s.id)).toEqual(["a"]);
+    expect(filterSchedules(all, "all", "MORNING").map((s) => s.id)).toEqual(["a"]);
+    // The cron's plain-English reading is searchable too, because that is how the row reads it out.
+    expect(filterSchedules(all, "all", "").map((s) => s.id)).toEqual(["a", "p", "d"]);
+  });
+
+  it("applies the filter and the query together, so the chip counts cannot lie", () => {
+    // THE mutant: count off the unfiltered list. A chip reading "Paused 1" beside a list of none is
+    // a chip lying about what clicking it will show.
+    const all = [active, paused, done];
+    expect(filterSchedules(all, "paused", "").map((s) => s.id)).toEqual(["p"]);
+    expect(filterSchedules(all, "paused", "issues")).toEqual([]);
+  });
+
+  it("empties the list rather than the page when nothing matches", async () => {
+    await mount([active, paused]);
+    fireEvent.change(screen.getByLabelText("Search schedules"), { target: { value: "zzz" } });
+    expect(await screen.findByText("No schedule here matches that.")).toBeTruthy();
+    // Not the empty-state paragraph: telling a user with two schedules that they have none is worse
+    // than telling them their search found nothing.
+    expect(screen.queryByText(/Nothing is scheduled here yet/)).toBeNull();
+    expect(document.querySelectorAll(".sched-row")).toHaveLength(0);
+  });
+
+  it("hides the whole filter bar on a page with nothing to filter", async () => {
+    await mount([]);
+    expect(screen.queryByLabelText("Search schedules")).toBeNull();
+    expect(screen.getByText(/Nothing is scheduled here yet/)).toBeTruthy();
+  });
+
+  it("narrows the list to the chip that was clicked", async () => {
+    await mount([active, paused, done]);
+    expect(document.querySelectorAll(".sched-row")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: /^Paused/ }));
+    expect(document.querySelectorAll(".sched-row")).toHaveLength(1);
+    expect(screen.getByText("Weekly digest")).toBeTruthy();
   });
 });

@@ -6,6 +6,44 @@ import type { PaneProps } from "../registry";
 
 const NO_SCHEDULES: Schedule[] = [];
 
+/**
+ * The four lenses on a list of schedules.
+ *
+ * "Completed" is not a stored state — a schedule has `enabled` and a next firing, and nothing else.
+ * It is the pair `enabled && nextRunAt === null`: still switched on, with nothing left to fire (a
+ * one-shot that has run, or a cron whose window has closed). That is a genuinely different thing
+ * from Paused, which is a schedule someone turned off and can turn back on, and lumping the two
+ * under "not active" would hide a task that has quietly finished for good behind one a user is
+ * deliberately holding.
+ */
+export const SCHEDULE_FILTERS = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "paused", label: "Paused" },
+  { id: "completed", label: "Completed" },
+] as const;
+export type ScheduleFilter = (typeof SCHEDULE_FILTERS)[number]["id"];
+
+export const scheduleState = (s: Schedule): Exclude<ScheduleFilter, "all"> =>
+  !s.enabled ? "paused" : s.nextRunAt === null ? "completed" : "active";
+
+/**
+ * Filter and search, in that order, as one pure function so the counts on the chips and the rows in
+ * the list can never disagree — they are the same call.
+ *
+ * The query reads the title, the goal and the cron's plain-English reading. The goal matters most:
+ * a user looking for the schedule that files their expenses remembers what it DOES, not what they
+ * called it at 11pm three months ago.
+ */
+export function filterSchedules(schedules: readonly Schedule[], filter: ScheduleFilter, query: string): Schedule[] {
+  const q = query.trim().toLowerCase();
+  return schedules.filter((s) => {
+    if (filter !== "all" && scheduleState(s) !== filter) return false;
+    if (q === "") return true;
+    return `${s.title}\n${s.goal}\n${describeCron(s.cron)}`.toLowerCase().includes(q);
+  });
+}
+
 /** A moment, read the way a person asks about one: the time if it is today, the weekday and time if
  *  it is this week, the date otherwise. */
 export function whenLabel(ts: number, now = Date.now()): string {
@@ -47,8 +85,15 @@ export function SchedulesPage({ item }: PaneProps) {
   const run = useApp((s) => s.run);
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [filter, setFilter] = useState<ScheduleFilter>("all");
+  const [query, setQuery] = useState("");
 
   useEffect(() => { run(() => refreshSchedules(spaceId)); }, [spaceId, refreshSchedules, run]);
+
+  // Counts come off the same function that picks the rows, with the query applied: a chip reading
+  // "Paused 3" beside a list of one is a chip lying about what clicking it will show.
+  const shown = filterSchedules(schedules, filter, query);
+  const countFor = (f: ScheduleFilter) => filterSchedules(schedules, f, query).length;
 
   if (!space) return <div className="pane-placeholder muted">This page&rsquo;s space no longer exists.</div>;
 
@@ -66,14 +111,36 @@ export function SchedulesPage({ item }: PaneProps) {
           {composing && (
             <ScheduleForm spaceId={spaceId} schedule={null} onDone={() => setComposing(false)} />
           )}
+          {/* The filter bar is drawn only once there is a list worth filtering. On an empty page it
+              would be four chips reading zero over a paragraph explaining there is nothing yet. */}
+          {schedules.length > 0 && (
+            <div className="page-filters">
+              <input className="search-field" type="search" aria-label="Search schedules" placeholder="Search schedules…"
+                value={query} onChange={(e) => setQuery(e.target.value)} />
+              <div className="filter-chips" role="group" aria-label="Filter schedules">
+                {SCHEDULE_FILTERS.map((f) => (
+                  <button key={f.id} type="button" className="filter-chip" data-selected={filter === f.id || undefined}
+                    aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
+                    {f.label}<span className="filter-chip-count">{countFor(f.id)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {schedules.length === 0 && !composing && (
             <p className="env-empty">
               Nothing is scheduled here yet. A schedule runs a goal on a repeating clock and hands the
               result to the Tasks lens, where it can stop and ask you before it does anything.
             </p>
           )}
+          {/* A list emptied by the filter says so where the rows would have been. Falling back to
+              the "nothing scheduled here yet" paragraph would tell a user with nine schedules that
+              they have none. */}
+          {schedules.length > 0 && shown.length === 0 && (
+            <p className="env-empty">No schedule here matches that.</p>
+          )}
           <ul className="sched-list">
-            {schedules.map((s) => (
+            {shown.map((s) => (
               <li key={s.id}>
                 {editing === s.id
                   ? <ScheduleForm spaceId={spaceId} schedule={s} onDone={() => setEditing(null)} />

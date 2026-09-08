@@ -3457,9 +3457,42 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    it next runs) plus a cluster of verbs, and a grid would spend its widest column on a goal that
    wants to wrap. Rows separate by their own card, so no rule is drawn between them. */
 .schedules-page .page-head .sched-new { margin-left: auto; align-self: center; }
-.sched-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.sched-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-panel); }
+/* ── Filter bar: one search field and a row of counted chips ───────────────
+   Used by the pages that hold a LIST of one thing (schedules today, and whatever follows). The
+   search sits first and full width because it is the coarser instrument — a user with forty
+   schedules types before they click — and the chips read as a segmented set below it. */
+.page-filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.search-field {
+  --btn-h: 32px;
+  width: 100%; height: var(--btn-h); padding: 0 12px;
+  border: none; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 13px; outline: none;
+}
+.search-field::placeholder { color: var(--rl-text-faint); }
+.search-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-chip {
+  --btn-h: 28px;
+  display: inline-flex; align-items: center; gap: 6px; height: var(--btn-h); padding: 0 11px;
+  border: none; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  background: var(--rl-hover); color: var(--rl-text-dim); font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: background var(--dur-hover) ease, color var(--dur-hover) ease;
+}
+.filter-chip:hover { color: var(--rl-text-bright); }
+.filter-chip[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: var(--fw-label); }
+/* The count is the quieter half of the chip: what it says is the label, how many is the footnote. */
+.filter-chip-count { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.filter-chip[data-selected] .filter-chip-count { color: var(--rl-text-dim); }
+
+/* Meshed, like every other list of one thing in the app — see `.settings-row`. */
+.sched-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+.sched-row { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px;
+  border: none; border-radius: 0; corner-shape: squircle; background: var(--rl-frame); }
+.sched-list > li:first-child .sched-row { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
+.sched-list > li:last-child .sched-row { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
+.sched-list > li + li .sched-row::before {
+  content: ""; position: absolute; inset: 0 0 auto 14px; height: var(--hairline-w); background: var(--rl-hairline);
+}
 /* A paused schedule is quieter, not struck through: it is armed-but-waiting, and the row still has
    to be readable enough to edit. */
 .sched-row:not([data-enabled]) { opacity: .62; }
