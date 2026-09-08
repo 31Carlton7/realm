@@ -416,6 +416,29 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(variants).toEqual([]);
   });
 
+  it("a chip group is ONE shape made of two buttons — the group clips, the segments give up their corners", () => {
+    /* The mutants this is aimed at, in order: drop the segments' `border-radius: 0` and the two
+       round inside the group, meeting in a lens-shaped notch; drop `:not(:only-child)` and a
+       collapsed row leaves the surviving chip square on both ends; drop the painted rule and the
+       same notch comes back the moment the worklet loads, which is the state the app actually
+       runs in and the one no unpainted assertion would catch. */
+    const group = bodiesFor(".chip-group").join(" ");
+    expect(group).toContain("overflow: hidden");
+    expect(group).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl))");
+    expect(bodiesFor(".chip-group > .ghost-chip:not(:only-child)").join(" ")).toContain("border-radius: 0");
+    const painted = bodiesFor(":root[data-squircle] .chip-group > .ghost-chip:not(:only-child)").join(" ");
+    expect(painted).toContain("--sq-radius-top: 0px");
+    expect(painted).toContain("--sq-radius-bottom: 0px");
+  });
+
+  it("nothing inside a chip group can shrink — the row's overflow collapse depends on it", () => {
+    /* `.composer-opts > *` used to reach the chips directly; the group took them out of its range.
+       Composer.tsx measures `scrollWidth > clientWidth` to decide when the permission chip folds
+       into the model menu, and that reports the truth only while nothing in the row narrows
+       instead of overflowing. The mutant is silent: remove this and the chip just ellipsizes. */
+    expect(bodiesFor(".chip-group > *").join(" ")).toContain("flex: none");
+  });
+
   it("a hovered chip is the same chip lifted, never a new shape", () => {
     // Both chips now lift the same way, because both now ARE the same chip. A picked element used
     // to be a grey inset box behind a hairline, which in a prompter that already renders inline

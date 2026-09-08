@@ -696,9 +696,17 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     const opts = document.querySelector(".composer-opts")!;
     const children = Array.from(opts.children);
     expect(children[0]).toBe(screen.getByRole("button", { name: "Add" })); // the "+" — now a menu (Plan 12 W1)
-    expect(children[1]).toBe(screen.getByRole("button", { name: "Permission mode" }));
-    expect(children[2]).toBe(screen.getByRole("button", { name: "Mode" }));
-    expect(children).toHaveLength(3);
+    // The permission and mode chips are drawn as ONE control now, so the row holds a group rather
+    // than two chips. They are still two buttons with two menus — that is the whole point of the
+    // grouping, and the assertions below are what would catch a "simplification" into one.
+    const group = children[1] as HTMLElement;
+    expect(group).toHaveClass("chip-group");
+    expect(children).toHaveLength(2);
+    const segments = Array.from(group.children);
+    expect(segments[0]).toBe(screen.getByRole("button", { name: "Permission mode" }));
+    expect(segments[1]).toBe(screen.getByRole("button", { name: "Mode" }));
+    expect(segments).toHaveLength(2);
+    for (const seg of segments) expect(seg).toHaveAttribute("aria-haspopup", "menu");
     expect(document.querySelector(".composer-understrip .composer-git")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Effort" })).toBeNull();
     const actions = document.querySelector(".composer-actions")!;

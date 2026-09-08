@@ -2253,6 +2253,43 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The brand mark is filled where the rest of the set is stroked, so it reads a touch heavier at the
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
 .ghost-chip .chip-brand { flex: none; }
+
+/* ── A chip GROUP: two buttons, one control ───────────────────────────────────
+   Permission mode and session mode are set from two different menus and stay two separate buttons —
+   two triggers, two popovers, two aria-labels. They are joined because they are read as one answer
+   to "what is this turn allowed to do", and a 4px gap made the reader do that joining themselves.
+
+   The group owns the shape and the segments give it up. That is not a stylistic choice: the paint
+   worklet takes `--sq-radius-top` and `--sq-radius-bottom` and has no per-corner input, so a chip
+   cannot be round on one side and square on the other under the painted regime. Clipping from the
+   OUTSIDE needs no such input — the segments paint plain rectangles and the group's own corner is
+   the only curve, which is also why the group carries `corner-shape` rather than any of them: the
+   declaration is inert in Chromium 138 like every other one in this file, and the day Electron
+   ships 139 the CLIP becomes a real superellipse and the whole group upgrades at once.
+
+   No divider between the segments. Where the fills are tinted the colour change already is one, and
+   where they are not there is nothing to divide — these are ghost chips and rest transparent. */
+.chip-group {
+  --btn-h: 28px; display: inline-flex; align-items: center; min-width: 0;
+  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; overflow: hidden;
+}
+/* Both chips are conditional (a session may offer neither), so the wrapper is always rendered and
+   hides itself rather than making the composer's JSX prove which of four combinations it is in. */
+.chip-group:empty { display: none; }
+/* The same `flex: none` the chips had as direct children of `.composer-opts`, restated because the
+   wrapper took them out of that rule's reach. It is load-bearing rather than tidy: the row's
+   overflow collapse (Composer.tsx) is `scrollWidth > clientWidth`, which only reports the truth
+   while nothing in the row can shrink. A chip that quietly narrowed instead would mean the
+   permission chip never folded into the model menu, and a squeezed pane would just ellipsize. */
+.chip-group > * { flex: none; }
+/* Square only where they MEET. A lone chip is not a group — it keeps the full radius it has
+   everywhere else in the row, so collapsing the permission chip does not restyle the mode chip. */
+.chip-group > .ghost-chip:not(:only-child) { border-radius: 0; }
+/* Nothing shrinks inside the group. §6 leaves full-width rows out of the press scale because a wide
+   surface shrinking reads as a glitch; a segment shrinking away from the neighbour it is flush
+   against is the same glitch, and here it would open a transparent sliver in the middle of a
+   control that is meant to read as one. */
+.chip-group > .ghost-chip:not(:only-child):active:not(:disabled) { transform: none; }
 .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* The model chip's effort suffix — "Claude Fable 5 Max" with the Max a shade grayer. A sibling of
    chip-label (which truncates), never inside it, and never shrunk: the level should survive a
@@ -2515,6 +2552,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
      30px control can take, so the squareness the eye was still reading was the CURVE's, not the
      number's — see --sq-n-ctl. */
   --sq-n: var(--sq-n-ctl);
+}
+/* The painted half of `.chip-group > .ghost-chip`: inside a group a chip paints a plain RECTANGLE,
+   because the group's clip is what rounds the outside. Without this the painter would round all
+   four of each segment's corners and the two would meet in a lens-shaped notch. */
+:root[data-squircle] .chip-group > .ghost-chip:not(:only-child) {
+  --sq-radius-top: 0px; --sq-radius-bottom: 0px;
 }
 /* The button's shadow, split the way .palette's was: its two layers were a hairline ring and a 1px
    drop, and both were drawn on the border box — which is a square here. The ring goes to the

@@ -916,6 +916,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 picker whose selection changes nothing would be a lie; so would having no way to
                 answer "what should happen when I approve this plan?" at the moment you are asking
                 it. Same control, same list, pointed at the value that is actually settable here. */}
+            {/* One control, still two buttons (see `.chip-group`). The wrapper is unconditional and
+                hides itself when empty: both chips come and go on their own conditions, and a
+                wrapper that had to know which of the four combinations it was in would be a fifth
+                place to keep them in step. */}
+            <div className="chip-group">
             {canSetPermissionMode && (
               inReadOnly
                 ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"}
@@ -934,6 +939,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             {!canPlan && !canAsk && acpModesPending && (
               <ChipMenu ariaLabel="Mode" title="Waiting for the agent's modes" icon="tool" label="Build" items={[]} />
             )}
+            </div>
             {confirmBypass && (
               <button className="composer-chip bypass-confirm"
                 onClick={() => { setConfirmBypass(false); if (inReadOnly) onParkPermission?.("bypassPermissions"); else onOptions({ permissionMode: "bypassPermissions" }); }}>
