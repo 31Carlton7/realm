@@ -4,7 +4,7 @@ import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 import { reduceAll } from "./transcript-model";
 import { sessionEvent } from "@realm/contracts";
-import { SessionSummaryButton } from "./SessionSummary";
+import { SessionSummaryButton, SUMMARY_PIN_MIN_PANE } from "./SessionSummary";
 
 afterEach(() => cleanup());
 
@@ -137,5 +137,86 @@ describe("the summary as a side panel", () => {
   it("draws nothing at all for a session that has neither produced nor spent", async () => {
     await mount([(sessionEvent("user_message", { text: "hello", attachments: [] }))]);
     expect(screen.queryByRole("button", { name: /Summary/ })).toBeNull();
+  });
+});
+
+describe("pinned beside the transcript, or floating over it", () => {
+  const WROTE = [
+    sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/made.ts" }, parentToolUseId: null }),
+    sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false }),
+  ];
+
+  /** jsdom lays nothing out, so every rect is zero and the panel would always read as "too narrow".
+   *  The pane's width is the ONE measurement this behaviour turns on, so it is the one stubbed. */
+  function withPaneWidth(width: number) {
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function () {
+      const r = original.call(this);
+      if ((this as HTMLElement).classList?.contains("session-pane")) {
+        return { ...r, width, right: width, left: 0, top: 0, height: 800, bottom: 800, x: 0, y: 0, toJSON: r.toJSON } as DOMRect;
+      }
+      return r;
+    };
+    return () => { Element.prototype.getBoundingClientRect = original; };
+  }
+
+  /** The button lives in the pane bar, and the panel walks up to `.panel` and back down to
+   *  `.session-pane` — so the test has to provide that shape or the measurement finds nothing. */
+  async function mountInPane(width: number) {
+    const restore = withPaneWidth(width);
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll(WROTE) } } });
+    const view = render(
+      <StoreContext.Provider value={store}>
+        <div className="panel">
+          <div className="panel-bar">
+            <SessionSummaryButton item={item("i9", "s1", { kind: "session", refId: "se1", title: "A session" })} />
+          </div>
+          <div className="session-pane" />
+        </div>
+      </StoreContext.Provider>,
+    );
+    return { restore, ...view };
+  }
+
+  it("pins in a wide pane: the pane makes room, and a click outside does NOT close it", async () => {
+    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE + 50);
+    openPanel();
+    const panel = await screen.findByRole("dialog", { name: "Session summary" });
+    expect(panel).toHaveAttribute("data-pinned");
+    // The transcript gets out of the way rather than being covered — the whole point of pinning.
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-summary-pinned");
+    fireEvent.mouseDown(document.body);
+    expect(screen.getByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
+    restore();
+  });
+
+  it("floats in a narrow pane, and a click outside dismisses it", async () => {
+    /* Pinning at any width means a pane split three ways shows a summary and a sliver. Below the
+       threshold the panel is an overlay you did not make room for, and those close on an outside
+       click like any other. */
+    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE - 50);
+    openPanel();
+    const panel = await screen.findByRole("dialog", { name: "Session summary" });
+    expect(panel).not.toHaveAttribute("data-pinned");
+    expect(document.querySelector(".session-pane")).not.toHaveAttribute("data-summary-pinned");
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Session summary" })).toBeNull());
+    restore();
+  });
+
+  it("a click INSIDE the floating panel, or on its own button, is not an outside click", async () => {
+    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE - 50);
+    openPanel();
+    const panel = await screen.findByRole("dialog", { name: "Session summary" });
+    fireEvent.mouseDown(panel);
+    expect(screen.getByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
+    // THE mutant: close on any mousedown. The toggle would then close and reopen on one click, or
+    // close before its own onClick ran — a button that cannot turn the thing it opened back off.
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Summary of A session" }));
+    expect(screen.getByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
+    restore();
   });
 });

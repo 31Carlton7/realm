@@ -120,6 +120,8 @@
      like the 16px arc this replaces on a bubble two lines tall. */
   --r-squircle-msg: 26px;
   --sidebar-w: 280px; --prompter-w: 720px;
+  /* The session summary's strip, read by the panel AND by the pane that makes room for it. */
+  --summary-w: min(320px, 80vw);
   /* The band that dissolves the transcript under the pane bar. Shorter than --fade-h's 68: the
      bottom band has a whole card to hide behind, this one only has to soften a line of text passing
      an edge, and a tall one would blur the newest message the reader is scrolling toward. */
@@ -480,7 +482,7 @@ kbd { font: 11px var(--font-mono); }
    this list is read it WHILE scrolling the transcript for the message that produced a file, and a
    dismiss-on-any-click popover cannot survive that. */
 .session-summary {
-  z-index: 100; width: min(320px, 80vw); display: flex; flex-direction: column;
+  z-index: 100; display: flex; flex-direction: column;
   background: var(--surface); color: var(--rl-text-bright);
   /* Inset from the pane on all four sides and rounded all the way round: this one IS a card over a
      page, so the gap around it is what says so. It is where the sidebar's inset belonged. */
@@ -489,6 +491,17 @@ kbd { font: 11px var(--font-mono); }
   /* --dur-base: the panel arrives by changing where a box is, which is the rung that names. */
   animation: rl-summary-in var(--dur-base) var(--ease-out-strong);
 }
+/* Pinned: the pane makes room instead of the panel covering it. The panel's own box does not change
+   — it is the same fixed card in the same place — so this is a padding on the SESSION, which is the
+   honest way to say "something else is using that strip now".
+   The width is a ROOT token, not a property on the panel: the pane is the panel's sibling, not its
+   ancestor, and a custom property set on the panel would never reach it. */
+.session-summary { width: var(--summary-w); }
+.session-pane[data-summary-pinned] { padding-right: calc(var(--summary-w) + var(--sidebar-inset) * 2); }
+/* A floating panel is over the pane, so it wants the overlay's lift; a pinned one sits beside it in
+   space the pane gave up, and a drop shadow there would draw a seam between two things that are not
+   overlapping. */
+.session-summary[data-pinned] { box-shadow: var(--shadow-card); }
 /* From the edge it docks to, so it reads as arriving from beside the pane rather than fading in
    over it. Enter only: the panel is removed on toggle, and an exit that had to be awaited would
    make the button feel unresponsive on the way out. */

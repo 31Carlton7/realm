@@ -15,6 +15,15 @@ import { isPlanDecision } from "./PlanCard";
  *  rather than in SessionPane, because this is the only surface that shows a cost. */
 const fmtCost = (usd: number) => (usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(3)}`);
 
+/**
+ * The narrowest pane that still gets a PINNED summary.
+ *
+ * 320 for the panel, twice its inset, and 420 left for the transcript — which is roughly where a
+ * message stops being a column and starts being a gutter. Below it the panel floats instead; the
+ * alternative, pinning at any width, means a pane split three ways shows a summary and a sliver.
+ */
+export const SUMMARY_PIN_MIN_PANE = 320 + 420 + 16;
+
 const NO_BLOCKS = emptyTranscript().blocks;
 const NO_PERMISSIONS = emptyTranscript().pendingPermissions;
 const EMPTY_USAGE = emptyTranscript().usage;
@@ -28,7 +37,7 @@ const STATUS_MARK: Record<string, string> = { pending: "○", in_progress: "◐"
  * resize for the same reason: dragging a splitter must move the panel with the pane it belongs to.
  */
 function usePaneRect(anchorRef: React.RefObject<HTMLElement | null>) {
-  const [rect, setRect] = useState<{ right: number; top: number; height: number } | null>(null);
+  const [rect, setRect] = useState<{ right: number; top: number; height: number; width: number; pane: HTMLElement | null } | null>(null);
   useLayoutEffect(() => {
     const measure = () => {
       /* Up to the leaf, then back DOWN to the session body.
@@ -44,8 +53,8 @@ function usePaneRect(anchorRef: React.RefObject<HTMLElement | null>) {
       // that vanishes for a reason the user cannot see.
       const b = pane?.getBoundingClientRect();
       setRect(b
-        ? { right: Math.max(0, window.innerWidth - b.right), top: b.top, height: b.height }
-        : { right: 0, top: 0, height: window.innerHeight });
+        ? { right: Math.max(0, window.innerWidth - b.right), top: b.top, height: b.height, width: b.width, pane }
+        : { right: 0, top: 0, height: window.innerHeight, width: window.innerWidth, pane: null });
     };
     measure();
     window.addEventListener("resize", measure);
@@ -133,11 +142,43 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const rect = usePaneRect(anchorRef);
+  /* Pinned or floating, decided by how much room the pane has.
+   *
+   * The panel is a fixed 320 plus its inset. A pane wide enough to give that up and still leave a
+   * readable column keeps the panel PINNED — it sits beside the transcript rather than over it, and
+   * stays put while you scroll, which is the whole thing it is for. A narrower pane cannot do that
+   * without squeezing the transcript into a gutter, so there the panel floats over the pane and
+   * dismisses on a click outside, the way any overlay you did not make room for should. */
+  const pinned = (rect?.width ?? 0) >= SUMMARY_PIN_MIN_PANE;
+
+  /* Pinning means the transcript gets out of the way, and the transcript is not this component's to
+     render. The attribute goes on the pane node the measurement already found, and comes off on
+     unmount — a small, reversible write to a node React owns the children of but not the state of,
+     which is cheaper than threading an open flag up through SessionPane and back down. */
+  useEffect(() => {
+    const pane = rect?.pane;
+    if (!pane || !pinned) return;
+    pane.dataset.summaryPinned = "";
+    return () => { delete pane.dataset.summaryPinned; };
+  }, [rect?.pane, pinned]);
+
+  /* Outside-click dismissal, but only while floating. Pinned, this panel's whole job is to stay
+     readable while you work in the transcript beside it, and a dismiss-on-any-click panel cannot do
+     that — which is why it was Escape-only before there was a pinned mode to tell it apart from. */
+  useEffect(() => {
+    if (pinned) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || anchorRef.current?.contains(t)) return;
+      onClose();
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [pinned, onClose, anchorRef]);
   const usage = useApp((s) => s.transcripts[sessionId]?.t.usage ?? EMPTY_USAGE);
   const blocks = useApp((s) => s.transcripts[sessionId]?.t.blocks ?? NO_BLOCKS);
   const recap = useMemo(() => recapOf(blocks), [blocks]);
-  // Escape only. Deliberately NOT an outside-click close: this panel's whole job is to stay readable
-  // while you work in the transcript beside it, and a dismiss-on-any-click panel cannot do that.
+  // Escape closes it in either mode.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
     window.addEventListener("keydown", onKey);
@@ -157,7 +198,7 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
     run(() => openDocumentPath(path, environmentId));
   };
   return createPortal(
-    <div ref={ref} className="session-summary" role="dialog" aria-label="Session summary"
+    <div ref={ref} className="session-summary" role="dialog" aria-label="Session summary" data-pinned={pinned || undefined}
       style={{ position: "fixed", right: rect?.right ?? 0, top: rect?.top ?? 0, height: rect?.height ?? "100%" }}>
       <div className="summary-panel-head">
         <h3>Summary</h3>
