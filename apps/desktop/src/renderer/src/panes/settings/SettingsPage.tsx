@@ -1,3 +1,4 @@
+import { ScrollFades } from "../../components/ScrollFades";
 import {
   AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
@@ -42,6 +43,8 @@ export function engineVersionLabel(version: string): string {
 }
 
 export function SettingsPage(_props: PaneProps) {
+  /** The scrolling column, so its two edge bands can know when there is anything under them. */
+  const scroller = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<SettingsTab>("engines");
   return (
     <div className="page settings-page-pane">
@@ -49,10 +52,10 @@ export function SettingsPage(_props: PaneProps) {
         <div className="page-title"><h1>Settings</h1></div>
       </header>
       <div className="page-body">
-        {/* Both ends dissolve. The bands sit ON the body so they span the reading column's full
-            width, and the column pads by their depth so a row under one is still clickable. */}
-        <span className="edge-fade" data-edge="top" aria-hidden="true" />
-        <span className="edge-fade" aria-hidden="true" />
+        {/* Both ends dissolve, but only when there is something under them. The bands sit ON the
+            body so they span the reading column's full width, and the column pads by their depth so
+            a row under one is still clickable. */}
+        <ScrollFades scroller={scroller} />
         <fieldset className="page-rail">
           <legend className="visually-hidden">Settings section</legend>
           {TABS.map((t) => (
@@ -62,7 +65,7 @@ export function SettingsPage(_props: PaneProps) {
             </label>
           ))}
         </fieldset>
-        <div className="page-content">
+        <div className="page-content" ref={scroller}>
           {tab === "engines" && <EnginesTab />}
           {tab === "usage" && <UsagePanel />}
           {tab === "app" && <AppTab />}

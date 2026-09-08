@@ -1,6 +1,8 @@
 import { MCP_SECRET_STORAGE_NOTE, McpServerNameSchema, mcpSupportNote, type AgentKind, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { useEffect, useState, type FormEvent } from "react";
+import { Icon } from "@realm/ui";
 import { useApp, type McpTestResult } from "../../state/store";
+import { Sheet } from "../Sheet";
 import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
 
 /** The hub's PUSHED state, worded honestly: `idle` means the hub has never dialed this server — it
@@ -69,11 +71,21 @@ export function McpSection({ spaceId }: { spaceId: string }) {
             <ScopeGroups listClassName="env-list"
               entries={servers.map((s) => ({ key: s.id, scope: s.scope, row: <McpServerRow key={s.id} spaceId={spaceId} server={s} /> }))} />
           )}
-        {adding
-          ? <McpServerForm spaceId={spaceId} onDone={() => setAdding(false)} />
-          : <div className="form-actions" style={{ justifyContent: "flex-start" }}>
-              <button type="button" className="btn-quiet" onClick={() => setAdding(true)}>Add server…</button>
-            </div>}
+        {/* The form is a MODAL, not a block that unfolds in place.
+            Adding a server is a real sequence — a name, a transport, a url or a command, headers,
+            secrets — and it sat open in the middle of the page as if it were one more row. In a
+            sheet it is a thing you start and finish, and the list behind it stops jumping by four
+            hundred pixels every time someone presses the button. */}
+        <div className="form-actions" style={{ justifyContent: "flex-start" }}>
+          <button type="button" className="btn" onClick={() => setAdding(true)}>
+            <Icon name="add" size={14} /> Add server
+          </button>
+        </div>
+        {adding && (
+          <Sheet title="Add an MCP server" onClose={() => setAdding(false)} width={560}>
+            <McpServerForm spaceId={spaceId} onDone={() => setAdding(false)} />
+          </Sheet>
+        )}
         <RealmProviders spaceId={spaceId} />
         {agentKinds.length > 0 && (
           <ul className="mcp-agent-notes">
@@ -409,7 +421,9 @@ export function McpServerForm({ spaceId, server, onDone, scopeNote }: { spaceId:
           </>}
       <div className="form-actions">
         <button type="button" className="btn-quiet" onClick={onDone}>Cancel</button>
-        <button type="submit" className="btn primary" disabled={!nameOk}>{server ? "Save" : "Add server"}</button>
+        {/* "Add", not "Add server": the sheet is titled "Add an MCP server", and a submit that repeats
+            its own dialog's title is the second half of a sentence nobody is reading twice. */}
+        <button type="submit" className="btn primary" disabled={!nameOk}>{server ? "Save" : "Add"}</button>
       </div>
     </form>
   );

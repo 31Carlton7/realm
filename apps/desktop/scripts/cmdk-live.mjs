@@ -208,6 +208,29 @@ async function main() {
   })()`);
   console.log("GEOM " + JSON.stringify(geom));
 
+  /* Buttons declare the curve but are NOT painted — a paint would need every hover/primary/danger
+     fill re-declared as a worklet input, and any one forgotten is an invisible button. This is the
+     check that the fills survived: a control whose background resolved to `paint(rl-squircle)` with
+     no `--sq-fill` renders as nothing at all, and nothing in a stylesheet says so. */
+  const btns = await evalIn(c, `(() => {
+    const out = [];
+    for (const sel of ['.btn', '.icon-btn', '.search']) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const cs = getComputedStyle(el);
+      out.push({ sel, bg: cs.backgroundImage, color: cs.backgroundColor, radius: cs.borderRadius,
+                 painted: cs.backgroundImage.includes('rl-squircle'),
+                 fill: cs.getPropertyValue('--sq-fill').trim() });
+    }
+    return out;
+  })()`);
+  for (const b of btns) {
+    const ok = !b.painted || b.fill !== "";
+    check(`${b.sel}: keeps a real fill (painted surfaces must supply one)`, ok, b);
+  }
+  const btn = btns.find((b) => b.sel === ".btn");
+  if (btn) check("a text button wears the ratio corner, not the control rung", parseFloat(btn.radius) > 10, btn);
+
   /* The prompter's corner is a PROPORTION of its own height, and that is the thing a smaller control
      copies — 36px on a 30px field would be a pill. Measured rather than asserted from the source,
      because the composer's height is content-driven. */

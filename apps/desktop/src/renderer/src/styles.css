@@ -291,7 +291,7 @@ kbd { font: 11px var(--font-mono); }
 .space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .space-header-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
-.icon-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-ctl); color: var(--rl-text-dim); }
+.icon-btn { display: grid; place-items: center; width: 28px; --btn-h: 28px; height: var(--btn-h); border-radius: calc(var(--btn-h) * var(--sq-ratio)); corner-shape: squircle; color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* A toggle whose glyph does NOT change has to say so with its fill, and these had no on-state at all:
    the rich-text toolbar's Bold and the terminal drawer's ⌘J looked identical pressed and unpressed.
@@ -1008,7 +1008,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    were laying their glyph out as inline content in a `display: block` flex item — baseline-aligned
    instead of centered, spaced only by the JSX whitespace node, and free to shrink under its own
    label and wrap out of the fixed 30px box. inline-flex + nowrap + no shrink is the whole fix. */
-.btn { height: 30px; padding: 0 12px; border-radius: var(--r-ctl); border: none;
+/* Text buttons take the prompter's curve at their own height, the same way the search field does.
+   `--r-ctl` made them plain rounded rects in a window whose signature surface is a squircle; the
+   ratio is what carries the shape down to a 30px control. */
+.btn { --btn-h: 30px; height: var(--btn-h); padding: 0 12px; border-radius: calc(var(--btn-h) * var(--sq-ratio)); corner-shape: squircle; border: none;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   flex-shrink: 0; white-space: nowrap;
   background: var(--surface); box-shadow: var(--shadow-btn); }
@@ -2087,7 +2090,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer-git .diff-del { color: var(--rl-danger); }
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
    them now (W3) — a picker until the session's first event, a plain label after. */
-.ghost-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--r-ctl);
+.ghost-chip { display: inline-flex; align-items: center; gap: 4px; --btn-h: 28px; height: var(--btn-h); padding: 0 8px; border-radius: calc(var(--btn-h) * var(--sq-ratio)); corner-shape: squircle;
   color: var(--rl-text-dim); font-size: 12px; font-weight: var(--fw-medium); background: transparent; max-width: 200px; min-width: 0; }
 .ghost-chip:hover:not([data-static]) { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Nothing to pick: rendered as a <span> (see ChipMenu) — a label, never a dimmed control. */
@@ -2395,6 +2398,19 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   box-shadow: none;
 }
 :root[data-squircle] .skills-filter:focus-within { --sq-ring: var(--line-strong); }
+/*
+ * Buttons declare the curve but are NOT painted, and that is deliberate.
+ *
+ * The worklet draws a surface's fill, which is why every painted rule supplies `--sq-fill`. A button
+ * has four of them — resting, hover, primary, danger — and they change under the pointer. Routing
+ * that through a paint would mean re-declaring every state as a worklet input, and a state anyone
+ * forgot would come out as an invisible button.
+ *
+ * The cost of declaring only is nil at this size. `corner-shape` is inert in this Chromium, so a
+ * 30px button renders an 11px rounded rect — which is what a squircle at that radius looks like to
+ * a human eye. The signature is the 36px surfaces, where the difference IS visible and the paint is
+ * worth its complexity. These get the shape for free when Chromium 139 lands.
+ */
 /* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
 :root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
   --sq-ring: var(--line-strong); --sq-ring-w: 1px;
@@ -2678,7 +2694,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .diff-actions { flex: none; display: flex; gap: 4px; opacity: 0; }
 .diff-row:hover .diff-actions, .diff-row:focus-within .diff-actions { opacity: 1; }
 /* Quiet inline action: a text button, not a control with a box (§3 ghost tier). */
-.btn-quiet { height: 22px; padding: 0 7px; border-radius: var(--r-chip); font-size: 11.5px; color: var(--rl-text-dim); background: transparent; }
+.btn-quiet { --btn-h: 22px; height: var(--btn-h); padding: 0 7px; border-radius: calc(var(--btn-h) * var(--sq-ratio)); corner-shape: squircle; font-size: 11.5px; color: var(--rl-text-dim); background: transparent; }
 .btn-quiet:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
 .btn-quiet.danger { color: var(--rl-danger); }
 .diff-body { padding: 0 0 6px 26px; }
@@ -2811,8 +2827,21 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 
 /* ── Space settings: the space's checkouts (W1/W2 made visible in W3) ───── */
 .env-empty { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
-.env-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.env-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 10px 0; }
+/* A GRID of cards, not a column of rows. A connections page is a set of things you scan for one you
+   want, and a stack of flush rows makes that a wall — the same problem the engines page had. Two
+   columns where there is room; one where there is not, so a narrow pane degrades to the list it
+   used to be rather than to two unreadable halves. */
+.env-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 8px; align-items: start;
+}
+.env-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; padding: 12px 14px;
+  background: var(--rl-frame); border-radius: var(--r-panel); corner-shape: squircle;
+}
+/* A row that has unfolded something — an editor, a tool list, a circuit note — takes the whole
+   width. Half a form in a half-width card is not a card, it is a squeeze. */
+.env-list > .env-row:has(.mcp-form), .env-list > .env-row:has(.mcp-tools) { grid-column: 1 / -1; }
 .env-main { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--rl-text-dim); }
 .env-name { font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .env-kind { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
@@ -3106,6 +3135,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .page-body { position: relative; }
 .page-body > .edge-fade { inset: auto 0 0 0; }
 .page-body > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
+/* Shown only when there is something under them (`ScrollFades`). An always-on band blurs the first
+   line of a list nobody has scrolled, which reads as a rendering fault rather than as depth — the
+   heading arrives smudged. The band says "there is more this way", so it appears when that is true. */
+.edge-fade { opacity: 0; transition: opacity var(--dur-fast) ease; }
+.edge-fade[data-on] { opacity: 1; }
 .page-content { flex: 1; min-width: 0; min-height: 0; max-width: 720px; overflow-y: auto;
   box-sizing: content-box; padding: 4px 4px 34px; margin: -4px -4px 0;
   --fade-h: 34px; --fade-top-h: 24px; scroll-padding: 24px 0 34px; }

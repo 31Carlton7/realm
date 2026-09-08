@@ -29,10 +29,10 @@ describe("McpSection", () => {
 
   it("adding a server makes it appear, enabled for this space", async () => {
     const { store } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Add server…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add server" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Server name" }), { target: { value: "Everything" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Command" }), { target: { value: "npx" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add server" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(screen.getByText("Everything")).toBeInTheDocument());
     const row = screen.getByText("Everything").closest(".mcp-row") as HTMLElement;
     expect(within(row).getByRole("switch", { name: "Enabled" })).toBeChecked();
@@ -93,7 +93,7 @@ describe("McpSection", () => {
 
   it("shows the secret storage note on the key form", async () => {
     await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Add server…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add server" }));
     // Scoped to the FORM: the tab carries the same note at panel level (W5's always-on disclosure), so
     // an unscoped query would pass on that one and stop proving the field itself is covered.
     const form = document.querySelector(".mcp-form") as HTMLElement;
@@ -185,11 +185,13 @@ describe("McpSection", () => {
 
   it("refuses a name the wire would reject, naming the rule rather than failing on save", async () => {
     const { api } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Add server…" }));
+    // "Add server" opens the sheet; "Add" inside it submits. Two names, because a submit that
+    // repeats its own dialog's title reads as the same control twice.
+    fireEvent.click(screen.getByRole("button", { name: "Add server" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Server name" }), { target: { value: "my server!" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Command" }), { target: { value: "npx" } });
     expect(screen.getByText("Letters, digits, underscore or hyphen only.")).toBeInTheDocument();
-    const save = screen.getByRole("button", { name: "Add server" });
+    const save = screen.getByRole("button", { name: "Add" });
     expect(save).toBeDisabled();
     fireEvent.click(save);
     expect(api.calls.some((c) => c.startsWith("addMcpServer:"))).toBe(false);

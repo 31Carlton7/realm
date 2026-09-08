@@ -761,11 +761,13 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
         .flatMap((r) => r.selectors)
         .map((sel) => sel.replace(":root[data-squircle] ", "").trim()),
     );
+    /* Scoped to the signature radius. A control taking the curve by RATIO at 20-34px is not in
+       scope: the worklet draws a surface's fill, a button has four of them (resting, hover, primary,
+       danger) and they change under the pointer — routing that through a paint would make any state
+       someone forgot an invisible button. At 8-11px a squircle and a rounded rect are the same
+       picture, so those declare only and get the shape free when Chromium 139 lands. */
     const declared = RULES
-      .filter((r) => /corner-shape:\s*squircle/.test(r.body)
-        // Either form of the signature: the composer's own token, or a smaller control taking the
-        // same curve by ratio (`height * --sq-ratio`). Both are the product mark; both must paint.
-        && (/border-radius:[^;]*--r-squircle\b/.test(r.body) || /border-radius:[^;]*--sq-ratio\b/.test(r.body)))
+      .filter((r) => /corner-shape:\s*squircle/.test(r.body) && /border-radius:[^;]*--r-squircle\b/.test(r.body))
       .flatMap((r) => r.selectors);
     expect(declared.filter((sel) => !painted.has(sel)).sort(),
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
