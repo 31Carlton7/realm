@@ -41,6 +41,9 @@ export const icons = {
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
   // Pane focus (zoom one pane to the whole host) and its inverse; `group` is a pane group's tab.
   focusPane: Maximize01Icon, unfocusPane: Minimize01Icon, group: LayoutTable01Icon,
+  // The same glyph under the name a document is looking for. A plan card opening its full text is
+  // not focusing a pane, and a call site should not have to borrow the pane system's word for it.
+  expand: Maximize01Icon,
   play: PlayIcon, pause: PauseIcon, volumeOn: VolumeHighIcon, volumeOff: VolumeOffIcon,
   // Same glyph as `group`, under the name a spreadsheet is actually looking for — a document's
   // icon should not have to borrow the pane system's vocabulary to find a table.

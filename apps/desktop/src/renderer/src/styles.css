@@ -1047,6 +1047,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 6px; }
 .sheet-head h3 { margin: 0; font-size: 15px; font-weight: var(--fw-title); }
 .sheet-body { padding: 8px 18px 18px; }
+/* The sheet's decision, held at the end of what it is a decision about. Its own hairline, because
+   a bar of buttons flush against scrolling prose reads as the last paragraph of it. */
+.sheet-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px;
+  border-top: var(--hairline-w) solid var(--rl-hairline); }
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; color: var(--rl-text-dim); }
@@ -4580,6 +4584,22 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .plan-card { border-radius: var(--r-panel); padding: 14px; background: var(--surface); box-shadow: var(--shadow-card);
   display: flex; flex-direction: column; gap: 10px; }
 .plan-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--fw-label); color: var(--ink); }
+/* The card's actions, pushed right and quiet until the card is under the pointer — a plan is
+   something to READ first, and three glyphs at full strength beside its title compete with it. */
+.plan-actions { margin-left: auto; display: flex; gap: 2px; opacity: 0; transition: opacity var(--dur-hover) ease; }
+.plan-card:hover .plan-actions, .plan-actions:focus-within { opacity: 1; }
+/* The card is a preview. A plan runs long, and an unbounded one pushes the turn either side of it
+   off the screen; the cap is generous enough that a short plan is never clipped at all, and the
+   fade says there is more rather than ending on a cut mid-word. Expand opens the whole thing. */
+.plan-preview { position: relative; max-height: 320px; overflow: hidden; }
+.plan-preview::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 48px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--surface));
+}
+/* Nothing to fade when nothing is cut off. `max-height` clips without telling anyone, so the card
+   measures its own preview and stamps `data-clipped`; without it the band would sit over the blank
+   half of every short plan. */
+.plan-preview:not([data-clipped])::after { display: none; }
 /* The prose body is the plan's own markdown and carries its own headings and lists; it only needs
    its outer margins collapsed so the card's padding is the whole frame. */
 .plan-body > :first-child { margin-top: 0; }

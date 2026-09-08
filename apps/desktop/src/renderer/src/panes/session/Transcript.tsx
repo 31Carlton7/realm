@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { chipRuns, mediaCandidatesIn, type SessionStatus } from "@realm/contracts";
+import { chipRuns, mediaCandidatesIn, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
@@ -125,7 +125,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, mode }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
    *  the turn that just finished, and a button on message three of forty would silently act on
@@ -150,6 +150,13 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
    *  the same scan the composer uses. Empty means nothing chips, which is the honest state for a
    *  session whose agent Realm cannot inject skills into at all. */
   mentionIds?: readonly string[];
+  /** Open one plan in full. Absent in the read-only mounts, which have no sheet host to open into,
+   *  and the card then draws no Expand button rather than a dead one. */
+  onExpandPlan?: (planId: string) => void;
+  /** Build / Plan / Ask, as the session is in RIGHT NOW. Only the live shimmer reads it: a run that
+   *  has already settled carries no record of the mode it ran under, so labelling the settled line
+   *  from the current mode would rename every earlier run the moment the user switches. */
+  mode?: SessionMode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -266,7 +273,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               sources={sourcesByKey.get(key)} />;
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
-            case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter} />;
+            case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
+              onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} />;
             case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
             // The shimmer the reader was watching, settled: same verb, past tense, with the wait it
             // cost them. It stays in the scrollback rather than vanishing with the spinner — "how
@@ -313,7 +321,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock.
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
             anything that moves would re-roll the verb on every streaming delta. */}
-        {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0).present}…</span></div>}
+        {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0, mode).present}…</span></div>}
         {/* Last in the column, so it reads as the closing line of the session rather than as another
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}

@@ -11,7 +11,13 @@ const FOCUSABLE = 'input, select, textarea, button:not([disabled]), [href], [tab
  *  column instead of the window — the native view paints over anything window-centered. The store
  *  side (openSheet) has already snapped an over-wide browser leaf to a ≤50% split by the time this
  *  renders, so the column is normally sheet-sized; the width cap is the backstop. */
-export function Sheet({ title, onClose, children, width = 420 }: { title: string; onClose: () => void; children: ReactNode; width?: number }) {
+export function Sheet({ title, onClose, children, footer, width = 420 }: {
+  title: string; onClose: () => void; children: ReactNode;
+  /** Actions that stay put while the body scrolls — the sheet's decision, at the end of what it is
+   *  a decision about. Absent means no bar at all rather than an empty one. */
+  footer?: ReactNode;
+  width?: number;
+}) {
   const panel = useRef<HTMLDivElement>(null);
   const browserRects = useBrowserRects();
   const spot = centerOverComplement({ width: window.innerWidth, height: window.innerHeight }, browserRects, width);
@@ -38,6 +44,7 @@ export function Sheet({ title, onClose, children, width = 420 }: { title: string
       <div ref={panel} role="dialog" aria-modal="true" aria-label={title} className="sheet" style={style} tabIndex={-1}>
         <div className="sheet-head"><h3>{title}</h3><button className="icon-btn" aria-label="Close" onClick={onClose}>✕</button></div>
         <div className="sheet-body">{children}</div>
+        {footer && <div className="sheet-foot">{footer}</div>}
       </div>
     </div>
   );

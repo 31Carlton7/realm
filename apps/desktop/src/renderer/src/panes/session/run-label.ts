@@ -45,7 +45,19 @@ export const RUN_LABELS: readonly RunLabel[] = [
  * persisted event log on every reload, would name a different verb than the one the user actually
  * watched. Hashing the start time gives both for free: stable within a run, spread across runs.
  */
-export function runLabelFor(startedAt: number): RunLabel {
+/**
+ * What a run is called when the session is PLANNING.
+ *
+ * Plan mode looked exactly like every other run: a playful verb, then prose arriving in the
+ * transcript. Nothing on the screen said the agent was working out what it would do rather than
+ * doing it — which is the whole distinction the mode exists to draw, and the reason a plan lands as
+ * a proposal to approve rather than as work already done. One fixed word, not one of the sixteen:
+ * the labels above are colour, and this one is information.
+ */
+export const PLAN_RUN_LABEL: RunLabel = { present: "Planning", past: "Planned" };
+
+export function runLabelFor(startedAt: number, mode?: string): RunLabel {
+  if (mode === "plan") return PLAN_RUN_LABEL;
   // xorshift-multiply (splittable-hash shape): ms timestamps one prompt apart differ only in their
   // low bits, and taking those modulo the list length directly would walk the list in order.
   let h = Math.trunc(startedAt) >>> 0;

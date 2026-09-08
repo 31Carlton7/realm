@@ -9,12 +9,14 @@ import { MediaLightbox } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 import { emptyTranscript } from "./transcript-model";
 import { isEmptySummary, recapOf, summarize, type Output, type PlanEntry, type SessionSummary, type Upload } from "./session-summary";
+import { isPlanDecision } from "./PlanCard";
 
 /** Cents below a penny, so a session that has spent $0.004 does not read as free. Lives here now
  *  rather than in SessionPane, because this is the only surface that shows a cost. */
 const fmtCost = (usd: number) => (usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(3)}`);
 
 const NO_BLOCKS = emptyTranscript().blocks;
+const NO_PERMISSIONS = emptyTranscript().pendingPermissions;
 const EMPTY_USAGE = emptyTranscript().usage;
 const STATUS_MARK: Record<string, string> = { pending: "○", in_progress: "◐", completed: "●" };
 
@@ -301,11 +303,29 @@ function ArtifactSheetBody({ path, onClose, missing = false }: { path: string; o
  *  the sheet, so a plan the agent revises while the sheet is open shows the revision. */
 export function SessionPlanSheet({ sessionId, planId }: { sessionId: string; planId: string }) {
   const blocks = useApp((s) => s.transcripts[sessionId]?.t.blocks ?? NO_BLOCKS);
+  const pending = useApp((s) => s.transcripts[sessionId]?.t.pendingPermissions ?? NO_PERMISSIONS);
+  const status = useApp((s) => s.sessions[sessionId]?.status);
   const closeSheet = useApp((s) => s.closeSheet);
+  const respondPermission = useApp((s) => s.respondPermission);
+  const sendMessage = useApp((s) => s.sendMessage);
+  const run = useApp((s) => s.run);
   const plan = useMemo(() => summarize(blocks).plans.find((p) => p.planId === planId) ?? null, [blocks, planId]);
+  /* The plan the agent is CURRENTLY waiting on, if this is it. Approving that request is what
+     actually leaves Plan mode (see `respondPermission`), so when it exists it is the only honest way
+     to implement the plan — a chat message saying "go ahead" would leave the session in Plan and the
+     agent would answer it with more planning. */
+  const awaiting = status === "waiting_permission" ? pending.find((p) => isPlanDecision(p)) : undefined;
   if (!plan) return null;
+  const implement = () => {
+    if (awaiting) run(() => respondPermission(sessionId, awaiting.requestId, "allow"));
+    // An older plan, already answered or never gated: there is no request to approve, so this is a
+    // fresh instruction. Naming the plan matters — a session may have proposed three.
+    else run(() => sendMessage(sessionId, `Implement this plan: ${planTitle(plan)}`));
+    closeSheet();
+  };
   return (
-    <Sheet title={planTitle(plan)} onClose={closeSheet} width={560}>
+    <Sheet title={planTitle(plan)} onClose={closeSheet} width={560}
+      footer={<button type="button" className="btn primary" onClick={implement}>Implement this plan</button>}>
       {plan.text && <Markdown className="summary-plan-prose" text={plan.text} />}
       {plan.steps.length > 0 && (
         <ol className="summary-plan-steps">

@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
-import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, type Item, type Skill } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, sessionModeOf, type Item, type Skill } from "@realm/contracts";
 import { TERMINAL_PANEL_WIDTH, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { TerminalView } from "../TerminalPane";
@@ -179,6 +179,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const retryLastTurn = useApp((s) => s.retryLastTurn);
   const rateMessage = useApp((s) => s.rateMessage);
   const respondPermission = useApp((s) => s.respondPermission);
+  const openSheet = useApp((s) => s.openSheet);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
   const setSessionMode = useApp((s) => s.setSessionMode);
@@ -351,6 +352,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div className="session-pane" data-visible={visible || undefined} data-composer={hero ? "hero" : "docked"}
       data-dropping={fileDrop.dropping || undefined} {...fileDrop.handlers}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
+        onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
+        mode={sessionModeOf(session.permissionMode)}
         onPath={(p, at) => setPathMenu({ path: p, at })}
         sends={sends}
         mentionIds={liveMentionIds}
